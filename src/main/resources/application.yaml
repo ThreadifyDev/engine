@@ -1,0 +1,26 @@
+ktor:
+    application:
+        modules:
+            - dev.threadify.ApplicationKt.module
+    deployment:
+        port: 8080
+postgres:
+  url: "$PG_URL:jdbc:postgresql://threadify_storage:5432/threadify"
+  user: "$PG_USER:td_engine"
+  password: "$PG_PASS:tdtdtd"
+queue:
+    master:
+        host: "$QUEUE_HOST:valkey-master"
+        port: "$QUEUE_PORT:6379"
+        password: "$QUEUE_PASSWORD:threadify_secure_password"
+    pool:
+        maxSize: "$QUEUE_POOL_MAX_SIZE:8"
+        timeout: "$QUEUE_TIMEOUT:500"  # Connection timeout in milliseconds
+    ttl:
+        default: "$QUEUE_DEFAULT_TTL:7776000"  # Default TTL in seconds (90 days)
+jwt:
+    secret: "$JWT_SECRET:your-256-bit-secret-key-change-this-in-production-min-32-chars"
+    issuer: "$JWT_ISSUER:threadify-engine"
+    audience: "$JWT_AUDIENCE:threadify-users"
+    realm: "$JWT_REALM:Threadify API"
+    expirationMs: "$JWT_EXPIRATION_MS:3600000"  # 1 hour in milliseconds

@@ -1,0 +1,87 @@
+# docker-compose.db.yml
+version: '3.8'
+
+services:
+  # Citus service
+  master:
+    image: citusdata/citus:postgres_16
+    container_name: threadify_storage
+    ports:
+      - "5434:5432"
+    environment: &AUTH
+      POSTGRES_USER: ${PS_STORAGE_USER:-td_engine}
+      POSTGRES_PASSWORD: ${PS_STORAGE_PASSWORD:-tdtdtd}
+      POSTGRES_DB: threadify
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    networks:
+      - threadify-network
+    volumes:
+      - threadify-persist:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PS_STORAGE_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    container_name: "threadify_storage_worker"
+    image: "citusdata/citus:postgres_16"
+    depends_on:
+      - manager
+    environment: *AUTH
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -e
+        until test -f /healthcheck/manager-ready ; do
+          >&2 echo "Manager is not ready - sleeping"
+          sleep 1
+        done
+        >&2 echo "Manager is up - starting worker"
+        exec gosu postgres "/usr/local/bin/docker-entrypoint.sh" "postgres"
+    volumes:
+      - threadify-persist:/healthcheck
+    networks:
+      - threadify-network
+  manager:
+    container_name: "threadify_storage_manager"
+    image: "citusdata/membership-manager:0.3.0"
+    volumes:
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
+      - threadify-persist:/healthcheck
+    depends_on:
+      - master
+    environment: *AUTH
+    networks:
+      - threadify-network
+
+  # Valkey master instance
+  threadify-queue:
+    image: valkey/valkey:9.0.0
+    # Ports not exposed to host - only accessible within Docker network
+    expose:
+      - "6379"
+    volumes:
+      - threadify-queue:/data
+      - ./config/valkey.conf:/etc/valkey/valkey.conf
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${FAST_STORAGE_PASSWORD:-threadify_secure_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  threadify-persist:
+    driver: local
+  threadify-queue:
+    driver: local
+
+networks:
+  threadify-network:
+    name: threadify-network
+    external: true
