@@ -8,7 +8,6 @@ import org.slf4j.event.*
 
 fun Application.configureSerialization() {
     install(ContentNegotiation) {
-        gson {
-            }
+        json()
     }
 }

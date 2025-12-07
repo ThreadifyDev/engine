@@ -5,12 +5,12 @@ ktor:
     deployment:
         port: 8080
 postgres:
-  url: "$PG_URL:jdbc:postgresql://threadify_storage:5432/threadify"
+  url: "$PG_URL:jdbc:postgresql://localhost:5434/threadify"
   user: "$PG_USER:td_engine"
   password: "$PG_PASS:tdtdtd"
 queue:
     master:
-        host: "$QUEUE_HOST:valkey-master"
+        host: "$QUEUE_HOST:localhost"
         port: "$QUEUE_PORT:6379"
         password: "$QUEUE_PASSWORD:threadify_secure_password"
     pool:
@@ -23,4 +23,4 @@ jwt:
     issuer: "$JWT_ISSUER:threadify-engine"
     audience: "$JWT_AUDIENCE:threadify-users"
     realm: "$JWT_REALM:Threadify API"
-    expirationMs: "$JWT_EXPIRATION_MS:3600000"  # 1 hour in milliseconds
+    expirationMs: "$JWT_EXPIRATION_MS:86400000"  # 24 hours in milliseconds

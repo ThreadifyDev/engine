@@ -68,6 +68,16 @@ fun ApplicationCall.getUserId(): String? {
 }
 
 /**
+ * Extension function to get company ID from principal in route handlers.
+ * Usage in routes: val companyId = call.getCompanyId()
+ * 
+ * @return The company ID from the authenticated token, or null if not authenticated
+ */
+fun ApplicationCall.getCompanyId(): String? {
+    return principal<JWTClaimsPrincipal>()?.claims?.get("companyId")?.toString()
+}
+
+/**
  * Extension function to get all claims from the JWT principal.
  * This is efficient - claims are cached in the principal during authentication.
  * No token re-verification needed.

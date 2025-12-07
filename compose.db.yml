@@ -60,8 +60,8 @@ services:
   threadify-queue:
     image: valkey/valkey:9.0.0
     # Ports not exposed to host - only accessible within Docker network
-    expose:
-      - "6379"
+    ports:
+      - "6379:6379"
     volumes:
       - threadify-queue:/data
       - ./config/valkey.conf:/etc/valkey/valkey.conf

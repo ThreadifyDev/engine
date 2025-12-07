@@ -1,6 +1,8 @@
 package dev.threadify.Utilities
 
+import io.lettuce.core.api.StatefulRedisConnection
 import dev.threadify.Services.Authentication
+import org.jetbrains.exposed.sql.Database
 
 /**
  * Global singleton for storing application-wide services.
@@ -13,4 +15,6 @@ import dev.threadify.Services.Authentication
  */
 object GlobalServices {
     lateinit var authenticationService: Authentication
+    lateinit var queueServer: StatefulRedisConnection<String, String>
+    lateinit var persistedServer: Database
 }

@@ -43,6 +43,11 @@ dependencies {
     implementation(libs.jjwt.api)
     implementation(libs.jjwt.impl)
     implementation(libs.jjwt.jackson)
+    implementation(libs.snakeyaml)
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.dao)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.exposed.java.time)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit)
 }
