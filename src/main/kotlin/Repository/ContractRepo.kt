@@ -110,4 +110,72 @@ class ContractRepo : IContractRepo {
         
         Pair(contractVersion, contractVersion.toDAO())
     }
+    
+    override fun findContractByIdNotDeleted(contractId: UUID): Pair<Contract, ContractDAO>? = transaction {
+        val contract = Contract.find { 
+            (Contracts.id eq contractId) and (Contracts.isDeleted eq false)
+        }.firstOrNull()
+        
+        if (contract == null) {
+            return@transaction null
+        }
+        Pair(contract, contract.toDAO(listOf("ownerId")))
+    }
+    
+    override fun findContractByIdAndOwnerNotDeleted(contractId: UUID, ownerId: String): Pair<Contract, ContractDAO>? = transaction {
+        val contract = Contract.find { 
+            (Contracts.id eq contractId) and (Contracts.ownerId eq ownerId) and (Contracts.isDeleted eq false)
+        }.firstOrNull()
+        
+        if (contract == null) {
+            return@transaction null
+        }
+        Pair(contract, contract.toDAO())
+    }
+    
+    override fun softDeleteContract(contract: Contract): Pair<Contract, ContractDAO> = transaction {
+        contract.isDeleted = true
+        contract.updatedAt = Instant.now()
+        Pair(contract, contract.toDAO())
+    }
+    
+    override fun getLatestVersionNotDeleted(contractId: UUID): Pair<ContractVersion, ContractVersionDAO>? = transaction {
+        val contractVersion = ContractVersion.find { 
+            (ContractVersions.contractId eq contractId) and (ContractVersions.isDeleted eq false)
+        }
+            .orderBy(ContractVersions.version to org.jetbrains.exposed.sql.SortOrder.DESC)
+            .firstOrNull()
+        
+        if (contractVersion == null) {
+            return@transaction null
+        }
+        
+        Pair(contractVersion, contractVersion.toDAO(listOf("contentHash", "contractId", "createdAt")))
+    }
+    
+    override fun getContractVersion(contractId: UUID, version: Int): Pair<ContractVersion, ContractVersionDAO>? = transaction {
+        val contractVersion = ContractVersion.find { 
+            (ContractVersions.contractId eq contractId) and (ContractVersions.version eq version)
+        }.firstOrNull()
+        
+        if (contractVersion == null) {
+            return@transaction null
+        }
+        
+        Pair(contractVersion, contractVersion.toDAO(listOf("contentHash", "contractId", "createdAt")))
+    }
+    
+    override fun getAllVersionsMetadata(contractId: UUID): List<ContractVersionDAO> = transaction {
+        ContractVersion.find { 
+            (ContractVersions.contractId eq contractId) and (ContractVersions.isDeleted eq false)
+        }
+            .orderBy(ContractVersions.version to org.jetbrains.exposed.sql.SortOrder.DESC)
+            .map { it.toDAO(listOf("createdAt")) }
+    }
+    
+    override fun softDeleteContractVersion(contractVersion: ContractVersion): Pair<ContractVersion, ContractVersionDAO> = transaction {
+        contractVersion.isDeleted = true
+        contractVersion.updatedAt = Instant.now()
+        Pair(contractVersion, contractVersion.toDAO())
+    }
 }

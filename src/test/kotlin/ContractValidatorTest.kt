@@ -12,14 +12,14 @@ class ContractValidatorTest {
     
     // Valid baseline contract for reference
     private val validContract = """
-        contract_id: payment_processing_v1
+        contract_name: payment_processing_v1
         version: 1
         description: Payment processing with fraud checks
         
         parties:
-          - id: merchant
-          - id: payment_processor
-          - id: bank
+          - merchant
+          - payment_processor
+          - bank
         
         steps:
           - id: payment_initiated
@@ -76,7 +76,7 @@ class ContractValidatorTest {
     
     @Test
     fun `test valid contract passes validation`() {
-        val result = validator.validate(validContract)
+        val (_, result) = validator.validate(validContract)
         assertTrue(result.isValid, "Valid contract should pass validation")
         assertEquals(0, result.errors.size)
     }
@@ -84,42 +84,42 @@ class ContractValidatorTest {
     // ========== contract_id validation tests ==========
     
     @Test
-    fun `test contract_id with special characters fails`() {
-        val yaml = validContract.replace("contract_id: payment_processing_v1", "contract_id: payment-processing-v1")
-        val result = validator.validate(yaml)
+    fun `test contract_name with special characters fails`() {
+        val yaml = validContract.replace("contract_name: payment_processing_v1", "contract_name: payment-processing-v1")
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
-            it.field == "contract_id" && it.message.contains("alphanumeric")
+            it.field == "contract_name" && it.message.contains("alphanumeric")
         })
     }
     
     @Test
-    fun `test contract_id with spaces fails`() {
-        val yaml = validContract.replace("contract_id: payment_processing_v1", "contract_id: payment processing v1")
-        val result = validator.validate(yaml)
+    fun `test contract_name with spaces fails`() {
+        val yaml = validContract.replace("contract_name: payment_processing_v1", "contract_name: payment processing v1")
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
-            it.field == "contract_id" && it.message.contains("alphanumeric")
+            it.field == "contract_name" && it.message.contains("alphanumeric")
         })
     }
     
     @Test
-    fun `test contract_id with dots fails`() {
-        val yaml = validContract.replace("contract_id: payment_processing_v1", "contract_id: payment.processing.v1")
-        val result = validator.validate(yaml)
+    fun `test contract_name with dots fails`() {
+        val yaml = validContract.replace("contract_name: payment_processing_v1", "contract_name: payment.processing.v1")
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
-            it.field == "contract_id" && it.message.contains("alphanumeric")
+            it.field == "contract_name" && it.message.contains("alphanumeric")
         })
     }
     
     @Test
-    fun `test contract_id with underscores passes`() {
-        val yaml = validContract.replace("contract_id: payment_processing_v1", "contract_id: payment_processing_v1_test")
-        val result = validator.validate(yaml)
+    fun `test contract_name with underscores passes`() {
+        val yaml = validContract.replace("contract_name: payment_processing_v1", "contract_name: payment_processing_v1_test")
+        val (_, result) = validator.validate(yaml)
         
         assertTrue(result.isValid)
     }
@@ -129,7 +129,7 @@ class ContractValidatorTest {
     @Test
     fun `test version zero fails`() {
         val yaml = validContract.replace("version: 1", "version: 0")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -140,7 +140,7 @@ class ContractValidatorTest {
     @Test
     fun `test negative version fails`() {
         val yaml = validContract.replace("version: 1", "version: -1")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -151,7 +151,7 @@ class ContractValidatorTest {
     @Test
     fun `test large version number passes`() {
         val yaml = validContract.replace("version: 1", "version: 999")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertTrue(result.isValid)
     }
@@ -161,7 +161,7 @@ class ContractValidatorTest {
     @Test
     fun `test empty description fails`() {
         val yaml = validContract.replace("description: Payment processing with fraud checks", "description: \"\"")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -172,7 +172,7 @@ class ContractValidatorTest {
     @Test
     fun `test blank description fails`() {
         val yaml = validContract.replace("description: Payment processing with fraud checks", "description: \"   \"")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -185,7 +185,7 @@ class ContractValidatorTest {
     @Test
     fun `test step owner not in parties fails`() {
         val yaml = validContract.replaceFirst("owner: merchant", "owner: unknown_party")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -196,10 +196,10 @@ class ContractValidatorTest {
     @Test
     fun `test unused party fails`() {
         val yaml = validContract.replace(
-            "parties:\n  - id: merchant\n  - id: payment_processor\n  - id: bank",
-            "parties:\n  - id: merchant\n  - id: payment_processor\n  - id: bank\n  - id: unused_party"
+            "parties:\n  - merchant\n  - payment_processor\n  - bank",
+            "parties:\n  - merchant\n  - payment_processor\n  - bank\n  - unused_party"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -212,7 +212,7 @@ class ContractValidatorTest {
     @Test
     fun `test depends_on with non-existent step fails`() {
         val yaml = validContract.replaceFirst("depends_on: payment_initiated", "depends_on: non_existent_step")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -226,7 +226,7 @@ class ContractValidatorTest {
             "depends_on:\n      - fraud_check\n      - risk_assessment",
             "depends_on:\n      - fraud_check\n      - non_existent_step"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -237,14 +237,14 @@ class ContractValidatorTest {
     @Test
     fun `test depends_on as single string passes`() {
         // Already tested in valid contract, but explicit test
-        val result = validator.validate(validContract)
+        val (_, result) = validator.validate(validContract)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test depends_on as array passes`() {
         // Already tested in valid contract with bank_authorization step
-        val result = validator.validate(validContract)
+        val (_, result) = validator.validate(validContract)
         assertTrue(result.isValid)
     }
     
@@ -253,42 +253,42 @@ class ContractValidatorTest {
     @Test
     fun `test timeout with seconds passes`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 10s")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test timeout with milliseconds passes`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2000ms")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test timeout with microseconds passes`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2000000us")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test timeout with minutes passes`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 1m")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test timeout with decimal passes`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2.5s")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test timeout with invalid unit fails`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2h")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -299,7 +299,7 @@ class ContractValidatorTest {
     @Test
     fun `test timeout without unit fails`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -310,7 +310,7 @@ class ContractValidatorTest {
     @Test
     fun `test timeout with invalid format fails`() {
         val yaml = validContract.replaceFirst("timeout: 2s", "timeout: two seconds")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -322,7 +322,7 @@ class ContractValidatorTest {
     
     @Test
     fun `test business_context with valid types passes`() {
-        val result = validator.validate(validContract)
+        val (_, result) = validator.validate(validContract)
         assertTrue(result.isValid)
     }
     
@@ -332,7 +332,7 @@ class ContractValidatorTest {
             "customer_id: string",
             "customer_id: string\n      metadata: object"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
@@ -342,14 +342,14 @@ class ContractValidatorTest {
             "customer_id: string",
             "customer_id: string\n      tags: array"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test business_context with invalid type fails`() {
         val yaml = validContract.replace("amount: number", "amount: integer")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -360,7 +360,7 @@ class ContractValidatorTest {
     @Test
     fun `test business_context with custom type fails`() {
         val yaml = validContract.replace("currency: string", "currency: currency_type")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -376,7 +376,7 @@ class ContractValidatorTest {
             "steps:\n      - fraud_check\n      - risk_assessment",
             "steps:\n      - fraud_check\n      - non_existent_step"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -387,7 +387,7 @@ class ContractValidatorTest {
     @Test
     fun `test group with invalid max_combined_duration fails`() {
         val yaml = validContract.replace("max_combined_duration: 3s", "max_combined_duration: 3hours")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -401,7 +401,7 @@ class ContractValidatorTest {
             Regex("groups:.*?validation:", RegexOption.DOT_MATCHES_ALL),
             "validation:"
         )
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertTrue(result.isValid)
     }
     
@@ -409,14 +409,14 @@ class ContractValidatorTest {
     
     @Test
     fun `test validation max_duration with valid format passes`() {
-        val result = validator.validate(validContract)
+        val (_, result) = validator.validate(validContract)
         assertTrue(result.isValid)
     }
     
     @Test
     fun `test validation max_duration with invalid format fails`() {
         val yaml = validContract.replace("max_duration: 10s", "max_duration: 10 seconds")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -427,7 +427,7 @@ class ContractValidatorTest {
     @Test
     fun `test validation max_duration without unit fails`() {
         val yaml = validContract.replace("max_duration: 10s", "max_duration: 10")
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)
         assertTrue(result.errors.any { 
@@ -440,11 +440,11 @@ class ContractValidatorTest {
     @Test
     fun `test malformed YAML fails`() {
         val yaml = """
-            contract_id: test
+            contract_name: test
             version: 1
             description: test
             parties:
-              - id: party1
+              - party1
             steps:
               - id: step1
                 owner: party1
@@ -452,7 +452,7 @@ class ContractValidatorTest {
               max_duration: 10s
         """.trimIndent()
         
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.field == "yaml" })
     }
@@ -460,10 +460,10 @@ class ContractValidatorTest {
     @Test
     fun `test missing required field fails`() {
         val yaml = """
-            contract_id: test
+            contract_name: test
             version: 1
             parties:
-              - id: party1
+              - party1
             steps:
               - id: step1
                 owner: party1
@@ -471,7 +471,7 @@ class ContractValidatorTest {
               max_duration: 10s
         """.trimIndent()
         
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.field == "yaml" })
     }
@@ -481,12 +481,12 @@ class ContractValidatorTest {
     @Test
     fun `test multiple validation errors are all reported`() {
         val yaml = """
-            contract_id: invalid-id-with-dashes
+            contract_name: invalid-name-with-dashes
             version: 0
             description: ""
             parties:
-              - id: party1
-              - id: unused_party
+              - party1
+              - unused_party
             steps:
               - id: step1
                 owner: non_existent_party
@@ -498,14 +498,14 @@ class ContractValidatorTest {
               max_duration: invalid
         """.trimIndent()
         
-        val result = validator.validate(yaml)
+        val (_, result) = validator.validate(yaml)
         assertFalse(result.isValid)
         
         // Should have multiple errors
         assertTrue(result.errors.size >= 7, "Expected at least 7 errors, got ${result.errors.size}")
         
         // Verify specific errors exist
-        assertTrue(result.errors.any { it.field == "contract_id" })
+        assertTrue(result.errors.any { it.field == "contract_name" })
         assertTrue(result.errors.any { it.field == "version" })
         assertTrue(result.errors.any { it.field == "description" })
         assertTrue(result.errors.any { it.field.contains("owner") })

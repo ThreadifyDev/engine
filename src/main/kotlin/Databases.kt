@@ -14,10 +14,20 @@ import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.transactions.transaction
 
 fun Application.configureDatabases() {
-    GlobalServices.queueServer = connectToValkey()
+    // Connect to Valkey/Redis - skip if in test environment and connection fails
+    try {
+        GlobalServices.queueServer = connectToValkey()
+        println("Connected Successfully to Valkey")
+    } catch (e: Exception) {
+        if (environment.config.propertyOrNull("ktor.environment")?.getString() == "test") {
+            println("Warning: Valkey/Redis connection failed in test environment - continuing without it")
+        } else {
+            throw e
+        }
+    }
+    
     GlobalServices.persistedServer = connectToPostgres()
     println("Connected Successfully to Postgres")
-    println("Connected Successfully to Valkey")
 
     // Create database tables
     initializeDatabaseTables()

@@ -4,6 +4,7 @@ import dev.threadify.getUserId
 import dev.threadify.getClaim
 import dev.threadify.Utilities.GlobalServices
 import dev.threadify.Utilities.ContractValidator
+import dev.threadify.Utilities.mapToHttpStatusCode
 import dev.threadify.Services.ContractService
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -67,18 +68,36 @@ fun Route.contracts() {
         }
         
         // GET specific contract by ID - requires authentication
+        // Optional query parameter: version (to get specific version)
         get("/contracts/{id}") {
             val contractId = call.parameters["id"]
             val userId = call.getUserId()
+            val companyId = call.getClaim("companyId").toString()
+            val versionParam = call.request.queryParameters["version"]
             
-            call.respond(
-                HttpStatusCode.OK,
-                mapOf(
-                    "contractId" to contractId,
-                    "message" to "Contract details",
-                    "authenticatedUser" to userId
+            // Validate authentication
+            if (userId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("message" to "Unauthorized")
                 )
-            )
+                return@get
+            }
+            
+            // Validate contract ID
+            if (contractId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to "Contract ID is required")
+                )
+                return@get
+            }
+            
+            // Parse version if provided
+            val version = versionParam?.toIntOrNull()
+            
+            val result = contractService.getContract(contractId, companyId, version)
+            call.respond(mapToHttpStatusCode(result.first), result.second)
         }
         
         // POST create new contract - requires authentication
@@ -182,5 +201,100 @@ fun Route.contracts() {
              result.second
          )
      }
+     
+        // DELETE contract by ID - soft delete
+        delete("/contracts/{id}") {
+            val contractId = call.parameters["id"]
+            val userId = call.getUserId()
+            val companyId = call.getClaim("companyId").toString()
+            
+            // Validate authentication
+            if (userId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("message" to "Unauthorized")
+                )
+                return@delete
+            }
+            
+            // Validate contract ID
+            if (contractId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to "Contract ID is required")
+                )
+                return@delete
+            }
+            
+            val result = contractService.deleteContract(contractId, companyId)
+            call.respond(mapToHttpStatusCode(result.first), result.second)
+        }
+        
+        // GET all versions metadata for a contract
+        get("/contracts/{id}/versions") {
+            val contractId = call.parameters["id"]
+            val userId = call.getUserId()
+            val companyId = call.getClaim("companyId").toString()
+            
+            // Validate authentication
+            if (userId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("message" to "Unauthorized")
+                )
+                return@get
+            }
+            
+            // Validate contract ID
+            if (contractId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to "Contract ID is required")
+                )
+                return@get
+            }
+            
+            val result = contractService.getAllContractVersions(contractId, companyId)
+            call.respond(mapToHttpStatusCode(result.first), result.second)
+        }
+        
+        // DELETE contract version by ID and version number - soft delete
+        delete("/contracts/{id}/versions/{version}") {
+            val contractId = call.parameters["id"]
+            val versionParam = call.parameters["version"]
+            val userId = call.getUserId()
+            val companyId = call.getClaim("companyId").toString()
+            
+            // Validate authentication
+            if (userId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("message" to "Unauthorized")
+                )
+                return@delete
+            }
+            
+            // Validate contract ID
+            if (contractId.isNullOrBlank()) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to "Contract ID is required")
+                )
+                return@delete
+            }
+            
+            // Validate and parse version
+            val version = versionParam?.toIntOrNull()
+            if (version == null) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to "Valid version number is required")
+                )
+                return@delete
+            }
+            
+            val result = contractService.deleteContractVersion(contractId, version, companyId)
+            call.respond(mapToHttpStatusCode(result.first), result.second)
+        }
     }
 }

@@ -14,8 +14,8 @@ class ApplicationTest {
         environment {
             config = MapApplicationConfig(
                 "ktor.environment" to "test",
-                "postgres.url" to "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1",
-                "postgres.user" to "root",
+                "postgres.url" to "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
+                "postgres.user" to "sa",
                 "postgres.password" to "",
                 "queue.master.host" to "localhost",
                 "queue.master.port" to "6379",
@@ -30,6 +30,7 @@ class ApplicationTest {
                 "jwt.expirationMs" to "3600000"
             )
         }
+        
         application {
             module()
         }

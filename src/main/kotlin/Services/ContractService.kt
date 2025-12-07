@@ -7,6 +7,7 @@ import dev.threadify.Schemas.DBModels.ContractVersion
 import dev.threadify.Repository.ContractRepo
 import dev.threadify.Utilities.ContractValidator
 import dev.threadify.Schemas.Response.ContractResponse
+import dev.threadify.Schemas.Response.ContractWithOwnershipResponse
 import dev.threadify.Schemas.Response.ErrorResponse
 import dev.threadify.Schemas.DTOs.ValidationResult
 import dev.threadify.DAOs.ContractDAO
@@ -213,5 +214,178 @@ class ContractService() {
      */
     fun getLatestContractVersion(contractId: UUID): Pair<ContractVersion, ContractVersionDAO>? {
         return contractRepo.getLatestVersion(contractId)
+    }
+    
+    /**
+     * Retrieves a contract by ID (only non-deleted contracts).
+     * Returns contract with latest version if no specific version is requested.
+     * Allows access to public contracts or contracts owned by the requester.
+     * 
+     * @param contractId The UUID of the contract
+     * @param requesterId The requester ID from JWT token
+     * @param version Optional version number to retrieve specific version
+     * @return Pair of status code and response data
+     */
+    fun getContract(contractId: String, requesterId: String, version: Int? = null): Pair<Int, Any> {
+        try {
+            val uuid = UUID.fromString(contractId)
+            
+            // Find contract (only non-deleted)
+            val contractResult = contractRepo.findContractByIdNotDeleted(uuid)
+                ?: return Pair(404, mapOf("message" to "Contract not found"))
+            
+            val (contractEntity, contractDAO) = contractResult
+            
+            // Check if contract is accessible (public or owned by requester)
+            val isOwner = contractDAO.ownerId == requesterId
+            if (!contractEntity.isPublic && !isOwner) {
+                return Pair(403, mapOf("message" to "Access denied. This contract is private."))
+            }
+            
+            // Get the requested version or latest version
+            val versionResult = if (version != null) {
+                contractRepo.getContractVersion(uuid, version)
+            } else {
+                contractRepo.getLatestVersionNotDeleted(uuid)
+            }
+            
+            if (versionResult == null) {
+                return Pair(404, mapOf("message" to "Contract version not found"))
+            }
+            
+            val (_, contractVersionDAO) = versionResult
+            
+            return Pair(200, ContractWithOwnershipResponse(
+                contract = contractDAO,
+                contractVersion = contractVersionDAO,
+                isOwner = isOwner
+            ))
+        } catch (e: IllegalArgumentException) {
+            return Pair(400, mapOf("message" to "Invalid contract ID format"))
+        } catch (e: Exception) {
+            println("Error getting contract: ${e.message}")
+            return Pair(500, mapOf("message" to "Internal Server Error"))
+        }
+    }
+    
+    /**
+     * Soft deletes a contract by setting isDeleted flag to true.
+     * 
+     * @param contractId The UUID of the contract
+     * @param ownerId The owner ID from JWT token
+     * @return Pair of status code and response data
+     */
+    fun deleteContract(contractId: String, ownerId: String): Pair<Int, Any> {
+        try {
+            val uuid = UUID.fromString(contractId)
+            
+            // Find contract and verify ownership
+            val contractResult = contractRepo.findContractByIdAndOwner(uuid, ownerId)
+                ?: return Pair(404, mapOf("message" to "Contract not found or you don't have permission to delete it"))
+            
+            val (contractEntity, _) = contractResult
+            
+            // Check if already deleted
+            if (contractEntity.isDeleted) {
+                return Pair(400, mapOf("message" to "Contract is already deleted"))
+            }
+            
+            // Soft delete the contract
+            val (_, deletedContractDAO) = contractRepo.softDeleteContract(contractEntity)
+            
+            return Pair(200, mapOf(
+                "message" to "Contract deleted successfully",
+                "contract" to deletedContractDAO
+            ))
+        } catch (e: IllegalArgumentException) {
+            return Pair(400, mapOf("message" to "Invalid contract ID format"))
+        } catch (e: Exception) {
+            println("Error deleting contract: ${e.message}")
+            return Pair(500, mapOf("message" to "Internal Server Error"))
+        }
+    }
+    
+    /**
+     * Soft deletes a contract version by setting isDeleted flag to true.
+     * 
+     * @param contractId The UUID of the contract
+     * @param version The version number to delete
+     * @param ownerId The owner ID from JWT token
+     * @return Pair of status code and response data
+     */
+    fun deleteContractVersion(contractId: String, version: Int, ownerId: String): Pair<Int, Any> {
+        try {
+            val uuid = UUID.fromString(contractId)
+            
+            // Find contract and verify ownership
+            contractRepo.findContractByIdAndOwner(uuid, ownerId)
+                ?: return Pair(404, mapOf("message" to "Contract not found or you don't have permission"))
+            
+            // Find the specific version
+            val versionResult = contractRepo.getContractVersion(uuid, version)
+                ?: return Pair(404, mapOf("message" to "Contract version not found"))
+            
+            val (versionEntity, _) = versionResult
+            
+            // Check if already deleted
+            if (versionEntity.isDeleted) {
+                return Pair(400, mapOf("message" to "Contract version is already deleted"))
+            }
+            
+            // Soft delete the version
+            val (_, deletedVersionDAO) = contractRepo.softDeleteContractVersion(versionEntity)
+            
+            return Pair(200, mapOf(
+                "message" to "Contract version deleted successfully",
+                "version" to deletedVersionDAO
+            ))
+        } catch (e: IllegalArgumentException) {
+            return Pair(400, mapOf("message" to "Invalid contract ID format"))
+        } catch (e: Exception) {
+            println("Error deleting contract version: ${e.message}")
+            return Pair(500, mapOf("message" to "Internal Server Error"))
+        }
+    }
+    
+    /**
+     * Retrieves all version metadata for a contract (without content).
+     * Only returns non-deleted versions.
+     * Allows access to public contracts or contracts owned by the requester.
+     * 
+     * @param contractId The UUID of the contract
+     * @param requesterId The requester ID from JWT token
+     * @return Pair of status code and response data
+     */
+    fun getAllContractVersions(contractId: String, requesterId: String): Pair<Int, Any> {
+        try {
+            val uuid = UUID.fromString(contractId)
+            
+            // Find contract (only non-deleted)
+            val contractResult = contractRepo.findContractByIdNotDeleted(uuid)
+                ?: return Pair(404, mapOf("message" to "Contract not found"))
+            
+            val (contractEntity, contractDAO) = contractResult
+            
+            // Check if contract is accessible (public or owned by requester)
+            val isOwner = contractDAO.ownerId == requesterId
+            if (!contractEntity.isPublic && !isOwner) {
+                return Pair(403, mapOf("message" to "Access denied. This contract is private."))
+            }
+            
+            // Get all versions metadata (without content)
+            val versions = contractRepo.getAllVersionsMetadata(uuid)
+            
+            return Pair(200, mapOf(
+                "contractId" to contractId,
+                "totalVersions" to versions.size,
+                "versions" to versions,
+                "isOwner" to isOwner
+            ))
+        } catch (e: IllegalArgumentException) {
+            return Pair(400, mapOf("message" to "Invalid contract ID format"))
+        } catch (e: Exception) {
+            println("Error getting contract versions: ${e.message}")
+            return Pair(500, mapOf("message" to "Internal Server Error"))
+        }
     }
 }

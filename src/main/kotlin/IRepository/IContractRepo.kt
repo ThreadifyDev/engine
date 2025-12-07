@@ -9,11 +9,18 @@ import java.util.UUID
 
 interface IContractRepo {
     fun findContractById(contractId: UUID): Pair<Contract, ContractDAO>?
+    fun findContractByIdNotDeleted(contractId: UUID): Pair<Contract, ContractDAO>?
     fun findContractByIdAndOwner(contractId: UUID, ownerId: String): Pair<Contract, ContractDAO>?
+    fun findContractByIdAndOwnerNotDeleted(contractId: UUID, ownerId: String): Pair<Contract, ContractDAO>?
     fun findContractByName(name: String): Contract?
     fun createContract(name: String, description: String, latestContentHash: String, ownerId: String): Pair<Contract, ContractDAO>
     fun updateContract(contract: Contract): Contract
     fun updateContractFields(contract: Contract, updates: Map<String, Any>): Pair<Contract, ContractDAO>?
+    fun softDeleteContract(contract: Contract): Pair<Contract, ContractDAO>
     fun createContractVersion(contractId: UUID, version: Int, content: String, createdBy: String, contentHash: String): Pair<ContractVersion, ContractVersionDAO>
     fun getLatestVersion(contractId: UUID): Pair<ContractVersion, ContractVersionDAO>?
+    fun getLatestVersionNotDeleted(contractId: UUID): Pair<ContractVersion, ContractVersionDAO>?
+    fun getContractVersion(contractId: UUID, version: Int): Pair<ContractVersion, ContractVersionDAO>?
+    fun getAllVersionsMetadata(contractId: UUID): List<ContractVersionDAO>
+    fun softDeleteContractVersion(contractVersion: ContractVersion): Pair<ContractVersion, ContractVersionDAO>
 }
