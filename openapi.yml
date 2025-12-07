@@ -1,0 +1,481 @@
+openapi: 3.0.3
+info:
+  title: Threadify Contract API
+  description: API for managing contracts and contract versions with JWT authentication
+  version: 1.0.0
+  contact:
+    name: Threadify API Support
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development server
+  - url: https://api.threadify.dev/v1
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Authentication endpoints
+  - name: Contracts
+    description: Contract management endpoints
+  - name: Contract Versions
+    description: Contract version management endpoints
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
+  schemas:
+    ContractDAO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Contract unique identifier
+        name:
+          type: string
+          description: Contract name (alphanumeric with underscores)
+        description:
+          type: string
+          description: Contract description
+        contentHash:
+          type: string
+          nullable: true
+          description: SHA-256 hash of contract content
+        latestVersion:
+          type: integer
+          description: Latest version number
+        ownerId:
+          type: string
+          nullable: true
+          description: Owner ID (company/organization ID)
+        isPublic:
+          type: boolean
+          description: Whether the contract is publicly accessible
+        isDeleted:
+          type: boolean
+          description: Soft delete flag
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+
+    ContractVersionDAO:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          description: Version number
+        content:
+          type: string
+          description: Full contract content as JSON
+        contentHash:
+          type: string
+          nullable: true
+          description: SHA-256 hash of version content
+        contractId:
+          type: string
+          format: uuid
+          nullable: true
+        createdBy:
+          type: string
+          description: User ID who created this version
+        isDeleted:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+
+    ContractResponse:
+      type: object
+      properties:
+        contract:
+          $ref: '#/components/schemas/ContractDAO'
+        contractVersion:
+          $ref: '#/components/schemas/ContractVersionDAO'
+
+    ContractWithOwnershipResponse:
+      type: object
+      properties:
+        contract:
+          $ref: '#/components/schemas/ContractDAO'
+        contractVersion:
+          $ref: '#/components/schemas/ContractVersionDAO'
+        isOwner:
+          type: boolean
+          description: Whether the requester is the owner of this contract
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          nullable: true
+
+    ValidationError:
+      type: object
+      properties:
+        field:
+          type: string
+          description: Field that failed validation
+        message:
+          type: string
+          description: Validation error message
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token
+        userId:
+          type: string
+          description: User ID
+        message:
+          type: string
+          description: Instructions for using the token
+
+    VersionsListResponse:
+      type: object
+      properties:
+        contractId:
+          type: string
+          format: uuid
+        totalVersions:
+          type: integer
+          description: Total number of non-deleted versions
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractVersionDAO'
+        isOwner:
+          type: boolean
+          description: Whether the requester is the owner
+
+    DeleteResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        contract:
+          $ref: '#/components/schemas/ContractDAO'
+        version:
+          $ref: '#/components/schemas/ContractVersionDAO'
+
+paths:
+  /contracts/login:
+    post:
+      tags:
+        - Authentication
+      summary: Generate JWT token for testing
+      description: Public endpoint to generate a JWT token for authentication
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              example: user-123
+      responses:
+        '200':
+          description: JWT token generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /contracts:
+    get:
+      tags:
+        - Contracts
+      summary: List all contracts
+      description: Get a list of all contracts (placeholder endpoint)
+      operationId: listContracts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of contracts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  authenticatedUser:
+                    type: string
+                  userRole:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+    post:
+      tags:
+        - Contracts
+      summary: Create a new contract
+      description: Creates a new contract with version 1 from YAML definition
+      operationId: createContract
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-yaml:
+            schema:
+              type: string
+              example: |
+                contract_name: payment_processing_v1
+                version: 1
+                description: Payment processing contract
+                parties:
+                  - merchant
+                  - payment_processor
+                steps:
+                  - id: payment_initiated
+                    owner: merchant
+                  - id: payment_complete
+                    owner: payment_processor
+                    depends_on: payment_initiated
+                validation:
+                  max_duration: 10s
+          text/yaml:
+            schema:
+              type: string
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '201':
+          description: Contract created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractResponse'
+        '400':
+          description: Invalid contract or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '415':
+          description: Unsupported media type
+
+  /contracts/{id}:
+    get:
+      tags:
+        - Contracts
+      summary: Get a contract by ID
+      description: Retrieves a contract and its latest version (or specific version if provided). Accessible if contract is public or requester is owner.
+      operationId: getContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract UUID
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: query
+          required: false
+          description: Specific version number to retrieve
+          schema:
+            type: integer
+            example: 2
+      responses:
+        '200':
+          description: Contract retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractWithOwnershipResponse'
+        '400':
+          description: Invalid contract ID format
+        '401':
+          description: Unauthorized
+        '403':
+          description: Access denied - contract is private
+        '404':
+          description: Contract or version not found
+
+    put:
+      tags:
+        - Contracts
+      summary: Update a contract
+      description: Creates a new version of an existing contract. Requires ownership.
+      operationId: updateContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract UUID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/x-yaml:
+            schema:
+              type: string
+          text/yaml:
+            schema:
+              type: string
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '201':
+          description: Contract updated successfully (new version created)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractResponse'
+        '400':
+          description: Invalid contract or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '415':
+          description: Unsupported media type
+
+    delete:
+      tags:
+        - Contracts
+      summary: Delete a contract (soft delete)
+      description: Soft deletes a contract by setting isDeleted flag. Requires ownership.
+      operationId: deleteContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Contract deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          description: Contract already deleted or invalid ID
+        '401':
+          description: Unauthorized
+        '404':
+          description: Contract not found or no permission
+
+  /contracts/{id}/versions:
+    get:
+      tags:
+        - Contract Versions
+      summary: List all versions of a contract
+      description: Returns metadata for all non-deleted versions (without content). Accessible if contract is public or requester is owner.
+      operationId: listContractVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Versions list retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionsListResponse'
+        '400':
+          description: Invalid contract ID format
+        '401':
+          description: Unauthorized
+        '403':
+          description: Access denied - contract is private
+        '404':
+          description: Contract not found
+
+  /contracts/{id}/versions/{version}:
+    delete:
+      tags:
+        - Contract Versions
+      summary: Delete a contract version (soft delete)
+      description: Soft deletes a specific contract version. Requires ownership.
+      operationId: deleteContractVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Contract UUID
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: path
+          required: true
+          description: Version number to delete
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Version deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          description: Version already deleted or invalid parameters
+        '401':
+          description: Unauthorized
+        '404':
+          description: Contract or version not found
+
+security:
+  - bearerAuth: []
