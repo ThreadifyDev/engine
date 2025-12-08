@@ -1,0 +1,216 @@
+### WebSocket API Tests for ThreadifyEngine
+### Use the REST Client extension in VSCode to test these WebSocket connections
+### Install: https://marketplace.visualstudio.com/items?itemName=humao.rest-client
+
+### Variables
+@wsUrl = ws://localhost:8080/threads
+@apiKey = test-api-key-123
+@ownerId = test-user-456
+
+###############################################
+# Test 1: Connect to WebSocket
+###############################################
+
+WEBSOCKET {{wsUrl}}
+
+# Send connect message
+{
+  "action": "connect",
+  "apiKey": "{{apiKey}}",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": ["onSuccess", "onError", "onViolation", "onStepProgress"]
+}
+
+###############################################
+# Test 2: Connect and Start Thread
+###############################################
+
+WEBSOCKET {{wsUrl}}
+
+# 1. Connect first
+{
+  "action": "connect",
+  "apiKey": "{{apiKey}}",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": ["onSuccess", "onError"]
+}
+
+# 2. Start a thread with contract
+{
+  "action": "startThread",
+  "contractId": "contract-789",
+  "metadata": {
+    "description": "Payment processing",
+    "priority": "high"
+  }
+}
+
+###############################################
+# Test 3: Complete Flow - Connect, Start, Record, Close
+###############################################
+
+WEBSOCKET {{wsUrl}}
+
+# 1. Connect
+{
+  "action": "connect",
+  "apiKey": "{{apiKey}}",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": ["onSuccess", "onError", "onStepProgress"]
+}
+
+# 2. Start thread without contract
+{
+  "action": "startThread"
+}
+
+# 3. Record thread event - started
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId-from-response",
+  "startedAt": "2025-12-08T19:00:00Z",
+  "status": "started",
+  "context": {
+    "step": "payment_initiated",
+    "amount": "100.00"
+  }
+}
+
+# 4. Record thread event - completed
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId-from-response",
+  "finishedAt": "2025-12-08T19:05:00Z",
+  "status": "completed",
+  "metadata": {
+    "transactionId": "txn-12345"
+  }
+}
+
+# 5. Close connection
+{
+  "action": "closeConnection"
+}
+
+###############################################
+# Test 4: Error Cases
+###############################################
+
+WEBSOCKET {{wsUrl}}
+
+# Test missing API key
+{
+  "action": "connect",
+  "apiKey": "",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": []
+}
+
+###
+
+WEBSOCKET {{wsUrl}}
+
+# Test action without authentication
+{
+  "action": "startThread",
+  "contractId": "contract-123"
+}
+
+###
+
+WEBSOCKET {{wsUrl}}
+
+# Connect first
+{
+  "action": "connect",
+  "apiKey": "{{apiKey}}",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": []
+}
+
+# Test missing threadId
+{
+  "action": "recordThreadEvent",
+  "status": "started"
+}
+
+###
+
+WEBSOCKET {{wsUrl}}
+
+# Test unknown action
+{
+  "action": "unknownAction",
+  "data": "test"
+}
+
+###############################################
+# Test 5: Multiple Events on Same Thread
+###############################################
+
+WEBSOCKET {{wsUrl}}
+
+# 1. Connect
+{
+  "action": "connect",
+  "apiKey": "{{apiKey}}",
+  "ownerId": "{{ownerId}}",
+  "subscribedEvents": ["onStepProgress"]
+}
+
+# 2. Start thread
+{
+  "action": "startThread",
+  "contractId": "multi-step-contract"
+}
+
+# 3. Record step 1 started
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId",
+  "startedAt": "2025-12-08T19:00:00Z",
+  "status": "in_progress",
+  "context": {
+    "step": "step1",
+    "name": "Initialize payment"
+  }
+}
+
+# 4. Record step 1 completed
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId",
+  "finishedAt": "2025-12-08T19:01:00Z",
+  "status": "completed",
+  "context": {
+    "step": "step1"
+  }
+}
+
+# 5. Record step 2 started
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId",
+  "startedAt": "2025-12-08T19:01:00Z",
+  "status": "in_progress",
+  "context": {
+    "step": "step2",
+    "name": "Process payment"
+  }
+}
+
+# 6. Record step 2 completed
+{
+  "action": "recordThreadEvent",
+  "threadId": "replace-with-threadId",
+  "finishedAt": "2025-12-08T19:03:00Z",
+  "status": "completed",
+  "context": {
+    "step": "step2"
+  }
+}
+
+# 7. Close
+{
+  "action": "closeConnection"
+}
