@@ -88,7 +88,6 @@ class ContractService() {
           contractVersion = contractVersionDAO
         ))
       } catch (e: Exception) {
-        println("E message ${e.message}")
         if (e.message?.contains("unique_contract_name") == true) {
           return Pair(400, mapOf<String, Any>(
             "message" to "Contract with this name already exists",
@@ -167,7 +166,6 @@ class ContractService() {
             contractVersion = newVersionDAO
           ))
          } catch (e: Exception) {
-          println("E message ${e.message}")
             if (e is IllegalArgumentException) {
               return Pair(400, mapOf<String, String>(
                 "message" to (e.message ?: "Bad Request")

@@ -29,7 +29,6 @@ object Contracts : UUIDTable("contracts") {
     init {
       // Unique constraint: one contract name per owner id
       uniqueIndex("unique_contract_name", name, ownerId)
-      uniqueIndex("unique_contract_owner_id", ownerId)
     }
 }
 

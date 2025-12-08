@@ -15,9 +15,10 @@ data class Contract(
 data class Step(
     val id: String,
     val owner: String,
-    val dependsOn: List<String>?,
-    val timeout: String?,
-    val businessContext: Map<String, String>?
+    val type: String? = "managed",  // managed (default), human_in_loop, or external
+    val dependsOn: List<String>? = null,  // Optional: steps this step depends on
+    val timeout: String? = null,
+    val businessContext: Map<String, String>? = null
 )
 
 @kotlinx.serialization.Serializable

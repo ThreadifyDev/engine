@@ -248,6 +248,59 @@ class ContractValidatorTest {
         assertTrue(result.isValid)
     }
     
+    // ========== step type validation tests ==========
+    
+    @Test
+    fun `test step type managed passes`() {
+        val yaml = validContract.replace(
+            "- id: payment_initiated\n      owner: merchant",
+            "- id: payment_initiated\n      owner: merchant\n      type: managed"
+        )
+        val (_, result) = validator.validate(yaml)
+        assertTrue(result.isValid)
+    }
+    
+    @Test
+    fun `test step type human_in_loop passes`() {
+        val yaml = validContract.replace(
+            "- id: payment_initiated\n      owner: merchant",
+            "- id: payment_initiated\n      owner: merchant\n      type: human_in_loop"
+        )
+        val (_, result) = validator.validate(yaml)
+        assertTrue(result.isValid)
+    }
+    
+    @Test
+    fun `test step type external passes`() {
+        val yaml = validContract.replace(
+            "- id: payment_initiated\n      owner: merchant",
+            "- id: payment_initiated\n      owner: merchant\n      type: external"
+        )
+        val (_, result) = validator.validate(yaml)
+        assertTrue(result.isValid)
+    }
+    
+    @Test
+    fun `test step type defaults to managed when not specified`() {
+        // Valid contract doesn't specify type, should default to managed
+        val (_, result) = validator.validate(validContract)
+        assertTrue(result.isValid)
+    }
+    
+    @Test
+    fun `test invalid step type fails`() {
+        val yaml = validContract.replace(
+            "- id: payment_initiated\n      owner: merchant",
+            "- id: payment_initiated\n      owner: merchant\n      type: automated"
+        )
+        val (_, result) = validator.validate(yaml)
+        
+        assertFalse(result.isValid)
+        assertTrue(result.errors.any { 
+            it.field.contains("type") && it.message.contains("managed, human_in_loop, or external")
+        })
+    }
+    
     // ========== timeout validation tests ==========
     
     @Test
@@ -287,7 +340,7 @@ class ContractValidatorTest {
     
     @Test
     fun `test timeout with invalid unit fails`() {
-        val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2h")
+        val yaml = validContract.replaceFirst("timeout: 2s", "timeout: 2w")
         val (_, result) = validator.validate(yaml)
         
         assertFalse(result.isValid)

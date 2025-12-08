@@ -62,7 +62,16 @@ class ContractValidator {
                  "Owner '${step.owner}' is not a defined party"))
          }
          
-         // Validate depends_on references exist
+         // Validate type field if present
+         step.type?.let { type ->
+             val validTypes = listOf("managed", "human_in_loop", "external")
+             if (type !in validTypes) {
+                 errors.add(ValidationError("steps.${step.id}.type", 
+                     "Invalid type '$type'. Must be: managed, human_in_loop, or external"))
+             }
+         }
+         
+         // Validate depends_on references exist (optional field)
          step.dependsOn?.forEach { depId ->
              if (depId !in stepIds) {
                 errors.add(ValidationError("steps.${step.id}.depends_on", 
@@ -74,7 +83,7 @@ class ContractValidator {
          step.timeout?.let { timeout ->
              if (!isValidDuration(timeout)) {
                  errors.add(ValidationError("steps.${step.id}.timeout", 
-                 "Invalid duration format. Use: s, ms, us, or m (e.g., '2s', '100ms')"))
+                 "Invalid duration format. Use: s, ms, us, m, h, or d (e.g., '2s', '3d')"))
              }
          }
          
@@ -117,7 +126,7 @@ class ContractValidator {
      // Validate max_duration in validation section
      if (!isValidDuration(contract.validation.maxDuration)) {
          errors.add(ValidationError("validation.max_duration", 
-             "Invalid duration format. Use: s, ms, us, or m (e.g., '10s', '500ms')"))
+             "Invalid duration format. Use: s, ms, us, m, h, or d (e.g., '2s', '3d')"))
      }
      
      return Pair(contract, ValidationResult(errors.isEmpty(), errors))
@@ -150,6 +159,7 @@ class ContractValidator {
             Step(
                 id = map["id"] as String,
                 owner = map["owner"] as String,
+                type = map["type"]?.toString() ?: "managed",
                 dependsOn = parseDependsOn(map["depends_on"]),
                 timeout = map["timeout"]?.toString(),
                 businessContext = (map["business_context"] as? Map<*, *>)?.let { bc ->
@@ -191,7 +201,7 @@ class ContractValidator {
     
     private fun isValidDuration(duration: String): Boolean {
         // Matches patterns like: 2s, 100ms, 50us, 5m
-        return duration.matches(Regex("^\\d+(\\.\\d+)?(s|ms|us|m)$"))
+        return duration.matches(Regex("^\\d+(\\.\\d+)?(s|ms|us|m|d|h)$"))
     }
     
     private fun isValidFieldType(type: String): Boolean {

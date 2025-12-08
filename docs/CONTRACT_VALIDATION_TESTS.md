@@ -46,6 +46,20 @@ Comprehensive test suite for the ContractValidator with 40 test cases covering a
 **Rules:**
 - All `depends_on` references must point to existing steps
 - Supports both single string and array formats
+- **Optional field** - steps can be independent
+
+### ✅ Step Type Validation (4 tests)
+- ✅ Type: managed (default) - PASS
+- ✅ Type: human_in_loop - PASS
+- ✅ Type: external - PASS
+- ❌ Invalid type - FAIL
+
+**Rules:**
+- Valid types: `managed` (default), `human_in_loop`, `external`
+- **Optional field** - defaults to `managed` if not specified
+- `managed`: Step is managed by the owning team
+- `human_in_loop`: Step requires human approval
+- `external`: Step is an external service outside team control
 
 ### ✅ Timeout Validation (8 tests)
 - ✅ Seconds (10s) - PASS
