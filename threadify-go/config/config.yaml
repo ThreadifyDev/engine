@@ -1,0 +1,28 @@
+server:
+  port: 8081
+  host: 0.0.0.0
+
+postgres:
+  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
+  max_connections: 25
+  max_idle_connections: 5
+
+redis:
+  host: localhost
+  port: 6379
+  password: threadify_secure_password
+  db: 0
+  pool_size: 8
+
+jwt:
+  secret: your-256-bit-secret-key-change-this-in-production-min-32-chars
+  issuer: threadify-engine
+  audience: threadify-users
+  realm: Threadify API
+  expiration_hours: 24
+
+queue:
+  ttl_seconds: 7776000
+
+logging:
+  level: info

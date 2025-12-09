@@ -10,11 +10,11 @@ fun Application.module() {
     loadServices()  // Must be first - initializes Authentication service
     configureMonitoring()
     configureAdministration()
-    configureSockets()
     configureSerialization()
     configureDatabases()
+    configureHTTP()
     configureAuthentication()  // Sets up JWT bearer token middleware
     configureRateLimiting()
-    configureHTTP()
+    configureSockets()  // WebSocket routes AFTER authentication to ensure they're not wrapped
     configureRouting()
 }

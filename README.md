@@ -39,15 +39,44 @@ To build or run the project, use one of the following tasks:
 | `./gradlew test`                        | Run the tests                                                        |
 | `./gradlew build`                       | Build everything                                                     |
 | `./gradlew buildFatJar`                 | Build an executable JAR of the server with all dependencies included |
-| `./gradlew buildImage`                  | Build the docker image to use with the fat JAR                       |
-| `./gradlew publishImageToLocalRegistry` | Publish the docker image locally                                     |
-| `./gradlew run`                         | Run the server                                                       |
-| `./gradlew runDocker`                   | Run using the local docker image                                     |
+## Go Implementation
 
-If the server starts successfully, you'll see the following output:
+The project has been migrated to Go for better performance and simpler deployment. See `threadify-go/` directory.
+
+### Quick Start (Go)
+
+```bash
+cd threadify-go
+
+# Start dependencies
+make docker-up
+
+# Run server
+make run
+
+# Or build and run binary
+make build
+./bin/server
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `make help` | Show all available commands |
+| `make install` | Install Go dependencies |
+| `make build` | Build server binary |
+| `make run` | Run the server |
+| `make test` | Run all tests |
+| `make docker-up` | Start PostgreSQL and Redis |
+| `make docker-down` | Stop all containers |
+| `make dev` | Start dependencies and run server |
+
+If the server starts successfully, you'll see:
 
 ```
-2024-12-04 14:32:45.584 [main] INFO  Application - Application started in 0.303 seconds.
-2024-12-04 14:32:45.682 [main] INFO  Application - Responding at http://0.0.0.0:8080
+{"level":"info","ts":"2024-12-09T14:00:00Z","msg":"Connected to PostgreSQL"}
+{"level":"info","ts":"2024-12-09T14:00:00Z","msg":"Connected to Redis/Valkey"}
+{"level":"info","ts":"2024-12-09T14:00:00Z","msg":"Starting server","address":"0.0.0.0:8080"}
 ```
 

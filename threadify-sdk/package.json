@@ -1,0 +1,25 @@
+{
+  "name": "@threadify/sdk",
+  "version": "0.1.0",
+  "description": "JavaScript SDK for Threadify Engine - Real-time thread management and event tracking",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test/example.js"
+  },
+  "keywords": [
+    "threadify",
+    "websocket",
+    "sdk",
+    "thread-management",
+    "real-time"
+  ],
+  "author": "Threadify Team",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

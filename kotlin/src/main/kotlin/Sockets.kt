@@ -15,7 +15,8 @@ fun Application.configureSockets() {
     }
     
     routing {
-        // Single unified WebSocket endpoint for both connection and messaging
+        // WebSocket endpoint - NO authentication required at connection level
+        // Authentication happens via the "connect" message after WebSocket is established
         webSocket("/threads") {
             with(ThreadService) {
                 handleWebSocketConnection()

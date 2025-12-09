@@ -5,7 +5,7 @@ import dev.threadify.Queues.ClientQueue
 import dev.threadify.Schemas.Models.*
 import io.ktor.websocket.*
 import io.ktor.server.websocket.*
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.SerializationException
@@ -17,7 +17,11 @@ import java.util.UUID
  */
 object ThreadService {
     
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { 
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
     private val clientQueue = ClientQueue.create()
     
     /**
@@ -58,9 +62,10 @@ object ThreadService {
      */
     private suspend fun handleMessage(message: String, currentOwnerId: String?): String {
         return try {
-            // First, parse to get the action type
-            val baseMessage = json.decodeFromString<Map<String, String>>(message)
-            val action = baseMessage["action"]
+            // Parse as generic JSON first to get action
+            val jsonElement = Json.parseToJsonElement(message)
+            val jsonObject = jsonElement.jsonObject
+            val action = jsonObject["action"]?.jsonPrimitive?.content
             
             when (action) {
                 "connect" -> {
