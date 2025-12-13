@@ -15,7 +15,7 @@ async function runExample() {
       'test-api-key-123',
       'payment-service',
       {
-        url: 'ws://localhost:8080/threads',
+        url: 'ws://localhost:8081/threads',
         subscribedEvents: ['onSuccess', 'onError', 'onStepProgress']
       }
     );
@@ -45,48 +45,45 @@ async function runExample() {
     // Step 4: Create and execute steps
     console.log('📝 Executing payment workflow...\n');
 
-    // Step 4a: Initialize payment
+    // Step 4a: Initialize payment (auto-starts when created)
     const initStep = thread.step('initialize_payment');
     initStep.addContext({
       amount: 100.00,
       currency: 'USD',
       customerId: 'cust_123'
     });
-    initStep.start();
-    console.log('  ⏳ Step: initialize_payment - Started');
+    console.log('  ⏳ Step: initialize_payment - Started (auto)');
     
     // Simulate processing
     await sleep(1000);
-    initStep.complete({ transactionId: 'txn_init_456' });
+    initStep.stop('success', { transactionId: 'txn_init_456' });
     console.log('  ✅ Step: initialize_payment - Completed\n');
 
-    // Step 4b: Validate payment
+    // Step 4b: Validate payment (auto-starts when created)
     const validateStep = thread.step('validate_payment');
     validateStep.addContext({
       transactionId: 'txn_init_456',
       validationRules: ['fraud_check', 'balance_check']
     });
-    validateStep.start();
-    console.log('  ⏳ Step: validate_payment - Started');
+    console.log('  ⏳ Step: validate_payment - Started (auto)');
     
     await sleep(1500);
-    validateStep.complete({ 
+    validateStep.stop('success', { 
       validationResult: 'passed',
       fraudScore: 0.02
     });
     console.log('  ✅ Step: validate_payment - Completed\n');
 
-    // Step 4c: Process payment
+    // Step 4c: Process payment (auto-starts when created)
     const processStep = thread.step('process_payment');
     processStep.addContext({
       paymentMethod: 'card',
       last4: '4242'
     });
-    processStep.start();
-    console.log('  ⏳ Step: process_payment - Started');
+    console.log('  ⏳ Step: process_payment - Started (auto)');
     
     await sleep(2000);
-    processStep.complete({ 
+    processStep.stop('success', { 
       status: 'succeeded',
       chargeId: 'ch_789'
     });

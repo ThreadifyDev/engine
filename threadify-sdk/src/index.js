@@ -21,10 +21,11 @@ export class Threadify {
     }
 
     const {
-      url = 'ws://localhost:8080/threads',
+      url = 'ws://localhost:8081/threads',
       ownerId = `owner-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       subscribedEvents = ['onSuccess', 'onError', 'onViolation', 'onStepProgress']
     } = options;
+    console.log('[DEBUG] Connecting to Threadify Engine at:', url);
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
