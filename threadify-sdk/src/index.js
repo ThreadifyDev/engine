@@ -62,6 +62,7 @@ export class Threadify {
               reject(new Error(message.message || 'Connection failed'));
               ws.close();
             }
+            return; // Don't process further for connect messages
           }
 
           // Handle event notifications

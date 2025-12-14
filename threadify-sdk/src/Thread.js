@@ -38,13 +38,17 @@ export class Thread {
 
   /**
    * Start the thread (creates thread on server)
-   * @param {string} contractId - Optional contract ID
+   * @param {string} contractId - Contract ID (required)
    * @param {Object} metadata - Optional metadata
    * @returns {Promise<string>} - Returns threadId
    */
-  async start(contractId = null, metadata = {}) {
+  async start(contractId, metadata = {}) {
     if (!this.isConnected) {
       throw new Error('Not connected. Call Threadify.connect() first.');
+    }
+
+    if (!contractId) {
+      throw new Error('contractId is required');
     }
 
     return new Promise((resolve, reject) => {
@@ -63,9 +67,10 @@ export class Thread {
           if (data.status === 'success') {
             this.threadId = data.threadId;
             this.contractId = data.contractId;
+            console.log(`[DEBUG] Thread started: ${data.threadId}`);
             resolve(data.threadId);
           } else {
-            reject(new Error(data.message));
+            reject(new Error(data.message || 'Failed to start thread'));
           }
         }
       };
@@ -173,16 +178,16 @@ export class Thread {
    * @private
    */
   _onceResponse(handler) {
-    const wrapper = (event) => {
+    const wrapper = (data) => {
       try {
-        const data = JSON.parse(event.data);
-        handler(data);
-        this.ws.removeEventListener('message', wrapper);
+        const message = JSON.parse(data.toString());
+        handler(message);
+        this.ws.off('message', wrapper);
       } catch (e) {
         console.error('Failed to parse WebSocket message:', e);
       }
     };
-    this.ws.addEventListener('message', wrapper);
+    this.ws.on('message', wrapper);
   }
 
   /**

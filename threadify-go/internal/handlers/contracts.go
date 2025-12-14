@@ -8,15 +8,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/threadify/engine/internal/middleware"
-	"github.com/threadify/engine/internal/services"
+	"github.com/threadify/engine/internal/service"
 )
 
 type ContractHandler struct {
-	contractService *services.ContractService
-	authService     *services.AuthService
+	contractService *service.ContractService
+	authService     *service.AuthService
 }
 
-func NewContractHandler(contractService *services.ContractService, authService *services.AuthService) *ContractHandler {
+func NewContractHandler(contractService *service.ContractService, authService *service.AuthService) *ContractHandler {
 	return &ContractHandler{
 		contractService: contractService,
 		authService:     authService,

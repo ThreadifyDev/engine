@@ -12,8 +12,7 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/middleware"
-	"github.com/threadify/engine/internal/queue"
-	"github.com/threadify/engine/internal/services"
+	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -51,7 +50,7 @@ func main() {
 	redisPort := viper.GetInt("redis.port")
 	redisPassword := viper.GetString("redis.password")
 	redisDB := viper.GetInt("redis.db")
-	valkey, err := services.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
+	valkey, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
 	if err != nil {
 		logger.Fatal("Failed to connect to Redis/Valkey", zap.Error(err))
 	}
@@ -63,14 +62,11 @@ func main() {
 	jwtIssuer := viper.GetString("jwt.issuer")
 	jwtAudience := viper.GetString("jwt.audience")
 	jwtExpHours := viper.GetInt("jwt.expiration_hours")
-	authService := services.NewAuthService(jwtSecret, jwtIssuer, jwtAudience, jwtExpHours)
+	authService := service.NewAuthService(jwtSecret, jwtIssuer, jwtAudience, jwtExpHours)
 
-	contractService := services.NewContractService(db)
+	contractService := service.NewContractService(db)
 
-	queueTTL := viper.GetInt("queue.ttl_seconds")
-	clientQueue := queue.NewClientQueue(valkey, queueTTL)
-
-	threadService := services.NewThreadService(clientQueue)
+	threadService := service.NewThreadService(db, valkey)
 
 	// Initialize handlers
 	contractHandler := handlers.NewContractHandler(contractService, authService)
