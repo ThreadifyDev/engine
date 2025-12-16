@@ -4,6 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +17,7 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/middleware"
+	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 )
@@ -50,11 +56,11 @@ func main() {
 	redisPort := viper.GetInt("redis.port")
 	redisPassword := viper.GetString("redis.password")
 	redisDB := viper.GetInt("redis.db")
-	valkey, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
+	valkeyService, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
 	if err != nil {
 		logger.Fatal("Failed to connect to Redis/Valkey", zap.Error(err))
 	}
-	defer valkey.Close()
+	defer valkeyService.Close()
 	logger.Info("Connected to Redis/Valkey")
 
 	// Initialize services
@@ -66,11 +72,25 @@ func main() {
 
 	contractService := service.NewContractService(db)
 
-	threadService := service.NewThreadService(db, valkey)
+	// Initialize step event service first
+	threadRepo := valkey.NewThreadRepository(valkeyService, 86400) // 24hr TTL
+	// Initialize step event service with config
+	batchSize := viper.GetInt("step_events.batch_size")
+	batchTimeoutMs := viper.GetInt("step_events.batch_timeout_ms")
+	batchTimeout := time.Duration(batchTimeoutMs) * time.Millisecond
+
+	stepEventService := service.NewStepEventService(valkeyService, threadRepo, 4, batchSize, batchTimeout) // 4 workers
+
+	// Initialize thread service with step event service
+	threadService := service.NewThreadServiceWithDefaults(db, valkeyService, stepEventService)
+
+	// Start step event service
+	stepEventService.Start()
+	defer stepEventService.Stop()
 
 	// Initialize handlers
 	contractHandler := handlers.NewContractHandler(contractService, authService)
-	wsHandler := handlers.NewWebSocketHandler(threadService)
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService)
 
 	// Setup rate limiter
 	rateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/s, burst 200
@@ -124,7 +144,31 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", host, port)
 
 	logger.Info("Starting server", zap.String("address", addr))
-	if err := r.Run(addr); err != nil {
-		logger.Fatal("Failed to start server", zap.Error(err))
-	}
+
+	// Start pprof server on separate port
+	go func() {
+		pprofAddr := fmt.Sprintf("%s:%d", "localhost", 6060)
+		logger.Info("Starting pprof server", zap.String("address", pprofAddr))
+		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			logger.Error("Failed to start pprof server", zap.Error(err))
+		}
+	}()
+
+	// Start server in a goroutine
+	go func() {
+		if err := r.Run(addr); err != nil {
+			logger.Fatal("Failed to start server", zap.Error(err))
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	logger.Info("Shutting down server...")
+
+	// StepEventService.Stop() is handled by defer at function exit
+	// No need to call it explicitly here to avoid double shutdown
+
+	logger.Info("Server stopped")
 }

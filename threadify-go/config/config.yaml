@@ -24,5 +24,9 @@ jwt:
 queue:
   ttl_seconds: 7776000
 
+step_events:
+  batch_size: 100
+  batch_timeout_ms: 1000
+
 logging:
   level: info

@@ -36,3 +36,5 @@ out/
 .vscode/
 gradle/wrapper/gradle-wrapper.jar
 .kotlin/
+threadify-go/baseline-5000-users-heap.pprof
+**.pprof

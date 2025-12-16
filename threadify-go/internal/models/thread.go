@@ -36,6 +36,7 @@ type Thread struct {
 	CurrentStep     string                 `json:"currentStep"`
 	Context         map[string]interface{} `json:"context"`
 	Steps           map[string]*StepState  `json:"steps"`
+	LastHash        string                 `json:"lastHash"`
 	StartedAt       time.Time              `json:"startedAt"`
 	CompletedAt     *time.Time             `json:"completedAt,omitempty"`
 	Error           string                 `json:"error,omitempty"`
@@ -43,13 +44,12 @@ type Thread struct {
 
 // StepState represents the state of a step in a thread
 type StepState struct {
-	ID          string                 `json:"id"`
-	Status      StepStatus             `json:"status"`
-	StartedAt   *time.Time             `json:"startedAt,omitempty"`
-	CompletedAt *time.Time             `json:"completedAt,omitempty"`
-	Context     map[string]interface{} `json:"context,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	RetryCount  int                    `json:"retryCount"`
+	ID          string    `json:"id"`          // stepId (same as stepName from StepEvent)
+	Status      string    `json:"status"`      // "completed" | "failed" | "pending"
+	CreatedAt   time.Time `json:"createdAt"`   // When step state was first created
+	UpdatedAt   time.Time `json:"updatedAt"`   // When step state was last updated
+	RetryCount  int       `json:"retryCount"`  // Number of retry attempts
+	IsCompleted bool      `json:"isCompleted"` // Convenience flag to prevent updates
 }
 
 // NewThread creates a new thread instance
@@ -80,15 +80,16 @@ func (t *Thread) StartStep(stepID string) {
 	now := time.Now()
 	if t.Steps[stepID] == nil {
 		t.Steps[stepID] = &StepState{
-			ID:         stepID,
-			Status:     StepStatusInProgress,
-			StartedAt:  &now,
-			Context:    make(map[string]interface{}),
-			RetryCount: 0,
+			ID:          stepID,
+			Status:      string(StepStatusInProgress),
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			RetryCount:  0,
+			IsCompleted: false,
 		}
 	} else {
-		t.Steps[stepID].Status = StepStatusInProgress
-		t.Steps[stepID].StartedAt = &now
+		t.Steps[stepID].Status = string(StepStatusInProgress)
+		t.Steps[stepID].UpdatedAt = now
 	}
 	t.CurrentStep = stepID
 }
@@ -97,11 +98,10 @@ func (t *Thread) StartStep(stepID string) {
 func (t *Thread) CompleteStep(stepID string, context map[string]interface{}) {
 	now := time.Now()
 	if t.Steps[stepID] != nil {
-		t.Steps[stepID].Status = StepStatusCompleted
-		t.Steps[stepID].CompletedAt = &now
-		if context != nil {
-			t.Steps[stepID].Context = context
-		}
+		t.Steps[stepID].Status = string(StepStatusCompleted)
+		t.Steps[stepID].UpdatedAt = now
+		t.Steps[stepID].IsCompleted = true
+		// Context is no longer stored in StepState - it's in StepEvent
 	}
 }
 
@@ -109,9 +109,10 @@ func (t *Thread) CompleteStep(stepID string, context map[string]interface{}) {
 func (t *Thread) FailStep(stepID string, errorMsg string) {
 	now := time.Now()
 	if t.Steps[stepID] != nil {
-		t.Steps[stepID].Status = StepStatusFailed
-		t.Steps[stepID].CompletedAt = &now
-		t.Steps[stepID].Error = errorMsg
+		t.Steps[stepID].Status = string(StepStatusFailed)
+		t.Steps[stepID].UpdatedAt = now
+		t.Steps[stepID].IsCompleted = false
+		// Error is no longer stored in StepState - it's in StepEvent
 	}
 }
 

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,28 +9,49 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
-	apperrors "github.com/threadify/engine/internal/errors"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
 
 type ThreadService struct {
-	pgRepo       *postgres.ThreadRepository
-	valkeyRepo   *valkey.ThreadRepository
-	contractRepo *postgres.ContractRepository
-	graphRepo    *valkey.ContractGraphRepository
-	clients      map[string]*models.ConnectedClient // In-memory client tracking
+	repo              interfaces.ThreadRepository
+	graphRepo         interfaces.ContractGraphRepository
+	stepEventService  interfaces.StepEventProcessor
+	cacheManager      interfaces.CacheManager
+	connectionMgr     interfaces.ConnectionManager
+	contractValidator interfaces.ContractValidator
 }
 
-func NewThreadService(db *database.PostgresDB, valkeyService *database.ValkeyService) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator) *ThreadService {
 	return &ThreadService{
-		pgRepo:       postgres.NewThreadRepository(db.Pool),
-		valkeyRepo:   valkey.NewThreadRepository(valkeyService, 3600), // 1 hour TTL
-		contractRepo: postgres.NewContractRepository(db.Pool),
-		graphRepo:    valkey.NewContractGraphRepository(valkeyService, 7200), // 2 hour TTL for graphs
-		clients:      make(map[string]*models.ConnectedClient),
+		repo:              repo,
+		graphRepo:         graphRepo,
+		stepEventService:  stepEventService,
+		cacheManager:      cacheManager,
+		connectionMgr:     connectionMgr,
+		contractValidator: contractValidator,
 	}
+}
+
+// NewThreadServiceWithDefaults creates ThreadService with concrete implementations (for production)
+func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService) *ThreadService {
+	// Create cache service first
+	cacheService := NewCacheService()
+
+	// Create repositories
+	contractRepo := postgres.NewContractRepository(db.Pool)
+	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, 7200) // 2 hour TTL for graphs
+
+	return NewThreadService(
+		valkey.NewThreadRepository(valkeyService, 3600), // 1 hour TTL
+		valkeyGraphRepo, // Valkey contract graph repository
+		stepEventService,
+		cacheService,           // In-memory cache service
+		NewConnectionService(), // In-memory connection service
+		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
+	)
 }
 
 func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.ConnectResponse {
@@ -51,15 +71,15 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 		}
 	}
 
-	client := &models.ConnectedClient{
-		OwnerID:          req.OwnerID,
-		ApiKey:           req.ApiKey,
-		ConnectedAt:      time.Now(),
-		SubscribedEvents: req.SubscribedEvents,
+	// Use connection manager to handle connection
+	err := s.connectionMgr.Connect(req.OwnerID, req.ApiKey, req.ServiceName)
+	if err != nil {
+		return &models.ConnectResponse{
+			Action:  "connect",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to connect: %v", err),
+		}
 	}
-
-	// Store client in memory
-	s.clients[req.OwnerID] = client
 
 	return &models.ConnectResponse{
 		Action:           "connect",
@@ -71,7 +91,7 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 }
 
 func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerID string) *models.StartThreadResponse {
-	if ownerID == "" {
+	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.StartThreadResponse{
 			Action:  "startThread",
 			Status:  "error",
@@ -79,11 +99,17 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}
 	}
 
+	contractID := ""
+	contractVersion := 0
+
 	threadID := uuid.New().String()
 
-	// Validate contract exists and load graph into Valkey
+	// Parse contract identifier if provided
 	if req.ContractID != "" {
-		if err := s.loadContractGraph(context.Background(), req.ContractID); err != nil {
+		contractID, contractVersion = parseContractIdentifier(req.ContractID)
+
+		// Load contract graph into cache using the contract validator
+		if err := s.contractValidator.LoadContractGraphIntoCache(contractID, contractVersion); err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
 				Status:  "error",
@@ -91,6 +117,26 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			}
 		}
 	}
+
+	// Create and persist the Thread object
+	var thread *models.Thread
+	if req.ContractID != "" {
+		thread = models.NewThread(threadID, contractID, contractVersion, ownerID)
+	} else {
+		thread = models.NewThread(threadID, "", 0, ownerID)
+	}
+
+	// Save thread to repository and cache
+	if err := s.repo.Save(context.Background(), thread); err != nil {
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to create thread: %v", err),
+		}
+	}
+
+	// Cache the thread for fast access
+	s.cacheManager.SetThread(threadID, thread)
 
 	return &models.StartThreadResponse{
 		Action:     "startThread",
@@ -102,7 +148,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 }
 
 func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string) *models.RecordEventResponse {
-	if ownerID == "" {
+	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",
@@ -110,6 +156,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
+	// Validate required fields
 	if req.ThreadID == "" {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -117,18 +164,165 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 			Message: "Thread ID is required",
 		}
 	}
+	if req.StepName == "" {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "StepName is required",
+		}
+	}
+	if req.Status == "" {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "Status is required",
+		}
+	}
+	if req.StartedAt == "" {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "StartedAt is required",
+		}
+	}
+	if req.FinishedAt == "" {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "FinishedAt is required",
+		}
+	}
+	if req.Context == nil {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "Context is required",
+		}
+	}
+
+	// Optional: Validate step name exists in contract (if thread has contract)
+	thread, err := s.getThread(req.ThreadID)
+	if err != nil {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: fmt.Sprintf("Thread not found: %s", req.ThreadID),
+		}
+	}
+
+	// Thread exists - validate contract if needed
+	if thread.ContractID != nil && *thread.ContractID != "" {
+		contractVersion := 1 // Default fallback
+		if thread.ContractVersion != nil {
+			contractVersion = *thread.ContractVersion
+		}
+
+		if validationErr := s.contractValidator.ValidateStepInContract(*thread.ContractID, contractVersion, req.StepName, req.Context); validationErr != nil {
+			return &models.RecordEventResponse{
+				Action:  "recordThreadEvent",
+				Status:  "error",
+				Message: fmt.Sprintf("Contract validation failed: %v", validationErr),
+			}
+		}
+	}
+
+	// Check if step already completed and prevent duplicate updates
+	if thread.Steps != nil {
+		if existingStep, exists := thread.Steps[req.StepName]; exists && existingStep.IsCompleted {
+			return &models.RecordEventResponse{
+				Action:  "recordThreadEvent",
+				Status:  "error",
+				Message: fmt.Sprintf("Step '%s' is already completed and cannot be updated", req.StepName),
+			}
+		}
+	}
+
+	// Generate step ID (UUID)
+	stepID := uuid.New().String()
+
+	// Get service name from request or connected client
+	serviceName := req.ServiceName
+	if serviceName == "" {
+		if client, exists := s.connectionMgr.GetClient(ownerID); exists {
+			serviceName = client.ServiceName
+		}
+	}
+	if serviceName == "" {
+		serviceName = "unknown"
+	}
+
+	// Convert RecordEventRequest to StepEvent for cryptographic processing
+	// Convert context from map[string]string to map[string]interface{}
+	contextInterface := make(map[string]interface{})
+	for k, v := range req.Context {
+		contextInterface[k] = v
+	}
+
+	stepEvent := models.StepEvent{
+		StepID:      stepID,
+		Type:        req.Type,         // Use dynamic type from request
+		Context:     contextInterface, // Keep original context separate and intact
+		Status:      req.Status,
+		Timestamp:   time.Now().UTC(), // Use UTC with nanosecond precision for hash uniqueness
+		ServiceName: serviceName,
+		ThreadID:    req.ThreadID,
+		StepName:    req.StepName,
+		StartedAt:   req.StartedAt,
+		FinishedAt:  req.FinishedAt,
+	}
+
+	// Queue step event for async cryptographic processing
+	if err := s.stepEventService.ProcessStepEvent(stepEvent); err != nil {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to queue step event: %v", err),
+		}
+	}
+
+	// Update thread step state
+	now := time.Now()
+	stepCompleted := req.Status == "completed" || req.Status == "success"
+
+	newStepState := &models.StepState{
+		ID:          req.StepName, // Maps to stepName from StepEvent
+		Status:      req.Status,   // "completed" | "failed" | "pending"
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		RetryCount:  0, // Will be incremented on retries
+		IsCompleted: stepCompleted,
+	}
+
+	// If this is a retry, increment retry count
+	if existingStep, exists := thread.Steps[req.StepName]; exists {
+		newStepState.RetryCount = existingStep.RetryCount + 1
+		newStepState.CreatedAt = existingStep.CreatedAt // Keep original creation time
+	}
+
+	// Update thread's step state
+	if thread.Steps == nil {
+		thread.Steps = make(map[string]*models.StepState)
+	}
+	thread.Steps[req.StepName] = newStepState
+
+	// Update thread in Valkey with new step state
+	if err := s.repo.Save(context.Background(), thread); err != nil {
+		// Log error but don't fail the response since step event is already queued
+		// TODO: Add proper logging here
+		fmt.Printf("Warning: Failed to update thread step state: %v\n", err)
+	}
 
 	return &models.RecordEventResponse{
 		Action:   "recordThreadEvent",
 		Status:   "success",
-		Message:  "Event recorded successfully",
+		Message:  "Step Event recorded successfully",
 		ThreadID: req.ThreadID,
 	}
 }
 
 func (s *ThreadService) HandleClose(ownerID string) *models.CloseConnectionResponse {
 	if ownerID != "" {
-		delete(s.clients, ownerID)
+		s.connectionMgr.Disconnect(ownerID)
 	}
 
 	return &models.CloseConnectionResponse{
@@ -136,73 +330,6 @@ func (s *ThreadService) HandleClose(ownerID string) *models.CloseConnectionRespo
 		Status:  "success",
 		Message: "Connection closed successfully",
 	}
-}
-
-// loadContractGraph validates that a contract exists and loads its graph into Valkey cache
-// contractNameOrID can be:
-//   - contract name: "product_delivery"
-//   - contract name with version: "product_delivery:2"
-//   - contract UUID: "uuid-string"
-func (s *ThreadService) loadContractGraph(ctx context.Context, contractNameOrID string) error {
-	// Parse contract name and optional version
-	contractName, requestedVersion := parseContractIdentifier(contractNameOrID)
-
-	// DEBUG: Log what we're looking for
-	fmt.Printf("[DEBUG] Looking for contract: '%s' (version: %d)\n", contractName, requestedVersion)
-
-	// 1. Validate contract exists - try by name first, then by ID
-	contract, err := s.contractRepo.GetByNameSlim(ctx, contractName)
-	if err != nil {
-		fmt.Printf("[DEBUG] GetByNameSlim failed: %v\n", err)
-		// If not found by name, try by ID (for backward compatibility)
-		contract, err = s.contractRepo.GetByID(ctx, contractName)
-		if err != nil {
-			fmt.Printf("[DEBUG] GetByID also failed: %v\n", err)
-			// TODO: Add structured logging here
-			// log.Error("Failed to get contract", "contractNameOrID", contractNameOrID, "error", err)
-			return apperrors.NewNotFoundError(apperrors.MsgContractNotFound, err)
-		}
-	}
-
-	fmt.Printf("[DEBUG] Found contract: ID=%s, Name=%s, LatestVersion=%d\n", contract.ID, contract.Name, contract.LatestVersion)
-
-	// 2. Get the contract version - either specific version or latest
-	var contractVersion *models.ContractVersion
-	if requestedVersion > 0 {
-		// Get specific version
-		contractVersion, err = s.contractRepo.GetVersion(ctx, contract.ID, requestedVersion)
-		if err != nil {
-			// TODO: Add structured logging here
-			return apperrors.NewNotFoundError(apperrors.MsgContractVersionNotFound, err)
-		}
-	} else {
-		// Get latest version
-		contractVersion, err = s.contractRepo.GetLatestVersion(ctx, contract.ID)
-		if err != nil {
-			// TODO: Add structured logging here
-			return apperrors.NewNotFoundError(apperrors.MsgContractVersionNotFound, err)
-		}
-	}
-
-	// 3. Validate that the contract version has graph data
-	if contractVersion.Graph == nil || len(contractVersion.Graph) == 0 {
-		return apperrors.NewValidationError(apperrors.MsgContractIncomplete, nil)
-	}
-
-	// 4. Deserialize the graph from JSON
-	var contractGraph models.ContractGraph
-	if err := json.Unmarshal(contractVersion.Graph, &contractGraph); err != nil {
-		// TODO: Add structured logging here
-		return apperrors.NewValidationError(apperrors.MsgContractInvalid, err)
-	}
-
-	// 5. Save the graph to Valkey cache (metadata passed separately)
-	if err := s.graphRepo.Save(ctx, contract.ID, contractVersion.Version, &contractGraph); err != nil {
-		// TODO: Add structured logging here
-		return apperrors.NewInternalError(apperrors.MsgServiceUnavailable, err)
-	}
-
-	return nil
 }
 
 // parseContractIdentifier parses a contract identifier which can be:
@@ -227,4 +354,35 @@ func parseContractIdentifier(identifier string) (name string, version int) {
 
 	// No colon found, return as-is with no version
 	return identifier, 0
+}
+
+// Helper function to convert map[string]string to map[string]interface{}
+func convertStringMapToInterfaceMap(stringMap map[string]string) map[string]interface{} {
+	if stringMap == nil {
+		return make(map[string]interface{})
+	}
+
+	interfaceMap := make(map[string]interface{})
+	for k, v := range stringMap {
+		interfaceMap[k] = v
+	}
+	return interfaceMap
+}
+
+// getThread retrieves thread from cache first, then Valkey as fallback
+func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
+	// Check cache first
+	if thread, exists := s.cacheManager.GetThread(threadID); exists {
+		return thread, nil
+	}
+
+	// Load from Valkey if not in cache
+	thread, err := s.repo.Get(context.Background(), threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load thread: %w", err)
+	}
+
+	// Cache the thread for future use
+	s.cacheManager.SetThread(threadID, thread)
+	return thread, nil
 }

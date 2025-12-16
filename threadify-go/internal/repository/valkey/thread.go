@@ -5,27 +5,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
-// ValkeyClient defines the interface for Valkey operations
-type ValkeyClient interface {
-	Set(ctx context.Context, key, value string, ttl time.Duration) error
-	Get(ctx context.Context, key string) (string, error)
-	Delete(ctx context.Context, key string) error
-	Exists(ctx context.Context, key string) (bool, error)
-	Keys(ctx context.Context, pattern string) ([]string, error)
-	Expire(ctx context.Context, key string, ttl time.Duration) error
-}
-
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey ValkeyClient
+	valkey interfaces.ValkeyClient
 	ttl    int // TTL in seconds
 }
 
 // NewThreadRepository creates a new thread repository
-func NewThreadRepository(valkey ValkeyClient, ttl int) *ThreadRepository {
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int) *ThreadRepository {
 	return &ThreadRepository{
 		valkey: valkey,
 		ttl:    ttl,

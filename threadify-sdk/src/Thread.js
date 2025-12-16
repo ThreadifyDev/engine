@@ -24,31 +24,33 @@ export class Thread {
   /**
    * Create a new step in this thread
    * @param {string} stepName - Name of the step
+   * @param {string} serviceName - Optional service name for the step
    * @returns {ThreadStep} - New ThreadStep instance
    */
-  step(stepName) {
+  step(stepName, serviceName = null) {
     if (!stepName || typeof stepName !== 'string') {
       throw new Error('Step name must be a non-empty string');
     }
 
-    const step = new ThreadStep(stepName, this);
+    const step = new ThreadStep(stepName, this, serviceName || this.serviceName);
     this.steps.set(stepName, step);
     return step;
   }
 
   /**
    * Start the thread (creates thread on server)
-   * @param {string} contractId - Contract ID (required)
+   * @param {string} contractId - Contract ID (optional, can be empty or null for threads without contracts)
    * @param {Object} metadata - Optional metadata
-   * @returns {Promise<string>} - Returns threadId
+   * @returns {Promise<Thread>} - Returns this Thread instance for fluent API
    */
   async start(contractId, metadata = {}) {
     if (!this.isConnected) {
       throw new Error('Not connected. Call Threadify.connect() first.');
     }
 
-    if (!contractId) {
-      throw new Error('contractId is required');
+    // contractId is optional - allow empty string or null for threads without contracts
+    if (contractId === undefined) {
+      contractId = '';
     }
 
     return new Promise((resolve, reject) => {
@@ -68,7 +70,7 @@ export class Thread {
             this.threadId = data.threadId;
             this.contractId = data.contractId;
             console.log(`[DEBUG] Thread started: ${data.threadId}`);
-            resolve(data.threadId);
+            resolve(this); // Return the thread instance for fluent API
           } else {
             reject(new Error(data.message || 'Failed to start thread'));
           }
@@ -152,6 +154,7 @@ export class Thread {
       const responseHandler = (data) => {
         if (data.action === 'closeConnection') {
           this.isConnected = false;
+          this.ws.close(); // Close WebSocket immediately after receiving response
           resolve();
         }
       };

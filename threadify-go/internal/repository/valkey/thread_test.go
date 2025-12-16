@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/models"
 )
 
 // MockValkeyService is a mock implementation of ValkeyService for testing
@@ -116,7 +116,7 @@ func TestThreadRepository_Save(t *testing.T) {
 	t.Run("saves thread successfully", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 
 		err := repo.Save(context.Background(), thread)
 
@@ -127,7 +127,7 @@ func TestThreadRepository_Save(t *testing.T) {
 	t.Run("saves thread with steps", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 		thread.StartStep("step-a")
 		thread.CompleteStep("step-a", map[string]interface{}{"result": "ok"})
 
@@ -145,7 +145,7 @@ func TestThreadRepository_Save(t *testing.T) {
 		mock := NewMockValkeyService()
 		mock.SetError(errors.New("valkey error"))
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 
 		err := repo.Save(context.Background(), thread)
 
@@ -158,7 +158,7 @@ func TestThreadRepository_Get(t *testing.T) {
 	t.Run("retrieves thread successfully", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 		thread.UpdateContext("key", "value")
 
 		// Save first
@@ -170,8 +170,8 @@ func TestThreadRepository_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "thread-1", retrieved.ID)
-		assert.Equal(t, "contract-1", retrieved.ContractID)
-		assert.Equal(t, 1, retrieved.ContractVersion)
+		assert.Equal(t, "contract-1", *retrieved.ContractID)
+		assert.Equal(t, 1, *retrieved.ContractVersion)
 		assert.Equal(t, "owner-1", retrieved.OwnerID)
 		assert.Equal(t, "value", retrieved.Context["key"])
 	})
@@ -201,7 +201,7 @@ func TestThreadRepository_Delete(t *testing.T) {
 	t.Run("deletes thread successfully", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 
 		// Save first
 		err := repo.Save(context.Background(), thread)
@@ -230,7 +230,7 @@ func TestThreadRepository_Exists(t *testing.T) {
 	t.Run("returns true when thread exists", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 
 		// Save first
 		err := repo.Save(context.Background(), thread)
@@ -270,8 +270,8 @@ func TestThreadRepository_GetByOwner(t *testing.T) {
 		repo := NewThreadRepository(mock, 3600)
 
 		// Save multiple threads
-		thread1 := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
-		thread2 := domain.NewThread("thread-2", "contract-2", 1, "owner-1")
+		thread1 := models.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread2 := models.NewThread("thread-2", "contract-2", 1, "owner-1")
 
 		err := repo.Save(context.Background(), thread1)
 		require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestThreadRepository_ExtendTTL(t *testing.T) {
 	t.Run("extends TTL successfully", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("thread-1", "contract-1", 1, "owner-1")
+		thread := models.NewThread("thread-1", "contract-1", 1, "owner-1")
 
 		// Save first
 		err := repo.Save(context.Background(), thread)
@@ -348,7 +348,7 @@ func TestThreadRepository_KeyFormat(t *testing.T) {
 	t.Run("generates correct key format", func(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewThreadRepository(mock, 3600)
-		thread := domain.NewThread("my-thread-123", "contract-1", 1, "owner-1")
+		thread := models.NewThread("my-thread-123", "contract-1", 1, "owner-1")
 
 		err := repo.Save(context.Background(), thread)
 		require.NoError(t, err)

@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
 // ContractGraphRepository handles contract graph caching in Valkey (Redis)
 type ContractGraphRepository struct {
-	valkey ValkeyClient
+	valkey interfaces.ValkeyClient
 	ttl    int // TTL in seconds
 }
 
 // NewContractGraphRepository creates a new contract graph repository
-func NewContractGraphRepository(valkey ValkeyClient, ttl int) *ContractGraphRepository {
+func NewContractGraphRepository(valkey interfaces.ValkeyClient, ttl int) *ContractGraphRepository {
 	return &ContractGraphRepository{
 		valkey: valkey,
 		ttl:    ttl,

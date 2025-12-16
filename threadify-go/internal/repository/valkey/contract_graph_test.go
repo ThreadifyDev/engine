@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/models"
 )
 
 func TestNewContractGraphRepository(t *testing.T) {
@@ -25,11 +25,9 @@ func TestContractGraphRepository_Save(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-			Graph: domain.Graph{
-				Nodes: map[string]domain.GraphNode{
+		graph := &models.ContractGraph{
+			Graph: models.Graph{
+				Nodes: map[string]models.GraphNode{
 					"step-a": {
 						ID:   "step-a",
 						Type: "step",
@@ -39,7 +37,7 @@ func TestContractGraphRepository_Save(t *testing.T) {
 			},
 		}
 
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 
 		require.NoError(t, err)
 		assert.Contains(t, mock.storage, "contract_graph:contract-1:v1")
@@ -49,11 +47,9 @@ func TestContractGraphRepository_Save(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-2",
-			Version:    2,
-			Graph: domain.Graph{
-				Nodes: map[string]domain.GraphNode{
+		graph := &models.ContractGraph{
+			Graph: models.Graph{
+				Nodes: map[string]models.GraphNode{
 					"step-a": {
 						ID:        "step-a",
 						Type:      "step",
@@ -69,15 +65,13 @@ func TestContractGraphRepository_Save(t *testing.T) {
 			},
 		}
 
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-2", 2, graph)
 
 		require.NoError(t, err)
 
 		// Verify we can retrieve it
 		retrieved, err := repo.Get(context.Background(), "contract-2", 2)
 		require.NoError(t, err)
-		assert.Equal(t, "contract-2", retrieved.ContractID)
-		assert.Equal(t, 2, retrieved.Version)
 		assert.Len(t, retrieved.Graph.Nodes, 2)
 	})
 
@@ -86,12 +80,9 @@ func TestContractGraphRepository_Save(t *testing.T) {
 		mock.SetError(errors.New("valkey error"))
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-		}
+		graph := &models.ContractGraph{}
 
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to save contract graph")
@@ -103,11 +94,9 @@ func TestContractGraphRepository_Get(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-			Graph: domain.Graph{
-				Nodes: map[string]domain.GraphNode{
+		graph := &models.ContractGraph{
+			Graph: models.Graph{
+				Nodes: map[string]models.GraphNode{
 					"step-a": {ID: "step-a", Type: "step"},
 				},
 				FinalStep: "step-a",
@@ -115,15 +104,13 @@ func TestContractGraphRepository_Get(t *testing.T) {
 		}
 
 		// Save first
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 		require.NoError(t, err)
 
 		// Retrieve
 		retrieved, err := repo.Get(context.Background(), "contract-1", 1)
 
 		require.NoError(t, err)
-		assert.Equal(t, "contract-1", retrieved.ContractID)
-		assert.Equal(t, 1, retrieved.Version)
 		assert.Equal(t, "step-a", retrieved.Graph.FinalStep)
 	})
 
@@ -153,13 +140,10 @@ func TestContractGraphRepository_Delete(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-		}
+		graph := &models.ContractGraph{}
 
 		// Save first
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 		require.NoError(t, err)
 
 		// Delete
@@ -186,13 +170,10 @@ func TestContractGraphRepository_Exists(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-		}
+		graph := &models.ContractGraph{}
 
 		// Save first
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 		require.NoError(t, err)
 
 		// Check existence
@@ -228,13 +209,10 @@ func TestContractGraphRepository_ExtendTTL(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-		}
+		graph := &models.ContractGraph{}
 
 		// Save first
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "contract-1", 1, graph)
 		require.NoError(t, err)
 
 		// Extend TTL
@@ -269,15 +247,15 @@ func TestContractGraphRepository_DeleteByContract(t *testing.T) {
 		repo := NewContractGraphRepository(mock, 7200)
 
 		// Save multiple versions
-		graph1 := &domain.ContractGraph{ContractID: "contract-1", Version: 1}
-		graph2 := &domain.ContractGraph{ContractID: "contract-1", Version: 2}
-		graph3 := &domain.ContractGraph{ContractID: "contract-1", Version: 3}
+		graph1 := &models.ContractGraph{}
+		graph2 := &models.ContractGraph{}
+		graph3 := &models.ContractGraph{}
 
-		err := repo.Save(context.Background(), graph1)
+		err := repo.Save(context.Background(), "contract-1", 1, graph1)
 		require.NoError(t, err)
-		err = repo.Save(context.Background(), graph2)
+		err = repo.Save(context.Background(), "contract-1", 2, graph2)
 		require.NoError(t, err)
-		err = repo.Save(context.Background(), graph3)
+		err = repo.Save(context.Background(), "contract-1", 3, graph3)
 		require.NoError(t, err)
 
 		// Delete all versions
@@ -294,12 +272,12 @@ func TestContractGraphRepository_DeleteByContract(t *testing.T) {
 		repo := NewContractGraphRepository(mock, 7200)
 
 		// Save graphs for different contracts
-		graph1 := &domain.ContractGraph{ContractID: "contract-1", Version: 1}
-		graph2 := &domain.ContractGraph{ContractID: "contract-2", Version: 1}
+		graph1 := &models.ContractGraph{}
+		graph2 := &models.ContractGraph{}
 
-		err := repo.Save(context.Background(), graph1)
+		err := repo.Save(context.Background(), "contract-1", 1, graph1)
 		require.NoError(t, err)
-		err = repo.Save(context.Background(), graph2)
+		err = repo.Save(context.Background(), "contract-2", 1, graph2)
 		require.NoError(t, err)
 
 		// Delete only contract-1
@@ -326,12 +304,9 @@ func TestContractGraphRepository_KeyFormat(t *testing.T) {
 		mock := NewMockValkeyService()
 		repo := NewContractGraphRepository(mock, 7200)
 
-		graph := &domain.ContractGraph{
-			ContractID: "my-contract-123",
-			Version:    5,
-		}
+		graph := &models.ContractGraph{}
 
-		err := repo.Save(context.Background(), graph)
+		err := repo.Save(context.Background(), "my-contract-123", 5, graph)
 		require.NoError(t, err)
 
 		assert.Contains(t, mock.storage, "contract_graph:my-contract-123:v5")
@@ -344,24 +319,20 @@ func TestContractGraphRepository_MultipleVersions(t *testing.T) {
 		repo := NewContractGraphRepository(mock, 7200)
 
 		// Save different versions
-		graph1 := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    1,
-			Graph: domain.Graph{
+		graph1 := &models.ContractGraph{
+			Graph: models.Graph{
 				FinalStep: "step-a",
 			},
 		}
-		graph2 := &domain.ContractGraph{
-			ContractID: "contract-1",
-			Version:    2,
-			Graph: domain.Graph{
+		graph2 := &models.ContractGraph{
+			Graph: models.Graph{
 				FinalStep: "step-b",
 			},
 		}
 
-		err := repo.Save(context.Background(), graph1)
+		err := repo.Save(context.Background(), "contract-1", 1, graph1)
 		require.NoError(t, err)
-		err = repo.Save(context.Background(), graph2)
+		err = repo.Save(context.Background(), "contract-1", 2, graph2)
 		require.NoError(t, err)
 
 		// Retrieve both versions

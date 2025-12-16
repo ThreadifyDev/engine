@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
 type ClientQueue struct {
-	valkey ValkeyClient
+	valkey interfaces.ValkeyClient
 	ttl    time.Duration
 }
 
-func NewClientQueue(valkey ValkeyClient, ttlSeconds int) *ClientQueue {
+func NewClientQueue(valkey interfaces.ValkeyClient, ttlSeconds int) *ClientQueue {
 	return &ClientQueue{
 		valkey: valkey,
 		ttl:    time.Duration(ttlSeconds) * time.Second,

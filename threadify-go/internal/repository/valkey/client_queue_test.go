@@ -1,6 +1,7 @@
 package valkey
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -16,18 +17,33 @@ type MockValkeyClient struct {
 	mock.Mock
 }
 
-func (m *MockValkeyClient) Set(key, value string, ttl time.Duration) error {
-	args := m.Called(key, value, ttl)
+func (m *MockValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	args := m.Called(ctx, key, value, ttl)
 	return args.Error(0)
 }
 
-func (m *MockValkeyClient) Get(key string) (string, error) {
-	args := m.Called(key)
+func (m *MockValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	args := m.Called(ctx, key)
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockValkeyClient) Delete(key string) error {
-	args := m.Called(key)
+func (m *MockValkeyClient) Delete(ctx context.Context, key string) error {
+	args := m.Called(ctx, key)
+	return args.Error(0)
+}
+
+func (m *MockValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	args := m.Called(ctx, key)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	args := m.Called(ctx, pattern)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	args := m.Called(ctx, key, ttl)
 	return args.Error(0)
 }
 
@@ -55,7 +71,7 @@ func TestClientQueue_AddClient(t *testing.T) {
 		}
 
 		expectedKey := "client:owner123"
-		mockValkey.On("Set", expectedKey, mock.Anything, 3600*time.Second).Return(nil)
+		mockValkey.On("Set", mock.Anything, expectedKey, mock.Anything, 3600*time.Second).Return(nil)
 
 		err := queue.AddClient(client)
 
@@ -72,7 +88,7 @@ func TestClientQueue_AddClient(t *testing.T) {
 			ApiKey:  "api-key-123",
 		}
 
-		mockValkey.On("Set", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("redis error"))
+		mockValkey.On("Set", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("redis error"))
 
 		err := queue.AddClient(client)
 
@@ -93,7 +109,7 @@ func TestClientQueue_AddClient(t *testing.T) {
 		}
 
 		var capturedValue string
-		mockValkey.On("Set", "client:owner123", mock.Anything, mock.Anything).
+		mockValkey.On("Set", mock.Anything, "client:owner123", mock.Anything, mock.Anything).
 			Run(func(args mock.Arguments) {
 				capturedValue = args.String(1)
 			}).Return(nil)
@@ -124,7 +140,7 @@ func TestClientQueue_GetClient(t *testing.T) {
 		}
 
 		serialized, _ := json.Marshal(expectedClient)
-		mockValkey.On("Get", "client:owner123").Return(string(serialized), nil)
+		mockValkey.On("Get", mock.Anything, "client:owner123").Return(string(serialized), nil)
 
 		client, err := queue.GetClient("owner123")
 
@@ -140,7 +156,7 @@ func TestClientQueue_GetClient(t *testing.T) {
 		mockValkey := new(MockValkeyClient)
 		queue := NewClientQueue(mockValkey, 3600)
 
-		mockValkey.On("Get", "client:owner456").Return("", errors.New("key not found"))
+		mockValkey.On("Get", mock.Anything, "client:owner456").Return("", errors.New("key not found"))
 
 		client, err := queue.GetClient("owner456")
 
@@ -153,7 +169,7 @@ func TestClientQueue_GetClient(t *testing.T) {
 		mockValkey := new(MockValkeyClient)
 		queue := NewClientQueue(mockValkey, 3600)
 
-		mockValkey.On("Get", "client:owner123").Return("invalid-json", nil)
+		mockValkey.On("Get", mock.Anything, "client:owner123").Return("invalid-json", nil)
 
 		client, err := queue.GetClient("owner123")
 
@@ -169,7 +185,7 @@ func TestClientQueue_RemoveClient(t *testing.T) {
 		mockValkey := new(MockValkeyClient)
 		queue := NewClientQueue(mockValkey, 3600)
 
-		mockValkey.On("Delete", "client:owner123").Return(nil)
+		mockValkey.On("Delete", mock.Anything, "client:owner123").Return(nil)
 
 		err := queue.RemoveClient("owner123")
 
@@ -181,7 +197,7 @@ func TestClientQueue_RemoveClient(t *testing.T) {
 		mockValkey := new(MockValkeyClient)
 		queue := NewClientQueue(mockValkey, 3600)
 
-		mockValkey.On("Delete", "client:owner123").Return(errors.New("redis error"))
+		mockValkey.On("Delete", mock.Anything, "client:owner123").Return(errors.New("redis error"))
 
 		err := queue.RemoveClient("owner123")
 
@@ -206,7 +222,7 @@ func TestClientQueue_KeyFormat(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.ownerID, func(t *testing.T) {
-			mockValkey.On("Delete", tc.expectedKey).Return(nil).Once()
+			mockValkey.On("Delete", mock.Anything, tc.expectedKey).Return(nil).Once()
 			queue.RemoveClient(tc.ownerID)
 			mockValkey.AssertExpectations(t)
 		})
@@ -233,7 +249,7 @@ func TestClientQueue_TTL(t *testing.T) {
 				ApiKey:  "api-key",
 			}
 
-			mockValkey.On("Set", mock.Anything, mock.Anything, tc.expectedTTL).Return(nil)
+			mockValkey.On("Set", mock.Anything, mock.Anything, mock.Anything, tc.expectedTTL).Return(nil)
 
 			err := queue.AddClient(client)
 			assert.NoError(t, err)

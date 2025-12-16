@@ -22,9 +22,11 @@ async function testThreadCreation() {
 
     // Step 2: Start a thread with a contract ID
     console.log('🏁 Starting thread with contract...');
-    const threadId = await thread.start('product_delivery:2', {
+    const threadId = await thread.start('product_deliveries_new1:2', {
       environment: 'test',
     });
+
+    thread.step("step_name", "sample service").addContext({data: "sample data"}).addContext({privateRecord: "hello"}, isPrivate = true).stop("success", "message", metadata = {})
     console.log(`✅ Thread started successfully!`);
     console.log(`   Thread ID: ${threadId}`);
     console.log(`   Contract ID: ${thread.getContractId()}\n`);

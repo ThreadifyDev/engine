@@ -4,6 +4,7 @@ type ConnectRequest struct {
 	Action           string   `json:"action"`
 	ApiKey           string   `json:"apiKey"`
 	OwnerID          string   `json:"ownerId"`
+	ServiceName      string   `json:"serviceName,omitempty"`
 	SubscribedEvents []string `json:"subscribedEvents"`
 }
 
@@ -30,13 +31,16 @@ type StartThreadResponse struct {
 }
 
 type RecordEventRequest struct {
-	Action     string            `json:"action"`
-	ThreadID   string            `json:"threadId"`
-	StartedAt  string            `json:"startedAt,omitempty"`
-	FinishedAt string            `json:"finishedAt,omitempty"`
-	Context    map[string]string `json:"context,omitempty"`
-	Status     string            `json:"status,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	Action      string            `json:"action"`
+	ThreadID    string            `json:"threadId"`
+	StepName    string            `json:"stepName"`
+	Type        string            `json:"type"`
+	StartedAt   string            `json:"startedAt"`
+	FinishedAt  string            `json:"finishedAt"`
+	Context     map[string]string `json:"context"`
+	Status      string            `json:"status"`
+	Metadata    map[string]string `json:"metadata"`
+	ServiceName string            `json:"serviceName,omitempty"`
 }
 
 type RecordEventResponse struct {
