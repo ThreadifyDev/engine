@@ -36,16 +36,16 @@ func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.Con
 }
 
 // NewThreadServiceWithDefaults creates ThreadService with concrete implementations (for production)
-func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService) *ThreadService {
+func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, contractTTLSeconds, threadTTLSeconds int) *ThreadService {
 	// Create cache service first
 	cacheService := NewCacheService()
 
 	// Create repositories
 	contractRepo := postgres.NewContractRepository(db.Pool)
-	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, 7200) // 2 hour TTL for graphs
+	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
 
 	return NewThreadService(
-		valkey.NewThreadRepository(valkeyService, 3600), // 1 hour TTL
+		valkey.NewThreadRepository(valkeyService, threadTTLSeconds), // Configurable TTL
 		valkeyGraphRepo, // Valkey contract graph repository
 		stepEventService,
 		cacheService,           // In-memory cache service

@@ -28,5 +28,16 @@ step_events:
   batch_size: 100
   batch_timeout_ms: 1000
 
+# Rate limiting configuration
+rate_limit:
+  requests_per_second: 5000     # Reduced from 100 to test
+  burst_size: 10000             # Reduced from 200 to test
+  cleanup_interval_hours: 1  # Cleanup interval for expired tokens
+cache:
+  contract_ttl_hours: 24    # Contract data expires after 24 hours
+  thread_ttl_hours: 72      # Thread data expires after 72 hours
+  step_event_ttl_hours: 168  # Step events expire after 7 days
+  session_ttl_minutes: 30   # WebSocket session expires after 30 minutes
+
 logging:
   level: info

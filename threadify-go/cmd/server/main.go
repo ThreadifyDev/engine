@@ -73,7 +73,10 @@ func main() {
 	contractService := service.NewContractService(db)
 
 	// Initialize step event service first
-	threadRepo := valkey.NewThreadRepository(valkeyService, 86400) // 24hr TTL
+	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
+	threadTTL := time.Duration(threadTTLHours) * time.Hour
+	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()))
+
 	// Initialize step event service with config
 	batchSize := viper.GetInt("step_events.batch_size")
 	batchTimeoutMs := viper.GetInt("step_events.batch_timeout_ms")
@@ -81,8 +84,10 @@ func main() {
 
 	stepEventService := service.NewStepEventService(valkeyService, threadRepo, 4, batchSize, batchTimeout) // 4 workers
 
-	// Initialize thread service with step event service
-	threadService := service.NewThreadServiceWithDefaults(db, valkeyService, stepEventService)
+	// Initialize thread service with step event service and TTL configs
+	contractTTLHours := viper.GetInt("cache.contract_ttl_hours")
+	contractTTL := time.Duration(contractTTLHours) * time.Hour
+	threadService := service.NewThreadServiceWithDefaults(db, valkeyService, stepEventService, int(contractTTL.Seconds()), int(threadTTL.Seconds()))
 
 	// Start step event service
 	stepEventService.Start()
@@ -92,9 +97,13 @@ func main() {
 	contractHandler := handlers.NewContractHandler(contractService, authService)
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService)
 
-	// Setup rate limiter
-	rateLimiter := middleware.NewRateLimiter(100, 200) // 100 req/s, burst 200
-	rateLimiter.Cleanup(time.Hour)                     // Cleanup every hour
+	// Setup rate limiter with config
+	rateLimitRPS := viper.GetFloat64("rate_limit.requests_per_second")
+	rateLimitBurst := viper.GetInt("rate_limit.burst_size")
+	rateLimitCleanupHours := viper.GetInt("rate_limit.cleanup_interval_hours")
+
+	rateLimiter := middleware.NewRateLimiter(rateLimitRPS, rateLimitBurst)
+	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

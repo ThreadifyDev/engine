@@ -18,7 +18,7 @@ func NewValkeyService(host string, port int, password string, db int) (*ValkeySe
 		Addr:            fmt.Sprintf("%s:%d", host, port),
 		Password:        password,
 		DB:              db,
-		PoolSize:        500,                    // Increased from 50 for high concurrency
+		PoolSize:        50,                     // Increased from 50 for high concurrency
 		MinIdleConns:    50,                     // Increased from 5
 		MaxRetries:      1,                      // Reduced from 2 - fail fast
 		DialTimeout:     1 * time.Second,        // Reduced from 2s
