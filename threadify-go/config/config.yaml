@@ -39,5 +39,24 @@ cache:
   step_event_ttl_hours: 168  # Step events expire after 7 days
   session_ttl_minutes: 30   # WebSocket session expires after 30 minutes
 
+# Audit queue configuration
+audit_queue:
+  name: "audit_events"         # Queue name for audit events
+  retention_hours: 12          # Events expire after 12 hours
+  batch_size: 50               # Batch size for processing
+  batch_timeout_ms: 5000       # Batch timeout in milliseconds
+  max_retries: 3               # Max retries for failed events
+
+# Invitation configuration
+invitations:
+  default_permissions: "read,write"    # Default permissions for invitations
+  default_expiry: "24h"               # Default expiry for invitation tokens
+  max_expiry: "7d"                    # Maximum allowed expiry
+  allowed_roles:                      # Valid contract roles for invitations
+    - "external_partner"
+    - "contractor" 
+    - "auditor"
+    - "support"
+
 logging:
   level: info

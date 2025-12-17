@@ -208,4 +208,139 @@ export class Thread {
   getContractId() {
     return this.contractId;
   }
+
+  /**
+   * Create an invitation token for this thread
+   * @param {Object} options - Invitation options
+   * @param {string} options.role - Required role for the invitation
+   * @param {string} [options.permissions="read,write"] - Optional permissions
+   * @param {string} [options.expiresIn="24h"] - Optional expiry duration
+   * @returns {Promise<string>} - JWT invitation token
+   */
+  async inviteParty(options = {}) {
+    const {
+      role,                    // Required
+      permissions = "read,write", // Optional with default
+      expiresIn = "24h"         // Optional with default
+    } = options;
+    
+    // Validate required role
+    if (!role) {
+      throw new Error("Role is required for inviteParty");
+    }
+    
+    // Validate thread is connected and has threadId
+    if (!this.isConnected || !this.threadId) {
+      throw new Error("Thread must be connected and started to create invitations");
+    }
+    
+    return new Promise((resolve, reject) => {
+      // Set up one-time response handler
+      this._onceResponse((message) => {
+        if (message.status === 'success') {
+          resolve(message.threadToken);
+        } else {
+          reject(new Error(message.message || 'Failed to create invitation token'));
+        }
+      });
+      
+      // Send inviteParty message
+      this._send({
+        action: 'inviteParty',
+        role,
+        permissions,
+        expiresIn
+      });
+    });
+  }
+
+  /**
+   * Join a thread using an invitation token (static method)
+   * @param {string} threadToken - JWT invitation token
+   * @param {string} apiKey - API key for authentication
+   * @param {string} ownerId - Owner ID for the connection
+   * @param {string} [serviceName] - Optional service name
+   * @returns {Promise<Thread>} - New Thread instance with joined context
+   */
+  static async join(threadToken, apiKey, ownerId, serviceName = null) {
+    if (!threadToken) {
+      throw new Error("Thread token is required for join");
+    }
+    if (!apiKey) {
+      throw new Error("API key is required for join");
+    }
+    if (!ownerId) {
+      throw new Error("Owner ID is required for join");
+    }
+
+    // Import WebSocket dynamically to avoid Node.js issues
+    const { WebSocket } = await import('ws');
+    
+    return new Promise((resolve, reject) => {
+      // Create new WebSocket connection
+      const ws = new WebSocket('ws://localhost:8081/ws');
+      
+      ws.on('open', () => {
+        // First connect to establish session
+        const connectMessage = {
+          action: 'connect',
+          apiKey,
+          ownerId,
+          serviceName
+        };
+        
+        ws.send(JSON.stringify(connectMessage));
+      });
+      
+      ws.on('message', (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          
+          // Handle connect response
+          if (message.action === 'connect') {
+            if (message.status === 'success') {
+              // Now send joinThread message
+              const joinMessage = {
+                action: 'joinThread',
+                threadToken
+              };
+              ws.send(JSON.stringify(joinMessage));
+            } else {
+              reject(new Error(message.message || 'Failed to connect'));
+              ws.close();
+            }
+          }
+          // Handle joinThread response
+          else if (message.action === 'joinThread') {
+            if (message.status === 'success') {
+              // Create new Thread instance with joined context
+              const thread = new Thread(ws, apiKey, ownerId, serviceName);
+              thread.isConnected = true;
+              thread.threadId = message.threadId;
+              thread.contractId = message.contractId;
+              thread.role = message.role;
+              thread.permissions = message.permissions;
+              
+              resolve(thread);
+            } else {
+              reject(new Error(message.message || 'Failed to join thread'));
+              ws.close();
+            }
+          }
+        } catch (e) {
+          reject(new Error('Failed to parse WebSocket message: ' + e.message));
+        }
+      });
+      
+      ws.on('error', (error) => {
+        reject(new Error('WebSocket error: ' + error.message));
+      });
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        reject(new Error('Connection timeout'));
+        ws.close();
+      }, 30000);
+    });
+  }
 }

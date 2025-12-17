@@ -95,7 +95,26 @@ func main() {
 
 	// Initialize handlers
 	contractHandler := handlers.NewContractHandler(contractService, authService)
-	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService)
+
+	// Load audit queue configuration
+	var auditConfig service.AuditQueueConfig
+	if err := viper.UnmarshalKey("audit_queue", &auditConfig); err != nil {
+		log.Fatalf("Failed to load audit queue config: %v", err)
+	}
+
+	// Initialize audit service
+	auditService := service.NewAuditEventService(valkeyService, &auditConfig)
+	log.Printf("Audit queue service initialized: %s (retention: %dh)", auditConfig.Name, auditConfig.RetentionHours)
+
+	// Load invitation configuration
+	var invitationConfig service.InvitationConfig
+	if err := viper.UnmarshalKey("invitations", &invitationConfig); err != nil {
+		log.Fatalf("Failed to load invitation config: %v", err)
+	}
+
+	// Initialize invitation token service
+	invitationService := service.NewInvitationTokenService(jwtSecret)
+	log.Printf("Invitation service initialized with %d allowed roles", len(invitationConfig.AllowedRoles))
 
 	// Setup rate limiter with config
 	rateLimitRPS := viper.GetFloat64("rate_limit.requests_per_second")
@@ -104,6 +123,9 @@ func main() {
 
 	rateLimiter := middleware.NewRateLimiter(rateLimitRPS, rateLimitBurst)
 	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
+
+	// Setup WebSocket handler with all services
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, auditService)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

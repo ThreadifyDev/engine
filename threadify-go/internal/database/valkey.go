@@ -50,6 +50,17 @@ func (v *ValkeyService) Ping(ctx context.Context) error {
 	return v.Client.Ping(ctx).Err()
 }
 
+// Enqueue adds an item to a Redis queue with TTL
+func (v *ValkeyService) Enqueue(ctx context.Context, queueKey, item string, ttl time.Duration) error {
+	pipe := v.Client.Pipeline()
+	pipe.LPush(ctx, queueKey, item)
+	if ttl > 0 {
+		pipe.Expire(ctx, queueKey, ttl)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 func (v *ValkeyService) Set(ctx context.Context, key, value string, ttl time.Duration) error {
 	return v.Client.Set(ctx, key, value, ttl).Err()
 }
