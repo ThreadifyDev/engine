@@ -122,3 +122,6 @@ export class Threadify {
 
 // Export for CommonJS compatibility
 export default Threadify;
+
+// Export Thread class for direct usage
+export { Thread };

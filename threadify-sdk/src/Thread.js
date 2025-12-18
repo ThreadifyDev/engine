@@ -255,92 +255,55 @@ export class Thread {
   }
 
   /**
-   * Join a thread using an invitation token (static method)
+   * Join a thread using an invitation token (instance method)
    * @param {string} threadToken - JWT invitation token
-   * @param {string} apiKey - API key for authentication
-   * @param {string} ownerId - Owner ID for the connection
-   * @param {string} [serviceName] - Optional service name
-   * @returns {Promise<Thread>} - New Thread instance with joined context
+   * @returns {Promise<Thread>} - Returns this Thread instance with updated context
    */
-  static async join(threadToken, apiKey, ownerId, serviceName = null) {
+  async join(threadToken) {
     if (!threadToken) {
       throw new Error("Thread token is required for join");
     }
-    if (!apiKey) {
-      throw new Error("API key is required for join");
-    }
-    if (!ownerId) {
-      throw new Error("Owner ID is required for join");
+    if (!this.isConnected) {
+      throw new Error("Thread must be connected to join. Call Threadify.connect() first.");
     }
 
-    // Import WebSocket dynamically to avoid Node.js issues
-    const { WebSocket } = await import('ws');
-    
     return new Promise((resolve, reject) => {
-      // Create new WebSocket connection
-      const ws = new WebSocket('ws://localhost:8081/ws');
-      
-      ws.on('open', () => {
-        // First connect to establish session
-        const connectMessage = {
-          action: 'connect',
-          apiKey,
-          ownerId,
-          serviceName
-        };
-        
-        ws.send(JSON.stringify(connectMessage));
-      });
-      
-      ws.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-          
-          // Handle connect response
-          if (message.action === 'connect') {
-            if (message.status === 'success') {
-              // Now send joinThread message
-              const joinMessage = {
-                action: 'joinThread',
-                threadToken
-              };
-              ws.send(JSON.stringify(joinMessage));
-            } else {
-              reject(new Error(message.message || 'Failed to connect'));
-              ws.close();
-            }
+      // Set up one-time listener for join response
+      const responseHandler = (data) => {
+        if (data.action === 'joinThread') {
+          if (data.status === 'success') {
+            // Update thread context with joined thread info
+            this.threadId = data.threadId;
+            this.contractId = data.contractId;
+            this.role = data.role;
+            this.permissions = data.permissions;
+            
+            console.log(`[DEBUG] Joined thread: ${data.threadId}`);
+            console.log(`[DEBUG] Role: ${data.role}, Permissions: ${data.permissions}`);
+            
+            resolve(this);
+          } else {
+            reject(new Error(data.message || 'Failed to join thread'));
           }
-          // Handle joinThread response
-          else if (message.action === 'joinThread') {
-            if (message.status === 'success') {
-              // Create new Thread instance with joined context
-              const thread = new Thread(ws, apiKey, ownerId, serviceName);
-              thread.isConnected = true;
-              thread.threadId = message.threadId;
-              thread.contractId = message.contractId;
-              thread.role = message.role;
-              thread.permissions = message.permissions;
-              
-              resolve(thread);
-            } else {
-              reject(new Error(message.message || 'Failed to join thread'));
-              ws.close();
-            }
-          }
-        } catch (e) {
-          reject(new Error('Failed to parse WebSocket message: ' + e.message));
         }
-      });
-      
-      ws.on('error', (error) => {
-        reject(new Error('WebSocket error: ' + error.message));
-      });
-      
-      // Timeout after 30 seconds
+      };
+
+      // Add response handler using existing method
+      this._onceResponse(responseHandler);
+
+      // Send join thread message
+      const joinMessage = {
+        action: 'joinThread',
+        threadToken: threadToken
+      };
+
+      console.log(`[DEBUG] Joining thread with token: ${threadToken.substring(0, 20)}...`);
+      this._send(joinMessage);
+
+      // Timeout after 10 seconds
       setTimeout(() => {
-        reject(new Error('Connection timeout'));
-        ws.close();
-      }, 30000);
+        reject(new Error('Join thread timeout'));
+      }, 10000);
     });
   }
 }

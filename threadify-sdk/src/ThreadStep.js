@@ -168,4 +168,34 @@ export class ThreadStep {
   getMetadata() {
     return { ...this.event.metadata };
   }
+
+  /**
+   * Complete step with success status (convenience method)
+   * @param {string} message - Success message (optional)
+   * @param {Object} result - Result data (optional)
+   * @returns {Promise<Object>} - Server response
+   */
+  async success(message = 'Step completed successfully', result = {}) {
+    return this.stop('success', message, result);
+  }
+
+  /**
+   * Complete step with error status (convenience method)
+   * @param {string} message - Error message (optional)
+   * @param {Object} error - Error data (optional)
+   * @returns {Promise<Object>} - Server response
+   */
+  async error(message = 'Step failed with error', error = {}) {
+    return this.stop('error', message, error);
+  }
+
+  /**
+   * Complete step with failed status (convenience method)
+   * @param {string} message - Failure message (optional)
+   * @param {Object} error - Error data (optional)
+   * @returns {Promise<Object>} - Server response
+   */
+  async failed(message = 'Step failed', error = {}) {
+    return this.stop('failed', message, error);
+  }
 }
