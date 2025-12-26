@@ -6,6 +6,7 @@ export class ThreadStep {
     this.stepName = stepName;
     this.thread = thread;
     this.serviceName = serviceName;
+    this.manualIdempotencyKey = null; // For manual override
     
     const { external_refs = {} } = options;
     
@@ -21,6 +22,43 @@ export class ThreadStep {
       status: 'in_progress',
       serviceName: serviceName
     };
+  }
+
+  /**
+   * Set manual idempotency key (optional)
+   * @param {string} key - Idempotency key for deduplication
+   * @returns {ThreadStep} - Returns this for method chaining
+   */
+  idempotencyKey(key) {
+    if (typeof key !== 'string' || key.trim() === '') {
+      throw new Error('Idempotency key must be a non-empty string');
+    }
+    this.manualIdempotencyKey = key;
+    return this;
+  }
+
+  /**
+   * Generate idempotency key from step name and context
+   * @returns {string} - Hash of stepName + context
+   */
+  _generateIdempotencyKey() {
+    if (this.manualIdempotencyKey) {
+      return this.manualIdempotencyKey;
+    }
+    
+    // Create stable string representation of context
+    const contextStr = JSON.stringify(this.event.context, Object.keys(this.event.context).sort());
+    const input = this.stepName + contextStr;
+    
+    // Simple hash function (FNV-1a)
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    
+    // Convert to hex string
+    return (hash >>> 0).toString(16).padStart(8, '0');
   }
 
   /**
@@ -92,10 +130,19 @@ export class ThreadStep {
       this.event.context.message = String(message);
     }
     
+    // Generate and add idempotency key
+    this.event.idempotencyKey = this._generateIdempotencyKey();
+    
     // Send the complete event to server
     try {
       await this._sendEvent();
     } catch (error) {
+      // Check if it's a duplicate error
+      if (error.isDuplicate) {
+        console.warn('⚠️ Duplicate step detected:', error.message);
+        // Don't throw - this is expected behavior
+        return this;
+      }
       console.error('Failed to send step event:', error);
       throw error;
     }
@@ -122,7 +169,10 @@ export class ThreadStep {
           if (data.status === 'success') {
             resolve(data);
           } else {
-            reject(new Error(data.message || 'Failed to record step event'));
+            // Create error object with isDuplicate flag
+            const error = new Error(data.message || 'Failed to record step event');
+            error.isDuplicate = data.isDuplicate || false;
+            reject(error);
           }
         }
       };

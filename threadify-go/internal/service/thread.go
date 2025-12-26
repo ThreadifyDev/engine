@@ -235,6 +235,30 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
+	// Check for duplicate step using idempotency key
+	if req.IdempotencyKey != "" {
+		storageKey := req.StepName + ":" + req.IdempotencyKey
+
+		// Initialize Steps map if nil
+		if thread.Steps == nil {
+			thread.Steps = make(map[string]*models.StepState)
+		}
+
+		// Check if step with this idempotency key already exists
+		if existingStep, exists := thread.Steps[storageKey]; exists {
+			if existingStep.Status == "success" {
+				// Duplicate successful step - reject
+				return &models.RecordEventResponse{
+					Action:      "recordThreadEvent",
+					Status:      "error",
+					Message:     "Step with this signature already successful",
+					IsDuplicate: true,
+				}
+			}
+			// If status is "failed", we'll update it below
+		}
+	}
+
 	// Validate contract if thread has one
 	if thread.ContractName != "" {
 		// Get contract graph (three-tier cached)
@@ -324,11 +348,46 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
+	// Update step state in thread for deduplication tracking
+	if req.IdempotencyKey != "" {
+		storageKey := req.StepName + ":" + req.IdempotencyKey
+		now := time.Now()
+
+		if existingStep, exists := thread.Steps[storageKey]; exists {
+			// Update existing step (retry case)
+			existingStep.StepID = stepID
+			existingStep.Status = req.Status
+			existingStep.Context = req.Context
+			existingStep.UpdatedAt = now
+			existingStep.RetryCount++
+		} else {
+			// Create new step state
+			thread.Steps[storageKey] = &models.StepState{
+				StepID:         stepID,
+				StepName:       req.StepName,
+				Status:         req.Status,
+				IdempotencyKey: req.IdempotencyKey,
+				Context:        req.Context,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+				RetryCount:     0,
+			}
+		}
+
+		// Save updated thread to cache and Valkey
+		s.cacheManager.SetThread(req.ThreadID, thread)
+		if err := s.repo.Save(context.Background(), thread); err != nil {
+			// Log error but don't fail the request - step event is already processed
+			fmt.Printf("Warning: Failed to save thread state: %v\n", err)
+		}
+	}
+
 	return &models.RecordEventResponse{
 		Action:   "recordThreadEvent",
 		Status:   "success",
 		Message:  "Step Event recorded successfully",
 		ThreadID: req.ThreadID,
+		StepID:   stepID,
 	}
 }
 

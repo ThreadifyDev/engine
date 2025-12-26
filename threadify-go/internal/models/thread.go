@@ -28,29 +28,32 @@ const (
 
 // Thread represents a contract execution instance
 type Thread struct {
-	ID              string            `json:"id"`
-	ContractID      *string           `json:"contractId,omitempty"`
-	ContractVersion *int              `json:"contractVersion,omitempty"`
-	ContractName    string            `json:"contractName,omitempty"` // New field for contract name
-	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
-	OwnerID         string            `json:"ownerId"`
-	CompanyID       string            `json:"companyId"` // Company ID for multi-tenancy
-	Status          ThreadStatus      `json:"status"`
-	CurrentStep     string            `json:"currentStep"`
-	LastHash        string            `json:"lastHash"`
-	StartedAt       time.Time         `json:"startedAt"`
-	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
-	Error           string            `json:"error,omitempty"`
+	ID              string                `json:"id"`
+	ContractID      *string               `json:"contractId,omitempty"`
+	ContractVersion *int                  `json:"contractVersion,omitempty"`
+	ContractName    string                `json:"contractName,omitempty"` // New field for contract name
+	Refs            map[string]string     `json:"refs,omitempty"`         // New field for external references
+	OwnerID         string                `json:"ownerId"`
+	CompanyID       string                `json:"companyId"` // Company ID for multi-tenancy
+	Status          ThreadStatus          `json:"status"`
+	CurrentStep     string                `json:"currentStep"`
+	LastHash        string                `json:"lastHash"`
+	Steps           map[string]*StepState `json:"steps,omitempty"` // Key: stepName:idempKey
+	StartedAt       time.Time             `json:"startedAt"`
+	CompletedAt     *time.Time            `json:"completedAt,omitempty"`
+	Error           string                `json:"error,omitempty"`
 }
 
 // StepState represents the state of a step in a thread
 type StepState struct {
-	ID          string    `json:"id"`          // stepId (same as stepName from StepEvent)
-	Status      string    `json:"status"`      // "completed" | "failed" | "pending"
-	CreatedAt   time.Time `json:"createdAt"`   // When step state was first created
-	UpdatedAt   time.Time `json:"updatedAt"`   // When step state was last updated
-	RetryCount  int       `json:"retryCount"`  // Number of retry attempts
-	IsCompleted bool      `json:"isCompleted"` // Convenience flag to prevent updates
+	StepID         string            `json:"stepId"`         // Unique step event ID (UUID)
+	StepName       string            `json:"stepName"`       // Base step name (without :idempKey suffix)
+	Status         string            `json:"status"`         // "success" | "failed" | "in_progress"
+	IdempotencyKey string            `json:"idempotencyKey"` // For deduplication
+	Context        map[string]string `json:"context"`        // Step context
+	CreatedAt      time.Time         `json:"createdAt"`      // When step was first created
+	UpdatedAt      time.Time         `json:"updatedAt"`      // When step was last updated
+	RetryCount     int               `json:"retryCount"`     // Number of retry attempts
 }
 
 // NewThread creates a new thread instance
@@ -66,6 +69,7 @@ func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, c
 		OwnerID:   ownerID,
 		CompanyID: companyID,
 		Status:    ThreadStatusActive,
+		Steps:     make(map[string]*StepState), // Initialize steps map
 		StartedAt: time.Now(),
 	}
 

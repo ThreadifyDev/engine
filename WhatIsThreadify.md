@@ -99,6 +99,75 @@ await thread.join(threadId, 'payment_gateway');
 - Role-based access control with contract validation
 - Invitation permissions enforced (invite permission required)
 
+### Step Deduplication with Idempotency Keys
+
+**Automatic Idempotency:**
+- SDK automatically generates idempotency keys from `stepName + context` (FNV-1a hash)
+- Prevents accidental duplicate submissions (network retries, double-clicks)
+- Duplicate successful steps are rejected with clear error message
+
+**Manual Override:**
+```javascript
+// Use external transaction ID as idempotency key
+await thread.step('payment')
+  .addContext({ orderId: 'PO-123', amount: '100' })
+  .idempotencyKey('stripe-txn-xyz789')
+  .stop('success');
+```
+
+**Retry Handling:**
+- Failed steps can be retried (same idempotency key → updates existing)
+- Successful steps are immutable (duplicate rejected)
+- Each attempt creates new event in activity queue (complete audit trail)
+- Deduplication index tracks latest state per idempotency key
+
+**Storage:**
+- All steps stored with key format: `stepName:idempotencyKey`
+- Event stream remains immutable (append-only)
+- Index map for O(1) duplicate detection
+
+### Archiver Service - Durable Persistence
+
+**Architecture:**
+```
+API Service → Valkey Streams → Archiver Service → Postgres
+  (fast)      (in-memory)       (batching)      (durable)
+```
+
+**Purpose:**
+- Decouples API from Postgres for performance
+- Batches events for efficient writes (100x faster)
+- Ensures durable persistence without blocking users
+
+**How It Works:**
+1. API writes events to Valkey streams (non-blocking, <1ms)
+2. Archiver reads from streams in batches
+3. Accumulates events in local buffers
+4. Flushes to Postgres on size OR time trigger
+5. ACKs stream entries only after successful write
+
+**Flush Triggers:**
+- **Size**: 100 events (step events), 50 (threads), 200 (audit logs)
+- **Time**: 5-30 seconds depending on queue type
+- Whichever comes first
+
+**Reliability:**
+- Exponential backoff retry (6 attempts: 1s, 2s, 4s, 8s, 16s)
+- Events stay in Valkey until confirmed written
+- Crash recovery: Resume from pending entries
+- No data loss (at-least-once delivery)
+
+**Scaling:**
+- Consumer groups enable horizontal scaling
+- Multiple archiver instances share load
+- Independent scaling from API service
+
+**Benefits:**
+- ✅ API 10x faster (no Postgres wait)
+- ✅ Efficient batching (bulk inserts)
+- ✅ Failure isolation (Postgres down? API still works)
+- ✅ Complete audit trail preserved
+
 **Multi-Service Architecture:**
 - Single API key supports multiple services
 - Service-specific session isolation
