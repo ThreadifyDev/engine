@@ -8,18 +8,23 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
 // MockValkeyService is a mock implementation of ValkeyService for testing
 type MockValkeyService struct {
 	storage map[string]string
+	hashes  map[string]map[string]string
+	lists   map[string][]string
 	err     error
 }
 
 func NewMockValkeyService() *MockValkeyService {
 	return &MockValkeyService{
 		storage: make(map[string]string),
+		hashes:  make(map[string]map[string]string),
+		lists:   make(map[string][]string),
 	}
 }
 
@@ -47,6 +52,8 @@ func (m *MockValkeyService) Delete(ctx context.Context, key string) error {
 		return m.err
 	}
 	delete(m.storage, key)
+	delete(m.hashes, key)
+	delete(m.lists, key)
 	return nil
 }
 
@@ -55,7 +62,9 @@ func (m *MockValkeyService) Exists(ctx context.Context, key string) (bool, error
 		return false, m.err
 	}
 	_, exists := m.storage[key]
-	return exists, nil
+	_, hashExists := m.hashes[key]
+	_, listExists := m.lists[key]
+	return exists || hashExists || listExists, nil
 }
 
 func (m *MockValkeyService) Keys(ctx context.Context, pattern string) ([]string, error) {
@@ -93,13 +102,175 @@ func (m *MockValkeyService) Expire(ctx context.Context, key string, ttl time.Dur
 	}
 	// Mock doesn't actually expire, just check if key exists
 	if _, exists := m.storage[key]; !exists {
-		return errors.New("key not found")
+		if _, hashExists := m.hashes[key]; !hashExists {
+			if _, listExists := m.lists[key]; !listExists {
+				return errors.New("key not found")
+			}
+		}
 	}
 	return nil
 }
 
+// Hash operations
+func (m *MockValkeyService) HSet(ctx context.Context, key string, values ...interface{}) error {
+	if m.err != nil {
+		return m.err
+	}
+	if m.hashes[key] == nil {
+		m.hashes[key] = make(map[string]string)
+	}
+	// Handle field-value pairs
+	for i := 0; i < len(values); i += 2 {
+		field := values[i].(string)
+		value := values[i+1].(string)
+		m.hashes[key][field] = value
+	}
+	return nil
+}
+
+func (m *MockValkeyService) HGet(ctx context.Context, key, field string) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	hash, exists := m.hashes[key]
+	if !exists {
+		return "", errors.New("hash not found")
+	}
+	value, exists := hash[field]
+	if !exists {
+		return "", errors.New("field not found")
+	}
+	return value, nil
+}
+
+func (m *MockValkeyService) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	hash, exists := m.hashes[key]
+	if !exists {
+		return make(map[string]string), nil
+	}
+	// Return a copy to avoid mutation issues
+	result := make(map[string]string)
+	for k, v := range hash {
+		result[k] = v
+	}
+	return result, nil
+}
+
+func (m *MockValkeyService) HDel(ctx context.Context, key string, fields ...string) error {
+	if m.err != nil {
+		return m.err
+	}
+	hash, exists := m.hashes[key]
+	if !exists {
+		return nil
+	}
+	for _, field := range fields {
+		delete(hash, field)
+	}
+	// Clean up empty hash
+	if len(hash) == 0 {
+		delete(m.hashes, key)
+	}
+	return nil
+}
+
+// List operations
+func (m *MockValkeyService) LPush(ctx context.Context, key string, values ...interface{}) error {
+	if m.err != nil {
+		return m.err
+	}
+	if m.lists[key] == nil {
+		m.lists[key] = make([]string, 0)
+	}
+	// Add values to the front (reverse order for LPush)
+	for i := len(values) - 1; i >= 0; i-- {
+		value := values[i].(string)
+		m.lists[key] = append([]string{value}, m.lists[key]...)
+	}
+	return nil
+}
+
+func (m *MockValkeyService) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	list, exists := m.lists[key]
+	if !exists {
+		return []string{}, nil
+	}
+	// Handle negative indices and bounds
+	length := int64(len(list))
+	if start < 0 {
+		start = length + start
+	}
+	if stop < 0 {
+		stop = length + stop
+	}
+	// Clamp values
+	if start < 0 {
+		start = 0
+	}
+	if stop >= length {
+		stop = length - 1
+	}
+	if start > stop || start >= length {
+		return []string{}, nil
+	}
+	return list[start : stop+1], nil
+}
+
+// Pipeline operations
+func (m *MockValkeyService) Pipeline() interfaces.ValkeyPipeline {
+	return &MockPipeline{service: m}
+}
+
 func (m *MockValkeyService) SetError(err error) {
 	m.err = err
+}
+
+// MockPipeline implements ValkeyPipeline for testing
+type MockPipeline struct {
+	service *MockValkeyService
+}
+
+func (p *MockPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	p.service.HSet(ctx, key, values...)
+	return p
+}
+
+func (p *MockPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+	p.service.HDel(ctx, key, fields...)
+	return p
+}
+
+func (p *MockPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	p.service.LPush(ctx, key, values...)
+	return p
+}
+
+func (p *MockPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+	strValue := value.(string)
+	p.service.Set(ctx, key, strValue, expiration)
+	return p
+}
+
+func (p *MockPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+	for _, key := range keys {
+		p.service.Delete(ctx, key)
+	}
+	return p
+}
+
+func (p *MockPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+	p.service.Expire(ctx, key, expiration)
+	return p
+}
+
+func (p *MockPipeline) Exec(ctx context.Context) ([]interface{}, error) {
+	return []interface{}{}, nil
 }
 
 func TestNewThreadRepository(t *testing.T) {

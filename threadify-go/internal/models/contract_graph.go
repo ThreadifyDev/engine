@@ -15,7 +15,7 @@ type Graph struct {
 // GraphNode represents a step or parallel group in the workflow
 type GraphNode struct {
 	ID              string            `json:"id"`
-	Owner           string            `json:"owner,omitempty"`
+	Role            string            `json:"role,omitempty"` // Required role to execute this step (e.g., "buyer", "seller")
 	Type            string            `json:"type"`           // "step" or "parallel_group"
 	Mode            string            `json:"mode,omitempty"` // "all_of" or "any_of" for groups
 	Required        bool              `json:"required"`
@@ -42,7 +42,7 @@ type ContractYAML struct {
 // Step represents a workflow step
 type Step struct {
 	ID              string            `yaml:"id" json:"ID"`
-	Owner           string            `yaml:"owner" json:"Owner"`
+	Role            string            `yaml:"role,omitempty" json:"Role,omitempty"`
 	DependsOn       []string          `yaml:"depends_on,omitempty" json:"DependsOn,omitempty"`
 	Timeout         string            `yaml:"timeout,omitempty" json:"Timeout,omitempty"`
 	BusinessContext map[string]string `yaml:"business_context,omitempty" json:"BusinessContext,omitempty"`

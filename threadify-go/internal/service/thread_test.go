@@ -383,13 +383,38 @@ func (m *MockCacheManager) ClearContractCache(contractID string, version int) {
 	m.Called(contractID, version)
 }
 
+func (m *MockCacheManager) GetUserPermissions(threadID, userID string) ([]string, bool) {
+	args := m.Called(threadID, userID)
+	if args.Get(0) == nil {
+		return nil, args.Bool(1)
+	}
+	return args.Get(0).([]string), args.Bool(1)
+}
+
+func (m *MockCacheManager) SetUserPermissions(threadID, userID string, permissions []string) {
+	m.Called(threadID, userID, permissions)
+}
+
+func (m *MockCacheManager) GetUserRole(threadID, userID string) (string, bool) {
+	args := m.Called(threadID, userID)
+	return args.String(0), args.Bool(1)
+}
+
+func (m *MockCacheManager) SetUserRole(threadID, userID, role string) {
+	m.Called(threadID, userID, role)
+}
+
+func (m *MockCacheManager) ClearThreadPermissions(threadID string) {
+	m.Called(threadID)
+}
+
 // MockConnectionManager is a mock implementation of ConnectionManager interface
 type MockConnectionManager struct {
 	mock.Mock
 }
 
-func (m *MockConnectionManager) Connect(ownerID, apiKey, serviceName string) error {
-	args := m.Called(ownerID, apiKey, serviceName)
+func (m *MockConnectionManager) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID string) error {
+	args := m.Called(ownerID, apiKey, serviceName, companyID)
 	return args.Error(0)
 }
 
@@ -406,6 +431,11 @@ func (m *MockConnectionManager) GetClient(ownerID string) (*models.ConnectedClie
 func (m *MockConnectionManager) IsConnected(ownerID string) bool {
 	args := m.Called(ownerID)
 	return args.Bool(0)
+}
+
+func (m *MockConnectionManager) GetClientCompany(ownerID string) (string, bool) {
+	args := m.Called(ownerID)
+	return args.String(0), args.Bool(1)
 }
 
 // MockContractValidator is a mock implementation of ContractValidator interface
@@ -441,6 +471,8 @@ func TestThreadService_HandleRecordEvent_RequiredFields(t *testing.T) {
 
 	// Setup mock for authentication - these tests don't check auth, so return true
 	mockConnection.On("IsConnected", mock.Anything).Return(true)
+	// Setup mock for company validation - return a valid company ID
+	mockConnection.On("GetClientCompany", mock.Anything).Return("company-123", true)
 
 	// Setup mock for contract validation - these tests don't check validation, so return nil
 	mockContractValidator.On("ValidateStepInContract", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -568,6 +600,8 @@ func TestThreadService_HandleRecordEvent_DuplicateStepPrevention(t *testing.T) {
 
 	// Setup mock for authentication
 	mockConnection.On("IsConnected", "owner-123").Return(true)
+	// Setup mock for company validation
+	mockConnection.On("GetClientCompany", "owner-123").Return("company-123", true)
 
 	// Setup mock for contract validation
 	mockContractValidator.On("ValidateStepInContract", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -634,6 +668,8 @@ func TestThreadService_HandleRecordEvent_RetryTracking(t *testing.T) {
 
 	// Setup mock for authentication
 	mockConnection.On("IsConnected", "owner-123").Return(true)
+	// Setup mock for company validation
+	mockConnection.On("GetClientCompany", "owner-123").Return("company-123", true)
 
 	// Setup mock for contract validation
 	mockContractValidator.On("ValidateStepInContract", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)

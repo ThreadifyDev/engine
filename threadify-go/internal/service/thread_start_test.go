@@ -17,7 +17,7 @@ func TestThreadService_HandleStartThread_Success(t *testing.T) {
 	mockConnection := &MockConnectionManager{}
 	mockContractValidator := &MockContractValidator{}
 
-	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator)
+	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator, nil)
 
 	// Setup mock for authentication
 	mockConnection.On("IsConnected", "owner-123").Return(true)
@@ -31,16 +31,16 @@ func TestThreadService_HandleStartThread_Success(t *testing.T) {
 
 	// Test successful thread start
 	req := &models.StartThreadRequest{
-		ContractID: "test-contract:1",
+		ContractName: "test-contract",
+		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "owner-123")
+	response := service.HandleStartThread(req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "success", response.Status)
 	assert.Equal(t, "Thread started successfully", response.Message)
 	assert.NotEmpty(t, response.ThreadID)
-	assert.Equal(t, "test-contract:1", response.ContractID)
 
 	// Verify all mocks were called
 	mock.AssertExpectationsForObjects(t, mockConnection, mockContractValidator, mockValkeyRepo, mockCache)
@@ -55,16 +55,17 @@ func TestThreadService_HandleStartThread_NotAuthenticated(t *testing.T) {
 	mockConnection := &MockConnectionManager{}
 	mockContractValidator := &MockContractValidator{}
 
-	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator)
+	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator, nil)
 
 	// Setup mock for authentication - user not connected
 	mockConnection.On("IsConnected", "unauthorized-user").Return(false)
 
 	req := &models.StartThreadRequest{
-		ContractID: "test-contract:1",
+		ContractName: "test-contract",
+		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "unauthorized-user")
+	response := service.HandleStartThread(req, "unauthorized-user", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "error", response.Status)
@@ -84,7 +85,7 @@ func TestThreadService_HandleStartThread_ContractLoadingError(t *testing.T) {
 	mockConnection := &MockConnectionManager{}
 	mockContractValidator := &MockContractValidator{}
 
-	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator)
+	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator, nil)
 
 	// Setup mock for authentication
 	mockConnection.On("IsConnected", "owner-123").Return(true)
@@ -93,10 +94,11 @@ func TestThreadService_HandleStartThread_ContractLoadingError(t *testing.T) {
 	mockContractValidator.On("LoadContractGraphIntoCache", "invalid-contract", 1).Return(assert.AnError)
 
 	req := &models.StartThreadRequest{
-		ContractID: "invalid-contract:1",
+		ContractName: "invalid-contract",
+		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "owner-123")
+	response := service.HandleStartThread(req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "error", response.Status)
@@ -116,28 +118,66 @@ func TestThreadService_HandleStartThread_NoContract(t *testing.T) {
 	mockConnection := &MockConnectionManager{}
 	mockContractValidator := &MockContractValidator{}
 
-	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator)
+	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator, nil)
 
 	// Setup mock for authentication
 	mockConnection.On("IsConnected", "owner-123").Return(true)
 
-	// Setup mock for repository save and cache (no contract loading)
+	// Setup mock for repository save and cache (no contract loading for non-contract)
 	mockValkeyRepo.On("Save", mock.Anything, mock.AnythingOfType("*models.Thread")).Return(nil)
 	mockCache.On("SetThread", mock.AnythingOfType("string"), mock.AnythingOfType("*models.Thread")).Return()
 
-	// Test thread start without contract
+	// Test thread start without contract (non-contract workflow)
 	req := &models.StartThreadRequest{
-		ContractID: "", // No contract specified
+		ContractName: "", // Empty contract name for non-contract workflow
+		Role:         "", // No role for non-contract workflow
 	}
 
-	response := service.HandleStartThread(req, "owner-123")
+	response := service.HandleStartThread(req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "success", response.Status)
 	assert.Equal(t, "Thread started successfully", response.Message)
 	assert.NotEmpty(t, response.ThreadID)
-	assert.Empty(t, response.ContractID)
 
-	// Verify authentication, repository save, and cache were called
+	// Verify authentication, repository save, and cache were called (but not contract validator)
 	mock.AssertExpectationsForObjects(t, mockConnection, mockValkeyRepo, mockCache)
+}
+
+func TestThreadService_HandleStartThread_WithContract(t *testing.T) {
+	// Setup
+	mockValkeyRepo := &MockThreadRepository{}
+	mockGraphRepo := &MockContractGraphRepository{}
+	mockStepEvent := &MockStepEventService{}
+	mockCache := &MockCacheManager{}
+	mockConnection := &MockConnectionManager{}
+	mockContractValidator := &MockContractValidator{}
+
+	service := NewThreadService(mockValkeyRepo, mockGraphRepo, mockStepEvent, mockCache, mockConnection, mockContractValidator, nil)
+
+	// Setup mock for authentication
+	mockConnection.On("IsConnected", "owner-123").Return(true)
+
+	// Setup mock for contract loading
+	mockContractValidator.On("LoadContractGraphIntoCache", "simple-contract", 1).Return(nil)
+
+	// Setup mock for repository save and cache
+	mockValkeyRepo.On("Save", mock.Anything, mock.AnythingOfType("*models.Thread")).Return(nil)
+	mockCache.On("SetThread", mock.AnythingOfType("string"), mock.AnythingOfType("*models.Thread")).Return()
+
+	// Test thread start with contract
+	req := &models.StartThreadRequest{
+		ContractName: "simple-contract",
+		Role:         "processor",
+	}
+
+	response := service.HandleStartThread(req, "owner-123", "company-123")
+
+	assert.Equal(t, "startThread", response.Action)
+	assert.Equal(t, "success", response.Status)
+	assert.Equal(t, "Thread started successfully", response.Message)
+	assert.NotEmpty(t, response.ThreadID)
+
+	// Verify authentication, contract validator, repository save, and cache were called
+	mock.AssertExpectationsForObjects(t, mockConnection, mockContractValidator, mockValkeyRepo, mockCache)
 }

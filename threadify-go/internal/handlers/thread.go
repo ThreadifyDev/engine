@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ type WebSocketHandler struct {
 type Session struct {
 	conn      *websocket.Conn
 	ownerID   string
+	companyID string
 	threadIDs []string
 	mu        sync.Mutex
 }
@@ -103,16 +105,17 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		resp := h.threadService.HandleConnect(&req)
 		if resp.Status == "success" {
 			session.mu.Lock()
-			session.ownerID = req.OwnerID
+			session.ownerID = resp.OwnerID     // Use ownerID from response, not request
+			session.companyID = resp.CompanyID // Set companyID from response
 			session.mu.Unlock()
-			h.sessions.Store(req.OwnerID, session)
+			h.sessions.Store(resp.OwnerID, session) // Use ownerID from response
 		}
 		response = resp
 
 	case "startThread":
 		var req models.StartThreadRequest
 		json.Unmarshal(msgBytes, &req)
-		response = h.threadService.HandleStartThread(&req, session.ownerID)
+		response = h.threadService.HandleStartThread(&req, session.ownerID, session.companyID)
 
 		// Add created thread to session's threadIDs
 		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
@@ -126,7 +129,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	case "recordThreadEvent":
 		var req models.RecordEventRequest
 		json.Unmarshal(msgBytes, &req)
-		response = h.threadService.HandleRecordEvent(&req, session.ownerID)
+		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
 
 	case "stepEvent":
 		var req models.StepEvent
@@ -311,8 +314,26 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 		}
 	}
 
-	// Verify thread exists (in a real implementation, this would check the database)
-	// For now, we'll assume the thread exists if the token is valid
+	// Store role in Valkey (with in-memory cache)
+	err = h.threadService.AssignThreadRole(claims.ThreadID, claims.Role, session.ownerID)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "joinThread",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to assign role: %v", err),
+		}
+	}
+
+	// Store permissions in Valkey (with in-memory cache)
+	permissions := strings.Split(claims.Permissions, ",") // "read,write" -> ["read", "write"]
+	err = h.threadService.SetThreadPermissions(claims.ThreadID, session.ownerID, permissions)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "joinThread",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to set permissions: %v", err),
+		}
+	}
 
 	// Update session with thread context
 	session.mu.Lock()

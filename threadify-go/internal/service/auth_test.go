@@ -164,3 +164,77 @@ func TestAuthService_VerifyToken_SigningMethod(t *testing.T) {
 	_, err = service.VerifyToken(tokenString)
 	assert.Error(t, err)
 }
+
+func TestAuthService_ValidateApiKey(t *testing.T) {
+	auth := NewAuthService("test-secret", "test-issuer", "test-audience", 24)
+
+	tests := []struct {
+		name      string
+		apiKey    string
+		expectErr bool
+		expected  *UserInfo
+	}{
+		{
+			name:   "Valid API key 123",
+			apiKey: "api-key-123",
+			expected: &UserInfo{
+				OwnerID:   "user-123",
+				CompanyID: "company-abc",
+				Role:      "admin",
+			},
+		},
+		{
+			name:   "Valid API key 456",
+			apiKey: "api-key-456",
+			expected: &UserInfo{
+				OwnerID:   "user-456",
+				CompanyID: "company-xyz",
+				Role:      "user",
+			},
+		},
+		{
+			name:   "Valid test API key",
+			apiKey: "test-api-key",
+			expected: &UserInfo{
+				OwnerID:   "test-user",
+				CompanyID: "test-company",
+				Role:      "developer",
+			},
+		},
+		{
+			name:   "Valid demo API key",
+			apiKey: "demo-key",
+			expected: &UserInfo{
+				OwnerID:   "demo-user",
+				CompanyID: "demo-company",
+				Role:      "user",
+			},
+		},
+		{
+			name:      "Invalid API key",
+			apiKey:    "invalid-key",
+			expectErr: true,
+		},
+		{
+			name:      "Empty API key",
+			apiKey:    "",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := auth.ValidateApiKey(tt.apiKey)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected.OwnerID, result.OwnerID)
+				assert.Equal(t, tt.expected.CompanyID, result.CompanyID)
+				assert.Equal(t, tt.expected.Role, result.Role)
+			}
+		})
+	}
+}

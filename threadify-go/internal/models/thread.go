@@ -28,18 +28,19 @@ const (
 
 // Thread represents a contract execution instance
 type Thread struct {
-	ID              string                 `json:"id"`
-	ContractID      *string                `json:"contractId,omitempty"`
-	ContractVersion *int                   `json:"contractVersion,omitempty"`
-	OwnerID         string                 `json:"ownerId"`
-	Status          ThreadStatus           `json:"status"`
-	CurrentStep     string                 `json:"currentStep"`
-	Context         map[string]interface{} `json:"context"`
-	Steps           map[string]*StepState  `json:"steps"`
-	LastHash        string                 `json:"lastHash"`
-	StartedAt       time.Time              `json:"startedAt"`
-	CompletedAt     *time.Time             `json:"completedAt,omitempty"`
-	Error           string                 `json:"error,omitempty"`
+	ID              string            `json:"id"`
+	ContractID      *string           `json:"contractId,omitempty"`
+	ContractVersion *int              `json:"contractVersion,omitempty"`
+	ContractName    string            `json:"contractName,omitempty"` // New field for contract name
+	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
+	OwnerID         string            `json:"ownerId"`
+	CompanyID       string            `json:"companyId"` // Company ID for multi-tenancy
+	Status          ThreadStatus      `json:"status"`
+	CurrentStep     string            `json:"currentStep"`
+	LastHash        string            `json:"lastHash"`
+	StartedAt       time.Time         `json:"startedAt"`
+	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
+	Error           string            `json:"error,omitempty"`
 }
 
 // StepState represents the state of a step in a thread
@@ -55,12 +56,16 @@ type StepState struct {
 // NewThread creates a new thread instance
 // contractID and contractVersion can be empty/0 for threads without contracts
 func NewThread(id, contractID string, contractVersion int, ownerID string) *Thread {
+	return NewThreadWithCompany(id, contractID, contractVersion, ownerID, "")
+}
+
+// NewThreadWithCompany creates a new thread instance with company information
+func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, companyID string) *Thread {
 	thread := &Thread{
 		ID:        id,
 		OwnerID:   ownerID,
+		CompanyID: companyID,
 		Status:    ThreadStatusActive,
-		Context:   make(map[string]interface{}),
-		Steps:     make(map[string]*StepState),
 		StartedAt: time.Now(),
 	}
 
@@ -73,47 +78,6 @@ func NewThread(id, contractID string, contractVersion int, ownerID string) *Thre
 	}
 
 	return thread
-}
-
-// StartStep marks a step as in progress
-func (t *Thread) StartStep(stepID string) {
-	now := time.Now()
-	if t.Steps[stepID] == nil {
-		t.Steps[stepID] = &StepState{
-			ID:          stepID,
-			Status:      string(StepStatusInProgress),
-			CreatedAt:   now,
-			UpdatedAt:   now,
-			RetryCount:  0,
-			IsCompleted: false,
-		}
-	} else {
-		t.Steps[stepID].Status = string(StepStatusInProgress)
-		t.Steps[stepID].UpdatedAt = now
-	}
-	t.CurrentStep = stepID
-}
-
-// CompleteStep marks a step as completed
-func (t *Thread) CompleteStep(stepID string, context map[string]interface{}) {
-	now := time.Now()
-	if t.Steps[stepID] != nil {
-		t.Steps[stepID].Status = string(StepStatusCompleted)
-		t.Steps[stepID].UpdatedAt = now
-		t.Steps[stepID].IsCompleted = true
-		// Context is no longer stored in StepState - it's in StepEvent
-	}
-}
-
-// FailStep marks a step as failed
-func (t *Thread) FailStep(stepID string, errorMsg string) {
-	now := time.Now()
-	if t.Steps[stepID] != nil {
-		t.Steps[stepID].Status = string(StepStatusFailed)
-		t.Steps[stepID].UpdatedAt = now
-		t.Steps[stepID].IsCompleted = false
-		// Error is no longer stored in StepState - it's in StepEvent
-	}
 }
 
 // Complete marks the thread as completed
@@ -136,14 +100,6 @@ func (t *Thread) Cancel() {
 	now := time.Now()
 	t.Status = ThreadStatusCancelled
 	t.CompletedAt = &now
-}
-
-// UpdateContext updates the thread's global context
-func (t *Thread) UpdateContext(key string, value interface{}) {
-	if t.Context == nil {
-		t.Context = make(map[string]interface{})
-	}
-	t.Context[key] = value
 }
 
 // ToJSON serializes the thread to JSON
@@ -171,4 +127,17 @@ func (t *Thread) IsCompleted() bool {
 	return t.Status == ThreadStatusCompleted ||
 		t.Status == ThreadStatusFailed ||
 		t.Status == ThreadStatusCancelled
+}
+
+// ThreadEvent represents an event in a thread's activity queue
+type ThreadEvent struct {
+	ThreadID  string            `json:"threadId"`
+	StepName  string            `json:"stepName"`
+	Action    string            `json:"action"` // "thread_created", "step_completed", etc.
+	UserID    string            `json:"userId"`
+	Role      string            `json:"role"`
+	Refs      map[string]string `json:"refs,omitempty"`
+	Context   map[string]string `json:"context,omitempty"`
+	Status    string            `json:"status"` // "success", "failed", "in_progress"
+	Timestamp time.Time         `json:"timestamp"`
 }

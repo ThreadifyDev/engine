@@ -21,13 +21,14 @@ func NewConnectionService() interfaces.ConnectionManager {
 	}
 }
 
-// Connect adds a new client connection
-func (c *ConnectionService) Connect(ownerID, apiKey, serviceName string) error {
+// ConnectWithOwnerAndCompany adds a new client connection with owner and company information
+func (c *ConnectionService) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	client := &models.ConnectedClient{
 		OwnerID:          ownerID,
+		CompanyID:        companyID,
 		ApiKey:           apiKey,
 		ServiceName:      serviceName,
 		ConnectedAt:      time.Now(),
@@ -64,4 +65,16 @@ func (c *ConnectionService) IsConnected(ownerID string) bool {
 
 	_, exists := c.clients[ownerID]
 	return exists
+}
+
+// GetClientCompany retrieves the company ID for a connected client
+func (c *ConnectionService) GetClientCompany(ownerID string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	client, exists := c.clients[ownerID]
+	if !exists {
+		return "", false
+	}
+	return client.CompanyID, true
 }

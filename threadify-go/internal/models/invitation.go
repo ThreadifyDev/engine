@@ -19,10 +19,12 @@ type InvitePartyResponse struct {
 	Message     string `json:"message"`     // Response message
 }
 
-// JoinThreadRequest represents a request to join a thread with token
+// JoinThreadRequest represents a request to join a thread with token or directly
 type JoinThreadRequest struct {
-	Action      string `json:"action"`      // "joinThread"
-	ThreadToken string `json:"threadToken"` // JWT invitation token
+	Action      string `json:"action"`                // "joinThread"
+	ThreadToken string `json:"threadToken,omitempty"` // JWT invitation token (for token-based join)
+	ThreadID    string `json:"threadId,omitempty"`    // Thread ID (for direct join)
+	Role        string `json:"role,omitempty"`        // Role (for direct join)
 }
 
 // JoinThreadResponse represents the response from joinThread

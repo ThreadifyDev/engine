@@ -11,20 +11,35 @@ type StepEventProcessor interface {
 
 // ConnectionManager defines the interface for WebSocket connection management
 type ConnectionManager interface {
-	Connect(ownerID, apiKey, serviceName string) error
+	ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID string) error
 	Disconnect(ownerID string) error
 	GetClient(ownerID string) (*models.ConnectedClient, bool)
 	IsConnected(ownerID string) bool
+	GetClientCompany(ownerID string) (string, bool)
 }
 
 // CacheManager defines the interface for caching operations
 type CacheManager interface {
+	// Thread caching
 	GetThread(threadID string) (*models.Thread, bool)
 	SetThread(threadID string, thread *models.Thread)
+	ClearThreadCache(threadID string)
+
+	// Contract graph caching
 	GetContractGraph(contractID string, version int) (*models.ContractGraph, bool)
 	SetContractGraph(contractID string, version int, graph *models.ContractGraph)
-	ClearThreadCache(threadID string)
 	ClearContractCache(contractID string, version int)
+
+	// Permission caching
+	GetUserPermissions(threadID, userID string) ([]string, bool)
+	SetUserPermissions(threadID, userID string, permissions []string)
+
+	// Role caching
+	GetUserRole(threadID, userID string) (string, bool)
+	SetUserRole(threadID, userID, role string)
+
+	// Clear all permissions and roles for a thread
+	ClearThreadPermissions(threadID string)
 }
 
 // ContractValidator defines the interface for contract validation operations

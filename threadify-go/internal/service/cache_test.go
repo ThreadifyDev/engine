@@ -17,10 +17,9 @@ func TestCacheService_BasicOperations(t *testing.T) {
 		ContractID:      stringPtr("contract-1"),
 		ContractVersion: intPtr(1),
 		OwnerID:         "owner-123",
+		CompanyID:       "company-123",
 		Status:          models.ThreadStatusActive,
 		CurrentStep:     "step-a",
-		Context:         map[string]interface{}{"key": "value"},
-		Steps:           make(map[string]*models.StepState),
 		StartedAt:       time.Now(),
 	}
 

@@ -12,7 +12,7 @@ func TestConnectionService_BasicOperations(t *testing.T) {
 	conn := NewConnectionService()
 
 	// Test connection
-	err := conn.Connect("owner-123", "api-key-123", "test-service")
+	err := conn.ConnectWithOwnerAndCompany("owner-123", "api-key-123", "test-service", "company-abc")
 	assert.NoError(t, err)
 
 	// Test IsConnected
@@ -23,6 +23,7 @@ func TestConnectionService_BasicOperations(t *testing.T) {
 	client, exists := conn.GetClient("owner-123")
 	assert.True(t, exists)
 	assert.Equal(t, "owner-123", client.OwnerID)
+	assert.Equal(t, "company-abc", client.CompanyID)
 	assert.Equal(t, "api-key-123", client.ApiKey)
 	assert.Equal(t, "test-service", client.ServiceName)
 	assert.True(t, client.ConnectedAt.Before(time.Now().Add(time.Second)))
@@ -45,7 +46,8 @@ func TestConnectionService_ConcurrentAccess(t *testing.T) {
 	// Test concurrent connections
 	for i := 0; i < 10; i++ {
 		ownerID := fmt.Sprintf("owner-%d", i)
-		err := conn.Connect(ownerID, "api-key", "service")
+		companyID := fmt.Sprintf("company-%d", i)
+		err := conn.ConnectWithOwnerAndCompany(ownerID, "api-key", "service", companyID)
 		assert.NoError(t, err)
 	}
 

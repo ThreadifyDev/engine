@@ -2,10 +2,12 @@
  * ThreadStep - Represents a step in a thread execution with fluent API
  */
 export class ThreadStep {
-  constructor(stepName, thread, serviceName = null) {
+  constructor(stepName, thread, serviceName = null, options = {}) {
     this.stepName = stepName;
     this.thread = thread;
     this.serviceName = serviceName;
+    
+    const { external_refs = {} } = options;
     
     // Build event locally, send on stop()
     this.event = {
@@ -15,10 +17,30 @@ export class ThreadStep {
       startedAt: new Date().toISOString(),
       finishedAt: null,
       context: {},
+      refs: external_refs, // Store external refs
       status: 'in_progress',
-      metadata: {},
       serviceName: serviceName
     };
+  }
+
+  /**
+   * Add references to external systems
+   * @param {Object} refsData - Key-value pairs of external system references
+   * @returns {ThreadStep} - Returns this for method chaining
+   */
+  addRefs(refsData) {
+    if (typeof refsData !== 'object' || refsData === null) {
+      throw new Error('Refs data must be an object');
+    }
+    
+    // Convert all values to strings as expected by server schema
+    const stringifiedRefs = {};
+    for (const [key, value] of Object.entries(refsData)) {
+      stringifiedRefs[key] = String(value);
+    }
+    
+    this.event.refs = { ...this.event.refs, ...stringifiedRefs };
+    return this;
   }
 
   /**
@@ -47,46 +69,27 @@ export class ThreadStep {
     return this;
   }
 
-  /**
-   * Add metadata to this step
-   * @param {Object} metadataData - Key-value pairs to add to step metadata
-   * @returns {ThreadStep} - Returns this for method chaining
-   */
-  addMetadata(metadataData) {
-    if (typeof metadataData !== 'object' || metadataData === null) {
-      throw new Error('Metadata data must be an object');
-    }
-    
-    // Convert all values to strings as expected by server schema
-    const stringifiedMetadata = {};
-    for (const [key, value] of Object.entries(metadataData)) {
-      stringifiedMetadata[key] = String(value);
-    }
-    
-    this.event.metadata = { ...this.event.metadata, ...stringifiedMetadata };
-    return this;
-  }
 
   /**
    * Stop the step and send the event to server
    * @param {string} status - Final status ('success', 'failed', 'skipped')
    * @param {string} message - Optional message for the step completion
-   * @param {Object} finalMetadata - Optional final metadata
+   * @param {Object} finalContext - Optional final context data
    * @returns {Promise<ThreadStep>} - Returns this for method chaining
    */
-  async stop(status = 'success', message = '', finalMetadata = {}) {
+  async stop(status = 'success', message = '', finalContext = {}) {
     // Set final state
     this.event.finishedAt = new Date().toISOString();
     this.event.status = status;
     
-    // Add final metadata if provided
-    if (Object.keys(finalMetadata).length > 0) {
-      this.addMetadata(finalMetadata);
+    // Add final context if provided
+    if (Object.keys(finalContext).length > 0) {
+      this.addContext(finalContext);
     }
     
-    // Add message to metadata if provided
+    // Add message to context if provided
     if (message) {
-      this.event.metadata.message = String(message);
+      this.event.context.message = String(message);
     }
     
     // Send the complete event to server

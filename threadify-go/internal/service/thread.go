@@ -22,9 +22,11 @@ type ThreadService struct {
 	cacheManager      interfaces.CacheManager
 	connectionMgr     interfaces.ConnectionManager
 	contractValidator interfaces.ContractValidator
+	authService       *AuthService
+	accessService     *ThreadAccessService
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService) *ThreadService {
 	return &ThreadService{
 		repo:              repo,
 		graphRepo:         graphRepo,
@@ -32,6 +34,8 @@ func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.Con
 		cacheManager:      cacheManager,
 		connectionMgr:     connectionMgr,
 		contractValidator: contractValidator,
+		authService:       NewAuthService("demo-secret", "threadify", "threadify-api", 24),
+		accessService:     accessService,
 	}
 }
 
@@ -43,14 +47,19 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 	// Create repositories
 	contractRepo := postgres.NewContractRepository(db.Pool)
 	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
+	threadRepo := valkey.NewThreadRepository(valkeyService, threadTTLSeconds)
+
+	// Create thread access service for permission/role management
+	accessService := NewThreadAccessService(threadRepo, cacheService)
 
 	return NewThreadService(
-		valkey.NewThreadRepository(valkeyService, threadTTLSeconds), // Configurable TTL
+		threadRepo,      // Valkey thread repository
 		valkeyGraphRepo, // Valkey contract graph repository
 		stepEventService,
 		cacheService,           // In-memory cache service
 		NewConnectionService(), // In-memory connection service
 		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
+		accessService, // Thread access service for permissions/roles
 	)
 }
 
@@ -63,16 +72,18 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 		}
 	}
 
-	if req.OwnerID == "" {
+	// Validate API key and derive user information
+	userInfo, err := s.authService.ValidateApiKey(req.ApiKey)
+	if err != nil {
 		return &models.ConnectResponse{
 			Action:  "connect",
 			Status:  "error",
-			Message: "Owner ID is required",
+			Message: fmt.Sprintf("Invalid API key: %v", err),
 		}
 	}
 
-	// Use connection manager to handle connection
-	err := s.connectionMgr.Connect(req.OwnerID, req.ApiKey, req.ServiceName)
+	// Connect with derived owner and company information
+	err = s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID)
 	if err != nil {
 		return &models.ConnectResponse{
 			Action:  "connect",
@@ -82,15 +93,15 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 	}
 
 	return &models.ConnectResponse{
-		Action:           "connect",
-		Status:           "success",
-		Message:          "Connected successfully",
-		OwnerID:          req.OwnerID,
-		SubscribedEvents: req.SubscribedEvents,
+		Action:    "connect",
+		Status:    "success",
+		Message:   "Connected successfully",
+		OwnerID:   userInfo.OwnerID,
+		CompanyID: userInfo.CompanyID,
 	}
 }
 
-func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerID string) *models.StartThreadResponse {
+func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerID string, companyID string) *models.StartThreadResponse {
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.StartThreadResponse{
 			Action:  "startThread",
@@ -99,17 +110,23 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}
 	}
 
-	contractID := ""
-	contractVersion := 0
+	// Validate required fields (only for contract-based workflows)
+	if req.ContractName != "" && req.Role == "" {
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: "Role is required when contract name is provided",
+		}
+	}
 
-	threadID := uuid.New().String()
+	// Parse contract identifier and load contract graph if contract name provided
+	var contractVersion int = 0
+	var parsedContractName string
+	if req.ContractName != "" {
+		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
-	// Parse contract identifier if provided
-	if req.ContractID != "" {
-		contractID, contractVersion = parseContractIdentifier(req.ContractID)
-
-		// Load contract graph into cache using the contract validator
-		if err := s.contractValidator.LoadContractGraphIntoCache(contractID, contractVersion); err != nil {
+		// Load contract graph with parsed name and version
+		if err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion); err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
 				Status:  "error",
@@ -118,13 +135,12 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}
 	}
 
-	// Create and persist the Thread object
-	var thread *models.Thread
-	if req.ContractID != "" {
-		thread = models.NewThread(threadID, contractID, contractVersion, ownerID)
-	} else {
-		thread = models.NewThread(threadID, "", 0, ownerID)
-	}
+	threadID := uuid.New().String()
+
+	// Create thread with company information (supports non-contract workflows)
+	thread := models.NewThreadWithCompany(threadID, parsedContractName, contractVersion, ownerID, companyID)
+	thread.ContractName = req.ContractName // Keep original format for reference
+	thread.Refs = req.Refs
 
 	// Save thread to repository and cache
 	if err := s.repo.Save(context.Background(), thread); err != nil {
@@ -139,15 +155,14 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	s.cacheManager.SetThread(threadID, thread)
 
 	return &models.StartThreadResponse{
-		Action:     "startThread",
-		Status:     "success",
-		Message:    "Thread started successfully",
-		ThreadID:   threadID,
-		ContractID: req.ContractID,
+		Action:   "startThread",
+		Status:   "success",
+		Message:  "Thread started successfully",
+		ThreadID: threadID,
 	}
 }
 
-func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string) *models.RecordEventResponse {
+func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string, companyID string) *models.RecordEventResponse {
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -200,7 +215,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
-	// Optional: Validate step name exists in contract (if thread has contract)
+	// Get thread
 	thread, err := s.getThread(req.ThreadID)
 	if err != nil {
 		return &models.RecordEventResponse{
@@ -210,29 +225,57 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
-	// Thread exists - validate contract if needed
-	if thread.ContractID != nil && *thread.ContractID != "" {
-		contractVersion := 1 // Default fallback
-		if thread.ContractVersion != nil {
-			contractVersion = *thread.ContractVersion
-		}
-
-		if validationErr := s.contractValidator.ValidateStepInContract(*thread.ContractID, contractVersion, req.StepName, req.Context); validationErr != nil {
-			return &models.RecordEventResponse{
-				Action:  "recordThreadEvent",
-				Status:  "error",
-				Message: fmt.Sprintf("Contract validation failed: %v", validationErr),
-			}
+	// Check permission - user must have write access
+	hasAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "write", thread)
+	if err != nil || !hasAccess {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "Access denied: You don't have write permission for this thread",
 		}
 	}
 
-	// Check if step already completed and prevent duplicate updates
-	if thread.Steps != nil {
-		if existingStep, exists := thread.Steps[req.StepName]; exists && existingStep.IsCompleted {
+	// Validate contract if thread has one
+	if thread.ContractName != "" {
+		// Get contract graph (three-tier cached)
+		graph, err := s.contractValidator.GetContractGraph(thread.ContractName, 1)
+		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
 				Status:  "error",
-				Message: fmt.Sprintf("Step '%s' is already completed and cannot be updated", req.StepName),
+				Message: fmt.Sprintf("Failed to load contract: %v", err),
+			}
+		}
+
+		// Check if step exists in contract
+		stepNode, exists := graph.Graph.Nodes[req.StepName]
+		if !exists {
+			return &models.RecordEventResponse{
+				Action:  "recordThreadEvent",
+				Status:  "error",
+				Message: fmt.Sprintf("Step '%s' not found in contract '%s'", req.StepName, thread.ContractName),
+			}
+		}
+
+		// Validate role if step requires specific role
+		if stepNode.Role != "" {
+			hasRole, err := s.accessService.ValidateUserRoleForStep(req.ThreadID, ownerID, stepNode.Role)
+			if err != nil || !hasRole {
+				userRole, _ := s.accessService.GetUserRole(req.ThreadID, ownerID)
+				return &models.RecordEventResponse{
+					Action:  "recordThreadEvent",
+					Status:  "error",
+					Message: fmt.Sprintf("Access denied: Step '%s' requires role '%s', you have '%s'", req.StepName, stepNode.Role, userRole),
+				}
+			}
+		}
+
+		// Validate step context against contract
+		if validationErr := s.contractValidator.ValidateStepInContract(thread.ContractName, 1, req.StepName, req.Context); validationErr != nil {
+			return &models.RecordEventResponse{
+				Action:  "recordThreadEvent",
+				Status:  "error",
+				Message: fmt.Sprintf("Step validation failed: %v", validationErr),
 			}
 		}
 	}
@@ -258,58 +301,27 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		contextInterface[k] = v
 	}
 
-	stepEvent := models.StepEvent{
-		StepID:      stepID,
-		Type:        req.Type,         // Use dynamic type from request
-		Context:     contextInterface, // Keep original context separate and intact
-		Status:      req.Status,
-		Timestamp:   time.Now().UTC(), // Use UTC with nanosecond precision for hash uniqueness
-		ServiceName: serviceName,
+	// Create step event for processing
+	stepEvent := &models.StepEvent{
+		StepID:      stepID, // Use StepID instead of ID
 		ThreadID:    req.ThreadID,
 		StepName:    req.StepName,
+		ServiceName: serviceName,
+		Type:        req.Type, // Use Type from request
+		Status:      req.Status,
+		Context:     contextInterface, // Use converted context
 		StartedAt:   req.StartedAt,
 		FinishedAt:  req.FinishedAt,
+		Timestamp:   time.Now(), // Use Timestamp instead of CreatedAt
 	}
 
-	// Queue step event for async cryptographic processing
-	if err := s.stepEventService.ProcessStepEvent(stepEvent); err != nil {
+	// Process step event immediately
+	if err := s.stepEventService.ProcessStepEvent(*stepEvent); err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",
-			Message: fmt.Sprintf("Failed to queue step event: %v", err),
+			Message: fmt.Sprintf("Failed to process step event: %v", err),
 		}
-	}
-
-	// Update thread step state
-	now := time.Now()
-	stepCompleted := req.Status == "completed" || req.Status == "success"
-
-	newStepState := &models.StepState{
-		ID:          req.StepName, // Maps to stepName from StepEvent
-		Status:      req.Status,   // "completed" | "failed" | "pending"
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		RetryCount:  0, // Will be incremented on retries
-		IsCompleted: stepCompleted,
-	}
-
-	// If this is a retry, increment retry count
-	if existingStep, exists := thread.Steps[req.StepName]; exists {
-		newStepState.RetryCount = existingStep.RetryCount + 1
-		newStepState.CreatedAt = existingStep.CreatedAt // Keep original creation time
-	}
-
-	// Update thread's step state
-	if thread.Steps == nil {
-		thread.Steps = make(map[string]*models.StepState)
-	}
-	thread.Steps[req.StepName] = newStepState
-
-	// Update thread in Valkey with new step state
-	if err := s.repo.Save(context.Background(), thread); err != nil {
-		// Log error but don't fail the response since step event is already queued
-		// TODO: Add proper logging here
-		fmt.Printf("Warning: Failed to update thread step state: %v\n", err)
 	}
 
 	return &models.RecordEventResponse{
@@ -385,4 +397,14 @@ func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	// Cache the thread for future use
 	s.cacheManager.SetThread(threadID, thread)
 	return thread, nil
+}
+
+// AssignThreadRole assigns a role to a user in a thread
+func (s *ThreadService) AssignThreadRole(threadID, role, userID string) error {
+	return s.accessService.AssignRole(threadID, role, userID)
+}
+
+// SetThreadPermissions sets permissions for a user in a thread
+func (s *ThreadService) SetThreadPermissions(threadID, userID string, permissions []string) error {
+	return s.accessService.SetUserPermissions(threadID, userID, permissions)
 }

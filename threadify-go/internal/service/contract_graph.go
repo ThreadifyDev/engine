@@ -56,7 +56,7 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 
 		nodes[step.ID] = models.GraphNode{
 			ID:              step.ID,
-			Owner:           step.Owner,
+			Role:            step.Role,
 			Type:            "step",
 			Required:        true, // Default, can be overridden
 			DependsOn:       dependsOn,

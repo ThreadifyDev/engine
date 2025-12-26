@@ -20,7 +20,12 @@ async function invitationExample() {
     console.log('✅ Host connected successfully');
 
     // Start a new thread (without contract)
-    const startedThread = await hostThread.start();
+    const startedThread = await hostThread.start('payment_flow', 'merchant', {
+      refs: {
+        customer_id: '12345',
+        order_id: 'order-67890'
+      }
+    });
     console.log(`✅ Thread created: ${startedThread.threadId}`);
 
     // Create invitations for different roles
@@ -61,11 +66,12 @@ async function invitationExample() {
     // === COLLABORATION: Both users interact with thread ===
     console.log('\n🤝 COLLABORATION: Both users adding steps...');
 
-    // Host adds a step
-    console.log('📝 Host adding step...');
+    // Host adds a step with refs
+    console.log('📝 Host adding step with refs...');
     await hostThread
-      .step('process_data')
-      .addContext({ type: 'host_operation' })
+      .step('process_payment')
+      .context({ amount: '$49.99' })
+      .addRefs({ stripe_payment_id: 'pi_12345' })
       .success('Host processed data', { result: 'Host processed data' });
     console.log('✅ Host step completed');
 
@@ -112,7 +118,7 @@ async function errorHandlingExamples() {
 
   // Example 1: Invalid role
   try {
-    await testThread.start(); // Thread without contract
+    await testThread.start('payment_flow', 'invalid_role', { refs: { test: true } });
     await testThread.inviteParty({ role: 'invalid_role' });
   } catch (error) {
     console.log('✅ Caught invalid role error:', error.message);
@@ -142,7 +148,12 @@ async function permissionTesting() {
   try {
     // Create thread and invite with read-only permissions (without contract)
     const hostThread = await Threadify.connect('test-api-key');
-    await hostThread.start(); // Thread without contract
+    await hostThread.start('payment_flow', 'merchant', {
+      refs: {
+        customer_id: '12345',
+        order_id: 'order-67890'
+      }
+    });
     
     const readOnlyToken = await hostThread.inviteParty({
       role: 'auditor',

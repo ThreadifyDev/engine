@@ -7,6 +7,7 @@ import (
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
 	"github.com/redis/go-redis/v9"
+	"github.com/threadify/engine/internal/interfaces"
 )
 
 type ValkeyService struct {
@@ -114,6 +115,21 @@ func (v *ValkeyService) Delete(ctx context.Context, key string) error {
 	return v.Client.Del(ctx, key).Err()
 }
 
+// LPush adds items to the left of a Redis list
+func (v *ValkeyService) LPush(ctx context.Context, key string, values ...interface{}) error {
+	return v.Client.LPush(ctx, key, values...).Err()
+}
+
+// LRange gets a range of items from a Redis list
+func (v *ValkeyService) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return v.Client.LRange(ctx, key, start, stop).Result()
+}
+
+// Pipeline creates a new Redis pipeline
+func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
+	return &RedisPipeline{pipe: v.Client.Pipeline()}
+}
+
 // ExecuteWithBackoff executes a Redis operation with exponential backoff
 func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func() error) error {
 	backoffStrategy := backoffv4.NewExponentialBackOff()
@@ -122,4 +138,52 @@ func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func()
 	backoffStrategy.MaxElapsedTime = 500 * time.Millisecond
 
 	return backoffv4.Retry(operation, backoffStrategy)
+}
+
+// RedisPipeline implements the ValkeyPipeline interface
+type RedisPipeline struct {
+	pipe redis.Pipeliner
+}
+
+func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	p.pipe.HSet(ctx, key, values...)
+	return p
+}
+
+func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+	p.pipe.HDel(ctx, key, fields...)
+	return p
+}
+
+func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	p.pipe.LPush(ctx, key, values...)
+	return p
+}
+
+func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+	p.pipe.Set(ctx, key, value, expiration)
+	return p
+}
+
+func (p *RedisPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+	p.pipe.Del(ctx, keys...)
+	return p
+}
+
+func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+	p.pipe.Expire(ctx, key, expiration)
+	return p
+}
+
+func (p *RedisPipeline) Exec(ctx context.Context) ([]interface{}, error) {
+	// Convert []redis.Cmder to []interface{}
+	cmders, err := p.pipe.Exec(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]interface{}, len(cmders))
+	for i, cmd := range cmders {
+		result[i] = cmd
+	}
+	return result, nil
 }

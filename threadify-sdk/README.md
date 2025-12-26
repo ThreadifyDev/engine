@@ -44,7 +44,6 @@ Connect to Threadify Engine and authenticate.
 - `serviceName` (string, optional): Service name for identification
 - `options` (object, optional):
   - `url` (string): WebSocket URL (default: `ws://localhost:8080/threads`)
-  - `ownerId` (string): Owner ID (auto-generated if not provided)
   - `subscribedEvents` (array): Events to subscribe to
 
 **Returns:** `Promise<Thread>`

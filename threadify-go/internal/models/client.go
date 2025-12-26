@@ -4,6 +4,7 @@ import "time"
 
 type ConnectedClient struct {
 	OwnerID          string    `json:"ownerId"`
+	CompanyID        string    `json:"companyId"`
 	ApiKey           string    `json:"apiKey"`
 	ServiceName      string    `json:"serviceName"`
 	ConnectedAt      time.Time `json:"connectedAt"`

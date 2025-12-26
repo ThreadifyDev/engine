@@ -1,76 +1,100 @@
 import { ThreadStep } from './ThreadStep.js';
 
 /**
- * Thread - Represents a thread instance with WebSocket connection
+ * Connection - Represents a WebSocket connection to Threadify Engine
  */
-export class Thread {
-  constructor(ws, apiKey, ownerId, serviceName = null) {
+export class Connection {
+  constructor(ws, apiKey, serviceName = null) {
     this.ws = ws;
     this.apiKey = apiKey;
-    this.ownerId = ownerId;
     this.serviceName = serviceName;
-    this.threadId = null;
-    this.contractId = null;
     this.isConnected = false;
-    this.steps = new Map();
-    this.eventHandlers = {
-      onSuccess: [],
-      onError: [],
-      onViolation: [],
-      onStepProgress: []
-    };
+    this.activeThreads = new Map(); // Map of threadId -> thread info
   }
 
   /**
    * Create a new step in this thread
    * @param {string} stepName - Name of the step
    * @param {string} serviceName - Optional service name for the step
+   * @param {Object} options - Step options (optional)
+   * @param {Object} options.external_refs - External system references
    * @returns {ThreadStep} - New ThreadStep instance
    */
-  step(stepName, serviceName = null) {
+  step(stepName, serviceName = null, options = {}) {
     if (!stepName || typeof stepName !== 'string') {
       throw new Error('Step name must be a non-empty string');
     }
 
-    const step = new ThreadStep(stepName, this, serviceName || this.serviceName);
-    this.steps.set(stepName, step);
+    // Handle overloading: step(name, options) or step(name, serviceName, options)
+    if (typeof serviceName === 'object' && serviceName !== null) {
+      options = serviceName;
+      serviceName = null;
+    }
+
+    const step = new ThreadStep(stepName, this, serviceName || this.serviceName, options);
     return step;
   }
 
   /**
-   * Start the thread (creates thread on server)
-   * @param {string} contractId - Contract ID (optional, can be empty or null for threads without contracts)
-   * @param {Object} metadata - Optional metadata
-   * @returns {Promise<Thread>} - Returns this Thread instance for fluent API
+   * Start a new thread (returns a ThreadInstance)
+   * @param {...any} args - Variable arguments:
+   *   - start() - Non-contract workflow
+   *   - start(serviceName) - Non-contract with specific service
+   *   - start(contractName, serviceName) - Contract workflow (contractName can be "name:version")
+   * @returns {Promise<ThreadInstance>} - Returns a ThreadInstance for fluent API
    */
-  async start(contractId, metadata = {}) {
+  async start(...args) {
     if (!this.isConnected) {
       throw new Error('Not connected. Call Threadify.connect() first.');
     }
 
-    // contractId is optional - allow empty string or null for threads without contracts
-    if (contractId === undefined) {
-      contractId = '';
+    let contractName = null;
+    let serviceName = null;
+
+    if (args.length === 0) {
+      // Non-contract workflow
+      serviceName = this.serviceName;
+      contractName = null;
+    } else if (args.length === 1) {
+      // Non-contract with specific service
+      serviceName = args[0];
+      contractName = null;
+    } else if (args.length === 2) {
+      // Contract workflow (contractName, serviceName)
+      [contractName, serviceName] = args;
+    } else {
+      throw new Error('Invalid arguments. Use start(), start(serviceName), or start(contractName, serviceName)');
+    }
+
+    // Validate parameters
+    if (contractName && typeof contractName !== 'string') {
+      throw new Error('Contract name must be a string');
+    }
+    if (serviceName && typeof serviceName !== 'string') {
+      throw new Error('Service name must be a string');
     }
 
     return new Promise((resolve, reject) => {
       const message = {
         action: 'startThread',
-        contractId,
-        metadata: {
-          ...metadata,
-          serviceName: this.serviceName
+        contractName,
+        refs: {
+          serviceName: serviceName || this.serviceName
         }
       };
+
+      // Only include role for contract-based workflows
+      if (contractName) {
+        message.role = 'participant'; // Default role for contract workflows
+      }
 
       // Set up one-time listener for response
       const responseHandler = (data) => {
         if (data.action === 'startThread') {
           if (data.status === 'success') {
-            this.threadId = data.threadId;
-            this.contractId = data.contractId;
+            const threadInstance = new ThreadInstance(this, data.threadId, contractName, null, {});
             console.log(`[DEBUG] Thread started: ${data.threadId}`);
-            resolve(this); // Return the thread instance for fluent API
+            resolve(threadInstance);
           } else {
             reject(new Error(data.message || 'Failed to start thread'));
           }
@@ -98,33 +122,6 @@ export class Thread {
     };
 
     this._send(message);
-  }
-
-  /**
-   * Subscribe to thread events
-   * @param {string} eventType - Event type (onSuccess, onError, onViolation, onStepProgress)
-   * @param {Function} handler - Event handler function
-   */
-  on(eventType, handler) {
-    if (!this.eventHandlers[eventType]) {
-      throw new Error(`Unknown event type: ${eventType}`);
-    }
-    this.eventHandlers[eventType].push(handler);
-  }
-
-  /**
-   * Unsubscribe from thread events
-   * @param {string} eventType - Event type
-   * @param {Function} handler - Event handler function to remove
-   */
-  off(eventType, handler) {
-    if (!this.eventHandlers[eventType]) {
-      return;
-    }
-    const index = this.eventHandlers[eventType].indexOf(handler);
-    if (index > -1) {
-      this.eventHandlers[eventType].splice(index, 1);
-    }
   }
 
   /**
@@ -255,17 +252,22 @@ export class Thread {
   }
 
   /**
-   * Join a thread using an invitation token (instance method)
-   * @param {string} threadToken - JWT invitation token
+   * Join a thread using token or direct join
+   * @param {string} tokenOrThreadId - JWT invitation token OR threadId for direct join
+   * @param {string} role - Role for direct join (internal services only)
    * @returns {Promise<Thread>} - Returns this Thread instance with updated context
    */
-  async join(threadToken) {
-    if (!threadToken) {
-      throw new Error("Thread token is required for join");
+  async join(tokenOrThreadId, role = null) {
+    if (!tokenOrThreadId) {
+      throw new Error("Token or threadId is required for join");
     }
     if (!this.isConnected) {
       throw new Error("Thread must be connected to join. Call Threadify.connect() first.");
     }
+
+    // Determine if this is token-based or direct join
+    const isTokenJoin = !role && typeof tokenOrThreadId === 'string' && tokenOrThreadId.length > 50;
+    const isDirectJoin = role && typeof tokenOrThreadId === 'string';
 
     return new Promise((resolve, reject) => {
       // Set up one-time listener for join response
@@ -288,22 +290,94 @@ export class Thread {
         }
       };
 
-      // Add response handler using existing method
       this._onceResponse(responseHandler);
 
-      // Send join thread message
-      const joinMessage = {
-        action: 'joinThread',
-        threadToken: threadToken
-      };
-
-      console.log(`[DEBUG] Joining thread with token: ${threadToken.substring(0, 20)}...`);
-      this._send(joinMessage);
+      // Send appropriate join message
+      if (isTokenJoin) {
+        // Token-based join (external parties)
+        console.log(`[DEBUG] Joining thread with token: ${tokenOrThreadId.substring(0, 20)}...`);
+        this._send({
+          action: 'joinThread',
+          threadToken: tokenOrThreadId
+        });
+      } else if (isDirectJoin) {
+        // Direct join (internal services)
+        console.log(`[DEBUG] Joining thread directly: ${tokenOrThreadId} as ${role}`);
+        this._send({
+          action: 'joinThread',
+          threadId: tokenOrThreadId,
+          role: role
+        });
+      } else {
+        reject(new Error('Invalid join parameters. Use either token or (threadId, role)'));
+      }
 
       // Timeout after 10 seconds
       setTimeout(() => {
         reject(new Error('Join thread timeout'));
       }, 10000);
     });
+  }
+}
+
+/**
+ * ThreadInstance - Represents a specific thread with its own context
+ */
+export class ThreadInstance {
+  constructor(connection, threadId, contractId, role, refs) {
+    this.connection = connection;
+    this.threadId = threadId;
+    this.contractId = contractId;
+    this.role = role;
+    this.refs = refs;
+    this.steps = new Map();
+  }
+
+  /**
+   * Create a new step in this thread instance
+   * @param {string} stepName - Name of the step
+   * @param {string} serviceName - Optional service name for the step
+   * @param {Object} options - Step options (optional)
+   * @returns {ThreadStep} - New ThreadStep instance
+   */
+  step(stepName, serviceName = null, options = {}) {
+    if (!stepName || typeof stepName !== 'string') {
+      throw new Error('Step name must be a non-empty string');
+    }
+
+    // Handle overloading: step(name, options) or step(name, serviceName, options)
+    if (typeof serviceName === 'object' && serviceName !== null) {
+      options = serviceName;
+      serviceName = null;
+    }
+
+    const step = new ThreadStep(stepName, this, serviceName || this.connection.serviceName, options);
+    this.steps.set(stepName, step);
+    return step;
+  }
+
+  /**
+   * Get thread ID
+   * @returns {string} - Thread ID
+   */
+  getThreadId() {
+    return this.threadId;
+  }
+
+  /**
+   * Get contract ID
+   * @returns {string|null} - Contract ID or null for non-contract workflows
+   */
+  getContractId() {
+    return this.contractId;
+  }
+
+  /**
+   * Close this thread instance
+   * @returns {Promise<void>}
+   */
+  async close() {
+    // For now, just resolve. In future, we might send a close message
+    return Promise.resolve();
   }
 }
