@@ -100,7 +100,7 @@ async function testFluentAPI() {
 
     // Start a contract-based thread with role
     console.log('🏁 Starting contract thread with buyer role...');
-    const contractThread = await connection.start('purchase_order_v1', 'buyer-service');
+    const contractThread = await connection.start('purchase_order:1', 'buyer-service');
     console.log(`✅ Contract thread started: ${contractThread.threadId}`);
     console.log(`📄 Contract: ${contractThread.getContractId()}\n`);
 

@@ -61,7 +61,7 @@ export class Threadify {
           }  // Don't process further for connect messages
 
           // Handle event notifications
-          if (message.action in connection.eventHandlers) {
+          if (connection.eventHandlers && message.action in connection.eventHandlers) {
             connection.eventHandlers[message.action].forEach(handler => {
               try {
                 handler(message);
@@ -81,12 +81,12 @@ export class Threadify {
       });
 
       ws.on('close', () => {
-        thread.isConnected = false;
+        connection.isConnected = false;
       });
 
       // Timeout after 10 seconds
       setTimeout(() => {
-        if (!thread.isConnected) {
+        if (!connection.isConnected) {
           reject(new Error('Connection timeout'));
           ws.close();
         }

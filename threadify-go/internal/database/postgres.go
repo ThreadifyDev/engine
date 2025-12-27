@@ -97,6 +97,26 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status);
 	CREATE INDEX IF NOT EXISTS idx_threads_started_at ON threads(started_at DESC);
+
+	CREATE TABLE IF NOT EXISTS step_events (
+		step_id VARCHAR(255) PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		step_name VARCHAR(255) NOT NULL,
+		service_name VARCHAR(255),
+		type VARCHAR(50),
+		status VARCHAR(50),
+		context JSONB,
+		started_at VARCHAR(255),
+		finished_at VARCHAR(255),
+		timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+		hash VARCHAR(255),
+		prev_hash VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_step_events_thread_id ON step_events(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_step_events_timestamp ON step_events(timestamp DESC);
+	CREATE INDEX IF NOT EXISTS idx_step_events_step_name ON step_events(step_name);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

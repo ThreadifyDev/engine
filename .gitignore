@@ -38,3 +38,5 @@ gradle/wrapper/gradle-wrapper.jar
 .kotlin/
 threadify-go/baseline-5000-users-heap.pprof
 **.pprof
+threadify-go/archiver
+threadify-go/server

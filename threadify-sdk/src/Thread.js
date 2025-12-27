@@ -373,6 +373,36 @@ export class ThreadInstance {
   }
 
   /**
+   * Send a message through the WebSocket connection
+   * @param {Object} message - Message to send
+   */
+  _send(message) {
+    if (!this.connection.ws || this.connection.ws.readyState !== 1) {
+      throw new Error('WebSocket not connected');
+    }
+    this.connection.ws.send(JSON.stringify(message));
+  }
+
+  /**
+   * Register a one-time response handler
+   * @param {Function} handler - Response handler function
+   */
+  _onceResponse(handler) {
+    const listener = (data) => {
+      handler(data);
+      this.connection.ws.removeListener('message', listener);
+    };
+    this.connection.ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        listener(message);
+      } catch (e) {
+        console.error('Failed to parse message:', e);
+      }
+    });
+  }
+
+  /**
    * Close this thread instance
    * @returns {Promise<void>}
    */

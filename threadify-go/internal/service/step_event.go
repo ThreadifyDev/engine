@@ -334,8 +334,10 @@ func (ses *StepEventService) bulkWriteToRedis(events []models.HashedStepEvent) e
 	return nil
 }
 
-// storeStepEvent persists the hashed step event to Redis
+// storeStepEvent persists the hashed step event to Redis and streams
 func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error {
+	startTime := time.Now()
+
 	// Use unique key for each event: thread:events:{threadID}:{stepID}
 	key := fmt.Sprintf("thread:events:%s:%s", event.ThreadID, event.StepID)
 
@@ -345,8 +347,43 @@ func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error 
 		return fmt.Errorf("failed to serialize step event: %w", err)
 	}
 
-	// Store with 24hr TTL
-	return ses.valkeyRepo.Set(ses.ctx, key, string(eventData), 24*time.Hour)
+	// Use pipeline for atomic write to both List and Stream
+	pipe := ses.valkeyRepo.Pipeline()
+
+	// 1. Store event with 24hr TTL (existing behavior)
+	pipe.Set(ses.ctx, key, string(eventData), 24*time.Hour)
+
+	// 2. Add to activity list for thread (for immediate access)
+	activityKey := fmt.Sprintf("thread:%s:activity", event.ThreadID)
+	pipe.LPush(ses.ctx, activityKey, string(eventData))
+	pipe.Expire(ses.ctx, activityKey, 7*24*time.Hour) // 7 day TTL
+
+	// 3. Add to stream for archival
+	streamValues := map[string]interface{}{
+		"stepId":      event.StepID,
+		"threadId":    event.ThreadID,
+		"stepName":    event.StepName,
+		"serviceName": event.ServiceName,
+		"type":        event.Type,
+		"status":      event.Status,
+		"context":     event.ContextJSON(),
+		"startedAt":   event.StartedAt,
+		"finishedAt":  event.FinishedAt,
+		"timestamp":   event.Timestamp.Format(time.RFC3339),
+		"hash":        event.Hash,
+		"prevHash":    event.PreviousHash,
+		"maxlen":      "~",
+		"limit":       100000,
+	}
+	pipe.XAdd(ses.ctx, "streams:step_events", streamValues)
+
+	// Execute pipeline
+	_, err = pipe.Exec(ses.ctx)
+
+	duration := time.Since(startTime)
+	fmt.Printf("⏱️  [StepEventService] Valkey write (List+Stream) took %v for stepId=%s\n", duration, event.StepID)
+
+	return err
 }
 
 // updateThreadLastHash updates the thread's last hash and refreshes TTL

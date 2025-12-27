@@ -125,6 +125,74 @@ func (v *ValkeyService) LRange(ctx context.Context, key string, start, stop int6
 	return v.Client.LRange(ctx, key, start, stop).Result()
 }
 
+// XAdd adds an entry to a stream
+func (v *ValkeyService) XAdd(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
+	args := &redis.XAddArgs{
+		Stream: stream,
+		Values: values,
+	}
+
+	// Check for MAXLEN in values
+	if maxlen, ok := values["maxlen"]; ok {
+		if limit, ok := values["limit"]; ok {
+			args.MaxLen = int64(limit.(int))
+			args.Approx = maxlen.(string) == "~"
+		}
+		delete(values, "maxlen")
+		delete(values, "limit")
+	}
+
+	return v.Client.XAdd(ctx, args).Result()
+}
+
+// XReadGroup reads from a stream using consumer groups
+func (v *ValkeyService) XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]map[string]interface{}, error) {
+	args := &redis.XReadGroupArgs{
+		Group:    group,
+		Consumer: consumer,
+		Streams:  []string{stream, ">"},
+		Count:    int64(count),
+		Block:    block,
+	}
+
+	results, err := v.Client.XReadGroup(ctx, args).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return []map[string]interface{}{}, nil // No messages
+		}
+		return nil, err
+	}
+
+	events := make([]map[string]interface{}, 0)
+	for _, stream := range results {
+		for _, message := range stream.Messages {
+			event := make(map[string]interface{})
+			event["id"] = message.ID
+			for k, v := range message.Values {
+				event[k] = v
+			}
+			events = append(events, event)
+		}
+	}
+
+	return events, nil
+}
+
+// XAck acknowledges stream messages
+func (v *ValkeyService) XAck(ctx context.Context, stream, group string, ids []string) error {
+	return v.Client.XAck(ctx, stream, group, ids...).Err()
+}
+
+// XGroupCreate creates a consumer group for a stream
+func (v *ValkeyService) XGroupCreate(ctx context.Context, stream, group, start string) error {
+	return v.Client.XGroupCreate(ctx, stream, group, start).Err()
+}
+
+// XGroupCreateMkStream creates a consumer group and stream if it doesn't exist
+func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
+	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+}
+
 // Pipeline creates a new Redis pipeline
 func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
@@ -157,6 +225,26 @@ func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) 
 
 func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
 	p.pipe.LPush(ctx, key, values...)
+	return p
+}
+
+func (p *RedisPipeline) XAdd(ctx context.Context, stream string, values map[string]interface{}) interfaces.ValkeyPipeline {
+	args := &redis.XAddArgs{
+		Stream: stream,
+		Values: values,
+	}
+
+	// Check for MAXLEN in values
+	if maxlen, ok := values["maxlen"]; ok {
+		if limit, ok := values["limit"]; ok {
+			args.MaxLen = int64(limit.(int))
+			args.Approx = maxlen.(string) == "~"
+		}
+		delete(values, "maxlen")
+		delete(values, "limit")
+	}
+
+	p.pipe.XAdd(ctx, args)
 	return p
 }
 

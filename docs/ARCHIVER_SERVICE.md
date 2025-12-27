@@ -398,6 +398,37 @@ spec:
 - [ ] Real-time analytics stream
 - [ ] Event replay capability
 
+## Final Architecture Decisions
+
+### **Data Flow:**
+
+```
+API Service writes (Pipeline - Atomic):
+├─ List: thread:{threadID}:activity (for validation, handlers, queries)
+│  └─ TTL: 7 days
+└─ Stream: streams:step_events (for archival)
+   └─ MAXLEN: ~100,000 entries (auto-trim)
+
+Archiver Service:
+└─ Reads from Stream → Writes to Postgres → ACKs
+```
+
+### **Key Design Choices:**
+
+1. **Single Valkey Instance** (start simple, split later if needed)
+2. **Pipeline for Atomic Writes** (both List + Stream succeed or fail together)
+3. **MAXLEN for Auto-Trimming** (keeps last 100K entries, ~50MB)
+4. **List for Operational Data** (validation, handlers, immediate access)
+5. **Stream for Archival** (durable queue, consumer groups, at-least-once delivery)
+
+### **Why This Works:**
+
+- ✅ **Immediate validation**: List has data instantly
+- ✅ **Reliable archival**: Stream guarantees delivery
+- ✅ **Atomic writes**: Both succeed or both fail (no inconsistency)
+- ✅ **Auto-cleanup**: MAXLEN prevents unbounded growth
+- ✅ **Simple**: One Valkey instance, proven patterns
+
 ## Summary
 
 The Archiver Service is a critical component that:

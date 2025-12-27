@@ -23,6 +23,12 @@ type ValkeyClient interface {
 	// List operations for event queues
 	LPush(ctx context.Context, key string, values ...interface{}) error
 	LRange(ctx context.Context, key string, start, stop int64) ([]string, error)
+	// Stream operations for archiver
+	XAdd(ctx context.Context, stream string, values map[string]interface{}) (string, error)
+	XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]map[string]interface{}, error)
+	XAck(ctx context.Context, stream, group string, ids []string) error
+	XGroupCreate(ctx context.Context, stream, group, start string) error
+	XGroupCreateMkStream(ctx context.Context, stream, group, start string) error
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
 }
@@ -32,6 +38,7 @@ type ValkeyPipeline interface {
 	HSet(ctx context.Context, key string, values ...interface{}) ValkeyPipeline
 	HDel(ctx context.Context, key string, fields ...string) ValkeyPipeline
 	LPush(ctx context.Context, key string, values ...interface{}) ValkeyPipeline
+	XAdd(ctx context.Context, stream string, values map[string]interface{}) ValkeyPipeline
 	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) ValkeyPipeline
 	Del(ctx context.Context, keys ...string) ValkeyPipeline
 	Expire(ctx context.Context, key string, expiration time.Duration) ValkeyPipeline
