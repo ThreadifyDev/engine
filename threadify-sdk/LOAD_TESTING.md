@@ -24,7 +24,7 @@ k6 run load-test.js
 ### Advanced Options
 ```bash
 # Run with specific VUs
-k6 run --vus 10 --duration 60s load-test.js
+k6 run --vus 5000 --duration 60s load-test.js
 
 # Run with HTML report
 k6 run --out html=report.html load-test.js

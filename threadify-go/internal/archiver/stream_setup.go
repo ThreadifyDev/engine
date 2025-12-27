@@ -64,5 +64,6 @@ func GetRequiredStreams() []string {
 		"streams:thread_metadata",
 		"streams:audit_logs",
 		"streams:invitations",
+		"streams:thread_access",
 	}
 }

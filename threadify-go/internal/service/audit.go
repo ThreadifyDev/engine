@@ -120,15 +120,18 @@ func (s *AuditEventService) LogTokenUsed(ctx context.Context, tokenExpiry time.T
 }
 
 // LogThreadJoined logs when a user joins a thread
-func (s *AuditEventService) LogThreadJoined(ctx context.Context, threadID, contractID, userID string) error {
+func (s *AuditEventService) LogThreadJoined(ctx context.Context, threadID, contractID, userID, role, permissions string) error {
 	event := &AuditEvent{
 		ID:         uuid.New().String(),
 		Type:       ThreadJoined,
 		ThreadID:   threadID,
 		ContractID: contractID,
 		UserID:     userID,
-		Data:       map[string]interface{}{},
-		Timestamp:  time.Now(),
+		Data: map[string]interface{}{
+			"role":        role,
+			"permissions": permissions,
+		},
+		Timestamp: time.Now(),
 		Metadata: map[string]string{
 			"source": "thread_join",
 		},
@@ -137,16 +140,37 @@ func (s *AuditEventService) LogThreadJoined(ctx context.Context, threadID, contr
 	return s.enqueueEvent(ctx, event)
 }
 
-// enqueueEvent adds an audit event to the queue
+// enqueueEvent adds an audit event to the queue and stream
 func (s *AuditEventService) enqueueEvent(ctx context.Context, event *AuditEvent) error {
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal audit event: %w", err)
 	}
 
-	// Add to Redis queue with TTL for retention
+	// Use pipeline for atomic write to both queue and stream
+	pipe := s.valkeyService.Pipeline()
+
+	// 1. Add to queue for immediate processing (existing behavior)
 	key := fmt.Sprintf("queue:%s", s.queue)
-	err = s.valkeyService.Enqueue(ctx, key, string(eventJSON), s.config.GetRetentionDuration())
+	pipe.LPush(ctx, key, string(eventJSON))
+	pipe.Expire(ctx, key, s.config.GetRetentionDuration())
+
+	// 2. Add to stream for archival
+	streamValues := map[string]interface{}{
+		"eventId":    event.ID,
+		"type":       string(event.Type),
+		"threadId":   event.ThreadID,
+		"contractId": event.ContractID,
+		"userId":     event.UserID,
+		"data":       string(eventJSON), // Store full data as JSON
+		"timestamp":  event.Timestamp.Format(time.RFC3339),
+		"maxlen":     "~",
+		"limit":      100000,
+	}
+	pipe.XAdd(ctx, "streams:audit_logs", streamValues)
+
+	// Execute pipeline
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to enqueue audit event: %w", err)
 	}

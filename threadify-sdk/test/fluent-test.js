@@ -120,6 +120,16 @@ async function testFluentAPI() {
         orderId: 'PO-12345',
         status: 'pending'
       });
+
+
+    const orderStep = await contractThread.step('create_order')
+    // BUSINESS LOGIC
+    orderStep.addContext({"newInfo": "INformation"})
+    // BUSINESS LOGIC
+    orderStep.addContext({"extraNewInfo": "INformation"})
+    // BUSINESS LOGIC
+
+    orderStep.stop()
     console.log('✅ Order created successfully\n');
 
     // Create invitation for seller

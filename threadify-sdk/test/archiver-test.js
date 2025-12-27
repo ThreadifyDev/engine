@@ -43,14 +43,36 @@ async function testArchiver() {
     }
     
     console.log('✅ All 5 steps recorded!\n');
-    console.log('⏳ Waiting 10 seconds for archiver to process...\n');
+    
+    // Test invitation and joining
+    console.log('🎫 Creating invitation...');
+    // inviteParty is now on the thread instance
+    const inviteToken = await thread.inviteParty({
+      role: 'external_partner',
+      permissions: 'read,write',
+      expiresIn: '24h'
+    });
+    console.log(`✅ Invitation created: ${inviteToken.substring(0, 20)}...\n`);
+    
+    // Simulate another user joining with the token
+    console.log('👥 Simulating user joining thread...');
+    const connection2 = await Threadify.connect('api-key-456', 'partner-service');
+    console.log('✅ Second user connected!\n');
+    
+    const joinedThread = await connection2.join(inviteToken);
+    console.log(`✅ User joined thread: ${joinedThread.threadId}`);
+    console.log(`   Role: ${joinedThread.role}`);
+    console.log(`   Can now use joinedThread.step() to interact with the thread\n`);
+    
+    console.log('⏳ Waiting 10 seconds for archiver to process all streams...\n');
     
     // Wait for archiver to process
     await new Promise(resolve => setTimeout(resolve, 10000));
     
     console.log('✅ Test complete! Check archiver logs for processing details.\n');
     
-    // Close connection
+    // Close connections
+    await connection2.close();
     await connection.close();
     
   } catch (error) {

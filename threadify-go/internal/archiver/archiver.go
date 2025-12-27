@@ -139,7 +139,13 @@ func (a *Archiver) Start(ctx context.Context) {
 
 // monitorFlush monitors buffer and flushes when needed
 func (a *Archiver) monitorFlush(ctx context.Context, queueName string, handler *QueueHandler) {
-	ticker := time.NewTicker(1 * time.Second) // Check every second
+	// Use the flush interval from buffer config, or default to 1 second
+	checkInterval := handler.buffer.flushInterval
+	if checkInterval == 0 {
+		checkInterval = 1 * time.Second
+	}
+
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	for {

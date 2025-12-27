@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
 )
@@ -28,6 +29,7 @@ type WebSocketHandler struct {
 	stepEventService  *service.StepEventService
 	invitationService *service.InvitationTokenService
 	auditService      *service.AuditEventService
+	valkeyClient      interfaces.ValkeyClient
 	sessions          sync.Map
 }
 
@@ -39,12 +41,13 @@ type Session struct {
 	mu        sync.Mutex
 }
 
-func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, auditService *service.AuditEventService) *WebSocketHandler {
+func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, auditService *service.AuditEventService, valkeyClient interfaces.ValkeyClient) *WebSocketHandler {
 	return &WebSocketHandler{
 		threadService:     threadService,
 		stepEventService:  stepEventService,
 		invitationService: invitationService,
 		auditService:      auditService,
+		valkeyClient:      valkeyClient,
 	}
 }
 
@@ -267,11 +270,32 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 		}
 	}
 
-	// Log audit event (async, don't fail if audit fails)
+	// Log audit event and write to invitation stream (async, don't fail if they fail)
 	go func() {
+		ctx := context.Background()
+
+		// Log audit event
 		if h.auditService != nil {
-			ctx := context.Background()
 			h.auditService.LogTokenCreated(ctx, threadID, contractID, session.ownerID, req.Role, permissions)
+		}
+
+		// Write to invitation stream for archival
+		if h.valkeyClient != nil {
+			invitationID := fmt.Sprintf("inv_%d", time.Now().UnixNano())
+			streamValues := map[string]interface{}{
+				"invitationId": invitationID,
+				"threadId":     threadID,
+				"contractId":   contractID,
+				"inviterId":    session.ownerID,
+				"role":         req.Role,
+				"permissions":  permissions,
+				"status":       "created",
+				"createdAt":    time.Now().Format(time.RFC3339),
+				"expiresAt":    time.Now().Add(expiry).Format(time.RFC3339),
+				"maxlen":       "~",
+				"limit":        100000,
+			}
+			h.valkeyClient.XAdd(ctx, "streams:invitations", streamValues)
 		}
 	}()
 
@@ -342,14 +366,32 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 	}
 	session.mu.Unlock()
 
-	// Log audit events (async, don't fail if audit fails)
+	// Log audit events and write to thread_access stream (async, don't fail if they fail)
 	go func() {
+		ctx := context.Background()
+
+		// Log audit events
 		if h.auditService != nil {
-			ctx := context.Background()
 			// Log token usage
 			h.auditService.LogTokenUsed(ctx, claims.ExpiresAt.Time, claims.ThreadID, session.ownerID)
-			// Log thread joined
-			h.auditService.LogThreadJoined(ctx, claims.ThreadID, claims.ContractID, session.ownerID)
+			// Log thread joined with role and permissions
+			h.auditService.LogThreadJoined(ctx, claims.ThreadID, claims.ContractID, session.ownerID, claims.Role, claims.Permissions)
+		}
+
+		// Write to thread_access stream for archival
+		if h.valkeyClient != nil {
+			streamValues := map[string]interface{}{
+				"threadId":    claims.ThreadID,
+				"userId":      session.ownerID,
+				"role":        claims.Role,
+				"permissions": claims.Permissions,
+				"grantedBy":   claims.InvitedBy,
+				"grantedAt":   time.Now().Format(time.RFC3339),
+				"status":      "active",
+				"maxlen":      "~",
+				"limit":       100000,
+			}
+			h.valkeyClient.XAdd(ctx, "streams:thread_access", streamValues)
 		}
 	}()
 

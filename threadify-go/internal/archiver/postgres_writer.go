@@ -132,10 +132,10 @@ func (w *PostgresWriter) WriteAuditLogs(ctx context.Context, events []StreamEven
 
 	query := `
 		INSERT INTO audit_logs (
-			id, thread_id, user_id, action, details, timestamp
+			id, event_type, thread_id, contract_id, user_id, data, metadata, timestamp
 		) VALUES `
 
-	values := make([]interface{}, 0, len(events)*6)
+	values := make([]interface{}, 0, len(events)*8)
 	placeholders := ""
 
 	for i, event := range events {
@@ -143,23 +143,35 @@ func (w *PostgresWriter) WriteAuditLogs(ctx context.Context, events []StreamEven
 			placeholders += ", "
 		}
 
-		offset := i * 6
+		offset := i * 8
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6,
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8,
 		)
 
+		// Parse the data JSON to extract metadata
+		var metadata interface{}
+		if dataStr, ok := event.Data["data"]; ok {
+			var auditEvent map[string]interface{}
+			if err := json.Unmarshal([]byte(dataStr), &auditEvent); err == nil {
+				metadata = auditEvent["Metadata"]
+			}
+		}
+		metadataJSON, _ := json.Marshal(metadata)
+
 		values = append(values,
-			event.Data["id"],
+			event.Data["eventId"],
+			event.Data["type"],
 			event.Data["threadId"],
+			event.Data["contractId"],
 			event.Data["userId"],
-			event.Data["action"],
-			event.Data["details"],
+			event.Data["data"], // Full JSON data
+			string(metadataJSON),
 			event.Data["timestamp"],
 		)
 	}
 
-	query += placeholders
+	query += placeholders + " ON CONFLICT (id) DO NOTHING"
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	return err
@@ -191,7 +203,7 @@ func (w *PostgresWriter) WriteInvitations(ctx context.Context, events []StreamEv
 		)
 
 		values = append(values,
-			event.Data["id"],
+			event.Data["invitationId"],
 			event.Data["threadId"],
 			event.Data["inviterId"],
 			event.Data["inviteeEmail"],
@@ -207,4 +219,40 @@ func (w *PostgresWriter) WriteInvitations(ctx context.Context, events []StreamEv
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	return err
+}
+
+// WriteThreadAccess writes thread access grants to Postgres
+func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	// Upsert thread access records
+	query := `
+		INSERT INTO thread_access (
+			thread_id, user_id, role, permissions, granted_by, granted_at, status
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (thread_id, user_id) DO UPDATE SET
+			role = EXCLUDED.role,
+			permissions = EXCLUDED.permissions,
+			granted_at = EXCLUDED.granted_at,
+			status = EXCLUDED.status
+	`
+
+	for _, event := range events {
+		_, err := w.db.Pool.Exec(ctx, query,
+			event.Data["threadId"],
+			event.Data["userId"],
+			event.Data["role"],
+			event.Data["permissions"],
+			event.Data["grantedBy"],
+			event.Data["grantedAt"],
+			event.Data["status"],
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

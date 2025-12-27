@@ -125,7 +125,7 @@ func main() {
 	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
 
 	// Setup WebSocket handler with all services
-	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, auditService)
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, auditService, valkeyService)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

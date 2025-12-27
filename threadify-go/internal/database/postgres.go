@@ -117,6 +117,58 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_step_events_thread_id ON step_events(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_step_events_timestamp ON step_events(timestamp DESC);
 	CREATE INDEX IF NOT EXISTS idx_step_events_step_name ON step_events(step_name);
+
+	CREATE TABLE IF NOT EXISTS thread_access (
+		id SERIAL PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		user_id VARCHAR(255) NOT NULL,
+		role VARCHAR(100) NOT NULL,
+		permissions TEXT,
+		granted_by VARCHAR(255),
+		granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		revoked_at TIMESTAMP,
+		status VARCHAR(50) DEFAULT 'active',
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(thread_id, user_id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_id ON thread_access(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
+
+	CREATE TABLE IF NOT EXISTS invitations (
+		id VARCHAR(255) PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		inviter_id VARCHAR(255) NOT NULL,
+		invitee_email VARCHAR(255),
+		role VARCHAR(100) NOT NULL,
+		permissions TEXT,
+		status VARCHAR(50) DEFAULT 'created',
+		created_at TIMESTAMP NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		used_at TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_invitations_thread_id ON invitations(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_invitations_status ON invitations(status);
+	CREATE INDEX IF NOT EXISTS idx_invitations_expires_at ON invitations(expires_at);
+
+	CREATE TABLE IF NOT EXISTS audit_logs (
+		id VARCHAR(255) PRIMARY KEY,
+		event_type VARCHAR(100) NOT NULL,
+		thread_id VARCHAR(255),
+		contract_id VARCHAR(255),
+		user_id VARCHAR(255),
+		data JSONB,
+		metadata JSONB,
+		timestamp TIMESTAMP NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_thread_id ON audit_logs(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

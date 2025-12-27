@@ -255,7 +255,7 @@ export class Connection {
    * Join a thread using token or direct join
    * @param {string} tokenOrThreadId - JWT invitation token OR threadId for direct join
    * @param {string} role - Role for direct join (internal services only)
-   * @returns {Promise<Thread>} - Returns this Thread instance with updated context
+   * @returns {Promise<ThreadInstance>} - Returns a new ThreadInstance for the joined thread
    */
   async join(tokenOrThreadId, role = null) {
     if (!tokenOrThreadId) {
@@ -274,16 +274,19 @@ export class Connection {
       const responseHandler = (data) => {
         if (data.action === 'joinThread') {
           if (data.status === 'success') {
-            // Update thread context with joined thread info
-            this.threadId = data.threadId;
-            this.contractId = data.contractId;
-            this.role = data.role;
-            this.permissions = data.permissions;
-            
             console.log(`[DEBUG] Joined thread: ${data.threadId}`);
             console.log(`[DEBUG] Role: ${data.role}, Permissions: ${data.permissions}`);
             
-            resolve(this);
+            // Create and return a ThreadInstance
+            const threadInstance = new ThreadInstance(
+              this,
+              data.threadId,
+              data.contractId,
+              data.role,
+              null // refs
+            );
+            
+            resolve(threadInstance);
           } else {
             reject(new Error(data.message || 'Failed to join thread'));
           }
@@ -399,6 +402,43 @@ export class ThreadInstance {
       } catch (e) {
         console.error('Failed to parse message:', e);
       }
+    });
+  }
+
+  /**
+   * Create an invitation token for this thread
+   * @param {Object} options - Invitation options
+   * @param {string} options.role - Required role for the invitation
+   * @param {string} [options.permissions="read,write"] - Optional permissions
+   * @param {string} [options.expiresIn="24h"] - Optional expiry duration
+   * @returns {Promise<string>} - JWT invitation token
+   */
+  async inviteParty(options = {}) {
+    const {
+      role,
+      permissions = "read,write",
+      expiresIn = "24h"
+    } = options;
+    
+    if (!role) {
+      throw new Error("Role is required for inviteParty");
+    }
+    
+    return new Promise((resolve, reject) => {
+      this._onceResponse((message) => {
+        if (message.status === 'success') {
+          resolve(message.threadToken);
+        } else {
+          reject(new Error(message.message || 'Failed to create invitation token'));
+        }
+      });
+      
+      this._send({
+        action: 'inviteParty',
+        role,
+        permissions,
+        expiresIn
+      });
     });
   }
 

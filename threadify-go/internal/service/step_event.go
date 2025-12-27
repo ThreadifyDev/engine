@@ -338,9 +338,6 @@ func (ses *StepEventService) bulkWriteToRedis(events []models.HashedStepEvent) e
 func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error {
 	startTime := time.Now()
 
-	// Use unique key for each event: thread:events:{threadID}:{stepID}
-	key := fmt.Sprintf("thread:events:%s:%s", event.ThreadID, event.StepID)
-
 	// Serialize the event
 	eventData, err := json.Marshal(event)
 	if err != nil {
@@ -350,15 +347,12 @@ func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error 
 	// Use pipeline for atomic write to both List and Stream
 	pipe := ses.valkeyRepo.Pipeline()
 
-	// 1. Store event with 24hr TTL (existing behavior)
-	pipe.Set(ses.ctx, key, string(eventData), 24*time.Hour)
-
-	// 2. Add to activity list for thread (for immediate access)
+	// 1. Add to activity list for thread (for immediate access and validation)
 	activityKey := fmt.Sprintf("thread:%s:activity", event.ThreadID)
 	pipe.LPush(ses.ctx, activityKey, string(eventData))
 	pipe.Expire(ses.ctx, activityKey, 7*24*time.Hour) // 7 day TTL
 
-	// 3. Add to stream for archival
+	// 2. Add to stream for archival
 	streamValues := map[string]interface{}{
 		"stepId":      event.StepID,
 		"threadId":    event.ThreadID,

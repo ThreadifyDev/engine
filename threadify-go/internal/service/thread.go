@@ -24,6 +24,7 @@ type ThreadService struct {
 	contractValidator interfaces.ContractValidator
 	authService       *AuthService
 	accessService     *ThreadAccessService
+	valkeyClient      interfaces.ValkeyClient
 }
 
 func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService) *ThreadService {
@@ -52,7 +53,7 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 	// Create thread access service for permission/role management
 	accessService := NewThreadAccessService(threadRepo, cacheService)
 
-	return NewThreadService(
+	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
 		valkeyGraphRepo, // Valkey contract graph repository
 		stepEventService,
@@ -61,6 +62,8 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
 		accessService, // Thread access service for permissions/roles
 	)
+	service.valkeyClient = valkeyService
+	return service
 }
 
 func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.ConnectResponse {
@@ -153,6 +156,40 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 	// Cache the thread for fast access
 	s.cacheManager.SetThread(threadID, thread)
+
+	// Write thread metadata to stream for archival (async, don't fail if it fails)
+	go func() {
+		ctx := context.Background()
+
+		// Convert contract version to string (handle nil pointer)
+		contractVersion := "0"
+		if thread.ContractVersion != nil {
+			contractVersion = fmt.Sprintf("%d", *thread.ContractVersion)
+		}
+
+		// Handle nil contract ID
+		contractID := ""
+		if thread.ContractID != nil {
+			contractID = *thread.ContractID
+		}
+
+		streamValues := map[string]interface{}{
+			"id":              threadID,
+			"ownerId":         ownerID,
+			"companyId":       companyID,
+			"contractId":      contractID,
+			"contractVersion": contractVersion,
+			"contractName":    thread.ContractName,
+			"status":          thread.Status,
+			"currentStep":     thread.CurrentStep,
+			"lastHash":        thread.LastHash,
+			"startedAt":       thread.StartedAt.Format(time.RFC3339),
+			"completedAt":     "",
+			"maxlen":          "~",
+			"limit":           100000,
+		}
+		s.valkeyClient.XAdd(ctx, "streams:thread_metadata", streamValues)
+	}()
 
 	return &models.StartThreadResponse{
 		Action:   "startThread",
