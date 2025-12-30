@@ -41,25 +41,19 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 		stepMap[step.ID] = step
 	}
 
-	// 3. Build step nodes with dependencies
+	// 3. Build step nodes using transitions
 	for _, step := range contract.Steps {
-		dependsOn := step.DependsOn
-		if dependsOn == nil {
-			dependsOn = []string{}
-		}
-
-		// Find which steps depend on THIS step (reverse lookup for "next")
-		next := b.findNextSteps(step.ID, contract.Steps)
+		// Build graph from transitions - only need Next (outgoing transitions)
+		next := b.findNextFromTransitions(step.ID, contract.Transitions)
 
 		// Check if step belongs to a group
 		parentGroup := b.findParentGroup(step.ID, contract.Groups)
 
 		nodes[step.ID] = models.GraphNode{
 			ID:              step.ID,
-			Role:            step.Role,
+			Owner:           step.Owner,
 			Type:            "step",
 			Required:        true, // Default, can be overridden
-			DependsOn:       dependsOn,
 			Next:            next,
 			Timeout:         step.Timeout,
 			BusinessContext: step.BusinessContext,
@@ -69,8 +63,7 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 
 	// 4. Build parallel group nodes
 	for _, group := range contract.Groups {
-		groupDependsOn := b.findGroupDependencies(group, contract.Steps)
-		groupNext := b.findGroupNext(group, contract.Steps)
+		groupNext := b.findGroupNext(group, contract.Transitions)
 
 		mode := "any_of"
 		if group.Rules != nil && group.Rules.AllMustSucceed {
@@ -88,37 +81,19 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 			Mode:        mode,
 			Required:    true,
 			Steps:       group.Steps,
-			DependsOn:   groupDependsOn,
 			Next:        groupNext,
 			MaxDuration: maxDuration,
 		}
 	}
 
-	// 5. Find final step (step with no "next")
-	finalStep := b.findFinalStep(nodes)
-
+	// 5. Build graph with entry points and terminal steps
 	return &models.ContractGraph{
 		Graph: models.Graph{
-			Nodes:     nodes,
-			FinalStep: finalStep,
+			Nodes:         nodes,
+			EntryPoints:   contract.EntryPoints,
+			TerminalSteps: contract.TerminalSteps,
 		},
 	}, nil
-}
-
-// findNextSteps finds which steps depend on the given step
-func (b *GraphBuilder) findNextSteps(stepID string, steps []models.Step) []string {
-	next := []string{}
-	for _, otherStep := range steps {
-		if otherStep.DependsOn != nil {
-			for _, dep := range otherStep.DependsOn {
-				if dep == stepID {
-					next = append(next, otherStep.ID)
-					break
-				}
-			}
-		}
-	}
-	return next
 }
 
 // findParentGroup finds the parent group for a step
@@ -131,49 +106,21 @@ func (b *GraphBuilder) findParentGroup(stepID string, groups []models.Group) str
 	return ""
 }
 
-// findGroupDependencies finds which steps a group depends on
-func (b *GraphBuilder) findGroupDependencies(group models.Group, steps []models.Step) []string {
-	dependsOn := []string{}
-	for _, stepID := range group.Steps {
-		for _, step := range steps {
-			if step.ID == stepID && step.DependsOn != nil {
-				// Take union of all dependencies (excluding steps within the group)
-				for _, dep := range step.DependsOn {
-					if !contains(dependsOn, dep) && !contains(group.Steps, dep) {
-						dependsOn = append(dependsOn, dep)
-					}
-				}
-			}
-		}
-	}
-	return dependsOn
-}
-
-// findGroupNext finds which steps depend on this group
-func (b *GraphBuilder) findGroupNext(group models.Group, steps []models.Step) []string {
+// findGroupNext finds which steps depend on this group (from transitions)
+func (b *GraphBuilder) findGroupNext(group models.Group, transitions []models.Transition) []string {
 	next := []string{}
-	for _, step := range steps {
-		if step.DependsOn != nil {
-			for _, dep := range step.DependsOn {
-				// If step depends on any step in the group, it depends on the group
-				if contains(group.Steps, dep) && !contains(next, step.ID) {
-					next = append(next, step.ID)
-					break
+	for _, transition := range transitions {
+		// If transition.From is in the group, then all transition.To steps are next
+		if contains(group.Steps, transition.From) {
+			for _, toStep := range transition.To {
+				if !contains(group.Steps, toStep) && !contains(next, toStep) {
+					// This step is outside the group and depends on the group
+					next = append(next, toStep)
 				}
 			}
 		}
 	}
 	return next
-}
-
-// findFinalStep finds the final step (step with no next)
-func (b *GraphBuilder) findFinalStep(nodes map[string]models.GraphNode) string {
-	for id, node := range nodes {
-		if node.Type == "step" && len(node.Next) == 0 {
-			return id
-		}
-	}
-	return ""
 }
 
 // contains checks if a slice contains a string
@@ -184,4 +131,20 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// findNextFromTransitions finds steps that can be transitioned to from this step (outgoing transitions)
+func (b *GraphBuilder) findNextFromTransitions(stepID string, transitions []models.Transition) []string {
+	next := []string{}
+	for _, transition := range transitions {
+		// If this step is the "from", all "to" steps are next
+		if transition.From == stepID {
+			for _, toStep := range transition.To {
+				if !contains(next, toStep) {
+					next = append(next, toStep)
+				}
+			}
+		}
+	}
+	return next
 }

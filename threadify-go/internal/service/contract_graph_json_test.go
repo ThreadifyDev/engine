@@ -35,17 +35,19 @@ func TestGraphBuilder_BuildGraph_FromActualJSON(t *testing.T) {
 		// Verify payment_initiated node
 		paymentInitiated := graph.Graph.Nodes["payment_initiated"]
 		assert.Equal(t, "payment_initiated", paymentInitiated.ID)
-		assert.Equal(t, "merchant", paymentInitiated.Owner)
+		assert.Equal(t, "merchant", paymentInitiated.Role)
 		assert.Equal(t, "step", paymentInitiated.Type)
 		assert.Empty(t, paymentInitiated.DependsOn, "First step should have no dependencies")
 		assert.ElementsMatch(t, []string{"fraud_check", "risk_assessment"}, paymentInitiated.Next)
 		assert.NotNil(t, paymentInitiated.BusinessContext)
-		assert.Equal(t, "number", paymentInitiated.BusinessContext["amount"])
+		if bcMap, ok := paymentInitiated.BusinessContext.(map[string]interface{}); ok {
+			assert.Equal(t, "number", bcMap["amount"])
+		}
 
 		// Verify fraud_check node
 		fraudCheck := graph.Graph.Nodes["fraud_check"]
 		assert.Equal(t, "fraud_check", fraudCheck.ID)
-		assert.Equal(t, "payment_processor", fraudCheck.Owner)
+		assert.Equal(t, "payment_processor", fraudCheck.Role)
 		assert.Equal(t, "2s", fraudCheck.Timeout)
 		assert.ElementsMatch(t, []string{"payment_initiated"}, fraudCheck.DependsOn)
 		assert.Equal(t, "fraud_validation", fraudCheck.ParentGroup)

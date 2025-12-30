@@ -58,8 +58,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		ON contracts(name, owner_id) 
 		WHERE is_deleted = false;
 
-	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS graph JSONB;
-
 	CREATE TABLE IF NOT EXISTS contract_versions (
 		id UUID PRIMARY KEY,
 		version INT NOT NULL,

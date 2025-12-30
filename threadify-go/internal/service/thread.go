@@ -157,6 +157,14 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Cache the thread for fast access
 	s.cacheManager.SetThread(threadID, thread)
 
+	// Assign role to user for this thread if role is provided
+	if req.Role != "" {
+		if err := s.accessService.AssignRole(threadID, req.Role, ownerID); err != nil {
+			// Log error but don't fail thread creation
+			fmt.Printf("Warning: failed to assign role: %v\n", err)
+		}
+	}
+
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
 	go func() {
 		ctx := context.Background()
@@ -197,6 +205,20 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		Message:  "Thread started successfully",
 		ThreadID: threadID,
 	}
+}
+
+// hasSuccessfulSteps checks if thread has any successful steps
+func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
+	if thread.Steps == nil {
+		return false
+	}
+
+	for _, step := range thread.Steps {
+		if step.Status == "success" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string, companyID string) *models.RecordEventResponse {
@@ -272,6 +294,15 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
+	// Check thread status - cannot add steps to completed threads
+	if thread.Status == "completed" {
+		return &models.RecordEventResponse{
+			Action:  "recordThreadEvent",
+			Status:  "error",
+			Message: "Cannot add steps to completed thread",
+		}
+	}
+
 	// Check for duplicate step using idempotency key
 	if req.IdempotencyKey != "" {
 		storageKey := req.StepName + ":" + req.IdempotencyKey
@@ -298,8 +329,14 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 	// Validate contract if thread has one
 	if thread.ContractName != "" {
+		// Determine version to use (0 means latest)
+		version := 0
+		if thread.ContractVersion != nil {
+			version = *thread.ContractVersion
+		}
+
 		// Get contract graph (three-tier cached)
-		graph, err := s.contractValidator.GetContractGraph(thread.ContractName, 1)
+		graph, err := s.contractValidator.GetContractGraph(thread.ContractName, version)
 		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -318,21 +355,41 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 			}
 		}
 
-		// Validate role if step requires specific role
-		if stepNode.Role != "" {
-			hasRole, err := s.accessService.ValidateUserRoleForStep(req.ThreadID, ownerID, stepNode.Role)
+		// Validate entry point - thread must start with an entry point
+		if !s.hasSuccessfulSteps(thread) {
+			// This is the first step - must be an entry point
+			isEntryPoint := false
+			for _, entryPoint := range graph.Graph.EntryPoints {
+				if entryPoint == req.StepName {
+					isEntryPoint = true
+					break
+				}
+			}
+
+			if !isEntryPoint {
+				return &models.RecordEventResponse{
+					Action:  "recordThreadEvent",
+					Status:  "error",
+					Message: fmt.Sprintf("Thread must start with one of the entry points: %v. Attempted step: '%s'", graph.Graph.EntryPoints, req.StepName),
+				}
+			}
+		}
+
+		// Validate role if step has an owner requirement
+		if stepNode.Owner != "" {
+			hasRole, err := s.accessService.ValidateUserRoleForStep(req.ThreadID, ownerID, stepNode.Owner)
 			if err != nil || !hasRole {
 				userRole, _ := s.accessService.GetUserRole(req.ThreadID, ownerID)
 				return &models.RecordEventResponse{
 					Action:  "recordThreadEvent",
 					Status:  "error",
-					Message: fmt.Sprintf("Access denied: Step '%s' requires role '%s', you have '%s'", req.StepName, stepNode.Role, userRole),
+					Message: fmt.Sprintf("Access denied: Step '%s' requires owner '%s', you have role '%s'", req.StepName, stepNode.Owner, userRole),
 				}
 			}
 		}
 
-		// Validate step context against contract
-		if validationErr := s.contractValidator.ValidateStepInContract(thread.ContractName, 1, req.StepName, req.Context); validationErr != nil {
+		// Validate step context against contract (using already-fetched stepNode)
+		if validationErr := s.contractValidator.ValidateStepContext(stepNode, req.Context); validationErr != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
 				Status:  "error",

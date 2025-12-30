@@ -45,6 +45,7 @@ type CacheManager interface {
 // ContractValidator defines the interface for contract validation operations
 type ContractValidator interface {
 	ValidateStepInContract(contractID string, version int, stepName string, context map[string]string) error
+	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
 	GetContractGraph(contractID string, version int) (*models.ContractGraph, error)
 	LoadContractGraphIntoCache(contractID string, version int) error
 }

@@ -40,23 +40,42 @@ func (v *ContractValidationService) ValidateStepInContract(contractID string, ve
 		return fmt.Errorf("step '%s' not found in contract '%s' version %d", stepName, contractID, version)
 	}
 
+	return v.ValidateStepContext(stepNode, context)
+}
+
+// ValidateStepContext validates the business context for a step node
+// This is an internal method that accepts an already-fetched step node to avoid duplicate graph lookups
+func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNode, context map[string]string) error {
 	// Validate business context if defined in contract
-	if stepNode.BusinessContext != nil {
-		for key, expectedType := range stepNode.BusinessContext {
-			if value, exists := context[key]; exists {
-				// Basic type validation - could be extended
-				switch expectedType {
-				case "string":
-					if value == "" {
-						return fmt.Errorf("context field '%s' must be a non-empty string", key)
-					}
-				case "number":
-					// Could add numeric validation here
-					if value == "" {
-						return fmt.Errorf("context field '%s' must be a number", key)
-					}
+	if stepNode.BusinessContext == nil {
+		return nil
+	}
+
+	var requiredFields []string
+
+	// BusinessContext can be either *models.BusinessContext or map[string]interface{} (from JSON unmarshal)
+	switch bc := stepNode.BusinessContext.(type) {
+	case *models.BusinessContext:
+		// Direct struct pointer (from graph builder)
+		requiredFields = bc.Required
+	case map[string]interface{}:
+		// Map from JSON unmarshal (from cache/database)
+		if reqFields, ok := bc["required"].([]interface{}); ok {
+			for _, field := range reqFields {
+				if fieldStr, ok := field.(string); ok {
+					requiredFields = append(requiredFields, fieldStr)
 				}
 			}
+		}
+	default:
+		// Unknown type, skip validation
+		return nil
+	}
+
+	// Validate required fields are present
+	for _, requiredField := range requiredFields {
+		if _, exists := context[requiredField]; !exists {
+			return fmt.Errorf("required context field '%s' is missing", requiredField)
 		}
 	}
 
@@ -65,24 +84,46 @@ func (v *ContractValidationService) ValidateStepInContract(contractID string, ve
 
 // GetContractGraph retrieves contract graph from cache first, then Valkey, then PostgreSQL as fallback
 func (v *ContractValidationService) GetContractGraph(contractID string, version int) (*models.ContractGraph, error) {
-	// Tier 1: Check memory cache first
-	if graph, exists := v.cacheManager.GetContractGraph(contractID, version); exists {
+	// Normalize version: if 0, we need to look up the latest version first
+	targetVersion := version
+	if version == 0 && v.contractRepo != nil {
+		contract, err := v.contractRepo.GetByNameSlim(context.Background(), contractID)
+		if err == nil {
+			targetVersion = contract.LatestVersion
+		}
+		// If lookup fails, we'll try with version 0 and let it fail later
+	}
+
+	// Tier 1: Check memory cache first (use targetVersion for lookup)
+	if graph, exists := v.cacheManager.GetContractGraph(contractID, targetVersion); exists {
 		return graph, nil
 	}
 
-	// Tier 2: Check Valkey cache
-	graph, err := v.graphRepo.Get(context.Background(), contractID, version)
+	// Tier 2: Check Valkey cache (use targetVersion for lookup)
+	graph, err := v.graphRepo.Get(context.Background(), contractID, targetVersion)
 	if err == nil {
 		// Cache the graph from Valkey in memory for future use
-		v.cacheManager.SetContractGraph(contractID, version, graph)
+		v.cacheManager.SetContractGraph(contractID, targetVersion, graph)
 		return graph, nil
 	}
 
 	// Tier 3: Load from PostgreSQL if not in Valkey (only if contract repo is available)
 	if v.contractRepo != nil {
-		contractVersion, err := v.contractRepo.GetVersion(context.Background(), contractID, version)
+		// Look up the contract by name to get its UUID and latest version
+		contract, err := v.contractRepo.GetByNameSlim(context.Background(), contractID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load contract from PostgreSQL: %w", err)
+			return nil, fmt.Errorf("failed to find contract by name '%s': %w", contractID, err)
+		}
+
+		// If version is 0, use the latest version from the contract
+		if version == 0 {
+			targetVersion = contract.LatestVersion
+		}
+
+		// Get the specific version
+		contractVersion, err := v.contractRepo.GetVersion(context.Background(), contract.ID, targetVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load contract version %d from PostgreSQL: %w", targetVersion, err)
 		}
 
 		// Parse the graph from JSON in the contract version
@@ -90,19 +131,27 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 			return nil, fmt.Errorf("no graph found in contract version %s v%d", contractID, version)
 		}
 
-		err = json.Unmarshal(contractVersion.Graph, &graph)
+		// Unmarshal the inner Graph (not ContractGraph wrapper)
+		var innerGraph models.Graph
+		err = json.Unmarshal(contractVersion.Graph, &innerGraph)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse contract graph: %w", err)
 		}
 
+		// Wrap in ContractGraph
+		loadedGraph := &models.ContractGraph{
+			Graph: innerGraph,
+		}
+
 		// Store in both Valkey and memory caches for future use
-		if err := v.graphRepo.Save(context.Background(), contractID, version, graph); err != nil {
+		// Use targetVersion for caching, not the input version (which might be 0)
+		if err := v.graphRepo.Save(context.Background(), contractID, targetVersion, loadedGraph); err != nil {
 			// Log error but don't fail - we still have the graph
 			fmt.Printf("Warning: failed to cache contract graph in Valkey: %v\n", err)
 		}
 
-		v.cacheManager.SetContractGraph(contractID, version, graph)
-		return graph, nil
+		v.cacheManager.SetContractGraph(contractID, targetVersion, loadedGraph)
+		return loadedGraph, nil
 	}
 
 	// No PostgreSQL repository available, return the original error from Valkey

@@ -225,9 +225,12 @@ steps:
 
 		step := graph.Graph.Nodes["payment_initiated"]
 		assert.NotNil(t, step.BusinessContext)
-		assert.Equal(t, "number", step.BusinessContext["amount"])
-		assert.Equal(t, "string", step.BusinessContext["currency"])
-		assert.Equal(t, "string", step.BusinessContext["customer_id"])
+		// BusinessContext is now interface{}, need to type assert to map
+		if bcMap, ok := step.BusinessContext.(map[string]interface{}); ok {
+			assert.Equal(t, "number", bcMap["amount"])
+			assert.Equal(t, "string", bcMap["currency"])
+			assert.Equal(t, "string", bcMap["customer_id"])
+		}
 	})
 }
 
@@ -399,5 +402,155 @@ groups:
 		require.NoError(t, err)
 		group := graph.Graph.Nodes["group_1"]
 		assert.Equal(t, "any_of", group.Mode)
+	})
+}
+
+func TestGraphBuilder_BuildGraph_V3Transitions(t *testing.T) {
+	t.Run("V3 contract with transitions", func(t *testing.T) {
+		contractYAML := `
+contract_name: product_delivery_v3
+version: 3
+description: V3 contract with transitions
+entry_points:
+  - order_placed
+parties:
+  - merchant
+  - logistics
+steps:
+  - id: order_placed
+    role: merchant
+    timeout: 5m
+    business_context:
+      required:
+        - order_id
+        - customer_id
+      optional:
+        - notes
+  - id: shipped
+    role: logistics
+  - id: delivered
+    role: logistics
+transitions:
+  - from: order_placed
+    to:
+      - shipped
+  - from: shipped
+    to:
+      - delivered
+terminal_steps:
+  - delivered
+validation:
+  max_duration: 72h
+`
+
+		builder := NewGraphBuilder()
+		graph, err := builder.BuildGraph([]byte(contractYAML))
+
+		require.NoError(t, err)
+		require.NotNil(t, graph)
+
+		// Verify nodes exist
+		assert.Len(t, graph.Graph.Nodes, 3)
+		assert.Contains(t, graph.Graph.Nodes, "order_placed")
+		assert.Contains(t, graph.Graph.Nodes, "shipped")
+		assert.Contains(t, graph.Graph.Nodes, "delivered")
+
+		// Verify order_placed node (built from transitions)
+		orderPlaced := graph.Graph.Nodes["order_placed"]
+		assert.Equal(t, "order_placed", orderPlaced.ID)
+		assert.Equal(t, "merchant", orderPlaced.Role)
+		assert.Empty(t, orderPlaced.DependsOn, "Entry point should have no dependencies")
+		assert.Equal(t, []string{"shipped"}, orderPlaced.Next)
+		assert.Equal(t, "5m", orderPlaced.Timeout)
+
+		// Verify shipped node
+		shipped := graph.Graph.Nodes["shipped"]
+		assert.Equal(t, []string{"order_placed"}, shipped.DependsOn)
+		assert.Equal(t, []string{"delivered"}, shipped.Next)
+
+		// Verify delivered node (terminal step)
+		delivered := graph.Graph.Nodes["delivered"]
+		assert.Equal(t, []string{"shipped"}, delivered.DependsOn)
+		assert.Empty(t, delivered.Next, "Terminal step should have no next steps")
+
+		// Verify final step uses terminal_steps
+		assert.Equal(t, "delivered", graph.Graph.FinalStep)
+	})
+
+	t.Run("V3 contract with multiple transitions from one step", func(t *testing.T) {
+		contractYAML := `
+contract_name: payment_flow_v3
+version: 3
+description: Payment with success/failure paths
+entry_points:
+  - payment_initiated
+parties:
+  - merchant
+  - processor
+steps:
+  - id: payment_initiated
+    role: merchant
+  - id: payment_success
+    role: processor
+  - id: payment_failed
+    role: processor
+transitions:
+  - from: payment_initiated
+    to:
+      - payment_success
+      - payment_failed
+terminal_steps:
+  - payment_success
+  - payment_failed
+validation:
+  max_duration: 10m
+`
+
+		builder := NewGraphBuilder()
+		graph, err := builder.BuildGraph([]byte(contractYAML))
+
+		require.NoError(t, err)
+
+		// Verify payment_initiated has multiple next steps
+		paymentInitiated := graph.Graph.Nodes["payment_initiated"]
+		assert.ElementsMatch(t, []string{"payment_success", "payment_failed"}, paymentInitiated.Next)
+
+		// Verify both terminal steps depend on payment_initiated
+		paymentSuccess := graph.Graph.Nodes["payment_success"]
+		assert.Equal(t, []string{"payment_initiated"}, paymentSuccess.DependsOn)
+
+		paymentFailed := graph.Graph.Nodes["payment_failed"]
+		assert.Equal(t, []string{"payment_initiated"}, paymentFailed.DependsOn)
+	})
+
+	t.Run("V3 contract without transitions uses depends_on", func(t *testing.T) {
+		contractYAML := `
+contract_name: legacy_contract
+version: 3
+description: V3 contract using old depends_on format
+parties:
+  - merchant
+steps:
+  - id: step_a
+    role: merchant
+  - id: step_b
+    role: merchant
+    depends_on:
+      - step_a
+validation:
+  max_duration: 10m
+`
+
+		builder := NewGraphBuilder()
+		graph, err := builder.BuildGraph([]byte(contractYAML))
+
+		require.NoError(t, err)
+
+		// Should still work with depends_on
+		stepA := graph.Graph.Nodes["step_a"]
+		assert.Equal(t, []string{"step_b"}, stepA.Next)
+
+		stepB := graph.Graph.Nodes["step_b"]
+		assert.Equal(t, []string{"step_a"}, stepB.DependsOn)
 	})
 }

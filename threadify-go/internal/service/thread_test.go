@@ -448,6 +448,11 @@ func (m *MockContractValidator) ValidateStepInContract(contractID string, versio
 	return args.Error(0)
 }
 
+func (m *MockContractValidator) ValidateStepContext(stepNode models.GraphNode, context map[string]string) error {
+	args := m.Called(stepNode, context)
+	return args.Error(0)
+}
+
 func (m *MockContractValidator) GetContractGraph(contractID string, version int) (*models.ContractGraph, error) {
 	args := m.Called(contractID, version)
 	return args.Get(0).(*models.ContractGraph), args.Error(1)

@@ -85,7 +85,9 @@ export class Connection {
 
       // Only include role for contract-based workflows
       if (contractName) {
-        message.role = 'participant'; // Default role for contract workflows
+        // Extract role from service name (e.g., "merchant-service" -> "merchant")
+        const effectiveServiceName = serviceName || this.serviceName;
+        message.role = effectiveServiceName ? effectiveServiceName.replace(/-service$/, '') : 'participant';
       }
 
       // Set up one-time listener for response
