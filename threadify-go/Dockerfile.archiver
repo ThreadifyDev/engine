@@ -1,0 +1,42 @@
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the archiver application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/archiver cmd/archiver/main.go
+
+# Final stage
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder
+COPY --from=builder /app/bin/archiver .
+
+# Copy config files
+COPY --from=builder /app/config/config.docker.yaml ./config/config.yaml
+COPY --from=builder /app/config/valkey.conf ./config/valkey.conf
+
+# Health check - archiver doesn't expose HTTP, so check if process is running
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD pgrep -x archiver || exit 1
+
+# Run the application
+CMD ["./archiver", "-config", "config/config.yaml"]

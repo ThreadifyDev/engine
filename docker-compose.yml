@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  # PostgreSQL (Citus) - Main database
+  postgres:
+    image: citusdata/citus:postgres_16
+    container_name: threadify_storage
+    ports:
+      - "5434:5432"
+    environment: &AUTH
+      POSTGRES_USER: ${PS_STORAGE_USER:-td_engine}
+      POSTGRES_PASSWORD: ${PS_STORAGE_PASSWORD:-tdtdtd}
+      POSTGRES_DB: threadify
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    networks:
+      - threadify-network
+    volumes:
+      - threadify-persist:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PS_STORAGE_USER:-td_engine}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Citus Worker
+  postgres-worker:
+    container_name: threadify_storage_worker
+    image: citusdata/citus:postgres_16
+    depends_on:
+      - postgres-manager
+    environment: *AUTH
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -e
+        until test -f /healthcheck/manager-ready ; do
+          >&2 echo "Manager is not ready - sleeping"
+          sleep 1
+        done
+        >&2 echo "Manager is up - starting worker"
+        exec gosu postgres "/usr/local/bin/docker-entrypoint.sh" "postgres"
+    volumes:
+      - threadify-persist:/healthcheck
+    networks:
+      - threadify-network
+
+  # Citus Manager
+  postgres-manager:
+    container_name: threadify_storage_manager
+    image: citusdata/membership-manager:0.3.0
+    volumes:
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
+      - threadify-persist:/healthcheck
+    depends_on:
+      - postgres
+    environment: *AUTH
+    networks:
+      - threadify-network
+
+  # Valkey (Redis) - Fast cache and queue
+  valkey:
+    image: valkey/valkey:9.0.0
+    container_name: threadify-queue
+    ports:
+      - "6379:6379"
+    volumes:
+      - threadify-queue:/data
+      - ./config/valkey.conf:/etc/valkey/valkey.conf
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${FAST_STORAGE_PASSWORD:-threadify_secure_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Threadify Engine - Main application server
+  threadify-engine:
+    build:
+      context: ./threadify-go
+      dockerfile: Dockerfile
+    container_name: threadify-engine
+    ports:
+      - "8081:8081"
+      - "6060:6060"  # pprof profiling
+    environment:
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${PS_STORAGE_USER:-td_engine}
+      DB_PASSWORD: ${PS_STORAGE_PASSWORD:-tdtdtd}
+      DB_NAME: threadify
+      
+      # Valkey/Redis
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD: ${FAST_STORAGE_PASSWORD:-threadify_secure_password}
+      
+      # Server
+      SERVER_PORT: 8081
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # Threadify Archiver - Background data archival service
+  threadify-archiver:
+    build:
+      context: ./threadify-go
+      dockerfile: Dockerfile.archiver
+    container_name: threadify-archiver
+    environment:
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${PS_STORAGE_USER:-td_engine}
+      DB_PASSWORD: ${PS_STORAGE_PASSWORD:-tdtdtd}
+      DB_NAME: threadify
+      
+      # Valkey/Redis
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD: ${FAST_STORAGE_PASSWORD:-threadify_secure_password}
+      
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "archiver"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  threadify-persist:
+    driver: local
+  threadify-queue:
+    driver: local
+
+networks:
+  threadify-network:
+    driver: bridge

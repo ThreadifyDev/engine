@@ -1,0 +1,94 @@
+server:
+  port: 8081
+  host: 0.0.0.0
+
+postgres:
+  url: "postgres://td_engine:tdtdtd@postgres:5432/threadify?sslmode=disable"
+  max_connections: 25
+  max_idle_connections: 5
+
+redis:
+  host: valkey
+  port: 6379
+  password: threadify_secure_password
+  db: 0
+  pool_size: 8
+
+jwt:
+  secret: your-256-bit-secret-key-change-this-in-production-min-32-chars
+  issuer: threadify-engine
+  audience: threadify-users
+  realm: Threadify API
+  expiration_hours: 24
+
+queue:
+  ttl_seconds: 7776000
+
+step_events:
+  batch_size: 100
+  batch_timeout_ms: 1000
+
+# Rate limiting configuration
+rate_limit:
+  requests_per_second: 5000
+  burst_size: 10000
+  cleanup_interval_hours: 1
+
+cache:
+  contract_ttl_hours: 24
+  thread_ttl_hours: 72
+  step_event_ttl_hours: 168
+  session_ttl_minutes: 30
+
+# Audit queue configuration
+audit_queue:
+  name: "audit_events"
+  retention_hours: 12
+  batch_size: 50
+  batch_timeout_ms: 5000
+  max_retries: 3
+
+# Invitation configuration
+invitations:
+  default_permissions: "read,write"
+  default_expiry: "24h"
+  max_expiry: "7d"
+  allowed_roles:
+    - "external_partner"
+    - "contractor" 
+    - "auditor"
+    - "support"
+
+logging:
+  level: info
+
+# Archiver service configuration
+archiver:
+  enabled: true
+  
+  buffers:
+    step_events:
+      size: 100
+      flush_interval_seconds: 5
+    thread_metadata:
+      size: 50
+      flush_interval_seconds: 5
+    audit_logs:
+      size: 200
+      flush_interval_seconds: 30
+    invitations:
+      size: 50
+      flush_interval_seconds: 5
+    thread_access:
+      size: 50
+      flush_interval_seconds: 5
+  
+  retry:
+    max_attempts: 6
+    initial_backoff_seconds: 1
+    max_backoff_seconds: 16
+  
+  streams:
+    consumer_group: "archiver-group"
+    block_timeout_seconds: 5
+    batch_size: 100
