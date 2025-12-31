@@ -29,6 +29,14 @@ type ValkeyClient interface {
 	XAck(ctx context.Context, stream, group string, ids []string) error
 	XGroupCreate(ctx context.Context, stream, group, start string) error
 	XGroupCreateMkStream(ctx context.Context, stream, group, start string) error
+	// Sorted set operations for execution graph
+	ZAdd(ctx context.Context, key string, score float64, member string) error
+	ZRem(ctx context.Context, key string, members ...string) error
+	ZCard(ctx context.Context, key string) (int64, error)
+	ZRange(ctx context.Context, key string, start, stop int64) ([]string, error)
+	// Lua script operations
+	ScriptLoad(ctx context.Context, script string) (string, error)
+	EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error)
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
 }

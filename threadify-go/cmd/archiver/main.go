@@ -154,6 +154,8 @@ func main() {
 			writeFunc = pgWriter.WriteInvitations
 		case "thread_access":
 			writeFunc = pgWriter.WriteThreadAccess
+		case "validation_results":
+			writeFunc = pgWriter.WriteValidationResults
 		default:
 			log.Printf("Warning: Unknown queue type %s, using default handler\n", queueName)
 			writeFunc = func(ctx context.Context, events []archiver.StreamEvent) error {

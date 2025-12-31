@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Threadify Contract Graph Visualizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script>
+        // Debug: Check what variables are available
+        console.log('Checking available variables...');
+        console.log('cytoscape:', typeof cytoscape);
+        console.log('dagre:', typeof dagre);
+        console.log('dagreLayout:', typeof dagreLayout);
+        console.log('cytoscapeDagre:', typeof cytoscapeDagre);
+        console.log('window keys:', Object.keys(window).filter(k => k.toLowerCase().includes('dagre')));
+        
+        // Check if dagre layout is already available
+        if (typeof cytoscape !== 'undefined') {
+            console.log('Cytoscape available, checking layouts...');
+            
+            // Try to register with different approaches
+            let layoutRegistered = false;
+            
+            // Method 1: Try dagreLayout
+            if (typeof dagreLayout !== 'undefined') {
+                cytoscape.use(dagreLayout);
+                console.log('Dagre layout plugin registered successfully using dagreLayout');
+                layoutRegistered = true;
+            }
+            // Method 2: Try cytoscapeDagre
+            else if (typeof cytoscapeDagre !== 'undefined') {
+                cytoscape.use(cytoscapeDagre);
+                console.log('Dagre layout plugin registered successfully using cytoscapeDagre');
+                layoutRegistered = true;
+            }
+            // Method 3: Check if already registered
+            else {
+                console.log('Checking if dagre is already built-in...');
+                // Test if dagre layout works without explicit registration
+                try {
+                    const testCy = cytoscape({ container: document.createElement('div') });
+                    const testLayout = testCy.layout({ name: 'dagre' });
+                    console.log('Dagre layout appears to be built-in!');
+                    layoutRegistered = true;
+                } catch (e) {
+                    console.log('Dagre layout not built-in, trying fallback...');
+                }
+            }
+            
+            if (!layoutRegistered) {
+                console.log('Using fallback: breadthfirst layout instead of dagre');
+                // We'll modify the initialization to use breadthfirst as fallback
+            }
+        } else {
+            console.error('Cytoscape not available');
+        }
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            display: flex;
+            gap: 20px;
+            height: calc(100vh - 40px);
+        }
+        
+        .input-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .graph-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .panel-header {
+            padding: 15px;
+            background: #333;
+            color: white;
+            border-radius: 8px 8px 0 0;
+            font-weight: bold;
+        }
+        
+        textarea {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 0 0 8px 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: none;
+            outline: none;
+        }
+        
+        #cy {
+            flex: 1;
+            border-radius: 0 0 8px 8px;
+            background: white;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 15px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .error {
+            color: #dc3545;
+            padding: 10px 15px;
+            margin: 10px 15px;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            display: none;
+        }
+        
+        .info {
+            color: #155724;
+            padding: 10px 15px;
+            margin: 10px 15px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        console.log('Page body loading...');
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM Content Loaded');
+            console.log('Container element:', document.querySelector('.container'));
+            console.log('Input panel:', document.querySelector('.input-panel'));
+            console.log('Graph panel:', document.querySelector('.graph-panel'));
+            console.log('Cytoscape container:', document.getElementById('cy'));
+        });
+    </script>
+    <h1>Threadify Contract Graph Visualizer</h1>
+    
+    <div class="container">
+        <div class="input-panel">
+            <div class="panel-header">Contract JSON Input</div>
+            <textarea id="jsonInput" placeholder='Paste your contract JSON here...
+Example format:
+{
+  "graph": {
+    "nodes": {
+      "order_placed": {"owner": "merchant", "timeout": "5m", "type": "step"},
+      "payment_validation": {"owner": "payment_processor", "timeout": "30s", "type": "step"}
+    },
+    "entryPoints": ["order_placed"],
+    "terminalSteps": ["order_cancelled"]
+  },
+  "transitions": [
+    {"from": "order_placed", "to": ["payment_validation"], "canRetry": true, "maxRetries": 3}
+  ]
+}'></textarea>
+            <div class="controls">
+                <button onclick="visualizeGraph()">Visualize Graph</button>
+                <button onclick="loadExample()">Load Example</button>
+                <button onclick="testProvidedJSON()">Test Provided JSON</button>
+                <button onclick="clearAll()">Clear</button>
+            </div>
+            <div class="controls">
+                <input type="text" id="apiUrl" placeholder="API URL (e.g., http://localhost:8081/v1/contracts/preview)" style="flex: 1; padding: 8px; margin: 0 10px;">
+                <button onclick="fetchFromAPI()">Fetch from API</button>
+            </div>
+            <div class="controls">
+                <input type="text" id="jwtToken" placeholder="JWT Token (optional for public APIs)" style="flex: 1; padding: 8px; margin: 0 10px;" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ0aHJlYWRpZnktdXNlcnMiLCJleHAiOjE3NjcyMjkwOTQsImlhdCI6MTc2NzE0MjY5NCwiaXNzIjoidGhyZWFkaWZ5LWVuZ2luZSIsIm93bmVySWQiOiIxMjM0NTYiLCJyb2xlIjoidXNlciIsInN1YiI6IjEyMzQ1NiJ9.IKmN2mNJ_KKXZhBuqfvMHQ7f1SldQiEdRZ0eb3j8aO0">
+            </div>
+            <div class="controls">
+                <textarea id="yamlInput" placeholder='Or paste YAML contract here for API validation...' style="flex: 1; padding: 8px; margin: 0 10px; height: 80px; font-family: monospace; font-size: 12px;"></textarea>
+            </div>
+            <div id="error" class="error"></div>
+            <div id="info" class="info"></div>
+        </div>
+        
+        <div class="graph-panel">
+            <div class="panel-header">Contract Visualization</div>
+            <div id="cy"></div>
+        </div>
+    </div>
+
+    <script>
+        let cy = null;
+
+        function initializeCytoscape() {
+            console.log('Initializing Cytoscape...');
+            
+            // Check if dependencies are loaded
+            if (typeof cytoscape === 'undefined') {
+                console.error('Cytoscape.js not loaded');
+                return;
+            }
+            
+            if (typeof dagre === 'undefined') {
+                console.error('Dagre layout not loaded');
+                return;
+            }
+            
+            // Check if container exists
+            const container = document.getElementById('cy');
+            if (!container) {
+                console.error('Cytoscape container not found');
+                return;
+            }
+            
+            console.log('Dependencies loaded, container found:', container);
+            
+            try {
+                cy = cytoscape({
+                    container: container,
+                    
+                    elements: [],
+                
+                style: [
+                    {
+                        selector: 'node[type="entry"]',
+                        style: {
+                            'background-color': '#e1f5fe',
+                            'border-color': '#01579b',
+                            'border-width': 3,
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'width': 60,
+                            'height': 60,
+                            'font-size': '12px',
+                            'color': '#01579b',
+                            'text-outline-color': '#fff',
+                            'text-outline-width': 2
+                        }
+                    },
+                    {
+                        selector: 'node[type="step"]',
+                        style: {
+                            'background-color': '#e8f5e8',
+                            'border-color': '#2e7d32',
+                            'border-width': 2,
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'width': 80,
+                            'height': 50,
+                            'font-size': '11px',
+                            'color': '#2e7d32',
+                            'text-outline-color': '#fff',
+                            'text-outline-width': 1
+                        }
+                    },
+                    {
+                        selector: 'node[type="terminal"]',
+                        style: {
+                            'background-color': '#f3e5f5',
+                            'border-color': '#4a148c',
+                            'border-width': 3,
+                            'label': 'data(label)',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'width': 60,
+                            'height': 60,
+                            'font-size': '12px',
+                            'color': '#4a148c',
+                            'text-outline-color': '#fff',
+                            'text-outline-width': 2
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 2,
+                            'line-color': '#666',
+                            'target-arrow-color': '#666',
+                            'target-arrow-shape': 'triangle',
+                            'label': 'data(label)',
+                            'font-size': '10px',
+                            'color': '#333',
+                            'curve-style': 'bezier'
+                        }
+                    }
+                ],
+                
+                layout: {
+                    name: 'breadthfirst',
+                    directed: true,
+                    padding: 20,
+                    spacingFactor: 1.3,
+                    roots: function(node) {
+                        return node.data('type') === 'entry';
+                    }
+                },
+                
+                zoom: 1,
+                pan: { x: 0, y: 0 }
+            });
+            
+            console.log('Cytoscape initialized successfully:', cy);
+            
+            } catch (initError) {
+                console.error('Error initializing Cytoscape:', initError);
+                cy = null;
+            }
+        }
+
+        function convertContractToCytoscape(contract) {
+            const elements = [];
+            
+            // Add nodes
+            if (contract.graph && contract.graph.nodes) {
+                Object.entries(contract.graph.nodes).forEach(([id, node]) => {
+                    let nodeType = 'step';
+                    let label = id;
+                    
+                    // Determine node type
+                    if (contract.graph.entryPoints && contract.graph.entryPoints.includes(id)) {
+                        nodeType = 'entry';
+                    } else if (contract.graph.terminalSteps && contract.graph.terminalSteps.includes(id)) {
+                        nodeType = 'terminal';
+                    }
+                    
+                    // Create enhanced label
+                    if (node.timeout) {
+                        label += `\\n⏱️ ${node.timeout}`;
+                    }
+                    if (node.owner) {
+                        label += `\\n(${node.owner})`;
+                    }
+                    
+                    elements.push({
+                        data: {
+                            id: id,
+                            label: label,
+                            type: nodeType,
+                            owner: node.owner
+                        }
+                    });
+                });
+            }
+            
+            // Add edges
+            if (contract.transitions) {
+                contract.transitions.forEach(transition => {
+                    if (transition.to && Array.isArray(transition.to)) {
+                        transition.to.forEach(target => {
+                            const edgeData = {
+                                data: {
+                                    source: transition.from,
+                                    target: target
+                                }
+                            };
+                            
+                            // Add retry label if configured
+                            if (transition.canRetry && transition.maxRetries) {
+                                edgeData.data.label = `retry: ${transition.maxRetries}`;
+                            }
+                            
+                            elements.push(edgeData);
+                        });
+                    }
+                });
+            }
+            
+            return elements;
+        }
+
+        function visualizeGraph() {
+            const jsonInput = document.getElementById('jsonInput').value;
+            const errorDiv = document.getElementById('error');
+            const infoDiv = document.getElementById('info');
+            
+            // Hide previous messages
+            errorDiv.style.display = 'none';
+            infoDiv.style.display = 'none';
+            
+            if (!jsonInput.trim()) {
+                errorDiv.textContent = 'Please enter contract JSON data';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const contract = JSON.parse(jsonInput);
+                const elements = convertContractToCytoscape(contract);
+                
+                if (elements.length === 0) {
+                    errorDiv.textContent = 'No valid nodes or transitions found in the contract';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                
+                // Update cytoscape with new data
+                cy.elements().remove();
+                cy.add(elements);
+                cy.layout({ name: 'dagre', directed: true, padding: 20, spacingFactor: 1.3 }).run();
+                
+                infoDiv.textContent = `Graph loaded successfully! ${elements.filter(e => e.group === 'nodes').length} nodes, ${elements.filter(e => e.group === 'edges').length} transitions`;
+                infoDiv.style.display = 'block';
+                
+            } catch (error) {
+                errorDiv.textContent = `Error parsing JSON: ${error.message}`;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function loadExample() {
+            const exampleContract = {
+                graph: {
+                    nodes: {
+                        order_placed: { owner: "merchant", timeout: "5m", type: "step" },
+                        payment_validation: { owner: "payment_processor", timeout: "30s", type: "step" },
+                        payment_validated: { owner: "payment_processor", timeout: "1m", type: "step" },
+                        order_cancelled: { owner: "merchant", timeout: "1m", type: "step" },
+                        fulfillment_ready: { owner: "warehouse_manager", timeout: "2h", type: "step" },
+                        shipped: { owner: "logistics_carrier", timeout: "24h", type: "step" },
+                        delivered: { owner: "logistics_carrier", timeout: "1h", type: "step" },
+                        delivery_failed: { owner: "logistics_carrier", timeout: "2h", type: "step" }
+                    },
+                    entryPoints: ["order_placed"],
+                    terminalSteps: ["delivered", "order_cancelled"]
+                },
+                transitions: [
+                    { from: "order_placed", to: ["payment_validation"], canRetry: true, maxRetries: 3 },
+                    { from: "payment_validation", to: ["payment_validated", "order_cancelled"], canRetry: true, maxRetries: 3 },
+                    { from: "payment_validated", to: ["fulfillment_ready"] },
+                    { from: "fulfillment_ready", to: ["shipped"] },
+                    { from: "shipped", to: ["delivered", "delivery_failed"] },
+                    { from: "delivery_failed", to: ["shipped"], canRetry: true, maxRetries: 2 }
+                ]
+            };
+            
+            document.getElementById('jsonInput').value = JSON.stringify(exampleContract, null, 2);
+            visualizeGraph();
+        }
+
+        function fetchFromAPI() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const yamlInput = document.getElementById('yamlInput').value;
+            const jwtToken = document.getElementById('jwtToken').value;
+            const errorDiv = document.getElementById('error');
+            const infoDiv = document.getElementById('info');
+            
+            // Hide previous messages
+            errorDiv.style.display = 'none';
+            infoDiv.style.display = 'none';
+            
+            if (!apiUrl.trim()) {
+                errorDiv.textContent = 'Please enter an API URL';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            if (!yamlInput.trim()) {
+                errorDiv.textContent = 'Please enter YAML contract data';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            // Prepare headers
+            const headers = {
+                'Content-Type': 'text/plain',
+            };
+            
+            // Add Authorization header if token is provided
+            if (jwtToken.trim()) {
+                headers['Authorization'] = `Bearer ${jwtToken}`;
+            }
+            
+            // Create request to API
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: headers,
+                body: yamlInput
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Full API response:', data);
+                console.log('Data valid:', data.valid);
+                console.log('Has cytoscape:', !!data.cytoscape);
+                
+                if (!data.valid) {
+                    errorDiv.textContent = `Contract validation failed: ${data.errors.join(', ')}`;
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                
+                if (!data.cytoscape) {
+                    errorDiv.textContent = 'No Cytoscape data returned from API';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+                
+                try {
+                    console.log('Raw Cytoscape data:', data.cytoscape);
+                    const cytoscapeData = JSON.parse(data.cytoscape);
+                    console.log('Parsed Cytoscape data:', cytoscapeData);
+                    console.log('Elements count:', cytoscapeData.elements ? cytoscapeData.elements.length : 'no elements array');
+                    
+                    if (cytoscapeData.elements && cytoscapeData.elements.length > 0) {
+                        console.log('Elements found:', cytoscapeData.elements);
+                        // Update cytoscape with API data
+                        cy.elements().remove();
+                        cy.add(cytoscapeData.elements);
+                        cy.layout({ name: 'dagre', directed: true, padding: 20, spacingFactor: 1.3 }).run();
+                        
+                        const nodeCount = cytoscapeData.elements.filter(e => e.group === 'nodes').length;
+                        const edgeCount = cytoscapeData.elements.filter(e => e.group === 'edges').length;
+                        infoDiv.textContent = `API data loaded successfully! ${nodeCount} nodes, ${edgeCount} transitions`;
+                        infoDiv.style.display = 'block';
+                        
+                        // Also populate the JSON input area for reference
+                        document.getElementById('jsonInput').value = JSON.stringify(cytoscapeData, null, 2);
+                    } else {
+                        console.log('No elements found, cytoscapeData:', cytoscapeData);
+                        errorDiv.textContent = `No valid graph elements found in API response. Elements: ${cytoscapeData.elements ? cytoscapeData.elements.length : 'none'}`;
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (parseError) {
+                    console.log('Parse error:', parseError);
+                    errorDiv.textContent = `Error parsing Cytoscape data: ${parseError.message}`;
+                    errorDiv.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                errorDiv.textContent = `API request failed: ${error.message}`;
+                errorDiv.style.display = 'block';
+            });
+        }
+
+        function testProvidedJSON() {
+            const errorDiv = document.getElementById('error');
+            const infoDiv = document.getElementById('info');
+            
+            // Hide previous messages
+            errorDiv.style.display = 'none';
+            infoDiv.style.display = 'none';
+            
+            // Check if Cytoscape is initialized
+            if (!cy) {
+                errorDiv.textContent = 'Cytoscape not initialized. Please wait for page to load or refresh the page.';
+                errorDiv.style.display = 'block';
+                console.log('Cytoscape not initialized');
+                return;
+            }
+            
+            console.log('Cytoscape initialized:', cy);
+            
+            // The exact JSON provided by the user
+            const providedJSON = '{"elements":[{"group":"nodes","data":{"id":"order_cancelled","label":"order_cancelled\\n(merchant)","nodeType":"step","owner":"merchant","timeout":"","type":"terminal"}},{"group":"nodes","data":{"id":"fulfillment_ready","label":"fulfillment_ready\\n⏱️ 2h\\n(warehouse_manager)","nodeType":"step","owner":"warehouse_manager","timeout":"2h","type":"step"}},{"group":"nodes","data":{"id":"shipped","label":"shipped\\n⏱️ 24h\\n(logistics_carrier)","nodeType":"step","owner":"logistics_carrier","timeout":"24h","type":"step"}},{"group":"nodes","data":{"id":"delivered","label":"delivered\\n(logistics_carrier)","nodeType":"step","owner":"logistics_carrier","timeout":"","type":"terminal"}},{"group":"nodes","data":{"id":"delivery_failed","label":"delivery_failed\\n(logistics_carrier)","nodeType":"step","owner":"logistics_carrier","timeout":"","type":"step"}},{"group":"nodes","data":{"id":"order_placed","label":"order_placed\\n⏱️ 5m\\n(merchant)","nodeType":"step","owner":"merchant","timeout":"5m","type":"entry"}},{"group":"nodes","data":{"id":"payment_validation","label":"payment_validation\\n⏱️ 30s\\n(payment_processor)","nodeType":"step","owner":"payment_processor","timeout":"30s","type":"step"}},{"group":"nodes","data":{"id":"payment_validated","label":"payment_validated\\n(payment_processor)","nodeType":"step","owner":"payment_processor","timeout":"","type":"step"}},{"group":"edges","data":{"source":"order_placed","target":"payment_validation"}},{"group":"edges","data":{"source":"payment_validation","target":"payment_validated"}},{"group":"edges","data":{"source":"payment_validation","target":"order_cancelled"}},{"group":"edges","data":{"source":"payment_validated","target":"fulfillment_ready"}},{"group":"edges","data":{"source":"fulfillment_ready","target":"shipped"}},{"group":"edges","data":{"source":"shipped","target":"delivered"}},{"group":"edges","data":{"source":"shipped","target":"delivery_failed"}},{"group":"edges","data":{"source":"delivery_failed","target":"shipped"}}]}';
+            
+            console.log('Testing provided JSON:', providedJSON);
+            
+            try {
+                const cytoscapeData = JSON.parse(providedJSON);
+                console.log('Parsed cytoscape data:', cytoscapeData);
+                console.log('Elements count:', cytoscapeData.elements.length);
+                
+                if (cytoscapeData.elements && cytoscapeData.elements.length > 0) {
+                    console.log('Adding elements to Cytoscape...');
+                    cy.elements().remove();
+                    cy.add(cytoscapeData.elements);
+                    cy.layout({ name: 'dagre', directed: true, padding: 20, spacingFactor: 1.3 }).run();
+                    
+                    const nodeCount = cytoscapeData.elements.filter(e => e.group === 'nodes').length;
+                    const edgeCount = cytoscapeData.elements.filter(e => e.group === 'edges').length;
+                    infoDiv.textContent = `Test data loaded successfully! ${nodeCount} nodes, ${edgeCount} edges`;
+                    infoDiv.style.display = 'block';
+                    
+                    // Also populate the JSON input area
+                    document.getElementById('jsonInput').value = JSON.stringify(cytoscapeData, null, 2);
+                } else {
+                    console.log('No elements found!');
+                    errorDiv.textContent = 'No elements found in test data';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (parseError) {
+                console.log('Parse error:', parseError);
+                errorDiv.textContent = `Error parsing test data: ${parseError.message}`;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function clearAll() {
+            document.getElementById('jsonInput').value = '';
+            document.getElementById('yamlInput').value = '';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('info').style.display = 'none';
+            cy.elements().remove();
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCytoscape();
+        });
+    </script>
+</body>
+</html>

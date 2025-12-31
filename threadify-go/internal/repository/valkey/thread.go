@@ -27,6 +27,7 @@ func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int) *ThreadReposit
 // Save stores a thread in Valkey
 func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
 	key := r.getThreadKey(thread.ID)
+	metaKey := r.getThreadMetaKey(thread.ID)
 
 	// Serialize thread to JSON
 	data, err := thread.ToJSON()
@@ -34,8 +35,23 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 		return fmt.Errorf("failed to serialize thread: %w", err)
 	}
 
-	// Store in Valkey with TTL
-	err = r.valkey.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+	// Use pipeline for atomic write
+	pipe := r.valkey.Pipeline()
+
+	// Store base data as JSON
+	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+
+	// Store metadata in hash for atomic Lua updates
+	metadata := map[string]interface{}{
+		"status": string(thread.Status),
+	}
+	if thread.CompletedAt != nil {
+		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339)
+	}
+	pipe.HSet(ctx, metaKey, metadata)
+	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
+
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to save thread: %w", err)
 	}
@@ -46,8 +62,9 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 // Get retrieves a thread from Valkey
 func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
 	key := r.getThreadKey(threadID)
+	metaKey := r.getThreadMetaKey(threadID)
 
-	// Get from Valkey
+	// Get base data from JSON
 	data, err := r.valkey.Get(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get thread: %w", err)
@@ -61,6 +78,21 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 	thread, err := models.FromJSON([]byte(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize thread: %w", err)
+	}
+
+	// Get metadata from hash and overlay it (hash is source of truth)
+	meta, err := r.valkey.HGetAll(ctx, metaKey)
+	if err == nil && len(meta) > 0 {
+		// Overlay status from hash
+		if status, ok := meta["status"]; ok {
+			thread.Status = models.ThreadStatus(status)
+		}
+		// Overlay completedAt from hash
+		if completedAtStr, ok := meta["completedAt"]; ok && completedAtStr != "" {
+			if completedAt, err := time.Parse(time.RFC3339, completedAtStr); err == nil {
+				thread.CompletedAt = &completedAt
+			}
+		}
 	}
 
 	return thread, nil
@@ -240,7 +272,7 @@ func (r *ThreadRepository) GetThreadEvents(ctx context.Context, threadID string,
 func (r *ThreadRepository) CreateThreadWithSetup(ctx context.Context, thread *models.Thread, creatorID string, creatorRole string, creatorPerms []string) error {
 	pipe := r.valkey.Pipeline()
 
-	// 1. Save thread metadata
+	// 1. Save thread base data as JSON
 	threadKey := r.getThreadKey(thread.ID)
 	threadJSON, err := thread.ToJSON()
 	if err != nil {
@@ -248,18 +280,29 @@ func (r *ThreadRepository) CreateThreadWithSetup(ctx context.Context, thread *mo
 	}
 	pipe.Set(ctx, threadKey, string(threadJSON), time.Duration(r.ttl)*time.Second)
 
-	// 2. Set initial role
+	// 2. Save thread metadata in hash (for atomic Lua updates)
+	metaKey := r.getThreadMetaKey(thread.ID)
+	metadata := map[string]interface{}{
+		"status": string(thread.Status),
+	}
+	if thread.CompletedAt != nil {
+		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339)
+	}
+	pipe.HSet(ctx, metaKey, metadata)
+	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
+
+	// 3. Set initial role
 	rolesKey := r.getThreadRolesKey(thread.ID)
 	pipe.HSet(ctx, rolesKey, creatorRole, creatorID)
 	pipe.Expire(ctx, rolesKey, time.Duration(r.ttl)*time.Second)
 
-	// 3. Set initial permissions
+	// 4. Set initial permissions
 	permsKey := r.getThreadPermissionsKey(thread.ID)
 	permsJSON, _ := json.Marshal(creatorPerms)
 	pipe.HSet(ctx, permsKey, creatorID, string(permsJSON))
 	pipe.Expire(ctx, permsKey, time.Duration(r.ttl)*time.Second)
 
-	// 4. Add creation event
+	// 5. Add creation event
 	eventKey := r.getThreadEventsKey(thread.ID)
 	eventJSON, _ := json.Marshal(models.ThreadEvent{
 		Action:    "thread_created",
@@ -319,4 +362,8 @@ func (r *ThreadRepository) getThreadPermissionsKey(threadID string) string {
 
 func (r *ThreadRepository) getThreadEventsKey(threadID string) string {
 	return fmt.Sprintf("thread:%s:queue", threadID)
+}
+
+func (r *ThreadRepository) getThreadMetaKey(threadID string) string {
+	return fmt.Sprintf("thread:%s:meta", threadID)
 }

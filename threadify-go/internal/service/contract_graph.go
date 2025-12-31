@@ -86,13 +86,20 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 		}
 	}
 
-	// 5. Build graph with entry points and terminal steps
+	// 5. Build graph with entry points, terminal steps, and transitions
+	fmt.Printf("[BUILD-GRAPH] Building graph with %d transitions\n", len(contract.Transitions))
+	if len(contract.Transitions) > 0 {
+		fmt.Printf("[BUILD-GRAPH] First transition: from=%s, to=%v, canRetry=%v, maxRetries=%d\n",
+			contract.Transitions[0].From, contract.Transitions[0].To, contract.Transitions[0].CanRetry, contract.Transitions[0].MaxRetries)
+	}
+
 	return &models.ContractGraph{
 		Graph: models.Graph{
 			Nodes:         nodes,
 			EntryPoints:   contract.EntryPoints,
 			TerminalSteps: contract.TerminalSteps,
 		},
+		Transitions: contract.Transitions,
 	}, nil
 }
 

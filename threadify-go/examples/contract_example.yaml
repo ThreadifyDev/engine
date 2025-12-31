@@ -1,6 +1,6 @@
 contract_name: product_delivery
-version: 1
-description: Complete product delivery workflow
+version: 3
+description: Complete product delivery workflow with retry limits
 
 # Entry points - where threads can start
 entry_points:
@@ -90,12 +90,13 @@ transitions:
   - from: order_placed
     to:
       - payment_validation
+    max_retries: 3
 
   - from: payment_validation
     to:
       - payment_validated
       - order_cancelled
-    can_retry: true
+    max_retries: 3
 
   - from: payment_validated
     to:
@@ -113,7 +114,7 @@ transitions:
   - from: delivery_failed
     to:
       - shipped
-    can_retry: true
+    max_retries: 2
 
 # Terminal steps - where threads can end
 terminal_steps:

@@ -167,6 +167,30 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
+
+	CREATE TABLE IF NOT EXISTS validation_results (
+		validation_id VARCHAR(255) PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		step_id VARCHAR(255) NOT NULL,
+		step_name VARCHAR(255) NOT NULL,
+		idempotency_key VARCHAR(255),
+		timestamp TIMESTAMP NOT NULL,
+		validations JSONB NOT NULL,
+		overall_status VARCHAR(50) NOT NULL,
+		has_critical_violation BOOLEAN NOT NULL,
+		critical_count INTEGER NOT NULL,
+		warning_count INTEGER NOT NULL,
+		minor_count INTEGER NOT NULL,
+		info_count INTEGER NOT NULL,
+		total_validations INTEGER NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_validation_results_thread_id ON validation_results(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_validation_results_step_id ON validation_results(step_id);
+	CREATE INDEX IF NOT EXISTS idx_validation_results_timestamp ON validation_results(timestamp DESC);
+	CREATE INDEX IF NOT EXISTS idx_validation_results_status ON validation_results(overall_status);
+	CREATE INDEX IF NOT EXISTS idx_validation_results_critical ON validation_results(has_critical_violation) WHERE has_critical_violation = true;
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

@@ -156,12 +156,12 @@ func main() {
 	// WebSocket route (no auth at connection level)
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
-	// Protected routes
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authService))
 	{
 		v1.GET("/contracts", contractHandler.GetAllContracts)
 		v1.POST("/contracts", contractHandler.CreateContract)
+		v1.POST("/contracts/preview", contractHandler.PreviewContract)
 		v1.GET("/contracts/:id", contractHandler.GetContract)
 		v1.PUT("/contracts/:id", contractHandler.UpdateContract)
 		v1.DELETE("/contracts/:id", contractHandler.DeleteContract)

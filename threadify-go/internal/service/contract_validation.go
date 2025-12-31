@@ -131,27 +131,22 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 			return nil, fmt.Errorf("no graph found in contract version %s v%d", contractID, version)
 		}
 
-		// Unmarshal the inner Graph (not ContractGraph wrapper)
-		var innerGraph models.Graph
-		err = json.Unmarshal(contractVersion.Graph, &innerGraph)
+		// Unmarshal the entire ContractGraph (including Transitions)
+		var loadedGraph models.ContractGraph
+		err = json.Unmarshal(contractVersion.Graph, &loadedGraph)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse contract graph: %w", err)
 		}
 
-		// Wrap in ContractGraph
-		loadedGraph := &models.ContractGraph{
-			Graph: innerGraph,
-		}
-
 		// Store in both Valkey and memory caches for future use
 		// Use targetVersion for caching, not the input version (which might be 0)
-		if err := v.graphRepo.Save(context.Background(), contractID, targetVersion, loadedGraph); err != nil {
+		if err := v.graphRepo.Save(context.Background(), contractID, targetVersion, &loadedGraph); err != nil {
 			// Log error but don't fail - we still have the graph
 			fmt.Printf("Warning: failed to cache contract graph in Valkey: %v\n", err)
 		}
 
-		v.cacheManager.SetContractGraph(contractID, targetVersion, loadedGraph)
-		return loadedGraph, nil
+		v.cacheManager.SetContractGraph(contractID, targetVersion, &loadedGraph)
+		return &loadedGraph, nil
 	}
 
 	// No PostgreSQL repository available, return the original error from Valkey

@@ -22,17 +22,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/server cmd/se
 # Final stage
 FROM alpine:latest
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS and wget for health check
+RUN apk --no-cache add ca-certificates wget
 
-WORKDIR /root/
+# Create non-root user and group
+RUN addgroup -g 1001 -S threadify && \
+    adduser -u 1001 -S threadify -G threadify
+
+WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /app/bin/server .
 
 # Copy config files
 COPY --from=builder /app/config/config.docker.yaml ./config/config.yaml
-COPY --from=builder /app/config/valkey.conf ./config/valkey.conf
+
+# Change ownership to non-root user
+RUN chown -R threadify:threadify /app
+
+# Switch to non-root user
+USER threadify
 
 # Expose port
 EXPOSE 8081

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -9,7 +10,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/utils"
 )
+
+// PreviewResponse represents the response for contract preview
+type PreviewResponse struct {
+	Valid     bool     `json:"valid"`
+	Mermaid   string   `json:"mermaid,omitempty"`
+	Cytoscape string   `json:"cytoscape,omitempty"`
+	Errors    []string `json:"errors,omitempty"`
+}
 
 type ContractHandler struct {
 	contractService *service.ContractService
@@ -194,6 +204,62 @@ func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
 
 	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), contractID, requesterID)
 	c.JSON(statusCode, response)
+}
+
+func (h *ContractHandler) PreviewContract(c *gin.Context) {
+	// Read YAML body
+	yamlBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, PreviewResponse{
+			Valid:  false,
+			Errors: []string{"Failed to read request body"},
+		})
+		return
+	}
+
+	// Validate and build graph using service method
+	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, PreviewResponse{
+			Valid:  false,
+			Errors: []string{fmt.Sprintf("Failed to process contract: %v", err)},
+		})
+		return
+	}
+
+	// Handle validation errors
+	if !validationResult.IsValid {
+		errors := make([]string, len(validationResult.Errors))
+		for i, err := range validationResult.Errors {
+			errors[i] = fmt.Sprintf("%s: %s", err.Field, err.Message)
+		}
+		c.JSON(http.StatusOK, PreviewResponse{
+			Valid:  false,
+			Errors: errors,
+		})
+		return
+	}
+
+	// Convert to Mermaid
+	mermaidCode := utils.ContractGraphToMermaid(contract.ContractName, graph)
+
+	// Convert to Cytoscape
+	cytoscapeJSON, err := utils.ContractGraphToCytoscapeJSON(contract.ContractName, graph)
+	if err != nil {
+		// Log error but don't fail the request - Mermaid is still available
+		fmt.Printf("Error converting to Cytoscape: %v\n", err)
+		c.JSON(http.StatusOK, PreviewResponse{
+			Valid:   true,
+			Mermaid: mermaidCode,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, PreviewResponse{
+		Valid:     true,
+		Mermaid:   mermaidCode,
+		Cytoscape: cytoscapeJSON,
+	})
 }
 
 func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {

@@ -99,6 +99,145 @@ await thread.join(threadId, 'payment_gateway');
 - Role-based access control with contract validation
 - Invitation permissions enforced (invite permission required)
 
+### Non-Blocking Contract Validation
+
+**Two-Phase Validation System:**
+Threadify uses a two-phase validation approach to ensure data integrity without blocking workflow execution:
+
+**Phase 1: Blocking Validations** (Executed before step is recorded)
+- Authentication & authorization checks
+- Required field validation
+- Thread existence & access control
+- Idempotency checks (duplicate prevention)
+- Step exists in contract
+- Entry point validation (first step must be an entry point)
+- Role validation (user has correct role for step)
+- Required business context fields present
+- Thread completion status (cannot add steps to completed threads)
+
+**Phase 2: Non-Blocking Validations** (Executed asynchronously after step is recorded)
+- **Invalid Transition Detection** (Critical) - Validates step follows contract's defined transitions
+- **Step Timeout Exceeded** (Critical) - Checks if step duration exceeded timeout
+- **Max Duration Exceeded** (Critical) - Validates thread hasn't exceeded max_duration
+- **Multiple Terminal States** (Critical/Configurable) - Detects if thread reached multiple terminal states
+- **Retry Limit Exceeded** (Critical) - Checks if step retry count exceeded max_retries
+- **Missing Optional Fields** (Info) - Tracks missing optional business context fields
+- **Extra Undocumented Fields** (Info) - Identifies fields not defined in contract
+
+**Validation Flow:**
+```
+Step Submission → Blocking Validations → Record Step → Return Success
+                                              ↓
+                                    Async Goroutine (Non-Blocking)
+                                              ↓
+                         Check Transitions, Timeouts, Limits
+                                              ↓
+                         Store Notifications in Stream
+                                              ↓
+                    Update Thread.Violated (if critical failure)
+```
+
+**Thread Violation Tracking:**
+```go
+type Thread struct {
+    CurrentSteps []string          // Array of current steps (supports parallel execution)
+    Violated     *ThreadViolation  // Tracks failed steps and violations
+    // ... other fields
+}
+
+type ThreadViolation struct {
+    FailedSteps map[string]StepViolation // key: stepID
+    ViolatedAt  time.Time
+}
+
+type StepViolation struct {
+    StepID        string
+    StepName      string
+    OwnerID       string                 // Who published the failed step
+    ViolationType ViolationType          // e.g., "invalid_transition"
+    Severity      ViolationSeverity      // "critical", "major", "minor", "warning", "info"
+    Message       string
+    Details       map[string]interface{}
+    ViolatedAt    time.Time
+}
+```
+
+## New Features & API Changes (Iteration 3)
+
+### Contract Preview Endpoint
+**Instant Workflow Visualization:**
+```bash
+# Preview contract without persisting
+curl -X POST http://localhost:8080/v1/contracts/preview \
+  -H "Content-Type: application/x-yaml" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d 'contract.yaml'
+```
+
+**Response:**
+```json
+{
+  "valid": true,
+  "mermaid": "```mermaid\nflowchart TD\n    %% Contract: payment_flow\n    %% Node styles\n    classDef entry fill:#e1f5fe,stroke:#01579b,stroke-width:2px\n    classDef terminal fill:#f3e5f5,stroke:#4a148c,stroke-width:2px\n    classDef step fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px\n    classDef group fill:#fff3e0,stroke:#e65100,stroke-width:2px\n\n    %% Swim lanes by party\n    subgraph merchant\n        node_order_placed[\"order_placed\\n⏱️ 5m\\n(merchant)\"]\n    end\n\n    subgraph payment_processor\n        node_payment_validation[\"payment_validation\\n⏱️ 10m\\n(payment_processor)\"]\n    end\n\n    %% Transitions\n    node_order_placed --> node_payment_validation | retry: 3 |\n\n    %% Node classifications\n    class node_order_placed entry\n    class node_payment_validation step\n```",
+  "errors": []
+}
+```
+
+**Key Features:**
+- **Live Validation** - Validates YAML against parser and supported properties
+- **Visual Debugging** - Generates Mermaid flowchart with swim lanes by party
+- **Timeout Visualization** - Shows ⏱️ timeout indicators on each step
+- **Retry Configuration** - Displays retry limits on transition arrows
+- **No Persistence** - Pure in-memory validation and conversion
+- **Authentication Required** - Protected endpoint with JWT auth
+
+**Enhanced Mermaid Visualization:**
+- **Party Swim Lanes** - Steps grouped by owner (merchant, payment_processor, etc.)
+- **Parallel Group Subgraphs** - Visual hierarchy for parallel execution
+- **Timeout Annotations** - Prominent timeout display for bottleneck identification
+- **Entry/Terminal Styling** - Color-coded nodes (blue entry, purple terminal, green steps, orange groups)
+
+**Notification Stream:**
+All validation results (success and failures) are stored in a Valkey stream for audit and monitoring:
+```
+streams:validation_notifications = [
+  {
+    notificationId: "notif-123",
+    threadId: "thread-456",
+    stepId: "step-789",
+    stepName: "payment_validated",
+    ownerId: "user-123",
+    status: "failed",
+    violationType: "invalid_transition",
+    severity: "critical",
+    message: "Invalid transition from 'order_placed' to 'package_shipped'",
+    fromStep: "order_placed",
+    toStep: "package_shipped",
+    timestamp: "2025-12-30T02:00:00Z"
+  }
+]
+```
+
+**Atomic Updates with Lua Scripts:**
+To prevent race conditions when multiple steps validate simultaneously, thread status updates use atomic Lua scripts:
+
+```lua
+-- Executed atomically in Valkey
+local currentStatus = redis.call('HGET', threadKey, 'status')
+-- Status priority: failed (3) > completed (2) > active (1)
+if newPriority >= currentPriority then
+    redis.call('HSET', threadKey, 'status', newStatus)
+end
+```
+
+**Benefits:**
+- **Fast Response Times:** Steps are recorded immediately without waiting for complex validations
+- **Complete Audit Trail:** All violations tracked with full context
+- **Flexible Severity:** Different violation types have configurable severity levels
+- **Parallel Execution Support:** CurrentSteps array enables multiple concurrent steps
+- **No Blocking:** Critical validations run asynchronously, allowing workflow to continue
+- **Race-Free Updates:** Lua scripts ensure atomic status transitions (failed > completed > active)
+
 ### Step Deduplication with Idempotency Keys
 
 **Automatic Idempotency:**

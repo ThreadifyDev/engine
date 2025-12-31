@@ -1,5 +1,7 @@
 .PHONY: help build run test clean docker-up docker-down install lint fmt
 
+VERSION := $(shell git describe --tags --always)
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
@@ -14,7 +16,14 @@ build: ## Build the server binary
 	@echo "✓ Binary created at bin/server"
 
 run: ## Run the server
-	go run cmd/server/main.go
+	go build -o bin/server cmd/server/main.go
+	./bin/server
+
+run-archiver: ## Build and run the archiver binary
+	@echo "Building archiver..."
+	go build -o bin/archiver cmd/archiver/main.go
+	@echo "✓ Binary created at bin/archiver"
+	./bin/archiver
 
 test: ## Run all tests
 	go test ./tests/... -v -count=1
@@ -49,9 +58,18 @@ dev: docker-up ## Start dev environment and run server
 	@make run
 
 build-image: ## Build Docker image
-	docker build -t threadify-engine:latest .
+	docker build -t intelijence/th-engine:${VERSION} .
+
+build-archiver:
+	docker build -f Dockerfile.archiver -t intelijence/th-archiver:${VERSION} .
+
+push: ## Push Threadify Engine server
+	docker push intelijence/th-engine:${VERSION}
+
+push-archiver:
+	docker push intelijence/th-archiver:${VERSION}
 
 run-docker: ## Run server in Docker
-	docker run -p 8080:8080 --env-file .env threadify-engine:latest
+	docker run -p 8080:8080 --env-file .env intelijence/th-engine:latest
 
 .DEFAULT_GOAL := help

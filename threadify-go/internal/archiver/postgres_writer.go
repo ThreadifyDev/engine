@@ -256,3 +256,68 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 
 	return nil
 }
+
+// WriteValidationResults writes validation results to Postgres
+func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Writing %d validation results to Postgres...\n", len(events))
+
+	// Use multi-row INSERT for efficiency
+	query := `
+		INSERT INTO validation_results (
+			validation_id, thread_id, step_id, step_name, idempotency_key,
+			timestamp, validations, overall_status, has_critical_violation,
+			critical_count, warning_count, minor_count, info_count, total_validations
+		) VALUES `
+
+	values := make([]interface{}, 0, len(events)*14)
+	placeholders := ""
+
+	for i, event := range events {
+		if i > 0 {
+			placeholders += ", "
+		}
+
+		offset := i * 14
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7,
+			offset+8, offset+9, offset+10, offset+11, offset+12, offset+13, offset+14,
+		)
+
+		values = append(values,
+			event.Data["validationID"],
+			event.Data["threadID"],
+			event.Data["stepID"],
+			event.Data["stepName"],
+			event.Data["idempotencyKey"],
+			event.Data["timestamp"],
+			event.Data["validations"],
+			event.Data["overallStatus"],
+			event.Data["hasCriticalViolation"],
+			event.Data["criticalCount"],
+			event.Data["warningCount"],
+			event.Data["minorCount"],
+			event.Data["infoCount"],
+			event.Data["totalValidations"],
+		)
+
+		fmt.Printf("   Validation %d: validationID=%s, threadID=%s, stepID=%s, status=%s, critical=%v\n",
+			i+1, event.Data["validationID"], event.Data["threadID"], event.Data["stepID"],
+			event.Data["overallStatus"], event.Data["hasCriticalViolation"])
+	}
+
+	query += placeholders + " ON CONFLICT (validation_id) DO NOTHING"
+
+	_, err := w.db.Pool.Exec(ctx, query, values...)
+	if err != nil {
+		fmt.Printf("❌ [PostgresWriter] Failed to write validation results: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d validation results to Postgres\n", len(events))
+	return nil
+}

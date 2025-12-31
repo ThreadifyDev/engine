@@ -3,7 +3,9 @@ package models
 // ContractGraph represents the DAG structure of a contract
 // Metadata (contract_id, version) is stored in contract_versions table
 type ContractGraph struct {
-	Graph Graph `json:"graph"`
+	Graph       Graph        `json:"graph"`
+	Transitions []Transition `json:"transitions,omitempty"` // Valid step-to-step transitions
+	Validation  *Validation  `json:"validation,omitempty"`  // Contract-level validation rules
 }
 
 // Graph contains the nodes, entry points, and terminal steps of the workflow
@@ -73,9 +75,10 @@ type Validation struct {
 
 // Transition represents a valid step-to-step flow
 type Transition struct {
-	From     string   `yaml:"from" json:"From"`
-	To       []string `yaml:"to" json:"To"`
-	CanRetry bool     `yaml:"can_retry,omitempty" json:"CanRetry,omitempty"`
+	From       string   `yaml:"from" json:"From"`
+	To         []string `yaml:"to" json:"To"`
+	CanRetry   bool     `yaml:"can_retry,omitempty" json:"CanRetry,omitempty"`
+	MaxRetries int      `yaml:"max_retries,omitempty" json:"MaxRetries,omitempty"`
 }
 
 // Versioning defines version locking rules

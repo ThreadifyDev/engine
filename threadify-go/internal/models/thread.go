@@ -28,20 +28,22 @@ const (
 
 // Thread represents a contract execution instance
 type Thread struct {
-	ID              string                `json:"id"`
-	ContractID      *string               `json:"contractId,omitempty"`
-	ContractVersion *int                  `json:"contractVersion,omitempty"`
-	ContractName    string                `json:"contractName,omitempty"` // New field for contract name
-	Refs            map[string]string     `json:"refs,omitempty"`         // New field for external references
-	OwnerID         string                `json:"ownerId"`
-	CompanyID       string                `json:"companyId"` // Company ID for multi-tenancy
-	Status          ThreadStatus          `json:"status"`
-	CurrentStep     string                `json:"currentStep"`
-	LastHash        string                `json:"lastHash"`
-	Steps           map[string]*StepState `json:"steps,omitempty"` // Key: stepName:idempKey
-	StartedAt       time.Time             `json:"startedAt"`
-	CompletedAt     *time.Time            `json:"completedAt,omitempty"`
-	Error           string                `json:"error,omitempty"`
+	ID              string            `json:"id"`
+	ContractID      *string           `json:"contractId,omitempty"`
+	ContractVersion *int              `json:"contractVersion,omitempty"`
+	ContractName    string            `json:"contractName,omitempty"` // New field for contract name
+	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
+	OwnerID         string            `json:"ownerId"`
+	CompanyID       string            `json:"companyId"` // Company ID for multi-tenancy
+	Status          ThreadStatus      `json:"status"`
+	LastHash        string            `json:"lastHash"`
+	Violated        *ThreadViolation  `json:"violated,omitempty"` // Tracks failed steps and violations
+	StartedAt       time.Time         `json:"startedAt"`
+	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	// Note: CurrentSteps and Steps removed - now stored in Redis hashes
+	// - CurrentSteps tracked in thread:ID:current_steps (sorted set)
+	// - Steps tracked in thread:ID:steps:{stepName}:{idempKey} (hashes)
 }
 
 // StepState represents the state of a step in a thread
@@ -69,7 +71,6 @@ func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, c
 		OwnerID:   ownerID,
 		CompanyID: companyID,
 		Status:    ThreadStatusActive,
-		Steps:     make(map[string]*StepState), // Initialize steps map
 		StartedAt: time.Now(),
 	}
 

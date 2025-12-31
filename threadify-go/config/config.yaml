@@ -82,6 +82,9 @@ archiver:
     thread_access:
       size: 50
       flush_interval_seconds: 5
+    validation_results:
+      size: 100
+      flush_interval_seconds: 5
   
   # Retry configuration for failed writes
   retry:

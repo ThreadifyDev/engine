@@ -38,6 +38,24 @@ func NewContractService(db *database.PostgresDB) *ContractService {
 	}
 }
 
+// PreviewContract validates YAML and builds contract graph without persisting
+func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
+	// Validate YAML
+	contract, validationResult := s.validator.Validate(yamlString)
+	if !validationResult.IsValid {
+		return nil, nil, validationResult, nil
+	}
+
+	// Build contract graph
+	graphBuilder := NewGraphBuilder()
+	graph, err := graphBuilder.BuildGraph([]byte(yamlString))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return contract, graph, validationResult, nil
+}
+
 func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy, contractYAML string) (int, interface{}) {
 	// Validate contract YAML
 	contract, validationResult := s.validator.Validate(contractYAML)
@@ -91,8 +109,8 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy
 		return 500, map[string]string{"message": "Failed to build contract graph"}
 	}
 
-	// Serialize graph to JSON (serialize the inner Graph, not the wrapper)
-	graphJSON, err := json.Marshal(contractGraph.Graph)
+	// Serialize graph to JSON (serialize the entire ContractGraph including Transitions)
+	graphJSON, err := json.Marshal(contractGraph)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to serialize graph"}
 	}
@@ -177,8 +195,8 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 500, map[string]string{"message": "Failed to build contract graph"}
 	}
 
-	// Serialize graph to JSON (serialize the inner Graph, not the wrapper)
-	graphJSON, err := json.Marshal(contractGraph.Graph)
+	// Serialize graph to JSON (serialize the entire ContractGraph including Transitions)
+	graphJSON, err := json.Marshal(contractGraph)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to serialize graph"}
 	}

@@ -1,0 +1,428 @@
+package tests
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/repository/valkey"
+)
+
+// MockValkeyClient for testing
+type MockValkeyClient struct {
+	data map[string]string
+	hash map[string]map[string]string
+}
+
+func NewMockValkeyClient() *MockValkeyClient {
+	return &MockValkeyClient{
+		data: make(map[string]string),
+		hash: make(map[string]map[string]string),
+	}
+}
+
+func (m *MockValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.data[key] = value
+	return nil
+}
+
+func (m *MockValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	if val, ok := m.data[key]; ok {
+		return val, nil
+	}
+	return "", nil
+}
+
+func (m *MockValkeyClient) Delete(ctx context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+func (m *MockValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	_, exists := m.data[key]
+	return exists, nil
+}
+
+func (m *MockValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	return nil
+}
+
+func (m *MockValkeyClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	if m.hash[key] == nil {
+		m.hash[key] = make(map[string]string)
+	}
+	// values come in pairs: field1, value1, field2, value2, ...
+	for i := 0; i < len(values); i += 2 {
+		if i+1 < len(values) {
+			field := values[i].(string)
+			value := values[i+1].(string)
+			m.hash[key][field] = value
+		}
+	}
+	return nil
+}
+
+func (m *MockValkeyClient) HGet(ctx context.Context, key, field string) (string, error) {
+	if hash, ok := m.hash[key]; ok {
+		if val, ok := hash[field]; ok {
+			return val, nil
+		}
+	}
+	return "", nil
+}
+
+func (m *MockValkeyClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	if hash, ok := m.hash[key]; ok {
+		return hash, nil
+	}
+	return make(map[string]string), nil
+}
+
+func (m *MockValkeyClient) HDel(ctx context.Context, key string, fields ...string) error {
+	if hash, ok := m.hash[key]; ok {
+		for _, field := range fields {
+			delete(hash, field)
+		}
+	}
+	return nil
+}
+
+func (m *MockValkeyClient) LPush(ctx context.Context, key string, values ...interface{}) error {
+	return nil
+}
+
+func (m *MockValkeyClient) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	return "mock-sha-hash", nil
+}
+
+func (m *MockValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	return "completed", nil
+}
+
+func (m *MockValkeyClient) XAdd(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
+	return "mock-id", nil
+}
+
+func (m *MockValkeyClient) XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]map[string]interface{}, error) {
+	return nil, nil
+}
+
+func (m *MockValkeyClient) XAck(ctx context.Context, stream, group string, ids []string) error {
+	return nil
+}
+
+func (m *MockValkeyClient) XGroupCreate(ctx context.Context, stream, group, start string) error {
+	return nil
+}
+
+func (m *MockValkeyClient) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
+	return nil
+}
+
+func (m *MockValkeyClient) Pipeline() interfaces.ValkeyPipeline {
+	return &MockValkeyPipeline{}
+}
+
+type MockValkeyPipeline struct{}
+
+func (p *MockValkeyPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) XAdd(ctx context.Context, stream string, values map[string]interface{}) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+	return p
+}
+
+func (p *MockValkeyPipeline) Exec(ctx context.Context) ([]interface{}, error) {
+	return nil, nil
+}
+
+func (m *MockValkeyClient) Del(ctx context.Context, keys ...string) error {
+	for _, key := range keys {
+		delete(m.data, key)
+	}
+	return nil
+}
+
+// TestThreadAccessService_SetAndGetPermissions tests permission storage and retrieval
+func TestThreadAccessService_SetAndGetPermissions(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	threadID := "thread-123"
+	userID := "user-456"
+	permissions := []string{"read", "write"}
+
+	// Test: Set permissions
+	err := accessService.SetUserPermissions(threadID, userID, permissions)
+	if err != nil {
+		t.Fatalf("SetUserPermissions failed: %v", err)
+	}
+
+	// Test: Get permissions (should hit in-memory cache)
+	perms, err := accessService.GetUserPermissions(threadID, userID)
+	if err != nil {
+		t.Fatalf("GetUserPermissions failed: %v", err)
+	}
+
+	if len(perms) != 2 || perms[0] != "read" || perms[1] != "write" {
+		t.Errorf("Expected permissions [read, write], got %v", perms)
+	}
+}
+
+// TestThreadAccessService_SetAndGetRole tests role storage and retrieval
+func TestThreadAccessService_SetAndGetRole(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	threadID := "thread-123"
+	userID := "user-456"
+	role := "buyer"
+
+	// Test: Assign role
+	err := accessService.AssignRole(threadID, role, userID)
+	if err != nil {
+		t.Fatalf("AssignRole failed: %v", err)
+	}
+
+	// Test: Get role (should hit in-memory cache)
+	retrievedRole, err := accessService.GetUserRole(threadID, userID)
+	if err != nil {
+		t.Fatalf("GetUserRole failed: %v", err)
+	}
+
+	if retrievedRole != role {
+		t.Errorf("Expected role %s, got %s", role, retrievedRole)
+	}
+}
+
+// TestThreadAccessService_CheckThreadAccess_Owner tests owner access
+func TestThreadAccessService_CheckThreadAccess_Owner(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	thread := &models.Thread{
+		ID:      "thread-123",
+		OwnerID: "user-456",
+	}
+
+	// Test: Owner should have access without explicit permissions
+	hasAccess, err := accessService.CheckThreadAccess(thread.ID, "user-456", "write", thread)
+	if err != nil {
+		t.Fatalf("CheckThreadAccess failed: %v", err)
+	}
+
+	if !hasAccess {
+		t.Error("Expected owner to have access")
+	}
+}
+
+// TestThreadAccessService_CheckThreadAccess_InvitedUser tests invited user access
+func TestThreadAccessService_CheckThreadAccess_InvitedUser(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	thread := &models.Thread{
+		ID:      "thread-123",
+		OwnerID: "user-owner",
+	}
+
+	invitedUserID := "user-invited"
+
+	// Set permissions for invited user
+	err := accessService.SetUserPermissions(thread.ID, invitedUserID, []string{"read", "write"})
+	if err != nil {
+		t.Fatalf("SetUserPermissions failed: %v", err)
+	}
+
+	// Test: Invited user with write permission should have access
+	hasAccess, err := accessService.CheckThreadAccess(thread.ID, invitedUserID, "write", thread)
+	if err != nil {
+		t.Fatalf("CheckThreadAccess failed: %v", err)
+	}
+
+	if !hasAccess {
+		t.Error("Expected invited user with write permission to have access")
+	}
+}
+
+// TestThreadAccessService_CheckThreadAccess_NoPermission tests denied access
+func TestThreadAccessService_CheckThreadAccess_NoPermission(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	thread := &models.Thread{
+		ID:      "thread-123",
+		OwnerID: "user-owner",
+	}
+
+	unauthorizedUserID := "user-unauthorized"
+
+	// Test: User without permissions should be denied
+	hasAccess, err := accessService.CheckThreadAccess(thread.ID, unauthorizedUserID, "write", thread)
+	if err != nil {
+		t.Fatalf("CheckThreadAccess failed: %v", err)
+	}
+
+	if hasAccess {
+		t.Error("Expected unauthorized user to be denied access")
+	}
+}
+
+// TestThreadAccessService_CheckThreadAccess_ReadOnlyUser tests read-only access
+func TestThreadAccessService_CheckThreadAccess_ReadOnlyUser(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	thread := &models.Thread{
+		ID:      "thread-123",
+		OwnerID: "user-owner",
+	}
+
+	readOnlyUserID := "user-readonly"
+
+	// Set read-only permissions
+	err := accessService.SetUserPermissions(thread.ID, readOnlyUserID, []string{"read"})
+	if err != nil {
+		t.Fatalf("SetUserPermissions failed: %v", err)
+	}
+
+	// Test: Read-only user should not have write access
+	hasAccess, err := accessService.CheckThreadAccess(thread.ID, readOnlyUserID, "write", thread)
+	if err != nil {
+		t.Fatalf("CheckThreadAccess failed: %v", err)
+	}
+
+	if hasAccess {
+		t.Error("Expected read-only user to be denied write access")
+	}
+
+	// Test: Read-only user should have read access
+	hasReadAccess, err := accessService.CheckThreadAccess(thread.ID, readOnlyUserID, "read", thread)
+	if err != nil {
+		t.Fatalf("CheckThreadAccess failed: %v", err)
+	}
+
+	if !hasReadAccess {
+		t.Error("Expected read-only user to have read access")
+	}
+}
+
+// TestThreadAccessService_ValidateUserRoleForStep tests role validation
+func TestThreadAccessService_ValidateUserRoleForStep(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	threadID := "thread-123"
+	userID := "user-456"
+	role := "buyer"
+
+	// Assign role
+	err := accessService.AssignRole(threadID, role, userID)
+	if err != nil {
+		t.Fatalf("AssignRole failed: %v", err)
+	}
+
+	// Test: User with correct role should pass validation
+	hasRole, err := accessService.ValidateUserRoleForStep(threadID, userID, "buyer")
+	if err != nil {
+		t.Fatalf("ValidateUserRoleForStep failed: %v", err)
+	}
+
+	if !hasRole {
+		t.Error("Expected user with buyer role to pass validation")
+	}
+
+	// Test: User with wrong role should fail validation
+	hasWrongRole, err := accessService.ValidateUserRoleForStep(threadID, userID, "seller")
+	if err != nil {
+		t.Fatalf("ValidateUserRoleForStep failed: %v", err)
+	}
+
+	if hasWrongRole {
+		t.Error("Expected user with buyer role to fail seller validation")
+	}
+}
+
+// TestThreadAccessService_CacheHit tests in-memory cache hit
+func TestThreadAccessService_CacheHit(t *testing.T) {
+	// Setup
+	mockValkey := NewMockValkeyClient()
+	threadRepo := valkey.NewThreadRepository(mockValkey, 3600)
+	cacheService := NewCacheService()
+	accessService := NewThreadAccessService(threadRepo, cacheService)
+
+	threadID := "thread-123"
+	userID := "user-456"
+	permissions := []string{"read", "write"}
+
+	// Set permissions (writes to Valkey and cache)
+	err := accessService.SetUserPermissions(threadID, userID, permissions)
+	if err != nil {
+		t.Fatalf("SetUserPermissions failed: %v", err)
+	}
+
+	// Clear Valkey to test cache hit
+	mockValkey.hash = make(map[string]map[string]string)
+
+	// Get permissions (should hit cache, not Valkey)
+	perms, err := accessService.GetUserPermissions(threadID, userID)
+	if err != nil {
+		t.Fatalf("GetUserPermissions failed: %v", err)
+	}
+
+	if len(perms) != 2 {
+		t.Error("Expected cache hit to return permissions even after Valkey cleared")
+	}
+}

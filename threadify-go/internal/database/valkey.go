@@ -193,9 +193,46 @@ func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group,
 	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
 }
 
+// ZAdd adds a member with score to a sorted set
+func (v *ValkeyService) ZAdd(ctx context.Context, key string, score float64, member string) error {
+	return v.Client.ZAdd(ctx, key, redis.Z{Score: score, Member: member}).Err()
+}
+
+// ZRem removes members from a sorted set
+func (v *ValkeyService) ZRem(ctx context.Context, key string, members ...string) error {
+	// Convert []string to []interface{} for variadic parameter
+	args := make([]interface{}, len(members))
+	for i, m := range members {
+		args[i] = m
+	}
+	return v.Client.ZRem(ctx, key, args...).Err()
+}
+
+// ZCard returns the number of members in a sorted set
+func (v *ValkeyService) ZCard(ctx context.Context, key string) (int64, error) {
+	return v.Client.ZCard(ctx, key).Result()
+}
+
+// ZRange returns members in a sorted set by index range
+func (v *ValkeyService) ZRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return v.Client.ZRange(ctx, key, start, stop).Result()
+}
+
 // Pipeline creates a new Redis pipeline
 func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
+}
+
+// ScriptLoad loads a Lua script into Redis and returns its SHA1 hash
+func (v *ValkeyService) ScriptLoad(ctx context.Context, script string) (string, error) {
+	cmd := v.Client.ScriptLoad(ctx, script)
+	return cmd.Result()
+}
+
+// EvalSHA executes a Lua script by its SHA1 hash
+func (v *ValkeyService) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	cmd := v.Client.EvalSha(ctx, sha, keys, args...)
+	return cmd.Result()
 }
 
 // ExecuteWithBackoff executes a Redis operation with exponential backoff

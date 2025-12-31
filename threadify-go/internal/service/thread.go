@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +28,7 @@ type ThreadService struct {
 	authService       *AuthService
 	accessService     *ThreadAccessService
 	valkeyClient      interfaces.ValkeyClient
+	luaScripts        *LuaScriptManager
 }
 
 func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService) *ThreadService {
@@ -53,6 +57,12 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 	// Create thread access service for permission/role management
 	accessService := NewThreadAccessService(threadRepo, cacheService)
 
+	// Create and load Lua scripts
+	luaScripts := NewLuaScriptManager(valkeyService)
+	if err := luaScripts.LoadScripts(context.Background()); err != nil {
+		fmt.Printf("Warning: Failed to load Lua scripts: %v\n", err)
+	}
+
 	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
 		valkeyGraphRepo, // Valkey contract graph repository
@@ -63,6 +73,8 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		accessService, // Thread access service for permissions/roles
 	)
 	service.valkeyClient = valkeyService
+	service.luaScripts = luaScripts
+
 	return service
 }
 
@@ -189,7 +201,6 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			"contractVersion": contractVersion,
 			"contractName":    thread.ContractName,
 			"status":          thread.Status,
-			"currentStep":     thread.CurrentStep,
 			"lastHash":        thread.LastHash,
 			"startedAt":       thread.StartedAt.Format(time.RFC3339),
 			"completedAt":     "",
@@ -207,18 +218,15 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	}
 }
 
-// hasSuccessfulSteps checks if thread has any successful steps
+// hasSuccessfulSteps checks if thread has any completed steps
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
-	if thread.Steps == nil {
+	// Check if current_steps sorted set has any members
+	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", thread.ID)
+	count, err := s.valkeyClient.ZCard(context.Background(), currentStepsKey)
+	if err != nil {
 		return false
 	}
-
-	for _, step := range thread.Steps {
-		if step.Status == "success" {
-			return true
-		}
-	}
-	return false
+	return count > 0
 }
 
 func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string, companyID string) *models.RecordEventResponse {
@@ -303,29 +311,44 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
+	// Generate idempotency key from context hash if not provided
+	idempotencyKey := req.IdempotencyKey
+	if idempotencyKey == "" && req.Context != nil && len(req.Context) > 0 {
+		// Generate deterministic hash from context fields
+		idempotencyKey = generateContextHash(req.Context)
+		fmt.Printf("[IDEMPOTENCY] Auto-generated key from context hash: %s\n", idempotencyKey)
+	}
+
 	// Check for duplicate step using idempotency key
-	if req.IdempotencyKey != "" {
-		storageKey := req.StepName + ":" + req.IdempotencyKey
+	if idempotencyKey != "" {
+		stepKey := req.StepName + ":" + idempotencyKey
+		stepHashKey := fmt.Sprintf("thread:%s:steps:%s", req.ThreadID, stepKey)
 
-		// Initialize Steps map if nil
-		if thread.Steps == nil {
-			thread.Steps = make(map[string]*models.StepState)
-		}
-
-		// Check if step with this idempotency key already exists
-		if existingStep, exists := thread.Steps[storageKey]; exists {
-			if existingStep.Status == "success" {
+		// Check if step state hash exists
+		existingStatus, err := s.valkeyClient.HGet(context.Background(), stepHashKey, "status")
+		if err == nil && existingStatus != "" {
+			// Step exists - check if it's already completed
+			if existingStatus == "completed" {
 				// Duplicate successful step - reject
 				return &models.RecordEventResponse{
 					Action:      "recordThreadEvent",
 					Status:      "error",
-					Message:     "Step with this signature already successful",
+					Message:     "Step with this signature already completed",
 					IsDuplicate: true,
 				}
 			}
-			// If status is "failed", we'll update it below
+			// If status is "pending", "violated", or "failed", allow retry
 		}
 	}
+
+	// Update request with generated idempotency key for downstream processing
+	if req.IdempotencyKey == "" && idempotencyKey != "" {
+		req.IdempotencyKey = idempotencyKey
+	}
+
+	// Declare variables for async validation
+	var graph *models.ContractGraph
+	var stepNode models.GraphNode
 
 	// Validate contract if thread has one
 	if thread.ContractName != "" {
@@ -336,7 +359,8 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 
 		// Get contract graph (three-tier cached)
-		graph, err := s.contractValidator.GetContractGraph(thread.ContractName, version)
+		var err error
+		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version)
 		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -346,7 +370,8 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 
 		// Check if step exists in contract
-		stepNode, exists := graph.Graph.Nodes[req.StepName]
+		var exists bool
+		stepNode, exists = graph.Graph.Nodes[req.StepName]
 		if !exists {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -442,38 +467,10 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
-	// Update step state in thread for deduplication tracking
-	if req.IdempotencyKey != "" {
-		storageKey := req.StepName + ":" + req.IdempotencyKey
-		now := time.Now()
-
-		if existingStep, exists := thread.Steps[storageKey]; exists {
-			// Update existing step (retry case)
-			existingStep.StepID = stepID
-			existingStep.Status = req.Status
-			existingStep.Context = req.Context
-			existingStep.UpdatedAt = now
-			existingStep.RetryCount++
-		} else {
-			// Create new step state
-			thread.Steps[storageKey] = &models.StepState{
-				StepID:         stepID,
-				StepName:       req.StepName,
-				Status:         req.Status,
-				IdempotencyKey: req.IdempotencyKey,
-				Context:        req.Context,
-				CreatedAt:      now,
-				UpdatedAt:      now,
-				RetryCount:     0,
-			}
-		}
-
-		// Save updated thread to cache and Valkey
-		s.cacheManager.SetThread(req.ThreadID, thread)
-		if err := s.repo.Save(context.Background(), thread); err != nil {
-			// Log error but don't fail the request - step event is already processed
-			fmt.Printf("Warning: Failed to save thread state: %v\n", err)
-		}
+	// Trigger async validation for ALL threads (contract or not) with successful steps
+	// The async validation will update step state via Lua script
+	if req.Status == "success" {
+		s.performAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
 	}
 
 	return &models.RecordEventResponse{
@@ -560,4 +557,34 @@ func (s *ThreadService) AssignThreadRole(threadID, role, userID string) error {
 // SetThreadPermissions sets permissions for a user in a thread
 func (s *ThreadService) SetThreadPermissions(threadID, userID string, permissions []string) error {
 	return s.accessService.SetUserPermissions(threadID, userID, permissions)
+}
+
+// generateContextHash creates a deterministic hash from context fields
+// This enables automatic retry tracking without explicit idempotency keys
+func generateContextHash(context map[string]string) string {
+	if len(context) == 0 {
+		return ""
+	}
+
+	// Sort keys for deterministic ordering
+	keys := make([]string, 0, len(context))
+	for k := range context {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build deterministic string from sorted key-value pairs
+	var builder strings.Builder
+	for _, k := range keys {
+		builder.WriteString(k)
+		builder.WriteString("=")
+		builder.WriteString(context[k])
+		builder.WriteString(";")
+	}
+
+	// Generate SHA256 hash
+	hash := sha256.Sum256([]byte(builder.String()))
+
+	// Return first 16 characters of hex encoding (sufficient for uniqueness)
+	return hex.EncodeToString(hash[:])[:16]
 }
