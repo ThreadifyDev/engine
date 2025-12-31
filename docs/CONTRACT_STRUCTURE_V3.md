@@ -26,6 +26,9 @@ contract_name: product_delivery
 version: 3
 description: High-level business process for product delivery
 
+entry_points:
+  - order_placed
+
 parties:
   - merchant
   - payment_processor
@@ -115,6 +118,9 @@ transitions:
       - order_cancelled
     can_retry: true
     max_retries: 1
+  
+  # Idempotency implied: order_cancelled appears multiple times = can be posted multiple times
+  # from different paths (payment failure, fulfillment cancellation, shipping issues)
 
 terminal_steps:
   - delivered
@@ -124,11 +130,34 @@ validation:
   max_duration: 72h
   allow_multiple_terminals: true
   multiple_terminals_severity: minor
+
+versioning:
+  threads_lock_to_version: true  # Thread uses contract version at creation
 ```
 
 ---
 
 ## Field Definitions
+
+### Entry Points
+
+**Type:** `array of strings`
+
+**Description:** List of step IDs that can be used as the initial step when creating a new thread. The first step in a thread must be one of these entry points.
+
+**Example:**
+
+```yaml
+entry_points:
+  - order_placed
+```
+
+**Validation:**
+- All entry points must reference valid step IDs defined in `steps`
+- At least one entry point must be defined
+- First step in thread creation must match an entry point
+
+---
 
 ### Parties
 
@@ -252,11 +281,82 @@ validation:
 
 ---
 
+### Versioning
+
+**Type:** `object`
+
+**Description:** Controls how contract versions are managed and applied to threads.
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `threads_lock_to_version` | boolean | No | If true, threads lock to the contract version at creation time (default: true) |
+
+**Example:**
+
+```yaml
+versioning:
+  threads_lock_to_version: true  # Thread uses contract version at creation
+```
+
+**Behavior:**
+- When `threads_lock_to_version: true`, a thread created with contract v3 will continue using v3 even if v4 is published
+- Thread metadata includes both `contract_version` (locked version) and `contract_version_latest` (current version)
+- New threads automatically use the latest contract version unless a specific version is requested
+
+---
+
 ## Contract Validation Rules
 
 When a contract is uploaded, Threadify performs the following validations:
 
-### 1. Terminal Steps Must Exist in Steps
+### 1. Entry Points Must Exist in Steps
+
+All steps listed in `entry_points` must be defined in the `steps` array.
+
+**❌ Invalid:**
+
+```yaml
+steps:
+  - id: order_placed
+    owner: merchant
+
+entry_points:
+  - initial_order  # ERROR: "initial_order" not defined in steps
+```
+
+**✅ Valid:**
+
+```yaml
+steps:
+  - id: order_placed
+    owner: merchant
+
+entry_points:
+  - order_placed  # OK: "order_placed" is defined
+```
+
+---
+
+### 2. At Least One Entry Point Required
+
+A contract must define at least one entry point.
+
+**❌ Invalid:**
+
+```yaml
+entry_points: []  # ERROR: No entry points defined
+```
+
+**✅ Valid:**
+
+```yaml
+entry_points:
+  - order_placed
+```
+
+---
+
+### 3. Terminal Steps Must Exist in Steps
 
 All steps listed in `terminal_steps` must be defined in the `steps` array.
 
@@ -474,6 +574,58 @@ steps:
 
 ---
 
+### 7. No Orphaned Steps
+
+All steps (except entry points and terminal steps) must have at least one incoming or outgoing transition. Entry points may have no incoming transitions, and terminal steps may have no outgoing transitions.
+
+**❌ Invalid:**
+
+```yaml
+steps:
+  - id: order_placed
+    owner: merchant
+  - id: orphaned_step  # ERROR: No transitions reference this step
+    owner: merchant
+  - id: delivered
+    owner: logistics_carrier
+
+entry_points:
+  - order_placed
+
+transitions:
+  - from: order_placed
+    to: delivered
+
+terminal_steps:
+  - delivered
+```
+
+**✅ Valid:**
+
+```yaml
+steps:
+  - id: order_placed
+    owner: merchant
+  - id: payment_validated
+    owner: payment_processor
+  - id: delivered
+    owner: logistics_carrier
+
+entry_points:
+  - order_placed
+
+transitions:
+  - from: order_placed
+    to: payment_validated  # payment_validated has incoming transition
+  - from: payment_validated
+    to: delivered  # payment_validated has outgoing transition
+
+terminal_steps:
+  - delivered
+```
+
+---
+
 ## Validation Error Messages
 
 When validation fails, Threadify returns structured error messages:
@@ -502,7 +654,148 @@ When validation fails, Threadify returns structured error messages:
 
 ## Workflow Validation (Runtime)
 
-During thread execution, Threadify performs real-time validation to ensure the workflow adheres to the contract. Violations are categorized by severity level.
+During thread execution, Threadify performs real-time validation to ensure the workflow adheres to the contract. Validations are organized into two layers: **blocking** and **non-blocking**.
+
+---
+
+## Validation Layers
+
+### Layer 1: Blocking Validations (HTTP 400)
+
+Blocking validations prevent the step from being written to the thread. The API returns **HTTP 400 Bad Request** immediately.
+
+**Blocked Validations:**
+- ❌ Step not defined in contract
+- ❌ Unauthorized owner
+- ❌ Missing required fields
+- ❌ Thread already completed
+- ❌ Contract not found or inactive
+
+#### Example: Blocking Validation Failure
+
+**Request:**
+
+```http
+POST /threads/thread_123/steps
+Content-Type: application/json
+
+{
+  "step_id": "package_shipped",
+  "owner": "merchant",
+  "data": {
+    "carrier": "DHL"
+  }
+}
+```
+
+**Response: HTTP 400 Bad Request**
+
+```json
+{
+  "error": "validation_failed",
+  "blocking_errors": [
+    {
+      "type": "unauthorized_owner",
+      "message": "Step 'package_shipped' must be owned by 'logistics_carrier'",
+      "expected": "logistics_carrier",
+      "provided": "merchant"
+    },
+    {
+      "type": "missing_required_fields",
+      "message": "Required fields missing",
+      "missing_fields": ["tracking_number"]
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Step is **NOT written** to the thread
+- Thread state remains unchanged
+- Client must fix errors and retry
+
+---
+
+### Layer 2: Non-Blocking Validations (HTTP 201 + WebSocket)
+
+Non-blocking validations allow the step to be written but emit violation events via WebSocket. The API returns **HTTP 201 Created**.
+
+**Non-Blocking Violations:**
+- ⚠️ Invalid transition
+- ⚠️ Step timeout exceeded
+- ⚠️ Max duration exceeded
+- ⚠️ Multiple terminal states
+- ⚠️ Retry limit exceeded
+
+#### Example: Non-Blocking Validation
+
+**Request:**
+
+```http
+POST /threads/thread_123/steps
+Content-Type: application/json
+
+{
+  "step_id": "package_shipped",
+  "owner": "logistics_carrier",
+  "data": {
+    "tracking_number": "ABC123",
+    "carrier": "DHL"
+  }
+}
+```
+
+**Response: HTTP 201 Created**
+
+```json
+{
+  "thread_id": "thread_123",
+  "step_id": "package_shipped",
+  "sequence": 5,
+  "timestamp": "2025-12-27T10:30:00Z"
+}
+```
+
+**WebSocket Event (if violation detected):**
+
+```json
+{
+  "event": "thread_violation",
+  "thread_id": "thread_123",
+  "violation_type": "invalid_transition",
+  "severity": "major",
+  "message": "Invalid transition from 'order_placed' to 'package_shipped'",
+  "details": {
+    "from_step": "order_placed",
+    "to_step": "package_shipped",
+    "expected_steps": ["payment_validated"]
+  },
+  "timestamp": "2025-12-27T10:30:00Z"
+}
+```
+
+**Behavior:**
+- Step **IS written** to the thread
+- Violation is logged and emitted via WebSocket
+- Thread state is updated
+- Monitoring systems can track violations
+
+---
+
+### Why Two Layers?
+
+**Blocking validations** prevent obviously invalid data from entering the system:
+- Protects data integrity at write time
+- Provides immediate feedback to clients
+- Prevents malformed or unauthorized requests
+
+**Non-blocking validations** track workflow violations without blocking writes:
+- Allows audit trail of all attempts
+- Enables post-hoc analysis of workflow issues
+- Supports monitoring and alerting
+- Preserves complete history for debugging
+
+---
 
 ### Violation Severity Levels
 
@@ -1186,6 +1479,265 @@ thread.on("violation", (event) => {
   }
 });
 ```
+
+---
+
+## Key Behaviors
+
+### 1. Entry Point Validation
+
+The first step in a thread **must** be one of the contract's defined entry points.
+
+#### Creating a Thread with Valid Entry Point
+
+```http
+POST /threads/new
+Content-Type: application/json
+
+{
+  "contract_id": "product_delivery",
+  "version": 3,
+  "initial_step": {
+    "step_id": "order_placed",
+    "owner": "merchant",
+    "data": {
+      "order_id": "ORD-123",
+      "customer_id": "CUST-456",
+      "total_amount": 99.99
+    }
+  }
+}
+```
+
+**Response: HTTP 201 Created**
+
+```json
+{
+  "thread_id": "thread_abc123",
+  "contract_name": "product_delivery",
+  "contract_version": 3,
+  "current_step": "order_placed",
+  "status": "active"
+}
+```
+
+#### Invalid Entry Point
+
+```http
+POST /threads/new
+Content-Type: application/json
+
+{
+  "contract_id": "product_delivery",
+  "version": 3,
+  "initial_step": {
+    "step_id": "package_shipped",
+    "owner": "logistics_carrier",
+    "data": {...}
+  }
+}
+```
+
+**Response: HTTP 400 Bad Request**
+
+```json
+{
+  "error": "invalid_entry_point",
+  "message": "Step 'package_shipped' is not a valid entry point",
+  "valid_entry_points": ["order_placed"]
+}
+```
+
+---
+
+### 2. Idempotency via Contract Structure
+
+Steps that appear as targets in multiple transitions can be posted multiple times without violation. This enables idempotent terminal states.
+
+#### Example: Multiple Paths to `order_cancelled`
+
+```yaml
+transitions:
+  - from: payment_failed
+    to: order_cancelled
+  - from: fulfillment_ready
+    to: order_cancelled
+  - from: package_shipped
+    to: order_cancelled
+```
+
+#### Valid: Multiple Cancellations from Different Paths
+
+```javascript
+// First cancellation path
+thread.step("payment_failed", {
+  "failure_reason": "insufficient_funds"
+});
+thread.step("order_cancelled", {
+  "cancellation_reason": "payment_failed"
+});
+
+// Later, another issue arises
+thread.step("package_shipped", {
+  "tracking_number": "ABC123",
+  "carrier": "DHL"
+});
+thread.step("order_cancelled", {
+  "cancellation_reason": "shipping_issue"
+});
+```
+
+**Result:** ✅ Both cancellations accepted. Minor violation emitted for `multiple_terminal_states` (if configured).
+
+---
+
+### 3. Version Locking
+
+Threads lock to the contract version at creation time. Updating the contract does not affect existing threads.
+
+#### Thread Created with v3
+
+```http
+POST /threads/new
+{
+  "contract_id": "product_delivery",
+  "version": 3
+}
+```
+
+**Response:**
+
+```json
+{
+  "thread_id": "thread_123",
+  "contract_version": 3,
+  "contract_version_latest": 3
+}
+```
+
+#### Contract Updated to v4
+
+```http
+PUT /contracts/product_delivery
+{
+  "version": 4,
+  "steps": [...]
+}
+```
+
+#### Existing Thread Still Uses v3
+
+```http
+GET /threads/thread_123
+```
+
+**Response:**
+
+```json
+{
+  "thread_id": "thread_123",
+  "contract_name": "product_delivery",
+  "contract_version": 3,
+  "contract_version_latest": 4,
+  "status": "active"
+}
+```
+
+**Behavior:**
+- `contract_version`: Locked version (v3) used for validation
+- `contract_version_latest`: Current published version (v4) for informational purposes
+- Thread continues using v3 rules for all validations
+
+#### New Threads Auto-Use Latest Version
+
+```http
+POST /threads/new
+{
+  "contract_id": "product_delivery"
+}
+```
+
+**Response:**
+
+```json
+{
+  "thread_id": "thread_456",
+  "contract_version": 4,
+  "contract_version_latest": 4
+}
+```
+
+---
+
+### 4. Immutable Steps + SubSteps
+
+Steps are immutable once posted. To add additional data, use substeps.
+
+#### Post Step (Immutable)
+
+```http
+POST /threads/thread_123/steps
+{
+  "step_id": "package_shipped",
+  "owner": "logistics_carrier",
+  "data": {
+    "tracking_number": "ABC123",
+    "carrier": "DHL"
+  }
+}
+```
+
+**Response: HTTP 201 Created**
+
+#### Cannot Update Step
+
+```http
+PATCH /threads/thread_123/steps/package_shipped
+{
+  "data": {
+    "tracking_number": "XYZ789"
+  }
+}
+```
+
+**Response: HTTP 405 Method Not Allowed**
+
+```json
+{
+  "error": "method_not_allowed",
+  "message": "Steps are immutable and cannot be updated"
+}
+```
+
+#### Can Add SubStep
+
+```http
+POST /threads/thread_123/steps/package_shipped/substeps
+{
+  "substep_id": "carrier_scan",
+  "data": {
+    "location": "warehouse",
+    "timestamp": "2025-12-27T10:30:00Z"
+  }
+}
+```
+
+**Response: HTTP 201 Created**
+
+```json
+{
+  "thread_id": "thread_123",
+  "step_id": "package_shipped",
+  "substep_id": "carrier_scan",
+  "sequence": 1
+}
+```
+
+**Use Cases for SubSteps:**
+- Tracking events within a step (e.g., carrier scans during shipping)
+- Adding supplementary data without modifying the original step
+- Recording progress milestones
+- Audit trail of step-related activities
 
 ---
 
