@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
@@ -193,6 +195,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			contractID = *thread.ContractID
 		}
 
+		// Write to thread_metadata stream for normalized table
 		streamValues := map[string]interface{}{
 			"id":              threadID,
 			"ownerId":         ownerID,
@@ -208,6 +211,29 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			"limit":           100000,
 		}
 		s.valkeyClient.XAdd(ctx, "streams:thread_metadata", streamValues)
+
+		// Write thread_created event to activity log
+		activityValues := map[string]interface{}{
+			"type":             "thread_created",
+			"thread_id":        threadID,
+			"owner_id":         ownerID,
+			"contract_id":      contractID,
+			"contract_name":    thread.ContractName,
+			"contract_version": contractVersion,
+			"role":             req.Role,
+			"timestamp":        thread.StartedAt.Format(time.RFC3339),
+		}
+
+		// 1. Write to per-thread LIST for fast queries
+		activityList := fmt.Sprintf("thread:%s:activity", threadID)
+		eventJSON, _ := json.Marshal(activityValues)
+		s.valkeyClient.LPush(ctx, activityList, string(eventJSON))
+		s.valkeyClient.Expire(ctx, activityList, 7*24*time.Hour)
+
+		// 2. Write to partitioned STREAM for reliable archival
+		partition := s.getPartitionForThread(threadID)
+		partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
+		s.valkeyClient.XAdd(ctx, partitionedStream, activityValues)
 	}()
 
 	return &models.StartThreadResponse{
@@ -446,16 +472,28 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 	// Create step event for processing
 	stepEvent := &models.StepEvent{
-		StepID:      stepID, // Use StepID instead of ID
-		ThreadID:    req.ThreadID,
-		StepName:    req.StepName,
-		ServiceName: serviceName,
-		Type:        req.Type, // Use Type from request
-		Status:      req.Status,
-		Context:     contextInterface, // Use converted context
-		StartedAt:   req.StartedAt,
-		FinishedAt:  req.FinishedAt,
-		Timestamp:   time.Now(), // Use Timestamp instead of CreatedAt
+		StepID:         stepID, // Use StepID instead of ID
+		ThreadID:       req.ThreadID,
+		StepName:       req.StepName,
+		ServiceName:    serviceName,
+		Type:           req.Type, // Use Type from request
+		Status:         req.Status,
+		Context:        contextInterface, // Use converted context
+		StartedAt:      req.StartedAt,
+		FinishedAt:     req.FinishedAt,
+		Timestamp:      time.Now(),         // Use Timestamp instead of CreatedAt
+		IdempotencyKey: req.IdempotencyKey, // Pass through idempotency key (user-provided or auto-generated)
+	}
+
+	// Store refs atomically before step processing
+	if req.Refs != nil {
+		if err := s.repo.AddRefs(context.Background(), req.ThreadID, req.Refs); err != nil {
+			return &models.RecordEventResponse{
+				Action:  "recordThreadEvent",
+				Status:  "error",
+				Message: fmt.Sprintf("Failed to store refs: %v", err),
+			}
+		}
 	}
 
 	// Process step event immediately
@@ -587,4 +625,13 @@ func generateContextHash(context map[string]string) string {
 
 	// Return first 16 characters of hex encoding (sufficient for uniqueness)
 	return hex.EncodeToString(hash[:])[:16]
+}
+
+// getPartitionForThread calculates the partition number for a thread ID
+// Uses FNV hash for consistent distribution across partitions
+func (s *ThreadService) getPartitionForThread(threadID string) int {
+	const numPartitions = 10 // Should match archiver config
+	h := fnv.New32a()
+	h.Write([]byte(threadID))
+	return int(h.Sum32() % uint32(numPartitions))
 }

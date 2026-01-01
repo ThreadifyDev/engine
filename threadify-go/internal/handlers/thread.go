@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"strings"
@@ -270,32 +271,40 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 		}
 	}
 
-	// Log audit event and write to invitation stream (async, don't fail if they fail)
+	// Write to both per-thread stream and partitioned stream (async, don't fail if it fails)
 	go func() {
 		ctx := context.Background()
 
-		// Log audit event
-		if h.auditService != nil {
-			h.auditService.LogTokenCreated(ctx, threadID, contractID, session.ownerID, req.Role, permissions)
-		}
-
-		// Write to invitation stream for archival
 		if h.valkeyClient != nil {
 			invitationID := fmt.Sprintf("inv_%d", time.Now().UnixNano())
-			streamValues := map[string]interface{}{
-				"invitationId": invitationID,
-				"threadId":     threadID,
-				"contractId":   contractID,
-				"inviterId":    session.ownerID,
-				"role":         req.Role,
-				"permissions":  permissions,
-				"status":       "created",
-				"createdAt":    time.Now().Format(time.RFC3339),
-				"expiresAt":    time.Now().Add(expiry).Format(time.RFC3339),
-				"maxlen":       "~",
-				"limit":        100000,
+			activityValues := map[string]interface{}{
+				"type":          "invitation_created",
+				"thread_id":     threadID,
+				"invitation_id": invitationID,
+				"inviter_id":    session.ownerID,
+				"role":          req.Role,
+				"permissions":   permissions,
+				"status":        "created",
+				"timestamp":     time.Now().Format(time.RFC3339),
+				"expires_at":    time.Now().Add(expiry).Format(time.RFC3339),
 			}
-			h.valkeyClient.XAdd(ctx, "streams:invitations", streamValues)
+
+			// Use pipeline for atomic dual-write
+			pipe := h.valkeyClient.Pipeline()
+
+			// 1. Write to per-thread LIST for queries
+			activityStream := fmt.Sprintf("thread:%s:activity", threadID)
+			pipe.XAdd(ctx, activityStream, activityValues)
+
+			// 2. Write to partitioned STREAM for reliable archival
+			partition := getPartitionForThread(threadID)
+			partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
+			pipe.XAdd(ctx, partitionedStream, activityValues)
+
+			// Execute pipeline
+			if _, err := pipe.Exec(ctx); err != nil {
+				log.Printf("Failed to write invitation_created to streams: %v", err)
+			}
 		}
 	}()
 
@@ -366,21 +375,33 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 	}
 	session.mu.Unlock()
 
-	// Log audit events and write to thread_access stream (async, don't fail if they fail)
+	// Write to both per-thread stream and partitioned stream (async, don't fail if it fails)
 	go func() {
 		ctx := context.Background()
 
-		// Log audit events
-		if h.auditService != nil {
-			// Log token usage
-			h.auditService.LogTokenUsed(ctx, claims.ExpiresAt.Time, claims.ThreadID, session.ownerID)
-			// Log thread joined with role and permissions
-			h.auditService.LogThreadJoined(ctx, claims.ThreadID, claims.ContractID, session.ownerID, claims.Role, claims.Permissions)
-		}
-
-		// Write to thread_access stream for archival
 		if h.valkeyClient != nil {
-			streamValues := map[string]interface{}{
+			invitationUsedValues := map[string]interface{}{
+				"type":       "invitation_used",
+				"thread_id":  claims.ThreadID,
+				"user_id":    session.ownerID,
+				"role":       claims.Role,
+				"invited_by": claims.InvitedBy,
+				"timestamp":  time.Now().Format(time.RFC3339),
+			}
+
+			// Use pipeline for atomic writes
+			pipe := h.valkeyClient.Pipeline()
+
+			// Event 1: Invitation used - write to both streams
+			activityStream := fmt.Sprintf("thread:%s:activity", claims.ThreadID)
+			pipe.XAdd(ctx, activityStream, invitationUsedValues)
+
+			partition := getPartitionForThread(claims.ThreadID)
+			partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
+			pipe.XAdd(ctx, partitionedStream, invitationUsedValues)
+
+			// Event 2: Access granted (for thread_access table archival)
+			pipe.XAdd(ctx, "streams:thread_access", map[string]interface{}{
 				"threadId":    claims.ThreadID,
 				"userId":      session.ownerID,
 				"role":        claims.Role,
@@ -388,10 +409,12 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 				"grantedBy":   claims.InvitedBy,
 				"grantedAt":   time.Now().Format(time.RFC3339),
 				"status":      "active",
-				"maxlen":      "~",
-				"limit":       100000,
+			})
+
+			// Execute pipeline
+			if _, err := pipe.Exec(ctx); err != nil {
+				log.Printf("Failed to write invitation_used to streams: %v", err)
 			}
-			h.valkeyClient.XAdd(ctx, "streams:thread_access", streamValues)
 		}
 	}()
 
@@ -404,4 +427,13 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 		Permissions: claims.Permissions,
 		Message:     "Successfully joined thread",
 	}
+}
+
+// getPartitionForThread calculates the partition number for a thread ID
+// Uses FNV hash for consistent distribution across partitions
+func getPartitionForThread(threadID string) int {
+	const numPartitions = 10 // Should match archiver config
+	h := fnv.New32a()
+	h.Write([]byte(threadID))
+	return int(h.Sum32() % uint32(numPartitions))
 }

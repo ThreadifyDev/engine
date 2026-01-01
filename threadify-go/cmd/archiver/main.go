@@ -24,6 +24,16 @@ type Config struct {
 			Size                 int `yaml:"size"`
 			FlushIntervalSeconds int `yaml:"flush_interval_seconds"`
 		} `yaml:"buffers"`
+		ActivityStreams struct {
+			Enabled              bool `yaml:"enabled"`
+			NumPartitions        int  `yaml:"num_partitions"`
+			WorkersPerInstance   int  `yaml:"workers_per_instance"`
+			BufferSize           int  `yaml:"buffer_size"`
+			FlushIntervalSeconds int  `yaml:"flush_interval_seconds"`
+			MaxBufferSize        int  `yaml:"max_buffer_size"`
+			TrimEnabled          bool `yaml:"trim_enabled"`
+			TrimMaxLen           int  `yaml:"trim_maxlen"`
+		} `yaml:"activity_streams"`
 		Retry struct {
 			MaxAttempts           int `yaml:"max_attempts"`
 			InitialBackoffSeconds int `yaml:"initial_backoff_seconds"`
@@ -144,14 +154,10 @@ func main() {
 		// Create write function based on queue type
 		var writeFunc archiver.WriteFunc
 		switch queueName {
-		case "step_events":
-			writeFunc = pgWriter.WriteStepEvents
+		case "thread_step_state":
+			writeFunc = pgWriter.WriteThreadStepState
 		case "thread_metadata":
 			writeFunc = pgWriter.WriteThreadMetadata
-		case "audit_logs":
-			writeFunc = pgWriter.WriteAuditLogs
-		case "invitations":
-			writeFunc = pgWriter.WriteInvitations
 		case "thread_access":
 			writeFunc = pgWriter.WriteThreadAccess
 		case "validation_results":
@@ -170,6 +176,31 @@ func main() {
 			bufferCfg.FlushInterval,
 			writeFunc,
 		)
+	}
+
+	// Start activity worker pool for partitioned streams
+	if config.Archiver.ActivityStreams.Enabled {
+		workerPool := archiver.NewActivityWorkerPool(
+			1, // instanceID - should be configurable for multiple instances
+			config.Archiver.ActivityStreams.NumPartitions,
+			config.Archiver.ActivityStreams.WorkersPerInstance,
+			archiverConfig.Streams.ConsumerGroup,
+			valkeyClient,
+			pgWriter,
+			archiverConfig.Streams.BatchSize,
+			archiverConfig.Streams.BlockTimeout,
+			config.Archiver.ActivityStreams.TrimEnabled,
+			int64(config.Archiver.ActivityStreams.TrimMaxLen),
+		)
+
+		go func() {
+			workerPool.Start(ctx)
+			workerPool.Wait()
+		}()
+
+		log.Printf("Activity worker pool started: %d partitions, %d workers per instance",
+			config.Archiver.ActivityStreams.NumPartitions,
+			config.Archiver.ActivityStreams.WorkersPerInstance)
 	}
 
 	log.Println("Archiver service ready - starting consumers...")

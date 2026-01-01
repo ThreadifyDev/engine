@@ -19,15 +19,15 @@ func NewValkeyService(host string, port int, password string, db int) (*ValkeySe
 		Addr:            fmt.Sprintf("%s:%d", host, port),
 		Password:        password,
 		DB:              db,
-		PoolSize:        50,                     // Increased from 50 for high concurrency
-		MinIdleConns:    50,                     // Increased from 5
-		MaxRetries:      1,                      // Reduced from 2 - fail fast
-		DialTimeout:     1 * time.Second,        // Reduced from 2s
-		ReadTimeout:     200 * time.Millisecond, // Reduced from 500ms
-		WriteTimeout:    200 * time.Millisecond, // Reduced from 500ms
-		PoolTimeout:     200 * time.Millisecond, // Reduced from 1s
-		MaxIdleConns:    100,                    // Increased from 15
-		ConnMaxIdleTime: 1 * time.Minute,        // Reduced from 2min
+		PoolSize:        50,                     // Max concurrent connections
+		MinIdleConns:    10,                     // Reduced to allow more active connections
+		MaxRetries:      1,                      // Fail fast
+		DialTimeout:     2 * time.Second,        // Connection establishment timeout
+		ReadTimeout:     500 * time.Millisecond, // Read operation timeout
+		WriteTimeout:    500 * time.Millisecond, // Write operation timeout
+		PoolTimeout:     5 * time.Second,        // INCREASED: Wait up to 5s for connection from pool
+		MaxIdleConns:    100,                    // Max idle connections to keep
+		ConnMaxIdleTime: 5 * time.Minute,        // How long idle connections stay alive
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -81,6 +81,11 @@ func (v *ValkeyService) Exists(ctx context.Context, key string) (bool, error) {
 
 func (v *ValkeyService) Keys(ctx context.Context, pattern string) ([]string, error) {
 	return v.Client.Keys(ctx, pattern).Result()
+}
+
+func (v *ValkeyService) Scan(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error) {
+	keys, nextCursor, err := v.Client.Scan(ctx, cursor, match, count).Result()
+	return keys, nextCursor, err
 }
 
 func (v *ValkeyService) HSet(ctx context.Context, key string, values ...interface{}) error {
@@ -191,6 +196,18 @@ func (v *ValkeyService) XGroupCreate(ctx context.Context, stream, group, start s
 // XGroupCreateMkStream creates a consumer group and stream if it doesn't exist
 func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
 	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+}
+
+// XTrim trims a stream to a maximum length
+func (v *ValkeyService) XTrim(ctx context.Context, stream, strategy string, approx bool, count int64) error {
+	if strategy == "MAXLEN" {
+		if approx {
+			return v.Client.XTrimMaxLenApprox(ctx, stream, count, 0).Err()
+		}
+		return v.Client.XTrimMaxLen(ctx, stream, count).Err()
+	}
+	// For MINID strategy, would need different implementation
+	return v.Client.XTrimMaxLenApprox(ctx, stream, count, 0).Err()
 }
 
 // ZAdd adds a member with score to a sorted set

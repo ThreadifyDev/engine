@@ -35,7 +35,7 @@ type Thread struct {
 	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
 	OwnerID         string            `json:"ownerId"`
 	CompanyID       string            `json:"companyId"` // Company ID for multi-tenancy
-	Status          ThreadStatus      `json:"status"`
+	Status          ThreadStatus      `json:"-"`         // Status comes from meta hash, not JSON
 	LastHash        string            `json:"lastHash"`
 	Violated        *ThreadViolation  `json:"violated,omitempty"` // Tracks failed steps and violations
 	StartedAt       time.Time         `json:"startedAt"`
@@ -107,9 +107,23 @@ func (t *Thread) Cancel() {
 	t.CompletedAt = &now
 }
 
-// ToJSON serializes the thread to JSON
+// ToJSON serializes the thread to JSON (status excluded from struct JSON)
 func (t *Thread) ToJSON() ([]byte, error) {
 	return json.Marshal(t)
+}
+
+// MarshalJSON implements custom JSON marshaling to include status
+func (t *Thread) MarshalJSON() ([]byte, error) {
+	// Create a copy for JSON marshaling
+	type ThreadAlias Thread
+	alias := struct {
+		ThreadAlias
+		Status ThreadStatus `json:"status"`
+	}{
+		ThreadAlias: ThreadAlias(*t),
+		Status:      t.Status,
+	}
+	return json.Marshal(alias)
 }
 
 // FromJSON deserializes a thread from JSON

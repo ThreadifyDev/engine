@@ -58,10 +58,13 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		ON contracts(name, owner_id) 
 		WHERE is_deleted = false;
 
+	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS yaml_content TEXT;
+
 	CREATE TABLE IF NOT EXISTS contract_versions (
 		id UUID PRIMARY KEY,
 		version INT NOT NULL,
 		content TEXT NOT NULL,
+		yaml_content TEXT,
 		content_hash VARCHAR(64) NOT NULL,
 		contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
 		created_by VARCHAR(255) NOT NULL DEFAULT 'Martins Joseph',

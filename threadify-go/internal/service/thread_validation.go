@@ -691,6 +691,10 @@ func (s *ThreadService) processValidationNotifications(
 			fmt.Printf("[LUA-ERROR] Error updating step state via Lua: %v\n", err)
 		} else {
 			fmt.Printf("[LUA-SUCCESS] Step state updated, final status: %s\n", finalStatus)
+
+			// Write step state to stream for archival to thread_step_state table
+			s.archiveStepState(ctx, threadID, stepID, stepName, idempotencyKey, finalStatus)
+
 			if isTerminal && status == "completed" {
 				fmt.Printf("[TERMINAL-STEP] Thread marked as COMPLETED\n")
 				// Archive completed thread metadata
@@ -878,6 +882,7 @@ func (s *ThreadService) archiveThreadMetadata(ctx context.Context, threadID stri
 		completedAt = time.Now().Format(time.RFC3339)
 	}
 
+	// Write to thread_metadata stream for normalized table
 	streamValues := map[string]interface{}{
 		"id":              threadID,
 		"ownerId":         thread.OwnerID,
@@ -898,5 +903,63 @@ func (s *ThreadService) archiveThreadMetadata(ctx context.Context, threadID stri
 		fmt.Printf("[ARCHIVE-THREAD-ERROR] Failed to write thread metadata to stream: %v\n", err)
 	} else {
 		fmt.Printf("[ARCHIVE-THREAD-SUCCESS] Thread metadata archived: thread=%s, status=%s\n", threadID, status)
+	}
+
+	// Write thread_completed event to activity stream for audit trail
+	if status == "completed" {
+		activityStream := fmt.Sprintf("thread:%s:activity", threadID)
+		activityValues := map[string]interface{}{
+			"type":         "thread_completed",
+			"final_status": status,
+			"last_hash":    thread.LastHash,
+			"completed_at": completedAt,
+			"timestamp":    time.Now().Format(time.RFC3339),
+		}
+		s.valkeyClient.XAdd(ctx, activityStream, activityValues)
+	}
+}
+
+// archiveStepState writes step state snapshot to stream for persistent storage in thread_step_state table
+func (s *ThreadService) archiveStepState(ctx context.Context, threadID, stepID, stepName, idempotencyKey, status string) {
+	// Get step state from hash
+	stepKey := fmt.Sprintf("thread:%s:steps:%s:%s", threadID, stepName, idempotencyKey)
+	stepData, err := s.valkeyClient.HGetAll(ctx, stepKey)
+	if err != nil {
+		fmt.Printf("[ARCHIVE-STEP-STATE-ERROR] Failed to get step state %s: %v\n", stepKey, err)
+		return
+	}
+
+	// Extract fields with defaults
+	retryCount := "0"
+	if val, ok := stepData["retryCount"]; ok {
+		retryCount = val
+	}
+
+	firstSeenAt := time.Now().Format(time.RFC3339)
+	if val, ok := stepData["firstSeenAt"]; ok {
+		firstSeenAt = val
+	}
+
+	previousStep := ""
+	if val, ok := stepData["previousStep"]; ok {
+		previousStep = val
+	}
+
+	// Write to thread_step_state stream for archival
+	streamValues := map[string]interface{}{
+		"id":              stepID,
+		"thread_id":       threadID,
+		"step_name":       stepName,
+		"idempotency_key": idempotencyKey,
+		"status":          status,
+		"retry_count":     retryCount,
+		"first_seen_at":   firstSeenAt,
+		"last_updated_at": time.Now().Format(time.RFC3339),
+		"previous_step":   previousStep,
+	}
+
+	_, err = s.valkeyClient.XAdd(ctx, "streams:thread_step_state", streamValues)
+	if err != nil {
+		fmt.Printf("[ARCHIVE-STEP-STATE-ERROR] Failed to write step state to stream: %v\n", err)
 	}
 }

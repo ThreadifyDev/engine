@@ -60,10 +60,9 @@ func (s *StreamSetup) EnsureAllStreams(ctx context.Context, consumerGroup string
 // GetRequiredStreams returns the list of streams the archiver needs
 func GetRequiredStreams() []string {
 	return []string{
-		"streams:step_events",
+		// Global streams for archival
+		"streams:thread_step_state",
 		"streams:thread_metadata",
-		"streams:audit_logs",
-		"streams:invitations",
 		"streams:thread_access",
 		"streams:validation_results",
 	}

@@ -4,6 +4,11 @@ server:
 
 postgres:
   url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
+  host: localhost
+  port: 5434
+  user: td_engine
+  password: tdtdtd
+  name: threadify
   max_connections: 25
   max_idle_connections: 5
 
@@ -12,7 +17,7 @@ redis:
   port: 6379
   password: threadify_secure_password
   db: 0
-  pool_size: 8
+  pool_size: 200  # Increased for archiver with many concurrent streams
 
 jwt:
   secret: your-256-bit-secret-key-change-this-in-production-min-32-chars
@@ -67,16 +72,10 @@ archiver:
   
   # Buffer settings per queue type
   buffers:
-    step_events:
+    thread_step_state:
       size: 100
-      flush_interval_seconds: 5
+      flush_interval_seconds: 10
     thread_metadata:
-      size: 50
-      flush_interval_seconds: 5
-    audit_logs:
-      size: 200
-      flush_interval_seconds: 30
-    invitations:
       size: 50
       flush_interval_seconds: 5
     thread_access:
@@ -85,6 +84,17 @@ archiver:
     validation_results:
       size: 100
       flush_interval_seconds: 5
+  
+  # Partitioned activity streams (global streams with partitioning)
+  activity_streams:
+    enabled: true
+    num_partitions: 10
+    workers_per_instance: 3
+    buffer_size: 200
+    flush_interval_seconds: 5
+    max_buffer_size: 1000
+    trim_enabled: true
+    trim_maxlen: 10000
   
   # Retry configuration for failed writes
   retry:

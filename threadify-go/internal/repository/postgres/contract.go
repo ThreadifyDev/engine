@@ -155,17 +155,17 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 
 func (r *ContractRepository) CreateVersion(ctx context.Context, version *models.ContractVersion) error {
 	query := `
-		INSERT INTO contract_versions (id, version, content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, version, content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
+		INSERT INTO contract_versions (id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
 	`
 
 	return r.pool.QueryRow(ctx, query,
-		version.ID, version.Version, version.Content, version.ContentHash,
+		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
 		version.ContractID, version.CreatedBy, version.Graph, version.IsDeleted,
 		version.CreatedAt, version.UpdatedAt,
 	).Scan(
-		&version.ID, &version.Version, &version.Content, &version.ContentHash,
+		&version.ID, &version.Version, &version.Content, &version.YAMLContent, &version.ContentHash,
 		&version.ContractID, &version.CreatedBy, &version.Graph, &version.IsDeleted,
 		&version.CreatedAt, &version.UpdatedAt,
 	)
@@ -173,13 +173,13 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, version *models.
 
 func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
 	query := `
-		SELECT id, version, content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
+		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
 		FROM contract_versions WHERE contract_id = $1 AND version = $2 AND is_deleted = false
 	`
 
 	var v models.ContractVersion
 	err := r.pool.QueryRow(ctx, query, contractID, version).Scan(
-		&v.ID, &v.Version, &v.Content, &v.ContentHash, &v.ContractID,
+		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
 		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 	)
 
@@ -188,14 +188,14 @@ func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, 
 
 func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
 	query := `
-		SELECT id, version, content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
+		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
 		FROM contract_versions WHERE contract_id = $1 AND is_deleted = false
 		ORDER BY version DESC LIMIT 1
 	`
 
 	var v models.ContractVersion
 	err := r.pool.QueryRow(ctx, query, contractID).Scan(
-		&v.ID, &v.Version, &v.Content, &v.ContentHash, &v.ContractID,
+		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
 		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 	)
 
@@ -204,7 +204,7 @@ func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID st
 
 func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
 	query := `
-		SELECT id, version, content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
+		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
 		FROM contract_versions 
 		WHERE contract_id = $1 AND is_deleted = false
 		ORDER BY version DESC
@@ -220,7 +220,7 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 	for rows.Next() {
 		var v models.ContractVersion
 		err := rows.Scan(
-			&v.ID, &v.Version, &v.Content, &v.ContentHash, &v.ContractID,
+			&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
 			&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 		)
 		if err != nil {

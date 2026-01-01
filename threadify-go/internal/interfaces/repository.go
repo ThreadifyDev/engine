@@ -61,6 +61,7 @@ type ThreadRepository interface {
 	Exists(ctx context.Context, threadID string) (bool, error)
 	GetByOwner(ctx context.Context, ownerID string) ([]string, error)
 	ExtendTTL(ctx context.Context, threadID string) error
+	AddRefs(ctx context.Context, threadID string, refs map[string]string) error
 }
 
 // ContractGraphRepository defines the interface for contract graph operations

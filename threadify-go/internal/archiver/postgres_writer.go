@@ -53,7 +53,11 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 		)
 
 		// Extract values from event data
-		contextJSON, _ := json.Marshal(event.Data["context"])
+		contextJSON, err := json.Marshal(event.Data["context"])
+		if err != nil {
+			fmt.Printf("❌ [PostgresWriter] Failed to marshal context for step %s: %v\n", event.Data["stepId"], err)
+			return fmt.Errorf("failed to marshal context: %w", err)
+		}
 
 		values = append(values,
 			event.Data["stepId"],
@@ -157,7 +161,11 @@ func (w *PostgresWriter) WriteAuditLogs(ctx context.Context, events []StreamEven
 				metadata = auditEvent["Metadata"]
 			}
 		}
-		metadataJSON, _ := json.Marshal(metadata)
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			fmt.Printf("❌ [PostgresWriter] Failed to marshal metadata for audit event %s: %v\n", event.Data["eventId"], err)
+			return fmt.Errorf("failed to marshal metadata: %w", err)
+		}
 
 		values = append(values,
 			event.Data["eventId"],
@@ -319,5 +327,158 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 	}
 
 	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d validation results to Postgres\n", len(events))
+	return nil
+}
+
+// WriteActivityLog writes activity log events to Postgres (batched)
+func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Writing %d activity log events (batched)...\n", len(events))
+
+	query := `
+		INSERT INTO activity_log (
+			id, thread_id, step_id, type, timestamp, payload, hash
+		) VALUES `
+
+	values := make([]interface{}, 0, len(events)*7)
+	placeholders := ""
+
+	for i, event := range events {
+		if i > 0 {
+			placeholders += ", "
+		}
+
+		offset := i * 7
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7,
+		)
+
+		// Build payload JSONB - convert map[string]string to JSON
+		payloadJSON, err := json.Marshal(event.Data)
+		if err != nil {
+			fmt.Printf("❌ [PostgresWriter] Failed to marshal event data for %s: %v\n", event.StreamID, err)
+			return fmt.Errorf("failed to marshal event data: %w", err)
+		}
+
+		// Extract thread_id from event data (should be present in activity stream events)
+		threadID := event.Data["thread_id"]
+		if threadID == "" {
+			fmt.Printf("⚠️  [PostgresWriter] Warning: thread_id missing in event %s\n", event.StreamID)
+		}
+
+		values = append(values,
+			event.StreamID, // Stream entry ID
+			threadID,       // Thread ID from event data
+			event.Data["step_id"],
+			event.Data["type"],
+			event.Data["timestamp"],
+			string(payloadJSON), // Cast to jsonb in query
+			event.Data["hash"],
+		)
+	}
+
+	query += placeholders + " ON CONFLICT (id) DO NOTHING"
+
+	_, err := w.db.Pool.Exec(ctx, query, values...)
+	if err != nil {
+		fmt.Printf("❌ [PostgresWriter] Failed to write activity log: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d activity log events\n", len(events))
+	return nil
+}
+
+// WriteThreadStepState writes step state snapshots to Postgres (batched)
+func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Writing %d thread step state events (batched)...\n", len(events))
+
+	// Deduplicate by id - keep only the latest event for each id
+	eventMap := make(map[string]StreamEvent)
+	for _, event := range events {
+		id := event.Data["id"]
+		if id == "" {
+			// Skip if id is empty
+			continue
+		}
+		eventMap[id] = event
+	}
+
+	// Convert back to slice
+	deduped := make([]StreamEvent, 0, len(eventMap))
+	for _, event := range eventMap {
+		deduped = append(deduped, event)
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Deduplicated to %d unique step states\n", len(deduped))
+
+	// If all events were deduplicated away, nothing to do
+	if len(deduped) == 0 {
+		fmt.Printf("✅ [PostgresWriter] No new step states to write (all were duplicates)\n")
+		return nil
+	}
+
+	query := `
+		INSERT INTO thread_step_state (
+			id, thread_id, step_name, idempotency_key, status, 
+			retry_count, first_seen_at, last_updated_at, previous_step
+		) VALUES `
+
+	values := make([]interface{}, 0, len(deduped)*9)
+	placeholders := ""
+
+	for i, event := range deduped {
+		if i > 0 {
+			placeholders += ", "
+		}
+
+		offset := i * 9
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9,
+		)
+
+		values = append(values,
+			event.Data["id"],
+			event.Data["thread_id"],
+			event.Data["step_name"],
+			event.Data["idempotency_key"],
+			event.Data["status"],
+			event.Data["retry_count"],
+			event.Data["first_seen_at"],
+			event.Data["last_updated_at"],
+			event.Data["previous_step"],
+		)
+	}
+
+	query += placeholders + ` 
+		ON CONFLICT (id) DO UPDATE SET
+			status = EXCLUDED.status,
+			retry_count = EXCLUDED.retry_count,
+			last_updated_at = EXCLUDED.last_updated_at,
+			previous_step = EXCLUDED.previous_step`
+
+	// Debug: Log the query structure
+	if len(deduped) > 0 {
+		fmt.Printf("🔍 [PostgresWriter] SQL Query (first 500 chars): %s...\n", query[:min(500, len(query))])
+		fmt.Printf("🔍 [PostgresWriter] Values count: %d, Expected: %d\n", len(values), len(deduped)*9)
+	}
+
+	_, err := w.db.Pool.Exec(ctx, query, values...)
+	if err != nil {
+		fmt.Printf("❌ [PostgresWriter] Failed to write thread step state: %v\n", err)
+		fmt.Printf("❌ [PostgresWriter] Full query: %s\n", query)
+		return err
+	}
+
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread step state events\n", len(events))
 	return nil
 }

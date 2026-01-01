@@ -673,3 +673,62 @@ Value Props:
 
 Brand Verb: "Threadify your workflows"
 Domain: threadify.dev
+
+---
+
+## Architecture Updates (December 2025)
+
+### Unified Activity Log & Archival System
+
+**Problem Solved:**
+- Consolidated multiple event streams into a single, unified activity log
+- Eliminated data duplication between lists and streams
+- Implemented reliable archival with automatic stream discovery
+
+**New Data Architecture:**
+
+**1. Per-Thread Activity Streams**
+- `thread:{id}:activity` - Valkey Stream (changed from List)
+- Single source of truth for all thread events
+- Event types: `step_recorded`, `invitation_created`, `invitation_used`, `step_status_changed`
+- Supports multiple consumers: archiver, backend UI, main server queries
+
+**2. Step State Cache**
+- `thread:{id}:steps:{name}:{idempotency_key}` - Valkey Hash
+- O(1) lookups for idempotency checks, retry validation
+- Fields: status, retryCount, firstSeenAt, lastUpdatedAt, previousStep
+
+**3. Postgres Archive Tables**
+- `activity_log` - Consolidated audit trail for all events
+- `thread_step_state` - Normalized step state snapshots
+- Indexed for efficient querying by thread_id, step_id, type, timestamp
+
+**Key Features:**
+
+**Idempotency Keys:**
+- User-provided OR auto-generated from context hash
+- Composite step_id format: `"{step_name}:{idempotency_key}"`
+- Enables automatic retry tracking without explicit keys
+
+**Dynamic Stream Discovery:**
+- Archiver automatically discovers new `thread:{id}:activity` streams
+- Uses SCAN (non-blocking) every 60 seconds
+- Creates consumer groups and registers streams on-the-fly
+
+**Reliable Archival:**
+- Consumer groups with ACK mechanism
+- Batch writes (200 events, 5s flush interval)
+- Exponential backoff retry logic
+- Guaranteed delivery to Postgres
+
+**Hot/Cold Data Pattern:**
+- Valkey streams for active threads (fast queries)
+- Postgres for historical data (permanent storage)
+- Automatic TTL management per thread
+
+**Benefits:**
+- ✅ Single source of truth - no data duplication
+- ✅ Immutable audit trail with cryptographic hashing
+- ✅ Real-time capable - multiple consumers via consumer groups
+- ✅ Scalable - supports multiple archiver instances
+- ✅ Performance - O(1) operational queries, efficient stream reads

@@ -51,7 +51,11 @@ func (c *Consumer) Read(ctx context.Context) error {
 
 		// Add events to buffer with timing
 		for i, event := range events {
-			c.buffer.Add(event)
+			if !c.buffer.Add(event) {
+				fmt.Printf("⚠️  [Consumer %s] Buffer full, dropping event %s\n", c.consumerName, event.StreamID)
+				// TODO: Implement backpressure or retry mechanism
+				continue
+			}
 			// Log first event details for timing analysis
 			if i == 0 {
 				fmt.Printf("   ⏱️  First event StreamID: %s (received at %s)\n", event.StreamID, time.Now().Format("15:04:05.000"))

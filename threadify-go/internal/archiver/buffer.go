@@ -17,6 +17,7 @@ type EventBuffer struct {
 	events        []StreamEvent
 	mu            sync.RWMutex
 	maxSize       int
+	maxBufferSize int // Hard limit to prevent unbounded growth
 	flushInterval time.Duration
 	firstAdded    time.Time
 }
@@ -26,14 +27,31 @@ func NewEventBuffer(maxSize int, flushInterval time.Duration) *EventBuffer {
 	return &EventBuffer{
 		events:        make([]StreamEvent, 0, maxSize),
 		maxSize:       maxSize,
+		maxBufferSize: maxSize * 5, // Default: 5x maxSize as hard limit
+		flushInterval: flushInterval,
+	}
+}
+
+// NewEventBufferWithLimit creates a buffer with custom max buffer size
+func NewEventBufferWithLimit(maxSize int, maxBufferSize int, flushInterval time.Duration) *EventBuffer {
+	return &EventBuffer{
+		events:        make([]StreamEvent, 0, maxSize),
+		maxSize:       maxSize,
+		maxBufferSize: maxBufferSize,
 		flushInterval: flushInterval,
 	}
 }
 
 // Add adds an event to the buffer (thread-safe)
-func (b *EventBuffer) Add(event StreamEvent) {
+// Returns false if buffer is at max capacity (hard limit)
+func (b *EventBuffer) Add(event StreamEvent) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Check hard limit to prevent unbounded growth
+	if len(b.events) >= b.maxBufferSize {
+		return false // Buffer full, cannot add
+	}
 
 	// Set first added time if this is the first event
 	if len(b.events) == 0 {
@@ -41,6 +59,7 @@ func (b *EventBuffer) Add(event StreamEvent) {
 	}
 
 	b.events = append(b.events, event)
+	return true
 }
 
 // ShouldFlush returns true if buffer should be flushed (size or time trigger)

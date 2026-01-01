@@ -10,6 +10,7 @@ import (
 // Implemented by: internal/repository/valkey/client.go
 type ValkeyClient interface {
 	XAck(ctx context.Context, stream, group string, ids []string) error
+	Scan(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error)
 }
 
 // WriteFunc is a function that writes events to Postgres

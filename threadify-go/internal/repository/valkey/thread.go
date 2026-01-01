@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
@@ -83,14 +84,28 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 	// Get metadata from hash and overlay it (hash is source of truth)
 	meta, err := r.valkey.HGetAll(ctx, metaKey)
 	if err == nil && len(meta) > 0 {
-		// Overlay status from hash
-		if status, ok := meta["status"]; ok {
-			thread.Status = models.ThreadStatus(status)
+		// Initialize refs map if needed
+		if thread.Refs == nil {
+			thread.Refs = make(map[string]string)
 		}
-		// Overlay completedAt from hash
-		if completedAtStr, ok := meta["completedAt"]; ok && completedAtStr != "" {
-			if completedAt, err := time.Parse(time.RFC3339, completedAtStr); err == nil {
-				thread.CompletedAt = &completedAt
+
+		// Extract and overlay metadata fields
+		for key, value := range meta {
+			switch key {
+			case "status":
+				thread.Status = models.ThreadStatus(value)
+			case "completedAt":
+				if value != "" {
+					if completedAt, err := time.Parse(time.RFC3339, value); err == nil {
+						thread.CompletedAt = &completedAt
+					}
+				}
+			default:
+				// Extract refs (keys prefixed with "refs:")
+				if strings.HasPrefix(key, "refs:") {
+					refKey := strings.TrimPrefix(key, "refs:")
+					thread.Refs[refKey] = value
+				}
 			}
 		}
 	}
@@ -142,6 +157,29 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string) ([]st
 	}
 
 	return threadIDs, nil
+}
+
+// AddRefs adds references to thread metadata atomically
+func (r *ThreadRepository) AddRefs(ctx context.Context, threadID string, refs map[string]string) error {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	metaKey := r.getThreadMetaKey(threadID)
+	pipe := r.valkey.Pipeline()
+
+	// Atomic ref updates - each HSET is atomic per field
+	for key, value := range refs {
+		pipe.HSet(ctx, metaKey, "refs:"+key, value)
+	}
+	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to add refs: %w", err)
+	}
+
+	return nil
 }
 
 // ExtendTTL extends the TTL of a thread

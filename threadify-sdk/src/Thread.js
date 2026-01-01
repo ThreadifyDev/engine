@@ -209,51 +209,6 @@ export class Connection {
   }
 
   /**
-   * Create an invitation token for this thread
-   * @param {Object} options - Invitation options
-   * @param {string} options.role - Required role for the invitation
-   * @param {string} [options.permissions="read,write"] - Optional permissions
-   * @param {string} [options.expiresIn="24h"] - Optional expiry duration
-   * @returns {Promise<string>} - JWT invitation token
-   */
-  async inviteParty(options = {}) {
-    const {
-      role,                    // Required
-      permissions = "read,write", // Optional with default
-      expiresIn = "24h"         // Optional with default
-    } = options;
-    
-    // Validate required role
-    if (!role) {
-      throw new Error("Role is required for inviteParty");
-    }
-    
-    // Validate thread is connected and has threadId
-    if (!this.isConnected || !this.threadId) {
-      throw new Error("Thread must be connected and started to create invitations");
-    }
-    
-    return new Promise((resolve, reject) => {
-      // Set up one-time response handler
-      this._onceResponse((message) => {
-        if (message.status === 'success') {
-          resolve(message.threadToken);
-        } else {
-          reject(new Error(message.message || 'Failed to create invitation token'));
-        }
-      });
-      
-      // Send inviteParty message
-      this._send({
-        action: 'inviteParty',
-        role,
-        permissions,
-        expiresIn
-      });
-    });
-  }
-
-  /**
    * Join a thread using token or direct join
    * @param {string} tokenOrThreadId - JWT invitation token OR threadId for direct join
    * @param {string} role - Role for direct join (internal services only)

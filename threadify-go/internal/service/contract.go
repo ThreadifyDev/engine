@@ -120,6 +120,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy
 		ID:          uuid.New().String(),
 		Version:     1,
 		Content:     fullJSON,
+		YAMLContent: contractYAML, // Store original YAML source code
 		ContentHash: contentHash,
 		ContractID:  contractModel.ID,
 		CreatedBy:   createdBy,
@@ -206,6 +207,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		ID:          uuid.New().String(),
 		Version:     nextVersion,
 		Content:     fullJSON,
+		YAMLContent: contractYAML, // Store original YAML source code
 		ContentHash: contentHash,
 		ContractID:  contractID,
 		CreatedBy:   createdBy,

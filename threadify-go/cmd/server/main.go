@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +29,13 @@ func main() {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./config")
 	viper.AddConfigPath("../../config")
+
+	// Enable automatic environment variable support
+	viper.AutomaticEnv()
+	// Map environment variables with underscores to config keys with dots
+	// e.g., DB_HOST -> postgres.host, VALKEY_HOST -> redis.host
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read config: %v", err)
 	}

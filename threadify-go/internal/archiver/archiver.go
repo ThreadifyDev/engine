@@ -66,12 +66,17 @@ func NewArchiver(config ArchiverConfig, reader StreamReader, valkeyClient Valkey
 	}
 }
 
-// RegisterQueue registers a queue for archiving
+// RegisterQueue registers a queue for archiving (adds "streams:" prefix)
 func (a *Archiver) RegisterQueue(queueName string, bufferSize int, flushInterval time.Duration, writeFunc WriteFunc) {
+	streamName := fmt.Sprintf("streams:%s", queueName)
+	a.RegisterStream(queueName, streamName, bufferSize, flushInterval, writeFunc)
+}
+
+// RegisterStream registers a stream with full stream name (no prefix added)
+func (a *Archiver) RegisterStream(queueName string, streamName string, bufferSize int, flushInterval time.Duration, writeFunc WriteFunc) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	streamName := fmt.Sprintf("streams:%s", queueName)
 	consumerName := fmt.Sprintf("%s-%s", a.instanceName, queueName)
 
 	// Create buffer
@@ -108,26 +113,15 @@ func (a *Archiver) RegisterQueue(queueName string, bufferSize int, flushInterval
 // Start starts all consumers and flush monitors
 func (a *Archiver) Start(ctx context.Context) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	// Copy queues map to avoid holding lock during goroutine startup
+	queuesCopy := make(map[string]*QueueHandler, len(a.queues))
+	for k, v := range a.queues {
+		queuesCopy[k] = v
+	}
+	a.mu.RUnlock()
 
-	for queueName, handler := range a.queues {
-		// Start consumer goroutine
-		a.wg.Add(1)
-		go func(name string, h *QueueHandler) {
-			defer a.wg.Done()
-			fmt.Printf("Starting consumer for queue: %s\n", name)
-			h.consumer.Run(ctx)
-			fmt.Printf("Consumer stopped for queue: %s\n", name)
-		}(queueName, handler)
-
-		// Start flush monitor goroutine
-		a.wg.Add(1)
-		go func(name string, h *QueueHandler) {
-			defer a.wg.Done()
-			fmt.Printf("Starting flush monitor for queue: %s\n", name)
-			a.monitorFlush(ctx, name, h)
-			fmt.Printf("Flush monitor stopped for queue: %s\n", name)
-		}(queueName, handler)
+	for queueName, handler := range queuesCopy {
+		a.startQueueConsumer(ctx, queueName, handler)
 	}
 
 	// Wait for context cancellation
@@ -135,6 +129,42 @@ func (a *Archiver) Start(ctx context.Context) {
 
 	// Wait for all goroutines to finish
 	a.wg.Wait()
+}
+
+// StartQueueConsumer starts consumer and flush monitor for a specific queue
+// Can be called dynamically after Start() for new queues
+func (a *Archiver) StartQueueConsumer(ctx context.Context, queueName string) error {
+	a.mu.RLock()
+	handler, exists := a.queues[queueName]
+	a.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("queue not found: %s", queueName)
+	}
+
+	a.startQueueConsumer(ctx, queueName, handler)
+	return nil
+}
+
+// startQueueConsumer is the internal method to start consumer and monitor
+func (a *Archiver) startQueueConsumer(ctx context.Context, queueName string, handler *QueueHandler) {
+	// Start consumer goroutine
+	a.wg.Add(1)
+	go func(name string, h *QueueHandler) {
+		defer a.wg.Done()
+		fmt.Printf("Starting consumer for queue: %s\n", name)
+		h.consumer.Run(ctx)
+		fmt.Printf("Consumer stopped for queue: %s\n", name)
+	}(queueName, handler)
+
+	// Start flush monitor goroutine
+	a.wg.Add(1)
+	go func(name string, h *QueueHandler) {
+		defer a.wg.Done()
+		fmt.Printf("Starting flush monitor for queue: %s\n", name)
+		a.monitorFlush(ctx, name, h)
+		fmt.Printf("Flush monitor stopped for queue: %s\n", name)
+	}(queueName, handler)
 }
 
 // monitorFlush monitors buffer and flushes when needed

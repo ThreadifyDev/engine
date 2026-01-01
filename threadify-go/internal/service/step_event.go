@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"time"
 
@@ -338,44 +339,43 @@ func (ses *StepEventService) bulkWriteToRedis(events []models.HashedStepEvent) e
 func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error {
 	startTime := time.Now()
 
-	// Serialize the event
-	eventData, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("failed to serialize step event: %w", err)
-	}
-
-	// Use pipeline for atomic write to both List and Stream
+	// Use pipeline for atomic writes
 	pipe := ses.valkeyRepo.Pipeline()
 
-	// 1. Add to activity list for thread (for immediate access and validation)
-	activityKey := fmt.Sprintf("thread:%s:activity", event.ThreadID)
-	pipe.LPush(ses.ctx, activityKey, string(eventData))
-	pipe.Expire(ses.ctx, activityKey, 7*24*time.Hour) // 7 day TTL
-
-	// 2. Add to stream for archival
-	streamValues := map[string]interface{}{
-		"stepId":      event.StepID,
-		"threadId":    event.ThreadID,
-		"stepName":    event.StepName,
-		"serviceName": event.ServiceName,
-		"type":        event.Type,
-		"status":      event.Status,
-		"context":     event.ContextJSON(),
-		"startedAt":   event.StartedAt,
-		"finishedAt":  event.FinishedAt,
-		"timestamp":   event.Timestamp.Format(time.RFC3339),
-		"hash":        event.Hash,
-		"prevHash":    event.PreviousHash,
-		"maxlen":      "~",
-		"limit":       100000,
+	// Prepare activity event data
+	activityValues := map[string]interface{}{
+		"type":            "step_recorded",
+		"thread_id":       event.ThreadID,
+		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey), // composite: name:idempKey
+		"step_name":       event.StepName,
+		"step_uuid":       event.StepID,
+		"idempotency_key": event.IdempotencyKey, // User-provided or context hash
+		"timestamp":       event.Timestamp.Format(time.RFC3339),
+		"context":         event.ContextJSON(),
+		"actor":           event.ServiceName,
+		"status":          event.Status,
+		"hash":            event.Hash,
+		"prev_hash":       event.PreviousHash,
+		"started_at":      event.StartedAt,
+		"finished_at":     event.FinishedAt,
 	}
-	pipe.XAdd(ses.ctx, "streams:step_events", streamValues)
+
+	// 1. Write to per-thread LIST for fast queries (7-day TTL)
+	activityList := fmt.Sprintf("thread:%s:activity", event.ThreadID)
+	eventJSON, _ := json.Marshal(activityValues)
+	pipe.LPush(ses.ctx, activityList, string(eventJSON))
+	pipe.Expire(ses.ctx, activityList, 7*24*time.Hour)
+
+	// 2. Write to partitioned STREAM for reliable archival
+	partition := ses.getPartitionForThread(event.ThreadID)
+	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
+	pipe.XAdd(ses.ctx, partitionedStream, activityValues)
 
 	// Execute pipeline
-	_, err = pipe.Exec(ses.ctx)
+	_, err := pipe.Exec(ses.ctx)
 
 	duration := time.Since(startTime)
-	fmt.Printf("⏱️  [StepEventService] Valkey write (List+Stream) took %v for stepId=%s\n", duration, event.StepID)
+	fmt.Printf("⏱️  [StepEventService] Valkey write (Activity Streams) took %v for stepId=%s\n", duration, event.StepID)
 
 	return err
 }
@@ -404,4 +404,13 @@ func (ses *StepEventService) updateThreadLastHash(threadID, newHash string) erro
 	}
 
 	return ses.valkeyRepo.Set(ses.ctx, threadKey, string(updatedData), 24*time.Hour)
+}
+
+// getPartitionForThread calculates the partition number for a thread ID
+// Uses FNV hash for consistent distribution across partitions
+func (ses *StepEventService) getPartitionForThread(threadID string) int {
+	const numPartitions = 10 // Should match archiver config
+	h := fnv.New32a()
+	h.Write([]byte(threadID))
+	return int(h.Sum32() % uint32(numPartitions))
 }

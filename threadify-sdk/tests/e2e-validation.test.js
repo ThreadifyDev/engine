@@ -380,36 +380,28 @@ async function testAccessControlValidation() {
         console.log(`     Error: ${error.message}`);
     }
     
-    // Test access denial by inviting a party without write permission
+    // Test inviteParty and join workflow
     try {
-        // Invite another party with read-only access
-        const inviteResponse = await fetch(`${BASE_URL}/v1/threads/${thread.threadId}/invitations`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${jwtToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                invitee_id: 'readonly-user-456',
-                role: 'viewer',
-                permissions: ['read']  // No write permission
-            })
+        // Create invitation token using SDK (use valid role from server)
+        const invitationToken = await thread.inviteParty({
+            role: 'external_partner',
+            permissions: 'read,write',
+            expiresIn: '24h'
         });
         
-        if (inviteResponse.ok) {
-            console.log('  ℹ️  Invited read-only user to thread');
-            
-            // Now connect as the invited user and try to submit a step
-            // Note: This would require a separate API key for the invited user
-            // For now, we'll document the expected behavior
-            console.log('  ℹ️  Note: Full access denial test requires multiple user API keys');
-            console.log('     Expected: Users without write permission should be rejected');
-            console.log('     Error should contain: "Access denied" or "write permission"');
-        } else {
-            console.log('  ℹ️  Could not create invitation (may not be implemented yet)');
+        console.log('  ✅ PASS: Invitation token created successfully');
+        console.log(`     Token: ${invitationToken.substring(0, 20)}...`);
+        
+        // Test joining with the token (using same connection for demo)
+        try {
+            const joinedThread = await connection.join(invitationToken);
+            console.log('  ✅ PASS: Successfully joined thread with invitation token');
+            console.log(`     Joined thread ID: ${joinedThread.getThreadId()}`);
+        } catch (joinError) {
+            console.log('  ⚠️  Join with token failed:', joinError.message);
         }
     } catch (error) {
-        console.log('  ℹ️  Invitation feature may not be available:', error.message);
+        console.log('  ℹ️  Invitation feature may not be fully implemented:', error.message);
     }
     
     // Note: Full implementation would require:
