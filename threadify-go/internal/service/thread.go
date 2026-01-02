@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
-	"sort"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -18,31 +15,47 @@ import (
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/utils"
 )
 
+// ThreadService orchestrates thread operations across multiple repositories
 type ThreadService struct {
-	repo              interfaces.ThreadRepository
-	graphRepo         interfaces.ContractGraphRepository
-	stepEventService  interfaces.StepEventProcessor
-	cacheManager      interfaces.CacheManager
-	connectionMgr     interfaces.ConnectionManager
-	contractValidator interfaces.ContractValidator
-	authService       *AuthService
-	accessService     *ThreadAccessService
-	valkeyClient      interfaces.ValkeyClient
-	luaScripts        *LuaScriptManager
+	repo                interfaces.ThreadRepository
+	accessRepo          interfaces.AccessRepository
+	activityRepo        interfaces.ActivityRepository
+	graphRepo           interfaces.ContractGraphRepository
+	stepEventService    interfaces.StepEventProcessor
+	cacheManager        interfaces.CacheManager
+	connectionMgr       interfaces.ConnectionManager
+	contractValidator   interfaces.ContractValidator
+	authService         *AuthService
+	accessService       *ThreadAccessService
+	validationService   *ValidationService
+	notificationService *NotificationService
+	valkeyClient        interfaces.ValkeyClient
+	luaScripts          *LuaScriptManager
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager) *ThreadService {
+	// Create validation and notification services
+	validationService := NewValidationService(valkeyClient)
+	notificationService := NewNotificationService(validationService, activityRepo, luaScripts, cacheManager)
+
 	return &ThreadService{
-		repo:              repo,
-		graphRepo:         graphRepo,
-		stepEventService:  stepEventService,
-		cacheManager:      cacheManager,
-		connectionMgr:     connectionMgr,
-		contractValidator: contractValidator,
-		authService:       NewAuthService("demo-secret", "threadify", "threadify-api", 24),
-		accessService:     accessService,
+		repo:                repo,
+		accessRepo:          accessRepo,
+		activityRepo:        activityRepo,
+		graphRepo:           graphRepo,
+		stepEventService:    stepEventService,
+		cacheManager:        cacheManager,
+		connectionMgr:       connectionMgr,
+		contractValidator:   contractValidator,
+		authService:         NewAuthService("demo-secret", "threadify", "threadify-api", 24),
+		accessService:       accessService,
+		validationService:   validationService,
+		notificationService: notificationService,
+		valkeyClient:        valkeyClient,
+		luaScripts:          luaScripts,
 	}
 }
 
@@ -55,9 +68,8 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 	contractRepo := postgres.NewContractRepository(db.Pool)
 	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
 	threadRepo := valkey.NewThreadRepository(valkeyService, threadTTLSeconds)
-
-	// Create thread access service for permission/role management
-	accessService := NewThreadAccessService(threadRepo, cacheService)
+	accessRepo := valkey.NewAccessRepository(valkeyService)
+	activityRepo := valkey.NewActivityRepository(valkeyService)
 
 	// Create and load Lua scripts
 	luaScripts := NewLuaScriptManager(valkeyService)
@@ -65,14 +77,21 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		fmt.Printf("Warning: Failed to load Lua scripts: %v\n", err)
 	}
 
+	// Create thread access service for permission/role management
+	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts)
+
 	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
+		accessRepo,      // Valkey access repository
+		activityRepo,    // Valkey activity repository
 		valkeyGraphRepo, // Valkey contract graph repository
 		stepEventService,
 		cacheService,           // In-memory cache service
 		NewConnectionService(), // In-memory connection service
 		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
 		accessService, // Thread access service for permissions/roles
+		valkeyService, // Valkey client for orchestration
+		luaScripts,    // Lua script manager for orchestration
 	)
 	service.valkeyClient = valkeyService
 	service.luaScripts = luaScripts
@@ -171,12 +190,17 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Cache the thread for fast access
 	s.cacheManager.SetThread(threadID, thread)
 
-	// Assign role to user for this thread if role is provided
-	if req.Role != "" {
-		if err := s.accessService.AssignRole(threadID, req.Role, ownerID); err != nil {
-			// Log error but don't fail thread creation
-			fmt.Printf("Warning: failed to assign role: %v\n", err)
-		}
+	// Grant access to thread creator (role + full permissions)
+	// invitedBy = "self" indicates this is the thread creator
+	creatorRole := req.Role
+	if creatorRole == "" {
+		creatorRole = "owner" // Default role if not specified
+	}
+	creatorPermissions := []string{"read", "write", "invite", "manage"}
+
+	if err := s.accessService.GrantOrUpdateAccess(threadID, ownerID, creatorRole, creatorPermissions, "self", thread); err != nil {
+		// Log error but don't fail thread creation
+		fmt.Printf("Warning: failed to grant creator access: %v\n", err)
 	}
 
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
@@ -231,7 +255,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		s.valkeyClient.Expire(ctx, activityList, 7*24*time.Hour)
 
 		// 2. Write to partitioned STREAM for reliable archival
-		partition := s.getPartitionForThread(threadID)
+		partition := utils.GetPartitionForThread(threadID)
 		partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 		s.valkeyClient.XAdd(ctx, partitionedStream, activityValues)
 	}()
@@ -309,7 +333,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Get thread
-	thread, err := s.getThread(req.ThreadID)
+	thread, err := s.GetThread(req.ThreadID)
 	if err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -341,7 +365,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	idempotencyKey := req.IdempotencyKey
 	if idempotencyKey == "" && req.Context != nil && len(req.Context) > 0 {
 		// Generate deterministic hash from context fields
-		idempotencyKey = generateContextHash(req.Context)
+		idempotencyKey = utils.GenerateContextHash(req.Context)
 		fmt.Printf("[IDEMPOTENCY] Auto-generated key from context hash: %s\n", idempotencyKey)
 	}
 
@@ -428,6 +452,15 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 		// Validate role if step has an owner requirement
 		if stepNode.Owner != "" {
+			// Security: Ensure the step owner role is actually defined in contract parties
+			if len(graph.Parties) > 0 && !isRoleInParties(stepNode.Owner, graph.Parties) {
+				return &models.RecordEventResponse{
+					Action:  "recordThreadEvent",
+					Status:  "error",
+					Message: fmt.Sprintf("Access denied: Step '%s' requires owner role '%s' which is not defined in contract parties: %v", req.StepName, stepNode.Owner, graph.Parties),
+				}
+			}
+
 			hasRole, err := s.accessService.ValidateUserRoleForStep(req.ThreadID, ownerID, stepNode.Owner)
 			if err != nil || !hasRole {
 				userRole, _ := s.accessService.GetUserRole(req.ThreadID, ownerID)
@@ -508,7 +541,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	// Trigger async validation for ALL threads (contract or not) with successful steps
 	// The async validation will update step state via Lua script
 	if req.Status == "success" {
-		s.performAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
+		s.notificationService.PerformAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
 	}
 
 	return &models.RecordEventResponse{
@@ -569,8 +602,8 @@ func convertStringMapToInterfaceMap(stringMap map[string]string) map[string]inte
 	return interfaceMap
 }
 
-// getThread retrieves thread from cache first, then Valkey as fallback
-func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
+// GetThread retrieves thread from cache first, then Valkey as fallback
+func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 	// Check cache first
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
 		return thread, nil
@@ -587,51 +620,63 @@ func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	return thread, nil
 }
 
-// AssignThreadRole assigns a role to a user in a thread
+// GrantOrUpdateThreadAccess grants or updates user access using unified method with proper orchestration
+func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, permissions []string, invitedBy string) error {
+	// 1. Grant access via AccessRepository (atomic via Lua script)
+	access, err := s.accessRepo.GrantOrUpdateAccess(context.Background(), threadID, userID, role, permissions, invitedBy, s.luaScripts)
+	if err != nil {
+		return fmt.Errorf("failed to grant access: %w", err)
+	}
+
+	// 2. Record activity via ActivityRepository (async, don't block main operation)
+	go func() {
+		ctx := context.Background()
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy); err != nil {
+			log.Printf("Failed to record access granted activity: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// IsValidRole validates if a role name is valid
+func (s *ThreadService) IsValidRole(role string) bool {
+	// Add your role validation logic here
+	// For now, just check it's not empty
+	return true
+}
+
+// isRoleInParties checks if a role is defined in the contract parties array
+func isRoleInParties(role string, parties []string) bool {
+	for _, party := range parties {
+		if party == role {
+			return true
+		}
+	}
+	return false
+}
+
+// GetContractGraphForThread fetches the contract graph for a given thread
+func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*models.ContractGraph, error) {
+	if thread.ContractName == "" {
+		return nil, fmt.Errorf("thread has no contract")
+	}
+
+	// Determine version to use (0 means latest)
+	version := 0
+	if thread.ContractVersion != nil {
+		version = *thread.ContractVersion
+	}
+
+	return s.contractValidator.GetContractGraph(thread.ContractName, version)
+}
+
+// AssignThreadRole assigns a role to a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
 func (s *ThreadService) AssignThreadRole(threadID, role, userID string) error {
 	return s.accessService.AssignRole(threadID, role, userID)
 }
 
-// SetThreadPermissions sets permissions for a user in a thread
+// SetThreadPermissions sets permissions for a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
 func (s *ThreadService) SetThreadPermissions(threadID, userID string, permissions []string) error {
 	return s.accessService.SetUserPermissions(threadID, userID, permissions)
-}
-
-// generateContextHash creates a deterministic hash from context fields
-// This enables automatic retry tracking without explicit idempotency keys
-func generateContextHash(context map[string]string) string {
-	if len(context) == 0 {
-		return ""
-	}
-
-	// Sort keys for deterministic ordering
-	keys := make([]string, 0, len(context))
-	for k := range context {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Build deterministic string from sorted key-value pairs
-	var builder strings.Builder
-	for _, k := range keys {
-		builder.WriteString(k)
-		builder.WriteString("=")
-		builder.WriteString(context[k])
-		builder.WriteString(";")
-	}
-
-	// Generate SHA256 hash
-	hash := sha256.Sum256([]byte(builder.String()))
-
-	// Return first 16 characters of hex encoding (sufficient for uniqueness)
-	return hex.EncodeToString(hash[:])[:16]
-}
-
-// getPartitionForThread calculates the partition number for a thread ID
-// Uses FNV hash for consistent distribution across partitions
-func (s *ThreadService) getPartitionForThread(threadID string) int {
-	const numPartitions = 10 // Should match archiver config
-	h := fnv.New32a()
-	h.Write([]byte(threadID))
-	return int(h.Sum32() % uint32(numPartitions))
 }

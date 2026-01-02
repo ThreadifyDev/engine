@@ -17,15 +17,17 @@ import (
 // This would reduce Valkey write operations by buffering multiple permission changes
 // and flushing them in batches (e.g., every 100ms or 50 operations).
 type ThreadAccessService struct {
-	threadRepo   *valkey.ThreadRepository
+	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
+	luaScripts   *LuaScriptManager
 }
 
 // NewThreadAccessService creates a new thread access service
-func NewThreadAccessService(threadRepo *valkey.ThreadRepository, cacheManager interfaces.CacheManager) *ThreadAccessService {
+func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *LuaScriptManager) *ThreadAccessService {
 	return &ThreadAccessService{
-		threadRepo:   threadRepo,
+		accessRepo:   accessRepo,
 		cacheManager: cacheManager,
+		luaScripts:   luaScripts,
 	}
 }
 
@@ -39,26 +41,47 @@ func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]str
 	}
 
 	// Tier 2: Check Valkey
-	perms, err := s.threadRepo.GetUserPermissions(context.Background(), threadID, userID)
+	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
 	if err != nil {
 		return nil, err
 	}
+	perms := access.Permissions
 
 	// Cache in memory for future use
 	s.cacheManager.SetUserPermissions(threadID, userID, perms)
 	return perms, nil
 }
 
-// SetUserPermissions stores permissions with write-through caching
-// Writes to Valkey first (durability), then updates in-memory cache (performance)
-func (s *ThreadAccessService) SetUserPermissions(threadID, userID string, permissions []string) error {
-	// Write to Valkey first (durability)
-	err := s.threadRepo.SetUserPermissions(context.Background(), threadID, userID, permissions)
-	if err != nil {
-		return fmt.Errorf("failed to store permissions in Valkey: %w", err)
+// GrantOrUpdateAccess grants or updates user access using unified method
+// Handles all scenarios: thread creator (invitedBy="self"), invitation join, and direct join
+// Validates that thread is not completed before granting access
+func (s *ThreadAccessService) GrantOrUpdateAccess(
+	threadID, userID string,
+	role string,
+	permissions []string,
+	invitedBy string,
+	thread *models.Thread,
+) error {
+	// Validate thread is not completed
+	if thread.Status == "completed" || thread.Status == "failed" || thread.Status == "cancelled" {
+		return fmt.Errorf("cannot join thread with status: %s", thread.Status)
 	}
 
-	// Update in-memory cache (performance)
+	// Write to Valkey using unified Lua script
+	_, err := s.accessRepo.GrantOrUpdateAccess(
+		context.Background(),
+		threadID, userID,
+		role,
+		permissions,
+		invitedBy,
+		s.luaScripts,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to grant/update access: %w", err)
+	}
+
+	// Update in-memory cache
+	s.cacheManager.SetUserRole(threadID, userID, role)
 	s.cacheManager.SetUserPermissions(threadID, userID, permissions)
 	return nil
 }
@@ -73,9 +96,13 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 	}
 
 	// Tier 2: Check Valkey
-	role, err := s.threadRepo.GetUserRole(context.Background(), threadID, userID)
+	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
 	if err != nil {
 		return "", err
+	}
+	role := ""
+	if len(access.Roles) > 0 {
+		role = access.Roles[0] // Return first role for backward compatibility
 	}
 
 	// Cache in memory for future use (only if role exists)
@@ -85,18 +112,28 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 	return role, nil
 }
 
-// AssignRole assigns role with write-through caching
-// Writes to Valkey first (durability), then updates in-memory cache (performance)
-func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
-	// Write to Valkey first (durability)
-	err := s.threadRepo.AssignRole(context.Background(), threadID, role, userID)
-	if err != nil {
-		return fmt.Errorf("failed to assign role in Valkey: %w", err)
-	}
+// Deprecated methods for backward compatibility
 
-	// Update in-memory cache (performance)
-	s.cacheManager.SetUserRole(threadID, userID, role)
-	return nil
+// SetUserPermissions - deprecated, use GrantOrUpdateAccess instead
+func (s *ThreadAccessService) SetUserPermissions(threadID, userID string, permissions []string) error {
+	// Note: This deprecated method doesn't validate thread status
+	// Get current role to preserve it
+	role, _ := s.GetUserRole(threadID, userID)
+
+	// Create minimal thread object (status validation skipped for backward compat)
+	thread := &models.Thread{Status: "active"}
+	return s.GrantOrUpdateAccess(threadID, userID, role, permissions, "system", thread)
+}
+
+// AssignRole - deprecated, use GrantOrUpdateAccess instead
+func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
+	// Note: This deprecated method doesn't validate thread status
+	// Get current permissions to preserve them
+	perms, _ := s.GetUserPermissions(threadID, userID)
+
+	// Create minimal thread object (status validation skipped for backward compat)
+	thread := &models.Thread{Status: "active"}
+	return s.GrantOrUpdateAccess(threadID, userID, role, perms, "system", thread)
 }
 
 // CheckThreadAccess checks if user has required permission for a thread

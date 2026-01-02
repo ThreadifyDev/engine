@@ -6,6 +6,7 @@ type ContractGraph struct {
 	Graph       Graph        `json:"graph"`
 	Transitions []Transition `json:"transitions,omitempty"` // Valid step-to-step transitions
 	Validation  *Validation  `json:"validation,omitempty"`  // Contract-level validation rules
+	Parties     []string     `json:"parties,omitempty"`     // Contract parties
 }
 
 // Graph contains the nodes, entry points, and terminal steps of the workflow

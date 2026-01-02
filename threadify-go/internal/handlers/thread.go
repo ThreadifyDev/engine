@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"net/http"
 	"strings"
@@ -16,6 +14,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/utils"
 )
 
 var upgrader = websocket.Upgrader{
@@ -53,14 +52,6 @@ func NewWebSocketHandler(threadService *service.ThreadService, stepEventService 
 }
 
 // Helper function to check if threadID exists in slice
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -124,7 +115,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		// Add created thread to session's threadIDs
 		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
 			session.mu.Lock()
-			if !contains(session.threadIDs, startResp.ThreadID) {
+			if !utils.Contains(session.threadIDs, startResp.ThreadID) {
 				session.threadIDs = append(session.threadIDs, startResp.ThreadID)
 			}
 			session.mu.Unlock()
@@ -271,43 +262,6 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 		}
 	}
 
-	// Write to both per-thread stream and partitioned stream (async, don't fail if it fails)
-	go func() {
-		ctx := context.Background()
-
-		if h.valkeyClient != nil {
-			invitationID := fmt.Sprintf("inv_%d", time.Now().UnixNano())
-			activityValues := map[string]interface{}{
-				"type":          "invitation_created",
-				"thread_id":     threadID,
-				"invitation_id": invitationID,
-				"inviter_id":    session.ownerID,
-				"role":          req.Role,
-				"permissions":   permissions,
-				"status":        "created",
-				"timestamp":     time.Now().Format(time.RFC3339),
-				"expires_at":    time.Now().Add(expiry).Format(time.RFC3339),
-			}
-
-			// Use pipeline for atomic dual-write
-			pipe := h.valkeyClient.Pipeline()
-
-			// 1. Write to per-thread LIST for queries
-			activityStream := fmt.Sprintf("thread:%s:activity", threadID)
-			pipe.XAdd(ctx, activityStream, activityValues)
-
-			// 2. Write to partitioned STREAM for reliable archival
-			partition := getPartitionForThread(threadID)
-			partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-			pipe.XAdd(ctx, partitionedStream, activityValues)
-
-			// Execute pipeline
-			if _, err := pipe.Exec(ctx); err != nil {
-				log.Printf("Failed to write invitation_created to streams: %v", err)
-			}
-		}
-	}()
-
 	return models.InvitePartyResponse{
 		Action:      "inviteParty",
 		Status:      "success",
@@ -329,111 +283,139 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 		}
 	}
 
-	if req.ThreadToken == "" {
+	var threadID, role, invitedBy string
+	var permissions []string
+	var thread *models.Thread
+
+	// Mode 1: Token-based join (invitation)
+	if req.ThreadToken != "" {
+		// Validate JWT token and extract claims
+		claims, err := h.invitationService.ValidateToken(req.ThreadToken)
+		if err != nil {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: fmt.Sprintf("Invalid thread token: %v", err),
+			}
+		}
+
+		threadID = claims.ThreadID
+		role = claims.Role
+		permissions = strings.Split(claims.Permissions, ",")
+		invitedBy = claims.InvitedBy
+
+		// Mode 2: Direct join (same company, no token)
+	} else if req.ThreadID != "" && req.Role != "" {
+		// Get thread to validate it exists and check company
+		var err error
+		thread, err = h.threadService.GetThread(req.ThreadID)
+		if err != nil {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: "Thread not found",
+			}
+		}
+
+		// Validate same company
+		if thread.CompanyID != session.companyID {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: "Can only join threads from same company",
+			}
+		}
+
+		// Validate role
+		if !h.threadService.IsValidRole(req.Role) {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: fmt.Sprintf("Invalid role: %s", req.Role),
+			}
+		}
+
+		threadID = req.ThreadID
+		role = req.Role
+		permissions = []string{"read", "write"} // Default permissions for direct join
+		invitedBy = session.companyID           // Company ID as inviter
+
+	} else {
 		return models.ErrorResponse{
 			Action:  "joinThread",
 			Status:  "error",
-			Message: "Thread token is required",
+			Message: "Either threadToken or (threadId + role) is required",
 		}
 	}
 
-	// Validate JWT token and extract claims
-	claims, err := h.invitationService.ValidateToken(req.ThreadToken)
+	// Get thread if not already loaded (for status validation)
+	if thread == nil {
+		var err error
+		thread, err = h.threadService.GetThread(threadID)
+		if err != nil {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: "Thread not found",
+			}
+		}
+	}
+
+	// Validate role is in contract parties (if parties are defined)
+	contractGraph, err := h.threadService.GetContractGraphForThread(thread)
+	if err == nil && len(contractGraph.Parties) > 0 {
+		roleInParties := false
+		for _, party := range contractGraph.Parties {
+			if party == role {
+				roleInParties = true
+				break
+			}
+		}
+		if !roleInParties {
+			return models.ErrorResponse{
+				Action:  "joinThread",
+				Status:  "error",
+				Message: fmt.Sprintf("Role '%s' is not defined in contract parties: %v", role, contractGraph.Parties),
+			}
+		}
+	}
+
+	// Grant or update access using unified method
+	err = h.threadService.GrantOrUpdateThreadAccess(
+		threadID,
+		session.ownerID,
+		role,
+		permissions,
+		invitedBy,
+	)
 	if err != nil {
 		return models.ErrorResponse{
 			Action:  "joinThread",
 			Status:  "error",
-			Message: fmt.Sprintf("Invalid thread token: %v", err),
-		}
-	}
-
-	// Store role in Valkey (with in-memory cache)
-	err = h.threadService.AssignThreadRole(claims.ThreadID, claims.Role, session.ownerID)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to assign role: %v", err),
-		}
-	}
-
-	// Store permissions in Valkey (with in-memory cache)
-	permissions := strings.Split(claims.Permissions, ",") // "read,write" -> ["read", "write"]
-	err = h.threadService.SetThreadPermissions(claims.ThreadID, session.ownerID, permissions)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to set permissions: %v", err),
+			Message: fmt.Sprintf("Failed to grant access: %v", err),
 		}
 	}
 
 	// Update session with thread context
 	session.mu.Lock()
-	if !contains(session.threadIDs, claims.ThreadID) {
-		session.threadIDs = append(session.threadIDs, claims.ThreadID)
+	if !utils.Contains(session.threadIDs, threadID) {
+		session.threadIDs = append(session.threadIDs, threadID)
 	}
 	session.mu.Unlock()
 
-	// Write to both per-thread stream and partitioned stream (async, don't fail if it fails)
-	go func() {
-		ctx := context.Background()
-
-		if h.valkeyClient != nil {
-			invitationUsedValues := map[string]interface{}{
-				"type":       "invitation_used",
-				"thread_id":  claims.ThreadID,
-				"user_id":    session.ownerID,
-				"role":       claims.Role,
-				"invited_by": claims.InvitedBy,
-				"timestamp":  time.Now().Format(time.RFC3339),
-			}
-
-			// Use pipeline for atomic writes
-			pipe := h.valkeyClient.Pipeline()
-
-			// Event 1: Invitation used - write to both streams
-			activityStream := fmt.Sprintf("thread:%s:activity", claims.ThreadID)
-			pipe.XAdd(ctx, activityStream, invitationUsedValues)
-
-			partition := getPartitionForThread(claims.ThreadID)
-			partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-			pipe.XAdd(ctx, partitionedStream, invitationUsedValues)
-
-			// Event 2: Access granted (for thread_access table archival)
-			pipe.XAdd(ctx, "streams:thread_access", map[string]interface{}{
-				"threadId":    claims.ThreadID,
-				"userId":      session.ownerID,
-				"role":        claims.Role,
-				"permissions": claims.Permissions,
-				"grantedBy":   claims.InvitedBy,
-				"grantedAt":   time.Now().Format(time.RFC3339),
-				"status":      "active",
-			})
-
-			// Execute pipeline
-			if _, err := pipe.Exec(ctx); err != nil {
-				log.Printf("Failed to write invitation_used to streams: %v", err)
-			}
-		}
-	}()
+	// Get contract ID (handle nil pointer)
+	contractID := ""
+	if thread.ContractID != nil {
+		contractID = *thread.ContractID
+	}
 
 	return models.JoinThreadResponse{
 		Action:      "joinThread",
 		Status:      "success",
-		ThreadID:    claims.ThreadID,
-		ContractID:  claims.ContractID,
-		Role:        claims.Role,
-		Permissions: claims.Permissions,
+		ThreadID:    threadID,
+		ContractID:  contractID,
+		Role:        role,
+		Permissions: strings.Join(permissions, ","),
 		Message:     "Successfully joined thread",
 	}
-}
-
-// getPartitionForThread calculates the partition number for a thread ID
-// Uses FNV hash for consistent distribution across partitions
-func getPartitionForThread(threadID string) int {
-	const numPartitions = 10 // Should match archiver config
-	h := fnv.New32a()
-	h.Write([]byte(threadID))
-	return int(h.Sum32() % uint32(numPartitions))
 }

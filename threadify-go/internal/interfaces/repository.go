@@ -53,7 +53,7 @@ type ValkeyPipeline interface {
 	Exec(ctx context.Context) ([]interface{}, error)
 }
 
-// ThreadRepository defines the interface for thread storage operations
+// ThreadRepository defines the interface for thread CRUD operations only
 type ThreadRepository interface {
 	Save(ctx context.Context, thread *models.Thread) error
 	Get(ctx context.Context, threadID string) (*models.Thread, error)
@@ -64,12 +64,46 @@ type ThreadRepository interface {
 	AddRefs(ctx context.Context, threadID string, refs map[string]string) error
 }
 
+// AccessRepository defines the interface for role and permission management
+type AccessRepository interface {
+	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, permissions []string, invitedBy string, luaScripts LuaScriptManager) (*UserAccess, error)
+	GetUserAccess(ctx context.Context, threadID, userID string) (*UserAccess, error)
+	GetAllAccess(ctx context.Context, threadID string) (map[string]*UserAccess, error)
+	RevokeAccess(ctx context.Context, threadID, userID string) error
+}
+
+// ActivityRepository defines the interface for stream and event operations
+type ActivityRepository interface {
+	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy string) error
+	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy string) error
+	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole string) error
+	StoreValidationNotification(ctx context.Context, notif models.ValidationNotification) error
+	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
+	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
+	ArchiveStepState(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, status string) error
+}
+
+// UserAccess represents merged access control structure
+type UserAccess struct {
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+	GrantedBy   string   `json:"granted_by"`
+	GrantedAt   string   `json:"granted_at"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	Status      string   `json:"status"`
+}
+
 // ContractGraphRepository defines the interface for contract graph operations
 type ContractGraphRepository interface {
 	Get(ctx context.Context, contractID string, version int) (*models.ContractGraph, error)
 	Save(ctx context.Context, contractID string, version int, graph *models.ContractGraph) error
 	Delete(ctx context.Context, contractID string, version int) error
 	Exists(ctx context.Context, contractID string, version int) (bool, error)
+}
+
+// LuaScriptManager defines the interface for Lua script management
+type LuaScriptManager interface {
+	GetScriptHash(name string) (string, bool)
 }
 
 // Note: ValkeyClient is already properly defined in internal/repository/valkey/thread.go

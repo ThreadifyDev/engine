@@ -676,59 +676,93 @@ Domain: threadify.dev
 
 ---
 
-## Architecture Updates (December 2025)
+## Architecture Updates (January 2026)
 
-### Unified Activity Log & Archival System
+### Partitioned Stream Architecture & Unified Activity Log
 
 **Problem Solved:**
-- Consolidated multiple event streams into a single, unified activity log
-- Eliminated data duplication between lists and streams
-- Implemented reliable archival with automatic stream discovery
+- Eliminated per-thread stream discovery overhead
+- Implemented partitioned global streams for scalable archival
+- Dual-write pattern for both queries and archival
+- Consolidated all event types into unified activity log
 
-**New Data Architecture:**
+**Current Data Architecture:**
 
-**1. Per-Thread Activity Streams**
-- `thread:{id}:activity` - Valkey Stream (changed from List)
-- Single source of truth for all thread events
-- Event types: `step_recorded`, `invitation_created`, `invitation_used`, `step_status_changed`
-- Supports multiple consumers: archiver, backend UI, main server queries
+**1. Dual-Stream Pattern (Per-Thread + Partitioned)**
+
+**Per-Thread Streams** (for queries & real-time):
+- `thread:{id}:activity` - Valkey Stream (XADD)
+- Used for: Thread-specific queries, real-time UI updates
+- Event types: `step_recorded`, `thread_created`, `invitation_created`, `invitation_used`
+- Access pattern: XRANGE for queries, XREADGROUP for real-time consumers
+
+**Partitioned Global Streams** (for archival):
+- `streams:activity_log:{0-9}` - 10 partitioned streams
+- Used for: Reliable archival to Postgres
+- Partition selection: FNV hash of thread_id % 10
+- Access pattern: XREADGROUP with consumer groups
+
+**Dual-Write Implementation:**
+- All events written to BOTH streams atomically using pipelines
+- Per-thread stream: Fast queries without partition lookup
+- Partitioned stream: Scalable archival with worker pool
 
 **2. Step State Cache**
 - `thread:{id}:steps:{name}:{idempotency_key}` - Valkey Hash
 - O(1) lookups for idempotency checks, retry validation
-- Fields: status, retryCount, firstSeenAt, lastUpdatedAt, previousStep
+- Fields: status, retryCount, id (step UUID), firstSeenAt, lastUpdatedAt, previousStep
+- Does NOT store context (lean approach)
 
 **3. Postgres Archive Tables**
-- `activity_log` - Consolidated audit trail for all events
+- `activity_log` - Consolidated audit trail for ALL events
+  - Columns: id, thread_id, step_id, type, payload (JSONB), hash, created_at
+  - Indexed: thread_id, step_id, type, created_at
 - `thread_step_state` - Normalized step state snapshots
-- Indexed for efficient querying by thread_id, step_id, type, timestamp
+- `thread_access` - Access grant/revoke audit trail
+- `threads` - Thread metadata
 
 **Key Features:**
 
+**Partitioned Worker Pool:**
+- 10 partitions, 3 workers per archiver instance (configurable)
+- Each worker iterates through all partitions with 100ms block timeout
+- Consumer group: "archivers" (supports multiple archiver instances)
+- Batch writes: 200 events or 5s flush interval
+- XACK after successful Postgres write
+
 **Idempotency Keys:**
-- User-provided OR auto-generated from context hash
+- User-provided OR auto-generated from context hash (FNV-1a)
 - Composite step_id format: `"{step_name}:{idempotency_key}"`
 - Enables automatic retry tracking without explicit keys
+- Duplicate successful steps rejected, failed steps can retry
 
-**Dynamic Stream Discovery:**
-- Archiver automatically discovers new `thread:{id}:activity` streams
-- Uses SCAN (non-blocking) every 60 seconds
-- Creates consumer groups and registers streams on-the-fly
+**Event Types Archived:**
+- ✅ `step_recorded` - Step execution events
+- ✅ `thread_created` - Thread initialization
+- ✅ `invitation_created` - Invitation token generation
+- ✅ `invitation_used` - Thread join via invitation
+- ⏳ `thread_completed` - Thread completion (planned)
+- ⏳ `thread_failed` - Thread failure (planned)
+- ⏳ `validation_warning` - Non-blocking validation warnings (planned)
+- ⏳ `access_revoked` - Permission revocation (planned)
 
 **Reliable Archival:**
 - Consumer groups with ACK mechanism
-- Batch writes (200 events, 5s flush interval)
-- Exponential backoff retry logic
-- Guaranteed delivery to Postgres
+- Exponential backoff retry logic (6 attempts)
+- Guaranteed at-least-once delivery to Postgres
+- Stream trimming after archival (max 10,000 entries per partition)
 
 **Hot/Cold Data Pattern:**
-- Valkey streams for active threads (fast queries)
-- Postgres for historical data (permanent storage)
-- Automatic TTL management per thread
+- Valkey streams for active threads (fast queries, <5ms)
+- Postgres for historical data (permanent storage, compliance)
+- Automatic TTL management per thread (configurable)
 
 **Benefits:**
-- ✅ Single source of truth - no data duplication
+- ✅ Scalable archival - no per-thread stream discovery needed
+- ✅ Fast queries - direct per-thread stream access
+- ✅ Horizontal scaling - multiple archiver instances via consumer groups
+- ✅ Atomic dual-write - pipeline ensures consistency
+- ✅ Partition-based load distribution - FNV hash for even distribution
 - ✅ Immutable audit trail with cryptographic hashing
 - ✅ Real-time capable - multiple consumers via consumer groups
-- ✅ Scalable - supports multiple archiver instances
-- ✅ Performance - O(1) operational queries, efficient stream reads
+- ✅ Performance - O(1) operational queries, efficient batch writes

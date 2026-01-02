@@ -16,6 +16,9 @@ var updateThreadStatusScript string
 //go:embed lua/update_step_state.lua
 var updateStepStateScript string
 
+//go:embed lua/grant_or_update_access.lua
+var grantOrUpdateAccessScript string
+
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
 	valkeyClient interfaces.ValkeyClient
@@ -34,8 +37,9 @@ func NewLuaScriptManager(valkeyClient interfaces.ValkeyClient) *LuaScriptManager
 // Should be called once during application startup
 func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	scripts := map[string]string{
-		"update_thread_status": updateThreadStatusScript,
-		"update_step_state":    updateStepStateScript,
+		"update_thread_status":   updateThreadStatusScript,
+		"update_step_state":      updateStepStateScript,
+		"grant_or_update_access": grantOrUpdateAccessScript,
 	}
 
 	for name, script := range scripts {

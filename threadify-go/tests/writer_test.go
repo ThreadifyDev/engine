@@ -10,16 +10,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockValkeyClient for testing
-type MockValkeyClient struct {
-	mock.Mock
-}
-
-func (m *MockValkeyClient) XAck(ctx context.Context, stream, group string, ids []string) error {
-	args := m.Called(ctx, stream, group, ids)
-	return args.Error(0)
-}
-
 func TestWriter_ProcessBatch_Success(t *testing.T) {
 	mockValkey := new(MockValkeyClient)
 	writer := NewWriter(mockValkey, 3, 1*time.Second, 16*time.Second)

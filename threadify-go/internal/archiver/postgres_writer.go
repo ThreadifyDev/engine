@@ -236,13 +236,15 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	}
 
 	// Upsert thread access records
+	// Use COALESCE to only update non-empty fields (allows separate role and permission updates)
 	query := `
 		INSERT INTO thread_access (
 			thread_id, user_id, role, permissions, granted_by, granted_at, status
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (thread_id, user_id) DO UPDATE SET
-			role = EXCLUDED.role,
-			permissions = EXCLUDED.permissions,
+			role = COALESCE(NULLIF(EXCLUDED.role, ''), thread_access.role),
+			permissions = COALESCE(NULLIF(EXCLUDED.permissions, ''), thread_access.permissions),
+			granted_by = COALESCE(NULLIF(EXCLUDED.granted_by, ''), thread_access.granted_by),
 			granted_at = EXCLUDED.granted_at,
 			status = EXCLUDED.status
 	`

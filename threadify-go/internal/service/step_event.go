@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/utils"
 )
 
 // StepEventService handles step event processing with cryptographic hashing
@@ -367,7 +367,7 @@ func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error 
 	pipe.Expire(ses.ctx, activityList, 7*24*time.Hour)
 
 	// 2. Write to partitioned STREAM for reliable archival
-	partition := ses.getPartitionForThread(event.ThreadID)
+	partition := utils.GetPartitionForThread(event.ThreadID)
 	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 	pipe.XAdd(ses.ctx, partitionedStream, activityValues)
 
@@ -404,13 +404,4 @@ func (ses *StepEventService) updateThreadLastHash(threadID, newHash string) erro
 	}
 
 	return ses.valkeyRepo.Set(ses.ctx, threadKey, string(updatedData), 24*time.Hour)
-}
-
-// getPartitionForThread calculates the partition number for a thread ID
-// Uses FNV hash for consistent distribution across partitions
-func (ses *StepEventService) getPartitionForThread(threadID string) int {
-	const numPartitions = 10 // Should match archiver config
-	h := fnv.New32a()
-	h.Write([]byte(threadID))
-	return int(h.Sum32() % uint32(numPartitions))
 }

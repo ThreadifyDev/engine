@@ -58,8 +58,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		ON contracts(name, owner_id) 
 		WHERE is_deleted = false;
 
-	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS yaml_content TEXT;
-
 	CREATE TABLE IF NOT EXISTS contract_versions (
 		id UUID PRIMARY KEY,
 		version INT NOT NULL,
@@ -74,6 +72,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		CONSTRAINT unique_contract_version UNIQUE(contract_id, version)
 	);
+
+	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS yaml_content TEXT;
 
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_contract_id ON contract_versions(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_graph ON contract_versions USING GIN (graph) WHERE graph IS NOT NULL;
