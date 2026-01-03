@@ -239,10 +239,10 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	// Use COALESCE to only update non-empty fields (allows separate role and permission updates)
 	query := `
 		INSERT INTO thread_access (
-			thread_id, user_id, role, permissions, granted_by, granted_at, status
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			thread_id, user_id, roles, permissions, granted_by, granted_at, status
+		) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
 		ON CONFLICT (thread_id, user_id) DO UPDATE SET
-			role = COALESCE(NULLIF(EXCLUDED.role, ''), thread_access.role),
+			roles = COALESCE(NULLIF(EXCLUDED.roles, '[]'::jsonb), thread_access.roles),
 			permissions = COALESCE(NULLIF(EXCLUDED.permissions, ''), thread_access.permissions),
 			granted_by = COALESCE(NULLIF(EXCLUDED.granted_by, ''), thread_access.granted_by),
 			granted_at = EXCLUDED.granted_at,
@@ -250,20 +250,25 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	`
 
 	for _, event := range events {
+		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s\n",
+			event.Data["threadId"], event.Data["userId"], event.Data["roles"])
+
 		_, err := w.db.Pool.Exec(ctx, query,
 			event.Data["threadId"],
 			event.Data["userId"],
-			event.Data["role"],
+			event.Data["roles"],
 			event.Data["permissions"],
 			event.Data["grantedBy"],
 			event.Data["grantedAt"],
 			event.Data["status"],
 		)
 		if err != nil {
+			fmt.Printf("❌ [PostgresWriter] Failed to write thread_access event: %v\n", err)
 			return err
 		}
 	}
 
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread access events\n", len(events))
 	return nil
 }
 

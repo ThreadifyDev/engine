@@ -57,11 +57,7 @@ invitations:
   default_permissions: "read,write"    # Default permissions for invitations
   default_expiry: "24h"               # Default expiry for invitation tokens
   max_expiry: "7d"                    # Maximum allowed expiry
-  allowed_roles:                      # Valid contract roles for invitations
-    - "external_partner"
-    - "contractor" 
-    - "auditor"
-    - "support"
+  # allowed_roles removed - roles now validated dynamically against contract parties
 
 logging:
   level: info

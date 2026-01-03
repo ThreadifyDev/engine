@@ -141,21 +141,8 @@ func (s *InvitationTokenService) ValidateRole(role string, config *InvitationCon
 		return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(config.AllowedRoles, ", "))
 	}
 
-	// Fallback to hardcoded list if no config provided
-	allowedRoles := []string{
-		"external_partner",
-		"contractor",
-		"auditor",
-		"support",
-	}
-
-	for _, allowed := range allowedRoles {
-		if role == allowed {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(allowedRoles, ", "))
+	// Static role validation removed - roles should be validated against contract parties in the handler
+	return nil
 }
 
 // ValidatePermissions checks if permissions are valid

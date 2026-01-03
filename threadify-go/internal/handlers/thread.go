@@ -204,24 +204,6 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 		permissions = "read,write"
 	}
 
-	// Validate role
-	if err := h.invitationService.ValidateRole(req.Role, nil); err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: err.Error(),
-		}
-	}
-
-	// Validate permissions
-	if err := h.invitationService.ValidatePermissions(permissions); err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: err.Error(),
-		}
-	}
-
 	// Parse expiry
 	expiry, err := h.invitationService.ParseExpiry(req.ExpiresIn)
 	if err != nil {
@@ -247,6 +229,54 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 			Action:  "inviteParty",
 			Status:  "error",
 			Message: "No active thread found. Please start a thread first.",
+		}
+	}
+
+	// Validate role against contract parties (not static hardcoded roles)
+	// Get thread to access its contract graph
+	thread, err := h.threadService.GetThread(threadID)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "inviteParty",
+			Status:  "error",
+			Message: "Thread not found",
+		}
+	}
+
+	// Get contract graph to validate role exists in contract parties
+	contractGraph, err := h.threadService.GetContractGraphForThread(thread)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "inviteParty",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to get contract graph: %v", err),
+		}
+	}
+
+	// Validate role exists in contract parties
+	if len(contractGraph.Parties) > 0 {
+		roleInParties := false
+		for _, party := range contractGraph.Parties {
+			if party == req.Role {
+				roleInParties = true
+				break
+			}
+		}
+		if !roleInParties {
+			return models.ErrorResponse{
+				Action:  "inviteParty",
+				Status:  "error",
+				Message: fmt.Sprintf("Role '%s' is not defined in contract parties: %v", req.Role, contractGraph.Parties),
+			}
+		}
+	}
+
+	// Validate permissions
+	if err := h.invitationService.ValidatePermissions(permissions); err != nil {
+		return models.ErrorResponse{
+			Action:  "inviteParty",
+			Status:  "error",
+			Message: err.Error(),
 		}
 	}
 

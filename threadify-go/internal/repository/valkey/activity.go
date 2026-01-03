@@ -34,10 +34,11 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 	}
 
 	// Write to streams:thread_access for archival
+	rolesJSON, _ := json.Marshal(access.Roles)
 	_, err := r.valkey.XAdd(ctx, "streams:thread_access", map[string]interface{}{
 		"threadId":    threadID,
 		"userId":      userID,
-		"roles":       strings.Join(access.Roles, ","),
+		"roles":       string(rolesJSON),
 		"permissions": strings.Join(access.Permissions, ","),
 		"grantedBy":   invitedBy,
 		"grantedAt":   access.GrantedAt,

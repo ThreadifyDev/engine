@@ -20,22 +20,39 @@ local newPermissions = cjson.decode(ARGV[4])
 local timestamp = ARGV[5]
 local status = ARGV[6]
 
--- Check if role is already taken (O(1))
-local roleOwner = redis.call('HGET', roleIndexKey, newRole)
+-- Role index removed - incompatible with multi-role scenarios
+-- Users can have multiple roles, so checking individual role ownership is flawed
 
-if roleOwner then
-    if roleOwner == userID then
-        -- User already has this role - idempotent, return current access
-        return redis.call('HGET', accessKey, userID)
+-- Role is available or already owned by current user - proceed with granting access
+local current = redis.call('HGET', accessKey, userID)
+
+-- Multi-role accumulation logic - handles ALL cases where user already has access
+if current then
+    -- User already has access - check if they already have this role
+    local access = cjson.decode(current)
+    local hasRole = false
+    for _, existingRole in ipairs(access.roles) do
+        if existingRole == newRole then
+            hasRole = true
+            break
+        end
+    end
+    
+    if hasRole then
+        -- User already has this specific role - idempotent, return current access
+        return current
     else
-        -- Role taken by someone else
-        return redis.error_reply("Role is already assigned")
+        -- Add new role to existing access
+        table.insert(access.roles, newRole)
+        access.updated_at = timestamp
+        
+        local accessJSON = cjson.encode(access)
+        redis.call('HSET', accessKey, userID, accessJSON)
+        return accessJSON
     end
 end
 
--- Role is available - proceed with granting access
-local current = redis.call('HGET', accessKey, userID)
-
+-- User doesn't have access - create new access based on invitation type
 if invitedBy == 'self' then
     -- Thread creator - create new access
     local access = {
@@ -48,36 +65,19 @@ if invitedBy == 'self' then
     
     local accessJSON = cjson.encode(access)
     redis.call('HSET', accessKey, userID, accessJSON)
-    redis.call('HSET', roleIndexKey, newRole, userID)
     return accessJSON
     
 else
-    -- Invitation or direct join
+    -- Invitation or direct join - create new access
+    local access = {
+        roles = {newRole},
+        permissions = newPermissions,
+        granted_by = invitedBy,
+        granted_at = timestamp,
+        status = status
+    }
     
-    if current then
-        -- User already has access - add new role
-        local access = cjson.decode(current)
-        table.insert(access.roles, newRole)
-        access.updated_at = timestamp
-        
-        local accessJSON = cjson.encode(access)
-        redis.call('HSET', accessKey, userID, accessJSON)
-        redis.call('HSET', roleIndexKey, newRole, userID)
-        return accessJSON
-        
-    else
-        -- User doesn't have access yet - create new
-        local access = {
-            roles = {newRole},
-            permissions = newPermissions,
-            granted_by = invitedBy,
-            granted_at = timestamp,
-            status = status
-        }
-        
-        local accessJSON = cjson.encode(access)
-        redis.call('HSET', accessKey, userID, accessJSON)
-        redis.call('HSET', roleIndexKey, newRole, userID)
-        return accessJSON
-    end
+    local accessJSON = cjson.encode(access)
+    redis.call('HSET', accessKey, userID, accessJSON)
+    return accessJSON
 end
