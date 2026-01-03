@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/threadify/engine/internal/database"
 )
@@ -157,8 +158,8 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 		) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
 		ON CONFLICT (thread_id, user_id) DO UPDATE SET
 			roles = COALESCE(NULLIF(EXCLUDED.roles, '[]'::jsonb), thread_access.roles),
-			permissions = COALESCE(NULLIF(EXCLUDED.permissions, ''), thread_access.permissions),
-			granted_by = COALESCE(NULLIF(EXCLUDED.granted_by, ''), thread_access.granted_by),
+			permissions = COALESCE(NULLIF(EXCLUDED.permissions, ''::text), thread_access.permissions),
+			granted_by = COALESCE(NULLIF(EXCLUDED.granted_by, ''::text), thread_access.granted_by),
 			granted_at = EXCLUDED.granted_at,
 			status = EXCLUDED.status
 	`
@@ -286,6 +287,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		actorService := event.Data["actor_service"]
 		hash := event.Data["hash"]
 		timestamp := event.Data["timestamp"]
+		// Handle empty timestamp - use current time as fallback
+		if timestamp == "" {
+			timestamp = time.Now().Format(time.RFC3339)
+		}
 
 		// Create payload with all event data except the top-level fields
 		payload := make(map[string]interface{})

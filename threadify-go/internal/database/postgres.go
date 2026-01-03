@@ -134,7 +134,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		id SERIAL PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL,
-		roles VARCHAR(100) NOT NULL,
+		roles JSONB NOT NULL,
 		permissions TEXT,
 		granted_by VARCHAR(255),
 		granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -147,6 +147,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_id ON thread_access(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
+	CREATE INDEX IF NOT EXISTS idx_thread_access_roles_gin ON thread_access USING GIN (roles);
 
 	CREATE TABLE IF NOT EXISTS thread_validations (
 		validation_id VARCHAR(255) PRIMARY KEY,

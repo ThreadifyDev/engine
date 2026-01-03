@@ -735,11 +735,12 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 	}
 
 	return &models.JoinThreadResponse{
-		Action:   "joinThread",
-		Status:   "success",
-		ThreadID: threadID,
-		Role:     role,
-		Message:  "Successfully joined thread",
+		Action:      "joinThread",
+		Status:      "success",
+		ThreadID:    threadID,
+		Role:        role,
+		Permissions: strings.Join(permissions, ","),
+		Message:     "Successfully joined thread",
 	}, nil
 }
 
