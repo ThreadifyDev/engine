@@ -32,7 +32,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 
 	// Use multi-row INSERT for efficiency
 	query := `
-		INSERT INTO step_events (
+		INSERT INTO thread_activities (
 			step_id, thread_id, step_name, service_name, type, status,
 			context, started_at, finished_at, timestamp, hash, prev_hash
 		) VALUES `
@@ -89,144 +89,58 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 
 // WriteThreadMetadata writes thread metadata to Postgres
 func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) error {
+	fmt.Printf("🔄 DEBUG: WriteThreadMetadata called with %d events\n", len(events))
+
 	if len(events) == 0 {
+		fmt.Printf(" DEBUG: WriteThreadMetadata - no events, returning\n")
 		return nil
+	}
+
+	fmt.Printf(" DEBUG: Writing thread metadata for %d events\n", len(events))
+	for i, event := range events {
+		fmt.Printf("   Event %d: threadId=%s, ownerId=%s, contractId=%s\n",
+			i+1, event.Data["threadId"], event.Data["ownerId"], event.Data["contractId"])
 	}
 
 	// Upsert thread metadata
 	query := `
 		INSERT INTO threads (
-			id, owner_id, company_id, contract_id, contract_version,
-			contract_name, status, current_step, last_hash, started_at, completed_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			id, company_id, contract_id, contract_version, owner_id, error, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (id) DO UPDATE SET
-			status = EXCLUDED.status,
-			current_step = EXCLUDED.current_step,
-			last_hash = EXCLUDED.last_hash,
-			completed_at = EXCLUDED.completed_at
+			company_id = EXCLUDED.company_id,
+			contract_id = EXCLUDED.contract_id,
+			contract_version = EXCLUDED.contract_version,
+			error = EXCLUDED.error,
+			updated_at = EXCLUDED.updated_at
 	`
 
 	for _, event := range events {
+		// Handle missing fields with defaults
+		error := ""
+		if event.Data["error"] != "" {
+			error = event.Data["error"]
+		}
+		fmt.Printf("ContractVersion: %s\n", event.Data["contractVersion"])
+
 		_, err := w.db.Pool.Exec(ctx, query,
-			event.Data["id"],
-			event.Data["ownerId"],
-			event.Data["companyId"],
+			event.Data["threadId"],  // Use threadId instead of id
+			event.Data["companyId"], // Add company_id from stream data
 			event.Data["contractId"],
 			event.Data["contractVersion"],
-			event.Data["contractName"],
-			event.Data["status"],
-			event.Data["currentStep"],
-			event.Data["lastHash"],
-			event.Data["startedAt"],
-			event.Data["completedAt"],
+			event.Data["ownerId"],
+			error,                   // Error field (optional)
+			event.Data["startedAt"], // Use startedAt as created_at
+			event.Data["startedAt"], // Use startedAt as updated_at for new records
 		)
 		if err != nil {
+			fmt.Printf("❌ ERROR: Failed to write thread metadata to Postgres: %v\n", err)
 			return err
 		}
 	}
 
+	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread metadata records to Postgres\n", len(events))
 	return nil
-}
-
-// WriteAuditLogs writes audit logs to Postgres
-func (w *PostgresWriter) WriteAuditLogs(ctx context.Context, events []StreamEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
-
-	query := `
-		INSERT INTO audit_logs (
-			id, event_type, thread_id, contract_id, user_id, data, metadata, timestamp
-		) VALUES `
-
-	values := make([]interface{}, 0, len(events)*8)
-	placeholders := ""
-
-	for i, event := range events {
-		if i > 0 {
-			placeholders += ", "
-		}
-
-		offset := i * 8
-		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8,
-		)
-
-		// Parse the data JSON to extract metadata
-		var metadata interface{}
-		if dataStr, ok := event.Data["data"]; ok {
-			var auditEvent map[string]interface{}
-			if err := json.Unmarshal([]byte(dataStr), &auditEvent); err == nil {
-				metadata = auditEvent["Metadata"]
-			}
-		}
-		metadataJSON, err := json.Marshal(metadata)
-		if err != nil {
-			fmt.Printf("❌ [PostgresWriter] Failed to marshal metadata for audit event %s: %v\n", event.Data["eventId"], err)
-			return fmt.Errorf("failed to marshal metadata: %w", err)
-		}
-
-		values = append(values,
-			event.Data["eventId"],
-			event.Data["type"],
-			event.Data["threadId"],
-			event.Data["contractId"],
-			event.Data["userId"],
-			event.Data["data"], // Full JSON data
-			string(metadataJSON),
-			event.Data["timestamp"],
-		)
-	}
-
-	query += placeholders + " ON CONFLICT (id) DO NOTHING"
-
-	_, err := w.db.Pool.Exec(ctx, query, values...)
-	return err
-}
-
-// WriteInvitations writes invitations to Postgres
-func (w *PostgresWriter) WriteInvitations(ctx context.Context, events []StreamEvent) error {
-	if len(events) == 0 {
-		return nil
-	}
-
-	query := `
-		INSERT INTO invitations (
-			id, thread_id, inviter_id, invitee_email, role, permissions, status, created_at, expires_at
-		) VALUES `
-
-	values := make([]interface{}, 0, len(events)*9)
-	placeholders := ""
-
-	for i, event := range events {
-		if i > 0 {
-			placeholders += ", "
-		}
-
-		offset := i * 9
-		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9,
-		)
-
-		values = append(values,
-			event.Data["invitationId"],
-			event.Data["threadId"],
-			event.Data["inviterId"],
-			event.Data["inviteeEmail"],
-			event.Data["role"],
-			event.Data["permissions"],
-			event.Data["status"],
-			event.Data["createdAt"],
-			event.Data["expiresAt"],
-		)
-	}
-
-	query += placeholders + " ON CONFLICT (id) DO NOTHING"
-
-	_, err := w.db.Pool.Exec(ctx, query, values...)
-	return err
 }
 
 // WriteThreadAccess writes thread access grants to Postgres
@@ -282,7 +196,7 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 
 	// Use multi-row INSERT for efficiency
 	query := `
-		INSERT INTO validation_results (
+		INSERT INTO thread_validations (
 			validation_id, thread_id, step_id, step_name, idempotency_key,
 			timestamp, validations, overall_status, has_critical_violation,
 			critical_count, warning_count, minor_count, info_count, total_validations
@@ -343,14 +257,14 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		return nil
 	}
 
-	fmt.Printf("📝 [PostgresWriter] Writing %d activity log events (batched)...\n", len(events))
+	fmt.Printf("📝 [PostgresWriter] Writing %d activity events to thread_activities (batched)...\n", len(events))
 
 	query := `
-		INSERT INTO activity_log (
-			id, thread_id, step_id, type, timestamp, payload, hash
+		INSERT INTO thread_activities (
+			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash
 		) VALUES `
 
-	values := make([]interface{}, 0, len(events)*7)
+	values := make([]interface{}, 0, len(events)*8)
 	placeholders := ""
 
 	for i, event := range events {
@@ -358,45 +272,56 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 			placeholders += ", "
 		}
 
-		offset := i * 7
+		offset := i * 8
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7,
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8,
 		)
 
-		// Build payload JSONB - convert map[string]string to JSON
-		payloadJSON, err := json.Marshal(event.Data)
-		if err != nil {
-			fmt.Printf("❌ [PostgresWriter] Failed to marshal event data for %s: %v\n", event.StreamID, err)
-			return fmt.Errorf("failed to marshal event data: %w", err)
-		}
-
-		// Extract thread_id from event data (should be present in activity stream events)
+		// Extract fields from event data
 		threadID := event.Data["thread_id"]
-		if threadID == "" {
-			fmt.Printf("⚠️  [PostgresWriter] Warning: thread_id missing in event %s\n", event.StreamID)
+		activityType := event.Data["type"]
+		stepID := event.Data["step_id"]
+		actor := event.Data["actor"]
+		actorService := event.Data["actor_service"]
+		hash := event.Data["hash"]
+		timestamp := event.Data["timestamp"]
+
+		// Create payload with all event data except the top-level fields
+		payload := make(map[string]interface{})
+		for k, v := range event.Data {
+			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "timestamp" {
+				payload[k] = v
+			}
 		}
 
-		values = append(values,
-			event.StreamID, // Stream entry ID
-			threadID,       // Thread ID from event data
-			event.Data["step_id"],
-			event.Data["type"],
-			event.Data["timestamp"],
-			string(payloadJSON), // Cast to jsonb in query
-			event.Data["hash"],
-		)
+		// Parse context JSON if present
+		if contextJSON, ok := payload["context"]; ok && contextJSON != "" {
+			// Try to parse as JSON first
+			var contextMap map[string]interface{}
+			if err := json.Unmarshal([]byte(contextJSON.(string)), &contextMap); err == nil {
+				payload["context"] = contextMap
+			}
+		}
+
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			fmt.Printf("❌ Failed to marshal payload: %v\n", err)
+			continue
+		}
+
+		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash)
 	}
 
-	query += placeholders + " ON CONFLICT (id) DO NOTHING"
+	query += placeholders
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	if err != nil {
-		fmt.Printf("❌ [PostgresWriter] Failed to write activity log: %v\n", err)
+		fmt.Printf("❌ [PostgresWriter] Failed to write thread activities: %v\n", err)
 		return err
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d activity log events\n", len(events))
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d activity log events to thread_activities\n", len(events))
 	return nil
 }
 
@@ -408,15 +333,15 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 
 	fmt.Printf("📝 [PostgresWriter] Writing %d thread step state events (batched)...\n", len(events))
 
-	// Deduplicate by id - keep only the latest event for each id
+	// Deduplicate by step_id - keep only the latest event for each step_id
 	eventMap := make(map[string]StreamEvent)
 	for _, event := range events {
-		id := event.Data["id"]
-		if id == "" {
-			// Skip if id is empty
+		stepID := event.Data["step_id"]
+		if stepID == "" {
+			// Skip if step_id is empty
 			continue
 		}
-		eventMap[id] = event
+		eventMap[stepID] = event
 	}
 
 	// Convert back to slice
@@ -454,7 +379,7 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 		)
 
 		values = append(values,
-			event.Data["id"],
+			event.Data["step_id"],
 			event.Data["thread_id"],
 			event.Data["step_name"],
 			event.Data["idempotency_key"],

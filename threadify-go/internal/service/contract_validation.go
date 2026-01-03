@@ -154,13 +154,24 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 }
 
 // LoadContractGraphIntoCache preloads a contract graph into the cache using three-tier strategy
-func (v *ContractValidationService) LoadContractGraphIntoCache(contractID string, version int) error {
+// Returns the actual version that was loaded (resolves version 0 to latest)
+func (v *ContractValidationService) LoadContractGraphIntoCache(contractID string, version int) (int, error) {
+	// Normalize version: if 0, we need to look up the latest version first
+	targetVersion := version
+	if version == 0 && v.contractRepo != nil {
+		contract, err := v.contractRepo.GetByNameSlim(context.Background(), contractID)
+		if err == nil {
+			targetVersion = contract.LatestVersion
+		}
+		// If lookup fails, we'll try with version 0 and let it fail later
+	}
+
 	// Check if already cached - don't reload if exists
-	if _, exists := v.cacheManager.GetContractGraph(contractID, version); exists {
-		return nil
+	if _, exists := v.cacheManager.GetContractGraph(contractID, targetVersion); exists {
+		return targetVersion, nil
 	}
 
 	// Use GetContractGraph which implements the three-tier caching strategy
 	_, err := v.GetContractGraph(contractID, version)
-	return err
+	return targetVersion, err
 }

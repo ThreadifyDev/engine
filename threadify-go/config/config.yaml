@@ -29,7 +29,7 @@ jwt:
 queue:
   ttl_seconds: 7776000
 
-step_events:
+thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
 
@@ -43,14 +43,6 @@ cache:
   thread_ttl_hours: 72      # Thread data expires after 72 hours
   step_event_ttl_hours: 168  # Step events expire after 7 days
   session_ttl_minutes: 30   # WebSocket session expires after 30 minutes
-
-# Audit queue configuration
-audit_queue:
-  name: "audit_events"         # Queue name for audit events
-  retention_hours: 12          # Events expire after 12 hours
-  batch_size: 50               # Batch size for processing
-  batch_timeout_ms: 5000       # Batch timeout in milliseconds
-  max_retries: 3               # Max retries for failed events
 
 # Invitation configuration
 invitations:
@@ -77,7 +69,7 @@ archiver:
     thread_access:
       size: 50
       flush_interval_seconds: 5
-    validation_results:
+    thread_validations:
       size: 100
       flush_interval_seconds: 5
   

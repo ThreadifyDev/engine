@@ -89,17 +89,14 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
-	// Parse JSON request body to extract contractYAML field
-	var request struct {
-		ContractYAML string `json:"contractYAML"`
-	}
-
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse JSON request body"})
+	// Read raw YAML request body
+	yamlBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
 
-	statusCode, response := h.contractService.CreateContract(c.Request.Context(), ownerID, userID, request.ContractYAML)
+	statusCode, response := h.contractService.CreateContract(c.Request.Context(), ownerID, userID, string(yamlBytes))
 
 	// Record metrics
 	if statusCode == 200 {

@@ -24,7 +24,7 @@ jwt:
 queue:
   ttl_seconds: 7776000
 
-step_events:
+thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
 
@@ -40,25 +40,6 @@ cache:
   step_event_ttl_hours: 168
   session_ttl_minutes: 30
 
-# Audit queue configuration
-audit_queue:
-  name: "audit_events"
-  retention_hours: 12
-  batch_size: 50
-  batch_timeout_ms: 5000
-  max_retries: 3
-
-# Invitation configuration
-invitations:
-  default_permissions: "read,write"
-  default_expiry: "24h"
-  max_expiry: "7d"
-  allowed_roles:
-    - "external_partner"
-    - "contractor" 
-    - "auditor"
-    - "support"
-
 logging:
   level: info
 
@@ -67,20 +48,20 @@ archiver:
   enabled: true
   
   buffers:
-    step_events:
+    thread_step_state:
       size: 100
-      flush_interval_seconds: 5
+      flush_interval_seconds: 10
     thread_metadata:
-      size: 50
-      flush_interval_seconds: 5
-    audit_logs:
-      size: 200
-      flush_interval_seconds: 30
-    invitations:
       size: 50
       flush_interval_seconds: 5
     thread_access:
       size: 50
+      flush_interval_seconds: 5
+    thread_validations:
+      size: 100
+      flush_interval_seconds: 51
+    thread_activities:
+      size: 100
       flush_interval_seconds: 5
   
   retry:

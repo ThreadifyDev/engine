@@ -86,8 +86,8 @@ func main() {
 	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()))
 
 	// Initialize step event service with config
-	batchSize := viper.GetInt("step_events.batch_size")
-	batchTimeoutMs := viper.GetInt("step_events.batch_timeout_ms")
+	batchSize := viper.GetInt("thread_activities.batch_size")
+	batchTimeoutMs := viper.GetInt("thread_activities.batch_timeout_ms")
 	batchTimeout := time.Duration(batchTimeoutMs) * time.Millisecond
 
 	stepEventService := service.NewStepEventService(valkeyService, threadRepo, 4, batchSize, batchTimeout) // 4 workers
@@ -104,23 +104,12 @@ func main() {
 	// Initialize handlers
 	contractHandler := handlers.NewContractHandler(contractService, authService)
 
-	// Load audit queue configuration
-	var auditConfig service.AuditQueueConfig
-	if err := viper.UnmarshalKey("audit_queue", &auditConfig); err != nil {
-		log.Fatalf("Failed to load audit queue config: %v", err)
-	}
-
-	// Initialize audit service
-	auditService := service.NewAuditEventService(valkeyService, &auditConfig)
-	log.Printf("Audit queue service initialized: %s (retention: %dh)", auditConfig.Name, auditConfig.RetentionHours)
-
 	// Load invitation configuration
 	var invitationConfig service.InvitationConfig
 	if err := viper.UnmarshalKey("invitations", &invitationConfig); err != nil {
 		log.Fatalf("Failed to load invitation config: %v", err)
 	}
 
-	// Initialize invitation token service
 	invitationService := service.NewInvitationTokenService(jwtSecret)
 	log.Printf("Invitation service initialized with %d allowed roles", len(invitationConfig.AllowedRoles))
 
@@ -132,8 +121,8 @@ func main() {
 	rateLimiter := middleware.NewRateLimiter(rateLimitRPS, rateLimitBurst)
 	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
 
-	// Setup WebSocket handler with all services
-	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, auditService, valkeyService)
+	// Create WebSocket handler
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, valkeyService)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

@@ -26,7 +26,7 @@ func NewActivityRepository(valkey interfaces.ValkeyClient) *ActivityRepository {
 }
 
 // RecordAccessGranted records an access granted event to streams
-func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy string) error {
+func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName string) error {
 	// Determine event type based on context
 	eventType := "access_granted"
 	if invitedBy != "self" && len(access.Roles) > 1 {
@@ -57,14 +57,16 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 	partition := utils.GetPartitionForThread(threadID)
 	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 	accessValues := map[string]interface{}{
-		"type":        "access_granted",
-		"thread_id":   threadID,
-		"user_id":     userID,
-		"role":        strings.Join(access.Roles, ","),
-		"permissions": strings.Join(access.Permissions, ","),
-		"granted_by":  invitedBy,
-		"granted_at":  access.GrantedAt,
-		"method":      "direct", // Service layer should determine method
+		"type":          "access_granted",
+		"thread_id":     threadID,
+		"user_id":       userID,
+		"actor":         userID,      // user-123 (person getting access)
+		"actor_service": serviceName, // merchant-service
+		"role":          strings.Join(access.Roles, ","),
+		"permissions":   strings.Join(access.Permissions, ","),
+		"granted_by":    invitedBy,
+		"granted_at":    access.GrantedAt,
+		"method":        "direct", // Service layer should determine method
 	}
 	_, err = r.valkey.XAdd(ctx, partitionedStream, accessValues)
 	if err != nil {
@@ -75,19 +77,21 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 }
 
 // RecordInvitationUsed records an invitation used event to streams
-func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy string) error {
+func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error {
 	// Write to thread activity stream
 	// Note: thread:{id}:activity is now a hash, not a stream
 	// Activity events are handled by partitioned streams only
 	partition := utils.GetPartitionForThread(threadID)
 	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 	invitationValues := map[string]interface{}{
-		"type":       "invitation_used",
-		"thread_id":  threadID,
-		"user_id":    userID,
-		"role":       role,
-		"invited_by": invitedBy,
-		"timestamp":  time.Now().Format(time.RFC3339),
+		"type":          "invitation_used",
+		"thread_id":     threadID,
+		"user_id":       userID,
+		"actor":         userID,      // user-123 (person using invitation)
+		"actor_service": serviceName, // merchant-service
+		"role":          role,
+		"invited_by":    invitedBy,
+		"timestamp":     time.Now().Format(time.RFC3339),
 	}
 
 	_, err := r.valkey.XAdd(ctx, partitionedStream, invitationValues)
@@ -99,7 +103,7 @@ func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID,
 }
 
 // RecordThreadCreated records a thread created event to streams
-func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole string) error {
+func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error {
 	// Write to streams:thread_metadata for archival
 	_, err := r.valkey.XAdd(ctx, "streams:thread_metadata", map[string]interface{}{
 		"threadId":    threadID,
@@ -120,11 +124,13 @@ func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, 
 	partition := utils.GetPartitionForThread(threadID)
 	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 	activityValues := map[string]interface{}{
-		"type":      "thread_created",
-		"thread_id": threadID,
-		"user_id":   creatorID,
-		"role":      creatorRole,
-		"timestamp": time.Now().Format(time.RFC3339),
+		"type":          "thread_created",
+		"thread_id":     threadID,
+		"user_id":       creatorID,
+		"actor":         creatorID,   // user-123
+		"actor_service": serviceName, // merchant-service
+		"role":          creatorRole,
+		"timestamp":     time.Now().Format(time.RFC3339),
 	}
 	_, err = r.valkey.XAdd(ctx, partitionedStream, activityValues)
 	if err != nil {
@@ -267,10 +273,10 @@ func (r *ActivityRepository) ArchiveValidationResults(
 		"limit":                100000,
 	}
 
-	// Write to validation_results stream for archival
-	_, err = r.valkey.XAdd(ctx, "streams:validation_results", streamValues)
+	// Write to thread_validations stream for archival
+	_, err = r.valkey.XAdd(ctx, "streams:thread_validations", streamValues)
 	if err != nil {
-		return fmt.Errorf("failed to write to validation_results stream: %w", err)
+		return fmt.Errorf("failed to write to thread_validations stream: %w", err)
 	}
 
 	return nil
@@ -324,12 +330,14 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 		partition := utils.GetPartitionForThread(thread.ID)
 		partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
 		activityValues := map[string]interface{}{
-			"type":         "thread_completed",
-			"thread_id":    thread.ID,
-			"final_status": status,
-			"last_hash":    thread.LastHash,
-			"completed_at": completedAt,
-			"timestamp":    time.Now().Format(time.RFC3339),
+			"type":          "thread_completed",
+			"thread_id":     thread.ID,
+			"actor":         thread.OwnerID, // user-123 (thread owner)
+			"actor_service": "system",       // system-generated event
+			"final_status":  status,
+			"last_hash":     thread.LastHash,
+			"completed_at":  completedAt,
+			"timestamp":     time.Now().Format(time.RFC3339),
 		}
 		_, err = r.valkey.XAdd(ctx, partitionedStream, activityValues)
 		if err != nil {
@@ -367,7 +375,7 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, threadID, ste
 
 	// Write to thread_step_state stream for archival
 	streamValues := map[string]interface{}{
-		"id":              stepID,
+		"step_id":         stepID, // Renamed from "id" to avoid conflict with Redis stream entry ID
 		"thread_id":       threadID,
 		"step_name":       stepName,
 		"idempotency_key": idempotencyKey,

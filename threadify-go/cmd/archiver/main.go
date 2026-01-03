@@ -160,7 +160,7 @@ func main() {
 			writeFunc = pgWriter.WriteThreadMetadata
 		case "thread_access":
 			writeFunc = pgWriter.WriteThreadAccess
-		case "validation_results":
+		case "thread_validations":
 			writeFunc = pgWriter.WriteValidationResults
 		default:
 			log.Printf("Warning: Unknown queue type %s, using default handler\n", queueName)

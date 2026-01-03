@@ -78,7 +78,7 @@ func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, c
 	if contractID != "" {
 		thread.ContractID = &contractID
 	}
-	if contractVersion > 0 {
+	if contractVersion >= 0 {
 		thread.ContractVersion = &contractVersion
 	}
 

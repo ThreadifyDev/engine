@@ -74,9 +74,9 @@ type AccessRepository interface {
 
 // ActivityRepository defines the interface for stream and event operations
 type ActivityRepository interface {
-	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy string) error
-	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy string) error
-	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole string) error
+	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy, serviceName string) error
+	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error
+	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
 	StoreValidationNotification(ctx context.Context, notif models.ValidationNotification) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error

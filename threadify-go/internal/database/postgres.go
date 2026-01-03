@@ -78,52 +78,63 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_contract_id ON contract_versions(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_graph ON contract_versions USING GIN (graph) WHERE graph IS NOT NULL;
 
+	CREATE TABLE IF NOT EXISTS companies (
+		id VARCHAR(255) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS users (
+		id VARCHAR(255) PRIMARY KEY,
+		email VARCHAR(255) UNIQUE NOT NULL,
+		name VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
 	CREATE TABLE IF NOT EXISTS threads (
 		id VARCHAR(255) PRIMARY KEY,
 		contract_id VARCHAR(255),
 		contract_version INT,
 		owner_id VARCHAR(255) NOT NULL,
-		status VARCHAR(50) NOT NULL,
-		current_step VARCHAR(255),
-		context JSONB,
-		steps JSONB,
-		started_at TIMESTAMP NOT NULL,
-		completed_at TIMESTAMP,
+		company_id VARCHAR(255) NOT NULL,
 		error TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (owner_id) REFERENCES users(id),
+		FOREIGN KEY (company_id) REFERENCES companies(id)
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_threads_owner_id ON threads(owner_id);
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
-	CREATE INDEX IF NOT EXISTS idx_threads_status ON threads(status);
-	CREATE INDEX IF NOT EXISTS idx_threads_started_at ON threads(started_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_threads_created_at ON threads(created_at DESC);
 
-	CREATE TABLE IF NOT EXISTS step_events (
-		step_id VARCHAR(255) PRIMARY KEY,
-		thread_id VARCHAR(255) NOT NULL,
-		step_name VARCHAR(255) NOT NULL,
-		service_name VARCHAR(255),
-		type VARCHAR(50),
-		status VARCHAR(50),
-		context JSONB,
-		started_at VARCHAR(255),
-		finished_at VARCHAR(255),
-		timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
-		hash VARCHAR(255),
-		prev_hash VARCHAR(255),
+	CREATE TABLE IF NOT EXISTS thread_activities (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		thread_id TEXT NOT NULL,
+		activity_type TEXT NOT NULL,
+		step_id TEXT,
+		actor TEXT NOT NULL,
+		actor_service TEXT NOT NULL,
+		payload JSONB NOT NULL,
+		recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		hash TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_step_events_thread_id ON step_events(thread_id);
-	CREATE INDEX IF NOT EXISTS idx_step_events_timestamp ON step_events(timestamp DESC);
-	CREATE INDEX IF NOT EXISTS idx_step_events_step_name ON step_events(step_name);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_step_id ON thread_activities(step_id) WHERE step_id IS NOT NULL;
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_actor ON thread_activities(actor, recorded_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_service ON thread_activities(actor_service, recorded_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_payload_gin ON thread_activities USING gin(payload);
 
 	CREATE TABLE IF NOT EXISTS thread_access (
 		id SERIAL PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL,
-		role VARCHAR(100) NOT NULL,
+		roles VARCHAR(100) NOT NULL,
 		permissions TEXT,
 		granted_by VARCHAR(255),
 		granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -137,41 +148,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
 
-	CREATE TABLE IF NOT EXISTS invitations (
-		id VARCHAR(255) PRIMARY KEY,
-		thread_id VARCHAR(255) NOT NULL,
-		inviter_id VARCHAR(255) NOT NULL,
-		invitee_email VARCHAR(255),
-		role VARCHAR(100) NOT NULL,
-		permissions TEXT,
-		status VARCHAR(50) DEFAULT 'created',
-		created_at TIMESTAMP NOT NULL,
-		expires_at TIMESTAMP NOT NULL,
-		used_at TIMESTAMP
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_invitations_thread_id ON invitations(thread_id);
-	CREATE INDEX IF NOT EXISTS idx_invitations_status ON invitations(status);
-	CREATE INDEX IF NOT EXISTS idx_invitations_expires_at ON invitations(expires_at);
-
-	CREATE TABLE IF NOT EXISTS audit_logs (
-		id VARCHAR(255) PRIMARY KEY,
-		event_type VARCHAR(100) NOT NULL,
-		thread_id VARCHAR(255),
-		contract_id VARCHAR(255),
-		user_id VARCHAR(255),
-		data JSONB,
-		metadata JSONB,
-		timestamp TIMESTAMP NOT NULL,
-		created_at TIMESTAMP NOT NULL DEFAULT NOW()
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_audit_logs_thread_id ON audit_logs(thread_id);
-	CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type);
-	CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
-	CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
-
-	CREATE TABLE IF NOT EXISTS validation_results (
+	CREATE TABLE IF NOT EXISTS thread_validations (
 		validation_id VARCHAR(255) PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
 		step_id VARCHAR(255) NOT NULL,
@@ -189,13 +166,74 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_validation_results_thread_id ON validation_results(thread_id);
-	CREATE INDEX IF NOT EXISTS idx_validation_results_step_id ON validation_results(step_id);
-	CREATE INDEX IF NOT EXISTS idx_validation_results_timestamp ON validation_results(timestamp DESC);
-	CREATE INDEX IF NOT EXISTS idx_validation_results_status ON validation_results(overall_status);
-	CREATE INDEX IF NOT EXISTS idx_validation_results_critical ON validation_results(has_critical_violation) WHERE has_critical_violation = true;
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_thread_id ON thread_validations(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_step_id ON thread_validations(step_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_timestamp ON thread_validations(timestamp DESC);
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_status ON thread_validations(overall_status);
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_critical ON thread_validations(has_critical_violation) WHERE has_critical_violation = true;
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Insert seed data for companies and users that correspond to static API keys
+	err = db.insertSeedData(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to insert seed data: %w", err)
+	}
+
+	return nil
+}
+
+// insertSeedData creates the companies and users that correspond to static API keys
+func (db *PostgresDB) insertSeedData(ctx context.Context) error {
+	// Insert companies
+	companies := []struct {
+		ID   string
+		Name string
+	}{
+		{"company-abc", "Company ABC"},
+		{"company-def", "Company DEF"},
+		{"test-company", "Test Company"},
+		{"demo-company", "Demo Company"},
+	}
+
+	for _, company := range companies {
+		_, err := db.Pool.Exec(ctx, `
+			INSERT INTO companies (id, name, created_at, updated_at)
+			VALUES ($1, $2, NOW(), NOW())
+			ON CONFLICT (id) DO NOTHING
+		`, company.ID, company.Name)
+		if err != nil {
+			return fmt.Errorf("failed to insert company %s: %w", company.ID, err)
+		}
+	}
+
+	// Insert users
+	users := []struct {
+		ID    string
+		Email string
+		Name  string
+	}{
+		{"user-123", "user123@example.com", "User 123"},
+		{"user-456", "user456@example.com", "User 456"},
+		{"test-user", "test@example.com", "Test User"},
+		{"demo-user", "demo@example.com", "Demo User"},
+	}
+
+	for _, user := range users {
+		_, err := db.Pool.Exec(ctx, `
+			INSERT INTO users (id, email, name, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+			ON CONFLICT (id) DO NOTHING
+		`, user.ID, user.Email, user.Name)
+		if err != nil {
+			return fmt.Errorf("failed to insert user %s: %w", user.ID, err)
+		}
+	}
+
+	fmt.Printf("✅ Successfully inserted seed data for %d companies and %d users\n", len(companies), len(users))
+	return nil
 }

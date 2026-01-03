@@ -32,11 +32,12 @@ type ThreadService struct {
 	accessService       *ThreadAccessService
 	validationService   *ValidationService
 	notificationService *NotificationService
+	invitationService   *InvitationTokenService
 	valkeyClient        interfaces.ValkeyClient
 	luaScripts          *LuaScriptManager
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager) *ThreadService {
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyClient)
 	notificationService := NewNotificationService(validationService, activityRepo, luaScripts, cacheManager)
@@ -54,6 +55,7 @@ func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.Ac
 		accessService:       accessService,
 		validationService:   validationService,
 		notificationService: notificationService,
+		invitationService:   invitationService,
 		valkeyClient:        valkeyClient,
 		luaScripts:          luaScripts,
 	}
@@ -80,6 +82,9 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 	// Create thread access service for permission/role management
 	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts)
 
+	// Create invitation service
+	invitationService := NewInvitationTokenService("demo-secret")
+
 	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
 		accessRepo,      // Valkey access repository
@@ -89,9 +94,10 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		cacheService,           // In-memory cache service
 		NewConnectionService(), // In-memory connection service
 		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
-		accessService, // Thread access service for permissions/roles
-		valkeyService, // Valkey client for orchestration
-		luaScripts,    // Lua script manager for orchestration
+		accessService,     // Thread access service for permissions/roles
+		invitationService, // Invitation token service
+		valkeyService,     // Valkey client for orchestration
+		luaScripts,        // Lua script manager for orchestration
 	)
 	service.valkeyClient = valkeyService
 	service.luaScripts = luaScripts
@@ -162,13 +168,16 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
 		// Load contract graph with parsed name and version
-		if err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion); err != nil {
+		// This returns the actual version loaded (resolves version 0 to latest)
+		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion)
+		if err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
 				Status:  "error",
 				Message: fmt.Sprintf("Failed to load contract: %v", err),
 			}
 		}
+		contractVersion = actualVersion // Use the actual version that was loaded
 	}
 
 	threadID := uuid.New().String()
@@ -205,6 +214,13 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("❌ PANIC in thread metadata goroutine: %v\n", r)
+			}
+		}()
+
+		fmt.Printf("🔄 DEBUG: Starting thread metadata goroutine for thread %s\n", threadID)
 		ctx := context.Background()
 
 		// Convert contract version to string (handle nil pointer)
@@ -219,28 +235,41 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			contractID = *thread.ContractID
 		}
 
+		fmt.Printf("🔄 DEBUG: About to write to streams:thread_metadata for thread %s\n", threadID)
+
 		// Write to thread_metadata stream for normalized table
 		streamValues := map[string]interface{}{
-			"id":              threadID,
+			"threadId":        threadID, // Use threadId to avoid collision with Redis stream ID
 			"ownerId":         ownerID,
-			"companyId":       companyID,
+			"companyId":       companyID, // Add company_id to satisfy foreign key constraint
 			"contractId":      contractID,
 			"contractVersion": contractVersion,
-			"contractName":    thread.ContractName,
-			"status":          thread.Status,
-			"lastHash":        thread.LastHash,
+			"error":           "", // Initialize with empty error
 			"startedAt":       thread.StartedAt.Format(time.RFC3339),
-			"completedAt":     "",
 			"maxlen":          "~",
 			"limit":           100000,
 		}
-		s.valkeyClient.XAdd(ctx, "streams:thread_metadata", streamValues)
+
+		if _, err := s.valkeyClient.XAdd(ctx, "streams:thread_metadata", streamValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to write thread metadata to stream: %v\n", err)
+			return
+		}
+		fmt.Printf("✅ SUCCESS: Thread metadata written to streams:thread_metadata for thread %s\n", threadID)
 
 		// Write thread_created event to activity log
+		// Get service name from connection manager
+		client, exists := s.connectionMgr.GetClient(ownerID)
+		serviceName := ""
+		if exists {
+			serviceName = client.ServiceName
+		}
+
 		activityValues := map[string]interface{}{
 			"type":             "thread_created",
 			"thread_id":        threadID,
 			"owner_id":         ownerID,
+			"actor":            ownerID,     // user-123
+			"actor_service":    serviceName, // merchant-service
 			"contract_id":      contractID,
 			"contract_name":    thread.ContractName,
 			"contract_version": contractVersion,
@@ -530,7 +559,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Process step event immediately
-	if err := s.stepEventService.ProcessStepEvent(*stepEvent); err != nil {
+	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID); err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",
@@ -553,6 +582,168 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 }
 
+// HandleInviteParty creates invitation tokens for thread access
+func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error) {
+	// Set default permissions if not provided
+	permissions := req.Permissions
+	if permissions == "" {
+		permissions = "read,write"
+	}
+
+	// Parse expiry
+	expiry, err := s.invitationService.ParseExpiry(req.ExpiresIn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid expiry format: %v", err)
+	}
+
+	// Get thread context from session's threads
+	// For now, we'll use the first thread in the session's threadIDs
+	var threadID string
+	if len(threadIDs) > 0 {
+		threadID = threadIDs[0] // Use first available thread
+	}
+
+	if threadID == "" {
+		return nil, fmt.Errorf("no active thread found. Please start a thread first")
+	}
+
+	// Get thread to access its contract
+	thread, err := s.GetThread(threadID)
+	if err != nil {
+		return nil, fmt.Errorf("thread not found")
+	}
+
+	// Get contract graph to validate role exists in contract parties
+	contractGraph, err := s.GetContractGraphForThread(thread)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get contract graph: %v", err)
+	}
+
+	// Validate role exists in contract parties
+	if len(contractGraph.Parties) > 0 {
+		roleInParties := false
+		for _, party := range contractGraph.Parties {
+			if party == req.Role {
+				roleInParties = true
+				break
+			}
+		}
+		if !roleInParties {
+			return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", req.Role, contractGraph.Parties)
+		}
+	}
+
+	// Validate permissions
+	if err := s.invitationService.ValidatePermissions(permissions); err != nil {
+		return nil, err
+	}
+
+	contractID := "contract-123" // This would come from thread data
+
+	// Create JWT token
+	threadToken, err := s.invitationService.CreateToken(threadID, contractID, ownerID, req.Role, permissions, expiry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create invitation token: %v", err)
+	}
+
+	return &models.InvitePartyResponse{
+		Action:      "inviteParty",
+		Status:      "success",
+		ThreadToken: threadToken,
+		Role:        req.Role,
+		Permissions: permissions,
+		ExpiresAt:   time.Now().Add(expiry).Unix(),
+		Message:     "Invitation token created successfully",
+	}, nil
+}
+
+// HandleJoinThread handles both token-based and direct thread joining
+func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
+	var threadID, role, invitedBy string
+	var permissions []string
+	var thread *models.Thread
+
+	// Mode 1: Token-based join (invitation)
+	if req.ThreadToken != "" {
+		// Validate JWT token and extract claims
+		claims, err := s.invitationService.ValidateToken(req.ThreadToken)
+		if err != nil {
+			return nil, fmt.Errorf("invalid thread token: %v", err)
+		}
+
+		threadID = claims.ThreadID
+		role = claims.Role
+		permissions = strings.Split(claims.Permissions, ",")
+		invitedBy = claims.InvitedBy
+
+		// Mode 2: Direct join (same company, no token)
+	} else if req.ThreadID != "" && req.Role != "" {
+		// Get thread to validate it exists and check company
+		var err error
+		thread, err = s.GetThread(req.ThreadID)
+		if err != nil {
+			return nil, fmt.Errorf("thread not found")
+		}
+
+		// Validate same company
+		if thread.CompanyID != companyID {
+			return nil, fmt.Errorf("can only join threads from same company")
+		}
+
+		// Validate role
+		if !s.IsValidRole(req.Role) {
+			return nil, fmt.Errorf("invalid role: %s", req.Role)
+		}
+
+		threadID = req.ThreadID
+		role = req.Role
+		permissions = []string{"read", "write"} // Default permissions for direct join
+		invitedBy = companyID                   // Company ID as inviter
+
+	} else {
+		return nil, fmt.Errorf("either threadToken or (threadId + role) is required")
+	}
+
+	// Get thread if not already loaded (for status validation)
+	if thread == nil {
+		var err error
+		thread, err = s.GetThread(threadID)
+		if err != nil {
+			return nil, fmt.Errorf("thread not found")
+		}
+	}
+
+	// Validate role is in contract parties (if parties are defined)
+	contractGraph, err := s.GetContractGraphForThread(thread)
+	if err == nil && len(contractGraph.Parties) > 0 {
+		roleInParties := false
+		for _, party := range contractGraph.Parties {
+			if party == role {
+				roleInParties = true
+				break
+			}
+		}
+		if !roleInParties {
+			return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", role, contractGraph.Parties)
+		}
+	}
+
+	// Grant or update access using unified method
+	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, permissions, invitedBy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to grant access: %v", err)
+	}
+
+	return &models.JoinThreadResponse{
+		Action:   "joinThread",
+		Status:   "success",
+		ThreadID: threadID,
+		Role:     role,
+		Message:  "Successfully joined thread",
+	}, nil
+}
+
+// HandleClose removes the owner from the connection manager and closes the connection
 func (s *ThreadService) HandleClose(ownerID string) *models.CloseConnectionResponse {
 	if ownerID != "" {
 		s.connectionMgr.Disconnect(ownerID)
@@ -631,7 +822,13 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 	// 2. Record activity via ActivityRepository (async, don't block main operation)
 	go func() {
 		ctx := context.Background()
-		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy); err != nil {
+		// Get service name from connection manager
+		client, exists := s.connectionMgr.GetClient(userID)
+		serviceName := ""
+		if exists {
+			serviceName = client.ServiceName
+		}
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName); err != nil {
 			log.Printf("Failed to record access granted activity: %v", err)
 		}
 	}()

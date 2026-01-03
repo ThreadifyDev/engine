@@ -4,7 +4,7 @@ import "github.com/threadify/engine/internal/models"
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
-	ProcessStepEvent(event models.StepEvent) error
+	RecordStepEventDirect(event models.StepEvent, ownerID string) error
 	Start() error
 	Stop() error
 }
@@ -47,5 +47,5 @@ type ContractValidator interface {
 	ValidateStepInContract(contractID string, version int, stepName string, context map[string]string) error
 	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
 	GetContractGraph(contractID string, version int) (*models.ContractGraph, error)
-	LoadContractGraphIntoCache(contractID string, version int) error
+	LoadContractGraphIntoCache(contractID string, version int) (int, error)
 }
