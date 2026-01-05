@@ -80,7 +80,7 @@ type ActivityRepository interface {
 	StoreValidationNotification(ctx context.Context, notif models.ValidationNotification) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
-	ArchiveStepState(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, status string) error
+	// Note: ArchiveStepState removed - Lua script now writes step state changes to activity log stream atomically
 }
 
 // UserAccess represents merged access control structure

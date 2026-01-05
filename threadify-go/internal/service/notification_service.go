@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -77,7 +78,7 @@ func (s *NotificationService) PerformAsyncValidation(
 		}
 
 		// Process notifications and update step state
-		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread)
+		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status)
 
 		fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s\n", threadID)
 	}()
@@ -170,27 +171,8 @@ func (s *NotificationService) performNonBlockingValidations(
 		})
 	}
 
-	// 5. Retry Limit Exceeded (Critical)
-	// Use stepID as idempotency key if not provided
-	idempKey := req.IdempotencyKey
-	if idempKey == "" {
-		idempKey = stepID
-	}
-	if violation := s.validationService.CheckRetryLimit(ctx, req.ThreadID, req.StepName, idempKey, graph); violation != nil {
-		notifications = append(notifications, models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       req.ThreadID,
-			StepID:         stepID,
-			StepName:       req.StepName,
-			OwnerID:        ownerID,
-			Status:         models.NotificationStatusFailed,
-			ViolationType:  models.ViolationRetryLimitExceeded,
-			Severity:       models.SeverityCritical,
-			Message:        violation.Message,
-			Details:        violation.Details,
-			Timestamp:      now,
-		})
-	}
+	// 5. Retry Limit Exceeded (Critical) - Now handled by Lua script atomically
+	// The Lua script will check retry count and add violation if exceeded
 
 	// 6. Missing Optional Fields (Info)
 	if violation := s.validationService.CheckMissingOptionalFields(stepNode, req.Context); violation != nil {
@@ -264,6 +246,7 @@ func (s *NotificationService) processValidationNotifications(
 	notifications []models.ValidationNotification,
 	graph *models.ContractGraph,
 	thread *models.Thread,
+	originalStatus string,
 ) {
 	// Store all notifications in stream via ActivityRepository
 	for _, notif := range notifications {
@@ -296,7 +279,12 @@ func (s *NotificationService) processValidationNotifications(
 	}
 
 	// Determine final step status and violation JSON
-	status := "completed"
+	// Start with the original step status from the request (success, failed, error, etc.)
+	status := originalStatus
+	if status == "success" {
+		status = "completed" // Map success to completed for internal state
+	}
+
 	violationJSON := ""
 	if hasCriticalViolation {
 		status = "violated"
@@ -304,7 +292,7 @@ func (s *NotificationService) processValidationNotifications(
 		violationJSON = string(violationData)
 		fmt.Printf("[PROCESS-NOTIFICATIONS] Marking step as VIOLATED due to %d critical violations\n", len(criticalViolations))
 	} else {
-		fmt.Printf("[PROCESS-NOTIFICATIONS] Marking step as COMPLETED (no critical violations)\n")
+		fmt.Printf("[PROCESS-NOTIFICATIONS] Marking step as %s (no critical violations)\n", strings.ToUpper(status))
 	}
 
 	// Check if step is terminal
@@ -318,9 +306,21 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
+	// Get maxRetries from contract graph for retry limit validation in Lua
+	maxRetries := 0
+	if graph != nil {
+		for _, transition := range graph.Transitions {
+			if transition.From == stepName && transition.MaxRetries > 0 {
+				maxRetries = transition.MaxRetries
+				break
+			}
+		}
+	}
+
 	// Update step state via Lua script (atomic operation)
+	// Lua script will handle retry limit validation atomically
 	if s.luaScripts != nil {
-		finalStatus, err := s.luaScripts.UpdateStepState(
+		luaResponse, err := s.luaScripts.UpdateStepState(
 			ctx,
 			threadID,
 			stepID,
@@ -330,16 +330,53 @@ func (s *NotificationService) processValidationNotifications(
 			violationJSON,
 			isTerminal,
 			time.Now().Format(time.RFC3339),
+			maxRetries,
 		)
 		if err != nil {
 			fmt.Printf("[LUA-ERROR] Error updating step state via Lua: %v\n", err)
 		} else {
-			fmt.Printf("[LUA-SUCCESS] Step state updated, final status: %s\n", finalStatus)
+			// Parse Lua response: "status" or "status|retry_violated"
+			parts := strings.Split(luaResponse, "|")
+			finalStatus := parts[0]
+			retryViolated := len(parts) > 1 && parts[1] == "retry_violated"
 
-			// Archive step state via ActivityRepository
-			s.activityRepo.ArchiveStepState(ctx, threadID, stepID, stepName, idempotencyKey, finalStatus)
+			fmt.Printf("[LUA-SUCCESS] Step state updated, final status: %s, retry violated: %v\n", finalStatus, retryViolated)
 
-			if isTerminal && status == "completed" {
+			// If Lua detected retry limit violation, add it to notifications
+			if retryViolated {
+				fmt.Printf("[CRITICAL-VIOLATION] Retry limit exceeded detected by Lua script\n")
+
+				// Get current retry count from Redis for the violation message
+				stepHashKey := fmt.Sprintf("thread:%s:steps:%s:%s", threadID, stepName, idempotencyKey)
+				retryCountStr, _ := s.validationService.valkeyClient.HGet(ctx, stepHashKey, "retryCount")
+				retryCount := 0
+				fmt.Sscanf(retryCountStr, "%d", &retryCount)
+
+				notifications = append(notifications, models.ValidationNotification{
+					NotificationID: uuid.New().String(),
+					ThreadID:       threadID,
+					StepID:         stepID,
+					StepName:       stepName,
+					OwnerID:        ownerID,
+					Status:         models.NotificationStatusFailed,
+					ViolationType:  models.ViolationRetryLimitExceeded,
+					Severity:       models.SeverityCritical,
+					Message:        fmt.Sprintf("Step '%s' exceeded retry limit of %d (current: %d retries)", stepName, maxRetries, retryCount),
+					Details: map[string]interface{}{
+						"step_name":   stepName,
+						"retry_count": retryCount,
+						"max_retries": maxRetries,
+					},
+					Timestamp: time.Now(),
+				})
+
+				// Update hasCriticalViolation flag
+				hasCriticalViolation = true
+			}
+
+			// Note: Lua script now writes step state change to activity log stream atomically
+
+			if isTerminal && finalStatus == "completed" {
 				fmt.Printf("[TERMINAL-STEP] Thread marked as COMPLETED\n")
 				// Archive completed thread metadata via ActivityRepository
 				s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{

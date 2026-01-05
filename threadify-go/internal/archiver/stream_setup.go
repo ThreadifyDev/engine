@@ -61,7 +61,6 @@ func (s *StreamSetup) EnsureAllStreams(ctx context.Context, consumerGroup string
 func GetRequiredStreams() []string {
 	return []string{
 		// Global streams for archival
-		"streams:thread_step_state",
 		"streams:thread_metadata",
 		"streams:thread_access",
 		"streams:thread_validations",

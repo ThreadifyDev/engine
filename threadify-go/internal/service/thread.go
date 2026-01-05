@@ -567,9 +567,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
-	// Trigger async validation for ALL threads (contract or not) with successful steps
-	// The async validation will update step state via Lua script
-	if req.Status == "success" {
+	// Trigger async validation for ALL threads (contract or not) with successful or failed steps
+	// The async validation will update step state via Lua script and check retry limits
+	if req.Status == "success" || req.Status == "failed" || req.Status == "error" {
 		s.notificationService.PerformAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
 	}
 

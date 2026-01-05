@@ -116,6 +116,7 @@ func (m *LuaScriptManager) UpdateStepState(
 	violationJSON string,
 	isTerminalStep bool,
 	timestamp string,
+	maxRetries int,
 ) (string, error) {
 	scriptHash, exists := m.scriptHashes["update_step_state"]
 	if !exists {
@@ -144,6 +145,7 @@ func (m *LuaScriptManager) UpdateStepState(
 		timestamp,     // ARGV[4]
 		violationJSON, // ARGV[5]
 		isTerminalStr, // ARGV[6]
+		maxRetries,    // ARGV[7]
 	}
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
