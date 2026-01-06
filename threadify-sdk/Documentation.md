@@ -232,6 +232,69 @@ Creates a step without a thread context (legacy method, prefer `thread.step()`).
 
 ---
 
+### `connection.onViolation(stepName, handler)`
+
+Register a global handler for validation violation notifications.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  console.error(`Violation: ${notification.message}`);
+  console.error(`Details:`, notification.details);
+  notification.ack(); // Acknowledge the notification
+});
+```
+
+**Note:** Handlers are global and will receive notifications for ALL threads. Use `notification.threadId` to filter if needed.
+
+---
+
+### `connection.onCompleted(stepName, handler)`
+
+Register a global handler for step completion notifications.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onCompleted('payment_processing', (notification) => {
+  console.log(`Payment completed for thread ${notification.threadId}`);
+  notification.ack();
+});
+```
+
+---
+
+### `connection.onFailed(stepName, handler)`
+
+Register a global handler for step failure notifications.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onFailed('payment_processing', (notification) => {
+  console.error(`Payment failed: ${notification.message}`);
+  notification.ack();
+});
+```
+
+---
+
 ### `connection.close()`
 
 Closes the WebSocket connection gracefully.
@@ -313,9 +376,45 @@ Returns the contract ID if this is a contract-based thread.
 
 ---
 
+### `thread.waitFor(stepName, options)`
+
+Wait for a notification for a specific step on this thread (blocking). This is useful for synchronous workflows where you need to wait for validation results before proceeding.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to wait for
+- `options` (object, optional):
+  - `timeout` (number): Timeout in milliseconds (default: 5000)
+  - `statuses` (array): Only resolve for these statuses (e.g., `['success', 'failed']`)
+
+**Returns:** `Promise<Notification>`
+
+**Example:**
+```javascript
+// Record a step
+await thread.step('payment_authorization')
+  .addContext({ amount: '500.00' })
+  .stop('success');
+
+// Wait for validation notification (auto-ACKs on resolution)
+const result = await thread.waitFor('payment_authorization', {
+  timeout: 10000,
+  statuses: ['success', 'failed']
+});
+
+if (result.isPassed()) {
+  console.log('Validation passed!');
+} else {
+  console.error('Validation failed:', result.message);
+}
+```
+
+**Note:** `waitFor()` automatically ACKs the notification when the promise resolves. This is ideal for synchronous flows where you need the validation result before continuing.
+
+---
+
 ### `thread.close()`
 
-Closes this thread instance (currently a no-op, reserved for future use).
+Closes this thread instance and rejects any pending `waitFor()` promises.
 
 **Returns:** `Promise<void>`
 
@@ -470,6 +569,75 @@ await step.error('Payment gateway timeout', {
 - `step.getStatus()` - Returns current status
 - `step.getContext()` - Returns copy of context data
 - `step.getEventData()` - Returns complete event data (for debugging)
+
+---
+
+## Notification Class
+
+Represents a validation notification received from the server.
+
+### `notification.ack()`
+
+Acknowledge a notification (mark as read/processed). This tells the server that the notification was successfully received and processed.
+
+**Returns:** `void`
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  console.error('Violation:', notification.message);
+  notification.ack(); // Send ACK to server
+});
+```
+
+**Note:** For `waitFor()`, ACK is sent automatically when the promise resolves. For event handlers (`onViolation`, `onCompleted`, `onFailed`), you must call `ack()` manually.
+
+---
+
+### Notification Properties
+
+**Core Fields:**
+- `notificationId` (string) - Unique notification ID
+- `threadId` (string) - Thread this notification belongs to
+- `stepName` (string) - Name of the step
+- `stepStatus` (string) - Step status (`success`, `failed`, `error`)
+- `status` (string) - Validation status (`passed`, `violated`)
+- `severity` (string) - Severity level (`critical`, `warning`, `info`)
+- `message` (string) - Human-readable message
+- `violationType` (string) - Type of violation (if applicable)
+- `details` (object) - Additional details about the notification
+
+---
+
+### Notification Helper Methods
+
+**Validation Status:**
+- `notification.isViolated()` - Returns `true` if validation failed
+- `notification.isPassed()` - Returns `true` if validation passed
+
+**Step Status:**
+- `notification.isSuccess()` - Returns `true` if step succeeded
+- `notification.isFailed()` - Returns `true` if step failed
+- `notification.isError()` - Returns `true` if step had an error
+
+**Severity:**
+- `notification.isCritical()` - Returns `true` if severity is critical
+- `notification.isWarning()` - Returns `true` if severity is warning
+- `notification.isInfo()` - Returns `true` if severity is info
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  if (notification.isCritical()) {
+    // Alert ops team
+    alertOpsTeam(notification);
+  } else if (notification.isWarning()) {
+    // Log warning
+    console.warn(notification.message);
+  }
+  notification.ack();
+});
+```
 
 ---
 

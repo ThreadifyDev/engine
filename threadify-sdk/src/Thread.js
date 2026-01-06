@@ -1,4 +1,5 @@
 import { ThreadStep } from './ThreadStep.js';
+import { Notification } from './Notification.js';
 
 /**
  * Connection - Represents a WebSocket connection to Threadify Engine
@@ -10,6 +11,19 @@ export class Connection {
     this.serviceName = serviceName;
     this.isConnected = false;
     this.activeThreads = new Map(); // Map of threadId -> thread info
+    this.threads = new Map(); // Map of threadId -> ThreadInstance (for notification routing)
+    
+    // Global notification handlers (step-specific)
+    this.notificationHandlers = {
+      violation: new Map(),  // stepName -> [handlers]
+      completed: new Map(),
+      failed: new Map()
+    };
+    
+    this.processedNotifications = new Set(); // Track processed notification IDs
+    this.maxProcessedSize = 10000; // Prevent memory leak
+    
+    this._setupNotificationListener();
   }
 
   /**
@@ -95,6 +109,8 @@ export class Connection {
         if (data.action === 'startThread') {
           if (data.status === 'success') {
             const threadInstance = new ThreadInstance(this, data.threadId, contractName, null, {});
+            // Register thread for notification routing
+            this.threads.set(data.threadId, threadInstance);
             console.log(`[DEBUG] Thread started: ${data.threadId}`);
             resolve(threadInstance);
           } else {
@@ -209,6 +225,162 @@ export class Connection {
   }
 
   /**
+   * Register a global violation handler for a specific step
+   * @param {string} stepName - Name of the step to listen for
+   * @param {Function} handler - Handler function (receives Notification)
+   * @returns {Connection} - Returns this for chaining
+   */
+  onViolation(stepName, handler) {
+    if (typeof handler !== 'function') {
+      throw new Error('Handler must be a function');
+    }
+    if (!this.notificationHandlers.violation.has(stepName)) {
+      this.notificationHandlers.violation.set(stepName, []);
+    }
+    this.notificationHandlers.violation.get(stepName).push(handler);
+    return this;
+  }
+
+  /**
+   * Register a global completion handler for a specific step
+   * @param {string} stepName - Name of the step to listen for
+   * @param {Function} handler - Handler function (receives Notification)
+   * @returns {Connection} - Returns this for chaining
+   */
+  onCompleted(stepName, handler) {
+    if (typeof handler !== 'function') {
+      throw new Error('Handler must be a function');
+    }
+    if (!this.notificationHandlers.completed.has(stepName)) {
+      this.notificationHandlers.completed.set(stepName, []);
+    }
+    this.notificationHandlers.completed.get(stepName).push(handler);
+    return this;
+  }
+
+  /**
+   * Register a global failure handler for a specific step
+   * @param {string} stepName - Name of the step to listen for
+   * @param {Function} handler - Handler function (receives Notification)
+   * @returns {Connection} - Returns this for chaining
+   */
+  onFailed(stepName, handler) {
+    if (typeof handler !== 'function') {
+      throw new Error('Handler must be a function');
+    }
+    if (!this.notificationHandlers.failed.has(stepName)) {
+      this.notificationHandlers.failed.set(stepName, []);
+    }
+    this.notificationHandlers.failed.get(stepName).push(handler);
+    return this;
+  }
+
+  /**
+   * Setup notification listener for WebSocket messages
+   * @private
+   */
+  _setupNotificationListener() {
+    this.ws.on('message', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        // Handle single notification
+        if (message.action === 'notification') {
+          this._handleNotification(message.notification);
+        }
+        
+        // Handle notification batch
+        if (message.action === 'notification_batch') {
+          message.notifications.forEach(notif => {
+            this._handleNotification(notif);
+          });
+        }
+      } catch (e) {
+        // Ignore parse errors for non-JSON messages
+      }
+    });
+  }
+
+  /**
+   * Handle incoming notification
+   * @private
+   */
+  _handleNotification(notificationData) {
+    const notifID = notificationData.notificationId;
+    
+    // Deduplicate notifications
+    if (this.processedNotifications.has(notifID)) {
+      console.log(`[Notification] Duplicate ignored: ${notifID}`);
+      // Still send ACK (idempotent)
+      this._sendAck(notifID, notificationData.threadId);
+      return;
+    }
+    
+    // Add to processed set
+    this.processedNotifications.add(notifID);
+    
+    // Prevent memory leak - remove oldest if too large
+    if (this.processedNotifications.size > this.maxProcessedSize) {
+      const firstItem = this.processedNotifications.values().next().value;
+      this.processedNotifications.delete(firstItem);
+    }
+    
+    const notification = new Notification(notificationData, this);
+    const stepName = notification.stepName;
+    
+    // Trigger global handlers based on notification type
+    if (notification.isViolated()) {
+      this._triggerHandlers(this.notificationHandlers.violation, stepName, notification);
+    } else if (notification.isSuccess()) {
+      this._triggerHandlers(this.notificationHandlers.completed, stepName, notification);
+    } else if (notification.isFailed() || notification.isError()) {
+      this._triggerHandlers(this.notificationHandlers.failed, stepName, notification);
+    }
+
+    // Route to thread-specific waitFor()
+    const thread = this.threads.get(notification.threadId);
+    if (thread) {
+      thread._handleNotification(notification);
+    }
+  }
+
+  /**
+   * Trigger handlers for a specific step name
+   * @private
+   */
+  _triggerHandlers(handlerMap, stepName, notification) {
+    const handlers = handlerMap.get(stepName);
+    if (handlers && handlers.length > 0) {
+      handlers.forEach(handler => {
+        try {
+          handler(notification);
+        } catch (error) {
+          console.error(`[Notification] Handler error for ${stepName}:`, error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Send ACK for a notification
+   * @private
+   */
+  _sendAck(notificationId, threadId) {
+    try {
+      const ackMessage = {
+        action: 'ack_notification',
+        notification_id: notificationId,
+        thread_id: threadId,
+        processed: true
+      };
+      this.ws.send(JSON.stringify(ackMessage));
+      console.log(`[Connection] ACK sent for notification: ${notificationId}`);
+    } catch (error) {
+      console.error(`[Connection] Failed to send ACK for ${notificationId}:`, error);
+    }
+  }
+
+  /**
    * Join a thread using token or direct join
    * @param {string} tokenOrThreadId - JWT invitation token OR threadId for direct join
    * @param {string} role - Role for direct join (internal services only)
@@ -291,6 +463,7 @@ export class ThreadInstance {
     this.role = role;
     this.refs = refs;
     this.steps = new Map();
+    this.pendingWaits = new Map(); // stepName -> { resolve, reject, timeoutId, statuses }
   }
 
   /**
@@ -400,11 +573,72 @@ export class ThreadInstance {
   }
 
   /**
+   * Wait for a notification for a specific step
+   * @param {string} stepName - Name of the step to wait for
+   * @param {Object} options - Wait options
+   * @param {number} [options.timeout=5000] - Timeout in milliseconds
+   * @param {Array<string>} [options.statuses] - Only resolve for these statuses (e.g., ['success', 'failed'])
+   * @returns {Promise<Notification>} - Resolves with notification when it arrives
+   */
+  waitFor(stepName, options = {}) {
+    const { timeout = 5000, statuses = null } = options;
+    
+    if (!stepName || typeof stepName !== 'string') {
+      return Promise.reject(new Error('Step name must be a non-empty string'));
+    }
+    
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingWaits.delete(stepName);
+        reject(new Error(`Timeout waiting for step: ${stepName} (${timeout}ms)`));
+      }, timeout);
+
+      this.pendingWaits.set(stepName, {
+        resolve,
+        reject,
+        timeoutId,
+        statuses
+      });
+    });
+  }
+
+  /**
+   * Handle incoming notification for this thread
+   * @private
+   */
+  _handleNotification(notification) {
+    const stepName = notification.stepName;
+    const pending = this.pendingWaits.get(stepName);
+    
+    if (pending) {
+      // Check if status matches filter (if provided)
+      if (!pending.statuses || pending.statuses.includes(notification.stepStatus)) {
+        clearTimeout(pending.timeoutId);
+        this.pendingWaits.delete(stepName);
+        
+        // ✅ AUTO-ACK for waitFor() - promise fulfilled means notification received
+        notification.ack();
+        
+        pending.resolve(notification);
+      }
+    }
+  }
+
+  /**
    * Close this thread instance
    * @returns {Promise<void>}
    */
   async close() {
-    // For now, just resolve. In future, we might send a close message
+    // Reject any pending waitFor() promises
+    this.pendingWaits.forEach((pending, stepName) => {
+      clearTimeout(pending.timeoutId);
+      pending.reject(new Error(`Thread closed while waiting for step: ${stepName}`));
+    });
+    this.pendingWaits.clear();
+    
+    // Remove from connection's thread registry
+    this.connection.threads.delete(this.threadId);
+    
     return Promise.resolve();
   }
 }

@@ -89,6 +89,25 @@ services:
       - threadify-network
     restart: unless-stopped
 
+  # NATS - Message broker for notifications
+  nats:
+    image: nats:latest
+    container_name: threadify-nats
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+    volumes:
+      - nats-data:/data
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Threadify Engine - Main application server
   threadify-engine:
     image: intelijence/th-engine:cc2ef70
@@ -137,6 +156,8 @@ volumes:
   threadify-persist:
     driver: local
   threadify-queue:
+    driver: local
+  nats-data:
     driver: local
 
 networks:

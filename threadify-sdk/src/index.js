@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { Connection, ThreadInstance } from './Thread.js';
+import { Notification } from './Notification.js';
 
 /**
  * Threadify SDK - Main entry point
@@ -117,4 +118,4 @@ export class Threadify {
 export default Threadify;
 
 // Export Connection class for direct usage
-export { Connection, ThreadInstance };
+export { Connection, ThreadInstance, Notification };

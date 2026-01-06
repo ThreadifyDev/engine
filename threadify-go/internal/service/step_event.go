@@ -11,14 +11,15 @@ import (
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
-	"github.com/threadify/engine/internal/utils"
 )
 
 // StepEventService handles step event processing with cryptographic hashing
 type StepEventService struct {
-	valkeyRepo interfaces.ValkeyClient
-	threadRepo *valkey.ThreadRepository
+	valkeyRepo    interfaces.ValkeyClient
+	threadRepo    *valkey.ThreadRepository
+	natsPublisher *natsrepo.ArchivalPublisher
 
 	// Hash cache
 	lastHashes map[string]string // threadID -> lastHash (in memory cache)
@@ -26,11 +27,12 @@ type StepEventService struct {
 }
 
 // NewStepEventService creates a new step event service
-func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
+func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, natsPublisher *natsrepo.ArchivalPublisher, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
 	return &StepEventService{
-		valkeyRepo: valkeyRepo,
-		threadRepo: threadRepo,
-		lastHashes: make(map[string]string),
+		valkeyRepo:    valkeyRepo,
+		threadRepo:    threadRepo,
+		natsPublisher: natsPublisher,
+		lastHashes:    make(map[string]string),
 	}
 }
 
@@ -163,19 +165,23 @@ func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent, ownerI
 	pipe.LPush(context.Background(), activityList, string(eventJSON))
 	pipe.Expire(context.Background(), activityList, 7*24*time.Hour)
 
-	// 2. Write to partitioned STREAM for reliable archival
-	partition := utils.GetPartitionForThread(event.ThreadID)
-	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-	fmt.Printf("🔄 DEBUG: Writing step event to %s for stepId=%s\n", partitionedStream, event.StepID)
-	pipe.XAdd(context.Background(), partitionedStream, activityValues)
-
 	// Execute pipeline
 	_, err := pipe.Exec(context.Background())
 	if err != nil {
-		fmt.Printf("❌ ERROR: Failed to write step event to activity stream %s: %v\n", partitionedStream, err)
+		fmt.Printf("❌ ERROR: Failed to write step event to activity list: %v\n", err)
 		return err
 	}
-	fmt.Printf("✅ SUCCESS: Step event written to %s for stepId=%s\n", partitionedStream, event.StepID)
+
+	// 2. Publish to NATS for archival (async, non-blocking)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := ses.natsPublisher.PublishActivityLog(ctx, activityValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish activity log to NATS for stepId=%s: %v\n", event.StepID, err)
+		} else {
+			fmt.Printf("✅ SUCCESS: Activity log published to NATS for stepId=%s\n", event.StepID)
+		}
+	}()
 
 	duration := time.Since(startTime)
 	fmt.Printf("⏱️  [StepEventService] Valkey write (Activity Streams) took %v for stepId=%s\n", duration, event.StepID)

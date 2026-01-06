@@ -54,29 +54,28 @@ type StepViolation struct {
 
 // ValidationNotification represents a notification stored in the stream
 type ValidationNotification struct {
-	NotificationID string                 `json:"notificationId"`
-	ThreadID       string                 `json:"threadId"`
-	StepID         string                 `json:"stepId,omitempty"`
-	StepName       string                 `json:"stepName,omitempty"`
-	OwnerID        string                 `json:"ownerId"` // Who published the step
-	Status         NotificationStatus     `json:"status"`  // "completed", "failed"
-	ViolationType  ViolationType          `json:"violationType,omitempty"`
-	Severity       ViolationSeverity      `json:"severity,omitempty"`
-	Message        string                 `json:"message"`
-	Details        map[string]interface{} `json:"details,omitempty"`
-	Timestamp      time.Time              `json:"timestamp"`
+	// Identity (always present)
+	NotificationID string `json:"notificationId"`
+	ThreadID       string `json:"threadId"`
+	StepID         string `json:"stepId"`
+	StepName       string `json:"stepName"`
+	OwnerID        string `json:"ownerId"` // Who published the step
 
-	// For transition violations
-	FromStep string `json:"fromStep,omitempty"`
-	ToStep   string `json:"toStep,omitempty"`
+	// Status (always present)
+	StepStatus string `json:"stepStatus"` // User's set status: "success", "failed", "error"
+	Status     string `json:"status"`     // Validation status: "passed", "violated", "none"
 
-	// For timeout violations
-	Duration string `json:"duration,omitempty"`
-	Limit    string `json:"limit,omitempty"`
+	// Violation info (always present, empty string if no violation)
+	ViolationType string `json:"violationType"` // Empty if no violation
+	Severity      string `json:"severity"`      // Empty if no violation
+	Message       string `json:"message"`       // Always has a message
 
-	// For field violations
-	MissingFields []string `json:"missingFields,omitempty"`
-	ExtraFields   []string `json:"extraFields,omitempty"`
+	// Details (always present, can be empty map)
+	// Contains violation-specific data: fromStep, toStep, allowedSteps, retryCount, etc.
+	Details map[string]interface{} `json:"details"`
+
+	// Timestamp (always present)
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ValidationViolation is an internal struct used during validation checks

@@ -54,6 +54,44 @@ invitations:
 logging:
   level: info
 
+# NATS configuration for notification delivery
+nats:
+  url: "nats://localhost:4222"
+  cluster_id: "threadify-cluster"
+  client_id: "threadify-server"
+  stream_name: "NOTIFICATIONS"
+  retention_hours: 48
+  max_age_hours: 168  # 7 days
+  ack_wait_seconds: 30
+
+# Notification system configuration
+notification_system:
+  # System-defined notification scopes
+  scopes:
+    owner:
+      description: "Full access to all notifications"
+      permissions:
+        - all_violations
+        - all_completions
+        - thread_lifecycle
+    
+    participant:
+      description: "Normal access for active parties"
+      permissions:
+        - own_step_violations
+        - critical_violations
+        - completions
+        - thread_lifecycle
+    
+    observer:
+      description: "Read-only access for monitoring"
+      permissions:
+        - completions
+        - thread_lifecycle
+  
+  # Default scope if not specified
+  default_scope: participant
+
 # Archiver service configuration
 archiver:
   enabled: true

@@ -813,4 +813,216 @@ Domain: threadify.dev
 - ✅ Stream field naming conflicts resolved
 - ✅ Database schema aligned with application code
 - ✅ API responses now complete and consistent
+
+---
+
+## Real-Time Validation & Notifications
+
+### Overview
+Threadify provides real-time validation notifications for every step execution. Validations run asynchronously and are delivered via WebSocket, allowing SDKs to react to validation results immediately.
+
+### Notification Structure
+
+Every step execution results in **exactly ONE notification** with the following structure:
+
+```json
+{
+  "notificationId": "uuid",
+  "threadId": "thread-uuid",
+  "stepId": "step-uuid",
+  "stepName": "order_placed",
+  "ownerId": "user-id",
+  "stepStatus": "success",      // User-provided status: "success", "failed", "error"
+  "status": "violated",          // Validation result: "passed", "violated", "none"
+  "violationType": "invalid_transition",  // Type of violation (if any)
+  "severity": "critical",        // Severity: "critical", "warning", "info"
+  "message": "Invalid transition from 'order_placed' to 'order_placed'",
+  "details": {
+    "fromStep": "order_placed",
+    "toStep": "order_placed",
+    "allowedSteps": "payment_validation",
+    "stepId": "...",
+    "violatedAt": "2026-01-06T13:00:00Z"
+  },
+  "timestamp": "2026-01-06T13:00:00Z"
+}
+```
+
+### Notification Status Values
+
+- **`"passed"`**: Step executed successfully with no validation violations
+- **`"violated"`**: Step has validation violations (check `violationType` and `details`)
+- **`"none"`**: No validation performed (e.g., no contract defined for thread)
+
+### Validation Types
+
+#### Structural Validations (Run for ALL step statuses)
+1. **`step_timeout_exceeded`** (Critical)
+   - Step took longer than allowed timeout
+   - Details: `duration`, `limit`
+
+2. **`max_duration_exceeded`** (Critical)
+   - Thread exceeded maximum allowed duration
+   - Details: `duration`, `limit`
+
+3. **`retry_limit_exceeded`** (Critical)
+   - Step retried more times than allowed
+   - Details: `retryCount`, `maxRetries`
+
+4. **`multiple_terminal_states`** (Critical/Configurable)
+   - Thread reached multiple terminal steps
+   - Details: `currentTerminalSteps`, `newTerminalStep`
+
+#### Business Validations (Run only for successful steps)
+5. **`invalid_transition`** (Critical)
+   - Step executed out of order according to contract
+   - Details: `fromStep`, `toStep`, `allowedSteps`
+
+6. **`missing_optional_field`** (Info)
+   - Optional business context fields missing
+   - Details: `missingFields`
+
+### SDK Usage Patterns
+
+#### Basic Pattern: Fire and Forget
+```javascript
+// Just record the step - notification comes via WebSocket
+await thread.step('payment_validation')
+  .context({ amount: 100 })
+  .success();
+
+// Handle notification separately
+thread.on('notification', (notif) => {
+  if (notif.status === 'violated') {
+    console.error(`Violation: ${notif.message}`);
+    // Handle violation
+  }
+});
+```
+
+#### Advanced Pattern: Wait for Validation
+```javascript
+// Wait for validation result before proceeding
+const result = await thread.step('payment_validation')
+  .context({ amount: 100 })
+  .success()
+  .waitForValidation();
+
+if (result.status === 'violated') {
+  // Handle violation immediately
+  throw new Error(`Validation failed: ${result.message}`);
+}
+```
+
+#### Pattern: Multiple Violations
+```javascript
+thread.on('notification', (notif) => {
+  if (notif.status === 'violated') {
+    // Single violation - details at top level
+    if (notif.violationType) {
+      console.error(`${notif.violationType}: ${notif.message}`);
+      console.log('Details:', notif.details);
+    }
+    // Multiple violations - in details.violations array
+    else if (notif.details.violations) {
+      notif.details.violations.forEach(v => {
+        console.error(`${v.type}: ${v.message}`);
+      });
+    }
+  }
+});
+```
+
+### Notification Delivery
+
+**WebSocket-Based Delivery:**
+- Notifications published to NATS JetStream
+- Delivered to appropriate scope: `thread.{threadId}.{scope}`
+- Scopes: `owner`, `participant`, `viewer`
+- Real-time delivery (<100ms typical latency)
+
+**Scope Resolution:**
+- Thread creator: `owner` scope
+- Invited users: Based on permissions (`write` → `participant`, `read` → `viewer`)
+- Contract role holders: Determined by role in contract
+
+### Contract-Based Validation
+
+When a thread has a contract, validations enforce:
+
+1. **Entry Points**: First step must be a defined entry point
+2. **Transitions**: Steps must follow allowed transition paths
+3. **Terminal Steps**: Thread completes when terminal step succeeds
+4. **Retry Limits**: Per-transition retry limits enforced
+5. **Timeouts**: Per-step timeout limits
+6. **Business Context**: Required and optional fields validated
+
+**Example Contract:**
+```yaml
+contract_name: payment_flow
+entry_points:
+  - order_placed
+steps:
+  - id: order_placed
+    owner: merchant
+    timeout: 5m
+  - id: payment_validation
+    owner: payment_processor
+    timeout: 30s
+transitions:
+  - from: order_placed
+    to: [payment_validation]
+    max_retries: 3
+  - from: payment_validation
+    to: [payment_validated, order_cancelled]
+terminal_steps:
+  - payment_validated
+  - order_cancelled
+```
+
+### No-Contract Workflows
+
+For threads without contracts:
+- Validation status: `"none"`
+- No transition or timeout checks
+- Steps can be executed in any order
+- Useful for ad-hoc workflows or logging
+
+### Best Practices for SDK Developers
+
+1. **Always handle notifications**: Set up WebSocket listener for `notification` events
+2. **Check `status` field**: Distinguish between `"passed"`, `"violated"`, and `"none"`
+3. **Handle violations gracefully**: Don't crash on violations - log and alert
+4. **Use `stepStatus` vs `status`**: 
+   - `stepStatus`: What the user said happened ("success", "failed")
+   - `status`: What validation determined ("passed", "violated")
+5. **Single vs Multiple violations**: Check if `violationType` exists (single) or `details.violations` (multiple)
+6. **Scope-based filtering**: Users only receive notifications for threads they have access to
+
+### Error Handling
+
+```javascript
+try {
+  await thread.step('payment')
+    .context({ amount: 100 })
+    .success();
+} catch (err) {
+  // Network/API errors
+  console.error('Failed to record step:', err);
+}
+
+// Validation violations come via notification
+thread.on('notification', (notif) => {
+  if (notif.stepName === 'payment' && notif.status === 'violated') {
+    // Validation failed - handle appropriately
+    if (notif.violationType === 'invalid_transition') {
+      // Step was out of order
+    } else if (notif.violationType === 'retry_limit_exceeded') {
+      // Too many retries
+    }
+  }
+});
+```
+
+---
 - ✅ Archiver reliability improved with proper error handling

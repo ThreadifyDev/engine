@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
@@ -23,27 +24,33 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebSocketHandler struct {
-	threadService     *service.ThreadService
-	stepEventService  *service.StepEventService
-	invitationService *service.InvitationTokenService
-	valkeyClient      interfaces.ValkeyClient
-	sessions          sync.Map
+	threadService        *service.ThreadService
+	stepEventService     *service.StepEventService
+	invitationService    *service.InvitationTokenService
+	notificationConsumer *service.NotificationConsumer
+	notificationRouter   *NotificationRouter
+	valkeyClient         interfaces.ValkeyClient
+	sessions             sync.Map
 }
 
 type Session struct {
-	conn      *websocket.Conn
-	ownerID   string
-	companyID string
-	threadIDs []string
-	mu        sync.Mutex
+	conn                *websocket.Conn
+	clientID            string
+	ownerID             string
+	companyID           string
+	threadIDs           []string
+	notificationHandler *WebSocketNotificationHandler
+	mu                  sync.Mutex
 }
 
-func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, valkeyClient interfaces.ValkeyClient) *WebSocketHandler {
+func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient) *WebSocketHandler {
 	return &WebSocketHandler{
-		threadService:     threadService,
-		stepEventService:  stepEventService,
-		invitationService: invitationService,
-		valkeyClient:      valkeyClient,
+		threadService:        threadService,
+		stepEventService:     stepEventService,
+		invitationService:    invitationService,
+		notificationConsumer: notificationConsumer,
+		notificationRouter:   notificationRouter,
+		valkeyClient:         valkeyClient,
 	}
 }
 
@@ -57,7 +64,12 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	session := &Session{conn: conn}
+	// Generate unique client ID
+	clientID := uuid.New().String()
+	session := &Session{
+		conn:     conn,
+		clientID: clientID,
+	}
 
 	for {
 		var msg map[string]interface{}
@@ -81,6 +93,14 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)
 		h.threadService.HandleClose(session.ownerID)
+
+		// Unsubscribe from all notifications (old consumer)
+		h.unsubscribeFromNotifications(session)
+
+		// Unregister from notification router (new router)
+		if h.notificationRouter != nil {
+			h.notificationRouter.UnregisterClient(session.clientID)
+		}
 	}
 }
 
@@ -100,6 +120,18 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			session.companyID = resp.CompanyID // Set companyID from response
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session) // Use ownerID from response
+
+			// Register client with notification router
+			if h.notificationRouter != nil {
+				wsClient := &WebSocketClient{
+					ID:          session.clientID,
+					Conn:        session.conn,
+					OwnerID:     session.ownerID,
+					ThreadIDs:   make(map[string]bool),
+					pendingAcks: make(map[string]*PendingNotification),
+				}
+				h.notificationRouter.RegisterClient(wsClient)
+			}
 		}
 		response = resp
 
@@ -115,6 +147,14 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 				session.threadIDs = append(session.threadIDs, startResp.ThreadID)
 			}
 			session.mu.Unlock()
+
+			// Subscribe to notifications for this thread (old consumer)
+			h.subscribeToNotifications(session, startResp.ThreadID, "owner")
+
+			// Subscribe via notification router (new router)
+			if h.notificationRouter != nil {
+				h.notificationRouter.SubscribeToThread(session.clientID, startResp.ThreadID)
+			}
 		}
 
 	case "recordThreadEvent":
@@ -136,6 +176,11 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		var req models.JoinThreadRequest
 		json.Unmarshal(msgBytes, &req)
 		response = h.handleJoinThread(session, &req)
+
+	case "ack_notification":
+		var ackMsg NotificationACKMessage
+		json.Unmarshal(msgBytes, &ackMsg)
+		response = h.handleNotificationAck(session, &ackMsg)
 
 	default:
 		response = models.ErrorResponse{
@@ -206,7 +251,104 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 		session.mu.Lock()
 		session.threadIDs = append(session.threadIDs, response.ThreadID)
 		session.mu.Unlock()
+
+		// Subscribe to notifications for joined thread
+		if h.notificationRouter != nil {
+			h.notificationRouter.SubscribeToThread(session.clientID, response.ThreadID)
+		}
 	}
 
 	return response
+}
+
+// subscribeToNotifications subscribes a session to notifications for a thread
+func (h *WebSocketHandler) subscribeToNotifications(session *Session, threadID, scope string) {
+	if h.notificationConsumer == nil {
+		log.Println("[WS-NOTIFICATION] Notification consumer not available")
+		return
+	}
+
+	// Create notification handler for this session
+	handler := NewWebSocketNotificationHandler(session.conn, threadID, session.ownerID)
+
+	// Store handler in session
+	session.mu.Lock()
+	session.notificationHandler = handler
+	session.mu.Unlock()
+
+	// Subscribe to NATS notifications
+	if err := h.notificationConsumer.Subscribe(threadID, session.ownerID, scope, handler); err != nil {
+		log.Printf("[WS-NOTIFICATION] Failed to subscribe to notifications: %v\n", err)
+	} else {
+		log.Printf("[WS-NOTIFICATION] Subscribed user %s to thread %s notifications (scope: %s)\n",
+			session.ownerID, threadID, scope)
+	}
+}
+
+// unsubscribeFromNotifications unsubscribes a session from all thread notifications
+func (h *WebSocketHandler) unsubscribeFromNotifications(session *Session) {
+	if h.notificationConsumer == nil {
+		return
+	}
+
+	session.mu.Lock()
+	threadIDs := session.threadIDs
+	ownerID := session.ownerID
+	session.mu.Unlock()
+
+	// Unsubscribe from all threads
+	for _, threadID := range threadIDs {
+		if err := h.notificationConsumer.Unsubscribe(threadID, ownerID); err != nil {
+			log.Printf("[WS-NOTIFICATION] Failed to unsubscribe from thread %s: %v\n", threadID, err)
+		}
+	}
+
+	// Close notification handler
+	session.mu.Lock()
+	if session.notificationHandler != nil {
+		session.notificationHandler.Close()
+		session.notificationHandler = nil
+	}
+	session.mu.Unlock()
+}
+
+// handleNotificationAck handles ACK messages from clients
+func (h *WebSocketHandler) handleNotificationAck(session *Session, ackMsg *NotificationACKMessage) interface{} {
+	if h.notificationRouter == nil {
+		return models.ErrorResponse{
+			Action:  "ack_notification",
+			Status:  "error",
+			Message: "Notification router not available",
+		}
+	}
+
+	// Get the WebSocket client from the router
+	h.notificationRouter.mu.RLock()
+	client, exists := h.notificationRouter.clients[session.clientID]
+	h.notificationRouter.mu.RUnlock()
+
+	if !exists {
+		return models.ErrorResponse{
+			Action:  "ack_notification",
+			Status:  "error",
+			Message: "Client not registered",
+		}
+	}
+
+	// Handle the ACK
+	if err := client.HandleClientAck(ackMsg.NotificationID); err != nil {
+		log.Printf("[WS-ACK] Error handling ACK for notification %s: %v", ackMsg.NotificationID, err)
+		return models.ErrorResponse{
+			Action:  "ack_notification",
+			Status:  "error",
+			Message: err.Error(),
+		}
+	}
+
+	// Return success response
+	return map[string]interface{}{
+		"action":          "ack_notification",
+		"status":          "success",
+		"notification_id": ackMsg.NotificationID,
+	}
 }

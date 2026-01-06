@@ -16,6 +16,7 @@ type Config struct {
 	Logging            LoggingConfig            `yaml:"logging" mapstructure:"logging"`
 	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
 	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
+	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
 }
 
 // ServerConfig holds server configuration
@@ -90,6 +91,17 @@ type InvitationsConfig struct {
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
 	Level string `yaml:"level" mapstructure:"level"`
+}
+
+// NATSConfig holds NATS configuration
+type NATSConfig struct {
+	URL            string `yaml:"url" mapstructure:"url"`
+	ClusterID      string `yaml:"cluster_id" mapstructure:"cluster_id"`
+	ClientID       string `yaml:"client_id" mapstructure:"client_id"`
+	StreamName     string `yaml:"stream_name" mapstructure:"stream_name"`
+	RetentionHours int    `yaml:"retention_hours" mapstructure:"retention_hours"`
+	MaxAgeHours    int    `yaml:"max_age_hours" mapstructure:"max_age_hours"`
+	AckWaitSeconds int    `yaml:"ack_wait_seconds" mapstructure:"ack_wait_seconds"`
 }
 
 // NotificationSystemConfig holds notification system configuration

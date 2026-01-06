@@ -9,11 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/config"
 	"github.com/google/uuid"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/utils"
@@ -21,45 +22,48 @@ import (
 
 // ThreadService orchestrates thread operations across multiple repositories
 type ThreadService struct {
-	repo                interfaces.ThreadRepository
-	accessRepo          interfaces.AccessRepository
-	activityRepo        interfaces.ActivityRepository
-	graphRepo           interfaces.ContractGraphRepository
-	stepEventService    interfaces.StepEventProcessor
-	cacheManager        interfaces.CacheManager
-	connectionMgr       interfaces.ConnectionManager
-	contractValidator   interfaces.ContractValidator
-	authService         *AuthService
-	accessService       *ThreadAccessService
-	validationService   *ValidationService
-	notificationService *NotificationService
-	invitationService   *InvitationTokenService
-	scopeResolver       *ScopeResolver
-	valkeyClient        interfaces.ValkeyClient
-	luaScripts          *LuaScriptManager
+	repo                  interfaces.ThreadRepository
+	accessRepo            interfaces.AccessRepository
+	activityRepo          interfaces.ActivityRepository
+	graphRepo             interfaces.ContractGraphRepository
+	stepEventService      interfaces.StepEventProcessor
+	cacheManager          interfaces.CacheManager
+	connectionMgr         interfaces.ConnectionManager
+	contractValidator     interfaces.ContractValidator
+	authService           *AuthService
+	accessService         *ThreadAccessService
+	validationService     *ValidationService
+	notificationService   *NotificationService
+	invitationService     *InvitationTokenService
+	scopeResolver         *ScopeResolver
+	notificationConsumer  *NotificationConsumer
+	valkeyClient          interfaces.ValkeyClient
+	luaScripts            *LuaScriptManager
+	natsArchivalPublisher *natsrepo.ArchivalPublisher
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager, stepStateRepo interfaces.StepStateRepository) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager, stepStateRepo interfaces.StepStateRepository, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyClient)
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheManager)
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheManager, natsPublisher)
 
 	return &ThreadService{
-		repo:                repo,
-		accessRepo:          accessRepo,
-		activityRepo:        activityRepo,
-		graphRepo:           graphRepo,
-		stepEventService:    stepEventService,
-		cacheManager:        cacheManager,
-		connectionMgr:       connectionMgr,
-		contractValidator:   contractValidator,
-		authService:         NewAuthService("demo-secret", "threadify", "threadify-api", 24),
-		accessService:       accessService,
-		validationService:   validationService,
-		notificationService: notificationService,
-		invitationService:   invitationService,
-		valkeyClient:        valkeyClient,
-		luaScripts:          luaScripts,
+		repo:                  repo,
+		accessRepo:            accessRepo,
+		activityRepo:          activityRepo,
+		graphRepo:             graphRepo,
+		stepEventService:      stepEventService,
+		cacheManager:          cacheManager,
+		connectionMgr:         connectionMgr,
+		contractValidator:     contractValidator,
+		authService:           NewAuthService("demo-secret", "threadify", "threadify-api", 24),
+		accessService:         accessService,
+		validationService:     validationService,
+		notificationService:   notificationService,
+		invitationService:     invitationService,
+		valkeyClient:          valkeyClient,
+		luaScripts:            luaScripts,
+		natsArchivalPublisher: natsArchivalPublisher,
 	}
 }
 
@@ -73,7 +77,6 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
 	threadRepo := valkey.NewThreadRepository(valkeyService, threadTTLSeconds)
 	accessRepo := valkey.NewAccessRepository(valkeyService)
-	activityRepo := valkey.NewActivityRepository(valkeyService)
 
 	// Create and load Lua scripts
 	luaScripts := NewLuaScriptManager(valkeyService)
@@ -96,6 +99,26 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 	// Create scope resolver for notification access control
 	scopeResolver := NewScopeResolver(cfg, valkeyGraphRepo, threadRepo)
 
+	// Initialize NATS publisher and consumer for notifications (graceful degradation if NATS unavailable)
+	var natsPublisher NotificationPublisher
+	var natsConsumer *NotificationConsumer
+	var natsArchivalPublisher *natsrepo.ArchivalPublisher
+	natsClient, err := natsrepo.NewClient(&cfg.NATS)
+	if err != nil {
+		fmt.Printf("Warning: Failed to connect to NATS - notifications and archival will be disabled: %v\n", err)
+		natsPublisher = nil
+		natsConsumer = nil
+		natsArchivalPublisher = nil
+	} else {
+		natsPublisher = natsrepo.NewPublisher(natsClient, scopeResolver, accessRepo)
+		natsConsumer = NewNotificationConsumer(natsClient, scopeResolver)
+		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
+		fmt.Printf("NATS publisher, consumer, and archival publisher initialized successfully\n")
+	}
+
+	// Create activity repository with NATS publisher
+	activityRepo := valkey.NewActivityRepository(valkeyService, natsArchivalPublisher)
+
 	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
 		accessRepo,      // Valkey access repository
@@ -105,17 +128,25 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 		cacheService,           // In-memory cache service
 		NewConnectionService(), // In-memory connection service
 		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
-		accessService,     // Thread access service for permissions/roles
-		invitationService, // Invitation token service
-		valkeyService,     // Valkey client for orchestration
-		luaScripts,        // Lua script manager for orchestration
-		stepStateRepo,     // Step state repository for atomic validations
+		accessService,         // Thread access service for permissions/roles
+		invitationService,     // Invitation token service
+		valkeyService,         // Valkey client for orchestration
+		luaScripts,            // Lua script manager for orchestration
+		stepStateRepo,         // Step state repository for atomic validations
+		natsPublisher,         // NATS publisher for notifications (can be nil)
+		natsArchivalPublisher, // NATS archival publisher (can be nil)
 	)
 	service.valkeyClient = valkeyService
 	service.luaScripts = luaScripts
 	service.scopeResolver = scopeResolver
+	service.notificationConsumer = natsConsumer
 
 	return service
+}
+
+// GetNotificationConsumer returns the notification consumer (can be nil)
+func (s *ThreadService) GetNotificationConsumer() *NotificationConsumer {
+	return s.notificationConsumer
 }
 
 func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.ConnectResponse {
@@ -265,11 +296,18 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			"limit":           100000,
 		}
 
-		if _, err := s.valkeyClient.XAdd(ctx, "streams:thread_metadata", streamValues); err != nil {
-			fmt.Printf("❌ ERROR: Failed to write thread metadata to stream: %v\n", err)
-			return
+		// Publish to NATS for archival (async)
+		if s.natsArchivalPublisher != nil {
+			go func() {
+				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
+					fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+				} else {
+					fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
+				}
+			}()
 		}
-		fmt.Printf("✅ SUCCESS: Thread metadata written to streams:thread_metadata for thread %s\n", threadID)
 
 		// Write thread_created event to activity log
 		// Get service name from connection manager
@@ -298,10 +336,16 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		s.valkeyClient.LPush(ctx, activityList, string(eventJSON))
 		s.valkeyClient.Expire(ctx, activityList, 7*24*time.Hour)
 
-		// 2. Write to partitioned STREAM for reliable archival
-		partition := utils.GetPartitionForThread(threadID)
-		partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-		s.valkeyClient.XAdd(ctx, partitionedStream, activityValues)
+		// 2. Publish to NATS for archival (async)
+		if s.natsArchivalPublisher != nil {
+			go func() {
+				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityValues); err != nil {
+					fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
+				}
+			}()
+		}
 	}()
 
 	return &models.StartThreadResponse{

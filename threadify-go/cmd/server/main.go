@@ -12,13 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/middleware"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
@@ -87,6 +88,17 @@ func main() {
 
 	contractService := service.NewContractService(db)
 
+	// Initialize NATS client for archival (graceful degradation if unavailable)
+	var natsArchivalPublisher *natsrepo.ArchivalPublisher
+	natsClient, err := natsrepo.NewClient(&cfg.NATS)
+	if err != nil {
+		logger.Warn("Failed to connect to NATS - archival will be disabled", zap.Error(err))
+		natsArchivalPublisher = nil
+	} else {
+		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
+		logger.Info("NATS archival publisher initialized successfully")
+	}
+
 	// Initialize step event service first
 	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
 	threadTTL := time.Duration(threadTTLHours) * time.Hour
@@ -97,7 +109,7 @@ func main() {
 	batchTimeoutMs := viper.GetInt("thread_activities.batch_timeout_ms")
 	batchTimeout := time.Duration(batchTimeoutMs) * time.Millisecond
 
-	stepEventService := service.NewStepEventService(valkeyService, threadRepo, 4, batchSize, batchTimeout) // 4 workers
+	stepEventService := service.NewStepEventService(valkeyService, threadRepo, natsArchivalPublisher, 4, batchSize, batchTimeout)
 
 	// Initialize thread service with step event service and TTL configs
 	contractTTLHours := viper.GetInt("cache.contract_ttl_hours")
@@ -128,8 +140,22 @@ func main() {
 	rateLimiter := middleware.NewRateLimiter(rateLimitRPS, rateLimitBurst)
 	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
 
-	// Create WebSocket handler
-	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, valkeyService)
+	// Initialize notification router with NATS
+	var notificationRouter *handlers.NotificationRouter
+	if natsClient != nil {
+		podID := fmt.Sprintf("server-%d", time.Now().Unix())
+		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn(), podID)
+		if err != nil {
+			log.Fatalf("Failed to create notification router: %v", err)
+		}
+		defer notificationRouter.Stop()
+		log.Printf("✅ Notification router initialized for pod: %s", podID)
+	} else {
+		log.Println("⚠️ Notification router disabled (NATS not available)")
+	}
+
+	// Create WebSocket handler with notification consumer and router
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

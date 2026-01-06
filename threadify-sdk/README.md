@@ -181,6 +181,145 @@ thread.on('onSuccess', (data) => {
 
 ---
 
+### `connection.onViolation(stepName, handler)`
+
+Register a global handler for validation violations on a specific step across all threads.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  console.error(`Violation: ${notification.message}`);
+  console.error(`Details:`, notification.details);
+  notification.ack(); // Acknowledge the notification
+});
+```
+
+---
+
+### `connection.onCompleted(stepName, handler)`
+
+Register a global handler for step completions on a specific step across all threads.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onCompleted('payment_processing', (notification) => {
+  console.log(`Payment completed for thread ${notification.threadId}`);
+  notification.ack();
+});
+```
+
+---
+
+### `connection.onFailed(stepName, handler)`
+
+Register a global handler for step failures on a specific step across all threads.
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to listen for
+- `handler` (function, required): Handler function that receives a `Notification` object
+
+**Returns:** `Connection` (for chaining)
+
+**Example:**
+```javascript
+connection.onFailed('payment_processing', (notification) => {
+  console.error(`Payment failed: ${notification.message}`);
+  notification.ack();
+});
+```
+
+---
+
+### `thread.waitFor(stepName, options)`
+
+Wait for a notification for a specific step on this thread (blocking).
+
+**Parameters:**
+- `stepName` (string, required): Name of the step to wait for
+- `options` (object, optional):
+  - `timeout` (number): Timeout in milliseconds (default: 5000)
+  - `statuses` (array): Only resolve for these statuses (e.g., `['success', 'failed']`)
+
+**Returns:** `Promise<Notification>`
+
+**Example:**
+```javascript
+// Execute step
+await thread.step('payment_authorization')
+  .context({ amount: 500 })
+  .stop('success');
+
+// Wait for validation notification
+const result = await thread.waitFor('payment_authorization', {
+  timeout: 10000,
+  statuses: ['success', 'failed']
+});
+
+if (result.isViolated()) {
+  throw new Error(`Validation failed: ${result.message}`);
+}
+```
+
+---
+
+### `notification.ack()`
+
+Acknowledge a notification (mark as read/processed).
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  console.error('Violation:', notification.message);
+  notification.ack(); // Send ACK to server
+});
+```
+
+---
+
+### `notification` Helper Methods
+
+**Validation Status:**
+- `notification.isViolated()` - Returns `true` if validation failed
+- `notification.isPassed()` - Returns `true` if validation passed
+
+**Step Status:**
+- `notification.isSuccess()` - Returns `true` if step succeeded
+- `notification.isFailed()` - Returns `true` if step failed
+- `notification.isError()` - Returns `true` if step had an error
+
+**Severity:**
+- `notification.isCritical()` - Returns `true` if severity is critical
+- `notification.isWarning()` - Returns `true` if severity is warning
+- `notification.isInfo()` - Returns `true` if severity is info
+
+**Example:**
+```javascript
+connection.onViolation('payment_processing', (notification) => {
+  if (notification.isCritical()) {
+    // Alert ops team
+    alertOpsTeam(notification);
+  } else if (notification.isWarning()) {
+    // Log warning
+    console.warn(notification.message);
+  }
+  notification.ack();
+});
+```
+
+---
+
 ### `thread.close()`
 
 Close the WebSocket connection.
@@ -194,50 +333,130 @@ await thread.close();
 
 ---
 
-## Complete Example
+## Complete Examples
+
+### Example 1: Basic Workflow with Event Handlers
 
 ```javascript
 import { Threadify } from './src/index.js';
 
 async function processPayment() {
   // Connect
-  const thread = await Threadify.connect('api-key', 'payment-service');
+  const connection = await Threadify.connect('api-key', 'payment-service');
   
-  // Subscribe to events
-  thread.on('onError', (data) => console.error('Error:', data));
+  // Set up global notification handlers
+  connection.onViolation('payment_processing', (notification) => {
+    console.error(`🚨 Violation: ${notification.message}`);
+    if (notification.isCritical()) {
+      // Alert ops team
+      alertOpsTeam(notification);
+    }
+    notification.ack();
+  });
+  
+  connection.onCompleted('payment_processing', (notification) => {
+    console.log(`✅ Payment completed on thread ${notification.threadId}`);
+    notification.ack();
+  });
   
   // Start thread
-  await thread.start('payment-contract-v1');
+  const thread = await connection.start('payment-contract-v1');
   
-  // Step 1: Initialize
-  const initStep = thread.step('initialize');
-  initStep.addContext({ amount: 100, currency: 'USD' });
-  initStep.start();
-  // ... processing ...
-  initStep.complete();
+  // Execute steps
+  await thread.step('initialize')
+    .addContext({ amount: 100, currency: 'USD' })
+    .stop('success');
   
-  // Step 2: Validate
-  const validateStep = thread.step('validate');
-  validateStep.addContext({ checks: ['fraud', 'balance'] });
-  validateStep.start();
-  // ... validation ...
-  validateStep.complete({ result: 'passed' });
-  
-  // Step 3: Process
-  const processStep = thread.step('process');
-  processStep.start();
-  try {
-    // ... payment processing ...
-    processStep.complete({ chargeId: 'ch_123' });
-  } catch (error) {
-    processStep.fail(error);
-  }
+  await thread.step('payment_processing')
+    .addContext({ method: 'credit_card' })
+    .stop('success');
   
   // Close
   await thread.close();
 }
 
 processPayment();
+```
+
+### Example 2: Using waitFor() for Synchronous Validation
+
+```javascript
+import { Threadify } from './src/index.js';
+
+async function processOrderWithValidation() {
+  const connection = await Threadify.connect('api-key', 'order-service');
+  const thread = await connection.start('order-fulfillment');
+  
+  // Execute critical step
+  await thread.step('payment_authorization')
+    .addContext({ amount: 500, currency: 'USD' })
+    .stop('success');
+  
+  // Wait for validation notification
+  const authResult = await thread.waitFor('payment_authorization', {
+    timeout: 10000,
+    statuses: ['success', 'failed']
+  });
+  
+  if (authResult.isViolated()) {
+    console.error(`Validation failed: ${authResult.message}`);
+    throw new Error('Payment authorization failed validation');
+  }
+  
+  console.log('✅ Payment authorized, proceeding with order');
+  
+  // Continue with next steps
+  await thread.step('ship_order')
+    .addContext({ address: '123 Main St' })
+    .stop('success');
+  
+  await thread.close();
+}
+
+processOrderWithValidation();
+```
+
+### Example 3: Multi-Thread Monitoring
+
+```javascript
+import { Threadify } from './src/index.js';
+
+async function monitorMultipleOrders() {
+  const connection = await Threadify.connect('api-key', 'fulfillment-service');
+  
+  // Global handlers monitor all threads
+  connection.onViolation('payment_authorization', (notification) => {
+    console.error(`🚨 Payment auth violation on thread ${notification.threadId}`);
+    // Send alert to ops
+    notification.ack();
+  });
+  
+  connection.onCompleted('payment_authorization', (notification) => {
+    console.log(`✅ Payment authorized on thread ${notification.threadId}`);
+    // Update metrics
+    notification.ack();
+  });
+  
+  // Process multiple orders concurrently
+  const orders = ['order1', 'order2', 'order3'];
+  const threads = await Promise.all(
+    orders.map(orderId => connection.start('order-contract'))
+  );
+  
+  // Execute steps on all threads
+  await Promise.all(
+    threads.map(thread => 
+      thread.step('payment_authorization')
+        .addContext({ orderId: thread.threadId })
+        .stop('success')
+    )
+  );
+  
+  // All notifications handled by global handlers
+  await connection.close();
+}
+
+monitorMultipleOrders();
 ```
 
 ---

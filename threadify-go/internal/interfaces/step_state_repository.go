@@ -29,7 +29,8 @@ type ValidateStepParams struct {
 	IsTerminalStep         bool
 	Timestamp              string
 	MaxRetries             int
-	AllowedTransitions     []string
+	AllowedTransitions     []string            // Deprecated: Use TransitionsMap instead
+	TransitionsMap         map[string][]string // Map of stepName -> allowed next steps
 	TerminalSteps          []string
 	AllowMultipleTerminals bool
 }

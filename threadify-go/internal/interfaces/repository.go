@@ -23,12 +23,6 @@ type ValkeyClient interface {
 	// List operations for event queues
 	LPush(ctx context.Context, key string, values ...interface{}) error
 	LRange(ctx context.Context, key string, start, stop int64) ([]string, error)
-	// Stream operations for archiver
-	XAdd(ctx context.Context, stream string, values map[string]interface{}) (string, error)
-	XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]map[string]interface{}, error)
-	XAck(ctx context.Context, stream, group string, ids []string) error
-	XGroupCreate(ctx context.Context, stream, group, start string) error
-	XGroupCreateMkStream(ctx context.Context, stream, group, start string) error
 	// Sorted set operations for execution graph
 	ZAdd(ctx context.Context, key string, score float64, member string) error
 	ZRem(ctx context.Context, key string, members ...string) error
@@ -46,7 +40,6 @@ type ValkeyPipeline interface {
 	HSet(ctx context.Context, key string, values ...interface{}) ValkeyPipeline
 	HDel(ctx context.Context, key string, fields ...string) ValkeyPipeline
 	LPush(ctx context.Context, key string, values ...interface{}) ValkeyPipeline
-	XAdd(ctx context.Context, stream string, values map[string]interface{}) ValkeyPipeline
 	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) ValkeyPipeline
 	Del(ctx context.Context, keys ...string) ValkeyPipeline
 	Expire(ctx context.Context, key string, expiration time.Duration) ValkeyPipeline
@@ -77,7 +70,6 @@ type ActivityRepository interface {
 	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy, serviceName, scope string) error
 	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error
 	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
-	StoreValidationNotification(ctx context.Context, notif models.ValidationNotification) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
 	// Note: ArchiveStepState removed - Lua script now writes step state changes to activity log stream atomically

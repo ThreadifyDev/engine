@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
 	"github.com/threadify/engine/internal/archiver"
 	"github.com/threadify/engine/internal/database"
@@ -114,16 +115,46 @@ func main() {
 	defer db.Close()
 	log.Println("Connected to Postgres")
 
-	// Create Postgres writer
-	pgWriter := archiver.NewPostgresWriter(db)
-
 	log.Println("Archiver service starting...")
 	log.Printf("Consumer group: %s\n", archiverConfig.Streams.ConsumerGroup)
-	log.Printf("Configured queues: %v\n", getQueueNames(archiverConfig.Buffers))
 
 	// Setup signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize NATS consumer for archival (graceful degradation if unavailable)
+	natsURL := viper.GetString("nats.url")
+	if natsURL == "" {
+		natsURL = nats.DefaultURL // Default to nats://localhost:4222
+	}
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		log.Printf("Warning: Failed to connect to NATS - archival will use Redis only: %v", err)
+	} else {
+		defer nc.Close()
+		log.Println("Connected to NATS")
+
+		// Create NATS consumer
+		natsConsumer, err := archiver.NewNATSConsumer(
+			nc,
+			db,
+			archiverConfig.Streams.BatchSize,
+			archiverConfig.Streams.BlockTimeout,
+			"archiver-nats-1",
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to create NATS consumer: %v", err)
+		} else {
+			// Start NATS consumer
+			go func() {
+				if err := natsConsumer.Start(ctx); err != nil {
+					log.Printf("NATS consumer error: %v", err)
+				}
+			}()
+			defer natsConsumer.Stop()
+			log.Println("NATS archival consumer started")
+		}
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -134,79 +165,11 @@ func main() {
 		cancel()
 	}()
 
-	// Setup streams and consumer groups
-	streamSetup := archiver.NewStreamSetup(valkeyClient)
-	streams := archiver.GetRequiredStreams()
-	if err := streamSetup.EnsureAllStreams(ctx, archiverConfig.Streams.ConsumerGroup, streams); err != nil {
-		log.Fatalf("Failed to setup streams: %v", err)
-	}
-	log.Println("All streams and consumer groups ready")
+	// Redis stream consumers removed - now using NATS JetStream exclusively
+	log.Println("Archiver service ready - using NATS JetStream for all archival")
 
-	// Create archiver instance
-	adapter := archiver.NewValkeyStreamAdapter(valkeyClient)
-	archiverInstance := archiver.NewArchiver(archiverConfig, adapter, valkeyClient, "archiver-1")
-
-	// Register queues with Postgres write functions
-	for queueName, bufferCfg := range archiverConfig.Buffers {
-		streamName := "streams:" + queueName
-		log.Printf("Registering queue: %s (stream: %s)\n", queueName, streamName)
-
-		// Create write function based on queue type
-		var writeFunc archiver.WriteFunc
-		switch queueName {
-		case "thread_step_state":
-			writeFunc = pgWriter.WriteThreadStepState
-		case "thread_metadata":
-			writeFunc = pgWriter.WriteThreadMetadata
-		case "thread_access":
-			writeFunc = pgWriter.WriteThreadAccess
-		case "thread_validations":
-			writeFunc = pgWriter.WriteValidationResults
-		default:
-			log.Printf("Warning: Unknown queue type %s, using default handler\n", queueName)
-			writeFunc = func(ctx context.Context, events []archiver.StreamEvent) error {
-				log.Printf("Skipping %d events from unknown queue %s\n", len(events), queueName)
-				return nil
-			}
-		}
-
-		archiverInstance.RegisterQueue(
-			queueName,
-			bufferCfg.Size,
-			bufferCfg.FlushInterval,
-			writeFunc,
-		)
-	}
-
-	// Start activity worker pool for partitioned streams
-	if config.Archiver.ActivityStreams.Enabled {
-		workerPool := archiver.NewActivityWorkerPool(
-			1, // instanceID - should be configurable for multiple instances
-			config.Archiver.ActivityStreams.NumPartitions,
-			config.Archiver.ActivityStreams.WorkersPerInstance,
-			archiverConfig.Streams.ConsumerGroup,
-			valkeyClient,
-			pgWriter,
-			archiverConfig.Streams.BatchSize,
-			archiverConfig.Streams.BlockTimeout,
-			config.Archiver.ActivityStreams.TrimEnabled,
-			int64(config.Archiver.ActivityStreams.TrimMaxLen),
-		)
-
-		go func() {
-			workerPool.Start(ctx)
-			workerPool.Wait()
-		}()
-
-		log.Printf("Activity worker pool started: %d partitions, %d workers per instance",
-			config.Archiver.ActivityStreams.NumPartitions,
-			config.Archiver.ActivityStreams.WorkersPerInstance)
-	}
-
-	log.Println("Archiver service ready - starting consumers...")
-
-	// Start the archiver (blocks until context is cancelled)
-	archiverInstance.Start(ctx)
+	// Block until shutdown signal
+	<-ctx.Done()
 
 	log.Println("Archiver service stopped")
 }
@@ -223,12 +186,4 @@ func loadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
-}
-
-func getQueueNames(buffers map[string]archiver.BufferConfig) []string {
-	names := make([]string, 0, len(buffers))
-	for name := range buffers {
-		names = append(names, name)
-	}
-	return names
 }

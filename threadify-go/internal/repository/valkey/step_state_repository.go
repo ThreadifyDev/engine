@@ -58,15 +58,15 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		existingViolationsJSON = string(data)
 	}
 
-	// Marshal allowed transitions (handle nil/empty slices)
-	var allowedTransitionsJSON []byte
-	if params.AllowedTransitions == nil || len(params.AllowedTransitions) == 0 {
-		allowedTransitionsJSON = []byte("[]")
+	// Marshal transitions map (handle nil/empty map)
+	var transitionsMapJSON []byte
+	if params.TransitionsMap == nil || len(params.TransitionsMap) == 0 {
+		transitionsMapJSON = []byte("{}")
 	} else {
 		var err error
-		allowedTransitionsJSON, err = json.Marshal(params.AllowedTransitions)
+		transitionsMapJSON, err = json.Marshal(params.TransitionsMap)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal allowed transitions: %w", err)
+			return nil, fmt.Errorf("failed to marshal transitions map: %w", err)
 		}
 	}
 
@@ -112,16 +112,16 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 
 	// Prepare args
 	args := []interface{}{
-		stepKey,                        // ARGV[1]
-		params.StepID,                  // ARGV[2]
-		params.Status,                  // ARGV[3]
-		params.Timestamp,               // ARGV[4]
-		existingViolationsJSON,         // ARGV[5]
-		isTerminalStr,                  // ARGV[6]
-		params.MaxRetries,              // ARGV[7]
-		string(allowedTransitionsJSON), // ARGV[8]
-		string(terminalStepsJSON),      // ARGV[9]
-		allowMultipleTerminalsStr,      // ARGV[10]
+		stepKey,                    // ARGV[1]
+		params.StepID,              // ARGV[2]
+		params.Status,              // ARGV[3]
+		params.Timestamp,           // ARGV[4]
+		existingViolationsJSON,     // ARGV[5]
+		isTerminalStr,              // ARGV[6]
+		params.MaxRetries,          // ARGV[7]
+		string(transitionsMapJSON), // ARGV[8] - Changed to transitions map
+		string(terminalStepsJSON),  // ARGV[9]
+		allowMultipleTerminalsStr,  // ARGV[10]
 	}
 
 	// Execute Lua script
@@ -139,8 +139,14 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 	// Parse JSON response
 	var luaResult interfaces.StepStateResult
 	if err := json.Unmarshal([]byte(resultStr), &luaResult); err != nil {
+		// Debug: Print the actual Lua result
+		fmt.Printf("[LUA-RESULT-ERROR] Failed to parse: %s\n", resultStr)
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
+
+	// DEBUG: Always log the result
+	fmt.Printf("[LUA-RESULT-DEBUG] violations=%d, hasCritical=%v, status=%s\n",
+		len(luaResult.Violations), luaResult.HasCriticalViolation, luaResult.Status)
 
 	return &luaResult, nil
 }

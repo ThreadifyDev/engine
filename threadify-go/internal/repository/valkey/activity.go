@@ -10,18 +10,20 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/utils"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 )
 
 // ActivityRepository handles stream and event operations in Valkey
 type ActivityRepository struct {
-	valkey interfaces.ValkeyClient
+	valkey        interfaces.ValkeyClient
+	natsPublisher *natsrepo.ArchivalPublisher
 }
 
 // NewActivityRepository creates a new activity repository
-func NewActivityRepository(valkey interfaces.ValkeyClient) *ActivityRepository {
+func NewActivityRepository(valkey interfaces.ValkeyClient, natsPublisher *natsrepo.ArchivalPublisher) *ActivityRepository {
 	return &ActivityRepository{
-		valkey: valkey,
+		valkey:        valkey,
+		natsPublisher: natsPublisher,
 	}
 }
 
@@ -33,45 +35,52 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 		eventType = "role_added"
 	}
 
-	// Write to streams:thread_access for archival
+	// Publish to NATS for archival
 	rolesJSON, _ := json.Marshal(access.Roles)
-	_, err := r.valkey.XAdd(ctx, "streams:thread_access", map[string]interface{}{
-		"threadId":    threadID,
-		"userId":      userID,
-		"roles":       string(rolesJSON),
-		"permissions": strings.Join(access.Permissions, ","),
-		"grantedBy":   invitedBy,
-		"grantedAt":   access.GrantedAt,
-		"status":      access.Status,
-		"event_type":  eventType,
-		"scope":       scope,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to write access granted to stream: %w", err)
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
+				"threadId":    threadID,
+				"userId":      userID,
+				"roles":       string(rolesJSON),
+				"permissions": strings.Join(access.Permissions, ","),
+				"grantedBy":   invitedBy,
+				"grantedAt":   access.GrantedAt,
+				"status":      access.Status,
+				"event_type":  eventType,
+				"scope":       scope,
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread access to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	// Write to thread activity stream
 	// Note: thread:{id}:activity is now a hash, not a stream
 	// Activity events are handled by partitioned streams only
 
-	// Write to partitioned stream
-	partition := utils.GetPartitionForThread(threadID)
-	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-	accessValues := map[string]interface{}{
-		"type":          "access_granted",
-		"thread_id":     threadID,
-		"user_id":       userID,
-		"actor":         userID,      // user-123 (person getting access)
-		"actor_service": serviceName, // merchant-service
-		"role":          strings.Join(access.Roles, ","),
-		"permissions":   strings.Join(access.Permissions, ","),
-		"granted_by":    invitedBy,
-		"granted_at":    access.GrantedAt,
-		"method":        "direct", // Service layer should determine method
-	}
-	_, err = r.valkey.XAdd(ctx, partitionedStream, accessValues)
-	if err != nil {
-		return fmt.Errorf("failed to write access granted to partitioned stream: %w", err)
+	// Publish activity log to NATS
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+				"type":          "access_granted",
+				"thread_id":     threadID,
+				"user_id":       userID,
+				"actor":         userID,      // user-123 (person getting access)
+				"actor_service": serviceName, // merchant-service
+				"role":          strings.Join(access.Roles, ","),
+				"permissions":   strings.Join(access.Permissions, ","),
+				"granted_by":    invitedBy,
+				"granted_at":    access.GrantedAt,
+				"method":        "direct", // Service layer should determine method
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish access granted activity to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
@@ -79,25 +88,24 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 
 // RecordInvitationUsed records an invitation used event to streams
 func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error {
-	// Write to thread activity stream
-	// Note: thread:{id}:activity is now a hash, not a stream
-	// Activity events are handled by partitioned streams only
-	partition := utils.GetPartitionForThread(threadID)
-	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-	invitationValues := map[string]interface{}{
-		"type":          "invitation_used",
-		"thread_id":     threadID,
-		"user_id":       userID,
-		"actor":         userID,      // user-123 (person using invitation)
-		"actor_service": serviceName, // merchant-service
-		"role":          role,
-		"invited_by":    invitedBy,
-		"timestamp":     time.Now().Format(time.RFC3339),
-	}
-
-	_, err := r.valkey.XAdd(ctx, partitionedStream, invitationValues)
-	if err != nil {
-		return fmt.Errorf("failed to write invitation used to partitioned stream: %w", err)
+	// Publish to NATS for archival
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+				"type":          "invitation_used",
+				"thread_id":     threadID,
+				"user_id":       userID,
+				"actor":         userID,      // user-123 (person using invitation)
+				"actor_service": serviceName, // merchant-service
+				"role":          role,
+				"invited_by":    invitedBy,
+				"timestamp":     time.Now().Format(time.RFC3339),
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish invitation used to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
@@ -105,37 +113,40 @@ func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID,
 
 // RecordThreadCreated records a thread created event to streams
 func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error {
-	// Write to streams:thread_metadata for archival
-	_, err := r.valkey.XAdd(ctx, "streams:thread_metadata", map[string]interface{}{
-		"threadId":    threadID,
-		"creatorId":   creatorID,
-		"creatorRole": creatorRole,
-		"createdAt":   time.Now().Format(time.RFC3339),
-		"status":      "active",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to write thread created to metadata stream: %w", err)
+	// Publish thread metadata to NATS
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
+				"threadId":    threadID,
+				"creatorId":   creatorID,
+				"creatorRole": creatorRole,
+				"createdAt":   time.Now().Format(time.RFC3339),
+				"status":      "active",
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+			}
+		}()
 	}
 
-	// Write to thread activity stream
-	// Note: thread:{id}:activity is now a hash, not a stream
-	// Activity events are handled by partitioned streams only
-
-	// Write to partitioned stream
-	partition := utils.GetPartitionForThread(threadID)
-	partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-	activityValues := map[string]interface{}{
-		"type":          "thread_created",
-		"thread_id":     threadID,
-		"user_id":       creatorID,
-		"actor":         creatorID,   // user-123
-		"actor_service": serviceName, // merchant-service
-		"role":          creatorRole,
-		"timestamp":     time.Now().Format(time.RFC3339),
-	}
-	_, err = r.valkey.XAdd(ctx, partitionedStream, activityValues)
-	if err != nil {
-		return fmt.Errorf("failed to write thread created to partitioned stream: %w", err)
+	// Publish activity log to NATS
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+				"type":          "thread_created",
+				"thread_id":     threadID,
+				"user_id":       creatorID,
+				"actor":         creatorID,   // user-123
+				"actor_service": serviceName, // merchant-service
+				"role":          creatorRole,
+				"timestamp":     time.Now().Format(time.RFC3339),
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread created activity to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
@@ -145,52 +156,6 @@ func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, 
 
 func (r *ActivityRepository) getActivityStreamKey(threadID string) string {
 	return fmt.Sprintf("thread:%s:activity", threadID)
-}
-
-// StoreValidationNotification stores validation notification in stream
-func (r *ActivityRepository) StoreValidationNotification(ctx context.Context, notif models.ValidationNotification) error {
-	// Build stream values
-	streamValues := map[string]interface{}{
-		"notificationId": notif.NotificationID,
-		"threadId":       notif.ThreadID,
-		"stepId":         notif.StepID,
-		"stepName":       notif.StepName,
-		"ownerId":        notif.OwnerID,
-		"status":         string(notif.Status),
-		"message":        notif.Message,
-		"timestamp":      notif.Timestamp.Format(time.RFC3339),
-		"maxlen":         "~",
-		"limit":          100000,
-	}
-
-	// Add optional fields
-	if notif.ViolationType != "" {
-		streamValues["violationType"] = string(notif.ViolationType)
-	}
-	if notif.Severity != "" {
-		streamValues["severity"] = string(notif.Severity)
-	}
-	if notif.FromStep != "" {
-		streamValues["fromStep"] = notif.FromStep
-		streamValues["toStep"] = notif.ToStep
-	}
-	if notif.Duration != "" {
-		streamValues["duration"] = notif.Duration
-		streamValues["limit"] = notif.Limit
-	}
-	if len(notif.MissingFields) > 0 {
-		streamValues["missingFields"] = strings.Join(notif.MissingFields, ",")
-	}
-	if len(notif.ExtraFields) > 0 {
-		streamValues["extraFields"] = strings.Join(notif.ExtraFields, ",")
-	}
-	if notif.Details != nil {
-		detailsJSON, _ := json.Marshal(notif.Details)
-		streamValues["details"] = string(detailsJSON)
-	}
-
-	_, err := r.valkey.XAdd(ctx, "streams:validation_notifications", streamValues)
-	return err
 }
 
 // ArchiveValidationResults writes validation results to archival stream
@@ -213,23 +178,16 @@ func (r *ActivityRepository) ArchiveValidationResults(
 
 	for _, notif := range notifications {
 		validation := map[string]interface{}{
-			"type":     string(notif.ViolationType),
-			"severity": string(notif.Severity),
-			"message":  notif.Message,
-			"passed":   notif.Status == models.NotificationStatusCompleted,
+			"type":       notif.ViolationType,
+			"severity":   notif.Severity,
+			"message":    notif.Message,
+			"passed":     notif.Status == "passed",
+			"stepStatus": notif.StepStatus,
+			"status":     notif.Status,
 		}
 
-		// Add optional fields if present
-		if notif.Duration != "" {
-			validation["duration"] = notif.Duration
-		}
-		if notif.Limit != "" {
-			validation["limit"] = notif.Limit
-		}
-		if len(notif.MissingFields) > 0 {
-			validation["missingFields"] = notif.MissingFields
-		}
-		if notif.Details != nil {
+		// Add details if present
+		if notif.Details != nil && len(notif.Details) > 0 {
 			validation["details"] = notif.Details
 		}
 
@@ -237,13 +195,13 @@ func (r *ActivityRepository) ArchiveValidationResults(
 
 		// Count by severity
 		switch notif.Severity {
-		case models.SeverityCritical:
+		case string(models.SeverityCritical):
 			criticalCount++
-		case models.SeverityWarning:
+		case string(models.SeverityWarning):
 			warningCount++
-		case models.SeverityMinor:
+		case string(models.SeverityMinor):
 			minorCount++
-		case models.SeverityInfo:
+		case string(models.SeverityInfo):
 			infoCount++
 		}
 	}
@@ -274,10 +232,15 @@ func (r *ActivityRepository) ArchiveValidationResults(
 		"limit":                100000,
 	}
 
-	// Write to thread_validations stream for archival
-	_, err = r.valkey.XAdd(ctx, "streams:thread_validations", streamValues)
-	if err != nil {
-		return fmt.Errorf("failed to write to thread_validations stream: %w", err)
+	// Publish to NATS for archival
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishThreadValidation(pubCtx, streamValues); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread validations to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	return nil
@@ -321,29 +284,35 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 		"limit":           100000,
 	}
 
-	_, err := r.valkey.XAdd(ctx, "streams:thread_metadata", streamValues)
-	if err != nil {
-		return fmt.Errorf("failed to write thread metadata to stream: %w", err)
+	// Publish to NATS for archival
+	if r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+			}
+		}()
 	}
 
-	// Write thread_completed event to partitioned stream for audit trail
-	if status == "completed" {
-		partition := utils.GetPartitionForThread(thread.ID)
-		partitionedStream := fmt.Sprintf("streams:activity_log:%d", partition)
-		activityValues := map[string]interface{}{
-			"type":          "thread_completed",
-			"thread_id":     thread.ID,
-			"actor":         thread.OwnerID, // user-123 (thread owner)
-			"actor_service": "system",       // system-generated event
-			"final_status":  status,
-			"last_hash":     thread.LastHash,
-			"completed_at":  completedAt,
-			"timestamp":     time.Now().Format(time.RFC3339),
-		}
-		_, err = r.valkey.XAdd(ctx, partitionedStream, activityValues)
-		if err != nil {
-			return fmt.Errorf("failed to write thread completed to partitioned stream: %w", err)
-		}
+	// Publish thread_completed event to NATS for audit trail
+	if status == "completed" && r.natsPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+				"type":          "thread_completed",
+				"thread_id":     thread.ID,
+				"actor":         thread.OwnerID, // user-123 (thread owner)
+				"actor_service": "system",       // system-generated event
+				"final_status":  status,
+				"last_hash":     thread.LastHash,
+				"completed_at":  completedAt,
+				"timestamp":     time.Now().Format(time.RFC3339),
+			}); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread completed activity to NATS: %v\n", err)
+			}
+		}()
 	}
 
 	return nil

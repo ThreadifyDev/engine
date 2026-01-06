@@ -2,8 +2,8 @@
 -- Atomically validates step transitions, terminal states, retry limits, and updates step state
 -- Returns JSON with all validation results
 
--- Load cjson library for JSON encoding
-local cjson = require('cjson')
+-- Use cjson library for JSON encoding (available as global in Redis/Valkey)
+local cjson = cjson
 
 -- ============================================================================
 -- KEYS
@@ -69,9 +69,13 @@ local currentSteps = redis.call('ZRANGE', currentStepsKey, 0, -1, 'WITHSCORES')
 local previousStepKey = ''
 local previousStepName = ''
 
+-- DEBUG: Log current steps
+redis.call('SET', 'debug:current_steps_count', tostring(#currentSteps))
 if #currentSteps > 0 then
+    redis.call('SET', 'debug:current_steps_raw', table.concat(currentSteps, ','))
     previousStepKey = currentSteps[#currentSteps - 1]
     previousStepName = string.match(previousStepKey, '([^:]+):')
+    redis.call('SET', 'debug:previous_step', string.format('key=%s, name=%s', previousStepKey or 'nil', previousStepName or 'nil'))
 end
 
 -- Check if step hash exists (for retry detection)
@@ -88,13 +92,10 @@ local currentRetryCount = tonumber(redis.call('HGET', stepHashKey, 'retryCount')
 local violations = {}
 local hasCriticalViolation = false
 
--- Parse allowed transitions
-local allowedTransitions = {}
-if allowedTransitionsJSON ~= '' and allowedTransitionsJSON ~= '[]' then
-    local allowedTransitionsTable = cjson.decode(allowedTransitionsJSON)
-    for _, transition in ipairs(allowedTransitionsTable) do
-        allowedTransitions[transition] = true
-    end
+-- Parse transitions map (stepName -> allowed next steps)
+local transitionsMap = {}
+if allowedTransitionsJSON ~= '' and allowedTransitionsJSON ~= '{}' then
+    transitionsMap = cjson.decode(allowedTransitionsJSON)
 end
 
 -- Parse terminal steps
@@ -110,20 +111,38 @@ end
 -- VALIDATION 1: Invalid Transition
 -- ---------------------------------------------------------------------------
 if previousStepName ~= '' then
-    local isValidTransition = allowedTransitions[stepName]
+    -- Look up allowed transitions FROM the previous step
+    local allowedNextSteps = transitionsMap[previousStepName] or {}
+    
+    -- Check if current step is in the allowed list
+    local isValidTransition = false
+    for _, allowedStep in ipairs(allowedNextSteps) do
+        if allowedStep == stepName then
+            isValidTransition = true
+            break
+        end
+    end
     
     if not isValidTransition then
         hasCriticalViolation = true
-        table.insert(violations, {
-            violationType = 'invalid_transition',
-            severity = 'critical',
-            message = string.format("Invalid transition from '%s' to '%s'", previousStepName, stepName),
+        -- Convert allowed next steps to comma-separated string
+        local allowedStepsStr = table.concat(allowedNextSteps, ',')
+        
+        -- Build details as simple key-value pairs (no nested arrays/objects)
+        local details = {
             stepName = stepName,
             stepId = stepID,
             fromStep = previousStepName,
             toStep = stepName,
-            allowedSteps = cjson.decode(allowedTransitionsJSON),
+            allowedSteps = allowedStepsStr,
             violatedAt = timestamp
+        }
+        
+        table.insert(violations, {
+            violationType = 'invalid_transition',
+            severity = 'critical',
+            message = string.format("Invalid transition from '%s' to '%s'", previousStepName, stepName),
+            details = details
         })
     end
 end
@@ -147,15 +166,22 @@ if isTerminalStep == 'true' then
     
     if terminalCount > 0 and allowMultipleTerminals ~= 'true' then
         hasCriticalViolation = true
+        -- Convert existingTerminals array to comma-separated string
+        local existingTerminalsStr = table.concat(existingTerminals, ',')
+        
+        local details = {
+            stepName = stepName,
+            stepId = stepID,
+            currentTerminalSteps = existingTerminalsStr,
+            newTerminalStep = stepName,
+            violatedAt = timestamp
+        }
+        
         table.insert(violations, {
             violationType = 'multiple_terminal_states',
             severity = 'critical',
             message = string.format("Thread reached multiple terminal states (already at terminal, attempting '%s')", stepName),
-            stepName = stepName,
-            stepId = stepID,
-            currentTerminalSteps = existingTerminals,
-            newTerminalStep = stepName,
-            violatedAt = timestamp
+            details = details
         })
     end
 end
@@ -171,15 +197,19 @@ if isRetry and maxRetries > 0 then
         retryLimitViolated = true
         hasCriticalViolation = true
         
+        local details = {
+            stepName = stepName,
+            stepId = stepID,
+            retryCount = tostring(nextRetryCount),
+            maxRetries = tostring(maxRetries),
+            violatedAt = timestamp
+        }
+        
         table.insert(violations, {
             violationType = 'retry_limit_exceeded',
             severity = 'critical',
             message = string.format("Step '%s' exceeded retry limit of %d (current: %d retries)", stepName, maxRetries, nextRetryCount),
-            stepName = stepName,
-            stepId = stepID,
-            retryCount = nextRetryCount,
-            maxRetries = maxRetries,
-            violatedAt = timestamp
+            details = details
         })
     end
 end
@@ -223,8 +253,8 @@ else
     )
 end
 
--- Update current_steps sorted set (only if completed and no critical violations)
-if status == 'completed' and not hasCriticalViolation then
+-- Update current_steps sorted set (only if success and no critical violations)
+if status == 'success' and not hasCriticalViolation then
     if previousStepKey ~= '' then
         redis.call('ZREM', currentStepsKey, previousStepKey)
     end
@@ -239,8 +269,8 @@ if #allViolations > 0 then
     redis.call('HSET', violationsKey, stepID, violationsJSON)
 end
 
--- Update thread status if terminal step and completed
-if isTerminalStep == 'true' and status == 'completed' and not hasCriticalViolation then
+-- Update thread status if terminal step and success
+if isTerminalStep == 'true' and status == 'success' and not hasCriticalViolation then
     redis.call('HSET', metaKey,
         'status', 'completed',
         'completedAt', timestamp
@@ -257,31 +287,17 @@ local idempKey = string.match(stepKey, '[^:]+:(.+)')
 local finalRetryCount = redis.call('HGET', stepHashKey, 'retryCount') or '0'
 local firstSeenAt = redis.call('HGET', stepHashKey, 'firstSeenAt') or timestamp
 
-local partition = tonumber(string.sub(threadID, 1, 8), 16) % 10
-
-local violationsForStream = ''
-if #allViolations > 0 then
-    violationsForStream = cjson.encode(allViolations)
-end
-
-redis.call('XADD', 'streams:activity_log:' .. partition, '*',
-    'thread_id', threadID,
-    'type', 'step_state_changed',
-    'step_id', 'steps:' .. stepKey,
-    'actor', 'threadify-validator',
-    'actor_service', 'business-validation-service',
-    'status', status,
-    'retry_count', finalRetryCount,
-    'first_seen_at', firstSeenAt,
-    'last_updated_at', timestamp,
-    'previous_step', previousStepKey,
-    'violations', violationsForStream,
-    'timestamp', timestamp
-)
+-- Redis stream writes removed - now using NATS JetStream for archival
+-- Activity log events are published to NATS by the Go application layer
 
 -- ============================================================================
 -- SECTION 5: RETURN JSON RESULT
 -- ============================================================================
+
+-- Ensure violations is always encoded as an array, even when empty
+if #allViolations == 0 then
+    allViolations = cjson.empty_array
+end
 
 local result = {
     status = status,

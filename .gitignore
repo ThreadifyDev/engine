@@ -44,3 +44,5 @@ threadify-go/go.mod
 threadify-go/go.sum
 start
 threadify-go/main
+test-app/node_modules/
+test-app/package-lock.json

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/config"
-	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/interfaces"
+	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/interfaces"
 )
 
 // ScopeResolver handles notification scope resolution for users in threads
@@ -223,14 +223,4 @@ func (r *ScopeResolver) ShouldReceiveNotification(
 	default:
 		return false
 	}
-}
-
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }

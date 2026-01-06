@@ -76,44 +76,40 @@ async function testRetryLimitExceeded() {
     const thread = await connection.start(CONTRACT_NAME, 'merchant-service');
     console.log(`   Thread created: ${thread.threadId}`);
     
-    // Submit order_placed (entry point)
-    await thread
-        .step('order_placed')
-        .addContext({ 
-            order_id: 'ORDER-RETRY-1',
-            customer_id: 'CUST-001',
-            total_amount: '199.99'
-        })
-        .stop('success', 'Order placed');
-    console.log('   ✅ Step: order_placed\n');
-    
-    await sleep(500);
-    
-    // Use a fixed idempotency key for all retries to track the same step
+    // Use a fixed idempotency key for all retry attempts
     const idempKey = 'order-placed-retry-1';
     
-    // Attempt order_placed multiple times (exceeding max_retries = 3)
-    // Note: We're using the same connection and same step name with same idempotency key
-    // This simulates retrying the same logical operation
-    console.log('   Submitting order_placed 5 more times with same idempotency key (max_retries=3)...');
-    for (let i = 1; i <= 5; i++) {
+    // Attempt order_placed 6 times with 'failed' status and same idempotency key
+    // This simulates a step that keeps failing and needs retries
+    // Expected: First 3 attempts allowed (retryCount 0,1,2), 4th attempt (retryCount 3) exceeds max_retries=3
+    console.log('   Submitting order_placed 6 times with "failed" status and same idempotency key...');
+    console.log('   Expected: Attempts 1-3 allowed, attempt 4 should trigger retry limit violation\n');
+    
+    for (let i = 1; i <= 6; i++) {
         console.log(`   🔄 Attempt ${i}...`);
         
         try {
+            // action
             await thread
                 .step('order_placed')
-                .idempotencyKey(idempKey)
+                .idempotencyKey(idempKey) // optional
                 .addContext({ 
                     order_id: `ORDER-RETRY-${i}`,
                     customer_id: 'CUST-001',
                     total_amount: '199.99',
                     attempt: i
                 })
-                .stop('success', `Order placed retry ${i}`);
-            
-            console.log(`      ✅ Recorded (attempt ${i})`);
+                .stop('failed', `Order processing failed (attempt ${i})`);
+
+            const result = await thread.waitFor("payment_validated", {timeout: 2000 })
+
+            if (result.status === "completed" && result.stepStatus === "success"){
+                console.log(`      ✅ Recorded (attempt ${i})`);
+            } else {
+                console.log(`      ⚠️ Error on attempt ${i}: ${result.stepStatus}`);
+            }
         } catch (error) {
-            console.log(`      ❌ Error: ${error.message}`);
+            console.log(`      ⚠️ Error on attempt ${i}: ${error.message}`);
         }
         
         await sleep(300);
@@ -156,24 +152,14 @@ async function testRetryWithinLimit() {
     const thread = await connection.start(CONTRACT_NAME, 'merchant-service');
     console.log(`   Thread created: ${thread.threadId}`);
     
-    // Submit order_placed
-    await thread
-        .step('order_placed')
-        .addContext({ 
-            order_id: 'ORDER-RETRY-OK-1',
-            customer_id: 'CUST-002',
-            total_amount: '299.99'
-        })
-        .stop('success', 'Order placed');
-    console.log('   ✅ Step: order_placed');
-    
-    await sleep(500);
-    
-    // Retry order_placed only 2 times (within max_retries = 3)
+    // Use same idempotency key for all submissions
     const idempKey = 'order-placed-ok';
-    console.log('\n   Submitting order_placed 2 more times with same idempotency key (within max_retries=3)...');
     
-    for (let i = 1; i <= 2; i++) {
+    // Submit order_placed 3 times with 'failed' status (within max_retries = 3)
+    // Expected: All 3 attempts should be allowed without retry limit violation
+    console.log('   Submitting order_placed 3 times with "failed" status (within max_retries=3)...');
+    
+    for (let i = 1; i <= 3; i++) {
         console.log(`   🔄 Attempt ${i}...`);
         
         await thread
@@ -185,7 +171,7 @@ async function testRetryWithinLimit() {
                 total_amount: '299.99',
                 attempt: i
             })
-            .stop('success', `Order placed retry ${i}`);
+            .stop('success', `Order processing failed (attempt ${i})`);
         
         console.log(`      ✅ Recorded (attempt ${i})`);
         await sleep(300);
