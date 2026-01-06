@@ -49,6 +49,8 @@ func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string
 }
 
 // CheckInvalidTransition validates if the transition from current step to new step is allowed
+// DEPRECATED: This function has race conditions. Use StepStateRepository.ValidateAndUpdateStepState() instead.
+// Kept only for backward compatibility with existing tests.
 func (s *ValidationService) CheckInvalidTransition(
 	ctx context.Context,
 	threadID string,
@@ -188,6 +190,8 @@ func (s *ValidationService) CheckMaxDuration(
 }
 
 // CheckMultipleTerminalStates validates if thread reached multiple terminal states
+// DEPRECATED: This function has race conditions. Use StepStateRepository.ValidateAndUpdateStepState() instead.
+// Kept only for backward compatibility with existing tests.
 func (s *ValidationService) CheckMultipleTerminalStates(
 	ctx context.Context,
 	threadID string,
@@ -254,70 +258,10 @@ func (s *ValidationService) CheckMultipleTerminalStates(
 	return nil
 }
 
-// CheckRetryLimit validates if the step retry count exceeded the max retries
-func (s *ValidationService) CheckRetryLimit(
-	ctx context.Context,
-	threadID string,
-	stepName string,
-	idempotencyKey string,
-	graph *models.ContractGraph,
-) *models.ValidationViolation {
-	// Find the transition that allows retries for this step
-	// Retry configuration is on the transition FROM the step
-	var maxRetries int
-
-	for _, transition := range graph.Transitions {
-		// Check if the "from" step matches our current step
-		// If MaxRetries is set, retries are enabled (CanRetry is optional)
-		if transition.From == stepName && (transition.CanRetry || transition.MaxRetries > 0) {
-			maxRetries = transition.MaxRetries
-			fmt.Printf("[RETRY-CHECK] Found retry config for step=%s: max_retries=%d, canRetry=%v\n", stepName, maxRetries, transition.CanRetry)
-			break
-		}
-	}
-
-	// If retries are not configured for this step, skip validation
-	if maxRetries == 0 {
-		fmt.Printf("[RETRY-CHECK] No retry config for step=%s (maxRetries=%d)\n", stepName, maxRetries)
-		return nil
-	}
-
-	// Get step state hash to check retry count
-	stepHashKey := fmt.Sprintf("thread:%s:steps:%s:%s", threadID, stepName, idempotencyKey)
-	fmt.Printf("[RETRY-CHECK] Checking key: %s\n", stepHashKey)
-	retryCountStr, err := s.valkeyClient.HGet(ctx, stepHashKey, "retryCount")
-	if err != nil {
-		fmt.Printf("[RETRY-CHECK] Error getting retry count: %v\n", err)
-		return nil // Step state not found, skip validation
-	}
-
-	// Parse retry count
-	var retryCount int
-	if _, err := fmt.Sscanf(retryCountStr, "%d", &retryCount); err != nil {
-		fmt.Printf("[RETRY-CHECK] Error parsing retry count '%s': %v\n", retryCountStr, err)
-		return nil // Invalid retry count format
-	}
-
-	fmt.Printf("[RETRY-CHECK] step=%s, retryCount=%d, maxRetries=%d\n", stepName, retryCount, maxRetries)
-
-	// Check if retry limit exceeded
-	// Note: We check >= because this validation runs BEFORE the Lua script increments the count
-	// So if retryCount is already at maxRetries, the next increment will exceed it
-	if retryCount >= maxRetries {
-		fmt.Printf("[RETRY-CHECK] VIOLATION: Retry limit exceeded!\n")
-		return &models.ValidationViolation{
-			Message: fmt.Sprintf("Step '%s' exceeded retry limit of %d (current: %d retries, next would be %d)", stepName, maxRetries, retryCount, retryCount+1),
-			Details: map[string]interface{}{
-				"step_name":   stepName,
-				"retry_count": retryCount,
-				"max_retries": maxRetries,
-			},
-		}
-	}
-
-	fmt.Printf("[RETRY-CHECK] No violation (within limit)\n")
-	return nil
-}
+// CheckRetryLimit - REMOVED
+// Retry limit validation is now handled atomically in the Lua script
+// via StepStateRepository.ValidateAndUpdateStepState()
+// See: /internal/repository/valkey/lua/validate_and_update_step_state.lua
 
 // CheckMissingOptionalFields checks for missing optional business context fields
 func (s *ValidationService) CheckMissingOptionalFields(

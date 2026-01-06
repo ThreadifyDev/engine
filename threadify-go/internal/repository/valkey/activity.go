@@ -26,7 +26,7 @@ func NewActivityRepository(valkey interfaces.ValkeyClient) *ActivityRepository {
 }
 
 // RecordAccessGranted records an access granted event to streams
-func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName string) error {
+func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName, scope string) error {
 	// Determine event type based on context
 	eventType := "access_granted"
 	if invitedBy != "self" && len(access.Roles) > 1 {
@@ -44,6 +44,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 		"grantedAt":   access.GrantedAt,
 		"status":      access.Status,
 		"event_type":  eventType,
+		"scope":       scope,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to write access granted to stream: %w", err)

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
@@ -38,6 +39,12 @@ func main() {
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read config: %v", err)
+	}
+
+	// Load config into struct
+	cfg, err := config.LoadFromViper()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	// Setup logger
@@ -95,7 +102,7 @@ func main() {
 	// Initialize thread service with step event service and TTL configs
 	contractTTLHours := viper.GetInt("cache.contract_ttl_hours")
 	contractTTL := time.Duration(contractTTLHours) * time.Hour
-	threadService := service.NewThreadServiceWithDefaults(db, valkeyService, stepEventService, int(contractTTL.Seconds()), int(threadTTL.Seconds()))
+	threadService := service.NewThreadServiceWithDefaults(cfg, db, valkeyService, stepEventService, int(contractTTL.Seconds()), int(threadTTL.Seconds()))
 
 	// Start step event service
 	stepEventService.Start()

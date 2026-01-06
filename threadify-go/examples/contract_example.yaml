@@ -1,5 +1,5 @@
 contract_name: product_delivery
-version: 3
+version: 1
 description: Complete product delivery workflow with retry limits
 
 # Entry points - where threads can start
@@ -130,3 +130,13 @@ validation:
 # Versioning rules
 versioning:
   threads_lock_to_version: true
+
+# Notification configuration
+notification_config:
+  # Default scope for parties (uses system default if not specified)
+  default_scope: participant
+  
+  # Role-specific scope overrides
+  role_defaults:
+    merchant: owner              # Thread creator gets full access
+    analytics_service: observer  # Analytics gets read-only access

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/creativeJoe007/ThreadifyEngine/threadify-go/internal/config"
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
@@ -33,14 +34,15 @@ type ThreadService struct {
 	validationService   *ValidationService
 	notificationService *NotificationService
 	invitationService   *InvitationTokenService
+	scopeResolver       *ScopeResolver
 	valkeyClient        interfaces.ValkeyClient
 	luaScripts          *LuaScriptManager
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager, stepStateRepo interfaces.StepStateRepository) *ThreadService {
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyClient)
-	notificationService := NewNotificationService(validationService, activityRepo, luaScripts, cacheManager)
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheManager)
 
 	return &ThreadService{
 		repo:                repo,
@@ -62,7 +64,7 @@ func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.Ac
 }
 
 // NewThreadServiceWithDefaults creates ThreadService with concrete implementations (for production)
-func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, contractTTLSeconds, threadTTLSeconds int) *ThreadService {
+func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, contractTTLSeconds, threadTTLSeconds int) *ThreadService {
 	// Create cache service first
 	cacheService := NewCacheService()
 
@@ -79,11 +81,20 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		fmt.Printf("Warning: Failed to load Lua scripts: %v\n", err)
 	}
 
+	// Create step state repository and load its scripts
+	stepStateRepo := valkey.NewStepStateRepository(valkeyService)
+	if err := stepStateRepo.LoadScripts(context.Background()); err != nil {
+		fmt.Printf("Warning: Failed to load step state repository scripts: %v\n", err)
+	}
+
 	// Create thread access service for permission/role management
 	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts)
 
 	// Create invitation service
 	invitationService := NewInvitationTokenService("demo-secret")
+
+	// Create scope resolver for notification access control
+	scopeResolver := NewScopeResolver(cfg, valkeyGraphRepo, threadRepo)
 
 	service := NewThreadService(
 		threadRepo,      // Valkey thread repository
@@ -98,9 +109,11 @@ func NewThreadServiceWithDefaults(db *database.PostgresDB, valkeyService *databa
 		invitationService, // Invitation token service
 		valkeyService,     // Valkey client for orchestration
 		luaScripts,        // Lua script manager for orchestration
+		stepStateRepo,     // Step state repository for atomic validations
 	)
 	service.valkeyClient = valkeyService
 	service.luaScripts = luaScripts
+	service.scopeResolver = scopeResolver
 
 	return service
 }
@@ -207,7 +220,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	}
 	creatorPermissions := []string{"read", "write", "invite", "manage"}
 
-	if err := s.accessService.GrantOrUpdateAccess(threadID, ownerID, creatorRole, creatorPermissions, "self", thread); err != nil {
+	// Use GrantOrUpdateThreadAccess to ensure scope resolution happens
+	// Creator always gets isCreator=true, which resolves to "owner" scope
+	if err := s.GrantOrUpdateThreadAccess(threadID, ownerID, creatorRole, creatorPermissions, "self", true, nil); err != nil {
 		// Log error but don't fail thread creation
 		fmt.Printf("Warning: failed to grant creator access: %v\n", err)
 	}
@@ -729,7 +744,8 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 	}
 
 	// Grant or update access using unified method
-	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, permissions, invitedBy)
+	// For join: not creator, no explicit scope (will use contract defaults or system default)
+	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, permissions, invitedBy, false, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant access: %v", err)
 	}
@@ -813,14 +829,29 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 }
 
 // GrantOrUpdateThreadAccess grants or updates user access using unified method with proper orchestration
-func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, permissions []string, invitedBy string) error {
-	// 1. Grant access via AccessRepository (atomic via Lua script)
+func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, permissions []string, invitedBy string, isCreator bool, explicitScope *string) error {
+	// 1. Resolve notification scope
+	scope, err := s.scopeResolver.ResolveScope(
+		context.Background(),
+		threadID,
+		userID,
+		role,
+		isCreator,
+		explicitScope,
+	)
+	if err != nil {
+		log.Printf("Failed to resolve scope for user %s in thread %s: %v", userID, threadID, err)
+		// Continue with empty scope rather than failing the entire operation
+		scope = ""
+	}
+
+	// 2. Grant access via AccessRepository (atomic via Lua script)
 	access, err := s.accessRepo.GrantOrUpdateAccess(context.Background(), threadID, userID, role, permissions, invitedBy, s.luaScripts)
 	if err != nil {
 		return fmt.Errorf("failed to grant access: %w", err)
 	}
 
-	// 2. Record activity via ActivityRepository (async, don't block main operation)
+	// 3. Record activity via ActivityRepository (async, don't block main operation)
 	go func() {
 		ctx := context.Background()
 		// Get service name from connection manager
@@ -829,7 +860,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 		if exists {
 			serviceName = client.ServiceName
 		}
-		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName); err != nil {
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, scope); err != nil {
 			log.Printf("Failed to record access granted activity: %v", err)
 		}
 	}()

@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,7 +18,7 @@ import (
 type NotificationService struct {
 	validationService *ValidationService
 	activityRepo      interfaces.ActivityRepository
-	luaScripts        *LuaScriptManager
+	stepStateRepo     interfaces.StepStateRepository
 	cacheManager      interfaces.CacheManager
 }
 
@@ -28,13 +26,13 @@ type NotificationService struct {
 func NewNotificationService(
 	validationService *ValidationService,
 	activityRepo interfaces.ActivityRepository,
-	luaScripts *LuaScriptManager,
+	stepStateRepo interfaces.StepStateRepository,
 	cacheManager interfaces.CacheManager,
 ) *NotificationService {
 	return &NotificationService{
 		validationService: validationService,
 		activityRepo:      activityRepo,
-		luaScripts:        luaScripts,
+		stepStateRepo:     stepStateRepo,
 		cacheManager:      cacheManager,
 	}
 }
@@ -97,26 +95,9 @@ func (s *NotificationService) performNonBlockingValidations(
 	notifications := []models.ValidationNotification{}
 	now := time.Now()
 
-	// 1. Invalid Transition (Critical)
-	if violation := s.validationService.CheckInvalidTransition(ctx, req.ThreadID, req.StepName, graph); violation != nil {
-		notifications = append(notifications, models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       req.ThreadID,
-			StepID:         stepID,
-			StepName:       req.StepName,
-			OwnerID:        ownerID,
-			Status:         models.NotificationStatusFailed,
-			ViolationType:  models.ViolationInvalidTransition,
-			Severity:       models.SeverityCritical,
-			Message:        violation.Message,
-			FromStep:       violation.FromStep,
-			ToStep:         violation.ToStep,
-			Details:        violation.Details,
-			Timestamp:      now,
-		})
-	}
+	// === STRUCTURAL/TIME-BASED VALIDATIONS (Run for ALL statuses) ===
 
-	// 2. Step Timeout Exceeded (Critical)
+	// 1. Step Timeout Exceeded (Critical)
 	if violation := s.validationService.CheckStepTimeout(stepNode, req.StartedAt, req.FinishedAt); violation != nil {
 		notifications = append(notifications, models.ValidationNotification{
 			NotificationID: uuid.New().String(),
@@ -135,7 +116,7 @@ func (s *NotificationService) performNonBlockingValidations(
 		})
 	}
 
-	// 3. Max Duration Exceeded (Critical)
+	// 2. Max Duration Exceeded (Critical)
 	if violation := s.validationService.CheckMaxDuration(thread, graph); violation != nil {
 		notifications = append(notifications, models.ValidationNotification{
 			NotificationID: uuid.New().String(),
@@ -154,63 +135,39 @@ func (s *NotificationService) performNonBlockingValidations(
 		})
 	}
 
-	// 4. Multiple Terminal States (Critical/Configurable)
-	if violation := s.validationService.CheckMultipleTerminalStates(ctx, req.ThreadID, req.StepName, graph); violation != nil {
-		notifications = append(notifications, models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       req.ThreadID,
-			StepID:         stepID,
-			StepName:       req.StepName,
-			OwnerID:        ownerID,
-			Status:         models.NotificationStatusFailed,
-			ViolationType:  models.ViolationMultipleTerminalStates,
-			Severity:       violation.Severity,
-			Message:        violation.Message,
-			Details:        violation.Details,
-			Timestamp:      now,
-		})
+	// 3. Multiple Terminal States (Critical/Configurable) - Handled by Lua script atomically
+	// The Lua script checks for multiple terminal states and adds violation if found
+
+	// 4. Retry Limit Exceeded (Critical) - Handled by Lua script atomically
+	// The Lua script checks retry count and adds violation if exceeded
+
+	// 5. Invalid Transition (Critical) - Handled by Lua script atomically
+	// The Lua script checks allowed transitions and adds violation if invalid
+
+	// === BUSINESS/DATA QUALITY VALIDATIONS (Only run for successful steps) ===
+	if req.Status == "success" {
+		// 6. Missing Optional Fields (Info)
+		if violation := s.validationService.CheckMissingOptionalFields(stepNode, req.Context); violation != nil {
+			notifications = append(notifications, models.ValidationNotification{
+				NotificationID: uuid.New().String(),
+				ThreadID:       req.ThreadID,
+				StepID:         stepID,
+				StepName:       req.StepName,
+				OwnerID:        ownerID,
+				Status:         models.NotificationStatusCompleted,
+				ViolationType:  models.ViolationMissingOptionalField,
+				Severity:       models.SeverityInfo,
+				Message:        violation.Message,
+				MissingFields:  violation.MissingFields,
+				Details:        violation.Details,
+				Timestamp:      now,
+			})
+		}
+
+		// Note: Extra Undocumented Fields check skipped for now
 	}
 
-	// 5. Retry Limit Exceeded (Critical) - Now handled by Lua script atomically
-	// The Lua script will check retry count and add violation if exceeded
-
-	// 6. Missing Optional Fields (Info)
-	if violation := s.validationService.CheckMissingOptionalFields(stepNode, req.Context); violation != nil {
-		notifications = append(notifications, models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       req.ThreadID,
-			StepID:         stepID,
-			StepName:       req.StepName,
-			OwnerID:        ownerID,
-			Status:         models.NotificationStatusCompleted,
-			ViolationType:  models.ViolationMissingOptionalField,
-			Severity:       models.SeverityInfo,
-			Message:        violation.Message,
-			MissingFields:  violation.MissingFields,
-			Details:        violation.Details,
-			Timestamp:      now,
-		})
-	}
-
-	// 7. Extra Undocumented Fields (Info)
-	if violation := s.validationService.CheckExtraFields(stepNode, req.Context); violation != nil {
-		notifications = append(notifications, models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       req.ThreadID,
-			StepID:         stepID,
-			StepName:       req.StepName,
-			OwnerID:        ownerID,
-			Status:         models.NotificationStatusCompleted,
-			ViolationType:  models.ViolationExtraUndocumentedField,
-			Severity:       models.SeverityInfo,
-			Message:        violation.Message,
-			ExtraFields:    violation.ExtraFields,
-			Details:        violation.Details,
-			Timestamp:      now,
-		})
-	}
-
-	// 8. Step Completed Successfully (Info) - Only add if no critical violations
+	// 8. Step Status Notifications
 	hasCriticalViolations := false
 	for _, notif := range notifications {
 		if notif.Severity == models.SeverityCritical {
@@ -219,7 +176,21 @@ func (s *NotificationService) performNonBlockingValidations(
 		}
 	}
 
-	if !hasCriticalViolations {
+	// Add appropriate status notification based on step outcome
+	if req.Status == "failed" || req.Status == "error" {
+		// Step Failed - Always notify on failure
+		notifications = append(notifications, models.ValidationNotification{
+			NotificationID: uuid.New().String(),
+			ThreadID:       req.ThreadID,
+			StepID:         stepID,
+			StepName:       req.StepName,
+			OwnerID:        ownerID,
+			Status:         models.NotificationStatusFailed,
+			Message:        fmt.Sprintf("Step '%s' failed with status: %s", req.StepName, req.Status),
+			Timestamp:      now,
+		})
+	} else if !hasCriticalViolations {
+		// Step Completed Successfully - Only if no critical violations
 		notifications = append(notifications, models.ValidationNotification{
 			NotificationID: uuid.New().String(),
 			ThreadID:       req.ThreadID,
@@ -278,22 +249,7 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
-	// Determine final step status and violation JSON
-	// Start with the original step status from the request (success, failed, error, etc.)
-	status := originalStatus
-	if status == "success" {
-		status = "completed" // Map success to completed for internal state
-	}
-
-	violationJSON := ""
-	if hasCriticalViolation {
-		status = "violated"
-		violationData, _ := json.Marshal(criticalViolations)
-		violationJSON = string(violationData)
-		fmt.Printf("[PROCESS-NOTIFICATIONS] Marking step as VIOLATED due to %d critical violations\n", len(criticalViolations))
-	} else {
-		fmt.Printf("[PROCESS-NOTIFICATIONS] Marking step as %s (no critical violations)\n", strings.ToUpper(status))
-	}
+	// Note: Repository will handle status determination based on violations
 
 	// Check if step is terminal
 	isTerminal := false
@@ -306,92 +262,130 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
-	// Get maxRetries from contract graph for retry limit validation in Lua
+	// Prepare parameters for repository
+	var existingViolations []interfaces.Violation
+	for _, v := range criticalViolations {
+		existingViolations = append(existingViolations, interfaces.Violation{
+			Type:     string(v.ViolationType),
+			Severity: string(v.Severity),
+			Message:  v.Message,
+			Details:  v.Details,
+		})
+	}
+
+	// Get contract parameters
 	maxRetries := 0
+	allowedTransitions := []string{}
+	terminalSteps := []string{}
+	allowMultipleTerminals := false
+
 	if graph != nil {
+		// Get max retries and allowed transitions
 		for _, transition := range graph.Transitions {
-			if transition.From == stepName && transition.MaxRetries > 0 {
-				maxRetries = transition.MaxRetries
+			if transition.From == stepName {
+				if transition.MaxRetries > 0 {
+					maxRetries = transition.MaxRetries
+				}
+				allowedTransitions = transition.To
 				break
 			}
 		}
+
+		// Get terminal steps
+		terminalSteps = graph.Graph.TerminalSteps
+
+		// Check if multiple terminals allowed
+		if graph.Validation != nil {
+			allowMultipleTerminals = graph.Validation.AllowMultipleTerminals
+		}
 	}
 
-	// Update step state via Lua script (atomic operation)
-	// Lua script will handle retry limit validation atomically
-	if s.luaScripts != nil {
-		luaResponse, err := s.luaScripts.UpdateStepState(
-			ctx,
-			threadID,
-			stepID,
-			stepName,
-			idempotencyKey,
-			status,
-			violationJSON,
-			isTerminal,
-			time.Now().Format(time.RFC3339),
-			maxRetries,
-		)
-		if err != nil {
-			fmt.Printf("[LUA-ERROR] Error updating step state via Lua: %v\n", err)
-		} else {
-			// Parse Lua response: "status" or "status|retry_violated"
-			parts := strings.Split(luaResponse, "|")
-			finalStatus := parts[0]
-			retryViolated := len(parts) > 1 && parts[1] == "retry_violated"
+	// Call repository to validate and update atomically
+	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, interfaces.ValidateStepParams{
+		ThreadID:               threadID,
+		StepID:                 stepID,
+		StepName:               stepName,
+		IdempotencyKey:         idempotencyKey,
+		Status:                 originalStatus,
+		ExistingViolations:     existingViolations,
+		IsTerminalStep:         isTerminal,
+		Timestamp:              time.Now().Format(time.RFC3339),
+		MaxRetries:             maxRetries,
+		AllowedTransitions:     allowedTransitions,
+		TerminalSteps:          terminalSteps,
+		AllowMultipleTerminals: allowMultipleTerminals,
+	})
 
-			fmt.Printf("[LUA-SUCCESS] Step state updated, final status: %s, retry violated: %v\n", finalStatus, retryViolated)
+	if err != nil {
+		fmt.Printf("[REPO-ERROR] Error validating and updating step state: %v\n", err)
+		return
+	}
 
-			// If Lua detected retry limit violation, add it to notifications
-			if retryViolated {
-				fmt.Printf("[CRITICAL-VIOLATION] Retry limit exceeded detected by Lua script\n")
+	fmt.Printf("[REPO-SUCCESS] Step state updated, status: %s, violations: %d, retry count: %d\n",
+		result.Status, len(result.Violations), result.RetryCount)
 
-				// Get current retry count from Redis for the violation message
-				stepHashKey := fmt.Sprintf("thread:%s:steps:%s:%s", threadID, stepName, idempotencyKey)
-				retryCountStr, _ := s.validationService.valkeyClient.HGet(ctx, stepHashKey, "retryCount")
-				retryCount := 0
-				fmt.Sscanf(retryCountStr, "%d", &retryCount)
-
-				notifications = append(notifications, models.ValidationNotification{
-					NotificationID: uuid.New().String(),
-					ThreadID:       threadID,
-					StepID:         stepID,
-					StepName:       stepName,
-					OwnerID:        ownerID,
-					Status:         models.NotificationStatusFailed,
-					ViolationType:  models.ViolationRetryLimitExceeded,
-					Severity:       models.SeverityCritical,
-					Message:        fmt.Sprintf("Step '%s' exceeded retry limit of %d (current: %d retries)", stepName, maxRetries, retryCount),
-					Details: map[string]interface{}{
-						"step_name":   stepName,
-						"retry_count": retryCount,
-						"max_retries": maxRetries,
-					},
-					Timestamp: time.Now(),
-				})
-
-				// Update hasCriticalViolation flag
-				hasCriticalViolation = true
-			}
-
-			// Note: Lua script now writes step state change to activity log stream atomically
-
-			if isTerminal && finalStatus == "completed" {
-				fmt.Printf("[TERMINAL-STEP] Thread marked as COMPLETED\n")
-				// Archive completed thread metadata via ActivityRepository
-				s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{
-					ID:              threadID,
-					OwnerID:         thread.OwnerID,
-					CompanyID:       thread.CompanyID,
-					ContractID:      thread.ContractID,
-					ContractName:    thread.ContractName,
-					ContractVersion: thread.ContractVersion,
-					LastHash:        thread.LastHash,
-					StartedAt:       thread.StartedAt,
-					CompletedAt:     thread.CompletedAt,
-				}, "completed")
-			}
+	// Convert repository violations to notifications
+	for _, v := range result.Violations {
+		notification := models.ValidationNotification{
+			NotificationID: uuid.New().String(),
+			ThreadID:       threadID,
+			StepID:         stepID,
+			StepName:       stepName,
+			OwnerID:        ownerID,
+			Status:         models.NotificationStatusFailed,
+			ViolationType:  models.ViolationType(v.Type),
+			Severity:       models.ViolationSeverity(v.Severity),
+			Message:        v.Message,
+			Details:        v.Details,
+			Timestamp:      time.Now(),
 		}
+
+		// Store notification immediately
+		if err := s.activityRepo.StoreValidationNotification(ctx, notification); err != nil {
+			fmt.Printf("[STORE-ERROR] Error storing notification: %v\n", err)
+		}
+		notifications = append(notifications, notification)
+	}
+
+	// Update final status and critical violation flag from repository result
+	status := result.Status
+	hasCriticalViolation = result.HasCriticalViolation
+
+	// Handle terminal step completion
+	if isTerminal && result.Status == "completed" && !result.HasCriticalViolation {
+		fmt.Printf("[TERMINAL-STEP] Thread marked as COMPLETED\n")
+
+		// Create thread completion notification
+		threadCompletionNotif := models.ValidationNotification{
+			NotificationID: uuid.New().String(),
+			ThreadID:       threadID,
+			StepID:         stepID,
+			StepName:       stepName,
+			OwnerID:        ownerID,
+			Status:         models.NotificationStatusCompleted,
+			Message:        fmt.Sprintf("Thread completed successfully at terminal step '%s'", stepName),
+			Timestamp:      time.Now(),
+		}
+
+		// Store thread completion notification
+		if err := s.activityRepo.StoreValidationNotification(ctx, threadCompletionNotif); err != nil {
+			fmt.Printf("[STORE-ERROR] Error storing thread completion notification: %v\n", err)
+		} else {
+			fmt.Printf("[THREAD-COMPLETE] Thread completion notification created\n")
+		}
+
+		// Archive thread metadata
+		s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{
+			ID:              threadID,
+			OwnerID:         thread.OwnerID,
+			CompanyID:       thread.CompanyID,
+			ContractID:      thread.ContractID,
+			ContractName:    thread.ContractName,
+			ContractVersion: thread.ContractVersion,
+			LastHash:        thread.LastHash,
+			StartedAt:       thread.StartedAt,
+			CompletedAt:     thread.CompletedAt,
+		}, "completed")
 	}
 
 	// Archive validation results via ActivityRepository

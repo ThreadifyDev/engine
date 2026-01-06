@@ -3,10 +3,11 @@ package models
 // ContractGraph represents the DAG structure of a contract
 // Metadata (contract_id, version) is stored in contract_versions table
 type ContractGraph struct {
-	Graph       Graph        `json:"graph"`
-	Transitions []Transition `json:"transitions,omitempty"` // Valid step-to-step transitions
-	Validation  *Validation  `json:"validation,omitempty"`  // Contract-level validation rules
-	Parties     []string     `json:"parties,omitempty"`     // Contract parties
+	Graph              Graph               `json:"graph"`
+	Transitions        []Transition        `json:"transitions,omitempty"`         // Valid step-to-step transitions
+	Validation         *Validation         `json:"validation,omitempty"`          // Contract-level validation rules
+	Parties            []string            `json:"parties,omitempty"`             // Contract parties
+	NotificationConfig *NotificationConfig `json:"notification_config,omitempty"` // Notification scope configuration
 }
 
 // Graph contains the nodes, entry points, and terminal steps of the workflow
@@ -33,17 +34,18 @@ type GraphNode struct {
 
 // ContractYAML represents the parsed YAML/JSON contract
 type ContractYAML struct {
-	ContractName  string       `yaml:"contract_name" json:"ContractName"`
-	Version       int          `yaml:"version" json:"Version"`
-	Description   string       `yaml:"description" json:"Description"`
-	EntryPoints   []string     `yaml:"entry_points,omitempty" json:"EntryPoints,omitempty"`
-	Parties       []string     `yaml:"parties" json:"Parties"`
-	Steps         []Step       `yaml:"steps" json:"Steps"`
-	Transitions   []Transition `yaml:"transitions,omitempty" json:"Transitions,omitempty"`
-	TerminalSteps []string     `yaml:"terminal_steps,omitempty" json:"TerminalSteps,omitempty"`
-	Groups        []Group      `yaml:"groups,omitempty" json:"Groups,omitempty"`
-	Validation    *Validation  `yaml:"validation,omitempty" json:"Validation,omitempty"`
-	Versioning    *Versioning  `yaml:"versioning,omitempty" json:"Versioning,omitempty"`
+	ContractName       string              `yaml:"contract_name" json:"ContractName"`
+	Version            int                 `yaml:"version" json:"Version"`
+	Description        string              `yaml:"description" json:"Description"`
+	EntryPoints        []string            `yaml:"entry_points,omitempty" json:"EntryPoints,omitempty"`
+	Parties            []string            `yaml:"parties" json:"Parties"`
+	Steps              []Step              `yaml:"steps" json:"Steps"`
+	Transitions        []Transition        `yaml:"transitions,omitempty" json:"Transitions,omitempty"`
+	TerminalSteps      []string            `yaml:"terminal_steps,omitempty" json:"TerminalSteps,omitempty"`
+	Groups             []Group             `yaml:"groups,omitempty" json:"Groups,omitempty"`
+	Validation         *Validation         `yaml:"validation,omitempty" json:"Validation,omitempty"`
+	Versioning         *Versioning         `yaml:"versioning,omitempty" json:"Versioning,omitempty"`
+	NotificationConfig *NotificationConfig `yaml:"notification_config,omitempty" json:"NotificationConfig,omitempty"`
 }
 
 // Step represents a workflow step
@@ -91,4 +93,10 @@ type Versioning struct {
 type BusinessContext struct {
 	Required []string `yaml:"required,omitempty" json:"required,omitempty"`
 	Optional []string `yaml:"optional,omitempty" json:"optional,omitempty"`
+}
+
+// NotificationConfig defines notification scope configuration for a contract
+type NotificationConfig struct {
+	DefaultScope string            `yaml:"default_scope,omitempty" json:"DefaultScope,omitempty"` // Default scope for parties (owner, participant, observer)
+	RoleDefaults map[string]string `yaml:"role_defaults,omitempty" json:"RoleDefaults,omitempty"` // Role-specific scope overrides
 }

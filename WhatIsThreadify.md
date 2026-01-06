@@ -766,3 +766,51 @@ Domain: threadify.dev
 - ✅ Immutable audit trail with cryptographic hashing
 - ✅ Real-time capable - multiple consumers via consumer groups
 - ✅ Performance - O(1) operational queries, efficient batch writes
+
+### Recent Bug Fixes & Improvements (January 2026)
+
+**1. Stream ID Conflict Resolution**
+- **Problem**: Archiver's `thread_step_state` stream was failing with "ERR Invalid stream ID specified as stream command argument"
+- **Root Cause**: The stream data contained a field named `"id"` (step UUID), which conflicted with Redis stream entry IDs during XACK operations
+- **Solution**: Renamed the field from `"id"` to `"step_id"` in both:
+  - Stream writer: `/internal/repository/valkey/activity.go` (line 378)
+  - Archiver reader: `/internal/archiver/postgres_writer.go` (lines 337, 381)
+- **Impact**: Archiver now successfully acknowledges processed events without ID conflicts
+
+**2. JoinThread Response Enhancement**
+- **Problem**: `joinThread` WebSocket response was missing the `permissions` field, forcing clients to make additional API calls
+- **Solution**: Added `Permissions: strings.Join(permissions, ",")` to `JoinThreadResponse` in `/internal/service/thread.go` (line 742)
+- **Benefits**:
+  - Clients immediately know their access level after joining
+  - Enables client-side authorization decisions (show/hide UI elements)
+  - Consistent with `inviteParty` response format
+  - Better UX - no round-trip needed for permission checks
+
+**3. Thread Access JSONB Migration**
+- **Problem**: Archiver was failing with "ERROR: operator does not exist: character varying = jsonb" when writing to `thread_access` table
+- **Root Cause**: The `roles` column was defined as `VARCHAR(100)` but archiver was casting to `::jsonb`
+- **Solution**: 
+  - Created migration `002_create_and_alter_thread_access.sql` to convert `roles` column to JSONB
+  - Updated `InitSchema` in `/internal/database/postgres.go` to create table with JSONB from start
+  - Added GIN index on `roles` column for efficient JSONB queries
+- **Benefits**:
+  - Proper data type for JSON arrays
+  - Enables JSONB operators: `WHERE roles @> '["merchant"]'::jsonb`
+  - Better performance with GIN indexing
+  - Type safety and validation at database level
+
+**4. Empty Timestamp Handling**
+- **Problem**: Archiver failing with "ERROR: invalid input syntax for type timestamp" when `timestamp` field was empty
+- **Solution**: Added fallback in `/internal/archiver/postgres_writer.go` (lines 289-292):
+  ```go
+  if timestamp == "" {
+      timestamp = time.Now().Format(time.RFC3339)
+  }
+  ```
+- **Impact**: Graceful handling of missing timestamps with current time fallback
+
+**Technical Debt Addressed:**
+- ✅ Stream field naming conflicts resolved
+- ✅ Database schema aligned with application code
+- ✅ API responses now complete and consistent
+- ✅ Archiver reliability improved with proper error handling

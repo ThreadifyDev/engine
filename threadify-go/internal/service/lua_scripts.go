@@ -13,9 +13,6 @@ import (
 //go:embed lua/update_thread_status.lua
 var updateThreadStatusScript string
 
-//go:embed lua/update_step_state.lua
-var updateStepStateScript string
-
 //go:embed lua/grant_or_update_access.lua
 var grantOrUpdateAccessScript string
 
@@ -38,7 +35,6 @@ func NewLuaScriptManager(valkeyClient interfaces.ValkeyClient) *LuaScriptManager
 func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	scripts := map[string]string{
 		"update_thread_status":   updateThreadStatusScript,
-		"update_step_state":      updateStepStateScript,
 		"grant_or_update_access": grantOrUpdateAccessScript,
 	}
 
@@ -98,64 +94,6 @@ func (m *LuaScriptManager) UpdateThreadStatus(
 	// Result should be the final thread status
 	if status, ok := result.(string); ok {
 		return status, nil
-	}
-
-	return "", fmt.Errorf("unexpected result type from script: %T", result)
-}
-
-// UpdateStepState executes the update_step_state Lua script atomically
-// Handles step state updates, execution graph tracking, and thread completion
-// Returns the final step status after the update
-func (m *LuaScriptManager) UpdateStepState(
-	ctx context.Context,
-	threadID string,
-	stepID string,
-	stepName string,
-	idempotencyKey string,
-	status string,
-	violationJSON string,
-	isTerminalStep bool,
-	timestamp string,
-	maxRetries int,
-) (string, error) {
-	scriptHash, exists := m.scriptHashes["update_step_state"]
-	if !exists {
-		return "", fmt.Errorf("script update_step_state not loaded")
-	}
-
-	// Build stepKey
-	stepKey := stepName + ":" + idempotencyKey
-
-	keys := []string{
-		"thread:" + threadID + ":meta",             // KEYS[1] - thread metadata hash
-		"thread:" + threadID + ":current_steps",    // KEYS[2] - current steps sorted set
-		"thread:" + threadID + ":steps:" + stepKey, // KEYS[3] - step state hash
-		"thread:" + threadID + ":violations",       // KEYS[4] - violations hash
-	}
-
-	isTerminalStr := "false"
-	if isTerminalStep {
-		isTerminalStr = "true"
-	}
-
-	args := []interface{}{
-		stepKey,       // ARGV[1]
-		stepID,        // ARGV[2]
-		status,        // ARGV[3]
-		timestamp,     // ARGV[4]
-		violationJSON, // ARGV[5]
-		isTerminalStr, // ARGV[6]
-		maxRetries,    // ARGV[7]
-	}
-
-	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute update_step_state: %w", err)
-	}
-
-	// Result should be the final step status
-	if finalStatus, ok := result.(string); ok {
-		return finalStatus, nil
 	}
 
 	return "", fmt.Errorf("unexpected result type from script: %T", result)
