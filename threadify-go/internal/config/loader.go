@@ -16,15 +16,15 @@ func LoadFromViper() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	// Compute time.Duration fields from seconds
-	if cfg.Archiver.Retry.InitialBackoffSeconds > 0 {
-		cfg.Archiver.Retry.InitialBackoff = time.Duration(cfg.Archiver.Retry.InitialBackoffSeconds) * time.Second
+	// Compute time.Duration fields from milliseconds
+	if cfg.Archiver.Retry.InitialBackoffMs > 0 {
+		cfg.Archiver.Retry.InitialBackoff = time.Duration(cfg.Archiver.Retry.InitialBackoffMs) * time.Millisecond
 	}
-	if cfg.Archiver.Retry.MaxBackoffSeconds > 0 {
-		cfg.Archiver.Retry.MaxBackoff = time.Duration(cfg.Archiver.Retry.MaxBackoffSeconds) * time.Second
+	if cfg.Archiver.Retry.MaxBackoffMs > 0 {
+		cfg.Archiver.Retry.MaxBackoff = time.Duration(cfg.Archiver.Retry.MaxBackoffMs) * time.Millisecond
 	}
-	if cfg.Archiver.Streams.BlockTimeoutSeconds > 0 {
-		cfg.Archiver.Streams.BlockTimeout = time.Duration(cfg.Archiver.Streams.BlockTimeoutSeconds) * time.Second
+	if cfg.Archiver.Streams.BlockTimeoutMs > 0 {
+		cfg.Archiver.Streams.BlockTimeout = time.Duration(cfg.Archiver.Streams.BlockTimeoutMs) * time.Millisecond
 	}
 
 	return cfg, nil

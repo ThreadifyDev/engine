@@ -127,35 +127,35 @@ type ArchiverConfig struct {
 
 // BufferConfig holds buffer configuration
 type BufferConfig struct {
-	Size                 int `yaml:"size" mapstructure:"size"`
-	FlushIntervalSeconds int `yaml:"flush_interval_seconds" mapstructure:"flush_interval_seconds"`
+	Size            int `yaml:"size" mapstructure:"size"`
+	FlushIntervalMs int `yaml:"flush_interval_ms" mapstructure:"flush_interval_ms"`
 }
 
 // ActivityStreamsConfig holds activity streams configuration
 type ActivityStreamsConfig struct {
-	Enabled              bool `yaml:"enabled" mapstructure:"enabled"`
-	NumPartitions        int  `yaml:"num_partitions" mapstructure:"num_partitions"`
-	WorkersPerInstance   int  `yaml:"workers_per_instance" mapstructure:"workers_per_instance"`
-	BufferSize           int  `yaml:"buffer_size" mapstructure:"buffer_size"`
-	FlushIntervalSeconds int  `yaml:"flush_interval_seconds" mapstructure:"flush_interval_seconds"`
-	MaxBufferSize        int  `yaml:"max_buffer_size" mapstructure:"max_buffer_size"`
-	TrimEnabled          bool `yaml:"trim_enabled" mapstructure:"trim_enabled"`
-	TrimMaxLen           int  `yaml:"trim_maxlen" mapstructure:"trim_maxlen"`
+	Enabled            bool `yaml:"enabled" mapstructure:"enabled"`
+	NumPartitions      int  `yaml:"num_partitions" mapstructure:"num_partitions"`
+	WorkersPerInstance int  `yaml:"workers_per_instance" mapstructure:"workers_per_instance"`
+	BufferSize         int  `yaml:"buffer_size" mapstructure:"buffer_size"`
+	FlushIntervalMs    int  `yaml:"flush_interval_ms" mapstructure:"flush_interval_ms"`
+	MaxBufferSize      int  `yaml:"max_buffer_size" mapstructure:"max_buffer_size"`
+	TrimEnabled        bool `yaml:"trim_enabled" mapstructure:"trim_enabled"`
+	TrimMaxLen         int  `yaml:"trim_maxlen" mapstructure:"trim_maxlen"`
 }
 
 // RetryConfig holds retry configuration
 type RetryConfig struct {
-	MaxAttempts           int           `yaml:"max_attempts" mapstructure:"max_attempts"`
-	InitialBackoffSeconds int           `yaml:"initial_backoff_seconds" mapstructure:"initial_backoff_seconds"`
-	MaxBackoffSeconds     int           `yaml:"max_backoff_seconds" mapstructure:"max_backoff_seconds"`
-	InitialBackoff        time.Duration // Computed from InitialBackoffSeconds
-	MaxBackoff            time.Duration // Computed from MaxBackoffSeconds
+	MaxAttempts      int           `yaml:"max_attempts" mapstructure:"max_attempts"`
+	InitialBackoffMs int           `yaml:"initial_backoff_ms" mapstructure:"initial_backoff_ms"`
+	MaxBackoffMs     int           `yaml:"max_backoff_ms" mapstructure:"max_backoff_ms"`
+	InitialBackoff   time.Duration // Computed from InitialBackoffMs
+	MaxBackoff       time.Duration // Computed from MaxBackoffMs
 }
 
 // StreamsConfig holds streams configuration
 type StreamsConfig struct {
-	ConsumerGroup       string        `yaml:"consumer_group" mapstructure:"consumer_group"`
-	BlockTimeoutSeconds int           `yaml:"block_timeout_seconds" mapstructure:"block_timeout_seconds"`
-	BatchSize           int           `yaml:"batch_size" mapstructure:"batch_size"`
-	BlockTimeout        time.Duration // Computed from BlockTimeoutSeconds
+	ConsumerGroup  string        `yaml:"consumer_group" mapstructure:"consumer_group"`
+	BlockTimeoutMs int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
+	BatchSize      int           `yaml:"batch_size" mapstructure:"batch_size"`
+	BlockTimeout   time.Duration // Computed from BlockTimeoutMs
 }

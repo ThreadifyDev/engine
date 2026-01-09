@@ -50,26 +50,26 @@ archiver:
   buffers:
     thread_step_state:
       size: 100
-      flush_interval_seconds: 10
+      flush_interval_ms: 10000
     thread_metadata:
       size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
     thread_access:
       size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
     thread_validations:
       size: 100
-      flush_interval_seconds: 51
+      flush_interval_ms: 51000
     thread_activities:
       size: 100
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
   
   retry:
     max_attempts: 6
-    initial_backoff_seconds: 1
-    max_backoff_seconds: 16
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
   
   streams:
     consumer_group: "archiver-group"
-    block_timeout_seconds: 5
+    block_timeout_ms: 5000
     batch_size: 100

@@ -100,16 +100,16 @@ archiver:
   buffers:
     thread_step_state:
       size: 100
-      flush_interval_seconds: 10
+      flush_interval_ms: 10000
     thread_metadata:
       size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
     thread_access:
       size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
     thread_validations:
       size: 100
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
   
   # Partitioned activity streams (global streams with partitioning)
   activity_streams:
@@ -117,7 +117,7 @@ archiver:
     num_partitions: 10
     workers_per_instance: 3
     buffer_size: 200
-    flush_interval_seconds: 5
+    flush_interval_ms: 5000
     max_buffer_size: 1000
     trim_enabled: true
     trim_maxlen: 10000
@@ -125,11 +125,11 @@ archiver:
   # Retry configuration for failed writes
   retry:
     max_attempts: 6
-    initial_backoff_seconds: 1
-    max_backoff_seconds: 16
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
   
   # Valkey stream configuration
   streams:
     consumer_group: "archiver-group"
-    block_timeout_seconds: 5
+    block_timeout_ms: 5000
     batch_size: 100

@@ -28,6 +28,8 @@ type ValkeyClient interface {
 	ZRem(ctx context.Context, key string, members ...string) error
 	ZCard(ctx context.Context, key string) (int64, error)
 	ZRange(ctx context.Context, key string, start, stop int64) ([]string, error)
+	// Script operations for atomic operations
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error)
 	// Lua script operations
 	ScriptLoad(ctx context.Context, script string) (string, error)
 	EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error)

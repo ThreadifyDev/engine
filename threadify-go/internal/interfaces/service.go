@@ -4,7 +4,7 @@ import "github.com/threadify/engine/internal/models"
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
-	RecordStepEventDirect(event models.StepEvent, ownerID string) error
+	RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string) error
 	Start() error
 	Stop() error
 }

@@ -262,10 +262,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 
 	query := `
 		INSERT INTO thread_activities (
-			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash
+			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash, prev_hash, status
 		) VALUES `
 
-	values := make([]interface{}, 0, len(events)*8)
+	values := make([]interface{}, 0, len(events)*10)
 	placeholders := ""
 
 	for i, event := range events {
@@ -273,10 +273,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 			placeholders += ", "
 		}
 
-		offset := i * 8
+		offset := i * 10
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8,
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9, offset+10,
 		)
 
 		// Extract fields from event data
@@ -286,7 +286,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		actor := event.Data["actor"]
 		actorService := event.Data["actor_service"]
 		hash := event.Data["hash"]
+		prevHash := event.Data["prev_hash"]
+		status := event.Data["status"]
 		timestamp := event.Data["timestamp"]
+
 		// Handle empty timestamp - use current time as fallback
 		if timestamp == "" {
 			timestamp = time.Now().Format(time.RFC3339)
@@ -295,27 +298,19 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		// Create payload with all event data except the top-level fields
 		payload := make(map[string]interface{})
 		for k, v := range event.Data {
-			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "timestamp" {
+			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "prev_hash" && k != "status" && k != "timestamp" {
 				payload[k] = v
 			}
 		}
 
-		// Parse context JSON if present
-		if contextJSON, ok := payload["context"]; ok && contextJSON != "" {
-			// Try to parse as JSON first
-			var contextMap map[string]interface{}
-			if err := json.Unmarshal([]byte(contextJSON.(string)), &contextMap); err == nil {
-				payload["context"] = contextMap
-			}
-		}
-
+		// Convert payload to JSON
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
-			fmt.Printf("❌ Failed to marshal payload: %v\n", err)
-			continue
+			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
 
-		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash)
+		// Add values to the slice
+		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash, prevHash, status)
 	}
 
 	query += placeholders

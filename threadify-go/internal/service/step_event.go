@@ -3,10 +3,8 @@ package service
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
@@ -16,14 +14,11 @@ import (
 )
 
 // StepEventService handles step event processing with cryptographic hashing
+// Hash generation is now handled atomically via Lua scripts rather than in-memory cache
 type StepEventService struct {
 	valkeyRepo    interfaces.ValkeyClient
 	threadRepo    *valkey.ThreadRepository
 	natsPublisher *natsrepo.ArchivalPublisher
-
-	// Hash cache
-	lastHashes map[string]string // threadID -> lastHash (in memory cache)
-	mu         sync.Mutex        // For thread-safe operations
 }
 
 // NewStepEventService creates a new step event service
@@ -32,7 +27,6 @@ func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.
 		valkeyRepo:    valkeyRepo,
 		threadRepo:    threadRepo,
 		natsPublisher: natsPublisher,
-		lastHashes:    make(map[string]string),
 	}
 }
 
@@ -47,29 +41,136 @@ func (ses *StepEventService) Stop() error {
 }
 
 // RecordStepEventDirect records a step event immediately without batching
-func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID string) error {
+func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string) error {
 	// 1. Validate the step event
 	if err := ses.validateStepEvent(event); err != nil {
-		return fmt.Errorf("invalid step event: %w", err)
+		// User input validation errors are safe to expose with context
+		return fmt.Errorf("invalid step data: %w", err)
 	}
 
-	// 2. Get the last hash for this thread (from memory or Valkey)
-	previousHash, err := ses.getLastStepHash(event.ThreadID)
+	// 2. Execute atomic hash generation via Lua script
+	hashResult, err := ses.executeAtomicHashScript(event, ownerID, serviceName)
 	if err != nil {
-		return fmt.Errorf("failed to get last step hash: %w", err)
+		return err // Already sanitized by executeAtomicHashScript
 	}
 
-	// 3. Calculate the new hash
-	newHash := ses.calculateStepHash(previousHash, event)
+	// 3. Send activity event to NATS for archival (async, non-blocking)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	// 4. Create the hashed step event
-	hashedEvent := event.ToHashedStepEvent(newHash, previousHash)
+		activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
 
-	// 5. Store immediately
-	return ses.storeStepEvent(*hashedEvent, ownerID)
+		if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+			logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
+		}
+	}()
+
+	return nil
 }
 
-// validateStepEvent ensures the step event has required fields
+// HashResult contains the result of atomic hash generation
+type HashResult struct {
+	OldHash  string
+	NewHash  string
+	ThreadID string
+}
+
+// executeAtomicHashScript performs atomic hash generation and thread metadata update via Lua script
+func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
+	// Execute Lua script to get current hash and atomically update thread metadata
+	luaScript := `
+		-- Get current thread metadata
+		local threadKey = KEYS[1]
+		local threadData = redis.call('GET', threadKey)
+		
+		if not threadData then
+			return {err = "Thread not found"}
+		end
+		
+		-- Parse thread JSON using cjson (no require needed in Redis/Valkey)
+		local threadObj = cjson.decode(threadData)
+		local oldHash = threadObj.lastHash or ""
+		
+		-- Return old hash for Go to calculate new hash
+		return {oldHash}
+	`
+
+	// Step 1: Get current hash atomically
+	threadKey := fmt.Sprintf("thread:%s", event.ThreadID)
+	result, err := ses.valkeyRepo.Eval(context.Background(), luaScript, []string{threadKey})
+	if err != nil {
+		logInternalErrorWithDetails("executeAtomicHashScript (get old hash)", fmt.Sprintf("threadId=%s", event.ThreadID), err)
+		return nil, sanitizeError(err)
+	}
+
+	// Parse result to get oldHash
+	resultSlice, ok := result.([]interface{})
+	if !ok || len(resultSlice) < 1 {
+		logInternalError("executeAtomicHashScript", fmt.Errorf("unexpected result format: %v", result))
+		return nil, fmt.Errorf("failed to process step event")
+	}
+
+	oldHash, _ := resultSlice[0].(string)
+
+	// Step 2: Calculate new hash in Go (includes oldHash for chain integrity)
+	hashData := fmt.Sprintf("%s:%s:%s:%s:%s", oldHash, event.ThreadID, event.StepID, event.IdempotencyKey, event.Timestamp.Format(time.RFC3339))
+	newHash := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(hashData)))
+
+	// Step 3: Update thread metadata atomically with new hash
+	updateScript := `
+		-- Update thread metadata with new hash
+		local threadKey = KEYS[1]
+		local threadData = redis.call('GET', threadKey)
+		
+		if not threadData then
+			return {err = "Thread not found"}
+		end
+		
+		-- cjson is available globally in Redis/Valkey
+		local threadObj = cjson.decode(threadData)
+		threadObj.lastHash = ARGV[1]
+		local updatedThread = cjson.encode(threadObj)
+		redis.call('SET', threadKey, updatedThread, 'EX', 86400)
+		
+		return {ARGV[1]}
+	`
+
+	result, err = ses.valkeyRepo.Eval(context.Background(), updateScript, []string{threadKey}, newHash)
+	if err != nil {
+		logInternalErrorWithDetails("executeAtomicHashScript (update hash)", fmt.Sprintf("threadId=%s", event.ThreadID), err)
+		return nil, sanitizeError(err)
+	}
+
+	return &HashResult{
+		OldHash:  oldHash,
+		NewHash:  newHash,
+		ThreadID: event.ThreadID,
+	}, nil
+}
+
+// createActivityEvent creates an activity event with all required fields for NATS publishing
+func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
+	activityValues := map[string]interface{}{
+		"type":            "step_recorded",
+		"thread_id":       event.ThreadID,
+		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
+		"step_name":       event.StepName,
+		"step_uuid":       event.StepID,
+		"idempotency_key": event.IdempotencyKey,
+		"timestamp":       event.Timestamp.Format(time.RFC3339),
+		"context":         event.ContextJSON(),
+		"actor":           ownerID,
+		"actor_service":   serviceName,
+		"status":          event.Status,
+		"hash":            hashResult.NewHash,
+		"prev_hash":       hashResult.OldHash,
+		"started_at":      event.StartedAt,
+	}
+
+	return activityValues
+}
+
 func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 	if event.StepID == "" {
 		return fmt.Errorf("step_id is required")
@@ -81,112 +182,6 @@ func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 		return fmt.Errorf("context is required")
 	}
 	return nil
-}
-
-// getLastStepHash retrieves the last hash for a thread using memory cache with Valkey fallback
-func (ses *StepEventService) getLastStepHash(threadID string) (string, error) {
-	ses.mu.Lock()
-
-	// 1. Check memory cache first (instant)
-	if hash, exists := ses.lastHashes[threadID]; exists {
-		ses.mu.Unlock()
-		return hash, nil
-	}
-	ses.mu.Unlock()
-
-	// 2. Fallback to Valkey if not in memory
-	threadData, err := ses.threadRepo.Get(context.Background(), threadID)
-	if err != nil {
-		// If thread doesn't exist, return empty string for genesis hash
-		return "", nil
-	}
-
-	// 3. Store in memory cache for next time
-	ses.mu.Lock()
-	ses.lastHashes[threadID] = threadData.LastHash
-	ses.mu.Unlock()
-
-	return threadData.LastHash, nil
-}
-
-// calculateStepHash computes SHA256 hash of previousHash + stepID + stepName + startedAt + finishedAt + status + context
-func (ses *StepEventService) calculateStepHash(previousHash string, event models.StepEvent) string {
-	hasher := sha256.New()
-
-	// Add previous hash (empty for genesis)
-	hasher.Write([]byte(previousHash))
-
-	// Add step ID
-	hasher.Write([]byte(event.StepID))
-
-	// Add step name
-	hasher.Write([]byte(event.StepName))
-
-	// Add step lifecycle data
-	hasher.Write([]byte(event.StartedAt))
-	hasher.Write([]byte(event.FinishedAt))
-	hasher.Write([]byte(event.Status))
-
-	// Add context as JSON
-	hasher.Write([]byte(event.ContextJSON()))
-
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-// storeStepEvent persists the hashed step event to Redis and streams
-func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent, ownerID string) error {
-	startTime := time.Now()
-
-	// Use pipeline for atomic writes
-	pipe := ses.valkeyRepo.Pipeline()
-
-	// Prepare activity event data
-	activityValues := map[string]interface{}{
-		"type":            "step_recorded",
-		"thread_id":       event.ThreadID,
-		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey), // composite: name:idempKey
-		"step_name":       event.StepName,
-		"step_uuid":       event.StepID,
-		"idempotency_key": event.IdempotencyKey, // User-provided or context hash
-		"timestamp":       event.Timestamp.Format(time.RFC3339),
-		"context":         event.ContextJSON(),
-		"actor":           ownerID,           // user-123
-		"actor_service":   event.ServiceName, // merchant-service
-		"status":          event.Status,
-		"hash":            event.Hash,
-		"prev_hash":       event.PreviousHash,
-		"started_at":      event.StartedAt,
-		"finished_at":     event.FinishedAt,
-	}
-
-	// 1. Write to per-thread LIST for fast queries (7-day TTL)
-	activityList := fmt.Sprintf("thread:%s:activity", event.ThreadID)
-	eventJSON, _ := json.Marshal(activityValues)
-	pipe.LPush(context.Background(), activityList, string(eventJSON))
-	pipe.Expire(context.Background(), activityList, 7*24*time.Hour)
-
-	// Execute pipeline
-	_, err := pipe.Exec(context.Background())
-	if err != nil {
-		fmt.Printf("❌ ERROR: Failed to write step event to activity list: %v\n", err)
-		return err
-	}
-
-	// 2. Publish to NATS for archival (async, non-blocking)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := ses.natsPublisher.PublishActivityLog(ctx, activityValues); err != nil {
-			fmt.Printf("❌ ERROR: Failed to publish activity log to NATS for stepId=%s: %v\n", event.StepID, err)
-		} else {
-			fmt.Printf("✅ SUCCESS: Activity log published to NATS for stepId=%s\n", event.StepID)
-		}
-	}()
-
-	duration := time.Since(startTime)
-	fmt.Printf("⏱️  [StepEventService] Valkey write (Activity Streams) took %v for stepId=%s\n", duration, event.StepID)
-
-	return err
 }
 
 // updateThreadLastHash updates the thread's last hash and refreshes TTL

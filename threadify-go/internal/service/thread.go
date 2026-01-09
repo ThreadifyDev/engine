@@ -575,6 +575,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 	// Get service name from request or connected client
 	serviceName := req.ServiceName
+
 	if serviceName == "" {
 		if client, exists := s.connectionMgr.GetClient(ownerID); exists {
 			serviceName = client.ServiceName
@@ -618,7 +619,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Process step event immediately
-	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID); err != nil {
+	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID, serviceName); err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",

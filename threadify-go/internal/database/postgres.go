@@ -120,6 +120,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		payload JSONB NOT NULL,
 		recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		hash TEXT,
+		prev_hash TEXT,
+		status TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
@@ -129,6 +131,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_actor ON thread_activities(actor, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_service ON thread_activities(actor_service, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_payload_gin ON thread_activities USING gin(payload);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_prev_hash ON thread_activities(prev_hash);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_status ON thread_activities(status);
 
 	CREATE TABLE IF NOT EXISTS thread_access (
 		id SERIAL PRIMARY KEY,
