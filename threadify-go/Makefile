@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docker-up docker-down install lint fmt
+.PHONY: help build run test clean docker-up docker-down install lint fmt generate-graphql
 
 VERSION := $(shell git describe --tags --always)
 
@@ -8,8 +8,14 @@ help: ## Show this help
 install: ## Install dependencies
 	go mod download
 	go mod tidy
+	go install github.com/99designs/gqlgen@v0.17.85
 
-build: ## Build the server binary
+generate-graphql: ## Generate GraphQL code from schema
+	@echo "Generating GraphQL code..."
+	cd internal/graphql && $(HOME)/go/bin/gqlgen generate
+	@echo "✓ GraphQL code generated"
+
+build: generate-graphql ## Build the server binary
 	@echo "Building server..."
 	@mkdir -p bin
 	go build -o bin/server cmd/server/main.go
