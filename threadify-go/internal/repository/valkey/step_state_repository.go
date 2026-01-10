@@ -354,3 +354,13 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string) ([
 	log.Printf("📋 Found %d step states for thread %s", len(steps), threadID)
 	return steps, nil
 }
+
+// GetStepHistory delegates to PostgreSQL repository for step history queries
+func (r *StepStateRepository) GetStepHistory(ctx context.Context, threadID, stepIdentifier string, limit, offset int, startAt, endAt, activityType, actor *string) ([]models.StepHistory, error) {
+	// Step history queries PostgreSQL directly (archival data)
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("step history requires PostgreSQL repository")
+	}
+
+	return r.postgresRepo.GetStepHistory(ctx, threadID, stepIdentifier, limit, offset, startAt, endAt, activityType, actor)
+}

@@ -31,37 +31,52 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	return thread, nil
 }
 
-// Step is the resolver for the step field.
-func (r *queryResolver) Step(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepStateInfo, error) {
-	// Use the step state repository with cache-aside pattern
-	stepState, err := r.stepStateRepo.GetStepStateWithCache(ctx, threadID, stepName, idempotencyKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get step state for thread %s, step %s:%s: %w", threadID, stepName, idempotencyKey, err)
-	}
-	if stepState == nil {
-		return nil, fmt.Errorf("step state not found for thread %s, step %s:%s", threadID, stepName, idempotencyKey)
-	}
-	return stepState, nil
-}
+// StepHistory is the resolver for the stepHistory field.
+func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
+	// Set default pagination values
+	limitVal := 100
+	offsetVal := 0
 
-// Steps is the resolver for the steps field.
-func (r *queryResolver) Steps(ctx context.Context, threadID string) ([]*models.StepStateInfo, error) {
-	// Use the step state repository to list all steps for a thread
-	steps, err := r.stepStateRepo.ListSteps(ctx, threadID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list steps for thread %s: %w", threadID, err)
+	if limit != nil {
+		limitVal = *limit
 	}
-	return steps, nil
+	if offset != nil {
+		offsetVal = *offset
+	}
+
+	// Construct step identifier
+	var stepIdentifier string
+	if idempotencyKey != nil && *idempotencyKey != "" {
+		// Specific step: stepName:idempKey
+		stepIdentifier = fmt.Sprintf("%s:%s", stepName, *idempotencyKey)
+	} else {
+		// All attempts of step: stepName
+		stepIdentifier = stepName
+	}
+
+	// Get step history from PostgreSQL with enhanced filtering
+	history, err := r.stepStateRepo.GetStepHistory(ctx, threadID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get step history: %w", err)
+	}
+
+	// Return empty array if no history found (better UX than error)
+	if history == nil {
+		return []*models.StepHistory{}, nil
+	}
+
+	// Convert slice of values to slice of pointers for GraphQL
+	var historyPtrs []*models.StepHistory
+	for i := range history {
+		historyPtrs = append(historyPtrs, &history[i])
+	}
+
+	return historyPtrs, nil
 }
 
 // ValidationResults is the resolver for the validationResults field.
 func (r *queryResolver) ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
 	return r.validationRepo.GetValidationResultsWithCache(ctx, threadID, stepName, idempotencyKey)
-}
-
-// ThreadValidationResults is the resolver for the threadValidationResults field.
-func (r *queryResolver) ThreadValidationResults(ctx context.Context, threadID string, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
-	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, threadID, options)
 }
 
 // FirstSeenAt is the resolver for the firstSeenAt field.
@@ -74,10 +89,50 @@ func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *models.S
 	return obj.LastUpdatedAt.Format(time.RFC3339), nil
 }
 
+// History is the resolver for the history field.
+func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
+	// Set default pagination values
+	limitVal := 100
+	offsetVal := 0
+
+	if limit != nil {
+		limitVal = *limit
+	}
+	if offset != nil {
+		offsetVal = *offset
+	}
+
+	// Use step name as identifier (will get all idempotency keys for this step)
+	// Users can call this on a specific step instance to get that instance's history
+	stepIdentifier := obj.StepName
+	if obj.IdempotencyKey != "" {
+		stepIdentifier = fmt.Sprintf("%s:%s", obj.StepName, obj.IdempotencyKey)
+	}
+
+	// Get step history from PostgreSQL with enhanced filtering
+	history, err := r.stepStateRepo.GetStepHistory(ctx, obj.ThreadID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get step history: %w", err)
+	}
+
+	// Return empty array if no history found (better UX than error)
+	if history == nil {
+		return []*models.StepHistory{}, nil
+	}
+
+	// Convert slice of values to slice of pointers for GraphQL
+	var historyPtrs []*models.StepHistory
+	for i := range history {
+		historyPtrs = append(historyPtrs, &history[i])
+	}
+
+	return historyPtrs, nil
+}
+
 // Status is the resolver for the status field.
-func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (*string, error) {
+func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string, error) {
 	status := string(obj.Status)
-	return &status, nil
+	return status, nil
 }
 
 // Refs is the resolver for the refs field.
@@ -108,6 +163,44 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 	return &completedAt, nil
 }
 
+// Steps is the resolver for the steps field.
+func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string) ([]*models.StepStateInfo, error) {
+	// Use the step state repository to list all steps for this thread
+	steps, err := r.stepStateRepo.ListSteps(ctx, obj.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
+	}
+
+	// Apply filtering if stepName is provided
+	if stepName != nil {
+		var filteredSteps []*models.StepStateInfo
+		for _, step := range steps {
+			// Filter by stepName
+			if step.StepName != *stepName {
+				continue
+			}
+
+			// If idempotencyKey is also provided, filter by that too
+			if idempotencyKey != nil && *idempotencyKey != "" {
+				if step.IdempotencyKey != *idempotencyKey {
+					continue
+				}
+			}
+
+			filteredSteps = append(filteredSteps, step)
+		}
+		return filteredSteps, nil
+	}
+
+	// If no stepName filter, return all steps
+	return steps, nil
+}
+
+// ValidationResults is the resolver for the validationResults field.
+func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, obj.ID, options)
+}
+
 // Timestamp is the resolver for the timestamp field.
 func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
 	return obj.Timestamp.Format(time.RFC3339), nil
@@ -131,33 +224,3 @@ type queryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *validationResultInfoResolver) OverallStatus(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
-	return obj.OverallStatus, nil
-}
-func (r *validationResultInfoResolver) HasCriticalViolation(ctx context.Context, obj *models.ValidationResultInfo) (bool, error) {
-	return obj.HasCriticalViolation, nil
-}
-func (r *validationResultInfoResolver) CriticalCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
-	return obj.CriticalCount, nil
-}
-func (r *validationResultInfoResolver) WarningCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
-	return obj.WarningCount, nil
-}
-func (r *validationResultInfoResolver) MinorCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
-	return obj.MinorCount, nil
-}
-func (r *validationResultInfoResolver) InfoCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
-	return obj.InfoCount, nil
-}
-func (r *validationResultInfoResolver) TotalValidations(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
-	return obj.TotalValidations, nil
-}
-*/

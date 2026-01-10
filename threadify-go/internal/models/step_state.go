@@ -37,3 +37,13 @@ func (s *StepStateInfo) IsFailed() bool {
 func (s *StepStateInfo) IsPending() bool {
 	return s.Status == "pending"
 }
+
+// StepHistory represents a single attempt in a step's retry history
+type StepHistory struct {
+	Attempt   int    `json:"attempt"`
+	Timestamp string `json:"timestamp"`
+	Status    string `json:"status"`
+	Context   string `json:"context"`
+	Duration  int    `json:"duration"`
+	Error     string `json:"error,omitempty"`
+}

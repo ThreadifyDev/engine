@@ -1,19 +1,5 @@
 # GraphQL Schema for Threadify Engine
 
-type Thread {
-  id: ID!
-  contractId: String
-  contractVersion: Int
-  contractName: String
-  ownerId: String!
-  companyId: String!
-  status: String
-  lastHash: String
-  refs: JSON
-  startedAt: String
-  completedAt: String
-}
-
 type StepStateInfo {
   threadId: String!
   stepName: String!
@@ -24,16 +10,54 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
+}
+
+type StepHistory {
+  attempt: Int!
+  timestamp: String!
+  status: String!
+  context: String!
+  duration: Int!
+  error: String
+}
+
+type Thread {
+  id: ID!
+  contractId: String
+  contractVersion: Int
+  contractName: String
+  ownerId: String!
+  companyId: String!
+  status: String!
+  lastHash: String
+  refs: String
+  startedAt: String
+  completedAt: String
+  error: String
+  # Get steps for this thread, optionally filtered by stepName/idempotencyKey
+  steps(stepName: String, idempotencyKey: String): [StepStateInfo!]!
+  # Get validation results for this thread
+  validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
 }
 
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
-  step(threadId: String!, stepName: String!, idempotencyKey: String!): StepStateInfo
-  steps(threadId: String!): [StepStateInfo!]!
-  # Get validation results with cache-aside pattern
+  # Get step history by stepName:idempKey or stepName
+  stepHistory(
+    threadId: String!
+    stepName: String!
+    idempotencyKey: String
+    limit: Int = 100
+    offset: Int = 0
+    startAt: String
+    endAt: String
+    activityType: String
+    actor: String
+  ): [StepHistory!]!
+  # Get validation results for a specific step
   validationResults(threadId: String!, stepName: String!, idempotencyKey: String!): [ValidationResultInfo!]!
-  threadValidationResults(threadId: String!, options: ValidationQueryOptions): [ValidationResultInfo!]!
 }
 
 scalar JSON
