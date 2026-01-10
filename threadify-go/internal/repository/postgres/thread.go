@@ -1,11 +1,7 @@
-//go:build ignore
-// +build ignore
-
 package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,47 +23,28 @@ func NewThreadRepository(pool *pgxpool.Pool) *ThreadRepository {
 
 // Save persists a thread to PostgreSQL
 func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
-	// Serialize context and steps to JSON
-	contextJSON, err := json.Marshal(thread.Context)
-	if err != nil {
-		return fmt.Errorf("failed to marshal context: %w", err)
-	}
-
-	stepsJSON, err := json.Marshal(thread.Steps)
-	if err != nil {
-		return fmt.Errorf("failed to marshal steps: %w", err)
-	}
-
 	query := `
 		INSERT INTO threads (
-			id, contract_id, contract_version, owner_id, status, current_step,
-			context, steps, started_at, completed_at, error, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			id, contract_id, contract_version, owner_id, company_id, 
+			created_at, updated_at, error
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (id) DO UPDATE SET
-			status = EXCLUDED.status,
-			current_step = EXCLUDED.current_step,
-			context = EXCLUDED.context,
-			steps = EXCLUDED.steps,
-			completed_at = EXCLUDED.completed_at,
-			error = EXCLUDED.error,
-			updated_at = EXCLUDED.updated_at
+			contract_id = EXCLUDED.contract_id,
+			contract_version = EXCLUDED.contract_version,
+			updated_at = EXCLUDED.updated_at,
+			error = EXCLUDED.error
 	`
 
 	now := time.Now()
-	_, err = r.pool.Exec(ctx, query,
+	_, err := r.pool.Exec(ctx, query,
 		thread.ID,
 		thread.ContractID,
 		thread.ContractVersion,
 		thread.OwnerID,
-		string(thread.Status),
-		thread.CurrentStep,
-		contextJSON,
-		stepsJSON,
-		thread.StartedAt,
-		thread.CompletedAt,
+		thread.CompanyID,
+		thread.StartedAt, // Map StartedAt to created_at column
+		now,              // Use current time for updated_at
 		thread.Error,
-		now,
-		now,
 	)
 
 	if err != nil {
@@ -80,27 +57,23 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 // Get retrieves a thread from PostgreSQL
 func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
 	query := `
-		SELECT id, contract_id, contract_version, owner_id, status, current_step,
-			   context, steps, started_at, completed_at, error
+		SELECT id, contract_id, contract_version, owner_id, company_id,
+			   created_at, updated_at, error
 		FROM threads
 		WHERE id = $1
 	`
 
 	var thread models.Thread
-	var contextJSON, stepsJSON []byte
-	var status string
+	var createdAt, updatedAt time.Time
 
 	err := r.pool.QueryRow(ctx, query, threadID).Scan(
 		&thread.ID,
 		&thread.ContractID,
 		&thread.ContractVersion,
 		&thread.OwnerID,
-		&status,
-		&thread.CurrentStep,
-		&contextJSON,
-		&stepsJSON,
-		&thread.StartedAt,
-		&thread.CompletedAt,
+		&thread.CompanyID,
+		&createdAt,
+		&updatedAt,
 		&thread.Error,
 	)
 
@@ -108,16 +81,9 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
-	thread.Status = models.ThreadStatus(status)
-
-	// Deserialize context and steps
-	if err := json.Unmarshal(contextJSON, &thread.Context); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal context: %w", err)
-	}
-
-	if err := json.Unmarshal(stepsJSON, &thread.Steps); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal steps: %w", err)
-	}
+	// Map database columns to model fields
+	thread.StartedAt = createdAt
+	thread.CompletedAt = nil // Will be set based on status logic
 
 	return &thread, nil
 }
@@ -125,11 +91,11 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 // GetByOwner retrieves all threads for a given owner
 func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*models.Thread, error) {
 	query := `
-		SELECT id, contract_id, contract_version, owner_id, status, current_step,
-			   context, steps, started_at, completed_at, error
+		SELECT id, contract_id, contract_version, owner_id, company_id,
+			   created_at, updated_at, error
 		FROM threads
 		WHERE owner_id = $1
-		ORDER BY started_at DESC
+		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -142,20 +108,16 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 	var threads []*models.Thread
 	for rows.Next() {
 		var thread models.Thread
-		var contextJSON, stepsJSON []byte
-		var status string
+		var createdAt, updatedAt time.Time
 
 		err := rows.Scan(
 			&thread.ID,
 			&thread.ContractID,
 			&thread.ContractVersion,
 			&thread.OwnerID,
-			&status,
-			&thread.CurrentStep,
-			&contextJSON,
-			&stepsJSON,
-			&thread.StartedAt,
-			&thread.CompletedAt,
+			&thread.CompanyID,
+			&createdAt,
+			&updatedAt,
 			&thread.Error,
 		)
 
@@ -163,16 +125,9 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 			return nil, fmt.Errorf("failed to scan thread: %w", err)
 		}
 
-		thread.Status = models.ThreadStatus(status)
-
-		// Deserialize context and steps
-		if err := json.Unmarshal(contextJSON, &thread.Context); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal context: %w", err)
-		}
-
-		if err := json.Unmarshal(stepsJSON, &thread.Steps); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal steps: %w", err)
-		}
+		// Map database columns to model fields
+		thread.StartedAt = createdAt
+		thread.CompletedAt = nil
 
 		threads = append(threads, &thread)
 	}
@@ -187,11 +142,11 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 // GetByContract retrieves all threads for a given contract
 func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string, limit, offset int) ([]*models.Thread, error) {
 	query := `
-		SELECT id, contract_id, contract_version, owner_id, status, current_step,
-			   context, steps, started_at, completed_at, error
+		SELECT id, contract_id, contract_version, owner_id, company_id,
+			   created_at, updated_at, error
 		FROM threads
 		WHERE contract_id = $1
-		ORDER BY started_at DESC
+		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -204,20 +159,16 @@ func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string,
 	var threads []*models.Thread
 	for rows.Next() {
 		var thread models.Thread
-		var contextJSON, stepsJSON []byte
-		var status string
+		var createdAt, updatedAt time.Time
 
 		err := rows.Scan(
 			&thread.ID,
 			&thread.ContractID,
 			&thread.ContractVersion,
 			&thread.OwnerID,
-			&status,
-			&thread.CurrentStep,
-			&contextJSON,
-			&stepsJSON,
-			&thread.StartedAt,
-			&thread.CompletedAt,
+			&thread.CompanyID,
+			&createdAt,
+			&updatedAt,
 			&thread.Error,
 		)
 
@@ -225,16 +176,9 @@ func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string,
 			return nil, fmt.Errorf("failed to scan thread: %w", err)
 		}
 
-		thread.Status = models.ThreadStatus(status)
-
-		// Deserialize context and steps
-		if err := json.Unmarshal(contextJSON, &thread.Context); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal context: %w", err)
-		}
-
-		if err := json.Unmarshal(stepsJSON, &thread.Steps); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal steps: %w", err)
-		}
+		// Map database columns to model fields
+		thread.StartedAt = createdAt
+		thread.CompletedAt = nil
 
 		threads = append(threads, &thread)
 	}

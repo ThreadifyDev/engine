@@ -1,0 +1,24 @@
+# gqlgen configuration file
+# Refer to https://gqlgen.com/config/
+schema:
+  - schema.graphql
+exec:
+  filename: generated/generated.go
+  package: generated
+model:
+  filename: generated/models_gen.go
+  package: generated
+resolver:
+  layout: follow-schema
+  dir: .
+  package: graphql
+  filename: resolver.go
+
+# Uncomment to enable federation
+# federation:
+#   filename: generated/federation.go
+#   package: generated
+
+# Let gqlgen know where to find the models
+autobind:
+  - "github.com/threadify/engine/internal/models"

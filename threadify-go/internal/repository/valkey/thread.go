@@ -3,17 +3,20 @@ package valkey
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/repository/postgres"
 )
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey interfaces.ValkeyClient
-	ttl    int // TTL in seconds
+	valkey       interfaces.ValkeyClient
+	ttl          int // TTL in seconds
+	postgresRepo *postgres.ThreadRepository
 }
 
 // NewThreadRepository creates a new thread repository
@@ -21,6 +24,15 @@ func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int) *ThreadReposit
 	return &ThreadRepository{
 		valkey: valkey,
 		ttl:    ttl,
+	}
+}
+
+// NewThreadRepositoryWithPostgres creates a new thread repository with PostgreSQL fallback
+func NewThreadRepositoryWithPostgres(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository) *ThreadRepository {
+	return &ThreadRepository{
+		valkey:       valkey,
+		ttl:          ttl,
+		postgresRepo: postgresRepo,
 	}
 }
 
@@ -108,6 +120,50 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 			}
 		}
 	}
+
+	return thread, nil
+}
+
+// GetThreadWithCache retrieves a thread using cache-aside pattern:
+// 1. Try Redis first
+// 2. Fallback to PostgreSQL if cache miss
+// 3. Async write-back to Redis for future reads
+func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID string) (*models.Thread, error) {
+	// Add timeout context for production robustness
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Try Redis first
+	if cached, err := r.Get(ctx, threadID); err == nil && cached != nil {
+		log.Printf(" Cache HIT for thread %s from Redis", threadID)
+		return cached, nil
+	}
+
+	log.Printf(" Cache MISS for thread %s - falling back to PostgreSQL", threadID)
+
+	// Fallback to PostgreSQL if available
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("thread not found in Redis and no PostgreSQL repository configured")
+	}
+
+	thread, err := r.postgresRepo.Get(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get thread from PostgreSQL: %w", err)
+	}
+
+	log.Printf(" Retrieved thread %s from PostgreSQL, writing to Redis cache", threadID)
+
+	// Async write-back to Redis (non-blocking)
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := r.Save(bgCtx, thread); err != nil {
+			log.Printf("Failed to cache thread %s in Redis: %v", threadID, err)
+		} else {
+			log.Printf(" Successfully cached thread %s in Redis", threadID)
+		}
+	}()
 
 	return thread, nil
 }

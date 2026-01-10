@@ -12,14 +12,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/graphql"
+	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/middleware"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
+	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
@@ -102,7 +107,10 @@ func main() {
 	// Initialize step event service first
 	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
 	threadTTL := time.Duration(threadTTLHours) * time.Hour
-	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()))
+
+	// Create PostgreSQL thread repository for fallback
+	postgresThreadRepo := postgres.NewThreadRepository(db.Pool)
+	threadRepo := valkey.NewThreadRepositoryWithPostgres(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo)
 
 	// Initialize step event service with config
 	batchSize := viper.GetInt("thread_activities.batch_size")
@@ -157,6 +165,13 @@ func main() {
 	// Create WebSocket handler with notification consumer and router
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService)
 
+	// Initialize GraphQL handler with cached thread repository
+	graphqlResolver := graphql.NewResolver(threadRepo)
+	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
+
+	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
+	log.Printf("✅ GraphQL handler created: %v", graphqlHandler != nil)
+
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -185,6 +200,10 @@ func main() {
 
 	// WebSocket route (no auth at connection level)
 	r.GET("/threads", wsHandler.HandleWebSocket)
+
+	// GraphQL endpoints
+	r.POST("/graphql", gin.WrapH(graphqlHandler))
+	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authService))

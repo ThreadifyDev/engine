@@ -1,0 +1,23 @@
+# GraphQL Schema for Threadify Engine
+
+type Thread {
+  id: ID!
+  contractId: String
+  contractVersion: Int
+  contractName: String
+  ownerId: String!
+  companyId: String!
+  status: String!
+  lastHash: String
+  startedAt: String!
+  completedAt: String
+  error: String
+  refs: JSON
+}
+
+type Query {
+  # Get a thread by ID with cache-aside pattern
+  thread(id: ID!): Thread
+}
+
+scalar JSON
