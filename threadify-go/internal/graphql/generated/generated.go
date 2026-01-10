@@ -92,13 +92,20 @@ type ComplexityRoot struct {
 	}
 
 	ValidationResultInfo struct {
-		IdempotencyKey func(childComplexity int) int
-		StepID         func(childComplexity int) int
-		StepName       func(childComplexity int) int
-		ThreadID       func(childComplexity int) int
-		Timestamp      func(childComplexity int) int
-		ValidationID   func(childComplexity int) int
-		Validations    func(childComplexity int) int
+		CriticalCount        func(childComplexity int) int
+		HasCriticalViolation func(childComplexity int) int
+		IdempotencyKey       func(childComplexity int) int
+		InfoCount            func(childComplexity int) int
+		MinorCount           func(childComplexity int) int
+		OverallStatus        func(childComplexity int) int
+		StepID               func(childComplexity int) int
+		StepName             func(childComplexity int) int
+		ThreadID             func(childComplexity int) int
+		Timestamp            func(childComplexity int) int
+		TotalValidations     func(childComplexity int) int
+		ValidationID         func(childComplexity int) int
+		Validations          func(childComplexity int) int
+		WarningCount         func(childComplexity int) int
 	}
 }
 
@@ -122,6 +129,14 @@ type ThreadResolver interface {
 }
 type ValidationResultInfoResolver interface {
 	Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error)
+
+	OverallStatus(ctx context.Context, obj *models.ValidationResultInfo) (string, error)
+	HasCriticalViolation(ctx context.Context, obj *models.ValidationResultInfo) (bool, error)
+	CriticalCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error)
+	WarningCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error)
+	MinorCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error)
+	InfoCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error)
+	TotalValidations(ctx context.Context, obj *models.ValidationResultInfo) (int, error)
 }
 
 type executableSchema struct {
@@ -358,12 +373,42 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ValidationIssue.Type(childComplexity), true
 
+	case "ValidationResultInfo.criticalCount":
+		if e.complexity.ValidationResultInfo.CriticalCount == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.CriticalCount(childComplexity), true
+	case "ValidationResultInfo.hasCriticalViolation":
+		if e.complexity.ValidationResultInfo.HasCriticalViolation == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.HasCriticalViolation(childComplexity), true
 	case "ValidationResultInfo.idempotencyKey":
 		if e.complexity.ValidationResultInfo.IdempotencyKey == nil {
 			break
 		}
 
 		return e.complexity.ValidationResultInfo.IdempotencyKey(childComplexity), true
+	case "ValidationResultInfo.infoCount":
+		if e.complexity.ValidationResultInfo.InfoCount == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.InfoCount(childComplexity), true
+	case "ValidationResultInfo.minorCount":
+		if e.complexity.ValidationResultInfo.MinorCount == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.MinorCount(childComplexity), true
+	case "ValidationResultInfo.overallStatus":
+		if e.complexity.ValidationResultInfo.OverallStatus == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.OverallStatus(childComplexity), true
 	case "ValidationResultInfo.stepId":
 		if e.complexity.ValidationResultInfo.StepID == nil {
 			break
@@ -388,6 +433,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ValidationResultInfo.Timestamp(childComplexity), true
+	case "ValidationResultInfo.totalValidations":
+		if e.complexity.ValidationResultInfo.TotalValidations == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.TotalValidations(childComplexity), true
 	case "ValidationResultInfo.validationId":
 		if e.complexity.ValidationResultInfo.ValidationID == nil {
 			break
@@ -400,6 +451,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.ValidationResultInfo.Validations(childComplexity), true
+	case "ValidationResultInfo.warningCount":
+		if e.complexity.ValidationResultInfo.WarningCount == nil {
+			break
+		}
+
+		return e.complexity.ValidationResultInfo.WarningCount(childComplexity), true
 
 	}
 	return 0, false
@@ -540,6 +597,13 @@ type ValidationResultInfo {
   idempotencyKey: String!
   timestamp: String!
   validations: [ValidationIssue!]!
+  overallStatus: String!
+  hasCriticalViolation: Boolean!
+  criticalCount: Int!
+  warningCount: Int!
+  minorCount: Int!
+  infoCount: Int!
+  totalValidations: Int!
 }
 
 type ValidationIssue {
@@ -937,6 +1001,20 @@ func (ec *executionContext) fieldContext_Query_validationResults(ctx context.Con
 				return ec.fieldContext_ValidationResultInfo_timestamp(ctx, field)
 			case "validations":
 				return ec.fieldContext_ValidationResultInfo_validations(ctx, field)
+			case "overallStatus":
+				return ec.fieldContext_ValidationResultInfo_overallStatus(ctx, field)
+			case "hasCriticalViolation":
+				return ec.fieldContext_ValidationResultInfo_hasCriticalViolation(ctx, field)
+			case "criticalCount":
+				return ec.fieldContext_ValidationResultInfo_criticalCount(ctx, field)
+			case "warningCount":
+				return ec.fieldContext_ValidationResultInfo_warningCount(ctx, field)
+			case "minorCount":
+				return ec.fieldContext_ValidationResultInfo_minorCount(ctx, field)
+			case "infoCount":
+				return ec.fieldContext_ValidationResultInfo_infoCount(ctx, field)
+			case "totalValidations":
+				return ec.fieldContext_ValidationResultInfo_totalValidations(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ValidationResultInfo", field.Name)
 		},
@@ -994,6 +1072,20 @@ func (ec *executionContext) fieldContext_Query_threadValidationResults(ctx conte
 				return ec.fieldContext_ValidationResultInfo_timestamp(ctx, field)
 			case "validations":
 				return ec.fieldContext_ValidationResultInfo_validations(ctx, field)
+			case "overallStatus":
+				return ec.fieldContext_ValidationResultInfo_overallStatus(ctx, field)
+			case "hasCriticalViolation":
+				return ec.fieldContext_ValidationResultInfo_hasCriticalViolation(ctx, field)
+			case "criticalCount":
+				return ec.fieldContext_ValidationResultInfo_criticalCount(ctx, field)
+			case "warningCount":
+				return ec.fieldContext_ValidationResultInfo_warningCount(ctx, field)
+			case "minorCount":
+				return ec.fieldContext_ValidationResultInfo_minorCount(ctx, field)
+			case "infoCount":
+				return ec.fieldContext_ValidationResultInfo_infoCount(ctx, field)
+			case "totalValidations":
+				return ec.fieldContext_ValidationResultInfo_totalValidations(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ValidationResultInfo", field.Name)
 		},
@@ -2086,6 +2178,209 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_validations(_ cont
 				return ec.fieldContext_ValidationIssue_rule(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type ValidationIssue", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_overallStatus(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_overallStatus,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().OverallStatus(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_overallStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_hasCriticalViolation(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_hasCriticalViolation,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().HasCriticalViolation(ctx, obj)
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_hasCriticalViolation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_criticalCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_criticalCount,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().CriticalCount(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_criticalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_warningCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_warningCount,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().WarningCount(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_warningCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_minorCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_minorCount,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().MinorCount(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_minorCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_infoCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_infoCount,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().InfoCount(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_infoCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ValidationResultInfo_totalValidations(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ValidationResultInfo_totalValidations,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ValidationResultInfo().TotalValidations(ctx, obj)
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ValidationResultInfo_totalValidations(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ValidationResultInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4224,6 +4519,258 @@ func (ec *executionContext) _ValidationResultInfo(ctx context.Context, sel ast.S
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "overallStatus":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_overallStatus(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "hasCriticalViolation":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_hasCriticalViolation(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "criticalCount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_criticalCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "warningCount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_warningCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "minorCount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_minorCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "infoCount":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_infoCount(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "totalValidations":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ValidationResultInfo_totalValidations(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

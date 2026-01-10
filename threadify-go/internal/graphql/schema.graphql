@@ -46,6 +46,13 @@ type ValidationResultInfo {
   idempotencyKey: String!
   timestamp: String!
   validations: [ValidationIssue!]!
+  overallStatus: String!
+  hasCriticalViolation: Boolean!
+  criticalCount: Int!
+  warningCount: Int!
+  minorCount: Int!
+  infoCount: Int!
+  totalValidations: Int!
 }
 
 type ValidationIssue {

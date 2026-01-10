@@ -131,3 +131,33 @@ type queryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *validationResultInfoResolver) OverallStatus(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
+	return obj.OverallStatus, nil
+}
+func (r *validationResultInfoResolver) HasCriticalViolation(ctx context.Context, obj *models.ValidationResultInfo) (bool, error) {
+	return obj.HasCriticalViolation, nil
+}
+func (r *validationResultInfoResolver) CriticalCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
+	return obj.CriticalCount, nil
+}
+func (r *validationResultInfoResolver) WarningCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
+	return obj.WarningCount, nil
+}
+func (r *validationResultInfoResolver) MinorCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
+	return obj.MinorCount, nil
+}
+func (r *validationResultInfoResolver) InfoCount(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
+	return obj.InfoCount, nil
+}
+func (r *validationResultInfoResolver) TotalValidations(ctx context.Context, obj *models.ValidationResultInfo) (int, error) {
+	return obj.TotalValidations, nil
+}
+*/

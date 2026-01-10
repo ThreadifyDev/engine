@@ -7,13 +7,20 @@ import (
 // ValidationResultInfo represents a validation result from thread_validations table
 // Renamed from ValidationResult to avoid conflicts with existing types
 type ValidationResultInfo struct {
-	ValidationID   string            `json:"validationId"`
-	ThreadID       string            `json:"threadId"`
-	StepID         string            `json:"stepId"`
-	StepName       string            `json:"stepName"`
-	IdempotencyKey string            `json:"idempotencyKey"`
-	Timestamp      time.Time         `json:"timestamp"`
-	Validations    []ValidationIssue `json:"validations"`
+	ValidationID         string            `json:"validationId"`
+	ThreadID             string            `json:"threadId"`
+	StepID               string            `json:"stepId"`
+	StepName             string            `json:"stepName"`
+	IdempotencyKey       string            `json:"idempotencyKey"`
+	Timestamp            time.Time         `json:"timestamp"`
+	Validations          []ValidationIssue `json:"validations"`
+	OverallStatus        string            `json:"overallStatus"`
+	HasCriticalViolation bool              `json:"hasCriticalViolation"`
+	CriticalCount        int               `json:"criticalCount"`
+	WarningCount         int               `json:"warningCount"`
+	MinorCount           int               `json:"minorCount"`
+	InfoCount            int               `json:"infoCount"`
+	TotalValidations     int               `json:"totalValidations"`
 }
 
 // ValidationIssue represents a single validation violation or warning

@@ -30,7 +30,14 @@ func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadI
 			step_name,
 			idempotency_key,
 			timestamp,
-			validations
+			validations,
+			overall_status,
+			has_critical_violation,
+			critical_count,
+			warning_count,
+			minor_count,
+			info_count,
+			total_validations
 		FROM thread_validations 
 		WHERE thread_id = $1 AND step_id = $2
 		ORDER BY timestamp ASC
@@ -55,6 +62,13 @@ func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadI
 			&result.IdempotencyKey,
 			&result.Timestamp,
 			&validationsJSON,
+			&result.OverallStatus,
+			&result.HasCriticalViolation,
+			&result.CriticalCount,
+			&result.WarningCount,
+			&result.MinorCount,
+			&result.InfoCount,
+			&result.TotalValidations,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan validation result: %w", err)
@@ -86,7 +100,14 @@ func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, t
 			step_name,
 			idempotency_key,
 			timestamp,
-			validations
+			validations,
+			overall_status,
+			has_critical_violation,
+			critical_count,
+			warning_count,
+			minor_count,
+			info_count,
+			total_validations
 		FROM thread_validations 
 		WHERE thread_id = $1
 	`
@@ -146,6 +167,13 @@ func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, t
 			&result.IdempotencyKey,
 			&result.Timestamp,
 			&validationsJSON,
+			&result.OverallStatus,
+			&result.HasCriticalViolation,
+			&result.CriticalCount,
+			&result.WarningCount,
+			&result.MinorCount,
+			&result.InfoCount,
+			&result.TotalValidations,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan validation result: %w", err)
