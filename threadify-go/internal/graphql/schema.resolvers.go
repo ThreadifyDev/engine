@@ -13,6 +13,7 @@ import (
 
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/models"
+	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
 
 // Thread is the resolver for the thread field.
@@ -20,28 +21,63 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	// Use the cached repository for thread retrieval
 	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get thread %s: %w", id, err)
+		// Return user-friendly error without exposing internal details
+		if apperrors.IsNotFound(err) {
+			return nil, err // Already wrapped with user-friendly message
+		}
+		// Wrap other errors with generic message
+		return nil, apperrors.NewInternalError(apperrors.MsgInternalError, err)
 	}
 	return thread, nil
 }
 
-// Status is the resolver for the status field.
-func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string, error) {
-	return string(obj.Status), nil
-}
-
-// StartedAt is the resolver for the startedAt field.
-func (r *threadResolver) StartedAt(ctx context.Context, obj *models.Thread) (string, error) {
-	return obj.StartedAt.Format(time.RFC3339), nil
-}
-
-// CompletedAt is the resolver for the completedAt field.
-func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*string, error) {
-	if obj.CompletedAt == nil {
-		return nil, nil
+// Step is the resolver for the step field.
+func (r *queryResolver) Step(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepStateInfo, error) {
+	// Use the step state repository with cache-aside pattern
+	stepState, err := r.stepStateRepo.GetStepStateWithCache(ctx, threadID, stepName, idempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get step state for thread %s, step %s:%s: %w", threadID, stepName, idempotencyKey, err)
 	}
-	completedAt := obj.CompletedAt.Format(time.RFC3339)
-	return &completedAt, nil
+	if stepState == nil {
+		return nil, fmt.Errorf("step state not found for thread %s, step %s:%s", threadID, stepName, idempotencyKey)
+	}
+	return stepState, nil
+}
+
+// Steps is the resolver for the steps field.
+func (r *queryResolver) Steps(ctx context.Context, threadID string) ([]*models.StepStateInfo, error) {
+	// Use the step state repository to list all steps for a thread
+	steps, err := r.stepStateRepo.ListSteps(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list steps for thread %s: %w", threadID, err)
+	}
+	return steps, nil
+}
+
+// ValidationResults is the resolver for the validationResults field.
+func (r *queryResolver) ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
+	return r.validationRepo.GetValidationResultsWithCache(ctx, threadID, stepName, idempotencyKey)
+}
+
+// ThreadValidationResults is the resolver for the threadValidationResults field.
+func (r *queryResolver) ThreadValidationResults(ctx context.Context, threadID string, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, threadID, options)
+}
+
+// FirstSeenAt is the resolver for the firstSeenAt field.
+func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
+	return obj.FirstSeenAt.Format(time.RFC3339), nil
+}
+
+// LastUpdatedAt is the resolver for the lastUpdatedAt field.
+func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
+	return obj.LastUpdatedAt.Format(time.RFC3339), nil
+}
+
+// Status is the resolver for the status field.
+func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (*string, error) {
+	status := string(obj.Status)
+	return &status, nil
 }
 
 // Refs is the resolver for the refs field.
@@ -57,45 +93,41 @@ func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string,
 	return &refsStr, nil
 }
 
+// StartedAt is the resolver for the startedAt field.
+func (r *threadResolver) StartedAt(ctx context.Context, obj *models.Thread) (*string, error) {
+	startedAt := obj.StartedAt.Format(time.RFC3339)
+	return &startedAt, nil
+}
+
+// CompletedAt is the resolver for the completedAt field.
+func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*string, error) {
+	if obj.CompletedAt == nil {
+		return nil, nil
+	}
+	completedAt := obj.CompletedAt.Format(time.RFC3339)
+	return &completedAt, nil
+}
+
+// Timestamp is the resolver for the timestamp field.
+func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
+	return obj.Timestamp.Format(time.RFC3339), nil
+}
+
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
+
+// StepStateInfo returns generated.StepStateInfoResolver implementation.
+func (r *Resolver) StepStateInfo() generated.StepStateInfoResolver { return &stepStateInfoResolver{r} }
 
 // Thread returns generated.ThreadResolver implementation.
 func (r *Resolver) Thread() generated.ThreadResolver { return &threadResolver{r} }
 
-type queryResolver struct{ *Resolver }
-type threadResolver struct{ *Resolver }
+// ValidationResultInfo returns generated.ValidationResultInfoResolver implementation.
+func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver {
+	return &validationResultInfoResolver{r}
+}
 
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *threadResolver) CurrentStep(ctx context.Context, obj *models.Thread) (*string, error) {
-	return &obj.CurrentStep, nil
-}
-func (r *threadResolver) Context(ctx context.Context, obj *models.Thread) (*string, error) {
-	if obj.Context == nil {
-		return nil, nil
-	}
-	contextJSON, err := json.Marshal(obj.Context)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal context: %w", err)
-	}
-	contextStr := string(contextJSON)
-	return &contextStr, nil
-}
-func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread) (*string, error) {
-	if obj.Steps == nil {
-		return nil, nil
-	}
-	stepsJSON, err := json.Marshal(obj.Steps)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal steps: %w", err)
-	}
-	stepsStr := string(stepsJSON)
-	return &stepsStr, nil
-}
-*/
+type queryResolver struct{ *Resolver }
+type stepStateInfoResolver struct{ *Resolver }
+type threadResolver struct{ *Resolver }
+type validationResultInfoResolver struct{ *Resolver }

@@ -15,6 +15,8 @@ type ValkeyClient interface {
 	Exists(ctx context.Context, key string) (bool, error)
 	Keys(ctx context.Context, pattern string) ([]string, error)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
+	Del(ctx context.Context, keys ...string) error
+	TTL(ctx context.Context, key string) (time.Duration, error)
 	// Hash operations for role and permission management
 	HSet(ctx context.Context, key string, values ...interface{}) error
 	HGet(ctx context.Context, key, field string) (string, error)

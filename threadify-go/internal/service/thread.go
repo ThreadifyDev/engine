@@ -38,11 +38,11 @@ type ThreadService struct {
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
 	valkeyClient          interfaces.ValkeyClient
-	luaScripts            *LuaScriptManager
+	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *LuaScriptManager, stepStateRepo interfaces.StepStateRepository, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
+func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *valkey.LuaScriptManager, stepStateRepo interfaces.StepStateRepository, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyClient)
 	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheManager, natsPublisher)
@@ -79,7 +79,7 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 	accessRepo := valkey.NewAccessRepository(valkeyService)
 
 	// Create and load Lua scripts
-	luaScripts := NewLuaScriptManager(valkeyService)
+	luaScripts := valkey.NewLuaScriptManager(valkeyService)
 	if err := luaScripts.LoadScripts(context.Background()); err != nil {
 		fmt.Printf("Warning: Failed to load Lua scripts: %v\n", err)
 	}

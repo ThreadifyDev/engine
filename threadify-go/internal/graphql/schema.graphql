@@ -7,17 +7,62 @@ type Thread {
   contractName: String
   ownerId: String!
   companyId: String!
-  status: String!
+  status: String
   lastHash: String
-  startedAt: String!
-  completedAt: String
-  error: String
   refs: JSON
+  startedAt: String
+  completedAt: String
+}
+
+type StepStateInfo {
+  threadId: String!
+  stepName: String!
+  idempotencyKey: String!
+  status: String!
+  retryCount: Int!
+  firstSeenAt: String!
+  lastUpdatedAt: String!
+  latestStepID: String!
+  previousStep: String
 }
 
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
+  step(threadId: String!, stepName: String!, idempotencyKey: String!): StepStateInfo
+  steps(threadId: String!): [StepStateInfo!]!
+  # Get validation results with cache-aside pattern
+  validationResults(threadId: String!, stepName: String!, idempotencyKey: String!): [ValidationResultInfo!]!
+  threadValidationResults(threadId: String!, options: ValidationQueryOptions): [ValidationResultInfo!]!
 }
 
 scalar JSON
+
+type ValidationResultInfo {
+  validationId: String!
+  threadId: String!
+  stepId: String!
+  stepName: String!
+  idempotencyKey: String!
+  timestamp: String!
+  validations: [ValidationIssue!]!
+}
+
+type ValidationIssue {
+  type: String!
+  message: String!
+  field: String
+  expected: String
+  actual: String
+  rule: String
+}
+
+input ValidationQueryOptions {
+  threadId: String
+  stepId: String
+  stepName: String
+  idempotencyKey: String
+  validationType: String
+  limit: Int
+  offset: Int
+}

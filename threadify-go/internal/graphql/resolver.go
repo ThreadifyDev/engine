@@ -10,11 +10,15 @@ import (
 // here.
 
 type Resolver struct {
-	threadRepo *valkey.ThreadRepository
+	threadRepo     *valkey.ThreadRepository
+	stepStateRepo  *valkey.StepStateRepository
+	validationRepo *valkey.ValidationRepository
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository) *Resolver {
+func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository) *Resolver {
 	return &Resolver{
-		threadRepo: threadRepo,
+		threadRepo:     threadRepo,
+		stepStateRepo:  stepStateRepo,
+		validationRepo: validationRepo,
 	}
 }

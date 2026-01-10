@@ -10,6 +10,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
+	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
 
 // ThreadRepository handles thread storage in Valkey (Redis)
@@ -124,47 +125,37 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 	return thread, nil
 }
 
-// GetThreadWithCache retrieves a thread using cache-aside pattern:
-// 1. Try Redis first
-// 2. Fallback to PostgreSQL if cache miss
-// 3. Async write-back to Redis for future reads
+// GetThreadWithCache retrieves a thread using read-only cache pattern:
+// 1. Try Redis first (async validator's live data)
+// 2. Fallback to PostgreSQL if cache miss (inactive/archived threads)
+// 3. NO write-back to prevent data conflicts with async validator
 func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID string) (*models.Thread, error) {
 	// Add timeout context for production robustness
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Try Redis first
+	// Try Redis first (active thread data from async validator)
 	if cached, err := r.Get(ctx, threadID); err == nil && cached != nil {
-		log.Printf(" Cache HIT for thread %s from Redis", threadID)
+		log.Printf(" Cache HIT for thread %s from Redis (active thread)", threadID)
 		return cached, nil
 	}
 
-	log.Printf(" Cache MISS for thread %s - falling back to PostgreSQL", threadID)
+	log.Printf(" Cache MISS for thread %s - falling back to PostgreSQL (inactive thread)", threadID)
 
-	// Fallback to PostgreSQL if available
+	// Fallback to PostgreSQL if available (inactive/archived threads)
 	if r.postgresRepo == nil {
 		return nil, fmt.Errorf("thread not found in Redis and no PostgreSQL repository configured")
 	}
 
 	thread, err := r.postgresRepo.Get(ctx, threadID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get thread from PostgreSQL: %w", err)
+		// Return user-friendly error without exposing database details
+		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
 	}
 
-	log.Printf(" Retrieved thread %s from PostgreSQL, writing to Redis cache", threadID)
+	log.Printf(" Retrieved thread %s from PostgreSQL (inactive thread)", threadID)
 
-	// Async write-back to Redis (non-blocking)
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := r.Save(bgCtx, thread); err != nil {
-			log.Printf("Failed to cache thread %s in Redis: %v", threadID, err)
-		} else {
-			log.Printf(" Successfully cached thread %s in Redis", threadID)
-		}
-	}()
-
+	// NO write-back - let async validator own Redis writes to prevent data conflicts
 	return thread, nil
 }
 

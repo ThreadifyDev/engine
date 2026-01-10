@@ -165,8 +165,15 @@ func main() {
 	// Create WebSocket handler with notification consumer and router
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService)
 
-	// Initialize GraphQL handler with cached thread repository
-	graphqlResolver := graphql.NewResolver(threadRepo)
+	// Initialize GraphQL handler with cached thread repository and step state repository with PostgreSQL fallback
+	postgresStepRepo := postgres.NewStepStateRepository(db.Pool)
+	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(valkeyService, postgresStepRepo)
+
+	// Initialize validation repository with cache-aside pattern
+	postgresValidationRepo := postgres.NewValidationRepository(db.Pool)
+	validationRepo := valkey.NewValidationRepositoryWithPostgres(valkeyService, postgresValidationRepo)
+
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo)
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))

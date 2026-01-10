@@ -19,11 +19,11 @@ import (
 type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
-	luaScripts   *LuaScriptManager
+	luaScripts   *valkey.LuaScriptManager
 }
 
 // NewThreadAccessService creates a new thread access service
-func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *LuaScriptManager) *ThreadAccessService {
+func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager) *ThreadAccessService {
 	return &ThreadAccessService{
 		accessRepo:   accessRepo,
 		cacheManager: cacheManager,
