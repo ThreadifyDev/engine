@@ -41,9 +41,9 @@ type Config struct {
 			MaxBackoffSeconds     int `yaml:"max_backoff_seconds"`
 		} `yaml:"retry"`
 		Streams struct {
-			ConsumerGroup       string `yaml:"consumer_group"`
-			BlockTimeoutSeconds int    `yaml:"block_timeout_seconds"`
-			BatchSize           int    `yaml:"batch_size"`
+			ConsumerGroup  string `yaml:"consumer_group"`
+			BlockTimeoutMs int    `yaml:"block_timeout_ms"`
+			BatchSize      int    `yaml:"batch_size"`
 		} `yaml:"streams"`
 	} `yaml:"archiver"`
 }
@@ -74,7 +74,7 @@ func main() {
 		},
 		Streams: archiver.StreamConfig{
 			ConsumerGroup: config.Archiver.Streams.ConsumerGroup,
-			BlockTimeout:  time.Duration(config.Archiver.Streams.BlockTimeoutSeconds) * time.Second,
+			BlockTimeout:  time.Duration(config.Archiver.Streams.BlockTimeoutMs) * time.Millisecond,
 			BatchSize:     config.Archiver.Streams.BatchSize,
 		},
 	}

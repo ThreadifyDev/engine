@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/apperrors"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/models"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
