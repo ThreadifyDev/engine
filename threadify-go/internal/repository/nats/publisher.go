@@ -46,10 +46,16 @@ func (p *Publisher) PublishNotification(ctx context.Context, notification models
 	// Group users by scope
 	scopeUsers := make(map[string][]string)
 	for userID, access := range allAccess {
+		// Check if user has "read" permission (Layer 1: Permission Gatekeeper)
+		if !contains(access.Permissions, "read") {
+			fmt.Printf("[NATS-PUBLISHER] User %s does not have 'read' permission, skipping notification\n", userID)
+			continue
+		}
+
 		// Get user's scope (from access.Scope or resolve it)
 		scope := p.getUserScope(ctx, notification.ThreadID, userID, access)
 
-		// Check if user should receive this notification
+		// Check if user should receive this notification (Layer 2: Content Filtering)
 		if p.shouldReceiveNotification(notification, scope) {
 			scopeUsers[scope] = append(scopeUsers[scope], userID)
 		}

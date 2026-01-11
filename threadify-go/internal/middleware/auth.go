@@ -36,3 +36,28 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// GraphQLAuthMiddleware validates API key for GraphQL requests
+func GraphQLAuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		apiKey := c.GetHeader("X-API-Key")
+		if apiKey == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "X-API-Key header required"})
+			c.Abort()
+			return
+		}
+
+		userInfo, err := authService.ValidateApiKey(apiKey)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+			c.Abort()
+			return
+		}
+
+		// Store user info in Gin context
+		c.Set("ownerID", userInfo.OwnerID)
+		c.Set("companyID", userInfo.CompanyID)
+		c.Set("role", userInfo.Role)
+		c.Next()
+	}
+}

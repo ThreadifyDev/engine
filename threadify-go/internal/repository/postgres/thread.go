@@ -11,13 +11,15 @@ import (
 
 // ThreadRepository handles thread persistence in PostgreSQL
 type ThreadRepository struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	refsRepo *ThreadRefsRepository
 }
 
 // NewThreadRepository creates a new Postgres thread repository
 func NewThreadRepository(pool *pgxpool.Pool) *ThreadRepository {
 	return &ThreadRepository{
-		pool: pool,
+		pool:     pool,
+		refsRepo: NewThreadRefsRepository(pool),
 	}
 }
 
@@ -81,11 +83,33 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
-	// Map database columns to model fields
 	thread.StartedAt = createdAt
 	thread.CompletedAt = nil // Will be set based on status logic
 
 	return &thread, nil
+}
+
+// GetWithRefs retrieves a thread from PostgreSQL with its refs loaded
+func (r *ThreadRepository) GetWithRefs(ctx context.Context, threadID string) (*models.Thread, error) {
+	// Get thread metadata
+	thread, err := r.Get(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load refs from thread_refs table
+	refs, err := r.refsRepo.GetRefs(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load refs: %w", err)
+	}
+
+	thread.Refs = refs
+	return thread, nil
+}
+
+// GetThreadsByRef finds thread IDs that have a specific ref key-value pair
+func (r *ThreadRepository) GetThreadsByRef(ctx context.Context, refKey, refValue string) ([]string, error) {
+	return r.refsRepo.GetThreadsByRef(ctx, refKey, refValue)
 }
 
 // GetByOwner retrieves all threads for a given owner

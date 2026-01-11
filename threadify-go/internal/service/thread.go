@@ -307,6 +307,26 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 					fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
 				}
 			}()
+
+			// Publish refs as individual events
+			if thread.Refs != nil && len(thread.Refs) > 0 {
+				go func() {
+					pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					for key, value := range thread.Refs {
+						refEvent := map[string]interface{}{
+							"threadId": threadID,
+							"refKey":   key,
+							"refValue": value,
+							"action":   "ref_added",
+						}
+						if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+							fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+						}
+					}
+					fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(thread.Refs), threadID)
+				}()
+			}
 		}
 
 		// Write thread_created event to activity log
@@ -616,6 +636,26 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 				Message: fmt.Sprintf("Failed to store refs: %v", err),
 			}
 		}
+
+		// Publish refs as individual events to NATS for archival
+		if s.natsArchivalPublisher != nil {
+			go func() {
+				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				for key, value := range req.Refs {
+					refEvent := map[string]interface{}{
+						"threadId": req.ThreadID,
+						"refKey":   key,
+						"refValue": value,
+						"action":   "ref_added",
+					}
+					if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+						fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+					}
+				}
+				fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(req.Refs), req.ThreadID)
+			}()
+		}
 	}
 
 	// Process step event immediately
@@ -737,7 +777,11 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 		invitedBy = claims.InvitedBy
 
 		// Mode 2: Direct join (same company, no token)
-	} else if req.ThreadID != "" && req.Role != "" {
+	} else if req.ThreadID != "" {
+		// Set default role if not provided
+		if req.Role == "" {
+			req.Role = "participant" // Default role for direct join
+		}
 		// Get thread to validate it exists and check company
 		var err error
 		thread, err = s.GetThread(req.ThreadID)

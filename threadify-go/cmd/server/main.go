@@ -108,7 +108,7 @@ func main() {
 	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
 	threadTTL := time.Duration(threadTTLHours) * time.Hour
 
-	// Create PostgreSQL thread repository for fallback
+	// Create PostgreSQL thread repository for fallback (includes refs repository)
 	postgresThreadRepo := postgres.NewThreadRepository(db.Pool)
 	threadRepo := valkey.NewThreadRepositoryWithPostgres(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo)
 
@@ -173,7 +173,13 @@ func main() {
 	postgresValidationRepo := postgres.NewValidationRepository(db.Pool)
 	validationRepo := valkey.NewValidationRepositoryWithPostgres(valkeyService, postgresValidationRepo)
 
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo)
+	// Initialize thread access service for invitation-based authentication
+	accessRepo := valkey.NewAccessRepository(valkeyService)
+	cacheManager := service.NewCacheService()
+	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
+	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
+
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService)
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
@@ -208,8 +214,24 @@ func main() {
 	// WebSocket route (no auth at connection level)
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
-	// GraphQL endpoints
-	r.POST("/graphql", gin.WrapH(graphqlHandler))
+	// GraphQL endpoints with custom auth wrapper
+	r.POST("/graphql", middleware.GraphQLAuthMiddleware(authService), func(c *gin.Context) {
+		// Extract user info from Gin context
+		ownerID, _ := c.Get("ownerID")
+		companyID, _ := c.Get("companyID")
+		role, _ := c.Get("role")
+
+		// Create new context with user info for GraphQL resolvers
+		ctx := context.WithValue(c.Request.Context(), "ownerID", ownerID)
+		ctx = context.WithValue(ctx, "companyID", companyID)
+		ctx = context.WithValue(ctx, "role", role)
+
+		// Update request with enriched context
+		c.Request = c.Request.WithContext(ctx)
+
+		// Serve GraphQL with enriched context
+		graphqlHandler.ServeHTTP(c.Writer, c.Request)
+	})
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	v1 := r.Group("/v1")

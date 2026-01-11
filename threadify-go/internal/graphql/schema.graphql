@@ -31,7 +31,7 @@ type Thread {
   companyId: String!
   status: String!
   lastHash: String
-  refs: String
+  refs: JSON
   startedAt: String
   completedAt: String
   error: String
@@ -44,6 +44,8 @@ type Thread {
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
+  # Find threads by reference key-value pair
+  threadsByRef(refKey: String!, refValue: String!): [Thread!]!
   # Get step history by stepName:idempKey or stepName
   stepHistory(
     threadId: String!

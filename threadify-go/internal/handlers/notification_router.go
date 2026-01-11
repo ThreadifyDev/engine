@@ -241,6 +241,17 @@ func (r *NotificationRouter) routeNotification(notification *models.ValidationNo
 		return
 	}
 
+	// Parse recipients list from notification payload
+	var notifWithRecipients struct {
+		models.ValidationNotification
+		Recipients []string `json:"recipients"`
+	}
+	if err := json.Unmarshal(msg.Data(), &notifWithRecipients); err != nil {
+		log.Printf("⚠️ Failed to parse notification recipients: %v", err)
+		msg.Ack() // ACK to avoid redelivery
+		return
+	}
+
 	// Send to all interested clients on this pod
 	delivered := false
 	for _, clientID := range clientIDs {
@@ -249,6 +260,13 @@ func (r *NotificationRouter) routeNotification(notification *models.ValidationNo
 		r.mu.RUnlock()
 
 		if !exists {
+			continue
+		}
+
+		// Verify client's ownerID is in recipients list (permission check)
+		if !containsString(notifWithRecipients.Recipients, client.OwnerID) {
+			log.Printf("🔒 Client %s (owner: %s) not in recipients list, skipping notification %s",
+				clientID, client.OwnerID, notification.NotificationID)
 			continue
 		}
 
@@ -268,6 +286,16 @@ func (r *NotificationRouter) routeNotification(notification *models.ValidationNo
 		log.Printf("⚠️ Failed to deliver notification %s, NACKing", notification.NotificationID)
 		msg.Nak()
 	}
+}
+
+// containsString checks if a string slice contains a specific string
+func containsString(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // sendNotification sends a notification to the WebSocket client

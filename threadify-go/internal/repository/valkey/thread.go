@@ -37,6 +37,11 @@ func NewThreadRepositoryWithPostgres(valkey interfaces.ValkeyClient, ttl int, po
 	}
 }
 
+// GetPostgresRepo returns the underlying postgres repository for direct queries
+func (r *ThreadRepository) GetPostgresRepo() *postgres.ThreadRepository {
+	return r.postgresRepo
+}
+
 // Save stores a thread in Valkey
 func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
 	key := r.getThreadKey(thread.ID)

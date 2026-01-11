@@ -110,6 +110,21 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_threads_created_at ON threads(created_at DESC);
 
+	CREATE TABLE IF NOT EXISTS thread_refs (
+		thread_id VARCHAR(255) NOT NULL,
+		ref_key VARCHAR(255) NOT NULL,
+		ref_value TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (thread_id, ref_key),
+		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_thread_id ON thread_refs(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_key ON thread_refs(ref_key);
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_value ON thread_refs(ref_value);
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value ON thread_refs(ref_key, ref_value);
+
 	CREATE TABLE IF NOT EXISTS thread_activities (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		thread_id TEXT NOT NULL,

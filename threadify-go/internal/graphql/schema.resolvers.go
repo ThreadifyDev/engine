@@ -11,13 +11,41 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/apperrors"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/models"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
 
+// getUserInfoFromContext extracts user info from GraphQL context
+func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role string, err error) {
+	ownerIDVal := ctx.Value("ownerID")
+	companyIDVal := ctx.Value("companyID")
+	roleVal := ctx.Value("role")
+
+	if ownerIDVal == nil || companyIDVal == nil || roleVal == nil {
+		return "", "", "", fmt.Errorf("user authentication context not found")
+	}
+
+	ownerID, ok1 := ownerIDVal.(string)
+	companyID, ok2 := companyIDVal.(string)
+	role, ok3 := roleVal.(string)
+
+	if !ok1 || !ok2 || !ok3 {
+		return "", "", "", fmt.Errorf("invalid user authentication context types")
+	}
+
+	return ownerID, companyID, role, nil
+}
+
 // Thread is the resolver for the thread field.
 func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
 	// Use the cached repository for thread retrieval
 	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
 	if err != nil {
@@ -28,11 +56,91 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		// Wrap other errors with generic message
 		return nil, apperrors.NewInternalError(apperrors.MsgInternalError, err)
 	}
+
+	// Enhanced access control: Check if user has read permission for this thread
+	// This supports both ownership and invitation-based access
+	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	}
+	if !hasAccess {
+		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+	}
+
 	return thread, nil
+}
+
+// ThreadsByRef is the resolver for the threadsByRef field.
+func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string) ([]*models.Thread, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Get thread IDs from postgres refs repository
+	threadIDs, err := postgresRepo.GetThreadsByRef(ctx, refKey, refValue)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query threads by ref", err)
+	}
+
+	if len(threadIDs) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Load each thread with refs and check access
+	threads := make([]*models.Thread, 0, len(threadIDs))
+	for _, threadID := range threadIDs {
+		// Load thread with refs
+		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
+		if err != nil {
+			// Skip threads that can't be loaded (may have been deleted)
+			continue
+		}
+
+		// Check if user has read permission
+		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+		if err != nil || !hasAccess {
+			// Skip threads user doesn't have access to
+			continue
+		}
+
+		threads = append(threads, thread)
+	}
+
+	return threads, nil
 }
 
 // StepHistory is the resolver for the stepHistory field.
 func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Check thread access first
+	thread, err := r.threadRepo.GetThreadWithCache(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	}
+
+	// Enhanced access control: Check if user has read permission for this thread
+	// This supports both ownership and invitation-based access
+	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	}
+	if !hasAccess {
+		return nil, fmt.Errorf("access denied: you don't have permission to view step history for this thread")
+	}
+
 	// Set default pagination values
 	limitVal := 100
 	offsetVal := 0
@@ -165,6 +273,22 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 
 // Steps is the resolver for the steps field.
 func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string) ([]*models.StepStateInfo, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Enhanced access control: Check if user has read permission for this thread
+	// This supports both ownership and invitation-based access
+	hasAccess, err := r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	}
+	if !hasAccess {
+		return nil, fmt.Errorf("access denied: you don't have permission to view steps for this thread")
+	}
+
 	// Use the step state repository to list all steps for this thread
 	steps, err := r.stepStateRepo.ListSteps(ctx, obj.ID)
 	if err != nil {
@@ -198,6 +322,22 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 
 // ValidationResults is the resolver for the validationResults field.
 func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Enhanced access control: Check if user has read permission for this thread
+	// This supports both ownership and invitation-based access
+	hasAccess, err := r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	}
+	if !hasAccess {
+		return nil, fmt.Errorf("access denied: you don't have permission to view validation results for this thread")
+	}
+
 	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, obj.ID, options)
 }
 

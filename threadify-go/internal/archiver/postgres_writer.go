@@ -97,8 +97,32 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		return nil
 	}
 
-	fmt.Printf(" DEBUG: Writing thread metadata for %d events\n", len(events))
-	for i, event := range events {
+	// Separate ref events from thread metadata events
+	refEvents := make([]StreamEvent, 0)
+	metadataEvents := make([]StreamEvent, 0)
+
+	for _, event := range events {
+		if event.Data["action"] == "ref_added" {
+			refEvents = append(refEvents, event)
+		} else {
+			metadataEvents = append(metadataEvents, event)
+		}
+	}
+
+	// Process ref events separately
+	if len(refEvents) > 0 {
+		if err := w.WriteThreadRefs(ctx, refEvents); err != nil {
+			return err
+		}
+	}
+
+	// Process thread metadata events
+	if len(metadataEvents) == 0 {
+		return nil
+	}
+
+	fmt.Printf(" DEBUG: Writing thread metadata for %d events\n", len(metadataEvents))
+	for i, event := range metadataEvents {
 		fmt.Printf("   Event %d: threadId=%s, ownerId=%s, contractId=%s\n",
 			i+1, event.Data["threadId"], event.Data["ownerId"], event.Data["contractId"])
 	}
@@ -116,7 +140,7 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			updated_at = EXCLUDED.updated_at
 	`
 
-	for _, event := range events {
+	for _, event := range metadataEvents {
 		// Handle missing fields with defaults
 		error := ""
 		if event.Data["error"] != "" {
@@ -140,7 +164,40 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		}
 	}
 
-	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread metadata records to Postgres\n", len(events))
+	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread metadata records to Postgres\n", len(metadataEvents))
+	return nil
+}
+
+// WriteThreadRefs writes thread refs to Postgres
+func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Printf("🔗 Writing %d thread refs to Postgres\n", len(events))
+
+	// Upsert thread refs
+	query := `
+		INSERT INTO thread_refs (thread_id, ref_key, ref_value, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (thread_id, ref_key) DO UPDATE SET
+			ref_value = EXCLUDED.ref_value,
+			updated_at = NOW()
+	`
+
+	for _, event := range events {
+		_, err := w.db.Pool.Exec(ctx, query,
+			event.Data["threadId"],
+			event.Data["refKey"],
+			event.Data["refValue"],
+		)
+		if err != nil {
+			fmt.Printf("❌ ERROR: Failed to write thread ref to Postgres: %v\n", err)
+			return err
+		}
+	}
+
+	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread refs to Postgres\n", len(events))
 	return nil
 }
 
