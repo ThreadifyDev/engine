@@ -173,13 +173,17 @@ func main() {
 	postgresValidationRepo := postgres.NewValidationRepository(db.Pool)
 	validationRepo := valkey.NewValidationRepositoryWithPostgres(valkeyService, postgresValidationRepo)
 
+	// Initialize contract repository for GraphQL access control
+	contractRepo := postgres.NewContractRepository(db.Pool)
+
 	// Initialize thread access service for invitation-based authentication
 	accessRepo := valkey.NewAccessRepository(valkeyService)
 	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
 
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService)
+	// Initialize GraphQL resolver
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo)
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))

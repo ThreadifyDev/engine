@@ -152,7 +152,7 @@ func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID stri
 		return nil, fmt.Errorf("thread not found in Redis and no PostgreSQL repository configured")
 	}
 
-	thread, err := r.postgresRepo.Get(ctx, threadID)
+	thread, err := r.postgresRepo.GetWithRefs(ctx, threadID)
 	if err != nil {
 		// Return user-friendly error without exposing database details
 		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)

@@ -1,5 +1,6 @@
 import { ThreadStep } from './ThreadStep.js';
 import { Notification } from './Notification.js';
+import { DataRetriever, ArchivedThread, ArchivedStep } from './DataRetriever.js';
 
 /**
  * Connection - Represents a WebSocket connection to Threadify Engine
@@ -22,8 +23,86 @@ export class Connection {
     
     this.processedNotifications = new Set(); // Track processed notification IDs
     this.maxProcessedSize = 10000; // Prevent memory leak
+    this._dataRetriever = null; // Lazy-initialized DataRetriever
     
     this._setupNotificationListener();
+  }
+
+  /**
+   * Get lazy-initialized DataRetriever instance
+   * @private
+   * @returns {DataRetriever} - DataRetriever instance
+   */
+  _getDataRetriever() {
+    if (!this._dataRetriever) {
+      // Derive GraphQL URL from WebSocket URL
+      let graphqlUrl = this.ws.url;
+      // Replace ws:// with http:// and /threads with /graphql
+      graphqlUrl = graphqlUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+      graphqlUrl = graphqlUrl.replace(/\/threads$/, '/graphql');
+      
+      this._dataRetriever = new DataRetriever(graphqlUrl, this.apiKey);
+    }
+    return this._dataRetriever;
+  }
+
+  /**
+   * Get archived thread by ID
+   * @param {string} threadId - Thread ID
+   * @returns {Promise<ArchivedThread>} - Archived thread
+   */
+  async getThread(threadId) {
+    return this._getDataRetriever().getThread(threadId);
+  }
+
+  /**
+   * Get archived thread by reference
+   * @param {Object} refQuery - Reference query {refKey, refValue}
+   * @returns {Promise<ArchivedThread[]>} - Array of archived threads
+   */
+  async getThreadByRef(refQuery) {
+    return this._getDataRetriever().getThreadByRef(refQuery);
+  }
+
+  /**
+   * Get multiple threads by reference
+   * @param {Object} refQuery - Reference query {refKey, refValue}
+   * @returns {Promise<ArchivedThread[]>} - Array of archived threads
+   */
+  async getThreadsByRef(refQuery) {
+    return this._getDataRetriever().getThreadsByRef(refQuery);
+  }
+
+  /**
+   * Get archived step from a thread
+   * @param {string} threadId - Thread ID
+   * @param {string} stepName - Step name
+   * @param {string} idempotencyKey - Optional idempotency key
+   * @returns {Promise<ArchivedStep>} - Archived step
+   */
+  async getStep(threadId, stepName, idempotencyKey = null) {
+    return this._getDataRetriever().getStep(threadId, stepName, idempotencyKey);
+  }
+
+  /**
+   * Get step history
+   * @param {string} threadId - Thread ID
+   * @param {string} stepName - Step name
+   * @param {Object} options - History options
+   * @returns {Promise<Array>} - Step history
+   */
+  async getStepHistory(threadId, stepName, options = {}) {
+    return this._getDataRetriever().getStepHistory(threadId, stepName, options);
+  }
+
+  /**
+   * Get validation results for a thread
+   * @param {string} threadId - Thread ID
+   * @param {string} stepName - Optional step name filter
+   * @returns {Promise<Array>} - Validation results
+   */
+  async getValidationResults(threadId, stepName = null) {
+    return this._getDataRetriever().getValidationResults(threadId, stepName);
   }
 
   /**

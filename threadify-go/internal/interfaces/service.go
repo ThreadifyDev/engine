@@ -26,9 +26,9 @@ type CacheManager interface {
 	ClearThreadCache(threadID string)
 
 	// Contract graph caching
-	GetContractGraph(contractID string, version int) (*models.ContractGraph, bool)
-	SetContractGraph(contractID string, version int, graph *models.ContractGraph)
-	ClearContractCache(contractID string, version int)
+	GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, bool)
+	SetContractGraph(contractID string, version int, ownerID string, graph *models.ContractGraph)
+	ClearContractCache(contractID string, version int, ownerID string)
 
 	// Permission caching
 	GetUserPermissions(threadID, userID string) ([]string, bool)
@@ -44,8 +44,8 @@ type CacheManager interface {
 
 // ContractValidator defines the interface for contract validation operations
 type ContractValidator interface {
-	ValidateStepInContract(contractID string, version int, stepName string, context map[string]string) error
+	ValidateStepInContract(contractID string, version int, stepName string, context map[string]string, ownerID string) error
 	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
-	GetContractGraph(contractID string, version int) (*models.ContractGraph, error)
-	LoadContractGraphIntoCache(contractID string, version int) (int, error)
+	GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, error)
+	LoadContractGraphIntoCache(contractID string, version int, ownerID string) (int, error)
 }

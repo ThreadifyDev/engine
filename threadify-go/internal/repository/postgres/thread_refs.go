@@ -91,7 +91,7 @@ func (r *ThreadRefsRepository) GetRefs(ctx context.Context, threadID string) (ma
 // GetThreadsByRef finds thread IDs that have a specific ref key-value pair
 func (r *ThreadRefsRepository) GetThreadsByRef(ctx context.Context, refKey, refValue string) ([]string, error) {
 	query := `
-		SELECT DISTINCT thread_id
+		SELECT DISTINCT thread_id, created_at
 		FROM thread_refs
 		WHERE ref_key = $1 AND ref_value = $2
 		ORDER BY created_at DESC
@@ -106,7 +106,8 @@ func (r *ThreadRefsRepository) GetThreadsByRef(ctx context.Context, refKey, refV
 	var threadIDs []string
 	for rows.Next() {
 		var threadID string
-		if err := rows.Scan(&threadID); err != nil {
+		var createdAt time.Time
+		if err := rows.Scan(&threadID, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan thread ID: %w", err)
 		}
 		threadIDs = append(threadIDs, threadID)

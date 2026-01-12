@@ -41,11 +41,59 @@ type Thread {
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
 }
 
+type ContractGraph {
+  graph: Graph!
+  transitions: [Transition!]
+  validation: Validation
+  parties: [String!]
+  notificationConfig: NotificationConfig
+}
+
+type Graph {
+  nodes: [GraphNode!]!
+  entryPoints: [String!]!
+  terminalSteps: [String!]!
+}
+
+type GraphNode {
+  id: String!
+  owner: String
+  type: String!
+  mode: String
+  required: Boolean!
+  next: [String!]
+  steps: [String!]
+  timeout: String
+  maxDuration: String
+  businessContext: JSON
+  parentGroup: String
+}
+
+type Transition {
+  from: String!
+  to: [String!]!
+  canRetry: Boolean!
+  maxRetries: Int!
+}
+
+type Validation {
+  maxDuration: String
+  allowMultipleTerminals: Boolean!
+  multipleTerminalsSeverity: String
+}
+
+type NotificationConfig {
+  defaultScope: String
+  roleDefaults: JSON
+}
+
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
   # Find threads by reference key-value pair
   threadsByRef(refKey: String!, refValue: String!): [Thread!]!
+  # Get contract graph by name and version (version defaults to latest if not provided)
+  contractGraph(name: String!, version: Int): ContractGraph!
   # Get step history by stepName:idempKey or stepName
   stepHistory(
     threadId: String!

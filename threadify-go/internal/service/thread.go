@@ -213,7 +213,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 		// Load contract graph with parsed name and version
 		// This returns the actual version loaded (resolves version 0 to latest)
-		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion)
+		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, ownerID)
 		if err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
@@ -227,18 +227,34 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	threadID := uuid.New().String()
 
 	// Create thread with company information (supports non-contract workflows)
-	thread := models.NewThreadWithCompany(threadID, parsedContractName, contractVersion, ownerID, companyID)
-	thread.ContractName = req.ContractName // Keep original format for reference
-	thread.Refs = req.Refs
+	var contractIDPtr *string
+	if parsedContractName != "" {
+		contractIDPtr = &parsedContractName
+	}
 
-	// Save thread to repository and cache
+	thread := &models.Thread{
+		ID:           threadID,
+		ContractID:   contractIDPtr,
+		ContractName: req.ContractName,
+		OwnerID:      ownerID,
+		CompanyID:    companyID,
+		Status:       "active",
+		StartedAt:    time.Now(),
+	}
+
+	fmt.Printf("[WebSocket DEBUG] Creating thread %s with ownerID %s\n", threadID, ownerID)
+
+	// Save thread to repository
 	if err := s.repo.Save(context.Background(), thread); err != nil {
+		fmt.Printf("[WebSocket DEBUG] Failed to save thread %s to Redis: %v\n", threadID, err)
 		return &models.StartThreadResponse{
 			Action:  "startThread",
 			Status:  "error",
-			Message: fmt.Sprintf("Failed to create thread: %v", err),
+			Message: fmt.Sprintf("Failed to save thread: %v", err),
 		}
 	}
+
+	fmt.Printf("[WebSocket DEBUG] Successfully saved thread %s to Redis\n", threadID)
 
 	// Cache the thread for fast access
 	s.cacheManager.SetThread(threadID, thread)
@@ -518,7 +534,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 		// Get contract graph (three-tier cached)
 		var err error
-		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version)
+		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, ownerID)
 		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -986,7 +1002,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 		version = *thread.ContractVersion
 	}
 
-	return s.contractValidator.GetContractGraph(thread.ContractName, version)
+	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.OwnerID)
 }
 
 // AssignThreadRole assigns a role to a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
@@ -997,4 +1013,9 @@ func (s *ThreadService) AssignThreadRole(threadID, role, userID string) error {
 // SetThreadPermissions sets permissions for a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
 func (s *ThreadService) SetThreadPermissions(threadID, userID string, permissions []string) error {
 	return s.accessService.SetUserPermissions(threadID, userID, permissions)
+}
+
+// GetContractValidator returns the contract validator service
+func (s *ThreadService) GetContractValidator() interfaces.ContractValidator {
+	return s.contractValidator
 }

@@ -52,6 +52,22 @@ func (r *ContractRepository) Update(ctx context.Context, contractID string, desc
 	return &contract, err
 }
 
+func (r *ContractRepository) GetByNameAndOwner(ctx context.Context, contractName, ownerID string) (*models.Contract, error) {
+	query := `
+		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
+		FROM contracts WHERE name = $1 AND owner_id = $2 AND is_deleted = false
+	`
+
+	var contract models.Contract
+	err := r.pool.QueryRow(ctx, query, contractName, ownerID).Scan(
+		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
+		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
+		&contract.CreatedAt, &contract.UpdatedAt,
+	)
+
+	return &contract, err
+}
+
 func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
 	query := `
 		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at

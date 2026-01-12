@@ -112,7 +112,7 @@ func (r *ScopeResolver) ResolveScope(
 		return r.config.NotificationSystem.DefaultScope, nil
 	}
 
-	contract, err := r.contractGraphRepo.Get(ctx, *thread.ContractID, *thread.ContractVersion)
+	contract, err := r.contractGraphRepo.Get(ctx, *thread.ContractID, *thread.ContractVersion, thread.OwnerID)
 	if err != nil {
 		// If can't get contract, use system default
 		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, contract not found)\n",

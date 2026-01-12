@@ -1,6 +1,8 @@
 package graphql
 
 import (
+	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 )
@@ -15,13 +17,17 @@ type Resolver struct {
 	stepStateRepo       *valkey.StepStateRepository
 	validationRepo      *valkey.ValidationRepository
 	threadAccessService *service.ThreadAccessService
+	contractValidator   interfaces.ContractValidator
+	contractRepo        *postgres.ContractRepository
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, threadAccessService *service.ThreadAccessService) *Resolver {
+func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository) *Resolver {
 	return &Resolver{
 		threadRepo:          threadRepo,
 		stepStateRepo:       stepStateRepo,
 		validationRepo:      validationRepo,
 		threadAccessService: threadAccessService,
+		contractValidator:   contractValidator,
+		contractRepo:        contractRepo,
 	}
 }

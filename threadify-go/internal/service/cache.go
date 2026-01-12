@@ -45,22 +45,31 @@ func (c *CacheService) SetThread(threadID string, thread *models.Thread) {
 }
 
 // GetContractGraph retrieves a contract graph from cache
-func (c *CacheService) GetContractGraph(contractID string, version int) (*models.ContractGraph, bool) {
+func (c *CacheService) GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	cacheKey := fmt.Sprintf("%s:v%d", contractID, version)
+	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
 	graph, exists := c.contractCache[cacheKey]
 	return graph, exists
 }
 
 // SetContractGraph stores a contract graph in cache
-func (c *CacheService) SetContractGraph(contractID string, version int, graph *models.ContractGraph) {
+func (c *CacheService) SetContractGraph(contractID string, version int, ownerID string, graph *models.ContractGraph) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	cacheKey := fmt.Sprintf("%s:v%d", contractID, version)
+	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
 	c.contractCache[cacheKey] = graph
+}
+
+// ClearContractCache removes a contract from cache
+func (c *CacheService) ClearContractCache(contractID string, version int, ownerID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
+	delete(c.contractCache, cacheKey)
 }
 
 // ClearThreadCache removes a thread from cache
@@ -69,15 +78,6 @@ func (c *CacheService) ClearThreadCache(threadID string) {
 	defer c.mu.Unlock()
 
 	delete(c.threadCache, threadID)
-}
-
-// ClearContractCache removes a contract graph from cache
-func (c *CacheService) ClearContractCache(contractID string, version int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	cacheKey := fmt.Sprintf("%s:v%d", contractID, version)
-	delete(c.contractCache, cacheKey)
 }
 
 // GetUserPermissions retrieves permissions from in-memory cache

@@ -954,12 +954,315 @@ The SDK communicates with these WebSocket actions:
 
 ---
 
+---
+
+## Data Retrieval API
+
+The SDK provides a powerful GraphQL-based data retrieval system for accessing archived thread data.
+
+### Connection Methods
+
+#### `connection.getThread(threadId)`
+
+Get a thread by ID with access to all its data.
+
+**Parameters:**
+- `threadId` (string, required): Thread ID
+
+**Returns:** `Promise<ArchivedThread>`
+
+**Example:**
+```javascript
+const thread = await connection.getThread('thread-uuid-123');
+console.log(thread.id, thread.status, thread.contractName);
+```
+
+---
+
+#### `connection.getThreadsByRef({ refKey, refValue })`
+
+Find threads by external reference.
+
+**Parameters:**
+- `refKey` (string, required): Reference key (e.g., "orderId")
+- `refValue` (string, required): Reference value (e.g., "ORDER-12345")
+
+**Returns:** `Promise<Array<ArchivedThread>>`
+
+**Example:**
+```javascript
+const threads = await connection.getThreadsByRef({
+  refKey: 'orderId',
+  refValue: 'ORDER-12345'
+});
+
+threads.forEach(thread => {
+  console.log(`Thread ${thread.id} for order ORDER-12345`);
+});
+```
+
+---
+
+### ArchivedThread Methods
+
+#### `thread.steps(filters)`
+
+Get all steps for this thread, optionally filtered.
+
+**Parameters:**
+- `filters` (object, optional):
+  - `stepName` (string): Filter by step name
+  - `idempotencyKey` (string): Filter by idempotency key
+
+**Returns:** `Promise<Array<ArchivedStep>>`
+
+**Example:**
+```javascript
+// Get all steps
+const allSteps = await thread.steps();
+
+// Get specific step by name
+const orderSteps = await thread.steps({ stepName: 'order_placed' });
+
+// Get exact step instance
+const exactStep = await thread.steps({ 
+  stepName: 'order_placed',
+  idempotencyKey: 'order-123'
+});
+```
+
+---
+
+#### `thread.getStep(stepIdentifier)`
+
+Get a specific step by name or "name:idempotencyKey".
+
+**Parameters:**
+- `stepIdentifier` (string, required): Step name or "stepName:idempKey"
+
+**Returns:** `Promise<ArchivedStep>`
+
+**Example:**
+```javascript
+// Get by name (returns first match)
+const step = await thread.getStep('order_placed');
+
+// Get exact instance
+const exactStep = await thread.getStep('order_placed:order-123');
+```
+
+---
+
+#### `thread.validationResults(options)`
+
+Get validation results for this thread.
+
+**Parameters:**
+- `options` (object, optional):
+  - `limit` (number): Maximum results to return
+  - `stepName` (string): Filter by step name
+  - `validationType` (string): Filter by validation type
+
+**Returns:** `Promise<Array<ValidationResult>>`
+
+**Example:**
+```javascript
+const validations = await thread.validationResults({ limit: 10 });
+
+validations.forEach(val => {
+  console.log(`${val.stepName}: ${val.overallStatus}`);
+  console.log(`  Critical: ${val.criticalCount}, Warnings: ${val.warningCount}`);
+});
+```
+
+---
+
+#### `thread.getCompleteData(options)` ⭐ **NEW**
+
+Get complete thread picture with all nested data in a **single GraphQL query**. This is the most efficient way to retrieve all thread data.
+
+**Parameters:**
+- `options` (object, optional):
+  - `stepHistoryLimit` (number): Limit for step history per step (default: 50)
+  - `validationLimit` (number): Limit for validation results (default: 10)
+  - `stepName` (string): Filter steps by name
+  - `idempotencyKey` (string): Filter steps by idempotency key
+
+**Returns:** `Promise<Object>` with structure:
+```javascript
+{
+  id, contractId, contractVersion, contractName,
+  ownerId, companyId, status, lastHash, refs,
+  startedAt, completedAt, error,
+  steps: [{
+    threadId, stepName, idempotencyKey, status,
+    retryCount, firstSeenAt, lastUpdatedAt,
+    latestStepID, previousStep,
+    history: [{ attempt, timestamp, status, context, duration, error }]
+  }],
+  validationResults: [{
+    validationId, threadId, stepId, stepName,
+    idempotencyKey, timestamp, overallStatus,
+    hasCriticalViolation, criticalCount, warningCount,
+    validations: [{ type, message, field, expected, actual, rule }]
+  }]
+}
+```
+
+**Example:**
+```javascript
+// Get everything in one query
+const completeData = await thread.getCompleteData({
+  stepHistoryLimit: 50,
+  validationLimit: 10
+});
+
+console.log('Thread:', completeData.id);
+console.log('Steps:', completeData.steps.length);
+
+completeData.steps.forEach(step => {
+  console.log(`  ${step.stepName}: ${step.status}`);
+  console.log(`    History: ${step.history.length} attempts`);
+});
+
+console.log('Validations:', completeData.validationResults.length);
+```
+
+**Benefits:**
+- ✅ Single network request (much faster)
+- ✅ Atomic data snapshot
+- ✅ Reduced server load
+- ✅ Perfect for dashboards and audit trails
+
+---
+
+### ArchivedStep Methods
+
+#### `step.history(options)`
+
+Get execution history for this step.
+
+**Parameters:**
+- `options` (object, optional):
+  - `limit` (number): Maximum records (default: 100)
+  - `offset` (number): Pagination offset (default: 0)
+  - `startAt` (string): ISO timestamp to filter from
+  - `endAt` (string): ISO timestamp to filter to
+  - `activityType` (string): Filter by activity type
+  - `actor` (string): Filter by actor
+
+**Returns:** `Promise<Array<StepHistory>>`
+
+**Example:**
+```javascript
+const step = await thread.getStep('order_placed');
+
+// Get all history
+const history = await step.history({ limit: 100 });
+
+// Get filtered history
+const recentHistory = await step.history({
+  limit: 10,
+  activityType: 'step_recorded',
+  startAt: '2026-01-01T00:00:00Z'
+});
+
+history.forEach(record => {
+  console.log(`Attempt ${record.attempt}: ${record.status} at ${record.timestamp}`);
+  console.log(`  Duration: ${record.duration}ms`);
+});
+```
+
+---
+
+## Data Retrieval Examples
+
+### Example 1: Complete Thread Audit Trail
+
+```javascript
+import { Threadify } from 'threadify-sdk';
+
+const connection = await Threadify.connect('api-key', 'audit-service');
+
+// Get complete thread picture in one query
+const thread = await connection.getThread('thread-uuid');
+const completeData = await thread.getCompleteData({
+  stepHistoryLimit: 100,
+  validationLimit: 50
+});
+
+// Generate audit report
+console.log('=== Thread Audit Report ===');
+console.log(`Thread ID: ${completeData.id}`);
+console.log(`Contract: ${completeData.contractName} v${completeData.contractVersion}`);
+console.log(`Status: ${completeData.status}`);
+console.log(`Duration: ${new Date(completeData.completedAt) - new Date(completeData.startedAt)}ms`);
+
+console.log('\n=== Steps ===');
+completeData.steps.forEach(step => {
+  console.log(`\n${step.stepName}:${step.idempotencyKey}`);
+  console.log(`  Status: ${step.status}`);
+  console.log(`  Retries: ${step.retryCount}`);
+  console.log(`  History:`);
+  step.history.forEach(h => {
+    console.log(`    ${h.timestamp}: ${h.status} (${h.duration}ms)`);
+  });
+});
+
+console.log('\n=== Validations ===');
+completeData.validationResults.forEach(val => {
+  if (val.hasCriticalViolation) {
+    console.log(`❌ ${val.stepName}: ${val.criticalCount} critical issues`);
+  }
+});
+```
+
+### Example 2: Find Threads by Order ID
+
+```javascript
+// Find all threads for a specific order
+const threads = await connection.getThreadsByRef({
+  refKey: 'orderId',
+  refValue: 'ORDER-12345'
+});
+
+console.log(`Found ${threads.length} threads for order ORDER-12345`);
+
+for (const thread of threads) {
+  const data = await thread.getCompleteData();
+  console.log(`Thread ${data.id}: ${data.status}`);
+  console.log(`  Steps: ${data.steps.length}`);
+  console.log(`  Started: ${data.startedAt}`);
+}
+```
+
+### Example 3: Step-Level Analysis
+
+```javascript
+const thread = await connection.getThread('thread-uuid');
+const step = await thread.getStep('payment_processing');
+
+// Get detailed history
+const history = await step.history({ limit: 50 });
+
+console.log(`Payment Processing - ${history.length} attempts`);
+
+const failures = history.filter(h => h.status === 'failed');
+console.log(`Failed attempts: ${failures.length}`);
+
+failures.forEach(f => {
+  console.log(`  ${f.timestamp}: ${f.error}`);
+});
+```
+
+---
+
 ## Support
 
 For issues, questions, or contributions:
 - GitHub: [ThreadifyEngine Repository]
 - Documentation: This file
-- Examples: See `/tests/e2e-validation.test.js`
+- Examples: See `/tests/e2e-data-retrieval.test.js`
 
 ---
 

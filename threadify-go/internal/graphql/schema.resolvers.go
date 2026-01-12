@@ -16,25 +16,42 @@ import (
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
 
-// getUserInfoFromContext extracts user info from GraphQL context
-func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role string, err error) {
-	ownerIDVal := ctx.Value("ownerID")
-	companyIDVal := ctx.Value("companyID")
-	roleVal := ctx.Value("role")
-
-	if ownerIDVal == nil || companyIDVal == nil || roleVal == nil {
-		return "", "", "", fmt.Errorf("user authentication context not found")
+// Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
+func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error) {
+	// Convert map[string]GraphNode to []*GraphNode array for GraphQL
+	nodes := make([]*models.GraphNode, 0, len(obj.Nodes))
+	for _, node := range obj.Nodes {
+		// Create a copy to avoid pointer issues
+		nodeCopy := node
+		nodes = append(nodes, &nodeCopy)
 	}
+	return nodes, nil
+}
 
-	ownerID, ok1 := ownerIDVal.(string)
-	companyID, ok2 := companyIDVal.(string)
-	role, ok3 := roleVal.(string)
-
-	if !ok1 || !ok2 || !ok3 {
-		return "", "", "", fmt.Errorf("invalid user authentication context types")
+// BusinessContext is the resolver for the businessContext field.
+func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error) {
+	if obj.BusinessContext == nil {
+		return nil, nil
 	}
+	businessContextJSON, err := json.Marshal(obj.BusinessContext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal businessContext: %w", err)
+	}
+	businessContextStr := string(businessContextJSON)
+	return &businessContextStr, nil
+}
 
-	return ownerID, companyID, role, nil
+// RoleDefaults is the resolver for the roleDefaults field.
+func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
+	if obj.RoleDefaults == nil {
+		return nil, nil
+	}
+	roleDefaultsJSON, err := json.Marshal(obj.RoleDefaults)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal roleDefaults: %w", err)
+	}
+	roleDefaultsStr := string(roleDefaultsJSON)
+	return &roleDefaultsStr, nil
 }
 
 // Thread is the resolver for the thread field.
@@ -45,9 +62,12 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
+	fmt.Printf("[GraphQL DEBUG] Querying thread %s with ownerID %s\n", id, ownerID)
+
 	// Use the cached repository for thread retrieval
 	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
 	if err != nil {
+		fmt.Printf("[GraphQL DEBUG] Thread %s not found in cache: %v\n", id, err)
 		// Return user-friendly error without exposing internal details
 		if apperrors.IsNotFound(err) {
 			return nil, err // Already wrapped with user-friendly message
@@ -56,6 +76,8 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, apperrors.NewInternalError(apperrors.MsgInternalError, err)
 	}
 
+	fmt.Printf("[GraphQL DEBUG] Found thread %s with ownerID %s\n", thread.ID, thread.OwnerID)
+
 	// Enhanced access control: Check if user has read permission for this thread
 	// This supports both ownership and invitation-based access
 	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
@@ -63,6 +85,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("failed to verify thread access: %w", err)
 	}
 	if !hasAccess {
+		fmt.Printf("[GraphQL DEBUG] Access denied: ownerID %s cannot access thread %s owned by %s\n", ownerID, thread.ID, thread.OwnerID)
 		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 	}
 
@@ -114,6 +137,31 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 	}
 
 	return threads, nil
+}
+
+// ContractGraph is the resolver for the contractGraph field.
+func (r *queryResolver) ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error) {
+	// Get user info from context for authentication check
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Handle null version - default to 0 (latest version)
+	ver := 0
+	if version != nil {
+		ver = *version
+	}
+
+	// Use ContractValidationService to get contract graph with three-tier fallback
+	// version=0 will resolve to latest version automatically
+	graph, err := r.contractValidator.GetContractGraph(name, ver, ownerID)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to load contract graph", err)
+	}
+
+	// No additional access control needed - GetContractGraph now handles ownership validation
+	return graph, nil
 }
 
 // StepHistory is the resolver for the stepHistory field.
@@ -345,6 +393,17 @@ func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *model
 	return obj.Timestamp.Format(time.RFC3339), nil
 }
 
+// Graph returns generated.GraphResolver implementation.
+func (r *Resolver) Graph() generated.GraphResolver { return &graphResolver{r} }
+
+// GraphNode returns generated.GraphNodeResolver implementation.
+func (r *Resolver) GraphNode() generated.GraphNodeResolver { return &graphNodeResolver{r} }
+
+// NotificationConfig returns generated.NotificationConfigResolver implementation.
+func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
+	return &notificationConfigResolver{r}
+}
+
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
@@ -359,6 +418,9 @@ func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver
 	return &validationResultInfoResolver{r}
 }
 
+type graphResolver struct{ *Resolver }
+type graphNodeResolver struct{ *Resolver }
+type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
