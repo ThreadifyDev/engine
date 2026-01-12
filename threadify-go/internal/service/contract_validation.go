@@ -83,11 +83,11 @@ func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNod
 }
 
 // GetContractGraph retrieves contract graph from cache first, then Valkey, then PostgreSQL as fallback
-func (v *ContractValidationService) GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, error) {
+func (v *ContractValidationService) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
 	// Normalize version: if 0, we need to look up the latest version first
 	targetVersion := version
 	if version == 0 && v.contractRepo != nil {
-		contract, err := v.contractRepo.GetByNameAndOwner(context.Background(), contractID, ownerID)
+		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
 		if err == nil {
 			targetVersion = contract.LatestVersion
 		}
@@ -95,24 +95,25 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 	}
 
 	// Tier 1: Check memory cache first (use targetVersion for lookup)
-	if graph, exists := v.cacheManager.GetContractGraph(contractID, targetVersion, ownerID); exists {
+	if graph, exists := v.cacheManager.GetContractGraph(contractName, targetVersion, companyID); exists {
 		return graph, nil
 	}
 
 	// Tier 2: Check Valkey cache (use targetVersion for lookup)
-	graph, err := v.graphRepo.Get(context.Background(), contractID, targetVersion, ownerID)
+	graph, err := v.graphRepo.Get(context.Background(), contractName, targetVersion, companyID)
 	if err == nil {
 		// Cache the graph from Valkey in memory for future use
-		v.cacheManager.SetContractGraph(contractID, targetVersion, ownerID, graph)
+		v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, graph)
 		return graph, nil
 	}
 
 	// Tier 3: Load from PostgreSQL if not in Valkey (only if contract repo is available)
 	if v.contractRepo != nil {
-		// Look up the contract by name and owner to get its UUID and latest version
-		contract, err := v.contractRepo.GetByNameAndOwner(context.Background(), contractID, ownerID)
+		// Look up the contract by name and company to get its UUID and latest version
+		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to find contract by name '%s' for owner '%s': %w", contractID, ownerID, err)
+			// Error is already sanitized by repository layer
+			return nil, err
 		}
 
 		// If version is 0, use the latest version from the contract
@@ -123,12 +124,13 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 		// Get the specific version
 		contractVersion, err := v.contractRepo.GetVersion(context.Background(), contract.ID, targetVersion)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load contract version %d from PostgreSQL: %w", targetVersion, err)
+			// Error is already sanitized by repository layer
+			return nil, err
 		}
 
 		// Parse the graph from JSON in the contract version
 		if len(contractVersion.Graph) == 0 {
-			return nil, fmt.Errorf("no graph found in contract version %s v%d", contractID, version)
+			return nil, fmt.Errorf("no graph found in contract version %s v%d", contractName, version)
 		}
 
 		// Unmarshal the entire ContractGraph (including Transitions)
@@ -140,26 +142,26 @@ func (v *ContractValidationService) GetContractGraph(contractID string, version 
 
 		// Store in both Valkey and memory caches for future use
 		// Use targetVersion for caching, not the input version (which might be 0)
-		if err := v.graphRepo.Save(context.Background(), contractID, targetVersion, ownerID, &loadedGraph); err != nil {
+		if err := v.graphRepo.Save(context.Background(), contractName, targetVersion, companyID, &loadedGraph); err != nil {
 			// Log error but don't fail - we still have the graph
 			fmt.Printf("Warning: failed to cache contract graph in Valkey: %v\n", err)
 		}
 
-		v.cacheManager.SetContractGraph(contractID, targetVersion, ownerID, &loadedGraph)
+		v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, &loadedGraph)
 		return &loadedGraph, nil
 	}
 
 	// No PostgreSQL repository available, return the original error from Valkey
-	return nil, fmt.Errorf("contract graph not found in Valkey and no PostgreSQL repository available: %s v%d", contractID, version)
+	return nil, fmt.Errorf("contract graph not found in Valkey and no PostgreSQL repository available: %s v%d", contractName, version)
 }
 
 // LoadContractGraphIntoCache preloads a contract graph into the cache using three-tier strategy
 // Returns the actual version that was loaded (resolves version 0 to latest)
-func (v *ContractValidationService) LoadContractGraphIntoCache(contractID string, version int, ownerID string) (int, error) {
+func (v *ContractValidationService) LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error) {
 	// Normalize version: if 0, we need to look up the latest version first
 	targetVersion := version
 	if version == 0 && v.contractRepo != nil {
-		contract, err := v.contractRepo.GetByNameAndOwner(context.Background(), contractID, ownerID)
+		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
 		if err == nil {
 			targetVersion = contract.LatestVersion
 		}
@@ -167,11 +169,11 @@ func (v *ContractValidationService) LoadContractGraphIntoCache(contractID string
 	}
 
 	// Check if already cached - don't reload if exists
-	if _, exists := v.cacheManager.GetContractGraph(contractID, targetVersion, ownerID); exists {
+	if _, exists := v.cacheManager.GetContractGraph(contractName, targetVersion, companyID); exists {
 		return targetVersion, nil
 	}
 
 	// Use GetContractGraph which implements the three-tier caching strategy
-	_, err := v.GetContractGraph(contractID, version, ownerID)
+	_, err := v.GetContractGraph(contractName, version, companyID)
 	return targetVersion, err
 }

@@ -63,7 +63,7 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	}
 
 	// Return error for unknown API keys
-	return nil, fmt.Errorf("invalid API key: %s", apiKey)
+	return nil, fmt.Errorf("invalid API key")
 }
 
 func (s *AuthService) CreateToken(userID string, claims map[string]interface{}) (string, error) {
@@ -87,13 +87,13 @@ func (s *AuthService) CreateToken(userID string, claims map[string]interface{}) 
 func (s *AuthService) VerifyToken(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("invalid token")
 		}
 		return s.secret, nil
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {

@@ -14,18 +14,22 @@ type PostgresDB struct {
 func NewPostgresDB(connString string, maxConns int) (*PostgresDB, error) {
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		// Log internally but don't expose connection string details
+		fmt.Printf("Failed to parse database config: %v\n", err)
+		return nil, fmt.Errorf("failed to configure database connection")
 	}
 
 	config.MaxConns = int32(maxConns)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
-		return nil, fmt.Errorf("create pool: %w", err)
+		fmt.Printf("Failed to create database pool: %v\n", err)
+		return nil, fmt.Errorf("failed to connect to database")
 	}
 
 	if err := pool.Ping(context.Background()); err != nil {
-		return nil, fmt.Errorf("ping: %w", err)
+		fmt.Printf("Failed to ping database: %v\n", err)
+		return nil, fmt.Errorf("failed to connect to database")
 	}
 
 	return &PostgresDB{Pool: pool}, nil
@@ -40,6 +44,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
 		name VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
 		description TEXT NOT NULL,
 		content_hash VARCHAR(64),
 		latest_version INT NOT NULL DEFAULT 1,
@@ -47,15 +52,20 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		is_public BOOLEAN NOT NULL DEFAULT FALSE,
 		is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id)
 	);
 
+	-- Add company_id column if it doesn't exist (for existing databases)
+	ALTER TABLE contracts ADD COLUMN IF NOT EXISTS company_id VARCHAR(255);
+	
 	-- Drop old constraint if it exists
 	ALTER TABLE contracts DROP CONSTRAINT IF EXISTS unique_contract_name;
+	DROP INDEX IF EXISTS idx_contracts_name_owner_active;
 	
-	-- Create partial unique index that only applies to non-deleted contracts
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_name_owner_active 
-		ON contracts(name, owner_id) 
+	-- Create partial unique index on (name, company_id) for non-deleted contracts
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_name_company_active 
+		ON contracts(name, company_id) 
 		WHERE is_deleted = false;
 
 	CREATE TABLE IF NOT EXISTS contract_versions (
@@ -96,6 +106,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE TABLE IF NOT EXISTS threads (
 		id VARCHAR(255) PRIMARY KEY,
 		contract_id VARCHAR(255),
+		contract_name VARCHAR(255),
 		contract_version INT,
 		owner_id VARCHAR(255) NOT NULL,
 		company_id VARCHAR(255) NOT NULL,
@@ -106,8 +117,12 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (company_id) REFERENCES companies(id)
 	);
 
+	-- Add contract_name column if it doesn't exist (for existing databases)
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
+
 	CREATE INDEX IF NOT EXISTS idx_threads_owner_id ON threads(owner_id);
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
+	CREATE INDEX IF NOT EXISTS idx_threads_contract_name ON threads(contract_name);
 	CREATE INDEX IF NOT EXISTS idx_threads_created_at ON threads(created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS thread_refs (

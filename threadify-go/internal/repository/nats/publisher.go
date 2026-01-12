@@ -101,6 +101,11 @@ func (p *Publisher) shouldReceiveNotification(notification models.ValidationNoti
 		return contains(permissions, "completions") || contains(permissions, "all_completions")
 	}
 
+	// Failed/Error notifications (status = "failed" or "error")
+	if notification.Status == "failed" || notification.Status == "error" {
+		return contains(permissions, "failures") || contains(permissions, "all_failures") || contains(permissions, "all_violations")
+	}
+
 	// Critical violations
 	if notification.Severity == string(models.SeverityCritical) {
 		return contains(permissions, "critical_violations") || contains(permissions, "all_violations")

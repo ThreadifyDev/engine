@@ -130,11 +130,12 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 	// Upsert thread metadata
 	query := `
 		INSERT INTO threads (
-			id, company_id, contract_id, contract_version, owner_id, error, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			id, company_id, contract_id, contract_name, contract_version, owner_id, error, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (id) DO UPDATE SET
 			company_id = EXCLUDED.company_id,
 			contract_id = EXCLUDED.contract_id,
+			contract_name = EXCLUDED.contract_name,
 			contract_version = EXCLUDED.contract_version,
 			error = EXCLUDED.error,
 			updated_at = EXCLUDED.updated_at
@@ -152,6 +153,7 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			event.Data["threadId"],  // Use threadId instead of id
 			event.Data["companyId"], // Add company_id from stream data
 			event.Data["contractId"],
+			event.Data["contractName"], // Add contract_name from stream data
 			event.Data["contractVersion"],
 			event.Data["ownerId"],
 			error,                   // Error field (optional)

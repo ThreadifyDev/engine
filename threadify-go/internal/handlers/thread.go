@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -182,6 +184,23 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &ackMsg)
 		response = h.handleNotificationAck(session, &ackMsg)
 
+	case "subscribe":
+		var req struct {
+			Action     string   `json:"action"`
+			StepName   string   `json:"stepName"`
+			EventTypes []string `json:"eventTypes"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleSubscribe(session, &req)
+
+	case "unsubscribe":
+		var req struct {
+			Action   string `json:"action"`
+			StepName string `json:"stepName"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleUnsubscribe(session, &req)
+
 	default:
 		response = models.ErrorResponse{
 			Action:  "error",
@@ -310,6 +329,179 @@ func (h *WebSocketHandler) unsubscribeFromNotifications(session *Session) {
 		session.notificationHandler = nil
 	}
 	session.mu.Unlock()
+}
+
+// handleSubscribe handles subscription requests from clients
+// Accepts stepName in format "stepName" or "contract@stepName"
+// Accepts eventTypes array: ["violation", "completed", "failed"] or empty for all
+func (h *WebSocketHandler) handleSubscribe(session *Session, req *struct {
+	Action     string   `json:"action"`
+	StepName   string   `json:"stepName"`
+	EventTypes []string `json:"eventTypes"`
+}) interface{} {
+	if req.StepName == "" {
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: "Step name is required",
+		}
+	}
+
+	if h.notificationRouter == nil {
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: "Notification router not available",
+		}
+	}
+
+	h.notificationRouter.mu.RLock()
+	client, exists := h.notificationRouter.clients[session.clientID]
+	h.notificationRouter.mu.RUnlock()
+
+	if !exists {
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: "Client not registered",
+		}
+	}
+
+	// Parse "contract@stepName" format
+	var contractName, stepName string
+	if strings.Contains(req.StepName, "@") {
+		parts := strings.SplitN(req.StepName, "@", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return models.ErrorResponse{
+				Action:  "subscribe",
+				Status:  "error",
+				Message: "Invalid format. Use 'stepName' or 'contract@stepName'",
+			}
+		}
+		contractName = parts[0]
+		stepName = parts[1]
+	} else {
+		stepName = req.StepName
+		contractName = ""
+	}
+
+	// Validate event types
+	validEventTypes := map[string]bool{"violation": true, "completed": true, "failed": true}
+	for _, et := range req.EventTypes {
+		if !validEventTypes[et] {
+			return models.ErrorResponse{
+				Action:  "subscribe",
+				Status:  "error",
+				Message: fmt.Sprintf("Invalid event type: %s. Valid: violation, completed, failed", et),
+			}
+		}
+	}
+
+	// Deduplicate event types
+	eventTypesMap := make(map[string]bool)
+	for _, et := range req.EventTypes {
+		eventTypesMap[et] = true
+	}
+	uniqueEventTypes := make([]string, 0, len(eventTypesMap))
+	for et := range eventTypesMap {
+		uniqueEventTypes = append(uniqueEventTypes, et)
+	}
+
+	// Use full stepName as key (includes contract if present)
+	subscriptionKey := req.StepName
+
+	// Merge with existing subscription
+	client.mu.Lock()
+	if client.Subscriptions == nil {
+		client.Subscriptions = make(map[string]*ClientSubscription)
+	}
+
+	if existing, exists := client.Subscriptions[subscriptionKey]; exists {
+		// Merge event types
+		mergedMap := make(map[string]bool)
+		for _, et := range existing.EventTypes {
+			mergedMap[et] = true
+		}
+		for _, et := range uniqueEventTypes {
+			mergedMap[et] = true
+		}
+		merged := make([]string, 0, len(mergedMap))
+		for et := range mergedMap {
+			merged = append(merged, et)
+		}
+		existing.EventTypes = merged
+	} else {
+		client.Subscriptions[subscriptionKey] = &ClientSubscription{
+			StepName:     stepName,
+			ContractName: contractName,
+			EventTypes:   uniqueEventTypes,
+		}
+	}
+	client.mu.Unlock()
+
+	contractInfo := "all contracts"
+	if contractName != "" {
+		contractInfo = fmt.Sprintf("contract=%s", contractName)
+	}
+	eventInfo := "all events"
+	if len(uniqueEventTypes) > 0 {
+		eventInfo = fmt.Sprintf("events=%v", uniqueEventTypes)
+	}
+	log.Printf("[SUBSCRIBE] Client %s subscribed to step=%s, %s, %s",
+		session.clientID, stepName, contractInfo, eventInfo)
+
+	return map[string]interface{}{
+		"action":  "subscribe",
+		"status":  "success",
+		"message": fmt.Sprintf("Subscribed to %s", req.StepName),
+	}
+}
+
+// handleUnsubscribe handles unsubscribe requests from clients (internal cleanup)
+func (h *WebSocketHandler) handleUnsubscribe(session *Session, req *struct {
+	Action   string `json:"action"`
+	StepName string `json:"stepName"`
+}) interface{} {
+	if req.StepName == "" {
+		return models.ErrorResponse{
+			Action:  "unsubscribe",
+			Status:  "error",
+			Message: "Step name is required",
+		}
+	}
+
+	if h.notificationRouter == nil {
+		return models.ErrorResponse{
+			Action:  "unsubscribe",
+			Status:  "error",
+			Message: "Notification router not available",
+		}
+	}
+
+	h.notificationRouter.mu.RLock()
+	client, exists := h.notificationRouter.clients[session.clientID]
+	h.notificationRouter.mu.RUnlock()
+
+	if !exists {
+		return models.ErrorResponse{
+			Action:  "unsubscribe",
+			Status:  "error",
+			Message: "Client not registered",
+		}
+	}
+
+	// Remove subscription using full key
+	client.mu.Lock()
+	delete(client.Subscriptions, req.StepName)
+	client.mu.Unlock()
+
+	log.Printf("[UNSUBSCRIBE] Client %s unsubscribed from %s", session.clientID, req.StepName)
+
+	return map[string]interface{}{
+		"action":  "unsubscribe",
+		"status":  "success",
+		"message": fmt.Sprintf("Unsubscribed from %s", req.StepName),
+	}
 }
 
 // handleNotificationAck handles ACK messages from clients

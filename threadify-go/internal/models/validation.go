@@ -59,7 +59,8 @@ type ValidationNotification struct {
 	ThreadID       string `json:"threadId"`
 	StepID         string `json:"stepId"`
 	StepName       string `json:"stepName"`
-	OwnerID        string `json:"ownerId"` // Who published the step
+	OwnerID        string `json:"ownerId"`      // Who published the step
+	ContractName   string `json:"contractName"` // Contract name (empty for non-contract threads)
 
 	// Status (always present)
 	StepStatus string `json:"stepStatus"` // User's set status: "success", "failed", "error"

@@ -67,12 +67,41 @@ func (s *NotificationService) PerformAsyncValidation(
 		// If no contract, send immediate success notification (can't validate)
 		if graph == nil {
 			var notifStatus, message string
+			contractName := ""
+
+			// Get contract name from thread if available
+			if thread != nil {
+				contractName = thread.ContractName
+			}
+
 			if req.Status == "success" {
 				notifStatus = "passed"
-				message = fmt.Sprintf("Step '%s' completed successfully (no contract)", stepName)
+				if contractName != "" {
+					message = fmt.Sprintf("Step '%s' completed successfully", stepName)
+				} else {
+					message = fmt.Sprintf("Step '%s' completed successfully (no contract)", stepName)
+				}
+			} else if req.Status == "failed" {
+				notifStatus = "failed"
+				if contractName != "" {
+					message = fmt.Sprintf("Step '%s' failed", stepName)
+				} else {
+					message = fmt.Sprintf("Step '%s' failed (no contract)", stepName)
+				}
+			} else if req.Status == "error" {
+				notifStatus = "error"
+				if contractName != "" {
+					message = fmt.Sprintf("Step '%s' encountered an error", stepName)
+				} else {
+					message = fmt.Sprintf("Step '%s' encountered an error (no contract)", stepName)
+				}
 			} else {
 				notifStatus = "none"
-				message = fmt.Sprintf("Step '%s' recorded with status '%s' (no contract)", stepName, req.Status)
+				if contractName != "" {
+					message = fmt.Sprintf("Step '%s' recorded with status '%s'", stepName, req.Status)
+				} else {
+					message = fmt.Sprintf("Step '%s' recorded with status '%s' (no contract)", stepName, req.Status)
+				}
 			}
 
 			immediateNotif := models.ValidationNotification{
@@ -81,6 +110,7 @@ func (s *NotificationService) PerformAsyncValidation(
 				StepID:         stepID,
 				StepName:       stepName,
 				OwnerID:        ownerID,
+				ContractName:   contractName,
 				StepStatus:     req.Status,
 				Status:         notifStatus,
 				ViolationType:  "",
@@ -162,6 +192,7 @@ func (s *NotificationService) performNonBlockingValidations(
 			StepID:         stepID,
 			StepName:       req.StepName,
 			OwnerID:        ownerID,
+			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
 			Status:         "violated",
 			ViolationType:  string(models.ViolationStepTimeoutExceeded),
@@ -187,6 +218,7 @@ func (s *NotificationService) performNonBlockingValidations(
 			StepID:         stepID,
 			StepName:       req.StepName,
 			OwnerID:        ownerID,
+			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
 			Status:         "violated",
 			ViolationType:  string(models.ViolationMaxDurationExceeded),
@@ -223,6 +255,7 @@ func (s *NotificationService) performNonBlockingValidations(
 				StepID:         stepID,
 				StepName:       req.StepName,
 				OwnerID:        ownerID,
+				ContractName:   thread.ContractName,
 				StepStatus:     req.Status,
 				Status:         "violated",
 				ViolationType:  string(models.ViolationMissingOptionalField),
@@ -424,6 +457,7 @@ func (s *NotificationService) processValidationNotifications(
 		StepID:         stepID,
 		StepName:       stepName,
 		OwnerID:        ownerID,
+		ContractName:   thread.ContractName,
 		StepStatus:     originalStatus,
 		Status:         finalStatus,
 		ViolationType:  violationType,
@@ -451,6 +485,7 @@ func (s *NotificationService) processValidationNotifications(
 			StepID:         stepID,
 			StepName:       stepName,
 			OwnerID:        ownerID,
+			ContractName:   thread.ContractName,
 			StepStatus:     originalStatus,
 			Status:         "passed",
 			ViolationType:  "",

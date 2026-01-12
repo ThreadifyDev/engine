@@ -24,15 +24,23 @@ type PendingNotification struct {
 	mu             sync.Mutex
 }
 
+// ClientSubscription represents a client's subscription to step notifications
+type ClientSubscription struct {
+	StepName     string   // The step name to subscribe to
+	ContractName string   // Optional contract filter (empty = all contracts for this step)
+	EventTypes   []string // Event types: ["violation", "completed", "failed"] (empty = all)
+}
+
 // WebSocketClient represents a connected WebSocket client
 type WebSocketClient struct {
-	ID          string
-	Conn        *websocket.Conn
-	OwnerID     string
-	ThreadIDs   map[string]bool
-	pendingAcks map[string]*PendingNotification // notificationID -> pending
-	mu          sync.RWMutex
-	sendMu      sync.Mutex // Separate mutex for WebSocket writes
+	ID            string
+	Conn          *websocket.Conn
+	OwnerID       string
+	ThreadIDs     map[string]bool
+	Subscriptions map[string]*ClientSubscription  // stepName -> subscription
+	pendingAcks   map[string]*PendingNotification // notificationID -> pending
+	mu            sync.RWMutex
+	sendMu        sync.Mutex // Separate mutex for WebSocket writes
 }
 
 // NotificationRouter manages NATS consumer and routes notifications to WebSocket clients
@@ -123,6 +131,12 @@ func NewNotificationRouter(nc *nats.Conn, podID string) (*NotificationRouter, er
 func (r *NotificationRouter) RegisterClient(client *WebSocketClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Initialize subscriptions map
+	if client.Subscriptions == nil {
+		client.Subscriptions = make(map[string]*ClientSubscription)
+	}
+
 	r.clients[client.ID] = client
 	log.Printf("📱 Registered client: %s (owner: %s)", client.ID, client.OwnerID)
 }
@@ -270,6 +284,13 @@ func (r *NotificationRouter) routeNotification(notification *models.ValidationNo
 			continue
 		}
 
+		// Check if client is subscribed to this notification (contract filtering)
+		if !r.shouldSendToClient(client, notification) {
+			log.Printf("🔕 Client %s not subscribed to step=%s contract=%s, skipping notification %s",
+				clientID, notification.StepName, notification.ContractName, notification.NotificationID)
+			continue
+		}
+
 		if err := client.sendNotification(notification); err != nil {
 			log.Printf("⚠️ Failed to send notification to client %s: %v", clientID, err)
 			continue
@@ -278,7 +299,8 @@ func (r *NotificationRouter) routeNotification(notification *models.ValidationNo
 		// Track pending ACK
 		client.storePendingAck(notification.NotificationID, msg)
 		delivered = true
-		log.Printf("📤 Sent notification %s to client %s", notification.NotificationID, clientID)
+		log.Printf("📤 Sent notification %s to client %s (step=%s, contract=%s)",
+			notification.NotificationID, clientID, notification.StepName, notification.ContractName)
 	}
 
 	if !delivered {
@@ -296,6 +318,53 @@ func containsString(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// shouldSendToClient checks if notification should be sent to this client based on subscriptions
+func (r *NotificationRouter) shouldSendToClient(client *WebSocketClient, notification *models.ValidationNotification) bool {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+
+	// CRITICAL: No subscriptions = receive NOTHING
+	if client.Subscriptions == nil || len(client.Subscriptions) == 0 {
+		return false
+	}
+
+	// Check if client is subscribed to this step
+	sub, exists := client.Subscriptions[notification.StepName]
+	if !exists {
+		return false
+	}
+
+	// Check contract filter
+	if sub.ContractName != "" && sub.ContractName != notification.ContractName {
+		return false
+	}
+
+	// Check event type filter
+	if len(sub.EventTypes) > 0 {
+		var eventType string
+		if notification.Status == "violated" {
+			eventType = "violation"
+		} else if notification.StepStatus == "success" && notification.Status == "passed" {
+			eventType = "completed"
+		} else if notification.StepStatus == "failed" || notification.StepStatus == "error" {
+			eventType = "failed"
+		}
+
+		matched := false
+		for _, et := range sub.EventTypes {
+			if et == eventType {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 // sendNotification sends a notification to the WebSocket client

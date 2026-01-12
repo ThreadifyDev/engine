@@ -211,9 +211,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	if req.ContractName != "" {
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
-		// Load contract graph with parsed name and version
+		// Load contract graph with parsed name and version (uses company_id internally)
 		// This returns the actual version loaded (resolves version 0 to latest)
-		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, ownerID)
+		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, companyID)
 		if err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
@@ -234,8 +234,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 	thread := &models.Thread{
 		ID:           threadID,
-		ContractID:   contractIDPtr,
-		ContractName: req.ContractName,
+		ContractID:   contractIDPtr,      // Store contract name (TODO: migrate to UUID)
+		ContractName: parsedContractName, // Store name for display/filtering
 		OwnerID:      ownerID,
 		CompanyID:    companyID,
 		Status:       "active",
@@ -305,6 +305,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			"ownerId":         ownerID,
 			"companyId":       companyID, // Add company_id to satisfy foreign key constraint
 			"contractId":      contractID,
+			"contractName":    thread.ContractName, // Add contract name for archival
 			"contractVersion": contractVersion,
 			"error":           "", // Initialize with empty error
 			"startedAt":       thread.StartedAt.Format(time.RFC3339),
@@ -532,9 +533,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 			version = *thread.ContractVersion
 		}
 
-		// Get contract graph (three-tier cached)
+		// Get contract graph (three-tier cached) using company_id
 		var err error
-		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, ownerID)
+		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
 		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -1002,7 +1003,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 		version = *thread.ContractVersion
 	}
 
-	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.OwnerID)
+	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
 }
 
 // AssignThreadRole assigns a role to a user in a thread (deprecated - use GrantOrUpdateThreadAccess)

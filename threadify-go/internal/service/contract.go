@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,8 +99,8 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy
 		if err.Error() == "unique_contract_name" {
 			return 400, map[string]string{"message": "Contract with this name already exists"}
 		}
-		// Log the actual database error for debugging but return sanitized message to client
-		fmt.Printf("DATABASE ERROR: Failed to create contract: %v\n", err)
+		// Log internally without exposing to user
+		log.Printf("Failed to create contract: %v", err)
 		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 

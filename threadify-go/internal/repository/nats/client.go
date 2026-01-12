@@ -2,6 +2,7 @@ package nats
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -18,20 +19,23 @@ type Client struct {
 // NewClient creates a new NATS client with JetStream
 func NewClient(cfg *config.NATSConfig) (*Client, error) {
 	// Connect to NATS
-	nc, err := nats.Connect(cfg.URL,
+	nc, err := nats.Connect(
+		cfg.URL,
 		nats.Name(cfg.ClientID),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+		log.Printf("Failed to connect to NATS: %v", err)
+		return nil, fmt.Errorf("failed to connect to message broker")
 	}
 
 	// Create JetStream context
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+		log.Printf("Failed to create JetStream context: %v", err)
+		return nil, fmt.Errorf("failed to initialize message broker")
 	}
 
 	client := &Client{
@@ -43,13 +47,15 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 	// Initialize notification stream
 	if err := client.initializeNotificationStream(); err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to initialize notification stream: %w", err)
+		log.Printf("Failed to initialize notification stream: %v", err)
+		return nil, fmt.Errorf("failed to initialize notifications")
 	}
 
 	// Initialize archival streams
 	if err := client.initializeArchivalStreams(); err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to initialize archival streams: %w", err)
+		log.Printf("Failed to initialize archival streams: %v", err)
+		return nil, fmt.Errorf("failed to initialize archival system")
 	}
 
 	return client, nil

@@ -2,10 +2,13 @@ package postgres
 
 import (
 	"context"
+	"log"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/utils/errors"
 )
 
 type ContractRepository struct {
@@ -23,7 +26,7 @@ func (r *ContractRepository) Create(ctx context.Context, contract *models.Contra
 		RETURNING id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
 	`
 
-	return r.pool.QueryRow(ctx, query,
+	err := r.pool.QueryRow(ctx, query,
 		contract.ID, contract.Name, contract.Description, contract.ContentHash,
 		contract.LatestVersion, contract.OwnerID, contract.IsPublic, contract.IsDeleted,
 		contract.CreatedAt, contract.UpdatedAt,
@@ -32,6 +35,13 @@ func (r *ContractRepository) Create(ctx context.Context, contract *models.Contra
 		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
+
+	if err != nil {
+		log.Printf("DB error in Create(name=%s): %v", contract.Name, err)
+		return errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return nil
 }
 
 func (r *ContractRepository) Update(ctx context.Context, contractID string, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
@@ -49,23 +59,39 @@ func (r *ContractRepository) Update(ctx context.Context, contractID string, desc
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in Update(id=%s): %v", contractID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
-func (r *ContractRepository) GetByNameAndOwner(ctx context.Context, contractName, ownerID string) (*models.Contract, error) {
+func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, contractName, companyID string) (*models.Contract, error) {
 	query := `
-		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE name = $1 AND owner_id = $2 AND is_deleted = false
+		SELECT id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
+		FROM contracts WHERE name = $1 AND company_id = $2 AND is_deleted = false
 	`
 
 	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractName, ownerID).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
+	err := r.pool.QueryRow(ctx, query, contractName, companyID).Scan(
+		&contract.ID, &contract.Name, &contract.CompanyID, &contract.Description, &contract.ContentHash,
 		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in GetByNameAndCompany(name=%s, company=%s): %v", contractName, companyID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
 func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
@@ -81,7 +107,15 @@ func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ow
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in GetByIDAndOwner(id=%s, owner=%s): %v", contractID, ownerID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
 func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
@@ -97,7 +131,15 @@ func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*m
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in GetByID(id=%s): %v", contractID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
 func (r *ContractRepository) GetByName(ctx context.Context, contractName string) (*models.Contract, error) {
@@ -113,7 +155,15 @@ func (r *ContractRepository) GetByName(ctx context.Context, contractName string)
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in GetByName(name=%s): %v", contractName, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
 func (r *ContractRepository) GetByNameSlim(ctx context.Context, contractName string) (*models.Contract, error) {
@@ -127,13 +177,25 @@ func (r *ContractRepository) GetByNameSlim(ctx context.Context, contractName str
 		&contract.ID, &contract.Name, &contract.LatestVersion, &contract.OwnerID,
 	)
 
-	return &contract, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
+		}
+		log.Printf("DB error in GetByNameSlim(name=%s): %v", contractName, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &contract, nil
 }
 
 func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error {
 	query := `UPDATE contracts SET is_deleted = true, updated_at = $1 WHERE id = $2`
 	_, err := r.pool.Exec(ctx, query, updatedAt, contractID)
-	return err
+	if err != nil {
+		log.Printf("DB error in SoftDelete(id=%s): %v", contractID, err)
+		return errors.NewInternalError(errors.MsgInternalError, err)
+	}
+	return nil
 }
 
 func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
@@ -146,7 +208,8 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 
 	rows, err := r.pool.Query(ctx, query, ownerID)
 	if err != nil {
-		return nil, err
+		log.Printf("DB error in GetAllByOwner(owner=%s): %v", ownerID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
 	}
 	defer rows.Close()
 
@@ -159,12 +222,18 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 			&contract.CreatedAt, &contract.UpdatedAt,
 		)
 		if err != nil {
-			return nil, err
+			log.Printf("DB error scanning row in GetAllByOwner: %v", err)
+			return nil, errors.NewInternalError(errors.MsgInternalError, err)
 		}
 		contracts = append(contracts, &contract)
 	}
 
-	return contracts, rows.Err()
+	if err := rows.Err(); err != nil {
+		log.Printf("DB error iterating rows in GetAllByOwner: %v", err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return contracts, nil
 }
 
 // Contract Version operations
@@ -176,7 +245,7 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, version *models.
 		RETURNING id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
 	`
 
-	return r.pool.QueryRow(ctx, query,
+	err := r.pool.QueryRow(ctx, query,
 		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
 		version.ContractID, version.CreatedBy, version.Graph, version.IsDeleted,
 		version.CreatedAt, version.UpdatedAt,
@@ -185,6 +254,13 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, version *models.
 		&version.ContractID, &version.CreatedBy, &version.Graph, &version.IsDeleted,
 		&version.CreatedAt, &version.UpdatedAt,
 	)
+
+	if err != nil {
+		log.Printf("DB error in CreateVersion(contractID=%s, version=%d): %v", version.ContractID, version.Version, err)
+		return errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return nil
 }
 
 func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
@@ -199,7 +275,15 @@ func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, 
 		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 	)
 
-	return &v, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractVersionNotFound, err)
+		}
+		log.Printf("DB error in GetVersion(contractID=%s, version=%d): %v", contractID, version, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &v, nil
 }
 
 func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
@@ -215,7 +299,15 @@ func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID st
 		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 	)
 
-	return &v, err
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, errors.NewNotFoundError(errors.MsgContractVersionNotFound, err)
+		}
+		log.Printf("DB error in GetLatestVersion(contractID=%s): %v", contractID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return &v, nil
 }
 
 func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
@@ -228,7 +320,8 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 
 	rows, err := r.pool.Query(ctx, query, contractID)
 	if err != nil {
-		return nil, err
+		log.Printf("DB error in GetAllVersions(contractID=%s): %v", contractID, err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
 	}
 	defer rows.Close()
 
@@ -240,16 +333,26 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 			&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
 		)
 		if err != nil {
-			return nil, err
+			log.Printf("DB error scanning row in GetAllVersions: %v", err)
+			return nil, errors.NewInternalError(errors.MsgInternalError, err)
 		}
 		versions = append(versions, &v)
 	}
 
-	return versions, rows.Err()
+	if err := rows.Err(); err != nil {
+		log.Printf("DB error iterating rows in GetAllVersions: %v", err)
+		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	}
+
+	return versions, nil
 }
 
 func (r *ContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error {
 	query := `UPDATE contract_versions SET is_deleted = true, updated_at = $1 WHERE contract_id = $2 AND version = $3`
 	_, err := r.pool.Exec(ctx, query, updatedAt, contractID, version)
-	return err
+	if err != nil {
+		log.Printf("DB error in SoftDeleteVersion(contractID=%s, version=%d): %v", contractID, version, err)
+		return errors.NewInternalError(errors.MsgInternalError, err)
+	}
+	return nil
 }

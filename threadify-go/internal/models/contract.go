@@ -8,6 +8,7 @@ import (
 type Contract struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
+	CompanyID     string    `json:"companyId"`
 	Description   string    `json:"description"`
 	ContentHash   *string   `json:"contentHash,omitempty"`
 	LatestVersion int       `json:"latestVersion"`

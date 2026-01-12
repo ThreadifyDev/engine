@@ -91,13 +91,13 @@ func (s *InvitationTokenService) CreateToken(threadID, contractID, userID, role,
 func (s *InvitationTokenService) ValidateToken(tokenString string) (*ThreadInvitationClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &ThreadInvitationClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("invalid token")
 		}
 		return []byte(s.secretKey), nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	if claims, ok := token.Claims.(*ThreadInvitationClaims); ok && token.Valid {
