@@ -733,7 +733,8 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	// Get contract graph to validate role exists in contract parties
 	contractGraph, err := s.GetContractGraphForThread(thread)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get contract graph: %v", err)
+		log.Printf("Failed to get contract graph for thread %s: %v", threadID, err)
+		return nil, fmt.Errorf("failed to load contract configuration")
 	}
 
 	// Validate role exists in contract parties
@@ -760,7 +761,8 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	// Create JWT token
 	threadToken, err := s.invitationService.CreateToken(threadID, contractID, ownerID, req.Role, permissions, expiry)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create invitation token: %v", err)
+		log.Printf("Failed to create invitation token: %v", err)
+		return nil, fmt.Errorf("failed to create invitation token")
 	}
 
 	return &models.InvitePartyResponse{
@@ -785,7 +787,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 		// Validate JWT token and extract claims
 		claims, err := s.invitationService.ValidateToken(req.ThreadToken)
 		if err != nil {
-			return nil, fmt.Errorf("invalid thread token: %v", err)
+			return nil, fmt.Errorf("invalid thread token")
 		}
 
 		threadID = claims.ThreadID
@@ -853,7 +855,8 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 	// For join: not creator, no explicit scope (will use contract defaults or system default)
 	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, permissions, invitedBy, false, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to grant access: %v", err)
+		log.Printf("Failed to grant access for user %s to thread %s: %v", ownerID, threadID, err)
+		return nil, fmt.Errorf("failed to grant access")
 	}
 
 	return &models.JoinThreadResponse{
