@@ -139,6 +139,68 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 	return threads, nil
 }
 
+// ThreadChain is the resolver for the threadChain field.
+func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Set default max depth
+	depthVal := 3
+	if maxDepth != nil {
+		depthVal = *maxDepth
+		if depthVal <= 0 || depthVal > 10 {
+			return nil, fmt.Errorf("maxDepth must be between 1 and 10")
+		}
+	}
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Get thread refs repository
+	refsRepo := postgresRepo.GetThreadRefsRepo()
+	if refsRepo == nil {
+		return nil, apperrors.NewInternalError("Thread refs repository not available", nil)
+	}
+
+	// Get the chain of thread IDs
+	threadIDs, err := refsRepo.GetThreadChain(ctx, rootID, depthVal)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
+	}
+
+	if len(threadIDs) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Load each thread with refs and check access
+	threads := make([]*models.Thread, 0, len(threadIDs))
+	for _, threadID := range threadIDs {
+		// Load thread with refs
+		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
+		if err != nil {
+			// Skip threads that can't be loaded (may have been deleted)
+			continue
+		}
+
+		// Check if user has read permission
+		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+		if err != nil || !hasAccess {
+			// Skip threads user doesn't have access to
+			continue
+		}
+
+		threads = append(threads, thread)
+	}
+
+	return threads, nil
+}
+
 // ContractGraph is the resolver for the contractGraph field.
 func (r *queryResolver) ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error) {
 	// Get user info from context for authentication check
@@ -386,6 +448,68 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 	}
 
 	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, obj.ID, options)
+}
+
+// ThreadChain is the resolver for the threadChain field on Thread type.
+func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error) {
+	// Get user info from context
+	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Set default max depth
+	depthVal := 3
+	if maxDepth != nil {
+		depthVal = *maxDepth
+		if depthVal <= 0 || depthVal > 10 {
+			return nil, fmt.Errorf("maxDepth must be between 1 and 10")
+		}
+	}
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Get thread refs repository
+	refsRepo := postgresRepo.GetThreadRefsRepo()
+	if refsRepo == nil {
+		return nil, apperrors.NewInternalError("Thread refs repository not available", nil)
+	}
+
+	// Get the chain of thread IDs starting from this thread
+	threadIDs, err := refsRepo.GetThreadChain(ctx, obj.ID, depthVal)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
+	}
+
+	if len(threadIDs) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Load each thread with refs and check access
+	threads := make([]*models.Thread, 0, len(threadIDs))
+	for _, threadID := range threadIDs {
+		// Load thread with refs
+		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
+		if err != nil {
+			// Skip threads that can't be loaded (may have been deleted)
+			continue
+		}
+
+		// Check if user has read permission
+		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+		if err != nil || !hasAccess {
+			// Skip threads user doesn't have access to
+			continue
+		}
+
+		threads = append(threads, thread)
+	}
+
+	return threads, nil
 }
 
 // Timestamp is the resolver for the timestamp field.

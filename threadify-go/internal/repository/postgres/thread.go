@@ -238,3 +238,8 @@ func (r *ThreadRepository) Count(ctx context.Context, ownerID string) (int, erro
 
 	return count, nil
 }
+
+// GetThreadRefsRepo returns the thread refs repository
+func (r *ThreadRepository) GetThreadRefsRepo() *ThreadRefsRepository {
+	return r.refsRepo
+}

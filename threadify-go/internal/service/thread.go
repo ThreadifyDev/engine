@@ -656,37 +656,6 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		IdempotencyKey: req.IdempotencyKey, // Pass through idempotency key (user-provided or auto-generated)
 	}
 
-	// Store refs atomically before step processing
-	if req.Refs != nil {
-		if err := s.repo.AddRefs(context.Background(), req.ThreadID, req.Refs); err != nil {
-			return &models.RecordEventResponse{
-				Action:  "recordThreadEvent",
-				Status:  "error",
-				Message: fmt.Sprintf("Failed to store refs: %v", err),
-			}
-		}
-
-		// Publish refs as individual events to NATS for archival
-		if s.natsArchivalPublisher != nil {
-			go func() {
-				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				for key, value := range req.Refs {
-					refEvent := map[string]interface{}{
-						"threadId": req.ThreadID,
-						"refKey":   key,
-						"refValue": value,
-						"action":   "ref_added",
-					}
-					if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
-						fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
-					}
-				}
-				fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(req.Refs), req.ThreadID)
-			}()
-		}
-	}
-
 	// Process step event immediately
 	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID, serviceName); err != nil {
 		return &models.RecordEventResponse{
@@ -1024,4 +993,90 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 // GetContractValidator returns the contract validator service
 func (s *ThreadService) GetContractValidator() interfaces.ContractValidator {
 	return s.contractValidator
+}
+
+// HandleAddRefs adds external references to a thread
+func (s *ThreadService) HandleAddRefs(req *models.AddRefsRequest, ownerID string) *models.AddRefsResponse {
+	// Validate request
+	if req.ThreadID == "" {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: "Thread ID is required",
+		}
+	}
+
+	if len(req.Refs) == 0 {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: "At least one ref is required",
+		}
+	}
+
+	// Verify thread exists and user has access
+	thread, err := s.repo.Get(context.Background(), req.ThreadID)
+	if err != nil {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: "Thread not found",
+		}
+	}
+
+	// Verify user has write permission for the thread
+	// This checks both ownership and explicit write permissions
+	hasWriteAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "write", thread)
+	if err != nil {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: "Failed to verify permissions",
+		}
+	}
+
+	if !hasWriteAccess {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: "Access denied: write permission required",
+		}
+	}
+
+	// Store refs atomically
+	if err := s.repo.AddRefs(context.Background(), req.ThreadID, req.Refs); err != nil {
+		return &models.AddRefsResponse{
+			Action:  "addRefs",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to store refs: %v", err),
+		}
+	}
+
+	// Publish refs as individual events to NATS for archival
+	if s.natsArchivalPublisher != nil {
+		go func() {
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			for key, value := range req.Refs {
+				refEvent := map[string]interface{}{
+					"threadId": req.ThreadID,
+					"refKey":   key,
+					"refValue": value,
+					"action":   "ref_added",
+				}
+				if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+					fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+				} else {
+					fmt.Printf("✅ [NATS-ARCHIVAL] Published ref %s for thread %s\n", key, req.ThreadID)
+				}
+			}
+		}()
+	}
+
+	return &models.AddRefsResponse{
+		Action:   "addRefs",
+		Status:   "success",
+		Message:  fmt.Sprintf("Added %d refs to thread", len(req.Refs)),
+		ThreadID: req.ThreadID,
+	}
 }

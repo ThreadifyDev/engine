@@ -105,14 +105,15 @@ func (r *ScopeResolver) ResolveScope(
 		return r.config.NotificationSystem.DefaultScope, nil
 	}
 
-	// Handle nil contract ID or version
-	if thread.ContractID == nil || thread.ContractVersion == nil {
+	// Handle nil contract name or version (contract name is used for graph lookups)
+	if thread.ContractName == "" || thread.ContractVersion == nil {
 		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, no contract)\n",
 			userID, threadID, role, r.config.NotificationSystem.DefaultScope)
 		return r.config.NotificationSystem.DefaultScope, nil
 	}
 
-	contract, err := r.contractGraphRepo.Get(ctx, *thread.ContractID, *thread.ContractVersion, thread.OwnerID)
+	// Use contract name (not UUID) for graph repository lookups
+	contract, err := r.contractGraphRepo.Get(ctx, thread.ContractName, *thread.ContractVersion, thread.CompanyID)
 	if err != nil {
 		// If can't get contract, use system default
 		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, contract not found)\n",

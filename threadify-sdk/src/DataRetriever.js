@@ -481,4 +481,40 @@ export class DataRetriever {
       new ArchivedThread(threadData, this.graphqlClient)
     );
   }
+
+  /**
+   * Get thread chain starting from root thread
+   * @param {string} rootId - Root thread ID
+   * @param {number} maxDepth - Maximum depth to traverse (default: 3)
+   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from root to descendants
+   */
+  async getThreadChain(rootId, maxDepth = 3) {
+    const query = `
+      query GetThreadChain($rootId: ID!, $maxDepth: Int) {
+        threadChain(rootId: $rootId, maxDepth: $maxDepth) {
+          id
+          contractId
+          contractName
+          contractVersion
+          ownerId
+          companyId
+          status
+          startedAt
+          completedAt
+          error
+          refs
+        }
+      }
+    `;
+
+    const data = await this.graphqlClient.query(query, { rootId, maxDepth });
+    
+    if (!data.threadChain) {
+      return [];
+    }
+
+    return data.threadChain.map(threadData => 
+      new ArchivedThread(threadData, this.graphqlClient)
+    );
+  }
 }

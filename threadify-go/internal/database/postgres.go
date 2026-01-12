@@ -138,6 +138,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_thread_id ON thread_refs(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key ON thread_refs(ref_key);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_value ON thread_refs(ref_value);
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_ref_value ON thread_refs(ref_value);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value ON thread_refs(ref_key, ref_value);
 
 	CREATE TABLE IF NOT EXISTS thread_activities (

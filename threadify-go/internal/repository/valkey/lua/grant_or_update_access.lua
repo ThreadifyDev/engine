@@ -20,8 +20,13 @@ local newPermissions = cjson.decode(ARGV[4])
 local timestamp = ARGV[5]
 local status = ARGV[6]
 
--- Role index removed - incompatible with multi-role scenarios
--- Users can have multiple roles, so checking individual role ownership is flawed
+-- Check role uniqueness: Only one user can hold a specific role
+-- (Users can still have multiple roles, but each role is unique to one user)
+local roleOwner = redis.call('HGET', roleIndexKey, newRole)
+if roleOwner and roleOwner ~= userID then
+    -- Role already assigned to another user
+    return redis.error_reply("ROLE_ALREADY_ASSIGNED:" .. roleOwner)
+end
 
 -- Role is available or already owned by current user - proceed with granting access
 local current = redis.call('HGET', accessKey, userID)
@@ -43,8 +48,13 @@ if current then
         return current
     else
         -- Add new role to existing access
+        -- Safe to use HSET here because entire Lua script is atomic
         table.insert(access.roles, newRole)
         access.updated_at = timestamp
+        access.version = (access.version or 0) + 1
+        
+        -- Update role index to claim this role
+        redis.call('HSET', roleIndexKey, newRole, userID)
         
         local accessJSON = cjson.encode(access)
         redis.call('HSET', accessKey, userID, accessJSON)
@@ -52,32 +62,28 @@ if current then
     end
 end
 
--- User doesn't have access - create new access based on invitation type
-if invitedBy == 'self' then
-    -- Thread creator - create new access
-    local access = {
-        roles = {newRole},
-        permissions = newPermissions,
-        granted_by = invitedBy,
-        granted_at = timestamp,
-        status = status
-    }
-    
-    local accessJSON = cjson.encode(access)
-    redis.call('HSET', accessKey, userID, accessJSON)
-    return accessJSON
-    
-else
-    -- Invitation or direct join - create new access
-    local access = {
-        roles = {newRole},
-        permissions = newPermissions,
-        granted_by = invitedBy,
-        granted_at = timestamp,
-        status = status
-    }
-    
-    local accessJSON = cjson.encode(access)
-    redis.call('HSET', accessKey, userID, accessJSON)
-    return accessJSON
+-- User doesn't have access - create new access with race detection
+local access = {
+    roles = {newRole},
+    permissions = newPermissions,
+    granted_by = invitedBy,
+    granted_at = timestamp,
+    status = status,
+    version = 1
+}
+
+local accessJSON = cjson.encode(access)
+
+-- Use HSETNX to detect concurrent creation (returns 1 if created, 0 if already exists)
+local created = redis.call('HSETNX', accessKey, userID, accessJSON)
+
+if created == 0 then
+    -- Race detected: Another request created access first
+    -- Return error to trigger retry in Go layer
+    return redis.error_reply("CONCURRENT_ACCESS_CREATION")
 end
+
+-- Update role index to claim this role
+redis.call('HSET', roleIndexKey, newRole, userID)
+
+return accessJSON

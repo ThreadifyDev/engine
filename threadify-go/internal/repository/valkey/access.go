@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/threadify/engine/internal/interfaces"
 )
 
@@ -26,9 +28,46 @@ func NewAccessRepository(valkey interfaces.ValkeyClient) *AccessRepository {
 // - invitedBy = "self" → Thread creator (creates new access)
 // - invitedBy != "self" && user exists → Add role only
 // - invitedBy != "self" && user new → Create access with role + permissions
-// Enforces role uniqueness: only one user can have a specific role at a time
+// Uses exponential backoff retry to handle concurrent access creation race conditions
 // Returns the updated UserAccess object so service layer can pass it to ActivityRepository
 func (r *AccessRepository) GrantOrUpdateAccess(
+	ctx context.Context,
+	threadID, userID string,
+	role string,
+	permissions []string,
+	invitedBy string,
+	luaScripts interfaces.LuaScriptManager,
+) (*interfaces.UserAccess, error) {
+	var result *interfaces.UserAccess
+
+	// Use existing ExecuteWithBackoff for retry logic (10ms initial, 100ms max, 500ms total)
+	err := r.valkey.ExecuteWithBackoff(ctx, func() error {
+		access, err := r.attemptGrantOrUpdateAccess(
+			ctx, threadID, userID, role, permissions, invitedBy, luaScripts,
+		)
+		if err != nil {
+			// Check if error is retryable (concurrent creation detected)
+			// Note: Lua script atomicity prevents races during role addition to existing users
+			if strings.Contains(err.Error(), "CONCURRENT_ACCESS_CREATION") {
+				return err // Retryable - backoff will retry
+			}
+			// Role already assigned to another user - non-retryable
+			if strings.Contains(err.Error(), "ROLE_ALREADY_ASSIGNED") {
+				return backoff.Permanent(fmt.Errorf("role already assigned to another user: %w", err))
+			}
+			// Non-retryable error (script not found, JSON error, etc.)
+			return backoff.Permanent(err)
+		}
+		result = access
+		return nil
+	})
+
+	return result, err
+}
+
+// attemptGrantOrUpdateAccess performs a single attempt to grant/update access
+// Extracted from GrantOrUpdateAccess to enable retry logic
+func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	ctx context.Context,
 	threadID, userID string,
 	role string,

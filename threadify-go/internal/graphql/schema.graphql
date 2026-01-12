@@ -39,6 +39,8 @@ type Thread {
   steps(stepName: String, idempotencyKey: String): [StepStateInfo!]!
   # Get validation results for this thread
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Get thread chain starting from this thread, following linkedThread relationships
+  threadChain(maxDepth: Int = 3): [Thread!]!
 }
 
 type ContractGraph {
@@ -92,6 +94,8 @@ type Query {
   thread(id: ID!): Thread
   # Find threads by reference key-value pair
   threadsByRef(refKey: String!, refValue: String!): [Thread!]!
+  # Get thread chain starting from root, following linkedThread relationships
+  threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
   # Get step history by stepName:idempKey or stepName

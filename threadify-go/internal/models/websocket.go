@@ -38,7 +38,6 @@ type RecordEventRequest struct {
 	StartedAt      string            `json:"startedAt"`
 	FinishedAt     string            `json:"finishedAt"`
 	Context        map[string]string `json:"context"`
-	Refs           map[string]string `json:"refs,omitempty"`
 	Status         string            `json:"status"`
 	ServiceName    string            `json:"serviceName,omitempty"`
 	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
@@ -51,6 +50,19 @@ type RecordEventResponse struct {
 	ThreadID    string `json:"threadId,omitempty"`
 	StepID      string `json:"stepId,omitempty"`
 	IsDuplicate bool   `json:"isDuplicate,omitempty"`
+}
+
+type AddRefsRequest struct {
+	Action   string            `json:"action"`
+	ThreadID string            `json:"threadId"`
+	Refs     map[string]string `json:"refs"`
+}
+
+type AddRefsResponse struct {
+	Action   string `json:"action"`
+	Status   string `json:"status"`
+	Message  string `json:"message"`
+	ThreadID string `json:"threadId,omitempty"`
 }
 
 type CloseConnectionResponse struct {

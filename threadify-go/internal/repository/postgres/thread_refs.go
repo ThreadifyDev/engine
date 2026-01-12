@@ -143,3 +143,59 @@ func (r *ThreadRefsRepository) DeleteAllRefs(ctx context.Context, threadID strin
 
 	return nil
 }
+
+// GetThreadChain retrieves a chain of threads starting from root, following linkedThread relationships
+func (r *ThreadRefsRepository) GetThreadChain(ctx context.Context, rootID string, maxDepth int) ([]string, error) {
+	query := `
+		WITH RECURSIVE thread_chain AS (
+			-- Base case: Start with the root thread
+			SELECT 
+				t.thread_id,
+				0 as depth,
+				ARRAY[t.thread_id] as path,
+				t.created_at
+			FROM threads t
+			WHERE t.thread_id = $1
+			
+			UNION ALL
+			
+			-- Recursive case: Find child threads
+			SELECT 
+				t.thread_id,
+				tc.depth + 1,
+				tc.path || t.thread_id,
+				t.created_at
+			FROM threads t
+			JOIN thread_refs tr ON t.thread_id = tr.thread_id
+			JOIN thread_chain tc ON tr.ref_value = tc.thread_id
+			WHERE 
+				tr.ref_key LIKE 'linkedThread:%'
+				AND tc.depth < $2
+				AND t.thread_id != ALL(tc.path) -- Prevent cycles
+		)
+		SELECT thread_id 
+		FROM thread_chain 
+		ORDER BY depth, created_at
+	`
+
+	rows, err := r.pool.Query(ctx, query, rootID, maxDepth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query thread chain: %w", err)
+	}
+	defer rows.Close()
+
+	var threadIDs []string
+	for rows.Next() {
+		var threadID string
+		if err := rows.Scan(&threadID); err != nil {
+			return nil, fmt.Errorf("failed to scan thread ID: %w", err)
+		}
+		threadIDs = append(threadIDs, threadID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return threadIDs, nil
+}

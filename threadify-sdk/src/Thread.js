@@ -107,6 +107,16 @@ export class Connection {
   }
 
   /**
+   * Get thread chain starting from root thread
+   * @param {string} rootId - Root thread ID
+   * @param {number} maxDepth - Maximum depth to traverse (default: 3)
+   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from root to descendants
+   */
+  async getThreadChain(rootId, maxDepth = 3) {
+    return this._getDataRetriever().getThreadChain(rootId, maxDepth);
+  }
+
+  /**
    * Create a new step in this thread
    * @param {string} stepName - Name of the step
    * @param {string} serviceName - Optional service name for the step
@@ -817,6 +827,59 @@ export class ThreadInstance {
         pending.resolve(notification);
       }
     }
+  }
+
+  /**
+   * Add external references to this thread
+   * @param {Object} refs - Key-value pairs of external references
+   * @returns {Promise<Object>} - Response from server
+   */
+  async addRefs(refs) {
+    if (!refs || typeof refs !== 'object' || Object.keys(refs).length === 0) {
+      throw new Error('Refs must be a non-empty object');
+    }
+
+    return new Promise((resolve, reject) => {
+      this._onceResponse((message) => {
+        if (message.action === 'addRefs') {
+          if (message.status === 'success') {
+            // Update local refs
+            this.refs = { ...this.refs, ...refs };
+            resolve(message);
+          } else {
+            reject(new Error(message.message || 'Failed to add refs'));
+          }
+        }
+      });
+
+      this._send({
+        action: 'addRefs',
+        threadId: this.threadId,
+        refs
+      });
+    });
+  }
+
+  /**
+   * Link this thread to another thread
+   * @param {string} threadId - Thread ID to link to
+   * @param {string} relationship - Type of relationship (default: 'parent')
+   * @returns {Promise<Object>} - Response from server
+   */
+  async linkThread(threadId, relationship = 'parent') {
+    if (!threadId || typeof threadId !== 'string') {
+      throw new Error('Thread ID must be a non-empty string');
+    }
+    
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(threadId)) {
+      throw new Error('Invalid thread ID format');
+    }
+    
+    // Use addRefs under the hood with special prefix
+    const refKey = `linkedThread:${relationship}`;
+    return this.addRefs({ [refKey]: threadId });
   }
 
   /**

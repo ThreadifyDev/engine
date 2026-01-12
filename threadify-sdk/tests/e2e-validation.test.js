@@ -27,6 +27,7 @@ let apiKey = null;
 let jwtToken = null;
 let connection = null;
 let contractName = 'product_delivery';  // Use contract name, not UUID
+let testThreadIds = []; // Store thread IDs for DataRetriever testing
 
 // Helper: Get API key for WebSocket
 async function getApiKey() {
@@ -154,24 +155,6 @@ async function testEntryPointValidation() {
             console.log('  ⚠️  Unexpected error:', error.message);
         }
     }
-    
-    // Submit valid entry point (should succeed)
-    const thread2 = await connection.start(contractName, 'merchant-service');
-    try {
-        await thread2
-            .step('order_placed')
-            .addContext({ 
-                order_id: 'ORDER-123',
-                customer_id: 'CUST-456',
-                total_amount: '99.99'
-            })
-            .stop('success', 'Order placed');
-        
-        console.log('  ✅ PASS: Entry point step accepted');
-    } catch (error) {
-        console.log('  ❌ FAIL: Entry point step should be accepted');
-        console.log(`     Error: ${error.message}`);
-    }
 }
 
 // Test 2: Step Exists in Contract
@@ -179,6 +162,7 @@ async function testStepExistsValidation() {
     console.log('\n📋 Test 2: Step Exists in Contract');
     
     const thread = await connection.start(contractName, 'merchant-service');
+    testThreadIds.push(thread.getThreadId()); // Store for DataRetriever testing
     
     try {
         await thread
@@ -202,6 +186,7 @@ async function testBusinessContextValidation() {
     console.log('\n📋 Test 3: Required Business Context');
     
     const thread = await connection.start(contractName, 'merchant-service');
+    testThreadIds.push(thread.getThreadId()); // Store for DataRetriever testing
     
     // Missing required fields (should fail)
     try {
@@ -223,6 +208,7 @@ async function testBusinessContextValidation() {
     
     // All required fields present (should succeed)
     const thread2 = await connection.start(contractName, 'merchant-service');
+    testThreadIds.push(thread2.getThreadId()); // Store for DataRetriever testing
     try {
         await thread2
             .step('order_placed')
@@ -245,6 +231,7 @@ async function testIdempotencyValidation() {
     console.log('\n📋 Test 4: Idempotency Validation');
     
     const thread = await connection.start(contractName, 'merchant-service');
+    testThreadIds.push(thread.getThreadId()); // Store for DataRetriever testing
     
     // Submit step with idempotency key
     try {
@@ -413,6 +400,126 @@ async function testAccessControlValidation() {
     console.log('     Error should contain: "Access denied" or "write permission"');
 }
 
+// DataRetriever Tests - Query threads created during validation
+async function testDataRetrieverIntegration() {
+    console.log('\n📋 DataRetriever Tests - Querying Validation Test Threads');
+    console.log(`   Testing ${testThreadIds.length} threads created during validation tests`);
+    
+    if (testThreadIds.length === 0) {
+        console.log('  ⚠️  No threads to test - validation tests may have failed');
+        return;
+    }
+    
+    // Wait a moment for Redis writes to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Test 1: Get thread by ID
+    console.log('\n  📋 DR Test 1: Get Thread by ID');
+    try {
+        const threadId = testThreadIds[0];
+        const thread = await connection.getThread(threadId);
+        
+        console.log(`    ✅ PASS: Retrieved thread ${threadId}`);
+        console.log(`       Status: ${thread.status}`);
+        console.log(`       Contract: ${thread.contractName}`);
+        console.log(`       Owner: ${thread.ownerId}`);
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not retrieve thread: ${error.message}`);
+    }
+    
+    // Test 2: Get thread steps
+    console.log('\n  📋 DR Test 2: Get Thread Steps');
+    try {
+        const threadId = testThreadIds[0];
+        const thread = await connection.getThread(threadId);
+        const steps = await thread.steps();
+        
+        console.log(`    ✅ PASS: Retrieved ${steps.length} steps for thread ${threadId}`);
+        steps.forEach(step => {
+            console.log(`       - ${step.stepName}: ${step.status}`);
+        });
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not retrieve steps: ${error.message}`);
+    }
+    
+    // Test 3: Get specific step
+    console.log('\n  📋 DR Test 3: Get Specific Step');
+    try {
+        const threadId = testThreadIds[0];
+        const step = await connection.getStep(threadId, 'order_placed');
+        
+        console.log(`    ✅ PASS: Retrieved step order_placed`);
+        console.log(`       Status: ${step.status}`);
+        console.log(`       Idempotency Key: ${step.idempotencyKey || 'none'}`);
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not retrieve specific step: ${error.message}`);
+    }
+    
+    // Test 4: Get step history
+    console.log('\n  📋 DR Test 4: Get Step History');
+    try {
+        const threadId = testThreadIds[0];
+        const step = await connection.getStep(threadId, 'order_placed');
+        const history = await step.history({ limit: 5 });
+        
+        console.log(`    ✅ PASS: Retrieved ${history.length} history records`);
+        history.forEach((record, index) => {
+            console.log(`       ${index + 1}. ${record.status} at ${record.timestamp}`);
+        });
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not retrieve step history: ${error.message}`);
+    }
+    
+    // Test 5: Get validation results
+    console.log('\n  📋 DR Test 5: Get Validation Results');
+    try {
+        const threadId = testThreadIds[0];
+        const thread = await connection.getThread(threadId);
+        const validations = await thread.validationResults();
+        
+        console.log(`    ✅ PASS: Retrieved ${validations.length} validation results`);
+        if (validations.length > 0) {
+            validations.forEach(validation => {
+                console.log(`       - ${validation.stepName}: ${validation.overallStatus}`);
+            });
+        } else {
+            console.log(`       No validation violations found (expected for successful steps)`);
+        }
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not retrieve validation results: ${error.message}`);
+    }
+    
+    // Test 6: Query threads by reference
+    console.log('\n  📋 DR Test 6: Query Threads by Reference');
+    try {
+        // Look for threads with order_id references
+        const threads = await connection.getThreadsByRef({
+            refKey: 'order_id',
+            refValue: 'ORDER-001'
+        });
+        
+        console.log(`    ✅ PASS: Found ${threads.length} threads with order_id=ORDER-001`);
+        threads.forEach(thread => {
+            console.log(`       - Thread ${thread.id}: ${thread.status}`);
+        });
+    } catch (error) {
+        console.log(`    ❌ FAIL: Could not query threads by reference: ${error.message}`);
+    }
+    
+    // Test 7: Error handling - invalid thread
+    console.log('\n  📋 DR Test 7: Error Handling - Invalid Thread');
+    try {
+        await connection.getThread('invalid-thread-id-12345');
+        console.log(`    ❌ FAIL: Should have thrown error for invalid thread`);
+    } catch (error) {
+        console.log(`    ✅ PASS: Correctly handled invalid thread error`);
+        console.log(`       Error: ${error.message}`);
+    }
+    
+    console.log('\n✅ DataRetriever integration tests completed!');
+    console.log('   Demonstrated: WebSocket thread creation → GraphQL data retrieval');
+}
+
 // Main test runner
 async function runTests() {
     console.log('🚀 Starting E2E Validation Tests (using SDK)\n');
@@ -435,6 +542,9 @@ async function runTests() {
         await testIdempotencyValidation();
         await testRoleValidation();
         await testAccessControlValidation();
+        
+        // DataRetriever integration tests
+        await testDataRetrieverIntegration();
         
         console.log('\n✅ All tests completed!');
         

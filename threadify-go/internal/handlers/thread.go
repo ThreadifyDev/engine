@@ -164,6 +164,11 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &req)
 		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
 
+	case "addRefs":
+		var req models.AddRefsRequest
+		json.Unmarshal(msgBytes, &req)
+		response = h.threadService.HandleAddRefs(&req, session.ownerID)
+
 	case "closeConnection":
 		resp := h.threadService.HandleClose(session.ownerID)
 		// Response will be sent, then connection will close gracefully in main loop

@@ -37,6 +37,8 @@ type ValkeyClient interface {
 	EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error)
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
+	// Retry operations with exponential backoff
+	ExecuteWithBackoff(ctx context.Context, operation func() error) error
 }
 
 // ValkeyPipeline defines the interface for Redis pipeline operations
@@ -90,10 +92,10 @@ type UserAccess struct {
 
 // ContractGraphRepository defines the interface for contract graph operations
 type ContractGraphRepository interface {
-	Get(ctx context.Context, contractID string, version int, ownerID string) (*models.ContractGraph, error)
-	Save(ctx context.Context, contractID string, version int, ownerID string, graph *models.ContractGraph) error
-	Delete(ctx context.Context, contractID string, version int, ownerID string) error
-	Exists(ctx context.Context, contractID string, version int, ownerID string) (bool, error)
+	Get(ctx context.Context, contractName string, version int, companyID string) (*models.ContractGraph, error)
+	Save(ctx context.Context, contractName string, version int, companyID string, graph *models.ContractGraph) error
+	Delete(ctx context.Context, contractName string, version int, companyID string) error
+	Exists(ctx context.Context, contractName string, version int, companyID string) (bool, error)
 }
 
 // LuaScriptManager defines the interface for Lua script management
