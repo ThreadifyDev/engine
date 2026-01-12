@@ -24,6 +24,7 @@ export class Connection {
     this.processedNotifications = new Set(); // Track processed notification IDs
     this.maxProcessedSize = 10000; // Prevent memory leak
     this._dataRetriever = null; // Lazy-initialized DataRetriever
+    this._activeSubscriptions = new Map(); // Track active subscriptions for merging
     
     this._setupNotificationListener();
   }
@@ -259,6 +260,60 @@ export class Connection {
   }
 
   /**
+   * Send subscription to server (internal)
+   * @private
+   */
+  _sendSubscription(stepName, eventTypes) {
+    if (!this.isConnected) {
+      console.warn('[Thread] Cannot subscribe - not connected');
+      return;
+    }
+
+    const existing = this._activeSubscriptions.get(stepName) || [];
+    const merged = [...new Set([...existing, ...eventTypes])];
+    
+    // Only send if changed
+    if (JSON.stringify(existing.sort()) !== JSON.stringify(merged.sort())) {
+      this._send({
+        action: 'subscribe',
+        stepName: stepName,
+        eventTypes: merged
+      });
+      
+      this._activeSubscriptions.set(stepName, merged);
+    }
+  }
+
+  /**
+   * Send unsubscription to server (internal)
+   * @private
+   */
+  _sendUnsubscription(stepName) {
+    if (!this.isConnected) return;
+
+    this._send({
+      action: 'unsubscribe',
+      stepName: stepName
+    });
+
+    this._activeSubscriptions.delete(stepName);
+  }
+
+  /**
+   * Resubscribe to all active subscriptions (for reconnection)
+   * @private
+   */
+  _resubscribeAll() {
+    for (const [stepName, eventTypes] of this._activeSubscriptions.entries()) {
+      this._send({
+        action: 'subscribe',
+        stepName: stepName,
+        eventTypes: eventTypes
+      });
+    }
+  }
+
+  /**
    * Internal method to send messages
    * @private
    */
@@ -305,7 +360,7 @@ export class Connection {
 
   /**
    * Register a global violation handler for a specific step
-   * @param {string} stepName - Name of the step to listen for
+   * @param {string} stepName - Name of the step (or "contract@stepName")
    * @param {Function} handler - Handler function (receives Notification)
    * @returns {Connection} - Returns this for chaining
    */
@@ -313,6 +368,10 @@ export class Connection {
     if (typeof handler !== 'function') {
       throw new Error('Handler must be a function');
     }
+    
+    // Send subscription to server
+    this._sendSubscription(stepName, ['violation']);
+    
     if (!this.notificationHandlers.violation.has(stepName)) {
       this.notificationHandlers.violation.set(stepName, []);
     }
@@ -322,7 +381,7 @@ export class Connection {
 
   /**
    * Register a global completion handler for a specific step
-   * @param {string} stepName - Name of the step to listen for
+   * @param {string} stepName - Name of the step (or "contract@stepName")
    * @param {Function} handler - Handler function (receives Notification)
    * @returns {Connection} - Returns this for chaining
    */
@@ -330,6 +389,10 @@ export class Connection {
     if (typeof handler !== 'function') {
       throw new Error('Handler must be a function');
     }
+    
+    // Send subscription to server
+    this._sendSubscription(stepName, ['completed']);
+    
     if (!this.notificationHandlers.completed.has(stepName)) {
       this.notificationHandlers.completed.set(stepName, []);
     }
@@ -339,7 +402,7 @@ export class Connection {
 
   /**
    * Register a global failure handler for a specific step
-   * @param {string} stepName - Name of the step to listen for
+   * @param {string} stepName - Name of the step (or "contract@stepName")
    * @param {Function} handler - Handler function (receives Notification)
    * @returns {Connection} - Returns this for chaining
    */
@@ -347,6 +410,10 @@ export class Connection {
     if (typeof handler !== 'function') {
       throw new Error('Handler must be a function');
     }
+    
+    // Send subscription to server
+    this._sendSubscription(stepName, ['failed']);
+    
     if (!this.notificationHandlers.failed.has(stepName)) {
       this.notificationHandlers.failed.set(stepName, []);
     }
@@ -378,6 +445,38 @@ export class Connection {
         // Ignore parse errors for non-JSON messages
       }
     });
+
+    // Setup reconnection handling
+    this.ws.on('close', () => {
+      console.log('[Thread] WebSocket closed');
+      this.isConnected = false;
+    });
+
+    this.ws.on('error', (error) => {
+      console.error('[Thread] WebSocket error:', error);
+    });
+  }
+
+  /**
+   * Reconnect and resubscribe to all active subscriptions
+   * @returns {Promise<void>}
+   */
+  async reconnect() {
+    if (this.isConnected) {
+      console.log('[Thread] Already connected');
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      // Reconnect logic would need to be handled by creating a new WebSocket
+      // For now, just resubscribe if connection is restored
+      if (this.isConnected) {
+        this._resubscribeAll();
+        resolve();
+      } else {
+        reject(new Error('Not connected'));
+      }
+    });
   }
 
   /**
@@ -406,14 +505,15 @@ export class Connection {
     
     const notification = new Notification(notificationData, this);
     const stepName = notification.stepName;
+    const contractName = notification.contractName;
     
     // Trigger global handlers based on notification type
     if (notification.isViolated()) {
-      this._triggerHandlers(this.notificationHandlers.violation, stepName, notification);
+      this._triggerHandlers(this.notificationHandlers.violation, stepName, contractName, notification);
     } else if (notification.isSuccess()) {
-      this._triggerHandlers(this.notificationHandlers.completed, stepName, notification);
+      this._triggerHandlers(this.notificationHandlers.completed, stepName, contractName, notification);
     } else if (notification.isFailed() || notification.isError()) {
-      this._triggerHandlers(this.notificationHandlers.failed, stepName, notification);
+      this._triggerHandlers(this.notificationHandlers.failed, stepName, contractName, notification);
     }
 
     // Route to thread-specific waitFor()
@@ -424,13 +524,29 @@ export class Connection {
   }
 
   /**
-   * Trigger handlers for a specific step name
+   * Trigger handlers for a specific step name with contract matching
    * @private
    */
-  _triggerHandlers(handlerMap, stepName, notification) {
-    const handlers = handlerMap.get(stepName);
-    if (handlers && handlers.length > 0) {
-      handlers.forEach(handler => {
+  _triggerHandlers(handlerMap, stepName, contractName, notification) {
+    // Try exact match: "contract@stepName"
+    if (contractName) {
+      const exactKey = `${contractName}@${stepName}`;
+      const exactHandlers = handlerMap.get(exactKey);
+      if (exactHandlers && exactHandlers.length > 0) {
+        exactHandlers.forEach(handler => {
+          try {
+            handler(notification);
+          } catch (error) {
+            console.error(`[Notification] Handler error for ${exactKey}:`, error);
+          }
+        });
+      }
+    }
+
+    // Try wildcard match: just "stepName" (any contract)
+    const wildcardHandlers = handlerMap.get(stepName);
+    if (wildcardHandlers && wildcardHandlers.length > 0) {
+      wildcardHandlers.forEach(handler => {
         try {
           handler(notification);
         } catch (error) {

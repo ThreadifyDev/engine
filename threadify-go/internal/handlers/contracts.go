@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -89,6 +90,18 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
+	// Get companyID from header or claims
+	companyID := c.GetHeader("X-Company-ID")
+	if companyID == "" {
+		if cid, ok := claims["companyId"].(string); ok {
+			companyID = cid
+		}
+	}
+	if companyID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Company ID required"})
+		return
+	}
+
 	// Read raw YAML request body
 	yamlBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -96,7 +109,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
-	statusCode, response := h.contractService.CreateContract(c.Request.Context(), ownerID, userID, string(yamlBytes))
+	statusCode, response := h.contractService.CreateContract(c.Request.Context(), ownerID, companyID, userID, string(yamlBytes))
 
 	// Record metrics
 	if statusCode == 200 {
@@ -220,9 +233,10 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 	// Validate and build graph using service method
 	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
 	if err != nil {
+		log.Printf("Failed to preview contract: %v", err)
 		c.JSON(http.StatusInternalServerError, PreviewResponse{
 			Valid:  false,
-			Errors: []string{fmt.Sprintf("Failed to process contract: %v", err)},
+			Errors: []string{"Failed to process contract"},
 		})
 		return
 	}

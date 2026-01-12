@@ -14,6 +14,7 @@ export class Notification {
     this.threadId = data.threadId;
     this.stepId = data.stepId;
     this.stepName = data.stepName;
+    this.contractName = data.contractName || ''; // Contract name (empty for non-contract threads)
     
     // Status fields
     this.status = data.status; // 'passed', 'violated', 'none'
@@ -145,6 +146,7 @@ export class Notification {
       threadId: this.threadId,
       stepId: this.stepId,
       stepName: this.stepName,
+      contractName: this.contractName,
       status: this.status,
       stepStatus: this.stepStatus,
       severity: this.severity,

@@ -57,7 +57,7 @@ func (s *ContractService) PreviewContract(yamlString string) (*validator.Contrac
 	return contract, graph, validationResult, nil
 }
 
-func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy, contractYAML string) (int, interface{}) {
+func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{}) {
 	// Validate contract YAML
 	contract, validationResult := s.validator.Validate(contractYAML)
 	if !validationResult.IsValid {
@@ -88,6 +88,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, createdBy
 		ContentHash:   &contentHash,
 		LatestVersion: 1,
 		OwnerID:       ownerID,
+		CompanyID:     companyID,
 		IsPublic:      false,
 		IsDeleted:     false,
 		CreatedAt:     now,

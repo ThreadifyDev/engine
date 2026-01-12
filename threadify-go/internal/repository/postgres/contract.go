@@ -21,18 +21,18 @@ func NewContractRepository(pool *pgxpool.Pool) *ContractRepository {
 
 func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
 	query := `
-		INSERT INTO contracts (id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
+		INSERT INTO contracts (id, name, description, content_hash, latest_version, owner_id, company_id, is_public, is_deleted, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, name, description, content_hash, latest_version, owner_id, company_id, is_public, is_deleted, created_at, updated_at
 	`
 
 	err := r.pool.QueryRow(ctx, query,
 		contract.ID, contract.Name, contract.Description, contract.ContentHash,
-		contract.LatestVersion, contract.OwnerID, contract.IsPublic, contract.IsDeleted,
+		contract.LatestVersion, contract.OwnerID, contract.CompanyID, contract.IsPublic, contract.IsDeleted,
 		contract.CreatedAt, contract.UpdatedAt,
 	).Scan(
 		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
+		&contract.LatestVersion, &contract.OwnerID, &contract.CompanyID, &contract.IsPublic, &contract.IsDeleted,
 		&contract.CreatedAt, &contract.UpdatedAt,
 	)
 
