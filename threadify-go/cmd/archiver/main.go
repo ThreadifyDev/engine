@@ -165,7 +165,6 @@ func main() {
 		cancel()
 	}()
 
-	// Redis stream consumers removed - now using NATS JetStream exclusively
 	log.Println("Archiver service ready - using NATS JetStream for all archival")
 
 	// Block until shutdown signal

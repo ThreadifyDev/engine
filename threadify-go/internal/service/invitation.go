@@ -141,7 +141,6 @@ func (s *InvitationTokenService) ValidateRole(role string, config *InvitationCon
 		return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(config.AllowedRoles, ", "))
 	}
 
-	// Static role validation removed - roles should be validated against contract parties in the handler
 	return nil
 }
 

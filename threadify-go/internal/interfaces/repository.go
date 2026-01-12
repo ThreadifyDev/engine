@@ -76,7 +76,6 @@ type ActivityRepository interface {
 	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
-	// Note: ArchiveStepState removed - Lua script now writes step state changes to activity log stream atomically
 }
 
 // UserAccess represents merged access control structure
@@ -101,6 +100,3 @@ type ContractGraphRepository interface {
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
 }
-
-// Note: ValkeyClient is already properly defined in internal/repository/valkey/thread.go
-// We should reuse that instead of redefining it here

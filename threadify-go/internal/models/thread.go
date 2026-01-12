@@ -41,9 +41,9 @@ type Thread struct {
 	StartedAt       time.Time         `json:"startedAt"`
 	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
 	Error           string            `json:"error,omitempty"`
-	// Note: CurrentSteps and Steps removed - now stored in Redis hashes
-	// - CurrentSteps tracked in thread:ID:current_steps (sorted set)
-	// - Steps tracked in thread:ID:steps:{stepName}:{idempKey} (hashes)
+	// Step data is stored separately in Valkey:
+	// - Current steps: thread:ID:current_steps (sorted set)
+	// - Step state: thread:ID:steps:{stepName}:{idempKey} (hashes)
 }
 
 // StepState represents the state of a step in a thread

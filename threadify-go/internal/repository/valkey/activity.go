@@ -57,10 +57,6 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 		}()
 	}
 
-	// Write to thread activity stream
-	// Note: thread:{id}:activity is now a hash, not a stream
-	// Activity events are handled by partitioned streams only
-
 	// Publish activity log to NATS
 	if r.natsPublisher != nil {
 		go func() {

@@ -118,10 +118,10 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		resp := h.threadService.HandleConnect(&req)
 		if resp.Status == "success" {
 			session.mu.Lock()
-			session.ownerID = resp.OwnerID     // Use ownerID from response, not request
-			session.companyID = resp.CompanyID // Set companyID from response
+			session.ownerID = resp.OwnerID
+			session.companyID = resp.CompanyID
 			session.mu.Unlock()
-			h.sessions.Store(resp.OwnerID, session) // Use ownerID from response
+			h.sessions.Store(resp.OwnerID, session)
 
 			// Register client with notification router
 			if h.notificationRouter != nil {

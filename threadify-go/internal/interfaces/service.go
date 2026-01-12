@@ -48,4 +48,5 @@ type ContractValidator interface {
 	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
 	GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, error)
 	LoadContractGraphIntoCache(contractID string, version int, ownerID string) (int, error)
+	GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error)
 }

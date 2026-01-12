@@ -112,30 +112,6 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 	return role, nil
 }
 
-// Deprecated methods for backward compatibility
-
-// SetUserPermissions - deprecated, use GrantOrUpdateAccess instead
-func (s *ThreadAccessService) SetUserPermissions(threadID, userID string, permissions []string) error {
-	// Note: This deprecated method doesn't validate thread status
-	// Get current role to preserve it
-	role, _ := s.GetUserRole(threadID, userID)
-
-	// Create minimal thread object (status validation skipped for backward compat)
-	thread := &models.Thread{Status: "active"}
-	return s.GrantOrUpdateAccess(threadID, userID, role, permissions, "system", thread)
-}
-
-// AssignRole - deprecated, use GrantOrUpdateAccess instead
-func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
-	// Note: This deprecated method doesn't validate thread status
-	// Get current permissions to preserve them
-	perms, _ := s.GetUserPermissions(threadID, userID)
-
-	// Create minimal thread object (status validation skipped for backward compat)
-	thread := &models.Thread{Status: "active"}
-	return s.GrantOrUpdateAccess(threadID, userID, role, perms, "system", thread)
-}
-
 // CheckThreadAccess checks if user has required permission for a thread
 // Returns true if:
 //  1. User is thread owner (implicit full access) - ownerID is derived from API key,
@@ -145,7 +121,6 @@ func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
 // Uses three-tier caching for permission lookup
 func (s *ThreadAccessService) CheckThreadAccess(threadID, userID, requiredPermission string, thread *models.Thread) (bool, error) {
 	// Check if user is thread owner (implicit full access)
-	// Note: ownerID is derived from API key, so all services with same API key are owners
 	if thread.OwnerID == userID {
 		return true, nil
 	}

@@ -208,6 +208,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Parse contract identifier and load contract graph if contract name provided
 	var contractVersion int = 0
 	var parsedContractName string
+	var contractUUID string
 	if req.ContractName != "" {
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
@@ -222,19 +223,30 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			}
 		}
 		contractVersion = actualVersion // Use the actual version that was loaded
+
+		// Get contract UUID for referential integrity
+		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
+		if err != nil {
+			return &models.StartThreadResponse{
+				Action:  "startThread",
+				Status:  "error",
+				Message: fmt.Sprintf("Failed to retrieve contract: %v", err),
+			}
+		}
+		contractUUID = contract.ID
 	}
 
 	threadID := uuid.New().String()
 
 	// Create thread with company information (supports non-contract workflows)
 	var contractIDPtr *string
-	if parsedContractName != "" {
-		contractIDPtr = &parsedContractName
+	if contractUUID != "" {
+		contractIDPtr = &contractUUID // Store UUID for referential integrity
 	}
 
 	thread := &models.Thread{
 		ID:           threadID,
-		ContractID:   contractIDPtr,      // Store contract name (TODO: migrate to UUID)
+		ContractID:   contractIDPtr,      // Store contract UUID for referential integrity
 		ContractName: parsedContractName, // Store name for display/filtering
 		OwnerID:      ownerID,
 		CompanyID:    companyID,
@@ -1007,16 +1019,6 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 	}
 
 	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
-}
-
-// AssignThreadRole assigns a role to a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
-func (s *ThreadService) AssignThreadRole(threadID, role, userID string) error {
-	return s.accessService.AssignRole(threadID, role, userID)
-}
-
-// SetThreadPermissions sets permissions for a user in a thread (deprecated - use GrantOrUpdateThreadAccess)
-func (s *ThreadService) SetThreadPermissions(threadID, userID string, permissions []string) error {
-	return s.accessService.SetUserPermissions(threadID, userID, permissions)
 }
 
 // GetContractValidator returns the contract validator service

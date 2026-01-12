@@ -177,3 +177,11 @@ func (v *ContractValidationService) LoadContractGraphIntoCache(contractName stri
 	_, err := v.GetContractGraph(contractName, version, companyID)
 	return targetVersion, err
 }
+
+// GetContractByNameAndCompany retrieves a contract by name and company ID
+func (v *ContractValidationService) GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error) {
+	if v.contractRepo == nil {
+		return nil, fmt.Errorf("contract repository not available")
+	}
+	return v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
+}

@@ -265,14 +265,9 @@ func (s *NotificationService) performNonBlockingValidations(
 				Timestamp:      now,
 			})
 		}
-
-		// Note: Extra Undocumented Fields check skipped for now
 	}
 
-	// Note: Don't add a "passed" notification here - let Lua script determine final status
-	// Only return violation notifications from Go validations
-	// The final status notification will be sent after Lua script completes
-
+	// Return only violation notifications; Lua script determines final status
 	return notifications
 }
 
@@ -312,8 +307,6 @@ func (s *NotificationService) processValidationNotifications(
 			})
 		}
 	}
-
-	// Note: Repository will handle status determination based on violations
 
 	// Check if step is terminal
 	isTerminal := false
@@ -378,7 +371,6 @@ func (s *NotificationService) processValidationNotifications(
 		IsTerminalStep:         isTerminal,
 		Timestamp:              time.Now().Format(time.RFC3339),
 		MaxRetries:             maxRetries,
-		AllowedTransitions:     []string{}, // Deprecated
 		TransitionsMap:         transitionsMap,
 		TerminalSteps:          terminalSteps,
 		AllowMultipleTerminals: allowMultipleTerminals,
