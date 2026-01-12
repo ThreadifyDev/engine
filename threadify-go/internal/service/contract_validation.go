@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
@@ -100,7 +101,9 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 	}
 
 	// Tier 2: Check Valkey cache (use targetVersion for lookup)
-	graph, err := v.graphRepo.Get(context.Background(), contractName, targetVersion, companyID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	graph, err := v.graphRepo.Get(ctx, contractName, targetVersion, companyID)
 	if err == nil {
 		// Cache the graph from Valkey in memory for future use
 		v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, graph)
@@ -110,7 +113,9 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 	// Tier 3: Load from PostgreSQL if not in Valkey (only if contract repo is available)
 	if v.contractRepo != nil {
 		// Look up the contract by name and company to get its UUID and latest version
-		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
+		dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer dbCancel()
+		contract, err := v.contractRepo.GetByNameAndCompany(dbCtx, contractName, companyID)
 		if err != nil {
 			// Error is already sanitized by repository layer
 			return nil, err
@@ -122,7 +127,9 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 		}
 
 		// Get the specific version
-		contractVersion, err := v.contractRepo.GetVersion(context.Background(), contract.ID, targetVersion)
+		versionCtx, versionCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer versionCancel()
+		contractVersion, err := v.contractRepo.GetVersion(versionCtx, contract.ID, targetVersion)
 		if err != nil {
 			// Error is already sanitized by repository layer
 			return nil, err
@@ -142,7 +149,9 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 
 		// Store in both Valkey and memory caches for future use
 		// Use targetVersion for caching, not the input version (which might be 0)
-		if err := v.graphRepo.Save(context.Background(), contractName, targetVersion, companyID, &loadedGraph); err != nil {
+		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer saveCancel()
+		if err := v.graphRepo.Save(saveCtx, contractName, targetVersion, companyID, &loadedGraph); err != nil {
 			// Log error but don't fail - we still have the graph
 			fmt.Printf("Warning: failed to cache contract graph in Valkey: %v\n", err)
 		}
@@ -183,5 +192,7 @@ func (v *ContractValidationService) GetContractByNameAndCompany(contractName str
 	if v.contractRepo == nil {
 		return nil, fmt.Errorf("contract repository not available")
 	}
-	return v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return v.contractRepo.GetByNameAndCompany(ctx, contractName, companyID)
 }

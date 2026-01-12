@@ -14,6 +14,7 @@ type Config struct {
 	Cache              CacheConfig              `yaml:"cache" mapstructure:"cache"`
 	Invitations        InvitationsConfig        `yaml:"invitations" mapstructure:"invitations"`
 	Logging            LoggingConfig            `yaml:"logging" mapstructure:"logging"`
+	Timeouts           TimeoutsConfig           `yaml:"timeouts" mapstructure:"timeouts"`
 	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
 	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
 	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
@@ -91,6 +92,16 @@ type InvitationsConfig struct {
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
 	Level string `yaml:"level" mapstructure:"level"`
+}
+
+// TimeoutsConfig holds timeout configuration for context operations
+type TimeoutsConfig struct {
+	DefaultOperationSeconds  int `yaml:"default_operation_seconds" mapstructure:"default_operation_seconds"`
+	ValidationSeconds        int `yaml:"validation_seconds" mapstructure:"validation_seconds"`
+	DatabaseQuerySeconds     int `yaml:"database_query_seconds" mapstructure:"database_query_seconds"`
+	RedisOperationSeconds    int `yaml:"redis_operation_seconds" mapstructure:"redis_operation_seconds"`
+	NatsPublishSeconds       int `yaml:"nats_publish_seconds" mapstructure:"nats_publish_seconds"`
+	ArchivalOperationSeconds int `yaml:"archival_operation_seconds" mapstructure:"archival_operation_seconds"`
 }
 
 // NATSConfig holds NATS configuration

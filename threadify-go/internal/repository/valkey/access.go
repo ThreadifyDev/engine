@@ -30,6 +30,7 @@ func NewAccessRepository(valkey interfaces.ValkeyClient) *AccessRepository {
 // - invitedBy != "self" && user new → Create access with role + permissions
 // Uses exponential backoff retry to handle concurrent access creation race conditions
 // Returns the updated UserAccess object so service layer can pass it to ActivityRepository
+// Optional threadData parameter enables atomic thread creation to prevent orphaned threads
 func (r *AccessRepository) GrantOrUpdateAccess(
 	ctx context.Context,
 	threadID, userID string,
@@ -37,13 +38,15 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 	permissions []string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
+	threadData *string,
+	threadTTL *int,
 ) (*interfaces.UserAccess, error) {
 	var result *interfaces.UserAccess
 
 	// Use existing ExecuteWithBackoff for retry logic (10ms initial, 100ms max, 500ms total)
 	err := r.valkey.ExecuteWithBackoff(ctx, func() error {
 		access, err := r.attemptGrantOrUpdateAccess(
-			ctx, threadID, userID, role, permissions, invitedBy, luaScripts,
+			ctx, threadID, userID, role, permissions, invitedBy, luaScripts, threadData, threadTTL,
 		)
 		if err != nil {
 			// Check if error is retryable (concurrent creation detected)
@@ -67,6 +70,7 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 
 // attemptGrantOrUpdateAccess performs a single attempt to grant/update access
 // Extracted from GrantOrUpdateAccess to enable retry logic
+// Supports atomic thread creation via optional threadData and threadTTL parameters
 func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	ctx context.Context,
 	threadID, userID string,
@@ -74,9 +78,12 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	permissions []string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
+	threadData *string,
+	threadTTL *int,
 ) (*interfaces.UserAccess, error) {
 	roleIndexKey := r.getRoleIndexKey(threadID)
 	accessKey := r.getAccessKey(threadID)
+	threadKey := r.getThreadKey(threadID)
 
 	permissionsJSON, err := json.Marshal(permissions)
 	if err != nil {
@@ -91,16 +98,28 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		return nil, fmt.Errorf("script grant_or_update_access not loaded")
 	}
 
+	// Prepare optional thread creation parameters
+	threadJSON := ""
+	ttl := "0"
+	if threadData != nil && *threadData != "" {
+		threadJSON = *threadData
+	}
+	if threadTTL != nil && *threadTTL > 0 {
+		ttl = fmt.Sprintf("%d", *threadTTL)
+	}
+
 	result, err := r.valkey.EvalSHA(
 		ctx,
 		scriptHash,
-		[]string{roleIndexKey, accessKey}, // KEYS[1], KEYS[2]
-		invitedBy,                         // ARGV[1]
-		userID,                            // ARGV[2]
-		role,                              // ARGV[3]
-		string(permissionsJSON),           // ARGV[4]
-		timestamp,                         // ARGV[5]
-		"active",                          // ARGV[6]
+		[]string{roleIndexKey, accessKey, threadKey}, // KEYS[1], KEYS[2], KEYS[3]
+		invitedBy,               // ARGV[1]
+		userID,                  // ARGV[2]
+		role,                    // ARGV[3]
+		string(permissionsJSON), // ARGV[4]
+		timestamp,               // ARGV[5]
+		"active",                // ARGV[6]
+		threadJSON,              // ARGV[7] - optional thread data
+		ttl,                     // ARGV[8] - optional thread TTL
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant/update access: %w", err)
@@ -175,4 +194,8 @@ func (r *AccessRepository) getAccessKey(threadID string) string {
 
 func (r *AccessRepository) getRoleIndexKey(threadID string) string {
 	return fmt.Sprintf("thread:%s:role_index", threadID)
+}
+
+func (r *AccessRepository) getThreadKey(threadID string) string {
+	return fmt.Sprintf("thread:%s", threadID)
 }

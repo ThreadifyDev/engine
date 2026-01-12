@@ -295,7 +295,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}()
 
 		fmt.Printf("🔄 DEBUG: Starting thread metadata goroutine for thread %s\n", threadID)
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		// Convert contract version to string (handle nil pointer)
 		contractVersion := "0"
@@ -409,7 +410,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 	// Check if current_steps sorted set has any members
 	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", thread.ID)
-	count, err := s.valkeyClient.ZCard(context.Background(), currentStepsKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	count, err := s.valkeyClient.ZCard(ctx, currentStepsKey)
 	if err != nil {
 		return false
 	}
@@ -512,7 +515,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		stepHashKey := fmt.Sprintf("thread:%s:steps:%s", req.ThreadID, stepKey)
 
 		// Check if step state hash exists
-		existingStatus, err := s.valkeyClient.HGet(context.Background(), stepHashKey, "status")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		existingStatus, err := s.valkeyClient.HGet(ctx, stepHashKey, "status")
 		if err == nil && existingStatus != "" {
 			// Step exists - check if it's already completed
 			if existingStatus == "completed" {
@@ -908,7 +913,9 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 	}
 
 	// Load from Valkey if not in cache
-	thread, err := s.repo.Get(context.Background(), threadID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	thread, err := s.repo.Get(ctx, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
@@ -921,8 +928,10 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 // GrantOrUpdateThreadAccess grants or updates user access using unified method with proper orchestration
 func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, permissions []string, invitedBy string, isCreator bool, explicitScope *string) error {
 	// 1. Resolve notification scope
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	scope, err := s.scopeResolver.ResolveScope(
-		context.Background(),
+		ctx,
 		threadID,
 		userID,
 		role,
@@ -936,14 +945,18 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 	}
 
 	// 2. Grant access via AccessRepository (atomic via Lua script)
-	access, err := s.accessRepo.GrantOrUpdateAccess(context.Background(), threadID, userID, role, permissions, invitedBy, s.luaScripts)
+	// Pass nil for threadData/threadTTL (not creating thread here, only managing access)
+	accessCtx, accessCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer accessCancel()
+	access, err := s.accessRepo.GrantOrUpdateAccess(accessCtx, threadID, userID, role, permissions, invitedBy, s.luaScripts, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to grant access: %w", err)
 	}
 
 	// 3. Record activity via ActivityRepository (async, don't block main operation)
 	go func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		// Get service name from connection manager
 		client, exists := s.connectionMgr.GetClient(userID)
 		serviceName := ""
@@ -1015,7 +1028,9 @@ func (s *ThreadService) HandleAddRefs(req *models.AddRefsRequest, ownerID string
 	}
 
 	// Verify thread exists and user has access
-	thread, err := s.repo.Get(context.Background(), req.ThreadID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	thread, err := s.repo.Get(ctx, req.ThreadID)
 	if err != nil {
 		return &models.AddRefsResponse{
 			Action:  "addRefs",
@@ -1044,7 +1059,9 @@ func (s *ThreadService) HandleAddRefs(req *models.AddRefsRequest, ownerID string
 	}
 
 	// Store refs atomically
-	if err := s.repo.AddRefs(context.Background(), req.ThreadID, req.Refs); err != nil {
+	refsCtx, refsCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer refsCancel()
+	if err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs); err != nil {
 		return &models.AddRefsResponse{
 			Action:  "addRefs",
 			Status:  "error",

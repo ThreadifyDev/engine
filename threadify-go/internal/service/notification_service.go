@@ -58,8 +58,11 @@ func (s *NotificationService) PerformAsyncValidation(
 	stepNode models.GraphNode,
 ) {
 	go func() {
-		ctx := context.Background()
-		fmt.Printf("[ASYNC-VALIDATION] Starting validation for thread=%s, step=%s, stepName=%s\n", threadID, stepID, stepName)
+		// Use configurable timeout to prevent goroutine leaks
+		// Default: 60 seconds (from config.Timeouts.ValidationSeconds)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		fmt.Printf("[ASYNC-VALIDATION] Starting validation for thread=%s, step=%s, stepName=%s (timeout: 60s)\n", threadID, stepID, stepName)
 
 		// Perform all non-blocking validations (contract-specific if graph exists)
 		var notifications []models.ValidationNotification

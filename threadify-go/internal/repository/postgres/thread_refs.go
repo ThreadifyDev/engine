@@ -150,28 +150,28 @@ func (r *ThreadRefsRepository) GetThreadChain(ctx context.Context, rootID string
 		WITH RECURSIVE thread_chain AS (
 			-- Base case: Start with the root thread
 			SELECT 
-				t.thread_id,
+				t.id as thread_id,
 				0 as depth,
-				ARRAY[t.thread_id] as path,
+				ARRAY[t.id]::TEXT[] as path,
 				t.created_at
 			FROM threads t
-			WHERE t.thread_id = $1
+			WHERE t.id = $1
 			
 			UNION ALL
 			
 			-- Recursive case: Find child threads
 			SELECT 
-				t.thread_id,
+				t.id as thread_id,
 				tc.depth + 1,
-				tc.path || t.thread_id,
+				tc.path || t.id::TEXT,
 				t.created_at
 			FROM threads t
-			JOIN thread_refs tr ON t.thread_id = tr.thread_id
+			JOIN thread_refs tr ON t.id = tr.thread_id
 			JOIN thread_chain tc ON tr.ref_value = tc.thread_id
 			WHERE 
 				tr.ref_key LIKE 'linkedThread:%'
 				AND tc.depth < $2
-				AND t.thread_id != ALL(tc.path) -- Prevent cycles
+				AND t.id::TEXT != ALL(tc.path) -- Prevent cycles
 		)
 		SELECT thread_id 
 		FROM thread_chain 
@@ -180,6 +180,8 @@ func (r *ThreadRefsRepository) GetThreadChain(ctx context.Context, rootID string
 
 	rows, err := r.pool.Query(ctx, query, rootID, maxDepth)
 	if err != nil {
+		fmt.Printf("🔴 GetThreadChain SQL ERROR: %v\n", err)
+		fmt.Printf("🔴 Query params: rootID=%s, maxDepth=%d\n", rootID, maxDepth)
 		return nil, fmt.Errorf("failed to query thread chain: %w", err)
 	}
 	defer rows.Close()

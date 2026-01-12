@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
@@ -68,13 +69,18 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 	}
 
 	// Write to Valkey using unified Lua script
+	// Pass nil for threadData/threadTTL (not creating thread here, only managing access)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err := s.accessRepo.GrantOrUpdateAccess(
-		context.Background(),
+		ctx,
 		threadID, userID,
 		role,
 		permissions,
 		invitedBy,
 		s.luaScripts,
+		nil, // threadData - not creating thread
+		nil, // threadTTL - not creating thread
 	)
 	if err != nil {
 		return fmt.Errorf("failed to grant/update access: %w", err)

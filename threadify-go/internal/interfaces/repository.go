@@ -65,7 +65,7 @@ type ThreadRepository interface {
 
 // AccessRepository defines the interface for role and permission management
 type AccessRepository interface {
-	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, permissions []string, invitedBy string, luaScripts LuaScriptManager) (*UserAccess, error)
+	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, permissions []string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
 	GetUserAccess(ctx context.Context, threadID, userID string) (*UserAccess, error)
 	GetAllAccess(ctx context.Context, threadID string) (map[string]*UserAccess, error)
 	RevokeAccess(ctx context.Context, threadID, userID string) error

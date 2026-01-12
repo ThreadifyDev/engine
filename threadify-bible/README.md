@@ -55,6 +55,11 @@ Each case is documented in a separate file with complete pseudocode flows, datab
    - Subscription cleanup
    - Client state update
 
+10. **[CASE_10_addRefs.md](./CASE_10_addRefs.md)** - Add External References
+   - Thread-level metadata management
+   - External system integration
+   - Incremental reference addition
+
 ## Architecture Overview
 
 ### Data Flow Layers
@@ -75,11 +80,12 @@ Each case is documented in a separate file with complete pseudocode flows, datab
 ## Database Impact Summary
 
 ### Valkey (Hot Cache)
-- Thread metadata: `thread:{id}`
+- Thread metadata: `thread:{id}`, `thread:{id}:meta`
+- Thread refs: `thread:{id}:meta` (fields: `refs:{key}`)
 - Access control: `thread:{id}:access:{userId}`, `thread:{id}:users`
 - Step state: `thread:{id}:steps:{name}:{idemp}`
 - Activity log: `thread:{id}:activity` (7-day TTL)
-- Contract cache: `graph:{companyID}:{contractName}:{version}`
+- Contract cache: `contract_graph:{companyID}:{contractName}:v{version}`
 
 ### NATS JetStream (Reliable Queue)
 - `activity.log` → Activity events
@@ -110,4 +116,4 @@ Each case is documented in a separate file with complete pseudocode flows, datab
 
 ---
 
-*Last Updated: January 12, 2026*
+*Last Updated: January 12, 2026 - Added CASE_10 (addRefs), updated contract cache keys*

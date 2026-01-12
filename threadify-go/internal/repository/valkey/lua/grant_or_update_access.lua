@@ -1,24 +1,48 @@
 -- grant_or_update_access.lua
 -- Unified access control with role uniqueness enforcement
 -- Uses role_index for O(1) role conflict detection
+-- Supports atomic thread creation to prevent orphaned threads
 --
 -- KEYS[1]: thread:{id}:role_index (hash: role -> userID)
 -- KEYS[2]: thread:{id}:access (hash: userID -> access JSON)
+-- KEYS[3]: thread:{id} (optional - thread hash key for creation)
 -- ARGV[1]: invitedBy ("self" for creator, companyID/userID for others)
 -- ARGV[2]: userID
 -- ARGV[3]: role
 -- ARGV[4]: permissions JSON array (e.g., '["read","write"]')
 -- ARGV[5]: timestamp (RFC3339)
 -- ARGV[6]: status
+-- ARGV[7]: threadJSON (optional - thread data if creating, empty string if not)
+-- ARGV[8]: threadTTL (optional - TTL in seconds for thread if creating)
 
 local roleIndexKey = KEYS[1]
 local accessKey = KEYS[2]
+local threadKey = KEYS[3] or ""
 local invitedBy = ARGV[1]
 local userID = ARGV[2]
 local newRole = ARGV[3]
 local newPermissions = cjson.decode(ARGV[4])
 local timestamp = ARGV[5]
 local status = ARGV[6]
+local threadJSON = ARGV[7] or ""
+local threadTTL = tonumber(ARGV[8] or "0")
+
+-- ATOMIC THREAD CREATION (if threadJSON provided)
+-- This ensures thread and access are created together or not at all
+if threadJSON ~= "" then
+    -- Check if thread already exists
+    if redis.call('EXISTS', threadKey) == 1 then
+        return redis.error_reply("THREAD_ALREADY_EXISTS")
+    end
+    
+    -- Create thread hash atomically with access grant
+    redis.call('HSET', threadKey, 'data', threadJSON)
+    
+    -- Set TTL if provided
+    if threadTTL > 0 then
+        redis.call('EXPIRE', threadKey, threadTTL)
+    end
+end
 
 -- Check role uniqueness: Only one user can hold a specific role
 -- (Users can still have multiple roles, but each role is unique to one user)
