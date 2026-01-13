@@ -1,122 +1,103 @@
 version: '3.8'
-
 services:
-  # PostgreSQL (Citus) - Main database
   threadify_storage:
-    image: citusdata/citus:postgres_16
+    image: 'postgres:16-alpine'
     ports:
-      - "5434:5432"
-    environment: &AUTH
-      POSTGRES_USER: ${PS_STORAGE_USER:-td_engine}
-      POSTGRES_PASSWORD: ${PS_STORAGE_PASSWORD:-tdtdtd}
+      - '5432'
+    environment:
+      POSTGRES_USER: '${PS_STORAGE_USER:-td_engine}'
+      POSTGRES_PASSWORD: '${PS_STORAGE_PASSWORD:-tdtdtd}'
       POSTGRES_DB: threadify
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     networks:
       - threadify-network
     volumes:
-      - threadify-persist:/var/lib/postgresql/data
+      - 'threadify-pg16:/var/lib/postgresql/data'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PS_STORAGE_USER:-td_engine}"]
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U ${PS_STORAGE_USER:-td_engine}'
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # Citus Worker
-  postgres-worker:
-    container_name: threadify_storage_worker
-    image: citusdata/citus:postgres_16
-    depends_on:
-      - threadify_storage
-    environment: *AUTH
-    command:
-      - "sh"
-      - "-c"
-      - |
-        set -e
-        until test -f /healthcheck/manager-ready ; do
-          >&2 echo "Manager is not ready - sleeping"
-          sleep 1
-        done
-        >&2 echo "Manager is up - starting worker"
-        exec gosu postgres "/usr/local/bin/docker-entrypoint.sh" "postgres"
-    volumes:
-      - threadify-persist:/healthcheck
-    networks:
-      - threadify-network
-
-  # Citus Manager
-  postgres-manager:
-    container_name: threadify_storage_manager
-    image: citusdata/membership-manager:0.3.0
-    volumes:
-      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
-      - threadify-persist:/healthcheck
-    depends_on:
-      - threadify_storage
-    environment: *AUTH
-    networks:
-      - threadify-network
-
-  # Valkey (Redis) - Fast cache and queue
   threadify-queue:
-    image: valkey/valkey:9.0.0
+    image: 'valkey/valkey:9.0.0'
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
-      - threadify-queue:/data
-      - ./valkey.conf:/etc/valkey/valkey.conf
-    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+      - 'threadify-queue:/data'
+      - './config/valkey.conf:/etc/valkey/valkey.conf'
+    command:
+      - valkey-server
+      - /etc/valkey/valkey.conf
     networks:
       - threadify-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "valkey-cli", "-a", "${FAST_STORAGE_PASSWORD:-threadify_secure_password}", "ping"]
+      test:
+        - CMD
+        - valkey-cli
+        - '-a'
+        - '${FAST_STORAGE_PASSWORD:-threadify_secure_password}'
+        - ping
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # Redis Commander - Web UI for Redis/Valkey
-  redis-commander:
-    image: ghcr.io/joeferner/redis-commander:latest
-    container_name: redis-commander
-    ports:
-      - "8082:8081"
-    environment:
-      - REDIS_HOSTS=valkey:valkey:6379:0:threadify_secure_password
-    depends_on:
-      - threadify-queue
-    networks:
-      - threadify-network
-    restart: unless-stopped
-
-  # NATS - Message broker for notifications
+  # redis-commander:
+  #   image: 'ghcr.io/joeferner/redis-commander:latest'
+  #   container_name: redis-commander
+  #   ports:
+  #     - '8082:8081'
+  #   environment:
+  #     - 'REDIS_HOSTS=valkey:valkey:6379:0:thread0fy_server'
+  #   depends_on:
+  #     - threadify-queue
+  #   networks:
+  #     - threadify-network
+  #   restart: unless-stopped
   nats:
-    image: nats:latest
+    image: 'nats:latest'
     container_name: threadify-nats
-    command: ["-js", "-sd", "/data", "-m", "8222"]
-    ports:
-      - "4222:4222"  # Client connections
-      - "8222:8222"  # HTTP monitoring
+    command:
+      - '-js'
+      - '-sd'
+      - /data
+      - '-m'
+      - '8222'
     volumes:
-      - nats-data:/data
+      - 'nats-data:/data'
     networks:
       - threadify-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      test:
+        - CMD
+        - wget
+        - '--no-verbose'
+        - '--tries=1'
+        - '--spider'
+        - 'http://localhost:8222/healthz'
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # Threadify Engine - Main application server
   threadify-engine:
-    image: intelijence/th-engine:cc2ef70
+    image: 'intelijence/th-engine:0.0.2'
     container_name: threadify-engine
     ports:
-      - "8081:8081"
-      - "6060:6060"  # pprof profiling
+      - '8081:8081'
+      - '6060:6060'
     volumes:
-      - ./threadify-go/config:/app/config:ro  # Mount local config.yaml
+      - './config/:/app/config:ro'
+    environment:
+      # PostgreSQL configuration (optional - will use default URL if not set)
+      - POSTGRES_URL=postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable
+      
+      # Redis configuration (optional - will use defaults if not set)
+      - REDIS_HOST=threadify-queue
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${FAST_STORAGE_PASSWORD:-thread0fy_server}
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=8
     depends_on:
       threadify_storage:
         condition: service_healthy
@@ -126,17 +107,29 @@ services:
       - threadify-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      test:
+        - CMD
+        - curl
+        - '--fail'
+        - 'http://localhost:8081/health'
       interval: 30s
       timeout: 3s
       start_period: 10s
       retries: 3
-
-  # # Threadify Archiver - Background data archival service
   threadify-archiver:
-    image: intelijence/th-archiver:cc2ef70
+    image: 'intelijence/th-archiver:0.0.2'
     volumes:
-      - ./threadify-go/config:/app/config:ro  # Mount local config.yaml
+      - './config/:/root/config:ro'
+    environment:
+      # PostgreSQL configuration (optional - will use default URL if not set)
+      - POSTGRES_URL=postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable
+      
+      # Redis configuration (optional - will use defaults if not set)
+      - REDIS_HOST=threadify-queue
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${FAST_STORAGE_PASSWORD:-thread0fy_server}
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=8
     depends_on:
       threadify_storage:
         condition: service_healthy
@@ -146,21 +139,22 @@ services:
       - threadify-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "pgrep", "-x", "archiver"]
+      test:
+        - CMD
+        - pgrep
+        - '-x'
+        - archiver
       interval: 30s
       timeout: 3s
       start_period: 10s
       retries: 3
-
 volumes:
-  threadify-persist:
+  threadify-pg16:
     driver: local
   threadify-queue:
     driver: local
   nats-data:
     driver: local
-
 networks:
   threadify-network:
     driver: bridge
-    # external: true

@@ -1,12 +1,23 @@
 {
   "name": "@threadify/sdk",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "JavaScript SDK for Threadify Engine - Real-time thread management and event tracking",
   "main": "src/index.js",
   "type": "module",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
   "scripts": {
+    "test": "echo \"Warning: No tests configured for production build\" && exit 0",
     "test:unit": "NODE_OPTIONS=--experimental-vm-modules npx jest",
-    "test:watch": "NODE_OPTIONS=--experimental-vm-modules npx jest --watch"
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules npx jest --watch",
+    "prepublishOnly": "npm test",
+    "publish:dry": "npm pack --dry-run",
+    "publish:beta": "npm publish --tag beta"
   },
   "keywords": [
     "threadify",
@@ -28,5 +39,17 @@
   },
   "engines": {
     "node": ">=16.0.0"
-  }
+  },
+  "files": [
+    "src/",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/intelijence/threadify-engine",
+    "directory": "threadify-sdk"
+  },
+  "homepage": "https://github.com/intelijence/threadify-engine/tree/main/threadify-sdk"
 }

@@ -52,17 +52,25 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 }
 
 func (h *ContractHandler) Login(c *gin.Context) {
-	var req struct {
-		UserID string `json:"userId"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+	// Get API key from header
+	apiKey := c.GetHeader("X-API-Key")
+	if apiKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-API-Key header required"})
 		return
 	}
 
-	token, err := h.authService.CreateToken(req.UserID, map[string]interface{}{
-		"role":    "user",
-		"ownerId": req.UserID,
+	// Validate API key and get user info
+	userInfo, err := h.authService.ValidateApiKey(apiKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+		return
+	}
+
+	// Create token with validated user info
+	token, err := h.authService.CreateToken(userInfo.OwnerID, map[string]interface{}{
+		"role":      userInfo.Role,
+		"ownerId":   userInfo.OwnerID,
+		"companyId": userInfo.CompanyID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
@@ -70,9 +78,11 @@ func (h *ContractHandler) Login(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"token":   token,
-		"userId":  req.UserID,
-		"message": "Use this token in Authorization header as: Bearer <token>",
+		"token":     token,
+		"userId":    userInfo.OwnerID,
+		"companyId": userInfo.CompanyID,
+		"role":      userInfo.Role,
+		"message":   "Use this token in Authorization header as: Bearer <token>",
 	})
 }
 

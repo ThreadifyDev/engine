@@ -1,5 +1,10 @@
 /**
  * ThreadStep - Represents a step in a thread execution with fluent API
+ * @example
+ * const step = thread.step('order_placed');
+ * await step
+ *   .addContext({ orderId: 'ORD-12345' })
+ *   .success();
  */
 export class ThreadStep {
   constructor(stepName, thread, serviceName = null, options = {}) {
@@ -107,6 +112,7 @@ export class ThreadStep {
     return this;
   }
 
+  
 
   /**
    * Stop the step and send the event to server
@@ -141,13 +147,27 @@ export class ThreadStep {
       if (error.isDuplicate) {
         console.warn('⚠️ Duplicate step detected:', error.message);
         // Don't throw - this is expected behavior
-        return this;
+        return {
+          stepName: this.stepName,
+          threadId: this.thread.threadId,
+          status: this.event.status,
+          idempotencyKey: this.event.idempotencyKey,
+          timestamp: this.event.finishedAt || this.event.startedAt,
+          duplicate: true
+        };
       }
       console.error('Failed to send step event:', error);
       throw error;
     }
     
-    return this;
+    // Return a clean response object without internal details
+    return {
+      stepName: this.stepName,
+      threadId: this.thread.threadId,
+      status: this.event.status,
+      idempotencyKey: this.event.idempotencyKey,
+      timestamp: this.event.finishedAt || this.event.startedAt
+    };
   }
 
   /**

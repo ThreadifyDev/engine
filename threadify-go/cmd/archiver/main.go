@@ -89,6 +89,10 @@ func main() {
 
 	// Initialize Valkey client
 	viper.SetConfigFile(*configPath)
+
+	// Enable automatic environment variable support
+	viper.AutomaticEnv()
+
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read viper config: %v", err)
 	}

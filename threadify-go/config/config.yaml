@@ -3,9 +3,9 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
-  host: localhost
-  port: 5434
+  url: "postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
+  host: threadify_storage
+  port: 5432
   user: td_engine
   password: tdtdtd
   name: threadify
@@ -13,7 +13,7 @@ postgres:
   max_idle_connections: 5
 
 redis:
-  host: localhost
+  host: threadify-queue
   port: 6379
   password: threadify_secure_password
   db: 0
@@ -65,7 +65,7 @@ timeouts:
 
 # NATS configuration for notification delivery
 nats:
-  url: "nats://localhost:4222"
+  url: "nats://threadify-nats:4222"
   cluster_id: "threadify-cluster"
   client_id: "threadify-server"
   stream_name: "NOTIFICATIONS"

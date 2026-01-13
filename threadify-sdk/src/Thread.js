@@ -6,10 +6,12 @@ import { DataRetriever, ArchivedThread, ArchivedStep } from './DataRetriever.js'
  * Connection - Represents a WebSocket connection to Threadify Engine
  */
 export class Connection {
-  constructor(ws, apiKey, serviceName = null) {
+  constructor(ws, apiKey, serviceName = null, graphqlUrl = null, debug = false) {
     this.ws = ws;
     this.apiKey = apiKey;
     this.serviceName = serviceName;
+    this.graphqlUrl = graphqlUrl;
+    this.debug = debug;
     this.isConnected = false;
     this.activeThreads = new Map(); // Map of threadId -> thread info
     this.threads = new Map(); // Map of threadId -> ThreadInstance (for notification routing)
@@ -30,19 +32,28 @@ export class Connection {
   }
 
   /**
-   * Get lazy-initialized DataRetriever instance
+   * Debug logging utility
+   * @private
+   * @param {...any} args - Arguments to log
+   */
+  _debugLog(...args) {
+    if (this.debug) {
+      console.log('[DEBUG]', ...args);
+    }
+  }
+
+  /**
+   * Get lazy initialized DataRetriever instance
    * @private
    * @returns {DataRetriever} - DataRetriever instance
    */
   _getDataRetriever() {
     if (!this._dataRetriever) {
-      // Derive GraphQL URL from WebSocket URL
-      let graphqlUrl = this.ws.url;
-      // Replace ws:// with http:// and /threads with /graphql
-      graphqlUrl = graphqlUrl.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
-      graphqlUrl = graphqlUrl.replace(/\/threads$/, '/graphql');
+      if (!this.graphqlUrl) {
+        throw new Error('GraphQL URL not configured. Pass graphqlUrl to Threadify.connect() or use wsUrl for auto-derivation.');
+      }
       
-      this._dataRetriever = new DataRetriever(graphqlUrl, this.apiKey);
+      this._dataRetriever = new DataRetriever(this.graphqlUrl, this.apiKey);
     }
     return this._dataRetriever;
   }
@@ -201,7 +212,7 @@ export class Connection {
             const threadInstance = new ThreadInstance(this, data.threadId, contractName, null, {});
             // Register thread for notification routing
             this.threads.set(data.threadId, threadInstance);
-            console.log(`[DEBUG] Thread started: ${data.threadId}`);
+            this._debugLog(`Thread started: ${data.threadId}`);
             resolve(threadInstance);
           } else {
             reject(new Error(data.message || 'Failed to start thread'));
@@ -608,8 +619,8 @@ export class Connection {
       const responseHandler = (data) => {
         if (data.action === 'joinThread') {
           if (data.status === 'success') {
-            console.log(`[DEBUG] Joined thread: ${data.threadId}`);
-            console.log(`[DEBUG] Role: ${data.role}, Permissions: ${data.permissions}`);
+            this._debugLog(`Joined thread: ${data.threadId}`);
+            this._debugLog(`Role: ${data.role}, Permissions: ${data.permissions}`);
             
             // Create and return a ThreadInstance
             const threadInstance = new ThreadInstance(
@@ -632,14 +643,13 @@ export class Connection {
       // Send appropriate join message
       if (isTokenJoin) {
         // Token-based join (external parties)
-        console.log(`[DEBUG] Joining thread with token: ${tokenOrThreadId.substring(0, 20)}...`);
+        this._debugLog(`Joining thread with token: ${tokenOrThreadId.substring(0, 20)}...`);
         this._send({
           action: 'joinThread',
           threadToken: tokenOrThreadId
         });
       } else if (isDirectJoin) {
-        // Direct join (internal services)
-        console.log(`[DEBUG] Joining thread directly: ${tokenOrThreadId} as ${role}`);
+        this._debugLog(`Joining thread directly: ${tokenOrThreadId} as ${role}`);
         this._send({
           action: 'joinThread',
           threadId: tokenOrThreadId,
