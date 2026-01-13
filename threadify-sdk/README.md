@@ -1,16 +1,18 @@
 # @threadify/sdk
 
-JavaScript SDK for Threadify Engine - Real-time thread management and event tracking with built-in validation, idempotency, and WebSocket communication.
+**Track every step of your business workflows with complete visibility and reliability.**
 
-## Features
+Threadify helps you understand what's happening in your distributed systems by tracking every step of your business processes - from order placement to fulfillment, payment processing to delivery. Get real-time visibility, automatic validation, and a complete audit trail without the complexity.
 
-- 🚀 **Real-time WebSocket Communication** - Live thread updates and notifications
-- 🔗 **Thread Linking & Relationships** - Connect threads together for complex workflows  
-- ✅ **Built-in Validation** - Automatic validation with configurable rules
-- 🔄 **Idempotency Support** - Safe retry mechanisms and duplicate prevention
-- 📊 **GraphQL Data Retrieval** - Query archived thread data
-- 🛡️ **Production-Ready** - Secure debug logging and error handling
-- 📦 **TypeScript Ready** - Full ES module support with modern JavaScript
+## Why Threadify?
+
+**Stop losing track of what's happening in your workflows.** When an order fails, a payment gets stuck, or a delivery goes missing, you need answers fast. Threadify gives you:
+
+- **Complete Visibility**: See every step of every workflow in real-time
+- **Automatic Validation**: Catch issues before they become problems (timeouts, invalid transitions, missing steps)
+- **Reliable Tracking**: Built-in idempotency means you can retry safely without duplicates
+- **Cross-System Linking**: Connect workflows to your external systems (Stripe, Shopify, etc.) for easy tracing
+- **Audit Trail**: Every step is recorded with full context for compliance and debugging
 
 ## Installation
 
@@ -23,97 +25,118 @@ npm install @threadify/sdk
 ```javascript
 import { Threadify } from '@threadify/sdk';
 
-// Connect to Threadify Engine
-const connection = await Threadify.connect('your-api-key', 'my-service');
+// Connect with your API key
+const connection = await Threadify.connect('your-api-key');
 
-// Start a new thread
+// Start tracking a workflow
 const thread = await connection.start();
 
-// Add steps with context
+// Record each step with full context
 await thread.step('order_placed')
-  .addContext({ orderId: 'ORD-12345', amount: 99.99 })
+  .addContext({ orderId: 'ORD-12345', amount: 99.99, customer: 'john@example.com' })
   .success();
 
-// Add another step with context
 await thread.step('payment_processed')
-  .addContext({ paymentId: 'PAY-67890' })
+  .addContext({ paymentId: 'PAY-67890', method: 'credit_card' })
+  .success();
+
+await thread.step('order_shipped')
+  .addContext({ trackingNumber: 'TRACK-123', carrier: 'FedEx' })
+  .success();
+
+// That's it! Threadify handles the rest.
+```
+
+## Real-World Use Cases
+
+### E-commerce Order Fulfillment
+Track orders from placement through delivery, catch stuck payments, and monitor shipping delays in real-time.
+
+### Payment Processing
+Monitor payment flows across multiple providers, detect failures instantly, and maintain complete audit trails for compliance.
+
+### Multi-Party Workflows
+Coordinate between merchants, logistics providers, and customers with automatic notifications when things go wrong.
+
+### System Integration
+Link workflows to external systems like Stripe, Shopify, or your custom APIs for seamless traceability.
+
+---
+
+## Common Scenarios
+
+### Track a Simple Workflow
+
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('your-api-key');
+const thread = await connection.start();
+
+// Each step is automatically validated and tracked
+await thread.step('order_received')
+  .addContext({ orderId: 'ORD-123', total: 299.99 })
+  .success();
+
+await thread.step('inventory_checked')
+  .addContext({ inStock: true, warehouse: 'US-EAST' })
+  .success();
+
+await thread.step('payment_captured')
+  .addContext({ paymentId: 'ch_abc123', amount: 299.99 })
   .success();
 ```
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Core Concepts](#core-concepts)
-- [API Reference](#api-reference)
-  - [Threadify Class](#threadify-class)
-  - [Connection Class](#connection-class)
-  - [ThreadInstance Class](#threadinstance-class)
-  - [ThreadStep Class](#threadstep-class)
-- [Advanced Usage](#advanced-usage)
-- [Error Handling](#error-handling)
-- [Examples](#examples)
-
----
-
-## Installation
-
-```bash
-npm install threadify-sdk
-```
-
-Or if developing locally:
-
-```bash
-cd threadify-sdk
-npm install
-npm link
-```
-
----
-
-## Quick Start
-
-### Basic Non-Contract Workflow
+### Link to External Systems
 
 ```javascript
-import { Threadify } from 'threadify-sdk';
+// Connect your workflow to Stripe, Shopify, etc.
+await thread.step('process_payment', {
+  external_refs: {
+    stripe_payment_id: 'pi_abc123',
+    shopify_order_id: '12345',
+    customer_email: 'customer@example.com'
+  }
+})
+  .addContext({ amount: 299.99, currency: 'USD' })
+  .success();
 
-// Connect to Threadify Engine
-const connection = await Threadify.connect('your-api-key', 'my-service');
-
-// Start a new thread
-const thread = await connection.start();
-
-// Create and execute a step
-await thread.step('process_order')
-  .addContext({ orderId: '12345', amount: '100.00' })
-  .stop('success');
-
-// Close connection
-await connection.close();
+// Now you can trace from Stripe back to your workflow instantly
 ```
 
-### Contract-Based Workflow
+### Handle Failures Gracefully
 
 ```javascript
-import { Threadify } from 'threadify-sdk';
+try {
+  await processPayment(orderId);
+  await thread.step('payment_processed')
+    .addContext({ orderId, status: 'success' })
+    .success();
+} catch (error) {
+  // Threadify tracks failures too
+  await thread.step('payment_processed')
+    .addContext({ orderId, error: error.message })
+    .failed('Payment gateway timeout');
+  
+  // You'll get notified automatically if this violates your workflow rules
+}
+```
 
-const connection = await Threadify.connect('api-key', 'merchant-service');
+### Work with Contracts (Predefined Workflows)
 
-// Start thread with contract
-const thread = await connection.start('product_delivery', 'merchant-service');
+```javascript
+// Use a contract to enforce your workflow structure
+const thread = await connection.start('order_fulfillment', 'merchant');
 
-// Execute entry point step
+// Contract ensures you follow the right steps in the right order
 await thread.step('order_placed')
-  .addContext({ 
-    order_id: 'ORD-001',
-    product_id: 'PROD-123',
-    quantity: '2'
-  })
-  .stop('success');
+  .addContext({ orderId: 'ORD-123' })
+  .success();
 
-await connection.close();
+// Threadify validates this is a valid next step
+await thread.step('payment_authorized')
+  .addContext({ authCode: 'AUTH-456' })
+  .success();
 ```
 
 ---
@@ -145,68 +168,37 @@ A YAML-defined workflow specification that enforces:
 
 ## API Reference
 
-## Threadify Class
+### Getting Started
 
-Main entry point for the SDK.
+#### `Threadify.connect(apiKey, serviceName, options)`
 
-### `Threadify.connect(apiKey, serviceName, options)`
-
-Establishes a WebSocket connection to the Threadify Engine.
+Connect to Threadify and start tracking your workflows.
 
 **Parameters:**
-- `apiKey` (string, required): Your API key for authentication
-- `serviceName` (string, optional): Service identifier (e.g., 'merchant-service')
+- `apiKey` (string, required): Your API key from the Threadify dashboard
+- `serviceName` (string, optional): Your service name (e.g., 'payment-service', 'order-service')
 - `options` (object, optional):
-  - `url` (string): WebSocket URL (legacy, use wsUrl)
-  - `wsUrl` (string): WebSocket URL
-  - `graphqlUrl` (string): GraphQL URL (default: derived from wsUrl)
-  - `debug` (boolean): Enable debug logging (default: false)
+  - `debug` (boolean): Enable debug logging for troubleshooting (default: false)
 
 **Returns:** `Promise<Connection>`
 
 **Example:**
 ```javascript
-const connection = await Threadify.connect(
-  'api-key-123',
-  'payment-service',
-  { 
-  wsUrl: 'wss://production.example.com/threads',
-  graphqlUrl: 'https://production.example.com/graphql',
-  debug: false 
-}
-);
-```
+// Simple connection (most common)
+const connection = await Threadify.connect('your-api-key');
 
----
+// With service name
+const connection = await Threadify.connect('your-api-key', 'payment-service');
 
-### `Threadify.create(config)`
-
-Creates a reusable Threadify instance with pre-configured settings.
-
-**Parameters:**
-- `config` (object):
-  - `apiKey` (string, required)
-  - `url` (string, required)
-  - `serviceName` (string, optional)
-
-**Returns:** Object with `connect()` method
-
-**Example:**
-```javascript
-const threadify = Threadify.create({
-  apiKey: 'api-key-123',
-  url: 'ws://localhost:8081/threads',
-  serviceName: 'order-service'
+// With debug logging
+const connection = await Threadify.connect('your-api-key', 'payment-service', { 
+  debug: true 
 });
-
-const connection = await threadify.connect();
 ```
 
 ---
 
-## Connection Class
-
-Represents an active WebSocket connection.
+### Working with Threads
 
 ### `connection.start(...args)`
 
@@ -214,12 +206,12 @@ Starts a new thread.
 
 **Signatures:**
 1. `start()` - Non-contract workflow
-2. `start(serviceName)` - Non-contract with specific service
-3. `start(contractName, serviceName)` - Contract-based workflow
+2. `start(role)` - Non-contract with specific role
+3. `start(contractName, role)` - Contract-based workflow
 
 **Parameters:**
 - `contractName` (string, optional): Contract name or "name:version"
-- `serviceName` (string, optional): Service name for this thread
+- `role` (string, optional): The role you want to play in this thread (e.g., 'merchant', 'logistics', 'customer')
 
 **Returns:** `Promise<ThreadInstance>`
 
@@ -228,14 +220,14 @@ Starts a new thread.
 // Non-contract
 const thread1 = await connection.start();
 
-// Non-contract with service
-const thread2 = await connection.start('payment-service');
+// Non-contract with role
+const thread2 = await connection.start('merchant');
 
 // Contract-based
-const thread3 = await connection.start('product_delivery', 'merchant-service');
+const thread3 = await connection.start('product_delivery', 'merchant');
 
 // Contract with version
-const thread4 = await connection.start('product_delivery:v2', 'merchant-service');
+const thread4 = await connection.start('product_delivery:v2', 'merchant');
 ```
 
 ---
@@ -245,8 +237,8 @@ const thread4 = await connection.start('product_delivery:v2', 'merchant-service'
 Joins an existing thread using an invitation token or direct join.
 
 **Parameters:**
-- `tokenOrThreadId` (string, required): JWT invitation token OR threadId
-- `role` (string, optional): Role for direct join (internal services only)
+- `tokenOrThreadId` (string, required): JWT invitation token (for external parties) OR threadId (for internal services within the same company)
+- `role` (string, optional): Role for direct join (only available for internal services within your organization)
 
 **Returns:** `Promise<ThreadInstance>`
 
@@ -255,23 +247,9 @@ Joins an existing thread using an invitation token or direct join.
 // Token-based join (external party)
 const thread = await connection.join('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
 
-// Direct join (internal service)
+// Direct join (internal service within same company)
 const thread = await connection.join('thread-uuid-123', 'logistics');
 ```
-
----
-
-### `connection.step(stepName, serviceName, options)`
-
-Creates a step without a thread context (legacy method, prefer `thread.step()`).
-
-**Parameters:**
-- `stepName` (string, required): Name of the step
-- `serviceName` (string, optional): Service executing the step
-- `options` (object, optional):
-  - `external_refs` (object): External system references
-
-**Returns:** `ThreadStep`
 
 ---
 
@@ -363,14 +341,18 @@ Creates a new step in this thread.
 - `stepName` (string, required): Name of the step
 - `serviceName` (string, optional): Service executing the step
 - `options` (object, optional):
-  - `external_refs` (object): External system references
+  - `external_refs` (object): Link this thread to external systems (e.g., payment IDs, order IDs, tracking numbers) for easy cross-reference and traceability
 
 **Returns:** `ThreadStep`
 
 **Example:**
 ```javascript
+// Link thread to Stripe payment for easy lookup
 const step = thread.step('validate_payment', 'payment-service', {
-  external_refs: { stripe_payment_id: 'pi_123' }
+  external_refs: { 
+    stripe_payment_id: 'pi_123',
+    order_id: 'ORD-456'
+  }
 });
 ```
 
@@ -698,6 +680,38 @@ connection.onViolation('payment_processing', (notification) => {
 
 ---
 
+## Advanced Configuration
+
+### Custom WebSocket URLs (Self-Hosted Only)
+
+If you're running Threadify on your own infrastructure, you can specify custom endpoints:
+
+```javascript
+const connection = await Threadify.connect('your-api-key', 'my-service', {
+  wsUrl: 'ws://localhost:8081/threads',
+  graphqlUrl: 'http://localhost:8081/graphql'
+});
+```
+
+**Note:** Production users of Threadify's hosted service don't need to configure URLs - everything is handled automatically.
+
+### Reusable Configuration
+
+For multiple connections with the same settings:
+
+```javascript
+const threadify = Threadify.create({
+  apiKey: 'api-key-123',
+  serviceName: 'order-service'
+});
+
+// Create multiple connections
+const conn1 = await threadify.connect();
+const conn2 = await threadify.connect();
+```
+
+---
+
 ## Advanced Usage
 
 ### Fluent API Chaining
@@ -841,7 +855,7 @@ await thread.step('order_placed')
 ### Example 1: Simple Order Processing
 
 ```javascript
-import { Threadify } from 'threadify-sdk';
+import { Threadify } from '@threadify/sdk';
 
 async function processOrder(orderId) {
   const connection = await Threadify.connect('api-key', 'order-service');
@@ -875,7 +889,7 @@ async function processOrder(orderId) {
 ### Example 2: Contract-Based Workflow with Error Handling
 
 ```javascript
-import { Threadify } from 'threadify-sdk';
+import { Threadify } from '@threadify/sdk';
 
 async function deliverProduct(orderData) {
   const connection = await Threadify.connect('api-key', 'merchant-service');
@@ -1237,7 +1251,7 @@ history.forEach(record => {
 ### Example 1: Complete Thread Audit Trail
 
 ```javascript
-import { Threadify } from 'threadify-sdk';
+import { Threadify } from '@threadify/sdk';
 
 const connection = await Threadify.connect('api-key', 'audit-service');
 

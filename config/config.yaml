@@ -1,0 +1,84 @@
+server:
+  port: 8081
+  host: 0.0.0.0
+
+postgres:
+  max_connections: 25
+  max_idle_connections: 5
+
+redis:
+  host: "threadify-queue"
+  port: 6379
+  password: "threadify_secure_password"
+  db: 0
+  pool_size: 8
+
+jwt:
+  secret: NDUHGL&O$Lbfuwisnc43p89h34t89rwed;cl4tgq3ufwrp9yt834____u8f0gd78^FO&^D@2
+  issuer: threadify-engine
+  audience: threadify-users
+  realm: Threadify API
+  expiration_hours: 24
+
+queue:
+  ttl_seconds: 7776000
+
+thread_activities:
+  batch_size: 100
+  batch_timeout_ms: 1000
+
+# Rate limiting configuration
+rate_limit:
+  requests_per_second: 5000
+  burst_size: 10000
+  cleanup_interval_hours: 1
+
+cache:
+  contract_ttl_hours: 24
+  thread_ttl_hours: 72
+  step_event_ttl_hours: 168
+  session_ttl_minutes: 30
+
+logging:
+  level: info
+
+# NATS configuration for notification delivery
+nats:
+  url: "nats://threadify-nats:4222"
+  cluster_id: "threadify-cluster"
+  client_id: "threadify-server"
+  stream_name: "NOTIFICATIONS"
+  retention_hours: 48
+  max_age_hours: 168  # 7 days
+  ack_wait_seconds: 30
+
+# Archiver service configuration
+archiver:
+  enabled: true
+  
+  buffers:
+    thread_step_state:
+      size: 100
+      flush_interval_ms: 10000
+    thread_metadata:
+      size: 50
+      flush_interval_ms: 5000
+    thread_access:
+      size: 50
+      flush_interval_ms: 5000
+    thread_validations:
+      size: 100
+      flush_interval_ms: 51000
+    thread_activities:
+      size: 100
+      flush_interval_ms: 5000
+  
+  retry:
+    max_attempts: 6
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
+  
+  streams:
+    consumer_group: "archiver-group"
+    block_timeout_ms: 5000
+    batch_size: 100
