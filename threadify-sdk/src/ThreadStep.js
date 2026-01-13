@@ -7,13 +7,11 @@
  *   .success();
  */
 export class ThreadStep {
-  constructor(stepName, thread, serviceName = null, options = {}) {
+  constructor(stepName, thread, serviceName = null) {
     this.stepName = stepName;
     this.thread = thread;
     this.serviceName = serviceName;
     this.manualIdempotencyKey = null; // For manual override
-    
-    const { external_refs = {} } = options;
     
     // Build event locally, send on stop()
     this.event = {
@@ -23,7 +21,7 @@ export class ThreadStep {
       startedAt: new Date().toISOString(),
       finishedAt: null,
       context: {},
-      refs: external_refs, // Store external refs
+      refs: {}, // Use addRefs() to populate
       status: 'in_progress',
       serviceName: serviceName
     };

@@ -127,28 +127,6 @@ export class Connection {
     return this._getDataRetriever().getThreadChain(rootId, maxDepth);
   }
 
-  /**
-   * Create a new step in this thread
-   * @param {string} stepName - Name of the step
-   * @param {string} serviceName - Optional service name for the step
-   * @param {Object} options - Step options (optional)
-   * @param {Object} options.external_refs - External system references
-   * @returns {ThreadStep} - New ThreadStep instance
-   */
-  step(stepName, serviceName = null, options = {}) {
-    if (!stepName || typeof stepName !== 'string') {
-      throw new Error('Step name must be a non-empty string');
-    }
-
-    // Handle overloading: step(name, options) or step(name, serviceName, options)
-    if (typeof serviceName === 'object' && serviceName !== null) {
-      options = serviceName;
-      serviceName = null;
-    }
-
-    const step = new ThreadStep(stepName, this, serviceName || this.serviceName, options);
-    return step;
-  }
 
   /**
    * Start a new thread (returns a ThreadInstance)
@@ -682,24 +660,17 @@ export class ThreadInstance {
   }
 
   /**
-   * Create a new step in this thread instance
+   * Create a new step in this thread
    * @param {string} stepName - Name of the step
    * @param {string} serviceName - Optional service name for the step
-   * @param {Object} options - Step options (optional)
    * @returns {ThreadStep} - New ThreadStep instance
    */
-  step(stepName, serviceName = null, options = {}) {
+  step(stepName, serviceName = null) {
     if (!stepName || typeof stepName !== 'string') {
       throw new Error('Step name must be a non-empty string');
     }
 
-    // Handle overloading: step(name, options) or step(name, serviceName, options)
-    if (typeof serviceName === 'object' && serviceName !== null) {
-      options = serviceName;
-      serviceName = null;
-    }
-
-    const step = new ThreadStep(stepName, this, serviceName || this.connection.serviceName, options);
+    const step = new ThreadStep(stepName, this, serviceName || this.connection.serviceName);
     this.steps.set(stepName, step);
     return step;
   }
