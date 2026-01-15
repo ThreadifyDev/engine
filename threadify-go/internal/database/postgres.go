@@ -110,20 +110,43 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		contract_version INT,
 		owner_id VARCHAR(255) NOT NULL,
 		company_id VARCHAR(255) NOT NULL,
+		status VARCHAR(50) DEFAULT 'active',
 		error TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		completed_at TIMESTAMP,
 		FOREIGN KEY (owner_id) REFERENCES users(id),
 		FOREIGN KEY (company_id) REFERENCES companies(id)
 	);
 
-	-- Add contract_name column if it doesn't exist (for existing databases)
+	-- Add missing columns for existing databases (migration safety)
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 
-	CREATE INDEX IF NOT EXISTS idx_threads_owner_id ON threads(owner_id);
+	-- Security-first indexes: company_id ALWAYS comes first to enforce isolation
+	-- These replace the old indexes that didn't include company_id
+	CREATE INDEX IF NOT EXISTS idx_threads_company_created 
+		ON threads(company_id, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_status_created 
+		ON threads(company_id, status, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_owner 
+		ON threads(company_id, owner_id, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_contract 
+		ON threads(company_id, contract_name, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_contract_version 
+		ON threads(company_id, contract_name, contract_version, created_at DESC);
+	
+	-- Partial index for non-active threads (completed/failed queries)
+	CREATE INDEX IF NOT EXISTS idx_threads_status_completed 
+		ON threads(status, created_at DESC) WHERE status != 'active';
+	
+	-- Keep contract_id index for backward compatibility
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
-	CREATE INDEX IF NOT EXISTS idx_threads_contract_name ON threads(contract_name);
-	CREATE INDEX IF NOT EXISTS idx_threads_created_at ON threads(created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS thread_refs (
 		thread_id VARCHAR(255) NOT NULL,
@@ -138,8 +161,11 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_thread_id ON thread_refs(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key ON thread_refs(ref_key);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_value ON thread_refs(ref_value);
-	CREATE INDEX IF NOT EXISTS idx_thread_refs_ref_value ON thread_refs(ref_value);
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value ON thread_refs(ref_key, ref_value);
+	
+	-- Enhanced index for threadsByRef with date filtering
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value_created 
+		ON thread_refs(ref_key, ref_value, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS thread_activities (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -164,6 +190,13 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_payload_gin ON thread_activities USING gin(payload);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_prev_hash ON thread_activities(prev_hash);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_status ON thread_activities(status);
+	
+	-- Composite indexes for actor-based thread queries (critical for GraphQL performance)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_actor_thread 
+		ON thread_activities(actor, thread_id, recorded_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_service_thread 
+		ON thread_activities(actor_service, thread_id, recorded_at DESC);
 
 	CREATE TABLE IF NOT EXISTS thread_access (
 		id SERIAL PRIMARY KEY,
@@ -211,6 +244,62 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_validations_timestamp ON thread_validations(timestamp DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_validations_status ON thread_validations(overall_status);
 	CREATE INDEX IF NOT EXISTS idx_thread_validations_critical ON thread_validations(has_critical_violation) WHERE has_critical_violation = true;
+	
+	-- Composite index for GraphQL validationResults query (thread + step lookup)
+	CREATE INDEX IF NOT EXISTS idx_thread_validations_thread_step 
+		ON thread_validations(thread_id, step_name, idempotency_key, timestamp DESC);
+
+	-- Step State Table: Archived snapshots of step state from Redis
+	-- This provides fast queries for historical step state without reconstructing from activities
+	CREATE TABLE IF NOT EXISTS thread_step_states (
+		id VARCHAR(255) PRIMARY KEY,           -- Step UUID
+		thread_id VARCHAR(255) NOT NULL,       -- Thread UUID
+		step_name VARCHAR(255) NOT NULL,       -- Step name (e.g., 'order_placed')
+		idempotency_key VARCHAR(255) NOT NULL, -- Idempotency key for deduplication
+		status VARCHAR(50) NOT NULL,           -- Step status: success, failed, error
+		retry_count INT NOT NULL DEFAULT 0,    -- Number of retries
+		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
+		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
+		previous_step VARCHAR(255),            -- Previous step name for transition tracking
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(thread_id, step_name, idempotency_key)
+	);
+
+	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
+	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 
+		ON thread_step_states(thread_id, step_name);
+
+	-- For filtering steps by status within a thread
+	CREATE INDEX IF NOT EXISTS idx_step_states_thread_status 
+		ON thread_step_states(thread_id, status);
+
+	-- For retry analysis and queries filtering by retry count
+	CREATE INDEX IF NOT EXISTS idx_step_states_retry 
+		ON thread_step_states(retry_count) 
+		WHERE retry_count > 0;
+
+	-- For time-based queries and ordering by last update
+	CREATE INDEX IF NOT EXISTS idx_step_states_thread_updated 
+		ON thread_step_states(thread_id, last_updated_at DESC);
+
+	-- For status-based analytics across all threads
+	CREATE INDEX IF NOT EXISTS idx_step_states_status_updated 
+		ON thread_step_states(status, last_updated_at DESC);
+
+	-- Enhanced indexes for thread_activities to support GraphQL stepHistory query
+	-- For stepHistory query with step_id filtering (critical performance!)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_step_recorded 
+		ON thread_activities(thread_id, step_id, recorded_at DESC)
+		WHERE step_id IS NOT NULL;
+
+	-- For activityType filtering in stepHistory
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_type_recorded 
+		ON thread_activities(thread_id, activity_type, recorded_at DESC);
+
+	-- Partial index for linkedThread lookups in threadChain queries
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_linked_threads 
+		ON thread_refs(ref_value, created_at DESC)
+		WHERE ref_key LIKE 'linkedThread:%';
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

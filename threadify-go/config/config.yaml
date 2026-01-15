@@ -3,9 +3,9 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
-  host: threadify_storage
-  port: 5432
+  url: "postgres://td_engine:tdtdtd@localhost:63781/threadify?sslmode=disable"
+  host: localhost
+  port: 63781
   user: td_engine
   password: tdtdtd
   name: threadify
@@ -13,9 +13,9 @@ postgres:
   max_idle_connections: 5
 
 redis:
-  host: threadify-queue
+  host: localhost
   port: 6379
-  password: threadify_secure_password
+  password: thread0fy_server
   db: 0
   pool_size: 200  # Increased for archiver with many concurrent streams
 
@@ -65,7 +65,7 @@ timeouts:
 
 # NATS configuration for notification delivery
 nats:
-  url: "nats://threadify-nats:4222"
+  url: "nats://localhost:4222"
   cluster_id: "threadify-cluster"
   client_id: "threadify-server"
   stream_name: "NOTIFICATIONS"
@@ -142,3 +142,4 @@ archiver:
     consumer_group: "archiver-group"
     block_timeout_ms: 5000
     batch_size: 100
+    step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)

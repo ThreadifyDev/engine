@@ -112,6 +112,443 @@ func (r *ThreadRepository) GetThreadsByRef(ctx context.Context, refKey, refValue
 	return r.refsRepo.GetThreadsByRef(ctx, refKey, refValue)
 }
 
+// GetThreadsByRefWithFilters finds threads by ref with additional filtering (status, dates, pagination)
+// SECURITY: Always filters by companyID to enforce company isolation
+func (r *ThreadRepository) GetThreadsByRefWithFilters(
+	ctx context.Context,
+	companyID string,
+	refKey string,
+	refValue string,
+	status *string,
+	startedAfter *string,
+	startedBefore *string,
+	limit int,
+	offset int,
+) ([]*models.Thread, error) {
+	// Build query with dynamic filters
+	query := `
+		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version, 
+		       t.owner_id, t.company_id, t.status, t.error, 
+		       t.created_at, t.updated_at, t.completed_at
+		FROM threads t
+		JOIN thread_refs tr ON t.id = tr.thread_id
+		WHERE t.company_id = $1
+		  AND tr.ref_key = $2
+		  AND tr.ref_value = $3
+	`
+
+	args := []interface{}{companyID, refKey, refValue}
+	argIdx := 4
+
+	// Add optional filters
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", argIdx)
+		args = append(args, *status)
+		argIdx++
+	}
+
+	if startedAfter != nil && *startedAfter != "" {
+		query += fmt.Sprintf(" AND t.created_at >= $%d", argIdx)
+		args = append(args, *startedAfter)
+		argIdx++
+	}
+
+	if startedBefore != nil && *startedBefore != "" {
+		query += fmt.Sprintf(" AND t.created_at <= $%d", argIdx)
+		args = append(args, *startedBefore)
+		argIdx++
+	}
+
+	// Add ordering and pagination
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	// Execute query
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query threads by ref with filters: %w", err)
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var thread models.Thread
+		var createdAt, updatedAt time.Time
+		var completedAt *time.Time
+		var contractID, contractName *string
+		var contractVersion *int
+		var status, errorMsg *string
+
+		err := rows.Scan(
+			&thread.ID,
+			&contractID,
+			&contractName,
+			&contractVersion,
+			&thread.OwnerID,
+			&thread.CompanyID,
+			&status,
+			&errorMsg,
+			&createdAt,
+			&updatedAt,
+			&completedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread: %w", err)
+		}
+
+		// Set optional fields
+		if contractID != nil {
+			thread.ContractID = contractID
+		}
+		if contractName != nil {
+			thread.ContractName = *contractName
+		}
+		if contractVersion != nil {
+			thread.ContractVersion = contractVersion
+		}
+		if status != nil {
+			thread.Status = models.ThreadStatus(*status)
+		} else {
+			thread.Status = models.ThreadStatusActive // Default
+		}
+		if errorMsg != nil {
+			thread.Error = *errorMsg
+		}
+
+		thread.StartedAt = createdAt
+		if completedAt != nil {
+			thread.CompletedAt = completedAt
+		}
+
+		// Load refs for each thread
+		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
+		if err != nil {
+			// Log error but continue
+			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
+			refs = make(map[string]string)
+		}
+		thread.Refs = refs
+
+		threads = append(threads, &thread)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating threads: %w", err)
+	}
+
+	return threads, nil
+}
+
+// QueryThreads performs a general thread search with flexible filtering
+// SECURITY: Always filters by companyID to enforce company isolation
+func (r *ThreadRepository) QueryThreads(
+	ctx context.Context,
+	companyID string,
+	actor *string,
+	contractName *string,
+	contractVersion *int,
+	status *string,
+	startedAfter *string,
+	startedBefore *string,
+	completedAfter *string,
+	completedBefore *string,
+	limit int,
+	offset int,
+) ([]*models.Thread, error) {
+	// Build query with dynamic filters
+	query := `
+		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version,
+		       t.owner_id, t.company_id, t.status, t.error,
+		       t.created_at, t.updated_at, t.completed_at
+		FROM threads t
+	`
+
+	// Add LEFT JOIN if actor filter is provided
+	if actor != nil && *actor != "" {
+		query += ` LEFT JOIN thread_activities ta ON t.id = ta.thread_id`
+	}
+
+	query += ` WHERE t.company_id = $1`
+
+	args := []interface{}{companyID}
+	argIdx := 2
+
+	// Add actor filter (matches both actor and actor_service)
+	if actor != nil && *actor != "" {
+		query += fmt.Sprintf(" AND (ta.actor = $%d OR ta.actor_service = $%d)", argIdx, argIdx)
+		args = append(args, *actor)
+		argIdx++
+	}
+
+	// Add contract filters
+	if contractName != nil && *contractName != "" {
+		query += fmt.Sprintf(" AND t.contract_name = $%d", argIdx)
+		args = append(args, *contractName)
+		argIdx++
+	}
+
+	if contractVersion != nil {
+		query += fmt.Sprintf(" AND t.contract_version = $%d", argIdx)
+		args = append(args, *contractVersion)
+		argIdx++
+	}
+
+	// Add status filter
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", argIdx)
+		args = append(args, *status)
+		argIdx++
+	}
+
+	// Add date filters
+	if startedAfter != nil && *startedAfter != "" {
+		query += fmt.Sprintf(" AND t.created_at >= $%d", argIdx)
+		args = append(args, *startedAfter)
+		argIdx++
+	}
+
+	if startedBefore != nil && *startedBefore != "" {
+		query += fmt.Sprintf(" AND t.created_at <= $%d", argIdx)
+		args = append(args, *startedBefore)
+		argIdx++
+	}
+
+	if completedAfter != nil && *completedAfter != "" {
+		query += fmt.Sprintf(" AND t.completed_at >= $%d", argIdx)
+		args = append(args, *completedAfter)
+		argIdx++
+	}
+
+	if completedBefore != nil && *completedBefore != "" {
+		query += fmt.Sprintf(" AND t.completed_at <= $%d", argIdx)
+		args = append(args, *completedBefore)
+		argIdx++
+	}
+
+	// Add ordering and pagination
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	// Execute query
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query threads: %w", err)
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var thread models.Thread
+		var createdAt, updatedAt time.Time
+		var completedAt *time.Time
+		var contractID, contractName *string
+		var contractVersion *int
+		var status, errorMsg *string
+
+		err := rows.Scan(
+			&thread.ID,
+			&contractID,
+			&contractName,
+			&contractVersion,
+			&thread.OwnerID,
+			&thread.CompanyID,
+			&status,
+			&errorMsg,
+			&createdAt,
+			&updatedAt,
+			&completedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread: %w", err)
+		}
+
+		// Set optional fields
+		if contractID != nil {
+			thread.ContractID = contractID
+		}
+		if contractName != nil {
+			thread.ContractName = *contractName
+		}
+		if contractVersion != nil {
+			thread.ContractVersion = contractVersion
+		}
+		if status != nil {
+			thread.Status = models.ThreadStatus(*status)
+		} else {
+			thread.Status = models.ThreadStatusActive
+		}
+		if errorMsg != nil {
+			thread.Error = *errorMsg
+		}
+
+		thread.StartedAt = createdAt
+		if completedAt != nil {
+			thread.CompletedAt = completedAt
+		}
+
+		// Load refs for each thread
+		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
+		if err != nil {
+			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
+			refs = make(map[string]string)
+		}
+		thread.Refs = refs
+
+		threads = append(threads, &thread)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating threads: %w", err)
+	}
+
+	return threads, nil
+}
+
+// QueryThreadsByContract performs contract-specific thread search (optimized for contract monitoring)
+// SECURITY: Always filters by companyID to enforce company isolation
+func (r *ThreadRepository) QueryThreadsByContract(
+	ctx context.Context,
+	companyID string,
+	contractName string,
+	contractVersion *int,
+	actor *string,
+	status *string,
+	startedAfter *string,
+	startedBefore *string,
+	limit int,
+	offset int,
+) ([]*models.Thread, error) {
+	// Build query with dynamic filters
+	query := `
+		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version,
+		       t.owner_id, t.company_id, t.status, t.error,
+		       t.created_at, t.updated_at, t.completed_at
+		FROM threads t
+	`
+
+	// Add LEFT JOIN if actor filter is provided
+	if actor != nil && *actor != "" {
+		query += ` LEFT JOIN thread_activities ta ON t.id = ta.thread_id`
+	}
+
+	query += ` WHERE t.company_id = $1 AND t.contract_name = $2`
+
+	args := []interface{}{companyID, contractName}
+	argIdx := 3
+
+	// Add contract version filter if provided
+	if contractVersion != nil {
+		query += fmt.Sprintf(" AND t.contract_version = $%d", argIdx)
+		args = append(args, *contractVersion)
+		argIdx++
+	}
+
+	// Add actor filter (matches both actor and actor_service)
+	if actor != nil && *actor != "" {
+		query += fmt.Sprintf(" AND (ta.actor = $%d OR ta.actor_service = $%d)", argIdx, argIdx)
+		args = append(args, *actor)
+		argIdx++
+	}
+
+	// Add status filter
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", argIdx)
+		args = append(args, *status)
+		argIdx++
+	}
+
+	// Add date filters
+	if startedAfter != nil && *startedAfter != "" {
+		query += fmt.Sprintf(" AND t.created_at >= $%d", argIdx)
+		args = append(args, *startedAfter)
+		argIdx++
+	}
+
+	if startedBefore != nil && *startedBefore != "" {
+		query += fmt.Sprintf(" AND t.created_at <= $%d", argIdx)
+		args = append(args, *startedBefore)
+		argIdx++
+	}
+
+	// Add ordering and pagination
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	// Execute query
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query threads by contract: %w", err)
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var thread models.Thread
+		var createdAt, updatedAt time.Time
+		var completedAt *time.Time
+		var contractID, contractName *string
+		var contractVersion *int
+		var status, errorMsg *string
+
+		err := rows.Scan(
+			&thread.ID,
+			&contractID,
+			&contractName,
+			&contractVersion,
+			&thread.OwnerID,
+			&thread.CompanyID,
+			&status,
+			&errorMsg,
+			&createdAt,
+			&updatedAt,
+			&completedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread: %w", err)
+		}
+
+		// Set optional fields
+		if contractID != nil {
+			thread.ContractID = contractID
+		}
+		if contractName != nil {
+			thread.ContractName = *contractName
+		}
+		if contractVersion != nil {
+			thread.ContractVersion = contractVersion
+		}
+		if status != nil {
+			thread.Status = models.ThreadStatus(*status)
+		} else {
+			thread.Status = models.ThreadStatusActive
+		}
+		if errorMsg != nil {
+			thread.Error = *errorMsg
+		}
+
+		thread.StartedAt = createdAt
+		if completedAt != nil {
+			thread.CompletedAt = completedAt
+		}
+
+		// Load refs for each thread
+		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
+		if err != nil {
+			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
+			refs = make(map[string]string)
+		}
+		thread.Refs = refs
+
+		threads = append(threads, &thread)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating threads: %w", err)
+	}
+
+	return threads, nil
+}
+
 // GetByOwner retrieves all threads for a given owner
 func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*models.Thread, error) {
 	query := `

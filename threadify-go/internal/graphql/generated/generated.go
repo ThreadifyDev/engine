@@ -89,7 +89,7 @@ type ComplexityRoot struct {
 		StepHistory       func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread            func(childComplexity int, id string) int
 		ThreadChain       func(childComplexity int, rootID string, maxDepth *int) int
-		ThreadsByRef      func(childComplexity int, refKey string, refValue string) int
+		ThreadsByRef      func(childComplexity int, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ValidationResults func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
 	}
 
@@ -128,7 +128,7 @@ type ComplexityRoot struct {
 		Refs              func(childComplexity int) int
 		StartedAt         func(childComplexity int) int
 		Status            func(childComplexity int) int
-		Steps             func(childComplexity int, stepName *string, idempotencyKey *string) int
+		Steps             func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
 		ThreadChain       func(childComplexity int, maxDepth *int) int
 		ValidationResults func(childComplexity int, options *models.ValidationQueryOptions) int
 	}
@@ -184,7 +184,7 @@ type NotificationConfigResolver interface {
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*models.Thread, error)
-	ThreadsByRef(ctx context.Context, refKey string, refValue string) ([]*models.Thread, error)
+	ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
@@ -203,7 +203,7 @@ type ThreadResolver interface {
 	StartedAt(ctx context.Context, obj *models.Thread) (*string, error)
 	CompletedAt(ctx context.Context, obj *models.Thread) (*string, error)
 
-	Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string) ([]*models.StepStateInfo, error)
+	Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error)
 	ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error)
 	ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error)
 }
@@ -414,7 +414,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Query.ThreadsByRef(childComplexity, args["refKey"].(string), args["refValue"].(string)), true
+		return e.complexity.Query.ThreadsByRef(childComplexity, args["refKey"].(string), args["refValue"].(string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.validationResults":
 		if e.complexity.Query.ValidationResults == nil {
 			break
@@ -612,7 +612,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Thread.Steps(childComplexity, args["stepName"].(*string), args["idempotencyKey"].(*string)), true
+		return e.complexity.Thread.Steps(childComplexity, args["stepName"].(*string), args["idempotencyKey"].(*string), args["status"].(*string)), true
 	case "Thread.threadChain":
 		if e.complexity.Thread.ThreadChain == nil {
 			break
@@ -930,8 +930,8 @@ type Thread {
   startedAt: String
   completedAt: String
   error: String
-  # Get steps for this thread, optionally filtered by stepName/idempotencyKey
-  steps(stepName: String, idempotencyKey: String): [StepStateInfo!]!
+  # Get steps for this thread, optionally filtered by stepName/idempotencyKey/status
+  steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
   # Get thread chain starting from this thread, following linkedThread relationships
@@ -987,8 +987,16 @@ type NotificationConfig {
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
-  # Find threads by reference key-value pair
-  threadsByRef(refKey: String!, refValue: String!): [Thread!]!
+  # Find threads by reference key-value pair with filtering and pagination
+  threadsByRef(
+    refKey: String!
+    refValue: String!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
   # Get contract graph by name and version (version defaults to latest if not provided)
@@ -1172,6 +1180,31 @@ func (ec *executionContext) field_Query_threadsByRef_args(ctx context.Context, r
 		return nil, err
 	}
 	args["refValue"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg6
 	return args, nil
 }
 
@@ -1245,6 +1278,11 @@ func (ec *executionContext) field_Thread_steps_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["idempotencyKey"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg2
 	return args, nil
 }
 
@@ -2068,7 +2106,7 @@ func (ec *executionContext) _Query_threadsByRef(ctx context.Context, field graph
 		ec.fieldContext_Query_threadsByRef,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Query().ThreadsByRef(ctx, fc.Args["refKey"].(string), fc.Args["refValue"].(string))
+			return ec.resolvers.Query().ThreadsByRef(ctx, fc.Args["refKey"].(string), fc.Args["refValue"].(string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
 		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
@@ -3339,7 +3377,7 @@ func (ec *executionContext) _Thread_steps(ctx context.Context, field graphql.Col
 		ec.fieldContext_Thread_steps,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.resolvers.Thread().Steps(ctx, obj, fc.Args["stepName"].(*string), fc.Args["idempotencyKey"].(*string))
+			return ec.resolvers.Thread().Steps(ctx, obj, fc.Args["stepName"].(*string), fc.Args["idempotencyKey"].(*string), fc.Args["status"].(*string))
 		},
 		nil,
 		ec.marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfoᚄ,

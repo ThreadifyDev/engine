@@ -78,6 +78,20 @@ type ActivityRepository interface {
 	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
+	ArchiveStepState(ctx context.Context, stepState *StepStateSnapshot) error
+}
+
+// StepStateSnapshot represents a snapshot of step state for archival
+type StepStateSnapshot struct {
+	ID             string `json:"id"`
+	ThreadID       string `json:"thread_id"`
+	StepName       string `json:"step_name"`
+	IdempotencyKey string `json:"idempotency_key"`
+	Status         string `json:"status"`
+	RetryCount     int    `json:"retry_count"`
+	FirstSeenAt    string `json:"first_seen_at"`
+	LastUpdatedAt  string `json:"last_updated_at"`
+	PreviousStep   string `json:"previous_step,omitempty"`
 }
 
 // UserAccess represents merged access control structure

@@ -35,8 +35,8 @@ type Thread {
   startedAt: String
   completedAt: String
   error: String
-  # Get steps for this thread, optionally filtered by stepName/idempotencyKey
-  steps(stepName: String, idempotencyKey: String): [StepStateInfo!]!
+  # Get steps for this thread, optionally filtered by stepName/idempotencyKey/status
+  steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
   # Get thread chain starting from this thread, following linkedThread relationships
@@ -92,10 +92,47 @@ type NotificationConfig {
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
-  # Find threads by reference key-value pair
-  threadsByRef(refKey: String!, refValue: String!): [Thread!]!
+  
+  # General thread search with flexible filtering (company-scoped by JWT)
+  threads(
+    actor: String
+    contractName: String
+    contractVersion: Int
+    status: String
+    startedAfter: String
+    startedBefore: String
+    completedAfter: String
+    completedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
+  
+  # Contract-specific thread queries (optimized for contract monitoring)
+  threadsByContract(
+    contractName: String!
+    contractVersion: Int
+    actor: String
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
+  
+  # Find threads by reference key-value pair with filtering and pagination
+  threadsByRef(
+    refKey: String!
+    refValue: String!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
+  
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
+  
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
   # Get step history by stepName:idempKey or stepName

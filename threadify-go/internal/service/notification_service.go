@@ -133,6 +133,29 @@ func (s *NotificationService) PerformAsyncValidation(
 				}
 			}
 
+			// Archive step state even for threads without contracts
+			idempKey := req.IdempotencyKey
+			if idempKey == "" {
+				idempKey = stepID
+			}
+
+			now := time.Now().Format(time.RFC3339)
+			stepStateSnapshot := &interfaces.StepStateSnapshot{
+				ID:             stepID,
+				ThreadID:       threadID,
+				StepName:       stepName,
+				IdempotencyKey: idempKey,
+				Status:         req.Status,
+				RetryCount:     0, // No retry tracking without contract
+				FirstSeenAt:    now,
+				LastUpdatedAt:  now,
+				PreviousStep:   "",
+			}
+
+			if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {
+				fmt.Printf("[ARCHIVE-ERROR] Failed to archive step state (no contract): %v\n", err)
+			}
+
 			// Return early - no need to process validations
 			fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s (no contract)\n", threadID)
 			return
@@ -518,6 +541,25 @@ func (s *NotificationService) processValidationNotifications(
 		fmt.Printf("[ARCHIVE-ERROR] Failed to archive validation results: %v\n", err)
 	} else {
 		fmt.Printf("[ARCHIVE-SUCCESS] Validation results archived for step=%s\n", stepName)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	stepStateSnapshot := &interfaces.StepStateSnapshot{
+		ID:             stepID,
+		ThreadID:       threadID,
+		StepName:       stepName,
+		IdempotencyKey: idempotencyKey,
+		Status:         result.Status,
+		RetryCount:     result.RetryCount,
+		FirstSeenAt:    now, // Will be overwritten by archiver if step already exists
+		LastUpdatedAt:  now,
+		PreviousStep:   "", // TODO: Get from result if available
+	}
+
+	if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {
+		fmt.Printf("[ARCHIVE-ERROR] Failed to archive step state: %v\n", err)
+	} else {
+		fmt.Printf("[ARCHIVE-SUCCESS] Step state archived for step=%s\n", stepName)
 	}
 
 	// Invalidate cache to force reload on next access

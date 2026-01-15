@@ -41,9 +41,10 @@ type Config struct {
 			MaxBackoffSeconds     int `yaml:"max_backoff_seconds"`
 		} `yaml:"retry"`
 		Streams struct {
-			ConsumerGroup  string `yaml:"consumer_group"`
-			BlockTimeoutMs int    `yaml:"block_timeout_ms"`
-			BatchSize      int    `yaml:"batch_size"`
+			ConsumerGroup            string `yaml:"consumer_group"`
+			BlockTimeoutMs           int    `yaml:"block_timeout_ms"`
+			BatchSize                int    `yaml:"batch_size"`
+			StepStateFlushIntervalMs int    `yaml:"step_state_flush_interval_ms"` // Flush interval for step state archival
 		} `yaml:"streams"`
 	} `yaml:"archiver"`
 }
@@ -138,7 +139,7 @@ func main() {
 		defer nc.Close()
 		log.Println("Connected to NATS")
 
-		// Create NATS consumer
+		// Create NATS consumer for general archival
 		natsConsumer, err := archiver.NewNATSConsumer(
 			nc,
 			db,
@@ -157,6 +158,32 @@ func main() {
 			}()
 			defer natsConsumer.Stop()
 			log.Println("NATS archival consumer started")
+		}
+
+		// Create step state consumer
+		flushInterval := 5 * time.Second // Default to 5 seconds
+		if config.Archiver.Streams.StepStateFlushIntervalMs > 0 {
+			flushInterval = time.Duration(config.Archiver.Streams.StepStateFlushIntervalMs) * time.Millisecond
+		}
+
+		stepStateConsumer, err := archiver.NewStepStateConsumer(
+			nc,
+			db,
+			archiverConfig.Streams.BatchSize,
+			flushInterval,
+			"archiver-step-state-1",
+		)
+		if err != nil {
+			log.Printf("Warning: Failed to create step state consumer: %v", err)
+		} else {
+			// Start step state consumer
+			go func() {
+				if err := stepStateConsumer.Start(ctx); err != nil {
+					log.Printf("Step state consumer error: %v", err)
+				}
+			}()
+			defer stepStateConsumer.Stop()
+			log.Println("Step state archival consumer started")
 		}
 	}
 

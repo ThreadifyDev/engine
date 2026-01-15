@@ -41,6 +41,11 @@ func (p *ArchivalPublisher) PublishThreadValidation(ctx context.Context, event m
 	return p.publish(ctx, "validations.thread", event)
 }
 
+// PublishStepState publishes step state snapshot for archival
+func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[string]interface{}) error {
+	return p.publish(ctx, "state.step", event)
+}
+
 // publish is the internal method that handles the actual NATS publish
 func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event map[string]interface{}) error {
 	// Add timestamp if not present

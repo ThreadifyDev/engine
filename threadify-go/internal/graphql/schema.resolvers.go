@@ -93,11 +93,25 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 }
 
 // ThreadsByRef is the resolver for the threadsByRef field.
-func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string) ([]*models.Thread, error) {
-	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+	// Get user info from context (companyID for security)
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Set default pagination values
+	limitVal := 50
+	offsetVal := 0
+	if limit != nil {
+		limitVal = *limit
+		// Cap at 500 to prevent abuse
+		if limitVal > 500 {
+			limitVal = 500
+		}
+	}
+	if offset != nil {
+		offsetVal = *offset
 	}
 
 	// Get postgres repository
@@ -106,26 +120,19 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Get thread IDs from postgres refs repository
-	threadIDs, err := postgresRepo.GetThreadsByRef(ctx, refKey, refValue)
+	// Query threads with filters (repository handles company isolation)
+	threads, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKey, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads by ref", err)
 	}
 
-	if len(threadIDs) == 0 {
+	if len(threads) == 0 {
 		return []*models.Thread{}, nil
 	}
 
-	// Load each thread with refs and check access
-	threads := make([]*models.Thread, 0, len(threadIDs))
-	for _, threadID := range threadIDs {
-		// Load thread with refs
-		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
-		if err != nil {
-			// Skip threads that can't be loaded (may have been deleted)
-			continue
-		}
-
+	// Filter by access permissions
+	accessibleThreads := make([]*models.Thread, 0, len(threads))
+	for _, thread := range threads {
 		// Check if user has read permission
 		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
 		if err != nil || !hasAccess {
@@ -133,10 +140,118 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 			continue
 		}
 
-		threads = append(threads, thread)
+		accessibleThreads = append(accessibleThreads, thread)
 	}
 
-	return threads, nil
+	return accessibleThreads, nil
+}
+
+// Threads is the resolver for the threads field.
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+	// Get user info from context (companyID for security)
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Set default pagination values
+	limitVal := 50
+	offsetVal := 0
+	if limit != nil {
+		limitVal = *limit
+		// Cap at 500 to prevent abuse
+		if limitVal > 500 {
+			limitVal = 500
+		}
+	}
+	if offset != nil {
+		offsetVal = *offset
+	}
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Query threads with filters (repository handles company isolation)
+	threads, err := postgresRepo.QueryThreads(ctx, companyID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query threads", err)
+	}
+
+	if len(threads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Filter by access permissions
+	accessibleThreads := make([]*models.Thread, 0, len(threads))
+	for _, thread := range threads {
+		// Check if user has read permission
+		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+		if err != nil || !hasAccess {
+			// Skip threads user doesn't have access to
+			continue
+		}
+
+		accessibleThreads = append(accessibleThreads, thread)
+	}
+
+	return accessibleThreads, nil
+}
+
+// ThreadsByContract is the resolver for the threadsByContract field.
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+	// Get user info from context (companyID for security)
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Set default pagination values
+	limitVal := 50
+	offsetVal := 0
+	if limit != nil {
+		limitVal = *limit
+		// Cap at 500 to prevent abuse
+		if limitVal > 500 {
+			limitVal = 500
+		}
+	}
+	if offset != nil {
+		offsetVal = *offset
+	}
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Query threads by contract (repository handles company isolation)
+	threads, err := postgresRepo.QueryThreadsByContract(ctx, companyID, contractName, contractVersion, actor, status, startedAfter, startedBefore, limitVal, offsetVal)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query threads by contract", err)
+	}
+
+	if len(threads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Filter by access permissions
+	accessibleThreads := make([]*models.Thread, 0, len(threads))
+	for _, thread := range threads {
+		// Check if user has read permission
+		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
+		if err != nil || !hasAccess {
+			// Skip threads user doesn't have access to
+			continue
+		}
+
+		accessibleThreads = append(accessibleThreads, thread)
+	}
+
+	return accessibleThreads, nil
 }
 
 // ThreadChain is the resolver for the threadChain field.
@@ -381,7 +496,7 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 }
 
 // Steps is the resolver for the steps field.
-func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string) ([]*models.StepStateInfo, error) {
+func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error) {
 	// Get user info from context
 	ownerID, _, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -404,29 +519,28 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 		return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
 	}
 
-	// Apply filtering if stepName is provided
-	if stepName != nil {
-		var filteredSteps []*models.StepStateInfo
-		for _, step := range steps {
-			// Filter by stepName
-			if step.StepName != *stepName {
-				continue
-			}
-
-			// If idempotencyKey is also provided, filter by that too
-			if idempotencyKey != nil && *idempotencyKey != "" {
-				if step.IdempotencyKey != *idempotencyKey {
-					continue
-				}
-			}
-
-			filteredSteps = append(filteredSteps, step)
+	// Apply filtering
+	var filteredSteps []*models.StepStateInfo
+	for _, step := range steps {
+		// Filter by stepName if provided
+		if stepName != nil && step.StepName != *stepName {
+			continue
 		}
-		return filteredSteps, nil
+
+		// Filter by idempotencyKey if provided
+		if idempotencyKey != nil && *idempotencyKey != "" && step.IdempotencyKey != *idempotencyKey {
+			continue
+		}
+
+		// Filter by status if provided
+		if status != nil && *status != "" && step.Status != *status {
+			continue
+		}
+
+		filteredSteps = append(filteredSteps, step)
 	}
 
-	// If no stepName filter, return all steps
-	return steps, nil
+	return filteredSteps, nil
 }
 
 // ValidationResults is the resolver for the validationResults field.

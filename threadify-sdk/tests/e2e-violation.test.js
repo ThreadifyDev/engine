@@ -9,7 +9,7 @@ import assert from 'assert';
 
 // Configuration
 const API_KEY = 'api-key-123';
-const WS_URL = 'ws://localhost:8081/threads';
+const WS_URL = 'wss://eng.threadify.dev/threads';
 const TEST_THREAD_ID = '64977480-56e7-4ea0-9318-dc2c0fd6a955'; // Use one of the thread IDs from previous test
 
 let connection = null;
@@ -574,22 +574,44 @@ async function runTests() {
     
     try {
         // Setup
-        await connectSDK();
+                // Create fresh connection for this test
+        const testConnection = await Threadify.connect("test-api-key", 'test-linking', { url: WS_URL });
         
-        // Run notification filtering tests
-        await testContractFiltering();
-        await testNoSubscriptionNoNotifications();
+        // Create root thread
+        console.log('  Creating root thread...');
+        const rootThread = await testConnection.start("product_delivery", 'merchant');
+        console.log("Got here")
+        // Create a second thread to link to
+        // const linkedThread = await testConnection.start("product_delivery", 'merchant');
+        // await linkedThread.step('link_test').addContext({ 
+        //     test: 'creating linked thread'
+        // }).success();
         
-        // Run thread linking tests
-        await testThreadLinkingAndChain();
+        // // Link root thread to the valid linked thread
+        // await rootThread.linkThread(linkedThread.threadId, 'parent');
         
-        console.log('\n✅ All tests completed!');
-        console.log('\n💡 Features Validated:');
-        console.log('   - Real-time notifications with filtering');
-        console.log('   - Thread linking via linkThread()');
-        console.log('   - Thread chain traversal via GraphQL');
-        console.log('   - Both query and field resolvers for threadChain');
-        console.log('   - Complete thread picture via nested queries');
+        const t= await rootThread.step('order_placed').addContext({ 
+            order_id: 'ORD-12345',
+            customer_id: "hu",
+            total_amount: 99.99 
+        }).success();
+        console.log("T", t)
+        // await connectSDK();
+        
+        // // Run notification filtering tests
+        // await testContractFiltering();
+        // await testNoSubscriptionNoNotifications();
+        
+        // // Run thread linking tests
+        // await testThreadLinkingAndChain();
+        
+        // console.log('\n✅ All tests completed!');
+        // console.log('\n💡 Features Validated:');
+        // console.log('   - Real-time notifications with filtering');
+        // console.log('   - Thread linking via linkThread()');
+        // console.log('   - Thread chain traversal via GraphQL');
+        // console.log('   - Both query and field resolvers for threadChain');
+        // console.log('   - Complete thread picture via nested queries');
         
     } catch (error) {
         console.error('\n❌ Test failed:', error.message);

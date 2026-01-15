@@ -101,6 +101,7 @@ func (c *Client) initializeArchivalStreams() error {
 		{"thread_metadata", []string{"metadata.thread"}},
 		{"thread_access", []string{"access.thread"}},
 		{"thread_validations", []string{"validations.thread"}},
+		{"step_state", []string{"state.step"}},
 	}
 
 	for _, stream := range streams {

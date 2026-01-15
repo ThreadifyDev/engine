@@ -313,3 +313,34 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 
 	return nil
 }
+
+// ArchiveStepState publishes step state snapshot to NATS for archival to Postgres
+func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *interfaces.StepStateSnapshot) error {
+	if r.natsPublisher == nil {
+		return fmt.Errorf("NATS publisher not available")
+	}
+
+	// Publish to NATS for archival
+	go func() {
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		stepStateData := map[string]interface{}{
+			"step_id":         stepState.ID,
+			"thread_id":       stepState.ThreadID,
+			"step_name":       stepState.StepName,
+			"idempotency_key": stepState.IdempotencyKey,
+			"status":          stepState.Status,
+			"retry_count":     stepState.RetryCount,
+			"first_seen_at":   stepState.FirstSeenAt,
+			"last_updated_at": stepState.LastUpdatedAt,
+			"previous_step":   stepState.PreviousStep,
+		}
+
+		if err := r.natsPublisher.PublishStepState(pubCtx, stepStateData); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish step state to NATS: %v\n", err)
+		}
+	}()
+
+	return nil
+}
