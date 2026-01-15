@@ -92,6 +92,82 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	return thread, nil
 }
 
+// Threads is the resolver for the threads field.
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+	resolverStart := time.Now()
+	fmt.Printf("\n[PERF] ========== Threads() Resolver START ==========\n")
+	defer func() {
+		fmt.Printf("[PERF] ========== Threads() Resolver TOTAL: %v ==========\n\n", time.Since(resolverStart))
+	}()
+
+	// Get user info from context (companyID for security)
+	authStart := time.Now()
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	fmt.Printf("[PERF] Threads.getUserInfo: %v\n", time.Since(authStart))
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Normalize pagination using helper
+	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Query threads with SQL-based access filtering (includes archived data)
+	queryStart := time.Now()
+	threads, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	fmt.Printf("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads)\n", time.Since(queryStart), len(threads))
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query threads with access", err)
+	}
+
+	// Batch load refs (no access filtering needed - already done in SQL)
+	if len(threads) > 0 {
+		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+			return nil, err
+		}
+	}
+
+	return threads, nil
+}
+
+// ThreadsByContract is the resolver for the threadsByContract field.
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+	// Get user info from context
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// Normalize pagination
+	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
+
+	// Get postgres repository
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// Query threads with SQL-based access filtering
+	threads, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
+	if err != nil {
+		return nil, apperrors.NewInternalError("Failed to query threads by contract", err)
+	}
+
+	// Batch load refs if needed
+	if len(threads) > 0 {
+		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+			return nil, err
+		}
+	}
+
+	return threads, nil
+}
+
 // ThreadsByRef is the resolver for the threadsByRef field.
 func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
 	// Get user info from context (companyID for security)
@@ -100,19 +176,8 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Set default pagination values
-	limitVal := 50
-	offsetVal := 0
-	if limit != nil {
-		limitVal = *limit
-		// Cap at 500 to prevent abuse
-		if limitVal > 500 {
-			limitVal = 500
-		}
-	}
-	if offset != nil {
-		offsetVal = *offset
-	}
+	// Normalize pagination
+	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
 
 	// Get postgres repository
 	postgresRepo := r.threadRepo.GetPostgresRepo()
@@ -120,138 +185,14 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Query threads with filters (repository handles company isolation)
+	// Query threads by ref (this method already filters by company)
 	threads, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKey, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads by ref", err)
 	}
 
-	if len(threads) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Filter by access permissions
-	accessibleThreads := make([]*models.Thread, 0, len(threads))
-	for _, thread := range threads {
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
-		}
-
-		accessibleThreads = append(accessibleThreads, thread)
-	}
-
-	return accessibleThreads, nil
-}
-
-// Threads is the resolver for the threads field.
-func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
-	// Get user info from context (companyID for security)
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-
-	// Set default pagination values
-	limitVal := 50
-	offsetVal := 0
-	if limit != nil {
-		limitVal = *limit
-		// Cap at 500 to prevent abuse
-		if limitVal > 500 {
-			limitVal = 500
-		}
-	}
-	if offset != nil {
-		offsetVal = *offset
-	}
-
-	// Get postgres repository
-	postgresRepo := r.threadRepo.GetPostgresRepo()
-	if postgresRepo == nil {
-		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
-	}
-
-	// Query threads with filters (repository handles company isolation)
-	threads, err := postgresRepo.QueryThreads(ctx, companyID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
-	if err != nil {
-		return nil, apperrors.NewInternalError("Failed to query threads", err)
-	}
-
-	if len(threads) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Filter by access permissions
-	accessibleThreads := make([]*models.Thread, 0, len(threads))
-	for _, thread := range threads {
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
-		}
-
-		accessibleThreads = append(accessibleThreads, thread)
-	}
-
-	return accessibleThreads, nil
-}
-
-// ThreadsByContract is the resolver for the threadsByContract field.
-func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
-	// Get user info from context (companyID for security)
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-
-	// Set default pagination values
-	limitVal := 50
-	offsetVal := 0
-	if limit != nil {
-		limitVal = *limit
-		// Cap at 500 to prevent abuse
-		if limitVal > 500 {
-			limitVal = 500
-		}
-	}
-	if offset != nil {
-		offsetVal = *offset
-	}
-
-	// Get postgres repository
-	postgresRepo := r.threadRepo.GetPostgresRepo()
-	if postgresRepo == nil {
-		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
-	}
-
-	// Query threads by contract (repository handles company isolation)
-	threads, err := postgresRepo.QueryThreadsByContract(ctx, companyID, contractName, contractVersion, actor, status, startedAfter, startedBefore, limitVal, offsetVal)
-	if err != nil {
-		return nil, apperrors.NewInternalError("Failed to query threads by contract", err)
-	}
-
-	if len(threads) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Filter by access permissions
-	accessibleThreads := make([]*models.Thread, 0, len(threads))
-	for _, thread := range threads {
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
-		}
-
-		accessibleThreads = append(accessibleThreads, thread)
-	}
-
-	return accessibleThreads, nil
+	// Process: batch load + access filter (using helper)
+	return r.ProcessThreadQuery(ctx, threads, ownerID)
 }
 
 // ThreadChain is the resolver for the threadChain field.

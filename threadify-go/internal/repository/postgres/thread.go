@@ -220,14 +220,8 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 			thread.CompletedAt = completedAt
 		}
 
-		// Load refs for each thread
-		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
-		if err != nil {
-			// Log error but continue
-			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
-			refs = make(map[string]string)
-		}
-		thread.Refs = refs
+		// Note: Refs will be batch-loaded in the resolver if requested
+		thread.Refs = make(map[string]string)
 
 		threads = append(threads, &thread)
 	}
@@ -255,7 +249,14 @@ func (r *ThreadRepository) QueryThreads(
 	limit int,
 	offset int,
 ) ([]*models.Thread, error) {
+	repoStart := time.Now()
+	fmt.Printf("[PERF] QueryThreads: START\\n")
+	defer func() {
+		fmt.Printf("[PERF] QueryThreads: TOTAL %v\\n", time.Since(repoStart))
+	}()
+
 	// Build query with dynamic filters
+	buildStart := time.Now()
 	query := `
 		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version,
 		       t.owner_id, t.company_id, t.status, t.error,
@@ -328,16 +329,22 @@ func (r *ThreadRepository) QueryThreads(
 	// Add ordering and pagination
 	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, limit, offset)
+	fmt.Printf("[PERF] QueryThreads.buildQuery: %v\n", time.Since(buildStart))
 
 	// Execute query
+	execStart := time.Now()
 	rows, err := r.pool.Query(ctx, query, args...)
+	fmt.Printf("[PERF] QueryThreads.executeQuery: %v\n", time.Since(execStart))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query threads: %w", err)
 	}
 	defer rows.Close()
 
 	var threads []*models.Thread
+	scanStart := time.Now()
+	rowCount := 0
 	for rows.Next() {
+		rowCount++
 		var thread models.Thread
 		var createdAt, updatedAt time.Time
 		var completedAt *time.Time
@@ -386,16 +393,199 @@ func (r *ThreadRepository) QueryThreads(
 			thread.CompletedAt = completedAt
 		}
 
-		// Load refs for each thread
-		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
-		if err != nil {
-			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
-			refs = make(map[string]string)
-		}
-		thread.Refs = refs
+		// Note: Refs will be batch-loaded in the resolver if requested
+		thread.Refs = make(map[string]string)
 
 		threads = append(threads, &thread)
 	}
+	fmt.Printf("[PERF] QueryThreads.scanRows: %v (scanned %d rows)\n", time.Since(scanStart), rowCount)
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating threads: %w", err)
+	}
+
+	return threads, nil
+}
+
+// QueryThreadsWithAccess performs thread search with SQL-based access filtering
+// This is more efficient than post-query access checks and works with archived data
+// SECURITY: Filters by companyID AND user access (owner OR explicit thread_access grant)
+func (r *ThreadRepository) QueryThreadsWithAccess(
+	ctx context.Context,
+	companyID string,
+	userID string,
+	actor *string,
+	contractName *string,
+	contractVersion *int,
+	status *string,
+	startedAfter *string,
+	startedBefore *string,
+	completedAfter *string,
+	completedBefore *string,
+	limit int,
+	offset int,
+) ([]*models.Thread, error) {
+	repoStart := time.Now()
+	fmt.Printf("[PERF] QueryThreadsWithAccess: START\n")
+	defer func() {
+		fmt.Printf("[PERF] QueryThreadsWithAccess: TOTAL %v\n", time.Since(repoStart))
+	}()
+
+	// Build query with access filtering in SQL
+	buildStart := time.Now()
+	query := `
+		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version,
+		       t.owner_id, t.company_id, t.status, t.error,
+		       t.created_at, t.updated_at, t.completed_at
+		FROM threads t
+	`
+
+	// Add LEFT JOIN if actor filter is provided
+	if actor != nil && *actor != "" {
+		query += ` LEFT JOIN thread_activities ta ON t.id = ta.thread_id`
+	}
+
+	query += ` WHERE t.company_id = $1`
+
+	args := []interface{}{companyID}
+	argIdx := 2
+
+	// Add access control filter: user must be owner OR have explicit access
+	query += fmt.Sprintf(` AND (
+		t.owner_id = $%d
+		OR EXISTS (
+			SELECT 1 FROM thread_access ta_access
+			WHERE ta_access.thread_id = t.id
+			  AND ta_access.user_id = $%d
+			  AND ta_access.status = 'active'
+		)
+	)`, argIdx, argIdx)
+	args = append(args, userID)
+	argIdx++
+
+	// Add actor filter (matches both actor and actor_service)
+	if actor != nil && *actor != "" {
+		query += fmt.Sprintf(" AND (ta.actor = $%d OR ta.actor_service = $%d)", argIdx, argIdx)
+		args = append(args, *actor)
+		argIdx++
+	}
+
+	// Add contract filters
+	if contractName != nil && *contractName != "" {
+		query += fmt.Sprintf(" AND t.contract_name = $%d", argIdx)
+		args = append(args, *contractName)
+		argIdx++
+
+		if contractVersion != nil {
+			query += fmt.Sprintf(" AND t.contract_version = $%d", argIdx)
+			args = append(args, *contractVersion)
+			argIdx++
+		}
+	}
+
+	// Add status filter
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", argIdx)
+		args = append(args, *status)
+		argIdx++
+	}
+
+	// Add date range filters
+	if startedAfter != nil && *startedAfter != "" {
+		query += fmt.Sprintf(" AND t.created_at >= $%d", argIdx)
+		args = append(args, *startedAfter)
+		argIdx++
+	}
+	if startedBefore != nil && *startedBefore != "" {
+		query += fmt.Sprintf(" AND t.created_at <= $%d", argIdx)
+		args = append(args, *startedBefore)
+		argIdx++
+	}
+	if completedAfter != nil && *completedAfter != "" {
+		query += fmt.Sprintf(" AND t.completed_at >= $%d", argIdx)
+		args = append(args, *completedAfter)
+		argIdx++
+	}
+	if completedBefore != nil && *completedBefore != "" {
+		query += fmt.Sprintf(" AND t.completed_at <= $%d", argIdx)
+		args = append(args, *completedBefore)
+		argIdx++
+	}
+
+	// Add ordering and pagination
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+	fmt.Printf("[PERF] QueryThreadsWithAccess.buildQuery: %v\n", time.Since(buildStart))
+
+	// Execute query
+	execStart := time.Now()
+	rows, err := r.pool.Query(ctx, query, args...)
+	fmt.Printf("[PERF] QueryThreadsWithAccess.executeQuery: %v\n", time.Since(execStart))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query threads with access: %w", err)
+	}
+	defer rows.Close()
+
+	// Scan results
+	var threads []*models.Thread
+	scanStart := time.Now()
+	rowCount := 0
+	for rows.Next() {
+		rowCount++
+		var thread models.Thread
+		var createdAt, updatedAt time.Time
+		var completedAt *time.Time
+		var contractID, contractName *string
+		var contractVersion *int
+		var status, errorMsg *string
+
+		err := rows.Scan(
+			&thread.ID,
+			&contractID,
+			&contractName,
+			&contractVersion,
+			&thread.OwnerID,
+			&thread.CompanyID,
+			&status,
+			&errorMsg,
+			&createdAt,
+			&updatedAt,
+			&completedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread row: %w", err)
+		}
+
+		// Map nullable fields
+		if contractID != nil {
+			thread.ContractID = contractID
+		}
+		if contractName != nil {
+			thread.ContractName = *contractName
+		}
+		if contractVersion != nil {
+			thread.ContractVersion = contractVersion
+		}
+		if status != nil {
+			thread.Status = models.ThreadStatus(*status)
+		} else {
+			thread.Status = models.ThreadStatusActive
+		}
+		if errorMsg != nil {
+			thread.Error = *errorMsg
+		}
+
+		thread.StartedAt = createdAt
+		if completedAt != nil {
+			thread.CompletedAt = completedAt
+		}
+
+		// Note: Refs will be batch-loaded in the resolver if requested
+		thread.Refs = make(map[string]string)
+
+		threads = append(threads, &thread)
+	}
+	fmt.Printf("[PERF] QueryThreadsWithAccess.scanRows: %v (scanned %d rows)\n", time.Since(scanStart), rowCount)
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating threads: %w", err)
@@ -531,13 +721,8 @@ func (r *ThreadRepository) QueryThreadsByContract(
 			thread.CompletedAt = completedAt
 		}
 
-		// Load refs for each thread
-		refs, err := r.refsRepo.GetRefs(ctx, thread.ID)
-		if err != nil {
-			fmt.Printf("Warning: failed to load refs for thread %s: %v\n", thread.ID, err)
-			refs = make(map[string]string)
-		}
-		thread.Refs = refs
+		// Note: Refs will be batch-loaded in the resolver if requested
+		thread.Refs = make(map[string]string)
 
 		threads = append(threads, &thread)
 	}

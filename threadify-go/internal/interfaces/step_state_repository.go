@@ -48,4 +48,6 @@ type StepStateResult struct {
 	Violations           []Violation `json:"violations"`
 	RetryCount           int         `json:"retryCount"`
 	HasCriticalViolation bool        `json:"hasCriticalViolation"`
+	FirstSeenAt          string      `json:"firstSeenAt"`  // Timestamp when step was first seen
+	PreviousStep         string      `json:"previousStep"` // Previous step key (stepName:idempKey)
 }

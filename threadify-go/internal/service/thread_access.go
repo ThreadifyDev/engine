@@ -32,24 +32,36 @@ func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager in
 	}
 }
 
-// GetUserPermissions retrieves permissions with three-tier caching
-// Tier 1: In-memory cache (mutex-protected, ~0.1ms)
-// Tier 2: Valkey (Redis, ~2-5ms)
+// GetUserPermissions retrieves user permissions with three-tier caching:
+// Tier 1: In-memory cache (fastest)
+// Tier 2: Valkey (fast)
+// Tier 3: PostgreSQL (slowest, not implemented yet)
 func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]string, error) {
+	start := time.Now()
+
 	// Tier 1: Check in-memory cache
+	cacheCheckStart := time.Now()
 	if perms, exists := s.cacheManager.GetUserPermissions(threadID, userID); exists {
+		fmt.Printf("[PERF] GetUserPermissions.cacheHit: %v (Tier 1)\n", time.Since(cacheCheckStart))
+		fmt.Printf("[PERF] GetUserPermissions total: %v (cache hit)\n", time.Since(start))
 		return perms, nil
 	}
+	fmt.Printf("[PERF] GetUserPermissions.cacheMiss: %v (Tier 1)\n", time.Since(cacheCheckStart))
 
 	// Tier 2: Check Valkey
+	valkeyStart := time.Now()
 	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
+	fmt.Printf("[PERF] GetUserPermissions.valkeyLookup: %v (Tier 2)\n", time.Since(valkeyStart))
 	if err != nil {
 		return nil, err
 	}
 	perms := access.Permissions
 
 	// Cache in memory for future use
+	cacheSetStart := time.Now()
 	s.cacheManager.SetUserPermissions(threadID, userID, perms)
+	fmt.Printf("[PERF] GetUserPermissions.cacheSet: %v\n", time.Since(cacheSetStart))
+	fmt.Printf("[PERF] GetUserPermissions total: %v (valkey lookup)\n", time.Since(start))
 	return perms, nil
 }
 
@@ -126,24 +138,37 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 //
 // Uses three-tier caching for permission lookup
 func (s *ThreadAccessService) CheckThreadAccess(threadID, userID, requiredPermission string, thread *models.Thread) (bool, error) {
+	start := time.Now()
+	defer func() {
+		fmt.Printf("[PERF] CheckThreadAccess total: %v (thread=%s, user=%s)\n", time.Since(start), threadID[:8], userID)
+	}()
+
 	// Check if user is thread owner (implicit full access)
+	ownerCheckStart := time.Now()
 	if thread.OwnerID == userID {
+		fmt.Printf("[PERF] CheckThreadAccess.ownerCheck: %v (OWNER - fast path)\n", time.Since(ownerCheckStart))
 		return true, nil
 	}
+	fmt.Printf("[PERF] CheckThreadAccess.ownerCheck: %v (not owner)\n", time.Since(ownerCheckStart))
 
 	// Get user permissions (with three-tier caching)
+	permCheckStart := time.Now()
 	permissions, err := s.GetUserPermissions(threadID, userID)
+	fmt.Printf("[PERF] CheckThreadAccess.GetUserPermissions: %v\n", time.Since(permCheckStart))
 	if err != nil {
 		// No permissions found - access denied
 		return false, nil
 	}
 
 	// Check if required permission exists
+	loopStart := time.Now()
 	for _, perm := range permissions {
 		if perm == requiredPermission {
+			fmt.Printf("[PERF] CheckThreadAccess.permissionLoop: %v (found)\n", time.Since(loopStart))
 			return true, nil
 		}
 	}
+	fmt.Printf("[PERF] CheckThreadAccess.permissionLoop: %v (not found)\n", time.Since(loopStart))
 
 	return false, nil
 }

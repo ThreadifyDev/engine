@@ -314,3 +314,64 @@ func (r *StepStateRepository) GetStepHistory(ctx context.Context, threadID, step
 
 	return history, nil
 }
+
+// GetStepsBatch retrieves steps for multiple threads from thread_step_states table in a single query
+// Returns a map of threadID -> list of step states
+func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []string) (map[string][]*models.StepStateInfo, error) {
+	if len(threadIDs) == 0 {
+		return make(map[string][]*models.StepStateInfo), nil
+	}
+
+	query := `
+		SELECT 
+			thread_id,
+			step_name,
+			idempotency_key,
+			status,
+			retry_count,
+			first_seen_at,
+			last_updated_at,
+			previous_step
+		FROM thread_step_states
+		WHERE thread_id = ANY($1)
+		ORDER BY thread_id, first_seen_at ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query steps batch: %w", err)
+	}
+	defer rows.Close()
+
+	stepsMap := make(map[string][]*models.StepStateInfo)
+	for rows.Next() {
+		step := &models.StepStateInfo{}
+		var previousStep sql.NullString
+
+		err := rows.Scan(
+			&step.ThreadID,
+			&step.StepName,
+			&step.IdempotencyKey,
+			&step.Status,
+			&step.RetryCount,
+			&step.FirstSeenAt,
+			&step.LastUpdatedAt,
+			&previousStep,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan step: %w", err)
+		}
+
+		if previousStep.Valid {
+			step.PreviousStep = previousStep.String
+		}
+
+		stepsMap[step.ThreadID] = append(stepsMap[step.ThreadID], step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return stepsMap, nil
+}

@@ -544,6 +544,22 @@ func (s *NotificationService) processValidationNotifications(
 	}
 
 	now := time.Now().Format(time.RFC3339)
+
+	// Use firstSeenAt from Redis if available, otherwise use current time
+	firstSeenAt := result.FirstSeenAt
+	if firstSeenAt == "" {
+		firstSeenAt = now
+	}
+
+	// Extract step name from previousStep key (format: stepName:idempKey)
+	previousStepName := ""
+	if result.PreviousStep != "" {
+		// Extract just the step name part before the colon
+		if idx := strings.Index(result.PreviousStep, ":"); idx > 0 {
+			previousStepName = result.PreviousStep[:idx]
+		}
+	}
+
 	stepStateSnapshot := &interfaces.StepStateSnapshot{
 		ID:             stepID,
 		ThreadID:       threadID,
@@ -551,9 +567,9 @@ func (s *NotificationService) processValidationNotifications(
 		IdempotencyKey: idempotencyKey,
 		Status:         result.Status,
 		RetryCount:     result.RetryCount,
-		FirstSeenAt:    now, // Will be overwritten by archiver if step already exists
+		FirstSeenAt:    firstSeenAt,
 		LastUpdatedAt:  now,
-		PreviousStep:   "", // TODO: Get from result if available
+		PreviousStep:   previousStepName,
 	}
 
 	if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {

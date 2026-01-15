@@ -286,6 +286,7 @@ local idempKey = string.match(stepKey, '[^:]+:(.+)')
 
 local finalRetryCount = redis.call('HGET', stepHashKey, 'retryCount') or '0'
 local firstSeenAt = redis.call('HGET', stepHashKey, 'firstSeenAt') or timestamp
+local previousStepStored = redis.call('HGET', stepHashKey, 'previousStep') or ''
 
 -- Redis stream writes removed - now using NATS JetStream for archival
 -- Activity log events are published to NATS by the Go application layer
@@ -303,7 +304,9 @@ local result = {
     status = status,
     violations = allViolations,
     retryCount = tonumber(finalRetryCount),
-    hasCriticalViolation = hasCriticalViolation
+    hasCriticalViolation = hasCriticalViolation,
+    firstSeenAt = firstSeenAt,
+    previousStep = previousStepStored
 }
 
 return cjson.encode(result)

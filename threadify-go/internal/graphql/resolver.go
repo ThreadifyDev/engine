@@ -19,9 +19,11 @@ type Resolver struct {
 	threadAccessService *service.ThreadAccessService
 	contractValidator   interfaces.ContractValidator
 	contractRepo        *postgres.ContractRepository
+	refsRepo            *postgres.ThreadRefsRepository // For batch loading refs
+	stepStatePostgres   *postgres.StepStateRepository  // For batch loading steps
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository) *Resolver {
+func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository) *Resolver {
 	return &Resolver{
 		threadRepo:          threadRepo,
 		stepStateRepo:       stepStateRepo,
@@ -29,5 +31,7 @@ func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.Step
 		threadAccessService: threadAccessService,
 		contractValidator:   contractValidator,
 		contractRepo:        contractRepo,
+		refsRepo:            refsRepo,
+		stepStatePostgres:   stepStatePostgres,
 	}
 }

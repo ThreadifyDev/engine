@@ -89,6 +89,8 @@ type ComplexityRoot struct {
 		StepHistory       func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread            func(childComplexity int, id string) int
 		ThreadChain       func(childComplexity int, rootID string, maxDepth *int) int
+		Threads           func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
+		ThreadsByContract func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ThreadsByRef      func(childComplexity int, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ValidationResults func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
 	}
@@ -184,6 +186,8 @@ type NotificationConfigResolver interface {
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*models.Thread, error)
+	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
+	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
 	ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
@@ -404,6 +408,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.ThreadChain(childComplexity, args["rootId"].(string), args["maxDepth"].(*int)), true
+	case "Query.threads":
+		if e.complexity.Query.Threads == nil {
+			break
+		}
+
+		args, err := ec.field_Query_threads_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.Threads(childComplexity, args["actor"].(*string), args["contractName"].(*string), args["contractVersion"].(*int), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["completedAfter"].(*string), args["completedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+	case "Query.threadsByContract":
+		if e.complexity.Query.ThreadsByContract == nil {
+			break
+		}
+
+		args, err := ec.field_Query_threadsByContract_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.ThreadsByContract(childComplexity, args["contractName"].(string), args["contractVersion"].(*int), args["actor"].(*string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.threadsByRef":
 		if e.complexity.Query.ThreadsByRef == nil {
 			break
@@ -987,6 +1013,33 @@ type NotificationConfig {
 type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
+  
+  # General thread search with flexible filtering (company-scoped by JWT)
+  threads(
+    actor: String
+    contractName: String
+    contractVersion: Int
+    status: String
+    startedAfter: String
+    startedBefore: String
+    completedAfter: String
+    completedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
+  
+  # Contract-specific thread queries (optimized for contract monitoring)
+  threadsByContract(
+    contractName: String!
+    contractVersion: Int
+    actor: String
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [Thread!]!
+  
   # Find threads by reference key-value pair with filtering and pagination
   threadsByRef(
     refKey: String!
@@ -997,8 +1050,10 @@ type Query {
     limit: Int = 50
     offset: Int = 0
   ): [Thread!]!
+  
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
+  
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
   # Get step history by stepName:idempKey or stepName
@@ -1167,6 +1222,52 @@ func (ec *executionContext) field_Query_thread_args(ctx context.Context, rawArgs
 	return args, nil
 }
 
+func (ec *executionContext) field_Query_threadsByContract_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "contractName", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["contractName"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "contractVersion", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["contractVersion"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "actor", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["actor"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg7
+	return args, nil
+}
+
 func (ec *executionContext) field_Query_threadsByRef_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1205,6 +1306,62 @@ func (ec *executionContext) field_Query_threadsByRef_args(ctx context.Context, r
 		return nil, err
 	}
 	args["offset"] = arg6
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_threads_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "actor", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["actor"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "contractName", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["contractName"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "contractVersion", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["contractVersion"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "completedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["completedAfter"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "completedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["completedBefore"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg8
+	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg9
 	return args, nil
 }
 
@@ -2092,6 +2249,152 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_thread_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_threads(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_threads,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_threads(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Thread_id(ctx, field)
+			case "contractId":
+				return ec.fieldContext_Thread_contractId(ctx, field)
+			case "contractVersion":
+				return ec.fieldContext_Thread_contractVersion(ctx, field)
+			case "contractName":
+				return ec.fieldContext_Thread_contractName(ctx, field)
+			case "ownerId":
+				return ec.fieldContext_Thread_ownerId(ctx, field)
+			case "companyId":
+				return ec.fieldContext_Thread_companyId(ctx, field)
+			case "status":
+				return ec.fieldContext_Thread_status(ctx, field)
+			case "lastHash":
+				return ec.fieldContext_Thread_lastHash(ctx, field)
+			case "refs":
+				return ec.fieldContext_Thread_refs(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Thread_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Thread_completedAt(ctx, field)
+			case "error":
+				return ec.fieldContext_Thread_error(ctx, field)
+			case "steps":
+				return ec.fieldContext_Thread_steps(ctx, field)
+			case "validationResults":
+				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "threadChain":
+				return ec.fieldContext_Thread_threadChain(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_threads_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_threadsByContract(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_threadsByContract,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_threadsByContract(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Thread_id(ctx, field)
+			case "contractId":
+				return ec.fieldContext_Thread_contractId(ctx, field)
+			case "contractVersion":
+				return ec.fieldContext_Thread_contractVersion(ctx, field)
+			case "contractName":
+				return ec.fieldContext_Thread_contractName(ctx, field)
+			case "ownerId":
+				return ec.fieldContext_Thread_ownerId(ctx, field)
+			case "companyId":
+				return ec.fieldContext_Thread_companyId(ctx, field)
+			case "status":
+				return ec.fieldContext_Thread_status(ctx, field)
+			case "lastHash":
+				return ec.fieldContext_Thread_lastHash(ctx, field)
+			case "refs":
+				return ec.fieldContext_Thread_refs(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Thread_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Thread_completedAt(ctx, field)
+			case "error":
+				return ec.fieldContext_Thread_error(ctx, field)
+			case "steps":
+				return ec.fieldContext_Thread_steps(ctx, field)
+			case "validationResults":
+				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "threadChain":
+				return ec.fieldContext_Thread_threadChain(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_threadsByContract_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -6217,6 +6520,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_thread(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "threads":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_threads(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "threadsByContract":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_threadsByContract(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 

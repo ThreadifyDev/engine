@@ -244,14 +244,21 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		contractIDPtr = &contractUUID // Store UUID for referential integrity
 	}
 
+	// Set contract version pointer if contract is used
+	var contractVersionPtr *int
+	if parsedContractName != "" && contractVersion > 0 {
+		contractVersionPtr = &contractVersion
+	}
+
 	thread := &models.Thread{
-		ID:           threadID,
-		ContractID:   contractIDPtr,      // Store contract UUID for referential integrity
-		ContractName: parsedContractName, // Store name for display/filtering
-		OwnerID:      ownerID,
-		CompanyID:    companyID,
-		Status:       "active",
-		StartedAt:    time.Now(),
+		ID:              threadID,
+		ContractID:      contractIDPtr,      // Store contract UUID for referential integrity
+		ContractName:    parsedContractName, // Store name for display/filtering
+		ContractVersion: contractVersionPtr, // Store actual version that was loaded
+		OwnerID:         ownerID,
+		CompanyID:       companyID,
+		Status:          "active",
+		StartedAt:       time.Now(),
 	}
 
 	fmt.Printf("[WebSocket DEBUG] Creating thread %s with ownerID %s\n", threadID, ownerID)

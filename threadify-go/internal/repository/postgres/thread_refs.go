@@ -88,6 +88,46 @@ func (r *ThreadRefsRepository) GetRefs(ctx context.Context, threadID string) (ma
 	return refs, nil
 }
 
+// GetRefsBatch retrieves refs for multiple threads in a single query
+// Returns a map of threadID -> refs map
+func (r *ThreadRefsRepository) GetRefsBatch(ctx context.Context, threadIDs []string) (map[string]map[string]string, error) {
+	if len(threadIDs) == 0 {
+		return make(map[string]map[string]string), nil
+	}
+
+	query := `
+		SELECT thread_id, ref_key, ref_value
+		FROM thread_refs
+		WHERE thread_id = ANY($1)
+		ORDER BY thread_id, created_at ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query refs batch: %w", err)
+	}
+	defer rows.Close()
+
+	refsMap := make(map[string]map[string]string)
+	for rows.Next() {
+		var threadID, key, value string
+		if err := rows.Scan(&threadID, &key, &value); err != nil {
+			return nil, fmt.Errorf("failed to scan ref: %w", err)
+		}
+
+		if refsMap[threadID] == nil {
+			refsMap[threadID] = make(map[string]string)
+		}
+		refsMap[threadID][key] = value
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return refsMap, nil
+}
+
 // GetThreadsByRef finds thread IDs that have a specific ref key-value pair
 func (r *ThreadRefsRepository) GetThreadsByRef(ctx context.Context, refKey, refValue string) ([]string, error) {
 	query := `

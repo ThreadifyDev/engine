@@ -215,11 +215,43 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Add scope column for notification access control
 	ALTER TABLE thread_access ADD COLUMN IF NOT EXISTS scope TEXT;
 
+	-- Add foreign key constraint for data integrity and query optimization
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'fk_thread_access_thread'
+		) THEN
+			ALTER TABLE thread_access 
+				ADD CONSTRAINT fk_thread_access_thread 
+				FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE;
+		END IF;
+	END $$;
+
+	-- Basic indexes (keep for backward compatibility)
 	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_id ON thread_access(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_roles_gin ON thread_access USING GIN (roles);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_scope ON thread_access(scope) WHERE scope IS NOT NULL;
+
+	-- Composite indexes for efficient JOIN queries with threads table
+	-- For user-based thread filtering: "show me all threads user X has access to"
+	CREATE INDEX IF NOT EXISTS idx_thread_access_user_active_thread 
+		ON thread_access(user_id, thread_id) 
+		WHERE status = 'active';
+
+	-- For thread-based user lookup: "who has access to thread Y"
+	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_active_user 
+		ON thread_access(thread_id, user_id) 
+		WHERE status = 'active';
+
+	-- Covering index for permission checks without table lookup (PostgreSQL 11+)
+	-- INCLUDE clause adds columns to index without making them part of the key
+	CREATE INDEX IF NOT EXISTS idx_thread_access_user_thread_covering 
+		ON thread_access(user_id, thread_id) 
+		INCLUDE (permissions, roles, status) 
+		WHERE status = 'active';
 
 	CREATE TABLE IF NOT EXISTS thread_validations (
 		validation_id VARCHAR(255) PRIMARY KEY,

@@ -182,8 +182,11 @@ func main() {
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
 
-	// Initialize GraphQL resolver
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo)
+	// Initialize refs repository for batch loading
+	refsRepo := postgres.NewThreadRefsRepository(db.Pool)
+
+	// Initialize GraphQL resolver with batch loading repos
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo)
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
