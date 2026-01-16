@@ -26,6 +26,7 @@ local cjson = cjson
 -- ARGV[8]: allowedTransitions (JSON array: ["step1","step2","step3"])
 -- ARGV[9]: terminalSteps (JSON array: ["delivered","cancelled"])
 -- ARGV[10]: allowMultipleTerminals ("true" | "false")
+-- ARGV[11]: ttl (TTL in seconds from config)
 
 local metaKey = KEYS[1]
 local currentStepsKey = KEYS[2]
@@ -42,6 +43,7 @@ local maxRetries = tonumber(ARGV[7]) or 0
 local allowedTransitionsJSON = ARGV[8]
 local terminalStepsJSON = ARGV[9]
 local allowMultipleTerminals = ARGV[10]
+local ttl = tonumber(ARGV[11]) or 604800  -- Default to 7 days if not provided
 
 -- Extract stepName from stepKey (format: stepName:idempKey)
 local stepName = string.match(stepKey, '([^:]+):')
@@ -235,6 +237,9 @@ end
 -- ============================================================================
 
 -- Update/create step state hash
+-- IMPORTANT: If you change these HSET fields, also update the write-back code:
+-- See: /internal/repository/valkey/thread_helpers.go (writeBackAllStepsToValkey function)
+-- The write-back must use the SAME field names to maintain format consistency!
 if isRetry then
     redis.call('HINCRBY', stepHashKey, 'retryCount', 1)
     redis.call('HSET', stepHashKey,
@@ -292,7 +297,36 @@ local previousStepStored = redis.call('HGET', stepHashKey, 'previousStep') or ''
 -- Activity log events are published to NATS by the Go application layer
 
 -- ============================================================================
--- SECTION 5: RETURN JSON RESULT
+-- SECTION 5: EXTEND TTL ON ALL THREAD KEYS
+-- ============================================================================
+-- Extend TTL on all thread-related keys to prevent partial expiration
+-- This ensures all thread data expires together, maintaining consistency
+
+-- Extract threadID from metaKey (format: thread:ID:meta)
+local threadID = string.match(metaKey, 'thread:([^:]+):meta')
+
+if threadID then
+    -- Core thread keys
+    redis.call('EXPIRE', 'thread:' .. threadID, ttl)
+    redis.call('EXPIRE', metaKey, ttl)
+    redis.call('EXPIRE', currentStepsKey, ttl)
+    redis.call('EXPIRE', violationsKey, ttl)
+    redis.call('EXPIRE', stepHashKey, ttl)
+    
+    -- Optional keys (may not exist, but EXPIRE is safe)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':access', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':role_index', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':activity', ttl)
+    
+    -- Extend TTL on all step hashes (pattern: thread:ID:steps:*)
+    local stepKeys = redis.call('KEYS', 'thread:' .. threadID .. ':steps:*')
+    for _, key in ipairs(stepKeys) do
+        redis.call('EXPIRE', key, ttl)
+    end
+end
+
+-- ============================================================================
+-- SECTION 6: RETURN JSON RESULT
 -- ============================================================================
 
 -- Ensure violations is always encoded as an array, even when empty

@@ -17,6 +17,12 @@ import (
 type ActivityRepository struct {
 	valkey        interfaces.ValkeyClient
 	natsPublisher *natsrepo.ArchivalPublisher
+	postgresRepo  PostgresActivityRepository // For hot/cold fallback
+}
+
+// PostgresActivityRepository defines the interface for PostgreSQL activity operations
+type PostgresActivityRepository interface {
+	GetActivityLog(ctx context.Context, threadID string) ([]map[string]interface{}, error)
 }
 
 // NewActivityRepository creates a new activity repository
@@ -24,6 +30,15 @@ func NewActivityRepository(valkey interfaces.ValkeyClient, natsPublisher *natsre
 	return &ActivityRepository{
 		valkey:        valkey,
 		natsPublisher: natsPublisher,
+	}
+}
+
+// NewActivityRepositoryWithPostgres creates a new activity repository with PostgreSQL fallback
+func NewActivityRepositoryWithPostgres(valkey interfaces.ValkeyClient, natsPublisher *natsrepo.ArchivalPublisher, postgresRepo PostgresActivityRepository) *ActivityRepository {
+	return &ActivityRepository{
+		valkey:        valkey,
+		natsPublisher: natsPublisher,
+		postgresRepo:  postgresRepo,
 	}
 }
 
@@ -343,4 +358,45 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *in
 	}()
 
 	return nil
+}
+
+// GetActivityLog retrieves activity log from PostgreSQL (activities are never cached in Valkey)
+func (r *ActivityRepository) GetActivityLog(ctx context.Context, threadID string) ([]map[string]interface{}, error) {
+	activityKey := fmt.Sprintf("thread:%s:activity", threadID)
+
+	// Try Valkey first (list format)
+	activities, err := r.valkey.LRange(ctx, activityKey, 0, -1)
+	if err == nil && len(activities) > 0 {
+		// Parse JSON strings to map[string]interface{}
+		result := make([]map[string]interface{}, 0, len(activities))
+		for _, activityJSON := range activities {
+			var activity map[string]interface{}
+			if err := json.Unmarshal([]byte(activityJSON), &activity); err == nil {
+				result = append(result, activity)
+			}
+		}
+		if len(result) > 0 {
+			return result, nil
+		}
+	}
+
+	// Fallback to PostgreSQL
+	if r.postgresRepo == nil {
+		return []map[string]interface{}{}, nil
+	}
+
+	fmt.Printf("⚠️ [COLD] Activity log for thread %s not in Valkey, checking PostgreSQL\n", threadID)
+
+	result, err := r.postgresRepo.GetActivityLog(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("✅ [COLD] Activity log for thread %s retrieved from PostgreSQL\n", threadID)
+
+	// Note: Activities are never written to Valkey in hot path
+	// They only go to NATS → PostgreSQL, so there's no Valkey cache to warm
+	// This method is only for GraphQL/admin queries, not hot path operations
+
+	return result, nil
 }

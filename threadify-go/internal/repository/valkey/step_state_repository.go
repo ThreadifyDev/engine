@@ -25,23 +25,26 @@ type StepStateRepository struct {
 	client       interfaces.ValkeyClient
 	scriptHashes map[string]string
 	postgresRepo *postgres.StepStateRepository // For PostgreSQL fallback
+	ttl          int                           // TTL in seconds for step keys
 }
 
 // NewStepStateRepository creates a new step state repository
-func NewStepStateRepository(client interfaces.ValkeyClient) interfaces.StepStateRepository {
+func NewStepStateRepository(client interfaces.ValkeyClient, ttl int) interfaces.StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
+		ttl:          ttl,
 	}
 	return repo
 }
 
 // NewStepStateRepositoryWithPostgres creates a new step state repository with PostgreSQL fallback
-func NewStepStateRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.StepStateRepository) *StepStateRepository {
+func NewStepStateRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.StepStateRepository, ttl int) *StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
 		postgresRepo: postgresRepo,
+		ttl:          ttl,
 	}
 	return repo
 }
@@ -138,6 +141,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		string(transitionsMapJSON), // ARGV[8] - Changed to transitions map
 		string(terminalStepsJSON),  // ARGV[9]
 		allowMultipleTerminalsStr,  // ARGV[10]
+		r.ttl,                      // ARGV[11] - TTL in seconds from config
 	}
 
 	// Execute Lua script
@@ -231,20 +235,29 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 		return nil, fmt.Errorf("step state not found in Redis and no PostgreSQL repository configured")
 	}
 
-	stepState, err := r.postgresRepo.GetStepState(ctx, threadID, stepName, idempotencyKey)
+	// Use GetStepsBatch to get all steps for the thread
+	stepsMap, err := r.postgresRepo.GetStepsBatch(ctx, []string{threadID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get step state from PostgreSQL: %w", err)
+		return nil, fmt.Errorf("failed to get step states from PostgreSQL: %w", err)
 	}
 
-	if stepState == nil {
-		log.Printf("❌ Step state not found in PostgreSQL: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+	allSteps := stepsMap[threadID]
+	if allSteps == nil || len(allSteps) == 0 {
+		log.Printf("❌ No step states found in PostgreSQL: thread=%s", threadID)
 		return nil, nil
 	}
 
-	log.Printf("📥 Retrieved step state %s:%s from PostgreSQL (inactive step)", stepName, idempotencyKey)
+	// Find the requested step
+	for _, step := range allSteps {
+		if step.StepName == stepName && step.IdempotencyKey == idempotencyKey {
+			log.Printf("📥 Retrieved step state %s:%s from PostgreSQL (inactive step)", stepName, idempotencyKey)
+			// NO write-back - let async validator own Redis writes to prevent data conflicts
+			return step, nil
+		}
+	}
 
-	// NO write-back - let async validator own Redis writes to prevent data conflicts
-	return stepState, nil
+	log.Printf("❌ Step state %s:%s not found in PostgreSQL for thread %s", stepName, idempotencyKey, threadID)
+	return nil, nil
 }
 
 // GetStepState retrieves a step state from Redis hash only (legacy method)
@@ -311,9 +324,10 @@ func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepNa
 	return stepState, nil
 }
 
-// ListSteps retrieves all step states for a thread by scanning Redis keys
-// Returns list of step states (may be slow for threads with many steps)
-func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string) ([]*models.StepStateInfo, error) {
+// ListSteps retrieves all step states for a thread with hot/cold fallback
+// Uses pipeline for efficient Valkey reads and batch query for PostgreSQL fallback
+// Optional filters: stepName, idempotencyKey, status (nil = no filter)
+func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, stepName, idempotencyKey, status *string) ([]*models.StepStateInfo, error) {
 	pattern := fmt.Sprintf("thread:%s:steps:*", threadID)
 
 	// Scan for all step keys
@@ -322,36 +336,112 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string) ([
 		return nil, fmt.Errorf("failed to scan step keys: %w", err)
 	}
 
-	if len(keys) == 0 {
+	// Hot path: Read from Valkey (direct calls since pipeline doesn't support HGetAll)
+	if len(keys) > 0 {
+		var steps []*models.StepStateInfo
+		hasData := false
+
+		for _, key := range keys {
+			// Extract stepName and idempotencyKey from key
+			// Key format: thread:{threadID}:steps:{stepName}:{idempotencyKey}
+			parts := strings.Split(key, ":")
+			if len(parts) < 5 {
+				continue
+			}
+
+			stepNameFromKey := parts[3]
+			idempKeyFromKey := parts[4]
+
+			// Apply key-level filtering (before fetching data)
+			if stepName != nil && *stepName != stepNameFromKey {
+				continue // Skip if stepName filter doesn't match
+			}
+			if idempotencyKey != nil && *idempotencyKey != idempKeyFromKey {
+				continue // Skip if idempotencyKey filter doesn't match
+			}
+
+			// Get hash data from Valkey
+			hashData, err := r.client.HGetAll(ctx, key)
+			if err != nil || len(hashData) == 0 {
+				continue
+			}
+
+			hasData = true
+
+			// Parse step state from hash
+			step := &models.StepStateInfo{
+				ThreadID:       threadID,
+				StepName:       stepNameFromKey,
+				IdempotencyKey: idempKeyFromKey,
+				Status:         hashData["status"],
+				LatestStepID:   hashData["latestStepID"],
+				PreviousStep:   hashData["previousStep"],
+			}
+
+			if retryCount, err := strconv.Atoi(hashData["retryCount"]); err == nil {
+				step.RetryCount = retryCount
+			}
+
+			if firstSeenAt, err := time.Parse(time.RFC3339, hashData["firstSeenAt"]); err == nil {
+				step.FirstSeenAt = firstSeenAt
+			}
+
+			if lastUpdatedAt, err := time.Parse(time.RFC3339, hashData["lastUpdatedAt"]); err == nil {
+				step.LastUpdatedAt = lastUpdatedAt
+			}
+
+			// Apply status filter
+			if status != nil && *status != step.Status {
+				continue // Skip if status filter doesn't match
+			}
+
+			steps = append(steps, step)
+		}
+
+		if hasData {
+			log.Printf("✅ [HOT] Found %d step states in Valkey for thread %s", len(steps), threadID)
+			return steps, nil
+		}
+	}
+
+	// Cold path: Fallback to PostgreSQL with batch query
+	if r.postgresRepo == nil {
+		log.Printf("⚠️ No steps in Valkey and no PostgreSQL fallback for thread %s", threadID)
 		return []*models.StepStateInfo{}, nil
 	}
 
-	var steps []*models.StepStateInfo
+	log.Printf("⚠️ [COLD] Steps not in Valkey for thread %s, querying PostgreSQL", threadID)
 
-	for _, key := range keys {
-		// Extract stepName and idempotencyKey from key
-		// Key format: thread:{threadID}:steps:{stepName}:{idempotencyKey}
-		parts := strings.Split(key, ":")
-		if len(parts) < 5 {
-			continue // Skip malformed keys
-		}
-
-		stepName := parts[3]
-		idempotencyKey := parts[4]
-
-		// Get individual step state
-		stepState, err := r.GetStepState(ctx, threadID, stepName, idempotencyKey)
-		if err != nil {
-			log.Printf("Warning: Failed to get step state for key %s: %v", key, err)
-			continue
-		}
-
-		if stepState != nil {
-			steps = append(steps, stepState)
-		}
+	// Use batch query (single SQL query for all steps)
+	stepsMap, err := r.postgresRepo.GetStepsBatch(ctx, []string{threadID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get steps from PostgreSQL: %w", err)
 	}
 
-	log.Printf("📋 Found %d step states for thread %s", len(steps), threadID)
+	steps := stepsMap[threadID]
+	if steps == nil {
+		steps = []*models.StepStateInfo{}
+	}
+
+	// Apply filters to PostgreSQL results
+	if stepName != nil || idempotencyKey != nil || status != nil {
+		filteredSteps := make([]*models.StepStateInfo, 0)
+		for _, step := range steps {
+			if stepName != nil && step.StepName != *stepName {
+				continue
+			}
+			if idempotencyKey != nil && step.IdempotencyKey != *idempotencyKey {
+				continue
+			}
+			if status != nil && step.Status != *status {
+				continue
+			}
+			filteredSteps = append(filteredSteps, step)
+		}
+		steps = filteredSteps
+	}
+
+	log.Printf("✅ [COLD] Retrieved %d step states from PostgreSQL for thread %s", len(steps), threadID)
 	return steps, nil
 }
 

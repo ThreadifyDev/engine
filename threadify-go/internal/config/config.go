@@ -18,6 +18,7 @@ type Config struct {
 	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
 	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
 	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
+	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
 }
 
 // ServerConfig holds server configuration
@@ -169,4 +170,10 @@ type StreamsConfig struct {
 	BlockTimeoutMs int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
 	BatchSize      int           `yaml:"batch_size" mapstructure:"batch_size"`
 	BlockTimeout   time.Duration // Computed from BlockTimeoutMs
+}
+
+// SecurityConfig holds security configuration
+type SecurityConfig struct {
+	HashChainSecrets        map[string]string `yaml:"hash_chain_secrets" mapstructure:"hash_chain_secrets"`
+	HashChainCurrentVersion string            `yaml:"hash_chain_current_version" mapstructure:"hash_chain_current_version"`
 }

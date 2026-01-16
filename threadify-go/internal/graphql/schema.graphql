@@ -10,6 +10,10 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Cryptographic verification (lazy-loaded, only computed when requested)
+  verified: Boolean
+  verificationError: String
+  # Step execution history
   history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
 }
 
@@ -41,6 +45,17 @@ type Thread {
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
   # Get thread chain starting from this thread, following linkedThread relationships
   threadChain(maxDepth: Int = 3): [Thread!]!
+  # Hash chain integrity verification (lazy-loaded, only computed when requested)
+  hashChainVerified: Boolean
+  hashChainStatus: HashChainStatus
+}
+
+type HashChainStatus {
+  verified: Boolean!
+  lastVerifiedAt: String!
+  totalEvents: Int!
+  brokenAt: String
+  error: String
 }
 
 type ContractGraph {

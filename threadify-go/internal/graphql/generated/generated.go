@@ -40,6 +40,7 @@ type Config struct {
 type ResolverRoot interface {
 	Graph() GraphResolver
 	GraphNode() GraphNodeResolver
+	HashChainStatus() HashChainStatusResolver
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
 	StepStateInfo() StepStateInfoResolver
@@ -79,6 +80,14 @@ type ComplexityRoot struct {
 		Type            func(childComplexity int) int
 	}
 
+	HashChainStatus struct {
+		BrokenAt       func(childComplexity int) int
+		Error          func(childComplexity int) int
+		LastVerifiedAt func(childComplexity int) int
+		TotalEvents    func(childComplexity int) int
+		Verified       func(childComplexity int) int
+	}
+
 	NotificationConfig struct {
 		DefaultScope func(childComplexity int) int
 		RoleDefaults func(childComplexity int) int
@@ -105,16 +114,18 @@ type ComplexityRoot struct {
 	}
 
 	StepStateInfo struct {
-		FirstSeenAt    func(childComplexity int) int
-		History        func(childComplexity int, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
-		IdempotencyKey func(childComplexity int) int
-		LastUpdatedAt  func(childComplexity int) int
-		LatestStepID   func(childComplexity int) int
-		PreviousStep   func(childComplexity int) int
-		RetryCount     func(childComplexity int) int
-		Status         func(childComplexity int) int
-		StepName       func(childComplexity int) int
-		ThreadID       func(childComplexity int) int
+		FirstSeenAt       func(childComplexity int) int
+		History           func(childComplexity int, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
+		IdempotencyKey    func(childComplexity int) int
+		LastUpdatedAt     func(childComplexity int) int
+		LatestStepID      func(childComplexity int) int
+		PreviousStep      func(childComplexity int) int
+		RetryCount        func(childComplexity int) int
+		Status            func(childComplexity int) int
+		StepName          func(childComplexity int) int
+		ThreadID          func(childComplexity int) int
+		VerificationError func(childComplexity int) int
+		Verified          func(childComplexity int) int
 	}
 
 	Thread struct {
@@ -124,6 +135,8 @@ type ComplexityRoot struct {
 		ContractName      func(childComplexity int) int
 		ContractVersion   func(childComplexity int) int
 		Error             func(childComplexity int) int
+		HashChainStatus   func(childComplexity int) int
+		HashChainVerified func(childComplexity int) int
 		ID                func(childComplexity int) int
 		LastHash          func(childComplexity int) int
 		OwnerID           func(childComplexity int) int
@@ -181,6 +194,11 @@ type GraphResolver interface {
 type GraphNodeResolver interface {
 	BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error)
 }
+type HashChainStatusResolver interface {
+	LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error)
+
+	BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error)
+}
 type NotificationConfigResolver interface {
 	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
 }
@@ -198,6 +216,8 @@ type StepStateInfoResolver interface {
 	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
 	LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
 
+	Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error)
+	VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error)
 	History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
 }
 type ThreadResolver interface {
@@ -210,6 +230,8 @@ type ThreadResolver interface {
 	Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error)
 	ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error)
 	ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error)
+	HashChainVerified(ctx context.Context, obj *models.Thread) (*bool, error)
+	HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error)
 }
 type ValidationResultInfoResolver interface {
 	Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error)
@@ -350,6 +372,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.GraphNode.Type(childComplexity), true
+
+	case "HashChainStatus.brokenAt":
+		if e.complexity.HashChainStatus.BrokenAt == nil {
+			break
+		}
+
+		return e.complexity.HashChainStatus.BrokenAt(childComplexity), true
+	case "HashChainStatus.error":
+		if e.complexity.HashChainStatus.Error == nil {
+			break
+		}
+
+		return e.complexity.HashChainStatus.Error(childComplexity), true
+	case "HashChainStatus.lastVerifiedAt":
+		if e.complexity.HashChainStatus.LastVerifiedAt == nil {
+			break
+		}
+
+		return e.complexity.HashChainStatus.LastVerifiedAt(childComplexity), true
+	case "HashChainStatus.totalEvents":
+		if e.complexity.HashChainStatus.TotalEvents == nil {
+			break
+		}
+
+		return e.complexity.HashChainStatus.TotalEvents(childComplexity), true
+	case "HashChainStatus.verified":
+		if e.complexity.HashChainStatus.Verified == nil {
+			break
+		}
+
+		return e.complexity.HashChainStatus.Verified(childComplexity), true
 
 	case "NotificationConfig.defaultScope":
 		if e.complexity.NotificationConfig.DefaultScope == nil {
@@ -555,6 +608,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.ThreadID(childComplexity), true
+	case "StepStateInfo.verificationError":
+		if e.complexity.StepStateInfo.VerificationError == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.VerificationError(childComplexity), true
+	case "StepStateInfo.verified":
+		if e.complexity.StepStateInfo.Verified == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.Verified(childComplexity), true
 
 	case "Thread.companyId":
 		if e.complexity.Thread.CompanyID == nil {
@@ -592,6 +657,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Thread.Error(childComplexity), true
+	case "Thread.hashChainStatus":
+		if e.complexity.Thread.HashChainStatus == nil {
+			break
+		}
+
+		return e.complexity.Thread.HashChainStatus(childComplexity), true
+	case "Thread.hashChainVerified":
+		if e.complexity.Thread.HashChainVerified == nil {
+			break
+		}
+
+		return e.complexity.Thread.HashChainVerified(childComplexity), true
 	case "Thread.id":
 		if e.complexity.Thread.ID == nil {
 			break
@@ -931,6 +1008,10 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Cryptographic verification (lazy-loaded, only computed when requested)
+  verified: Boolean
+  verificationError: String
+  # Step execution history
   history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
 }
 
@@ -962,6 +1043,17 @@ type Thread {
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
   # Get thread chain starting from this thread, following linkedThread relationships
   threadChain(maxDepth: Int = 3): [Thread!]!
+  # Hash chain integrity verification (lazy-loaded, only computed when requested)
+  hashChainVerified: Boolean
+  hashChainStatus: HashChainStatus
+}
+
+type HashChainStatus {
+  verified: Boolean!
+  lastVerifiedAt: String!
+  totalEvents: Int!
+  brokenAt: String
+  error: String
 }
 
 type ContractGraph {
@@ -2124,6 +2216,151 @@ func (ec *executionContext) fieldContext_GraphNode_parentGroup(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _HashChainStatus_verified(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HashChainStatus_verified,
+		func(ctx context.Context) (any, error) {
+			return obj.Verified, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HashChainStatus_verified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HashChainStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HashChainStatus_lastVerifiedAt(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HashChainStatus_lastVerifiedAt,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.HashChainStatus().LastVerifiedAt(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HashChainStatus_lastVerifiedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HashChainStatus",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HashChainStatus_totalEvents(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HashChainStatus_totalEvents,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalEvents, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_HashChainStatus_totalEvents(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HashChainStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HashChainStatus_brokenAt(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HashChainStatus_brokenAt,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.HashChainStatus().BrokenAt(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_HashChainStatus_brokenAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HashChainStatus",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HashChainStatus_error(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_HashChainStatus_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_HashChainStatus_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HashChainStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _NotificationConfig_defaultScope(ctx context.Context, field graphql.CollectedField, obj *models.NotificationConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2237,6 +2474,10 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -2310,6 +2551,10 @@ func (ec *executionContext) fieldContext_Query_threads(ctx context.Context, fiel
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -2383,6 +2628,10 @@ func (ec *executionContext) fieldContext_Query_threadsByContract(ctx context.Con
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -2456,6 +2705,10 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -2529,6 +2782,10 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -3269,6 +3526,64 @@ func (ec *executionContext) fieldContext_StepStateInfo_previousStep(_ context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _StepStateInfo_verified(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_verified,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.StepStateInfo().Verified(ctx, obj)
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_verified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepStateInfo_verificationError(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_verificationError,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.StepStateInfo().VerificationError(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_verificationError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepStateInfo_history(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3715,6 +4030,10 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 				return ec.fieldContext_StepStateInfo_latestStepID(ctx, field)
 			case "previousStep":
 				return ec.fieldContext_StepStateInfo_previousStep(ctx, field)
+			case "verified":
+				return ec.fieldContext_StepStateInfo_verified(ctx, field)
+			case "verificationError":
+				return ec.fieldContext_StepStateInfo_verificationError(ctx, field)
 			case "history":
 				return ec.fieldContext_StepStateInfo_history(ctx, field)
 			}
@@ -3861,6 +4180,10 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 				return ec.fieldContext_Thread_validationResults(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
 		},
@@ -3875,6 +4198,76 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 	if fc.Args, err = ec.field_Thread_threadChain_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Thread_hashChainVerified(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_hashChainVerified,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Thread().HashChainVerified(ctx, obj)
+		},
+		nil,
+		ec.marshalOBoolean2ᚖbool,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_hashChainVerified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Thread_hashChainStatus(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_hashChainStatus,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Thread().HashChainStatus(ctx, obj)
+		},
+		nil,
+		ec.marshalOHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_hashChainStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "verified":
+				return ec.fieldContext_HashChainStatus_verified(ctx, field)
+			case "lastVerifiedAt":
+				return ec.fieldContext_HashChainStatus_lastVerifiedAt(ctx, field)
+			case "totalEvents":
+				return ec.fieldContext_HashChainStatus_totalEvents(ctx, field)
+			case "brokenAt":
+				return ec.fieldContext_HashChainStatus_brokenAt(ctx, field)
+			case "error":
+				return ec.fieldContext_HashChainStatus_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type HashChainStatus", field.Name)
+		},
 	}
 	return fc, nil
 }
@@ -6422,6 +6815,121 @@ func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var hashChainStatusImplementors = []string{"HashChainStatus"}
+
+func (ec *executionContext) _HashChainStatus(ctx context.Context, sel ast.SelectionSet, obj *models.HashChainStatus) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, hashChainStatusImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HashChainStatus")
+		case "verified":
+			out.Values[i] = ec._HashChainStatus_verified(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "lastVerifiedAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HashChainStatus_lastVerifiedAt(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "totalEvents":
+			out.Values[i] = ec._HashChainStatus_totalEvents(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "brokenAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._HashChainStatus_brokenAt(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "error":
+			out.Values[i] = ec._HashChainStatus_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var notificationConfigImplementors = []string{"NotificationConfig"}
 
 func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationConfig) graphql.Marshaler {
@@ -6890,6 +7398,72 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 			}
 		case "previousStep":
 			out.Values[i] = ec._StepStateInfo_previousStep(ctx, field, obj)
+		case "verified":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepStateInfo_verified(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "verificationError":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepStateInfo_verificationError(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "history":
 			field := field
 
@@ -7205,6 +7779,72 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "hashChainVerified":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Thread_hashChainVerified(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "hashChainStatus":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Thread_hashChainStatus(ctx, field, obj)
 				return res
 			}
 
@@ -8585,6 +9225,13 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *models.HashChainStatus) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._HashChainStatus(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOInt2int(ctx context.Context, v any) (int, error) {

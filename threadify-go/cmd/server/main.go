@@ -108,21 +108,22 @@ func main() {
 	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
 	threadTTL := time.Duration(threadTTLHours) * time.Hour
 
-	// Create PostgreSQL thread repository for fallback (includes refs repository)
+	// Create PostgreSQL repositories for fallback
 	postgresThreadRepo := postgres.NewThreadRepository(db.Pool)
-	threadRepo := valkey.NewThreadRepositoryWithPostgres(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo)
+	stepStatePostgres := postgres.NewStepStateRepository(db.Pool)
+	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres)
 
 	// Initialize step event service with config
 	batchSize := viper.GetInt("thread_activities.batch_size")
 	batchTimeoutMs := viper.GetInt("thread_activities.batch_timeout_ms")
 	batchTimeout := time.Duration(batchTimeoutMs) * time.Millisecond
 
-	stepEventService := service.NewStepEventService(valkeyService, threadRepo, natsArchivalPublisher, 4, batchSize, batchTimeout)
+	stepEventService := service.NewStepEventService(valkeyService, threadRepo, natsArchivalPublisher, cfg, 4, batchSize, batchTimeout)
 
 	// Initialize thread service with step event service and TTL configs
 	contractTTLHours := viper.GetInt("cache.contract_ttl_hours")
 	contractTTL := time.Duration(contractTTLHours) * time.Hour
-	threadService := service.NewThreadServiceWithDefaults(cfg, db, valkeyService, stepEventService, int(contractTTL.Seconds()), int(threadTTL.Seconds()))
+	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()))
 
 	// Start step event service
 	stepEventService.Start()
@@ -166,8 +167,10 @@ func main() {
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService)
 
 	// Initialize GraphQL handler with cached thread repository and step state repository with PostgreSQL fallback
+	stepEventTTLHours := viper.GetInt("cache.step_event_ttl_hours")
+	stepEventTTL := time.Duration(stepEventTTLHours) * time.Hour
 	postgresStepRepo := postgres.NewStepStateRepository(db.Pool)
-	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(valkeyService, postgresStepRepo)
+	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(valkeyService, postgresStepRepo, int(stepEventTTL.Seconds()))
 
 	// Initialize validation repository with cache-aside pattern
 	postgresValidationRepo := postgres.NewValidationRepository(db.Pool)
@@ -177,7 +180,8 @@ func main() {
 	contractRepo := postgres.NewContractRepository(db.Pool)
 
 	// Initialize thread access service for invitation-based authentication
-	accessRepo := valkey.NewAccessRepository(valkeyService)
+	// Use thread TTL for access keys (same as thread metadata)
+	accessRepo := valkey.NewAccessRepository(valkeyService, int(threadTTL.Seconds()))
 	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
@@ -185,8 +189,11 @@ func main() {
 	// Initialize refs repository for batch loading
 	refsRepo := postgres.NewThreadRefsRepository(db.Pool)
 
+	// Initialize activity repository for hash chain verification
+	activityRepo := postgres.NewActivityRepository(db.Pool, cfg)
+
 	// Initialize GraphQL resolver with batch loading repos
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo)
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo)
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))

@@ -14,6 +14,7 @@
 -- ARGV[6]: status
 -- ARGV[7]: threadJSON (optional - thread data if creating, empty string if not)
 -- ARGV[8]: threadTTL (optional - TTL in seconds for thread if creating)
+-- ARGV[9]: ttl (TTL in seconds for extending all thread keys)
 
 local roleIndexKey = KEYS[1]
 local accessKey = KEYS[2]
@@ -26,6 +27,7 @@ local timestamp = ARGV[5]
 local status = ARGV[6]
 local threadJSON = ARGV[7] or ""
 local threadTTL = tonumber(ARGV[8] or "0")
+local ttl = tonumber(ARGV[9] or "604800")  -- Default to 7 days if not provided
 
 -- ATOMIC THREAD CREATION (if threadJSON provided)
 -- This ensures thread and access are created together or not at all
@@ -109,5 +111,33 @@ end
 
 -- Update role index to claim this role
 redis.call('HSET', roleIndexKey, newRole, userID)
+
+-- ============================================================================
+-- EXTEND TTL ON ALL THREAD KEYS
+-- ============================================================================
+-- Extend TTL on all thread-related keys to prevent partial expiration
+-- This ensures all thread data expires together, maintaining consistency
+
+-- Extract threadID from roleIndexKey (format: thread:ID:role_index)
+local threadID = string.match(roleIndexKey, 'thread:([^:]+):role_index')
+
+if threadID then
+    -- Core thread keys
+    redis.call('EXPIRE', 'thread:' .. threadID, ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':meta', ttl)
+    redis.call('EXPIRE', accessKey, ttl)
+    redis.call('EXPIRE', roleIndexKey, ttl)
+    
+    -- Optional keys (may not exist, but EXPIRE is safe)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':current_steps', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':violations', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':activity', ttl)
+    
+    -- Extend TTL on all step hashes (pattern: thread:ID:steps:*)
+    local stepKeys = redis.call('KEYS', 'thread:' .. threadID .. ':steps:*')
+    for _, key in ipairs(stepKeys) do
+        redis.call('EXPIRE', key, ttl)
+    end
+end
 
 return accessJSON

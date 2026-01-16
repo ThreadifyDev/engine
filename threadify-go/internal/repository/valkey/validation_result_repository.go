@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
@@ -128,10 +129,23 @@ func (r *ValidationRepository) cacheValidationResults(ctx context.Context, key s
 		return fmt.Errorf("failed to serialize validation results: %w", err)
 	}
 
-	// Store in Redis hash
+	// Extract threadID from key (format: thread:{id}:validations:...)
+	parts := strings.Split(key, ":")
+	if len(parts) < 2 {
+		return fmt.Errorf("invalid validation key format: %s", key)
+	}
+	threadID := parts[1]
+
+	// Store in Redis hash and extend TTL on all thread keys
 	pipe := r.client.Pipeline()
 	pipe.HSet(ctx, key, "results", string(resultsJSON))
 	pipe.Expire(ctx, key, r.ttl)
+
+	// Extend TTL on all related thread keys to prevent partial expiration
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s", threadID), r.ttl)
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s:meta", threadID), r.ttl)
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s:access", threadID), r.ttl)
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s:current_steps", threadID), r.ttl)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("failed to store validation results in Redis: %w", err)

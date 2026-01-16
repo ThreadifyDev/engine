@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -60,30 +62,51 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
 	query := `
 		SELECT id, contract_id, contract_version, owner_id, company_id,
-			   created_at, updated_at, error
+			   created_at, updated_at, error, status, contract_name
 		FROM threads
 		WHERE id = $1
 	`
 
 	var thread models.Thread
 	var createdAt, updatedAt time.Time
+	var contractID, contractName, errorMsg sql.NullString
+	var contractVersion sql.NullInt32
+	var status string
 
 	err := r.pool.QueryRow(ctx, query, threadID).Scan(
 		&thread.ID,
-		&thread.ContractID,
-		&thread.ContractVersion,
+		&contractID,
+		&contractVersion,
 		&thread.OwnerID,
 		&thread.CompanyID,
 		&createdAt,
 		&updatedAt,
-		&thread.Error,
+		&errorMsg,
+		&status,
+		&contractName,
 	)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
+	// Handle nullable fields
+	if contractID.Valid {
+		thread.ContractID = &contractID.String
+	}
+	if contractVersion.Valid {
+		v := int(contractVersion.Int32)
+		thread.ContractVersion = &v
+	}
+	if errorMsg.Valid {
+		thread.Error = errorMsg.String
+	}
+	if contractName.Valid {
+		thread.ContractName = contractName.String
+	}
+
 	thread.StartedAt = createdAt
+	thread.Status = models.ThreadStatus(status)
 	thread.CompletedAt = nil // Will be set based on status logic
 
 	return &thread, nil
@@ -864,4 +887,89 @@ func (r *ThreadRepository) Count(ctx context.Context, ownerID string) (int, erro
 // GetThreadRefsRepo returns the thread refs repository
 func (r *ThreadRepository) GetThreadRefsRepo() *ThreadRefsRepository {
 	return r.refsRepo
+}
+
+// GetStepState retrieves a single step state from thread_step_states table
+// Used for hot/cold fallback when step data expires from Valkey
+func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*interfaces.StepStateSnapshot, error) {
+	query := `
+		SELECT id, thread_id, step_name, idempotency_key, status, 
+		       retry_count, first_seen_at, last_updated_at, previous_step
+		FROM thread_step_states
+		WHERE thread_id = $1 AND step_name = $2 AND idempotency_key = $3
+		LIMIT 1
+	`
+
+	var stepState interfaces.StepStateSnapshot
+	var previousStep sql.NullString
+
+	err := r.pool.QueryRow(ctx, query, threadID, stepName, idempotencyKey).Scan(
+		&stepState.ID,
+		&stepState.ThreadID,
+		&stepState.StepName,
+		&stepState.IdempotencyKey,
+		&stepState.Status,
+		&stepState.RetryCount,
+		&stepState.FirstSeenAt,
+		&stepState.LastUpdatedAt,
+		&previousStep,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("step state not found")
+		}
+		return nil, fmt.Errorf("failed to get step state: %w", err)
+	}
+
+	if previousStep.Valid {
+		stepState.PreviousStep = previousStep.String
+	}
+
+	return &stepState, nil
+}
+
+// GetAllStepStates has been removed - use StepStateRepository.GetStepsBatch() instead
+// This was a duplicate function. All step state queries should use GetStepsBatch() from StepStateRepository
+
+// GetCompletedSteps retrieves all completed steps for a thread from thread_step_states table
+// Used for hot/cold fallback when step data expires from Valkey
+func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string) ([]interfaces.StepWithTimestamp, error) {
+	query := `
+		SELECT step_name, last_updated_at
+		FROM thread_step_states
+		WHERE thread_id = $1 AND status = 'completed'
+		ORDER BY last_updated_at ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query completed steps: %w", err)
+	}
+	defer rows.Close()
+
+	var steps []interfaces.StepWithTimestamp
+
+	for rows.Next() {
+		var step interfaces.StepWithTimestamp
+		var lastUpdatedAt string
+
+		err := rows.Scan(&step.StepName, &lastUpdatedAt)
+		if err != nil {
+			continue // Skip invalid entries
+		}
+
+		// Parse timestamp
+		if completedAt, err := time.Parse(time.RFC3339, lastUpdatedAt); err == nil {
+			step.CompletedAt = completedAt
+		}
+
+		steps = append(steps, step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return steps, nil
 }

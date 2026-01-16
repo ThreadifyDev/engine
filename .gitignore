@@ -46,3 +46,4 @@ start
 threadify-go/main
 test-app/node_modules/
 test-app/package-lock.json
+node_modules/

@@ -16,21 +16,21 @@ import (
 // ValidationService handles all validation logic for threads and steps
 type ValidationService struct {
 	valkeyClient interfaces.ValkeyClient
+	threadRepo   interfaces.ThreadRepository
 }
 
 // NewValidationService creates a new validation service
-func NewValidationService(valkeyClient interfaces.ValkeyClient) *ValidationService {
+func NewValidationService(valkeyClient interfaces.ValkeyClient, threadRepo interfaces.ThreadRepository) *ValidationService {
 	return &ValidationService{
 		valkeyClient: valkeyClient,
+		threadRepo:   threadRepo,
 	}
 }
 
 // GetCurrentSteps retrieves current step names from the sorted set
 func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string) []string {
-	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", threadID)
-
-	// Get all members from sorted set (ordered by score/timestamp)
-	steps, err := s.valkeyClient.ZRange(ctx, currentStepsKey, 0, -1)
+	// Use repository method instead of direct Valkey call
+	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID)
 	if err != nil {
 		return []string{}
 	}

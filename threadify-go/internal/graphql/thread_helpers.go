@@ -73,8 +73,25 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 		fmt.Printf("[PERF] batchLoad.refs: SKIPPED (not requested)\n")
 	}
 
-	// Note: Steps are loaded lazily via the Thread.steps field resolver
-	// This provides automatic GraphQL-aware loading
+	// Conditionally batch load steps (only if requested in GraphQL query)
+	if selections.Has("steps") {
+		stepsStart := time.Now()
+		stepsMap, err := r.stepStatePostgres.GetStepsBatch(ctx, threadIDs)
+		fmt.Printf("[PERF] batchLoad.steps: %v (loaded for %d threads)\n", time.Since(stepsStart), len(threadIDs))
+		if err != nil {
+			fmt.Printf("Warning: failed to batch load steps: %v\n", err)
+		} else {
+			// Convert to map[string]interface{} for context caching
+			stepsCache := make(map[string]interface{}, len(stepsMap))
+			for threadID, steps := range stepsMap {
+				stepsCache[threadID] = steps
+			}
+			// Cache steps in context for Steps resolver to use
+			ctx = cacheSteps(ctx, stepsCache)
+		}
+	} else {
+		fmt.Printf("[PERF] batchLoad.steps: SKIPPED (not requested)\n")
+	}
 
 	fmt.Printf("[PERF] batchLoad.total: %v\n", time.Since(batchLoadStart))
 	return nil
@@ -88,20 +105,22 @@ func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*mo
 	}
 
 	accessCheckStart := time.Now()
-	fmt.Printf("[PERF] accessCheck: Starting for %d threads\n", len(threads))
+	fmt.Printf("[PERF] accessCheck: Starting batch check for %d threads\n", len(threads))
 
+	// Batch check access for all threads at once
+	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(threads, ownerID, "read")
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
+	}
+
+	// Filter threads based on access results
 	accessibleThreads := make([]*models.Thread, 0, len(threads))
-	for i, thread := range threads {
-		threadCheckStart := time.Now()
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		fmt.Printf("[PERF] accessCheck[%d]: %v\n", i, time.Since(threadCheckStart))
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
+	for _, thread := range threads {
+		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
+			accessibleThreads = append(accessibleThreads, thread)
+			// Cache the access check result for child resolvers
+			ctx = cacheAccessCheck(ctx, thread.ID, true)
 		}
-
-		accessibleThreads = append(accessibleThreads, thread)
 	}
 
 	fmt.Printf("[PERF] accessCheck.total: %v (checked %d, accessible %d)\n",

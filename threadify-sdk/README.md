@@ -1,18 +1,16 @@
 # @threadify/sdk
 
-**Track every step of your business workflows with complete visibility and reliability.**
-
-Threadify helps you understand what's happening in your distributed systems by tracking every step of your business processes - from order placement to fulfillment, payment processing to delivery. Get real-time visibility, automatic validation, and a complete audit trail without the complexity.
+Threadify gives you infrastructure to observe, validate, and react to distributed workflows—instrument once, then get visibility into what happened and why across your business processes.
 
 ## Why Threadify?
 
-**Stop losing track of what's happening in your workflows.** When an order fails, a payment gets stuck, or a delivery goes missing, you need answers fast. Threadify gives you:
+When an order fails, a payment gets stuck, or a delivery goes missing, you need to know what happened and why. Threadify gives you:
 
-- **Complete Visibility**: See every step of every workflow in real-time
-- **Automatic Validation**: Catch issues before they become problems (timeouts, invalid transitions, missing steps)
-- **Reliable Tracking**: Built-in idempotency means you can retry safely without duplicates
-- **Cross-System Linking**: Connect workflows to your external systems (Stripe, Shopify, etc.) for easy tracing
-- **Audit Trail**: Every step is recorded with full context for compliance and debugging
+- **Observe**: See every step of your distributed workflows in real-time
+- **Validate**: Automatically catch issues like timeouts, invalid transitions, and missing steps
+- **React**: Get notified when workflows violate rules so you can fix problems fast
+- **Trace**: Link workflows to external systems (Stripe, Shopify, etc.) for complete visibility
+- **Audit**: Every step is recorded with full context for compliance and debugging
 
 ## Installation
 
@@ -50,16 +48,16 @@ await thread.step('order_shipped')
 ## Real-World Use Cases
 
 ### E-commerce Order Fulfillment
-Track orders from placement through delivery, catch stuck payments, and monitor shipping delays in real-time.
+**Observe** every step from order placement to delivery. **Validate** that payments complete within timeout limits and shipments follow the correct sequence. **React** when orders get stuck or payments fail, with instant notifications to your team.
 
 ### Payment Processing
-Monitor payment flows across multiple providers, detect failures instantly, and maintain complete audit trails for compliance.
+**Observe** payment flows across multiple providers (Stripe, PayPal, etc.). **Validate** that transactions follow compliance rules and complete within SLA timeframes. **React** to failed payments or suspicious patterns with automated alerts.
 
 ### Multi-Party Workflows
-Coordinate between merchants, logistics providers, and customers with automatic notifications when things go wrong.
+**Observe** coordination between merchants, logistics providers, and customers. **Validate** that each party completes their steps correctly and on time. **React** when handoffs fail or deadlines are missed.
 
 ### System Integration
-Link workflows to external systems like Stripe, Shopify, or your custom APIs for seamless traceability.
+**Observe** workflows that span multiple systems (your app, Stripe, Shopify, shipping APIs). **Validate** that data flows correctly between systems. **React** when integrations break or data gets out of sync.
 
 ---
 
@@ -91,14 +89,13 @@ await thread.step('payment_captured')
 
 ```javascript
 // Connect your workflow to Stripe, Shopify, etc.
-await thread.step('process_payment', {
-  external_refs: {
+await thread.step('process_payment')
+  .addContext({ amount: 299.99, currency: 'USD' })
+  .addRefs({
     stripe_payment_id: 'pi_abc123',
     shopify_order_id: '12345',
     customer_email: 'customer@example.com'
-  }
-})
-  .addContext({ amount: 299.99, currency: 'USD' })
+  })
   .success();
 
 // Now you can trace from Stripe back to your workflow instantly
@@ -333,28 +330,57 @@ await connection.close();
 
 Represents a specific thread execution.
 
-### `thread.step(stepName, serviceName, options)`
+### `thread.step(stepName, serviceName)`
 
 Creates a new step in this thread.
 
 **Parameters:**
 - `stepName` (string, required): Name of the step
 - `serviceName` (string, optional): Service executing the step
-- `options` (object, optional):
-  - `external_refs` (object): Link this thread to external systems (e.g., payment IDs, order IDs, tracking numbers) for easy cross-reference and traceability
 
 **Returns:** `ThreadStep`
 
 **Example:**
 ```javascript
-// Link thread to Stripe payment for easy lookup
-const step = thread.step('validate_payment', 'payment-service', {
-  external_refs: { 
-    stripe_payment_id: 'pi_123',
-    order_id: 'ORD-456'
-  }
-});
+const step = thread.step('validate_payment', 'payment-service');
+
+await step
+  .addContext({ amount: 100.00, currency: 'USD' })
+  .addRefs({ stripe_payment_id: 'pi_123', order_id: 'ORD-456' })
+  .success();
 ```
+
+**Note:** Use `addRefs()` on the step to link external systems, or use `thread.addRefs()` to add references at the thread level.
+
+---
+
+### `thread.linkThread(threadId, relationship)`
+
+Link this thread to another thread to create relationships between workflows (e.g., parent-child, related processes).
+
+**Parameters:**
+- `threadId` (string, required): UUID of the thread to link to
+- `relationship` (string, optional): Type of relationship (default: 'parent'). Examples: 'parent', 'child', 'related', 'continuation'
+
+**Returns:** `Promise<Object>` - Response from server
+
+**Example:**
+```javascript
+// Link a child workflow to its parent
+const parentThread = await connection.start();
+await parentThread.step('order_placed').success();
+
+const childThread = await connection.start();
+await childThread.linkThread(parentThread.getThreadId(), 'parent');
+await childThread.step('payment_processing').success();
+
+// Now you can trace the relationship between these workflows
+```
+
+**Use Cases:**
+- **Parent-Child**: Link sub-workflows to main workflows (e.g., payment processing as child of order fulfillment)
+- **Related**: Connect related workflows (e.g., refund workflow related to original order)
+- **Continuation**: Link workflow that continues from another (e.g., delivery workflow continuing from fulfillment)
 
 ---
 

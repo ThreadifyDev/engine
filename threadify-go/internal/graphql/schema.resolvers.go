@@ -41,6 +41,16 @@ func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.Gra
 	return &businessContextStr, nil
 }
 
+// LastVerifiedAt is the resolver for the lastVerifiedAt field.
+func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error) {
+	panic(fmt.Errorf("not implemented: LastVerifiedAt - lastVerifiedAt"))
+}
+
+// BrokenAt is the resolver for the brokenAt field.
+func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error) {
+	panic(fmt.Errorf("not implemented: BrokenAt - brokenAt"))
+}
+
 // RoleDefaults is the resolver for the roleDefaults field.
 func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
 	if obj.RoleDefaults == nil {
@@ -88,6 +98,9 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		fmt.Printf("[GraphQL DEBUG] Access denied: ownerID %s cannot access thread %s owned by %s\n", ownerID, thread.ID, thread.OwnerID)
 		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 	}
+
+	// Cache the access check result for child resolvers (steps, validationResults, etc.)
+	ctx = cacheAccessCheck(ctx, thread.ID, hasAccess)
 
 	return thread, nil
 }
@@ -362,6 +375,64 @@ func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *models.S
 	return obj.LastUpdatedAt.Format(time.RFC3339), nil
 }
 
+// Verified is the resolver for the verified field.
+func (r *stepStateInfoResolver) Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error) {
+	// Check if verification result is already cached in context
+	type verificationResult struct {
+		verified bool
+		errMsg   string
+	}
+	cacheKey := fmt.Sprintf("step_verification:%s:%s:%s", obj.ThreadID, obj.StepName, obj.IdempotencyKey)
+
+	if cached := ctx.Value(cacheKey); cached != nil {
+		result := cached.(verificationResult)
+		return &result.verified, nil
+	}
+
+	// Compute and cache verification result
+	verified, errMsg, err := r.activityRepo.VerifyStepHash(ctx, obj.ThreadID, obj.StepName, obj.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache result for VerificationError resolver
+	ctx = context.WithValue(ctx, cacheKey, verificationResult{verified: verified, errMsg: errMsg})
+
+	return &verified, nil
+}
+
+// VerificationError is the resolver for the verificationError field.
+func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error) {
+	// Check if verification result is already cached in context
+	type verificationResult struct {
+		verified bool
+		errMsg   string
+	}
+	cacheKey := fmt.Sprintf("step_verification:%s:%s:%s", obj.ThreadID, obj.StepName, obj.IdempotencyKey)
+
+	if cached := ctx.Value(cacheKey); cached != nil {
+		result := cached.(verificationResult)
+		if result.errMsg == "" {
+			return nil, nil
+		}
+		return &result.errMsg, nil
+	}
+
+	// Compute and cache verification result
+	verified, errMsg, err := r.activityRepo.VerifyStepHash(ctx, obj.ThreadID, obj.StepName, obj.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache result for Verified resolver
+	ctx = context.WithValue(ctx, cacheKey, verificationResult{verified: verified, errMsg: errMsg})
+
+	if errMsg == "" {
+		return nil, nil
+	}
+	return &errMsg, nil
+}
+
 // History is the resolver for the history field.
 func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
 	// Set default pagination values
@@ -444,44 +515,50 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Enhanced access control: Check if user has read permission for this thread
-	// This supports both ownership and invitation-based access
-	hasAccess, err := r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	// Check cached access result first (from parent Thread resolver)
+	hasAccess, cached := getCachedAccessCheck(ctx, obj.ID)
+	if !cached {
+		// Fallback: Check access if not cached (shouldn't happen in normal GraphQL flow)
+		var err error
+		hasAccess, err = r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify thread access: %w", err)
+		}
 	}
 	if !hasAccess {
 		return nil, fmt.Errorf("access denied: you don't have permission to view steps for this thread")
 	}
 
-	// Use the step state repository to list all steps for this thread
-	steps, err := r.stepStateRepo.ListSteps(ctx, obj.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
+	// Check if steps were batch-loaded (from Threads query)
+	var steps []*models.StepStateInfo
+	if cachedSteps, found := getCachedSteps(ctx, obj.ID); found {
+		// Use batch-loaded steps and apply in-memory filtering
+		allSteps, _ := cachedSteps.([]*models.StepStateInfo)
+
+		// Apply filters in memory (batch-loaded steps don't have filters applied)
+		steps = make([]*models.StepStateInfo, 0)
+		for _, step := range allSteps {
+			if stepName != nil && step.StepName != *stepName {
+				continue
+			}
+			if idempotencyKey != nil && *idempotencyKey != "" && step.IdempotencyKey != *idempotencyKey {
+				continue
+			}
+			if status != nil && *status != "" && step.Status != *status {
+				continue
+			}
+			steps = append(steps, step)
+		}
+	} else {
+		// Fallback: Load steps individually with filters applied at DB level
+		var err error
+		steps, err = r.stepStateRepo.ListSteps(ctx, obj.ID, stepName, idempotencyKey, status)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
+		}
 	}
 
-	// Apply filtering
-	var filteredSteps []*models.StepStateInfo
-	for _, step := range steps {
-		// Filter by stepName if provided
-		if stepName != nil && step.StepName != *stepName {
-			continue
-		}
-
-		// Filter by idempotencyKey if provided
-		if idempotencyKey != nil && *idempotencyKey != "" && step.IdempotencyKey != *idempotencyKey {
-			continue
-		}
-
-		// Filter by status if provided
-		if status != nil && *status != "" && step.Status != *status {
-			continue
-		}
-
-		filteredSteps = append(filteredSteps, step)
-	}
-
-	return filteredSteps, nil
+	return steps, nil
 }
 
 // ValidationResults is the resolver for the validationResults field.
@@ -492,11 +569,15 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Enhanced access control: Check if user has read permission for this thread
-	// This supports both ownership and invitation-based access
-	hasAccess, err := r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	// Check cached access result first (from parent Thread resolver)
+	hasAccess, cached := getCachedAccessCheck(ctx, obj.ID)
+	if !cached {
+		// Fallback: Check access if not cached (shouldn't happen in normal GraphQL flow)
+		var err error
+		hasAccess, err = r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify thread access: %w", err)
+		}
 	}
 	if !hasAccess {
 		return nil, fmt.Errorf("access denied: you don't have permission to view validation results for this thread")
@@ -567,6 +648,22 @@ func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, ma
 	return threads, nil
 }
 
+// HashChainVerified is the resolver for the hashChainVerified field.
+func (r *threadResolver) HashChainVerified(ctx context.Context, obj *models.Thread) (*bool, error) {
+	// Only compute when explicitly requested in GraphQL query
+	status, err := r.activityRepo.VerifyActivityChain(ctx, obj.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &status.Verified, nil
+}
+
+// HashChainStatus is the resolver for the hashChainStatus field.
+func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error) {
+	// Return detailed verification status
+	return r.activityRepo.VerifyActivityChain(ctx, obj.ID)
+}
+
 // Timestamp is the resolver for the timestamp field.
 func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
 	return obj.Timestamp.Format(time.RFC3339), nil
@@ -577,6 +674,11 @@ func (r *Resolver) Graph() generated.GraphResolver { return &graphResolver{r} }
 
 // GraphNode returns generated.GraphNodeResolver implementation.
 func (r *Resolver) GraphNode() generated.GraphNodeResolver { return &graphNodeResolver{r} }
+
+// HashChainStatus returns generated.HashChainStatusResolver implementation.
+func (r *Resolver) HashChainStatus() generated.HashChainStatusResolver {
+	return &hashChainStatusResolver{r}
+}
 
 // NotificationConfig returns generated.NotificationConfigResolver implementation.
 func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
@@ -599,6 +701,7 @@ func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver
 
 type graphResolver struct{ *Resolver }
 type graphNodeResolver struct{ *Resolver }
+type hashChainStatusResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }

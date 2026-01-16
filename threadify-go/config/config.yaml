@@ -54,6 +54,15 @@ invitations:
 logging:
   level: info
 
+# Security configuration
+security:
+  # Hash chain secrets for HMAC-based activity log integrity verification
+  # Generate with: openssl rand -hex 32
+  # Keep all versions forever to verify old chains after key rotation
+  hash_chain_secrets:
+    v1: "demo-secret-key-replace-in-production-with-64-char-hex-string"
+  hash_chain_current_version: "v1"
+
 # Timeout configuration for context operations
 timeouts:
   default_operation_seconds: 30      # Default timeout for most operations

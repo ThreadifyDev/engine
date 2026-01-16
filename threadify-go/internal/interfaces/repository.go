@@ -52,33 +52,60 @@ type ValkeyPipeline interface {
 	Exec(ctx context.Context) ([]interface{}, error)
 }
 
-// ThreadRepository defines the interface for thread CRUD operations only
+// ThreadRepository defines the interface for thread CRUD operations with hot/cold fallback
 type ThreadRepository interface {
+	// Core CRUD operations
 	Save(ctx context.Context, thread *models.Thread) error
-	Get(ctx context.Context, threadID string) (*models.Thread, error)
 	Delete(ctx context.Context, threadID string) error
 	Exists(ctx context.Context, threadID string) (bool, error)
 	GetByOwner(ctx context.Context, ownerID string) ([]string, error)
 	ExtendTTL(ctx context.Context, threadID string) error
 	AddRefs(ctx context.Context, threadID string, refs map[string]string) error
+
+	// Hot/cold fallback operations (writeBack defaults to false)
+	// Get retrieves thread from Valkey (hot) or PostgreSQL (cold)
+	// writeBack: if true, caches PostgreSQL data back to Valkey
+	Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error)
+
+	// GetStepStatus checks step status in Valkey or PostgreSQL
+	GetStepStatus(ctx context.Context, threadID, stepName, idempotencyKey string, writeBack ...bool) (string, error)
+
+	// GetCompletedStepsCount returns count of completed steps
+	GetCompletedStepsCount(ctx context.Context, threadID string, writeBack ...bool) (int64, error)
+
+	// GetCompletedSteps returns list of completed step names
+	GetCompletedSteps(ctx context.Context, threadID string, writeBack ...bool) ([]string, error)
 }
 
-// AccessRepository defines the interface for role and permission management
+// AccessRepository defines the interface for role and permission management with hot/cold fallback
 type AccessRepository interface {
+	// Write operations
 	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, permissions []string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
-	GetUserAccess(ctx context.Context, threadID, userID string) (*UserAccess, error)
-	GetAllAccess(ctx context.Context, threadID string) (map[string]*UserAccess, error)
 	RevokeAccess(ctx context.Context, threadID, userID string) error
+
+	// Hot/cold fallback read operations (writeBack defaults to false)
+	// GetUserAccess retrieves user access from Valkey or PostgreSQL
+	GetUserAccess(ctx context.Context, threadID, userID string, writeBack ...bool) (*UserAccess, error)
+
+	// GetAllAccess retrieves all user access for a thread
+	GetAllAccess(ctx context.Context, threadID string, writeBack ...bool) (map[string]*UserAccess, error)
 }
 
-// ActivityRepository defines the interface for stream and event operations
+// ActivityRepository defines the interface for stream and event operations with hot/cold fallback
 type ActivityRepository interface {
+	// Write operations (archival)
 	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy, serviceName, scope string) error
 	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error
 	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
 	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
 	ArchiveStepState(ctx context.Context, stepState *StepStateSnapshot) error
+
+	// Read operations
+	// GetActivityLog retrieves activity log from PostgreSQL
+	// Returns activity events as map[string]interface{} (matches NATS/archival format)
+	// Note: Activities are never cached in Valkey, so no write-back is performed
+	GetActivityLog(ctx context.Context, threadID string) ([]map[string]interface{}, error)
 }
 
 // StepStateSnapshot represents a snapshot of step state for archival
@@ -92,6 +119,12 @@ type StepStateSnapshot struct {
 	FirstSeenAt    string `json:"first_seen_at"`
 	LastUpdatedAt  string `json:"last_updated_at"`
 	PreviousStep   string `json:"previous_step,omitempty"`
+}
+
+// StepWithTimestamp represents a completed step with its completion time
+type StepWithTimestamp struct {
+	StepName    string
+	CompletedAt time.Time
 }
 
 // UserAccess represents merged access control structure

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -13,13 +14,31 @@ import (
 
 // AccessRepository handles role and permission management in Valkey
 type AccessRepository struct {
-	valkey interfaces.ValkeyClient
+	valkey       interfaces.ValkeyClient
+	postgresRepo PostgresAccessRepository // For hot/cold fallback
+	ttl          int                      // TTL in seconds for access keys
+}
+
+// PostgresAccessRepository defines the interface for PostgreSQL access operations
+type PostgresAccessRepository interface {
+	GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error)
+	GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error)
 }
 
 // NewAccessRepository creates a new access repository
-func NewAccessRepository(valkey interfaces.ValkeyClient) *AccessRepository {
+func NewAccessRepository(valkey interfaces.ValkeyClient, ttl int) *AccessRepository {
 	return &AccessRepository{
 		valkey: valkey,
+		ttl:    ttl,
+	}
+}
+
+// NewAccessRepositoryWithPostgres creates a new access repository with PostgreSQL fallback
+func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRepo PostgresAccessRepository, ttl int) *AccessRepository {
+	return &AccessRepository{
+		valkey:       valkey,
+		postgresRepo: postgresRepo,
+		ttl:          ttl,
 	}
 }
 
@@ -120,6 +139,7 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		"active",                // ARGV[6]
 		threadJSON,              // ARGV[7] - optional thread data
 		ttl,                     // ARGV[8] - optional thread TTL
+		r.ttl,                   // ARGV[9] - TTL for extending all thread keys
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant/update access: %w", err)
@@ -139,42 +159,110 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	return &access, nil
 }
 
-// GetUserAccess retrieves access for a user in a thread
-func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error) {
-	key := r.getAccessKey(threadID)
-
-	accessJSON, err := r.valkey.HGet(ctx, key, userID)
-	if err != nil {
-		return nil, err
+// GetUserAccess retrieves access for a user in a thread with optional PostgreSQL fallback
+func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, writeBack ...bool) (*interfaces.UserAccess, error) {
+	shouldWriteBack := false
+	if len(writeBack) > 0 {
+		shouldWriteBack = writeBack[0]
 	}
 
-	if accessJSON == "" {
+	key := r.getAccessKey(threadID)
+
+	// Try Valkey first
+	accessJSON, err := r.valkey.HGet(ctx, key, userID)
+	if err == nil && accessJSON != "" {
+		var access interfaces.UserAccess
+		if err := json.Unmarshal([]byte(accessJSON), &access); err == nil {
+			return &access, nil
+		}
+	}
+
+	// Fallback to PostgreSQL
+	if r.postgresRepo == nil {
 		return nil, fmt.Errorf("user does not have access")
 	}
 
-	var access interfaces.UserAccess
-	if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
-		return nil, fmt.Errorf("failed to parse access: %w", err)
-	}
+	log.Printf("⚠️ [COLD] Access for user %s in thread %s not in Valkey, checking PostgreSQL", userID, threadID)
 
-	return &access, nil
-}
-
-// GetAllAccess gets all access grants for a thread
-func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error) {
-	key := r.getAccessKey(threadID)
-	accessMap, err := r.valkey.HGetAll(ctx, key)
+	access, err := r.postgresRepo.GetUserAccess(ctx, threadID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[string]*interfaces.UserAccess)
-	for userID, accessJSON := range accessMap {
-		var access interfaces.UserAccess
-		if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
-			continue // Skip invalid entries
+	log.Printf("✅ [COLD] Access for user %s retrieved from PostgreSQL", userID)
+
+	// Async write-back - don't block the read operation
+	if shouldWriteBack {
+		go func(threadID, userID string, access *interfaces.UserAccess) {
+			writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			log.Printf("🔄 [WRITE-BACK] Async caching access for user %s in thread %s", userID, threadID)
+			if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err != nil {
+				log.Printf("⚠️ Async write-back failed for access: %v", err)
+			} else {
+				log.Printf("✅ [WRITE-BACK] Access for user %s cached successfully", userID)
+			}
+		}(threadID, userID, access)
+	}
+
+	return access, nil
+}
+
+// GetAllAccess gets all access grants for a thread with optional PostgreSQL fallback
+func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, writeBack ...bool) (map[string]*interfaces.UserAccess, error) {
+	shouldWriteBack := false
+	if len(writeBack) > 0 {
+		shouldWriteBack = writeBack[0]
+	}
+
+	key := r.getAccessKey(threadID)
+
+	// Try Valkey first
+	accessMap, err := r.valkey.HGetAll(ctx, key)
+	if err == nil && len(accessMap) > 0 {
+		result := make(map[string]*interfaces.UserAccess)
+		for userID, accessJSON := range accessMap {
+			var access interfaces.UserAccess
+			if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
+				continue // Skip invalid entries
+			}
+			result[userID] = &access
 		}
-		result[userID] = &access
+		return result, nil
+	}
+
+	// Fallback to PostgreSQL
+	if r.postgresRepo == nil {
+		return make(map[string]*interfaces.UserAccess), nil
+	}
+
+	log.Printf("⚠️ [COLD] Access for thread %s not in Valkey, checking PostgreSQL", threadID)
+
+	result, err := r.postgresRepo.GetAllAccess(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("✅ [COLD] Access for thread %s retrieved from PostgreSQL", threadID)
+
+	// Async write-back for all users - don't block the read operation
+	if shouldWriteBack && len(result) > 0 {
+		go func(threadID string, result map[string]*interfaces.UserAccess) {
+			writeBackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			log.Printf("🔄 [WRITE-BACK] Async caching access for %d users in thread %s", len(result), threadID)
+			successCount := 0
+			for userID, access := range result {
+				if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err != nil {
+					log.Printf("⚠️ Async write-back failed for user %s access: %v", userID, err)
+				} else {
+					successCount++
+				}
+			}
+			log.Printf("✅ [WRITE-BACK] Cached %d/%d user access records successfully", successCount, len(result))
+		}(threadID, result)
 	}
 
 	return result, nil
@@ -198,4 +286,28 @@ func (r *AccessRepository) getRoleIndexKey(threadID string) string {
 
 func (r *AccessRepository) getThreadKey(threadID string) string {
 	return fmt.Sprintf("thread:%s", threadID)
+}
+
+// writeAccessToValkey writes access back to Valkey in the same format as GrantOrUpdateAccess
+func (r *AccessRepository) writeAccessToValkey(ctx context.Context, threadID, userID string, access *interfaces.UserAccess) error {
+	key := r.getAccessKey(threadID)
+
+	// Serialize access to JSON (same format as GrantOrUpdateAccess)
+	accessJSON, err := json.Marshal(access)
+	if err != nil {
+		return fmt.Errorf("failed to marshal access: %w", err)
+	}
+
+	// Write to Valkey with TTL extension
+	pipe := r.valkey.Pipeline()
+	pipe.HSet(ctx, key, userID, string(accessJSON))
+	pipe.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
+
+	// Extend TTL on all related thread keys to prevent partial expiration
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s", threadID), time.Duration(r.ttl)*time.Second)
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s:meta", threadID), time.Duration(r.ttl)*time.Second)
+	pipe.Expire(ctx, fmt.Sprintf("thread:%s:role_index", threadID), time.Duration(r.ttl)*time.Second)
+
+	_, err = pipe.Exec(ctx)
+	return err
 }

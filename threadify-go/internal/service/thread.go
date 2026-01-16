@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -42,41 +41,18 @@ type ThreadService struct {
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 }
 
-func NewThreadService(repo interfaces.ThreadRepository, accessRepo interfaces.AccessRepository, activityRepo interfaces.ActivityRepository, graphRepo interfaces.ContractGraphRepository, stepEventService interfaces.StepEventProcessor, cacheManager interfaces.CacheManager, connectionMgr interfaces.ConnectionManager, contractValidator interfaces.ContractValidator, accessService *ThreadAccessService, invitationService *InvitationTokenService, valkeyClient interfaces.ValkeyClient, luaScripts *valkey.LuaScriptManager, stepStateRepo interfaces.StepStateRepository, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
-	// Create validation and notification services
-	validationService := NewValidationService(valkeyClient)
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheManager, natsPublisher)
-
-	return &ThreadService{
-		repo:                  repo,
-		accessRepo:            accessRepo,
-		activityRepo:          activityRepo,
-		graphRepo:             graphRepo,
-		stepEventService:      stepEventService,
-		cacheManager:          cacheManager,
-		connectionMgr:         connectionMgr,
-		contractValidator:     contractValidator,
-		authService:           NewAuthService("demo-secret", "threadify", "threadify-api", 24),
-		accessService:         accessService,
-		validationService:     validationService,
-		notificationService:   notificationService,
-		invitationService:     invitationService,
-		valkeyClient:          valkeyClient,
-		luaScripts:            luaScripts,
-		natsArchivalPublisher: natsArchivalPublisher,
-	}
-}
-
-// NewThreadServiceWithDefaults creates ThreadService with concrete implementations (for production)
-func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, contractTTLSeconds, threadTTLSeconds int) *ThreadService {
+// NewThreadService creates ThreadService with all dependencies
+// This is the main constructor used in production
+func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int) *ThreadService {
 	// Create cache service first
 	cacheService := NewCacheService()
 
 	// Create repositories
 	contractRepo := postgres.NewContractRepository(db.Pool)
 	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
-	threadRepo := valkey.NewThreadRepository(valkeyService, threadTTLSeconds)
-	accessRepo := valkey.NewAccessRepository(valkeyService)
+	// threadRepo is now passed as parameter (with PostgreSQL fallback already configured)
+	// Use 72 hours (259200 seconds) for access TTL to match thread metadata TTL
+	accessRepo := valkey.NewAccessRepository(valkeyService, 259200)
 
 	// Create and load Lua scripts
 	luaScripts := valkey.NewLuaScriptManager(valkeyService)
@@ -85,7 +61,8 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 	}
 
 	// Create step state repository and load its scripts
-	stepStateRepo := valkey.NewStepStateRepository(valkeyService)
+	// Use 7 days (604800 seconds) as default TTL for step events
+	stepStateRepo := valkey.NewStepStateRepository(valkeyService, 604800)
 	if err := stepStateRepo.LoadScripts(context.Background()); err != nil {
 		fmt.Printf("Warning: Failed to load step state repository scripts: %v\n", err)
 	}
@@ -119,29 +96,31 @@ func NewThreadServiceWithDefaults(cfg *config.Config, db *database.PostgresDB, v
 	// Create activity repository with NATS publisher
 	activityRepo := valkey.NewActivityRepository(valkeyService, natsArchivalPublisher)
 
-	service := NewThreadService(
-		threadRepo,      // Valkey thread repository
-		accessRepo,      // Valkey access repository
-		activityRepo,    // Valkey activity repository
-		valkeyGraphRepo, // Valkey contract graph repository
-		stepEventService,
-		cacheService,           // In-memory cache service
-		NewConnectionService(), // In-memory connection service
-		NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService), // Contract validation service with three-tier caching
-		accessService,         // Thread access service for permissions/roles
-		invitationService,     // Invitation token service
-		valkeyService,         // Valkey client for orchestration
-		luaScripts,            // Lua script manager for orchestration
-		stepStateRepo,         // Step state repository for atomic validations
-		natsPublisher,         // NATS publisher for notifications (can be nil)
-		natsArchivalPublisher, // NATS archival publisher (can be nil)
-	)
-	service.valkeyClient = valkeyService
-	service.luaScripts = luaScripts
-	service.scopeResolver = scopeResolver
-	service.notificationConsumer = natsConsumer
+	// Create validation and notification services
+	validationService := NewValidationService(valkeyService, threadRepo)
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, natsPublisher)
 
-	return service
+	// Construct and return the service
+	return &ThreadService{
+		repo:                  threadRepo,
+		accessRepo:            accessRepo,
+		activityRepo:          activityRepo,
+		graphRepo:             valkeyGraphRepo,
+		stepEventService:      stepEventService,
+		cacheManager:          cacheService,
+		connectionMgr:         NewConnectionService(),
+		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService),
+		authService:           NewAuthService("demo-secret", "threadify", "threadify-api", 24),
+		accessService:         accessService,
+		validationService:     validationService,
+		notificationService:   notificationService,
+		invitationService:     invitationService,
+		scopeResolver:         scopeResolver,
+		notificationConsumer:  natsConsumer,
+		valkeyClient:          valkeyService,
+		luaScripts:            luaScripts,
+		natsArchivalPublisher: natsArchivalPublisher,
+	}
 }
 
 // GetNotificationConsumer returns the notification consumer (can be nil)
@@ -302,8 +281,6 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}()
 
 		fmt.Printf("🔄 DEBUG: Starting thread metadata goroutine for thread %s\n", threadID)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 
 		// Convert contract version to string (handle nil pointer)
 		contractVersion := "0"
@@ -388,10 +365,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}
 
 		// 1. Write to per-thread LIST for fast queries
-		activityList := fmt.Sprintf("thread:%s:activity", threadID)
-		eventJSON, _ := json.Marshal(activityValues)
-		s.valkeyClient.LPush(ctx, activityList, string(eventJSON))
-		s.valkeyClient.Expire(ctx, activityList, 7*24*time.Hour)
+		// Note: This is handled by ActivityRepository, not needed here
+		// Activity logging is done via activityRepo.RecordAccessGranted
 
 		// 2. Publish to NATS for archival (async)
 		if s.natsArchivalPublisher != nil {
@@ -415,11 +390,10 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 // hasSuccessfulSteps checks if thread has any completed steps
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
-	// Check if current_steps sorted set has any members
-	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", thread.ID)
+	// Use repository method instead of direct Valkey call
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	count, err := s.valkeyClient.ZCard(ctx, currentStepsKey)
+	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID)
 	if err != nil {
 		return false
 	}
@@ -518,13 +492,10 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 	// Check for duplicate step using idempotency key
 	if idempotencyKey != "" {
-		stepKey := req.StepName + ":" + idempotencyKey
-		stepHashKey := fmt.Sprintf("thread:%s:steps:%s", req.ThreadID, stepKey)
-
-		// Check if step state hash exists
+		// Use repository method instead of direct Valkey call
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		existingStatus, err := s.valkeyClient.HGet(ctx, stepHashKey, "status")
+		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, idempotencyKey)
 		if err == nil && existingStatus != "" {
 			// Step exists - check if it's already completed
 			if existingStatus == "completed" {
@@ -912,22 +883,22 @@ func convertStringMapToInterfaceMap(stringMap map[string]string) map[string]inte
 	return interfaceMap
 }
 
-// GetThread retrieves thread from cache first, then Valkey as fallback
+// GetThread retrieves thread from cache first, then Valkey with PostgreSQL fallback
 func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
-	// Check cache first
+	// Check in-memory cache first (fastest)
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
 		return thread, nil
 	}
 
-	// Load from Valkey if not in cache
+	// Load from Valkey (hot) or PostgreSQL (cold) with write-back enabled
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	thread, err := s.repo.Get(ctx, threadID)
+	thread, err := s.repo.Get(ctx, threadID, true) // writeBack=true to cache PostgreSQL data in Valkey
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
 
-	// Cache the thread for future use
+	// Cache the thread in memory for future use
 	s.cacheManager.SetThread(threadID, thread)
 	return thread, nil
 }

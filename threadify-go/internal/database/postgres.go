@@ -197,6 +197,17 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_service_thread 
 		ON thread_activities(actor_service, thread_id, recorded_at DESC);
+	
+	-- JSONB indexes for hash verification queries (step-level verification)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_step_name 
+		ON thread_activities ((payload->>'step_name'));
+	
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_idempotency_key 
+		ON thread_activities ((payload->>'idempotency_key'));
+	
+	-- Composite index for step verification (thread_id + step_name + idempotency_key)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_step_verification 
+		ON thread_activities (thread_id, (payload->>'step_name'), (payload->>'idempotency_key'));
 
 	CREATE TABLE IF NOT EXISTS thread_access (
 		id SERIAL PRIMARY KEY,

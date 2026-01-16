@@ -302,7 +302,7 @@ Call ContractValidator.LoadContractGraphIntoCache(name, version, companyID):
 
 ### **Step 4: Thread Object Creation**
 
-**Location**: `/internal/service/thread.go:272-290`
+**Location**: `/internal/service/thread.go:239-262`
 
 ```
 ├─ Store actualVersion from contract validation
@@ -312,12 +312,18 @@ Call ContractValidator.LoadContractGraphIntoCache(name, version, companyID):
 │  threadID = uuid.New().String()
 │  └─> Example: "550e8400-e29b-41d4-a716-446655440000"
 │
-└─ Create Thread object:
+├─ Create contract version pointer (lines 247-251):
+│  var contractVersionPtr *int
+│  if parsedContractName != "" && contractVersion > 0 {
+│    contractVersionPtr = &contractVersion  // Store actual loaded version
+│  }
+│
+└─ Create Thread object (lines 253-262):
    thread = &models.Thread{
      ID: "550e8400-e29b-41d4-a716-446655440000",
-     ContractID: &parsedContractName,     // Pointer to "order_flow"
-     ContractName: "order_flow",
-     ContractVersion: &actualVersion,     // Pointer to 2
+     ContractID: &contractUUID,           // Pointer to contract UUID (for referential integrity)
+     ContractName: "order_flow",          // Contract name for display/filtering
+     ContractVersion: &actualVersion,     // Pointer to 2 (actual loaded version)
      OwnerID: "user-123",
      CompanyID: "company-456",
      Status: "active",
@@ -329,6 +335,10 @@ Call ContractValidator.LoadContractGraphIntoCache(name, version, companyID):
        "customerId": "cust-789"
      }
    }
+
+   ⚠️ IMPORTANT: ContractVersion must be set to the actualVersion returned from
+      LoadContractGraphIntoCache() to ensure threads lock to the correct version.
+      If version=0 was requested, actualVersion will be the latest version number.
 ```
 
 ---

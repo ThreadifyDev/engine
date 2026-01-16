@@ -3,6 +3,44 @@
  * Provides read-only access to historical thread data
  */
 
+// GraphQL Fragments for reusability
+const THREAD_FIELDS = `
+  id
+  contractId
+  contractName
+  contractVersion
+  ownerId
+  companyId
+  status
+  startedAt
+  completedAt
+  error
+  refs
+`;
+
+const STEP_FIELDS = `
+  threadId
+  stepName
+  idempotencyKey
+  status
+  retryCount
+  firstSeenAt
+  lastUpdatedAt
+  latestStepID
+  previousStep
+  verified
+  verificationError
+`;
+
+const STEP_HISTORY_FIELDS = `
+  attempt
+  timestamp
+  status
+  context
+  duration
+  error
+`;
+
 /**
  * ArchivedThread - Represents a historical thread with read-only access
  */
@@ -23,26 +61,36 @@ export class ArchivedThread {
   }
 
   /**
+   * Get thread ID (alias for id property for API consistency)
+   */
+  get threadId() {
+    return this.id;
+  }
+
+  /**
+   * Get creation timestamp (alias for startedAt)
+   */
+  get createdAt() {
+    return this.startedAt;
+  }
+
+  /**
    * Get all steps for this thread
    * @param {Object} filters - Optional filters
    * @param {string} filters.stepName - Filter by step name
    * @param {string} filters.idempotencyKey - Filter by idempotency key
+   * @param {string} filters.status - Filter by status (success, failed, error)
    * @returns {Promise<Array<ArchivedStep>>}
    */
   async steps(filters = {}) {
     const query = `
-      query GetThreadSteps($threadId: ID!, $stepName: String, $idempotencyKey: String) {
+      query GetThreadSteps($threadId: ID!, $stepName: String, $idempotencyKey: String, $status: String) {
         thread(id: $threadId) {
-          steps(stepName: $stepName, idempotencyKey: $idempotencyKey) {
-            threadId
-            stepName
-            idempotencyKey
-            status
-            retryCount
-            firstSeenAt
-            lastUpdatedAt
-            latestStepID
-            previousStep
+          steps(stepName: $stepName, idempotencyKey: $idempotencyKey, status: $status) {
+            ${STEP_FIELDS}
+            history(limit: 1) {
+              ${STEP_HISTORY_FIELDS}
+            }
           }
         }
       }
@@ -51,7 +99,8 @@ export class ArchivedThread {
     const variables = {
       threadId: this.id,
       stepName: filters.stepName || null,
-      idempotencyKey: filters.idempotencyKey || null
+      idempotencyKey: filters.idempotencyKey || null,
+      status: filters.status || null
     };
 
     const data = await this.graphqlClient.query(query, variables);
@@ -161,35 +210,12 @@ export class ArchivedThread {
         $validationLimit: Int
       ) {
         thread(id: $id) {
-          id
-          contractId
-          contractVersion
-          contractName
-          ownerId
-          companyId
-          status
+          ${THREAD_FIELDS}
           lastHash
-          refs
-          startedAt
-          completedAt
-          error
           steps(stepName: $stepName, idempotencyKey: $idempotencyKey) {
-            threadId
-            stepName
-            idempotencyKey
-            status
-            retryCount
-            firstSeenAt
-            lastUpdatedAt
-            latestStepID
-            previousStep
+            ${STEP_FIELDS}
             history(limit: $stepHistoryLimit) {
-              attempt
-              timestamp
-              status
-              context
-              duration
-              error
+              ${STEP_HISTORY_FIELDS}
             }
           }
           validationResults(options: {limit: $validationLimit}) {
@@ -251,6 +277,9 @@ export class ArchivedStep {
     this.lastUpdatedAt = stepData.lastUpdatedAt;
     this.latestStepID = stepData.latestStepID;
     this.previousStep = stepData.previousStep;
+    this.verified = stepData.verified;
+    this.verificationError = stepData.verificationError;
+    this.lastExecution = stepData.history && stepData.history.length > 0 ? stepData.history[0] : null;
     this.graphqlClient = graphqlClient;
   }
 
@@ -289,12 +318,7 @@ export class ArchivedStep {
           activityType: $activityType
           actor: $actor
         ) {
-          attempt
-          timestamp
-          status
-          context
-          duration
-          error
+          ${STEP_HISTORY_FIELDS}
         }
       }
     `;
@@ -385,17 +409,7 @@ export class DataRetriever {
     const query = `
       query GetThread($id: ID!) {
         thread(id: $id) {
-          id
-          contractId
-          contractName
-          contractVersion
-          ownerId
-          companyId
-          status
-          startedAt
-          completedAt
-          error
-          refs
+          ${THREAD_FIELDS}
         }
       }
     `;
@@ -420,17 +434,7 @@ export class DataRetriever {
     const query = `
       query GetThreadByRef($refKey: String!, $refValue: String!) {
         threadsByRef(refKey: $refKey, refValue: $refValue) {
-          id
-          contractId
-          contractName
-          contractVersion
-          ownerId
-          companyId
-          status
-          startedAt
-          completedAt
-          error
-          refs
+          ${THREAD_FIELDS}
         }
       }
     `;
@@ -456,17 +460,7 @@ export class DataRetriever {
     const query = `
       query GetThreadsByRef($refKey: String!, $refValue: String!) {
         threadsByRef(refKey: $refKey, refValue: $refValue) {
-          id
-          contractId
-          contractName
-          contractVersion
-          ownerId
-          companyId
-          status
-          startedAt
-          completedAt
-          error
-          refs
+          ${THREAD_FIELDS}
         }
       }
     `;
@@ -492,17 +486,7 @@ export class DataRetriever {
     const query = `
       query GetThreadChain($rootId: ID!, $maxDepth: Int) {
         threadChain(rootId: $rootId, maxDepth: $maxDepth) {
-          id
-          contractId
-          contractName
-          contractVersion
-          ownerId
-          companyId
-          status
-          startedAt
-          completedAt
-          error
-          refs
+          ${THREAD_FIELDS}
         }
       }
     `;

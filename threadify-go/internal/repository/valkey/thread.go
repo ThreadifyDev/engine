@@ -15,26 +15,24 @@ import (
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey       interfaces.ValkeyClient
-	ttl          int // TTL in seconds
-	postgresRepo *postgres.ThreadRepository
+	valkey            interfaces.ValkeyClient
+	ttl               int // TTL in seconds
+	postgresRepo      *postgres.ThreadRepository
+	stepStatePostgres *postgres.StepStateRepository // For step state queries
 }
 
-// NewThreadRepository creates a new thread repository
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int) *ThreadRepository {
-	return &ThreadRepository{
-		valkey: valkey,
-		ttl:    ttl,
+// NewThreadRepository creates a new thread repository with PostgreSQL fallback
+// PostgreSQL fallback is always required for production hot/cold architecture
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository) *ThreadRepository {
+	log.Printf("🏗️ [CONSTRUCTOR] Creating ThreadRepository with postgresRepo: %v, stepStatePostgres: %v", postgresRepo != nil, stepStatePostgres != nil)
+	repo := &ThreadRepository{
+		valkey:            valkey,
+		ttl:               ttl,
+		postgresRepo:      postgresRepo,
+		stepStatePostgres: stepStatePostgres,
 	}
-}
-
-// NewThreadRepositoryWithPostgres creates a new thread repository with PostgreSQL fallback
-func NewThreadRepositoryWithPostgres(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository) *ThreadRepository {
-	return &ThreadRepository{
-		valkey:       valkey,
-		ttl:          ttl,
-		postgresRepo: postgresRepo,
-	}
+	log.Printf("🏗️ [CONSTRUCTOR] Created ThreadRepository, postgresRepo field: %v, stepStatePostgres: %v", repo.postgresRepo != nil, repo.stepStatePostgres != nil)
+	return repo
 }
 
 // GetPostgresRepo returns the underlying postgres repository for direct queries
@@ -77,8 +75,70 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 	return nil
 }
 
-// Get retrieves a thread from Valkey
-func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
+// Get retrieves a thread from Valkey (hot) or PostgreSQL (cold) with optional write-back
+// writeBack: if true, caches PostgreSQL data back to Valkey (defaults to false)
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+	log.Printf("🔍 [REPO-DEBUG] Get called for thread: %s", threadID)
+
+	// Default writeBack to false
+	shouldWriteBack := false
+	if len(writeBack) > 0 {
+		shouldWriteBack = writeBack[0]
+	}
+
+	// Try Valkey first (hot data)
+	log.Printf("🔄 [REPO-DEBUG] Trying Valkey first...")
+	thread, err := r.getFromValkey(ctx, threadID)
+	log.Printf("📊 [REPO-DEBUG] getFromValkey result: thread=%v, err=%v", thread != nil, err)
+
+	if err == nil && thread != nil {
+		log.Printf("✅ [HOT] Thread %s from Valkey", threadID)
+		return thread, nil
+	}
+
+	// Fallback to PostgreSQL (cold data)
+	log.Printf("🔄 [REPO-DEBUG] Checking if postgresRepo is nil: %v", r.postgresRepo == nil)
+	if r.postgresRepo == nil {
+		log.Printf("❌ [REPO-DEBUG] postgresRepo is nil, cannot fallback!")
+		return nil, fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	log.Printf("⚠️ [COLD] Thread %s not in Valkey, checking PostgreSQL", threadID)
+
+	// REUSE: GetWithRefs already exists from GraphQL implementation
+	thread, err = r.postgresRepo.GetWithRefs(ctx, threadID)
+	if err != nil {
+		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
+	}
+
+	log.Printf("✅ [COLD] Thread %s from PostgreSQL", threadID)
+
+	// Async write-back using Save() for format consistency
+	// Don't block the read operation - write-back happens in background
+	if shouldWriteBack {
+		go func(threadID string, thread *models.Thread) {
+			// Create new context with timeout for write-back operation
+			writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+
+			log.Printf("🔄 [WRITE-BACK] Async caching thread %s to Valkey", threadID)
+			if err := r.Save(writeBackCtx, thread); err != nil {
+				log.Printf("⚠️ Async write-back failed for thread %s: %v", threadID, err)
+			} else {
+				log.Printf("✅ [WRITE-BACK] Thread %s cached successfully", threadID)
+				// Extend TTL on all related keys
+				if err := r.extendAllThreadTTLs(writeBackCtx, threadID); err != nil {
+					log.Printf("⚠️ TTL extension failed for thread %s: %v", threadID, err)
+				}
+			}
+		}(threadID, thread)
+	}
+
+	return thread, nil
+}
+
+// getFromValkey retrieves thread from Valkey only (internal helper)
+func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (*models.Thread, error) {
 	key := r.getThreadKey(threadID)
 	metaKey := r.getThreadMetaKey(threadID)
 
@@ -130,38 +190,10 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 	return thread, nil
 }
 
-// GetThreadWithCache retrieves a thread using read-only cache pattern:
-// 1. Try Redis first (async validator's live data)
-// 2. Fallback to PostgreSQL if cache miss (inactive/archived threads)
-// 3. NO write-back to prevent data conflicts with async validator
+// GetThreadWithCache is deprecated - use Get(ctx, threadID, false) instead
+// Kept for backward compatibility with GraphQL resolvers
 func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID string) (*models.Thread, error) {
-	// Add timeout context for production robustness
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	// Try Redis first (active thread data from async validator)
-	if cached, err := r.Get(ctx, threadID); err == nil && cached != nil {
-		log.Printf(" Cache HIT for thread %s from Redis (active thread)", threadID)
-		return cached, nil
-	}
-
-	log.Printf(" Cache MISS for thread %s - falling back to PostgreSQL (inactive thread)", threadID)
-
-	// Fallback to PostgreSQL if available (inactive/archived threads)
-	if r.postgresRepo == nil {
-		return nil, fmt.Errorf("thread not found in Redis and no PostgreSQL repository configured")
-	}
-
-	thread, err := r.postgresRepo.GetWithRefs(ctx, threadID)
-	if err != nil {
-		// Return user-friendly error without exposing database details
-		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
-	}
-
-	log.Printf(" Retrieved thread %s from PostgreSQL (inactive thread)", threadID)
-
-	// NO write-back - let async validator own Redis writes to prevent data conflicts
-	return thread, nil
+	return r.Get(ctx, threadID, false)
 }
 
 // Delete removes a thread from Valkey

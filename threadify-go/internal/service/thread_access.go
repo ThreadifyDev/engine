@@ -173,6 +173,54 @@ func (s *ThreadAccessService) CheckThreadAccess(threadID, userID, requiredPermis
 	return false, nil
 }
 
+// BatchCheckThreadAccess checks access for multiple threads at once
+// Returns a map of threadID -> hasAccess
+// This is more efficient than calling CheckThreadAccess in a loop
+func (s *ThreadAccessService) BatchCheckThreadAccess(threads []*models.Thread, userID, requiredPermission string) (map[string]bool, error) {
+	if len(threads) == 0 {
+		return make(map[string]bool), nil
+	}
+
+	result := make(map[string]bool, len(threads))
+
+	// First pass: Check ownership (no DB query needed)
+	threadsNeedingPermCheck := make([]*models.Thread, 0)
+	for _, thread := range threads {
+		if thread.OwnerID == userID {
+			result[thread.ID] = true // Owner has implicit full access
+		} else {
+			threadsNeedingPermCheck = append(threadsNeedingPermCheck, thread)
+		}
+	}
+
+	// If all threads are owned by user, we're done
+	if len(threadsNeedingPermCheck) == 0 {
+		return result, nil
+	}
+
+	// Second pass: Batch check permissions for non-owned threads
+	// For now, check individually (can be optimized with batch DB query later)
+	for _, thread := range threadsNeedingPermCheck {
+		permissions, err := s.GetUserPermissions(thread.ID, userID)
+		if err != nil {
+			result[thread.ID] = false
+			continue
+		}
+
+		// Check if required permission exists
+		hasPermission := false
+		for _, perm := range permissions {
+			if perm == requiredPermission {
+				hasPermission = true
+				break
+			}
+		}
+		result[thread.ID] = hasPermission
+	}
+
+	return result, nil
+}
+
 // ValidateUserRoleForStep validates if user has required role for a contract step
 // This is used for contract-based workflows where steps require specific roles
 // (e.g., "buyer" can execute "create_order", "seller" can execute "confirm_shipment")

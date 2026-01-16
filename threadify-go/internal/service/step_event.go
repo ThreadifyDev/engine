@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -19,14 +21,16 @@ type StepEventService struct {
 	valkeyRepo    interfaces.ValkeyClient
 	threadRepo    *valkey.ThreadRepository
 	natsPublisher *natsrepo.ArchivalPublisher
+	config        *config.Config
 }
 
 // NewStepEventService creates a new step event service
-func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, natsPublisher *natsrepo.ArchivalPublisher, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
+func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, natsPublisher *natsrepo.ArchivalPublisher, cfg *config.Config, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
 	return &StepEventService{
 		valkeyRepo:    valkeyRepo,
 		threadRepo:    threadRepo,
 		natsPublisher: natsPublisher,
+		config:        cfg,
 	}
 }
 
@@ -113,11 +117,28 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 	oldHash, _ := resultSlice[0].(string)
 
-	// Step 2: Calculate new hash in Go (includes oldHash for chain integrity)
+	// Step 2: Calculate new hash using HMAC-SHA256 with secret key
+	// Format: hmac-sha256-{version}:{hash}
+	version := ses.config.Security.HashChainCurrentVersion
+	if version == "" {
+		logInternalError("executeAtomicHashScript", fmt.Errorf("hash_chain_current_version not configured"))
+		return nil, fmt.Errorf("failed to process step event")
+	}
+
+	secret := ses.config.Security.HashChainSecrets[version]
+	if secret == "" {
+		logInternalError("executeAtomicHashScript", fmt.Errorf("hash secret version %s not configured", version))
+		return nil, fmt.Errorf("failed to process step event")
+	}
+
+	h := hmac.New(sha256.New, []byte(secret))
 	hashData := fmt.Sprintf("%s:%s:%s:%s:%s", oldHash, event.ThreadID, event.StepID, event.IdempotencyKey, event.Timestamp.Format(time.RFC3339))
-	newHash := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(hashData)))
+	h.Write([]byte(hashData))
+	newHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
 	// Step 3: Update thread metadata atomically with new hash
+	// Note: Thread TTL is managed by validate_and_update_step_state.lua
+	// which extends TTL on all thread keys to prevent partial expiration
 	updateScript := `
 		-- Update thread metadata with new hash
 		local threadKey = KEYS[1]
@@ -131,7 +152,7 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 		local threadObj = cjson.decode(threadData)
 		threadObj.lastHash = ARGV[1]
 		local updatedThread = cjson.encode(threadObj)
-		redis.call('SET', threadKey, updatedThread, 'EX', 86400)
+		redis.call('SET', threadKey, updatedThread, 'KEEPTTL')
 		
 		return {ARGV[1]}
 	`
