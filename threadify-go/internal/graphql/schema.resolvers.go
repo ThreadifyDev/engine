@@ -43,12 +43,19 @@ func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.Gra
 
 // LastVerifiedAt is the resolver for the lastVerifiedAt field.
 func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error) {
-	panic(fmt.Errorf("not implemented: LastVerifiedAt - lastVerifiedAt"))
+	// Return current timestamp as verification happens on-demand
+	return time.Now().UTC().Format(time.RFC3339), nil
 }
 
 // BrokenAt is the resolver for the brokenAt field.
 func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error) {
-	panic(fmt.Errorf("not implemented: BrokenAt - brokenAt"))
+	// Return nil if verification passed, otherwise return error timestamp
+	if obj.Verified {
+		return nil, nil
+	}
+	// If verification failed, return current timestamp
+	brokenAt := time.Now().UTC().Format(time.RFC3339)
+	return &brokenAt, nil
 }
 
 // RoleDefaults is the resolver for the roleDefaults field.
@@ -72,12 +79,9 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	fmt.Printf("[GraphQL DEBUG] Querying thread %s with ownerID %s\n", id, ownerID)
-
 	// Use the cached repository for thread retrieval
 	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
 	if err != nil {
-		fmt.Printf("[GraphQL DEBUG] Thread %s not found in cache: %v\n", id, err)
 		// Return user-friendly error without exposing internal details
 		if apperrors.IsNotFound(err) {
 			return nil, err // Already wrapped with user-friendly message
@@ -86,8 +90,6 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, apperrors.NewInternalError(apperrors.MsgInternalError, err)
 	}
 
-	fmt.Printf("[GraphQL DEBUG] Found thread %s with ownerID %s\n", thread.ID, thread.OwnerID)
-
 	// Enhanced access control: Check if user has read permission for this thread
 	// This supports both ownership and invitation-based access
 	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
@@ -95,7 +97,6 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("failed to verify thread access: %w", err)
 	}
 	if !hasAccess {
-		fmt.Printf("[GraphQL DEBUG] Access denied: ownerID %s cannot access thread %s owned by %s\n", ownerID, thread.ID, thread.OwnerID)
 		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 	}
 

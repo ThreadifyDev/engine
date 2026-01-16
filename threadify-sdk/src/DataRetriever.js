@@ -12,6 +12,7 @@ const THREAD_FIELDS = `
   ownerId
   companyId
   status
+  lastHash
   startedAt
   completedAt
   error
@@ -39,6 +40,30 @@ const STEP_HISTORY_FIELDS = `
   context
   duration
   error
+`;
+
+const VALIDATION_RESULT_FIELDS = `
+  validationId
+  threadId
+  stepId
+  stepName
+  idempotencyKey
+  timestamp
+  validations {
+    type
+    message
+    field
+    expected
+    actual
+    rule
+  }
+  overallStatus
+  hasCriticalViolation
+  criticalCount
+  warningCount
+  minorCount
+  infoCount
+  totalValidations
 `;
 
 /**
@@ -150,27 +175,7 @@ export class ArchivedThread {
       query GetThreadValidations($threadId: ID!, $options: ValidationQueryOptions) {
         thread(id: $threadId) {
           validationResults(options: $options) {
-            validationId
-            threadId
-            stepId
-            stepName
-            idempotencyKey
-            timestamp
-            validations {
-              type
-              message
-              field
-              expected
-              actual
-              rule
-            }
-            overallStatus
-            hasCriticalViolation
-            criticalCount
-            warningCount
-            minorCount
-            infoCount
-            totalValidations
+            ${VALIDATION_RESULT_FIELDS}
           }
         }
       }
@@ -198,6 +203,7 @@ export class ArchivedThread {
    * @param {number} options.validationLimit - Limit for validation results (default: 10)
    * @param {string} options.stepName - Filter steps by name (optional)
    * @param {string} options.idempotencyKey - Filter steps by idempotency key (optional)
+   * @param {string} options.status - Filter steps by status (optional)
    * @returns {Promise<Object>} Complete thread data with steps, history, and validations
    */
   async getCompleteData(options = {}) {
@@ -206,40 +212,20 @@ export class ArchivedThread {
         $id: ID!
         $stepName: String
         $idempotencyKey: String
+        $status: String
         $stepHistoryLimit: Int
         $validationLimit: Int
       ) {
         thread(id: $id) {
           ${THREAD_FIELDS}
-          lastHash
-          steps(stepName: $stepName, idempotencyKey: $idempotencyKey) {
+          steps(stepName: $stepName, idempotencyKey: $idempotencyKey, status: $status) {
             ${STEP_FIELDS}
             history(limit: $stepHistoryLimit) {
               ${STEP_HISTORY_FIELDS}
             }
           }
           validationResults(options: {limit: $validationLimit}) {
-            validationId
-            threadId
-            stepId
-            stepName
-            idempotencyKey
-            timestamp
-            validations {
-              type
-              message
-              field
-              expected
-              actual
-              rule
-            }
-            overallStatus
-            hasCriticalViolation
-            criticalCount
-            warningCount
-            minorCount
-            infoCount
-            totalValidations
+            ${VALIDATION_RESULT_FIELDS}
           }
         }
       }
@@ -249,6 +235,7 @@ export class ArchivedThread {
       id: this.id,
       stepName: options.stepName || null,
       idempotencyKey: options.idempotencyKey || null,
+      status: options.status || null,
       stepHistoryLimit: options.stepHistoryLimit || 50,
       validationLimit: options.validationLimit || 10
     };

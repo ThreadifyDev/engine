@@ -34,6 +34,7 @@ type Thread {
   ownerId: String!
   companyId: String!
   status: String!
+  # HMAC hash of the last activity event in the thread's hash chain (for cryptographic integrity verification)
   lastHash: String
   refs: JSON
   startedAt: String
