@@ -9,6 +9,7 @@ import { DataRetriever } from './DataRetriever.js';
  * @property {string} [wsUrl] - WebSocket URL (alias for url)
  * @property {string} [graphqlUrl] - GraphQL URL (default: derived from wsUrl)
  * @property {boolean} [debug=false] - Enable debug logging
+ * @property {number} [maxInFlight=10] - Maximum number of unACKed notifications (1-100)
  */
 
 /**
@@ -49,8 +50,14 @@ export class Threadify {
       url,
       wsUrl = url || 'wss://eng.threadify.dev/threads',
       graphqlUrl,
-      debug = false
+      debug = false,
+      maxInFlight = 10
     } = options;
+
+    // Validate maxInFlight
+    if (maxInFlight < 1 || maxInFlight > 100) {
+      throw new Error('maxInFlight must be between 1 and 100');
+    }
 
     // Derive GraphQL URL from WebSocket URL if not provided
     const derivedGraphqlUrl = graphqlUrl || wsUrl
@@ -60,18 +67,19 @@ export class Threadify {
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
-      // Initialize Connection with GraphQL URL and debug flag
-      const connection = new Connection(ws, apiKey, serviceName, derivedGraphqlUrl, debug);
+      // Initialize Connection with GraphQL URL, debug flag, and maxInFlight
+      const connection = new Connection(ws, apiKey, serviceName, derivedGraphqlUrl, debug, maxInFlight);
 
       ws.on('open', () => {
-        // Send connect message
+        // Send connect message with maxInFlight
         const connectMessage = {
           action: 'connect',
           apiKey,
-          serviceName
+          serviceName,
+          maxInFlight
         };
 
-        connection._debugLog('WebSocket opened, sending connect message');
+        connection._debugLog('WebSocket opened, sending connect message with maxInFlight:', maxInFlight);
         ws.send(JSON.stringify(connectMessage));
       });
 

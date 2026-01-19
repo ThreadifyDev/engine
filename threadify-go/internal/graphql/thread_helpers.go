@@ -21,9 +21,12 @@ func NormalizePagination(opts *ThreadQueryOptions) (limit, offset int) {
 
 	if opts.Limit != nil {
 		limit = *opts.Limit
-		// Cap at 500 to prevent abuse
-		if limit > 500 {
-			limit = 500
+		// Cap at 100 to prevent abuse (hard limit for all thread queries)
+		if limit > MaxThreadsPerQuery {
+			limit = MaxThreadsPerQuery
+		}
+		if limit <= 0 {
+			limit = 50 // reset to default if invalid
 		}
 	}
 

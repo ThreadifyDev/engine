@@ -5,6 +5,7 @@ type ConnectRequest struct {
 	ApiKey           string   `json:"apiKey"`
 	ServiceName      string   `json:"serviceName,omitempty"`
 	SubscribedEvents []string `json:"subscribedEvents"`
+	MaxInFlight      int      `json:"maxInFlight,omitempty"` // Client-specified max unACKed notifications
 }
 
 type ConnectResponse struct {

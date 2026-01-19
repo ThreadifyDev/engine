@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -152,13 +153,12 @@ func main() {
 	// Initialize notification router with NATS
 	var notificationRouter *handlers.NotificationRouter
 	if natsClient != nil {
-		podID := fmt.Sprintf("server-%d", time.Now().Unix())
-		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn(), podID)
+		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn())
 		if err != nil {
 			log.Fatalf("Failed to create notification router: %v", err)
 		}
 		defer notificationRouter.Stop()
-		log.Printf("✅ Notification router initialized for pod: %s", podID)
+		log.Println("✅ Notification router initialized with session-based consumers")
 	} else {
 		log.Println("⚠️ Notification router disabled (NATS not available)")
 	}
@@ -197,7 +197,17 @@ func main() {
 	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
-	log.Printf("✅ GraphQL handler created: %v", graphqlHandler != nil)
+
+	// Add query complexity limit to prevent expensive nested queries
+	// Complexity budget: 1000 points
+	// This prevents queries like: threads(100) { steps { history(1000) } } which would be ~500k complexity
+	complexityLimit := extension.FixedComplexityLimit(1000)
+	graphqlHandler.Use(complexityLimit)
+
+	// Enable introspection for development (includes schema documentation)
+	graphqlHandler.Use(extension.Introspection{})
+
+	log.Printf("✅ GraphQL handler created with complexity limit: 1000 points", graphqlHandler != nil)
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

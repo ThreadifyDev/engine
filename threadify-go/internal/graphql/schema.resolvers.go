@@ -248,24 +248,33 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 		return []*models.Thread{}, nil
 	}
 
-	// Load each thread with refs and check access
-	threads := make([]*models.Thread, 0, len(threadIDs))
+	// Load all threads with refs
+	allThreads := make([]*models.Thread, 0, len(threadIDs))
 	for _, threadID := range threadIDs {
-		// Load thread with refs
 		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
 		if err != nil {
 			// Skip threads that can't be loaded (may have been deleted)
 			continue
 		}
+		allThreads = append(allThreads, thread)
+	}
 
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
+	if len(allThreads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Batch check access for all threads (eliminates N+1)
+	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(allThreads, ownerID, "read")
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
+	}
+
+	// Filter threads based on access
+	threads := make([]*models.Thread, 0, len(allThreads))
+	for _, thread := range allThreads {
+		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
+			threads = append(threads, thread)
 		}
-
-		threads = append(threads, thread)
 	}
 
 	return threads, nil
@@ -320,13 +329,9 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 		return nil, fmt.Errorf("access denied: you don't have permission to view step history for this thread")
 	}
 
-	// Set default pagination values
-	limitVal := 100
+	// Enforce hard caps on pagination limits
+	limitVal := EnforceLimit(limit, MaxHistoryPerQuery, 100)
 	offsetVal := 0
-
-	if limit != nil {
-		limitVal = *limit
-	}
 	if offset != nil {
 		offsetVal = *offset
 	}
@@ -436,13 +441,9 @@ func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *mode
 
 // History is the resolver for the history field.
 func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
-	// Set default pagination values
-	limitVal := 100
+	// Enforce hard caps on pagination limits
+	limitVal := EnforceLimit(limit, MaxHistoryPerQuery, 100)
 	offsetVal := 0
-
-	if limit != nil {
-		limitVal = *limit
-	}
 	if offset != nil {
 		offsetVal = *offset
 	}
@@ -626,24 +627,33 @@ func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, ma
 		return []*models.Thread{}, nil
 	}
 
-	// Load each thread with refs and check access
-	threads := make([]*models.Thread, 0, len(threadIDs))
+	// Load all threads with refs
+	allThreads := make([]*models.Thread, 0, len(threadIDs))
 	for _, threadID := range threadIDs {
-		// Load thread with refs
 		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
 		if err != nil {
 			// Skip threads that can't be loaded (may have been deleted)
 			continue
 		}
+		allThreads = append(allThreads, thread)
+	}
 
-		// Check if user has read permission
-		hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-		if err != nil || !hasAccess {
-			// Skip threads user doesn't have access to
-			continue
+	if len(allThreads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Batch check access for all threads (eliminates N+1)
+	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(allThreads, ownerID, "read")
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
+	}
+
+	// Filter threads based on access
+	threads := make([]*models.Thread, 0, len(allThreads))
+	for _, thread := range allThreads {
+		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
+			threads = append(threads, thread)
 		}
-
-		threads = append(threads, thread)
 	}
 
 	return threads, nil

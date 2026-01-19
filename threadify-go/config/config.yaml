@@ -3,9 +3,9 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@localhost:63781/threadify?sslmode=disable"
+  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
   host: localhost
-  port: 63781
+  port: 5434
   user: td_engine
   password: tdtdtd
   name: threadify

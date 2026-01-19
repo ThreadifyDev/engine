@@ -87,7 +87,7 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		natsConsumer = nil
 		natsArchivalPublisher = nil
 	} else {
-		natsPublisher = natsrepo.NewPublisher(natsClient, scopeResolver, accessRepo)
+		natsPublisher = natsrepo.NewPublisher(natsClient)
 		natsConsumer = NewNotificationConsumer(natsClient, scopeResolver)
 		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
 		fmt.Printf("NATS publisher, consumer, and archival publisher initialized successfully\n")

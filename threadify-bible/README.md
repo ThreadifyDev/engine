@@ -60,6 +60,12 @@ Each case is documented in a separate file with complete pseudocode flows, datab
    - External system integration
    - Incremental reference addition
 
+11. **[CASE_11_graphql_data_retrieval.md](./CASE_11_graphql_data_retrieval.md)** - GraphQL Data Retrieval
+   - Cache-aside pattern (Valkey → PostgreSQL)
+   - Lazy-loaded cryptographic verification
+   - Flexible filtering and pagination
+   - SDK integration patterns
+
 ## Architecture Overview
 
 ### Data Flow Layers
@@ -92,6 +98,7 @@ Each case is documented in a separate file with complete pseudocode flows, datab
 - `metadata.thread` → Thread/refs metadata
 - `access.thread` → Access events
 - `validations.thread` → Validation results
+- `state.step` → Step state snapshots (for archival)
 - `notifications.{threadID}.{stepName}` → Real-time notifications
 
 ### PostgreSQL (Durable Storage)
@@ -100,6 +107,7 @@ Each case is documented in a separate file with complete pseudocode flows, datab
 - `thread_access` → Access control records
 - `thread_activities` → Complete audit trail
 - `thread_validations` → Validation summaries
+- `thread_step_states` → Step state snapshots (for fast queries)
 
 ## How to Use This Documentation
 
@@ -116,4 +124,4 @@ Each case is documented in a separate file with complete pseudocode flows, datab
 
 ---
 
-*Last Updated: January 12, 2026 - Added CASE_10 (addRefs), updated contract cache keys*
+*Last Updated: January 16, 2026 - Added GraphQL data retrieval documentation (CASE_11) with cryptographic verification, SDK integration, and performance characteristics*

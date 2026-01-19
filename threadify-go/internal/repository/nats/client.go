@@ -51,6 +51,13 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to initialize notifications")
 	}
 
+	// Initialize dead letter queue for failed notifications
+	if err := client.initializeDeadLetterQueue(); err != nil {
+		nc.Close()
+		log.Printf("Failed to initialize dead letter queue: %v", err)
+		return nil, fmt.Errorf("failed to initialize DLQ")
+	}
+
 	// Initialize archival streams
 	if err := client.initializeArchivalStreams(); err != nil {
 		nc.Close()
@@ -65,9 +72,9 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 func (c *Client) initializeNotificationStream() error {
 	streamConfig := &nats.StreamConfig{
 		Name:       c.cfg.StreamName,
-		Subjects:   []string{"thread.*.owner", "thread.*.participant", "thread.*.observer"},
-		Retention:  nats.InterestPolicy, // Delete when all consumers ACK
-		MaxAge:     time.Duration(c.cfg.MaxAgeHours) * time.Hour,
+		Subjects:   []string{"notifications.user.>"},
+		Retention:  nats.WorkQueuePolicy, // Delete after consumer ACK
+		MaxAge:     3 * 24 * time.Hour,   // 3 days
 		Storage:    nats.FileStorage,
 		Replicas:   1,
 		Discard:    nats.DiscardOld,
@@ -87,6 +94,36 @@ func (c *Client) initializeNotificationStream() error {
 		}
 	}
 
+	log.Printf("[NATS] Initialized NOTIFICATIONS stream with subjects: notifications.user.>, retention: 3 days")
+	return nil
+}
+
+// initializeDeadLetterQueue creates or updates the dead letter queue stream
+func (c *Client) initializeDeadLetterQueue() error {
+	streamConfig := &nats.StreamConfig{
+		Name:      "NOTIFICATIONS_DLQ",
+		Subjects:  []string{"notifications.dlq.>"},
+		Retention: nats.LimitsPolicy,  // Keep messages (not WorkQueue)
+		MaxAge:    7 * 24 * time.Hour, // 7 days retention
+		Storage:   nats.FileStorage,
+		Replicas:  1,
+		Discard:   nats.DiscardOld,
+		MaxMsgs:   10000,             // Limit to 10k failed messages
+		MaxBytes:  100 * 1024 * 1024, // 100MB max
+		NoAck:     false,
+	}
+
+	// Try to add stream, update if it already exists
+	_, err := c.js.AddStream(streamConfig)
+	if err != nil {
+		// If stream exists, try to update it
+		_, err = c.js.UpdateStream(streamConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create/update DLQ stream: %w", err)
+		}
+	}
+
+	log.Printf("[NATS] Initialized NOTIFICATIONS_DLQ stream (7 days retention, 10k messages max)")
 	return nil
 }
 

@@ -997,6 +997,13 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 
 var sources = []*ast.Source{
 	{Name: "../schema.graphql", Input: `# GraphQL Schema for Threadify Engine
+#
+# Query Complexity Limit: 1000 points
+# - Each field costs 1 point
+# - List items multiply by their count
+# - Nested fields multiply by parent list size
+# - Example: threads(limit: 10) { steps { stepName } } = ~1100 points (may be rejected)
+# - Keep queries simple and use pagination to stay within limits
 
 type StepStateInfo {
   threadId: String!
@@ -1011,7 +1018,7 @@ type StepStateInfo {
   # Cryptographic verification (lazy-loaded, only computed when requested)
   verified: Boolean
   verificationError: String
-  # Step execution history
+  # Step execution history (max limit: 1000)
   history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
 }
 
@@ -1032,14 +1039,15 @@ type Thread {
   ownerId: String!
   companyId: String!
   status: String!
+  # HMAC hash of the last activity event in the thread's hash chain (for cryptographic integrity verification)
   lastHash: String
   refs: JSON
   startedAt: String
   completedAt: String
   error: String
-  # Get steps for this thread, optionally filtered by stepName/idempotencyKey/status
+  # Get steps for this thread, optionally filtered by stepName/idempotencyKey/status (max: 100 steps)
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
-  # Get validation results for this thread
+  # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
   # Get thread chain starting from this thread, following linkedThread relationships
   threadChain(maxDepth: Int = 3): [Thread!]!
@@ -1106,7 +1114,7 @@ type Query {
   # Get a thread by ID with cache-aside pattern
   thread(id: ID!): Thread
   
-  # General thread search with flexible filtering (company-scoped by JWT)
+  # General thread search with flexible filtering (company-scoped by JWT, max limit: 100)
   threads(
     actor: String
     contractName: String
@@ -1120,7 +1128,7 @@ type Query {
     offset: Int = 0
   ): [Thread!]!
   
-  # Contract-specific thread queries (optimized for contract monitoring)
+  # Contract-specific thread queries (optimized for contract monitoring, max limit: 100)
   threadsByContract(
     contractName: String!
     contractVersion: Int
@@ -1132,7 +1140,7 @@ type Query {
     offset: Int = 0
   ): [Thread!]!
   
-  # Find threads by reference key-value pair with filtering and pagination
+  # Find threads by reference key-value pair with filtering and pagination (max limit: 100)
   threadsByRef(
     refKey: String!
     refValue: String!
@@ -1148,7 +1156,7 @@ type Query {
   
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
-  # Get step history by stepName:idempKey or stepName
+  # Get step history by stepName:idempKey or stepName (max limit: 1000)
   stepHistory(
     threadId: String!
     stepName: String!

@@ -7,8 +7,9 @@ export class Notification {
    * Create a new Notification
    * @param {Object} data - Raw notification data from server
    * @param {Object} connection - Connection instance for ACK
+   * @param {string} ackToken - Opaque ACK token for stateless ACK
    */
-  constructor(data, connection) {
+  constructor(data, connection, ackToken = null) {
     // Core fields
     this.notificationId = data.notificationId;
     this.threadId = data.threadId;
@@ -30,6 +31,9 @@ export class Notification {
     this.violationType = data.violationType || null;
     this.ownerId = data.ownerId;
     
+    // Push-based model fields
+    this.ackToken = ackToken; // Opaque token for stateless ACK
+    
     // Internal state
     this._connection = connection;
     this._acknowledged = false;
@@ -37,7 +41,7 @@ export class Notification {
 
   /**
    * Acknowledge this notification
-   * Sends ACK message to server
+   * Sends ACK message to server with ackToken for stateless ACK
    */
   ack() {
     if (this._acknowledged) {
@@ -45,19 +49,25 @@ export class Notification {
       return;
     }
 
+    // Require ackToken for push-based model
+    if (!this.ackToken) {
+      throw new Error(`Cannot ACK notification ${this.notificationId}: ackToken is required`);
+    }
+
     this._acknowledged = true;
 
-    // Send ACK to server
+    // Send ACK to server with ackToken
     const ackMessage = {
       action: 'ack_notification',
       notification_id: this.notificationId,
       thread_id: this.threadId,
+      ackToken: this.ackToken,
       processed: true
     };
 
     try {
       this._connection.ws.send(JSON.stringify(ackMessage));
-      console.log(`[Notification] ACK sent for: ${this.notificationId}`);
+      this._connection._debugLog('[Notification] ACK sent');
     } catch (error) {
       console.error(`[Notification] Failed to send ACK:`, error);
       this._acknowledged = false; // Reset so user can retry

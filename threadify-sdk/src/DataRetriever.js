@@ -441,18 +441,49 @@ export class DataRetriever {
    * @param {Object} ref - Reference object
    * @param {string} ref.refKey - Reference key
    * @param {string} ref.refValue - Reference value
+   * @param {string} ref.status - Optional status filter (e.g., "active", "completed")
+   * @param {string} ref.startedAfter - Optional ISO timestamp filter
+   * @param {string} ref.startedBefore - Optional ISO timestamp filter
+   * @param {number} ref.limit - Optional limit (default: 50)
+   * @param {number} ref.offset - Optional offset for pagination (default: 0)
    * @returns {Promise<Array<ArchivedThread>>} - All matching threads
    */
-  async getThreadsByRef({ refKey, refValue }) {
+  async getThreadsByRef({ refKey, refValue, status, startedAfter, startedBefore, limit, offset }) {
     const query = `
-      query GetThreadsByRef($refKey: String!, $refValue: String!) {
-        threadsByRef(refKey: $refKey, refValue: $refValue) {
+      query GetThreadsByRef(
+        $refKey: String!
+        $refValue: String!
+        $status: String
+        $startedAfter: String
+        $startedBefore: String
+        $limit: Int
+        $offset: Int
+      ) {
+        threadsByRef(
+          refKey: $refKey
+          refValue: $refValue
+          status: $status
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
+          limit: $limit
+          offset: $offset
+        ) {
           ${THREAD_FIELDS}
         }
       }
     `;
 
-    const data = await this.graphqlClient.query(query, { refKey, refValue });
+    const variables = {
+      refKey,
+      refValue,
+      status: status || null,
+      startedAfter: startedAfter || null,
+      startedBefore: startedBefore || null,
+      limit: limit || 50,
+      offset: offset || 0
+    };
+
+    const data = await this.graphqlClient.query(query, variables);
     
     if (!data.threadsByRef) {
       return [];

@@ -6,12 +6,13 @@ import { DataRetriever, ArchivedThread, ArchivedStep } from './DataRetriever.js'
  * Connection - Represents a WebSocket connection to Threadify Engine
  */
 export class Connection {
-  constructor(ws, apiKey, serviceName = null, graphqlUrl = null, debug = false) {
+  constructor(ws, apiKey, serviceName = null, graphqlUrl = null, debug = false, maxInFlight = 10) {
     this.ws = ws;
     this.apiKey = apiKey;
     this.serviceName = serviceName;
     this.graphqlUrl = graphqlUrl;
     this.debug = debug;
+    this.maxInFlight = maxInFlight; // Maximum unACKed notifications
     this.isConnected = false;
     this.activeThreads = new Map(); // Map of threadId -> thread info
     this.threads = new Map(); // Map of threadId -> ThreadInstance (for notification routing)
@@ -429,9 +430,9 @@ export class Connection {
       try {
         const message = JSON.parse(data.toString());
         
-        // Handle single notification
+        // Handle single notification (push-based with ackToken)
         if (message.action === 'notification') {
-          this._handleNotification(message.notification);
+          this._handleNotification(message.notification, message.ackToken);
         }
         
         // Handle notification batch
@@ -447,7 +448,7 @@ export class Connection {
 
     // Setup reconnection handling
     this.ws.on('close', () => {
-      console.log('[Thread] WebSocket closed');
+      this._debugLog('[Thread] WebSocket closed');
       this.isConnected = false;
     });
 
@@ -462,7 +463,7 @@ export class Connection {
    */
   async reconnect() {
     if (this.isConnected) {
-      console.log('[Thread] Already connected');
+      this._debugLog('[Thread] Already connected');
       return;
     }
 
@@ -481,15 +482,17 @@ export class Connection {
   /**
    * Handle incoming notification
    * @private
+   * @param {Object} notificationData - Notification data
+   * @param {string} ackToken - Opaque ACK token for stateless ACK
    */
-  _handleNotification(notificationData) {
+  _handleNotification(notificationData, ackToken = null) {
     const notifID = notificationData.notificationId;
     
     // Deduplicate notifications
     if (this.processedNotifications.has(notifID)) {
-      console.log(`[Notification] Duplicate ignored: ${notifID}`);
+      this._debugLog('[Notification] Duplicate ignored');
       // Still send ACK (idempotent)
-      this._sendAck(notifID, notificationData.threadId);
+      this._sendAck(notifID, notificationData.threadId, ackToken);
       return;
     }
     
@@ -502,7 +505,7 @@ export class Connection {
       this.processedNotifications.delete(firstItem);
     }
     
-    const notification = new Notification(notificationData, this);
+    const notification = new Notification(notificationData, this, ackToken);
     const stepName = notification.stepName;
     const contractName = notification.contractName;
     
@@ -536,7 +539,7 @@ export class Connection {
           try {
             handler(notification);
           } catch (error) {
-            console.error(`[Notification] Handler error for ${exactKey}:`, error);
+            console.error('[Notification] Handler error:', error);
           }
         });
       }
@@ -549,7 +552,7 @@ export class Connection {
         try {
           handler(notification);
         } catch (error) {
-          console.error(`[Notification] Handler error for ${stepName}:`, error);
+          console.error('[Notification] Handler error:', error);
         }
       });
     }
@@ -558,19 +561,29 @@ export class Connection {
   /**
    * Send ACK for a notification
    * @private
+   * @param {string} notificationId - Notification ID
+   * @param {string} threadId - Thread ID
+   * @param {string} ackToken - Opaque ACK token for stateless ACK (required)
    */
-  _sendAck(notificationId, threadId) {
+  _sendAck(notificationId, threadId, ackToken) {
+    if (!ackToken) {
+      console.error('[Connection] Cannot ACK: ackToken is required');
+      return;
+    }
+
     try {
       const ackMessage = {
         action: 'ack_notification',
         notification_id: notificationId,
         thread_id: threadId,
+        ackToken: ackToken,
         processed: true
       };
+      
       this.ws.send(JSON.stringify(ackMessage));
-      console.log(`[Connection] ACK sent for notification: ${notificationId}`);
+      this._debugLog('[Connection] ACK sent');
     } catch (error) {
-      console.error(`[Connection] Failed to send ACK for ${notificationId}:`, error);
+      console.error('[Connection] Failed to send ACK:', error);
     }
   }
 

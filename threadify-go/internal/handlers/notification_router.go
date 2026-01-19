@@ -2,27 +2,22 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 )
-
-// PendingNotification tracks a notification waiting for client ACK
-type PendingNotification struct {
-	natsMsg        jetstream.Msg
-	notificationID string
-	targetClients  map[string]bool // Clients that should ACK
-	ackedClients   map[string]bool // Clients that have ACKed
-	sentAt         time.Time
-	mu             sync.Mutex
-}
 
 // ClientSubscription represents a client's subscription to step notifications
 type ClientSubscription struct {
@@ -31,33 +26,38 @@ type ClientSubscription struct {
 	EventTypes   []string // Event types: ["violation", "completed", "failed"] (empty = all)
 }
 
-// WebSocketClient represents a connected WebSocket client
-type WebSocketClient struct {
+// Session represents a client session
+type Session struct {
 	ID            string
-	Conn          *websocket.Conn
 	OwnerID       string
-	ThreadIDs     map[string]bool
-	Subscriptions map[string]*ClientSubscription  // stepName -> subscription
-	pendingAcks   map[string]*PendingNotification // notificationID -> pending
+	MaxInFlight   int
+	Conn          *websocket.Conn
+	Subscriptions map[string]*ClientSubscription // stepName -> subscription
 	mu            sync.RWMutex
 	sendMu        sync.Mutex // Separate mutex for WebSocket writes
 }
 
-// NotificationRouter manages NATS consumer and routes notifications to WebSocket clients
+// WebSocketClient is an alias for Session for backward compatibility
+type WebSocketClient = Session
+
+// NotificationRouter manages owner-based NATS consumers and routes notifications
 type NotificationRouter struct {
-	js              jetstream.JetStream
-	consumer        jetstream.Consumer
-	podID           string
-	clients         map[string]*WebSocketClient // clientID -> client
-	threadToClients map[string][]string         // threadID -> clientIDs
-	mu              sync.RWMutex
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	nc                 *nats.Conn // NATS connection for manual ACK
+	js                 jetstream.JetStream
+	sessions           map[string]*Session            // sessionID -> session
+	consumers          map[string]jetstream.Consumer  // ownerID -> consumer (CHANGED: owner-based)
+	sessionsByOwner    map[string][]string            // ownerID -> []sessionID
+	subscriptionIndex  map[string]map[string][]string // ownerID -> "step@contract" -> []sessionID
+	ownerContexts      map[string]context.Context     // ownerID -> context
+	ownerCancels       map[string]context.CancelFunc  // ownerID -> cancel
+	ownerConsumerCount map[string]int                 // ownerID -> count (rate limiting)
+	mu                 sync.RWMutex
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
-// NewNotificationRouter creates a new notification router with pooled NATS consumer
-func NewNotificationRouter(nc *nats.Conn, podID string) (*NotificationRouter, error) {
+// NewNotificationRouter creates a new session-based notification router
+func NewNotificationRouter(nc *nats.Conn) (*NotificationRouter, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
@@ -65,249 +65,347 @@ func NewNotificationRouter(nc *nats.Conn, podID string) (*NotificationRouter, er
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create or get the NOTIFICATIONS stream
-	stream, err := js.Stream(ctx, "NOTIFICATIONS")
-	if err != nil {
-		// Stream doesn't exist, create it
-		_, err = js.CreateStream(ctx, jetstream.StreamConfig{
-			Name:        "NOTIFICATIONS",
-			Subjects:    []string{"notifications.thread.>"},
-			Retention:   jetstream.WorkQueuePolicy,
-			MaxAge:      24 * time.Hour,
-			Storage:     jetstream.FileStorage,
-			Replicas:    1,
-			Description: "Thread validation notifications",
-		})
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create NOTIFICATIONS stream: %w", err)
-		}
-		log.Println("✅ Created NOTIFICATIONS stream")
-	} else {
-		log.Printf("✅ Using existing NOTIFICATIONS stream: %s", stream.CachedInfo().Config.Name)
-	}
-
-	// Create durable consumer for this pod (survives pod restarts)
-	consumerName := fmt.Sprintf("pod-%s", podID)
-	consumer, err := js.CreateOrUpdateConsumer(ctx, "NOTIFICATIONS", jetstream.ConsumerConfig{
-		Name:          consumerName,
-		Durable:       consumerName,
-		FilterSubject: "notifications.thread.>",
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       30 * time.Second,
-		MaxDeliver:    3,
-		DeliverPolicy: jetstream.DeliverNewPolicy,
-		Description:   fmt.Sprintf("WebSocket notification consumer for pod %s", podID),
-	})
+	// Verify NOTIFICATIONS stream exists (created by NATS client initialization)
+	_, err = js.Stream(ctx, "NOTIFICATIONS")
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create NATS consumer: %w", err)
+		return nil, fmt.Errorf("NOTIFICATIONS stream not found: %w", err)
 	}
 
-	log.Printf("✅ Created NATS consumer: %s", consumerName)
+	log.Println("✅ NotificationRouter initialized with owner-based consumers")
 
-	router := &NotificationRouter{
-		js:              js,
-		consumer:        consumer,
-		podID:           podID,
-		clients:         make(map[string]*WebSocketClient),
-		threadToClients: make(map[string][]string),
-		ctx:             ctx,
-		cancel:          cancel,
-	}
-
-	// Start consuming and routing
-	router.wg.Add(1)
-	go router.consumeAndRoute()
-
-	// Start cleanup goroutine for stale pending ACKs
-	router.wg.Add(1)
-	go router.cleanupStalePendingAcks()
-
-	return router, nil
+	return &NotificationRouter{
+		nc:                 nc,
+		js:                 js,
+		sessions:           make(map[string]*Session),
+		consumers:          make(map[string]jetstream.Consumer),
+		sessionsByOwner:    make(map[string][]string),
+		subscriptionIndex:  make(map[string]map[string][]string),
+		ownerContexts:      make(map[string]context.Context),
+		ownerCancels:       make(map[string]context.CancelFunc),
+		ownerConsumerCount: make(map[string]int),
+		ctx:                ctx,
+		cancel:             cancel,
+	}, nil
 }
 
-// RegisterClient registers a WebSocket client with the router
-func (r *NotificationRouter) RegisterClient(client *WebSocketClient) {
+// HandleConnect creates or reuses owner-based NATS consumer and starts router goroutine
+func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn *websocket.Conn) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Initialize subscriptions map
-	if client.Subscriptions == nil {
-		client.Subscriptions = make(map[string]*ClientSubscription)
+	// Check rate limit (per owner, not per session)
+	if r.ownerConsumerCount[ownerID] >= 100 {
+		metrics.RateLimitExceeded.WithLabelValues(ownerID).Inc()
+		return fmt.Errorf("rate limit exceeded: owner %s has 100 active consumers", ownerID)
 	}
 
-	r.clients[client.ID] = client
-	log.Printf("📱 Registered client: %s (owner: %s)", client.ID, client.OwnerID)
+	// Create session
+	session := &Session{
+		ID:            sessionID,
+		OwnerID:       ownerID,
+		MaxInFlight:   maxInFlight,
+		Conn:          conn,
+		Subscriptions: make(map[string]*ClientSubscription),
+	}
+
+	// Add to maps
+	r.sessions[sessionID] = session
+	r.sessionsByOwner[ownerID] = append(r.sessionsByOwner[ownerID], sessionID)
+
+	// Check if consumer exists for this owner
+	if _, exists := r.consumers[ownerID]; !exists {
+		// First session for this owner - create consumer
+		consumerName := fmt.Sprintf("owner-%s", ownerID)
+
+		consumer, err := r.js.CreateOrUpdateConsumer(r.ctx, "NOTIFICATIONS", jetstream.ConsumerConfig{
+			Name:              consumerName,
+			Durable:           consumerName,
+			FilterSubjects:    []string{}, // Empty initially, updated on subscribe
+			AckPolicy:         jetstream.AckExplicitPolicy,
+			MaxAckPending:     maxInFlight,
+			AckWait:           30 * time.Second,
+			MaxDeliver:        3,
+			DeliverPolicy:     jetstream.DeliverAllPolicy,
+			InactiveThreshold: 0,
+			Description:       fmt.Sprintf("Owner consumer for %s", ownerID),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create consumer: %w", err)
+		}
+
+		r.consumers[ownerID] = consumer
+		r.ownerConsumerCount[ownerID] = 1
+
+		// Create owner-specific context
+		ctx, cancel := context.WithCancel(r.ctx)
+		r.ownerContexts[ownerID] = ctx
+		r.ownerCancels[ownerID] = cancel
+
+		// Start router goroutine (ONE per owner)
+		go r.routeNotificationsForOwner(ownerID)
+
+		// Metrics
+		metrics.ConsumerCreated.WithLabelValues(ownerID).Inc()
+		metrics.ActiveConsumers.WithLabelValues(ownerID).Set(1)
+
+		log.Printf("[NATS-CONSUMER] Created owner-%s (maxInFlight=%d)", ownerID, maxInFlight)
+	} else {
+		// Consumer exists, update MaxAckPending (sum of all sessions)
+		r.updateConsumerMaxAckPending(ownerID)
+		log.Printf("[NATS-CONSUMER] Session %s joined owner-%s consumer", sessionID, ownerID)
+	}
+
+	return nil
 }
 
-// UnregisterClient removes a WebSocket client and NACKs pending notifications
-func (r *NotificationRouter) UnregisterClient(clientID string) {
+// HandleDisconnect removes session and cleans up owner consumer if last session
+func (r *NotificationRouter) HandleDisconnect(sessionID string) error {
 	r.mu.Lock()
-	client, exists := r.clients[clientID]
+	session, exists := r.sessions[sessionID]
 	if !exists {
 		r.mu.Unlock()
-		return
+		return fmt.Errorf("session not found: %s", sessionID)
 	}
-	delete(r.clients, clientID)
 
-	// Remove from thread mappings
-	for threadID, clients := range r.threadToClients {
-		for i, cid := range clients {
-			if cid == clientID {
-				r.threadToClients[threadID] = append(clients[:i], clients[i+1:]...)
-				break
-			}
+	ownerID := session.OwnerID
+	consumerName := fmt.Sprintf("owner-%s", ownerID)
+
+	// Remove from sessions map
+	delete(r.sessions, sessionID)
+
+	// Remove from sessionsByOwner
+	sessions := r.sessionsByOwner[ownerID]
+	for i, sid := range sessions {
+		if sid == sessionID {
+			r.sessionsByOwner[ownerID] = append(sessions[:i], sessions[i+1:]...)
+			break
 		}
 	}
+
+	// Remove from subscription index
+	if ownerSubs, exists := r.subscriptionIndex[ownerID]; exists {
+		for key, sessionIDs := range ownerSubs {
+			for i, sid := range sessionIDs {
+				if sid == sessionID {
+					r.subscriptionIndex[ownerID][key] = append(sessionIDs[:i], sessionIDs[i+1:]...)
+					break
+				}
+			}
+			// Clean up empty keys
+			if len(r.subscriptionIndex[ownerID][key]) == 0 {
+				delete(r.subscriptionIndex[ownerID], key)
+			}
+		}
+		// Clean up empty owner map
+		if len(r.subscriptionIndex[ownerID]) == 0 {
+			delete(r.subscriptionIndex, ownerID)
+		}
+	}
+
+	// If last session for this owner, delete consumer and stop goroutine
+	if len(r.sessionsByOwner[ownerID]) == 0 {
+		delete(r.sessionsByOwner, ownerID)
+
+		// Cancel owner context (stops router goroutine)
+		if cancel := r.ownerCancels[ownerID]; cancel != nil {
+			cancel()
+		}
+		delete(r.ownerContexts, ownerID)
+		delete(r.ownerCancels, ownerID)
+
+		// Delete NATS consumer
+		if err := r.js.DeleteConsumer(r.ctx, "NOTIFICATIONS", consumerName); err != nil {
+			log.Printf("⚠️ Failed to delete consumer %s: %v", consumerName, err)
+		} else {
+			log.Printf("[NATS-CONSUMER] Deleted %s", consumerName)
+		}
+
+		delete(r.consumers, ownerID)
+		r.ownerConsumerCount[ownerID]--
+
+		metrics.ConsumerDeleted.WithLabelValues(ownerID).Inc()
+		metrics.ActiveConsumers.WithLabelValues(ownerID).Set(0)
+	} else {
+		// Update consumer (recalculate MaxAckPending and FilterSubjects)
+		r.updateConsumerMaxAckPending(ownerID)
+	}
+
 	r.mu.Unlock()
 
-	// NACK all pending notifications for this client
-	client.mu.Lock()
-	for notifID, pending := range client.pendingAcks {
-		pending.mu.Lock()
-		// Only NACK if this was the only client
-		if len(pending.targetClients) == 1 && pending.targetClients[clientID] {
-			if err := pending.natsMsg.Nak(); err != nil {
-				log.Printf("⚠️ Failed to NACK notification %s: %v", notifID, err)
-			} else {
-				log.Printf("🔄 Client %s disconnected, NACKed notification %s", clientID, notifID)
-			}
-		}
-		pending.mu.Unlock()
-	}
-	client.pendingAcks = nil
-	client.mu.Unlock()
-
-	log.Printf("📱 Unregistered client: %s", clientID)
+	log.Printf("[DISCONNECT] Session %s disconnected", sessionID)
+	return nil
 }
 
-// SubscribeToThread subscribes a client to a thread's notifications
-func (r *NotificationRouter) SubscribeToThread(clientID, threadID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// HandleSubscribe updates the consumer's FilterSubjects to include the new subscription
+func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract string) error {
+	r.mu.RLock()
+	session, exists := r.sessions[sessionID]
+	r.mu.RUnlock()
 
-	client, exists := r.clients[clientID]
 	if !exists {
-		log.Printf("⚠️ Client %s not found for thread subscription", clientID)
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	ownerID := session.OwnerID
+
+	// Store subscription in session
+	session.mu.Lock()
+	if session.Subscriptions == nil {
+		session.Subscriptions = make(map[string]*ClientSubscription)
+	}
+	session.Subscriptions[stepName] = &ClientSubscription{
+		StepName:     stepName,
+		ContractName: contract,
+		EventTypes:   []string{},
+	}
+	session.mu.Unlock()
+
+	// Build composite key
+	subscriptionKey := buildSubscriptionKey(stepName, contract)
+
+	// Update subscription index
+	r.mu.Lock()
+	if r.subscriptionIndex[ownerID] == nil {
+		r.subscriptionIndex[ownerID] = make(map[string][]string)
+	}
+
+	sessions := r.subscriptionIndex[ownerID][subscriptionKey]
+	if !contains(sessions, sessionID) {
+		r.subscriptionIndex[ownerID][subscriptionKey] = append(sessions, sessionID)
+	}
+
+	// Update NATS consumer FilterSubjects
+	err := r.updateConsumerMaxAckPending(ownerID) // Also updates FilterSubjects
+	r.mu.Unlock()
+
+	if err != nil {
+		return fmt.Errorf("failed to update consumer: %w", err)
+	}
+
+	contractInfo := "all contracts"
+	if contract != "" {
+		contractInfo = fmt.Sprintf("contract=%s", contract)
+	}
+	log.Printf("[SUBSCRIBE] Session %s subscribed to step=%s, %s", sessionID, stepName, contractInfo)
+
+	return nil
+}
+
+// routeNotificationsForOwner is the main router goroutine (ONE per owner)
+func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
+	r.mu.RLock()
+	consumer := r.consumers[ownerID]
+	ownerCtx := r.ownerContexts[ownerID]
+	r.mu.RUnlock()
+
+	if consumer == nil || ownerCtx == nil {
 		return
 	}
 
-	client.mu.Lock()
-	client.ThreadIDs[threadID] = true
-	client.mu.Unlock()
+	log.Printf("🚀 Starting notification router for owner %s", ownerID)
 
-	// Add to thread mapping
-	r.threadToClients[threadID] = append(r.threadToClients[threadID], clientID)
-	log.Printf("📌 Client %s subscribed to thread %s", clientID, threadID)
-}
-
-// consumeAndRoute consumes NATS messages and routes to interested WebSocket clients
-func (r *NotificationRouter) consumeAndRoute() {
-	defer r.wg.Done()
-
-	log.Printf("🚀 Starting notification router for pod %s", r.podID)
-
-	for {
-		select {
-		case <-r.ctx.Done():
-			log.Printf("🛑 Stopping notification router for pod %s", r.podID)
-			return
-		default:
-			// Fetch batch of messages from NATS
-			msgs, err := r.consumer.Fetch(100, jetstream.FetchMaxWait(5*time.Second))
-			if err != nil {
-				if err != nats.ErrTimeout {
-					log.Printf("⚠️ NATS fetch error: %v", err)
-				}
-				continue
-			}
-
-			r.processMessages(msgs)
-		}
-	}
-}
-
-// processMessages processes a batch of NATS messages
-func (r *NotificationRouter) processMessages(msgs jetstream.MessageBatch) {
-	for msg := range msgs.Messages() {
+	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
+		// Parse notification
 		var notification models.ValidationNotification
 		if err := json.Unmarshal(msg.Data(), &notification); err != nil {
 			log.Printf("⚠️ Failed to parse notification: %v", err)
-			msg.Ack() // ACK malformed messages to avoid redelivery
-			continue
+			msg.Ack()
+			return
 		}
 
-		r.routeNotification(&notification, msg)
-	}
-}
-
-// routeNotification routes a notification to interested clients
-func (r *NotificationRouter) routeNotification(notification *models.ValidationNotification, msg jetstream.Msg) {
-	r.mu.RLock()
-	clientIDs := r.threadToClients[notification.ThreadID]
-	r.mu.RUnlock()
-
-	if len(clientIDs) == 0 {
-		// No clients on this pod care about this thread
-		log.Printf("📭 No clients for thread %s, ACKing immediately", notification.ThreadID)
-		msg.Ack()
-		return
-	}
-
-	// Parse recipients list from notification payload
-	var notifWithRecipients struct {
-		models.ValidationNotification
-		Recipients []string `json:"recipients"`
-	}
-	if err := json.Unmarshal(msg.Data(), &notifWithRecipients); err != nil {
-		log.Printf("⚠️ Failed to parse notification recipients: %v", err)
-		msg.Ack() // ACK to avoid redelivery
-		return
-	}
-
-	// Send to all interested clients on this pod
-	delivered := false
-	for _, clientID := range clientIDs {
+		// Get matching sessions using composite key index
 		r.mu.RLock()
-		client, exists := r.clients[clientID]
+		matchingSessions := r.getMatchingSessions(ownerID, notification.StepName, notification.ContractName)
 		r.mu.RUnlock()
 
-		if !exists {
-			continue
+		if len(matchingSessions) == 0 {
+			log.Printf("⚠️ No sessions subscribed to %s@%s for owner %s, ACKing",
+				notification.StepName, notification.ContractName, ownerID)
+			msg.Ack()
+			return
 		}
 
-		// Verify client's ownerID is in recipients list (permission check)
-		if !containsString(notifWithRecipients.Recipients, client.OwnerID) {
-			log.Printf("🔒 Client %s (owner: %s) not in recipients list, skipping notification %s",
-				clientID, client.OwnerID, notification.NotificationID)
-			continue
+		// Pick random session (load balance)
+		idx := rand.Intn(len(matchingSessions))
+		targetSessionID := matchingSessions[idx]
+
+		r.mu.RLock()
+		targetSession := r.sessions[targetSessionID]
+		r.mu.RUnlock()
+
+		if targetSession == nil {
+			log.Printf("⚠️ Target session %s not found, NAKing", targetSessionID)
+			msg.Nak()
+			return
 		}
 
-		// Check if client is subscribed to this notification (contract filtering)
-		if !r.shouldSendToClient(client, notification) {
-			log.Printf("🔕 Client %s not subscribed to step=%s contract=%s, skipping notification %s",
-				clientID, notification.StepName, notification.ContractName, notification.NotificationID)
-			continue
+		// Create ACK token
+		metadata, err := msg.Metadata()
+		if err != nil {
+			log.Printf("⚠️ Failed to get metadata: %v", err)
+			msg.Nak()
+			return
 		}
 
-		if err := client.sendNotification(notification); err != nil {
-			log.Printf("⚠️ Failed to send notification to client %s: %v", clientID, err)
-			continue
+		ackToken := createAckToken(metadata.Sequence.Stream, msg.Reply())
+
+		// Send to WebSocket
+		if err := targetSession.sendNotificationWithAckToken(&notification, ackToken); err != nil {
+			log.Printf("⚠️ Failed to send to session %s: %v", targetSessionID, err)
+			msg.Nak()
+			return
 		}
 
-		// Track pending ACK
-		client.storePendingAck(notification.NotificationID, msg)
-		delivered = true
-		log.Printf("📤 Sent notification %s to client %s (step=%s, contract=%s)",
-			notification.NotificationID, clientID, notification.StepName, notification.ContractName)
+		log.Printf("📤 Routed notification %s to session %s (step=%s@%s)",
+			notification.NotificationID, targetSessionID, notification.StepName, notification.ContractName)
+
+		// Track metrics
+		metrics.NotificationsSent.WithLabelValues(
+			notification.OwnerID,
+			notification.StepName,
+			notification.ContractName,
+			notification.Status,
+		).Inc()
+	})
+
+	if err != nil {
+		log.Printf("⚠️ Failed to start consumer for owner %s: %v", ownerID, err)
+		return
 	}
 
-	if !delivered {
-		// Failed to deliver to any client
-		log.Printf("⚠️ Failed to deliver notification %s, NACKing", notification.NotificationID)
-		msg.Nak()
+	// Wait for owner context cancellation
+	<-ownerCtx.Done()
+
+	// Stop consuming
+	if consumeCtx != nil {
+		consumeCtx.Stop()
 	}
+
+	log.Printf("🛑 Stopped notification router for owner %s", ownerID)
+}
+
+// HandleAck handles client ACK using opaque ACK token
+func (r *NotificationRouter) HandleAck(ackToken string) error {
+	// Decode ACK token to get sequence and reply subject
+	sequence, replySubject, err := decodeAckToken(ackToken)
+	if err != nil {
+		return fmt.Errorf("invalid ACK token: %w", err)
+	}
+
+	// Publish ACK directly to NATS reply subject
+	err = r.nc.Publish(replySubject, []byte("+ACK"))
+	if err != nil {
+		log.Printf("❌ Failed to ACK NATS message seq=%d: %v", sequence, err)
+		return fmt.Errorf("failed to ACK NATS message: %w", err)
+	}
+
+	log.Printf("✅ ACKed NATS message sequence %d via reply subject", sequence)
+
+	// Track ACK metric (we don't have ownerID here, so track without label)
+	metrics.NotificationsAcked.WithLabelValues("unknown").Inc()
+
+	return nil
 }
 
 // containsString checks if a string slice contains a specific string
@@ -367,133 +465,165 @@ func (r *NotificationRouter) shouldSendToClient(client *WebSocketClient, notific
 	return true
 }
 
+// SendMessage sends any message to the WebSocket client with mutex protection
+// This is the ONLY method that should be used for WebSocket writes to prevent concurrent write panics
+func (s *Session) SendMessage(message interface{}) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	return s.Conn.WriteJSON(message)
+}
+
 // sendNotification sends a notification to the WebSocket client
 func (c *WebSocketClient) sendNotification(notification *models.ValidationNotification) error {
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-
 	message := map[string]interface{}{
 		"action":       "notification",
 		"notification": notification,
 	}
-
-	return c.Conn.WriteJSON(message)
+	return c.SendMessage(message)
 }
 
-// storePendingAck stores a pending ACK for a notification
-func (c *WebSocketClient) storePendingAck(notifID string, msg jetstream.Msg) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.pendingAcks == nil {
-		c.pendingAcks = make(map[string]*PendingNotification)
+// sendNotificationWithAckToken sends a notification with ACK token to the WebSocket client
+func (c *WebSocketClient) sendNotificationWithAckToken(notification *models.ValidationNotification, ackToken string) error {
+	message := map[string]interface{}{
+		"action":       "notification",
+		"ackToken":     ackToken,
+		"notification": notification,
 	}
-
-	// Check if we already have this pending notification
-	if pending, exists := c.pendingAcks[notifID]; exists {
-		pending.mu.Lock()
-		pending.targetClients[c.ID] = true
-		pending.mu.Unlock()
-		return
-	}
-
-	// Create new pending notification
-	pending := &PendingNotification{
-		natsMsg:        msg,
-		notificationID: notifID,
-		targetClients:  map[string]bool{c.ID: true},
-		ackedClients:   make(map[string]bool),
-		sentAt:         time.Now(),
-	}
-
-	c.pendingAcks[notifID] = pending
+	return c.SendMessage(message)
 }
 
-// HandleClientAck handles an ACK from a WebSocket client
-func (c *WebSocketClient) HandleClientAck(notifID string) error {
-	c.mu.Lock()
-	pending, exists := c.pendingAcks[notifID]
-	c.mu.Unlock()
-
-	if !exists {
-		// Notification not found - might be duplicate ACK (idempotent)
-		log.Printf("⚠️ Notification %s not found for client %s (duplicate ACK?)", notifID, c.ID)
-		return nil
+// buildSubscriptionKey creates a composite key for subscription indexing
+func buildSubscriptionKey(stepName, contract string) string {
+	if contract != "" {
+		return fmt.Sprintf("%s@%s", stepName, contract)
 	}
-
-	pending.mu.Lock()
-	pending.ackedClients[c.ID] = true
-
-	// ACK NATS when ANY client ACKs (at-least-once delivery)
-	shouldAck := len(pending.ackedClients) == 1
-	pending.mu.Unlock()
-
-	if shouldAck {
-		if err := pending.natsMsg.Ack(); err != nil {
-			log.Printf("⚠️ NATS ACK failed for notification %s: %v", notifID, err)
-			return err
-		}
-		log.Printf("✅ NATS message ACKed for notification %s", notifID)
-
-		// Remove from pending (all clients have been notified)
-		c.mu.Lock()
-		delete(c.pendingAcks, notifID)
-		c.mu.Unlock()
-	}
-
-	return nil
+	return fmt.Sprintf("%s@*", stepName)
 }
 
-// cleanupStalePendingAcks periodically cleans up stale pending ACKs
-func (r *NotificationRouter) cleanupStalePendingAcks() {
-	defer r.wg.Done()
-
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-ticker.C:
-			r.cleanupStale()
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
 		}
 	}
+	return false
 }
 
-// cleanupStale removes stale pending ACKs (older than 60 seconds)
-func (r *NotificationRouter) cleanupStale() {
-	r.mu.RLock()
-	clients := make([]*WebSocketClient, 0, len(r.clients))
-	for _, client := range r.clients {
-		clients = append(clients, client)
+// getMatchingSessions returns sessions subscribed to the given step and contract (O(1) lookup)
+func (r *NotificationRouter) getMatchingSessions(ownerID, stepName, contract string) []string {
+	if contract == "" {
+		contract = "global" // Publisher uses "global" for no contract
 	}
-	r.mu.RUnlock()
 
-	now := time.Now()
-	for _, client := range clients {
-		client.mu.Lock()
-		for notifID, pending := range client.pendingAcks {
-			pending.mu.Lock()
-			if now.Sub(pending.sentAt) > 60*time.Second {
-				// Stale - NACK for redelivery
-				if err := pending.natsMsg.Nak(); err != nil {
-					log.Printf("⚠️ Failed to NACK stale notification %s: %v", notifID, err)
-				} else {
-					log.Printf("🔄 Stale notification %s NACKed for redelivery", notifID)
-				}
-				delete(client.pendingAcks, notifID)
+	// Lookup specific contract
+	specificKey := buildSubscriptionKey(stepName, contract)
+	specificSessions := r.subscriptionIndex[ownerID][specificKey]
+
+	// Lookup wildcard
+	wildcardKey := buildSubscriptionKey(stepName, "")
+	wildcardSessions := r.subscriptionIndex[ownerID][wildcardKey]
+
+	// Combine and return
+	return append(append([]string{}, specificSessions...), wildcardSessions...)
+}
+
+// calculateMaxAckPending calculates total MaxAckPending for owner (sum of all sessions)
+func (r *NotificationRouter) calculateMaxAckPending(ownerID string) int {
+	total := 0
+	for _, sessionID := range r.sessionsByOwner[ownerID] {
+		if session := r.sessions[sessionID]; session != nil {
+			total += session.MaxInFlight
+		}
+	}
+	if total == 0 {
+		return 10
+	}
+	return total
+}
+
+// updateConsumerMaxAckPending updates consumer with recalculated MaxAckPending and FilterSubjects
+func (r *NotificationRouter) updateConsumerMaxAckPending(ownerID string) error {
+	maxAckPending := r.calculateMaxAckPending(ownerID)
+	allFilters := r.buildUnionFilterSubjects(ownerID)
+
+	_, err := r.js.UpdateConsumer(r.ctx, "NOTIFICATIONS", jetstream.ConsumerConfig{
+		Name:              fmt.Sprintf("owner-%s", ownerID),
+		Durable:           fmt.Sprintf("owner-%s", ownerID),
+		FilterSubjects:    allFilters,
+		AckPolicy:         jetstream.AckExplicitPolicy,
+		MaxAckPending:     maxAckPending,
+		AckWait:           30 * time.Second,
+		MaxDeliver:        3,
+		DeliverPolicy:     jetstream.DeliverAllPolicy,
+		InactiveThreshold: 0,
+	})
+
+	return err
+}
+
+// buildUnionFilterSubjects builds union of FilterSubjects from all sessions
+func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
+	filterMap := make(map[string]bool)
+
+	for _, sessionID := range r.sessionsByOwner[ownerID] {
+		session := r.sessions[sessionID]
+		if session == nil {
+			continue
+		}
+
+		session.mu.RLock()
+		for _, sub := range session.Subscriptions {
+			var filterSubject string
+			if sub.ContractName != "" {
+				filterSubject = fmt.Sprintf("notifications.user.%s.%s.%s",
+					ownerID, sub.ContractName, sub.StepName)
+			} else {
+				filterSubject = fmt.Sprintf("notifications.user.%s.*.%s",
+					ownerID, sub.StepName)
 			}
-			pending.mu.Unlock()
+			filterMap[filterSubject] = true
 		}
-		client.mu.Unlock()
+		session.mu.RUnlock()
 	}
+
+	result := make([]string, 0, len(filterMap))
+	for filter := range filterMap {
+		result = append(result, filter)
+	}
+	return result
 }
 
 // Stop gracefully stops the notification router
 func (r *NotificationRouter) Stop() {
-	log.Printf("🛑 Stopping notification router for pod %s", r.podID)
+	log.Println("🛑 Stopping notification router")
 	r.cancel()
-	r.wg.Wait()
-	log.Printf("✅ Notification router stopped for pod %s", r.podID)
+	log.Println("✅ Notification router stopped")
+}
+
+// createAckToken creates an opaque ACK token from sequence and reply subject
+// Format: base64(sequence:replySubject)
+func createAckToken(sequence uint64, replySubject string) string {
+	payload := strconv.FormatUint(sequence, 10) + ":" + replySubject
+	return base64.URLEncoding.EncodeToString([]byte(payload))
+}
+
+// decodeAckToken decodes an ACK token to extract sequence and reply subject
+func decodeAckToken(token string) (uint64, string, error) {
+	decoded, err := base64.URLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid token encoding: %w", err)
+	}
+
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("invalid token format")
+	}
+
+	sequence, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid sequence: %w", err)
+	}
+
+	return sequence, parts[1], nil
 }
