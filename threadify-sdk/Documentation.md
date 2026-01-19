@@ -1,5 +1,170 @@
+# Threadify SDK Documentation
 
 Build business process graphs with context—track what happened, validate every step, and trigger context-aware actions.
+
+## Installation
+
+```bash
+npm install @threadify/sdk
+```
+
+## Quick Start
+
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+// Connect with your API key
+const connection = await Threadify.connect('your-api-key', 'my-service');
+
+// Start tracking a workflow
+const thread = await connection.start();
+
+// Record each step with full context
+await thread.step('order_placed')
+  .addContext({ orderId: 'ORD-12345', amount: 99.99 })
+  .success();
+
+await thread.step('payment_processed')
+  .addContext({ paymentId: 'PAY-67890' })
+  .success();
+```
+
+---
+
+## Core Concepts
+
+### 1. **Connection**
+A WebSocket connection to the Threadify Engine. Manages authentication and message routing.
+
+### 2. **Thread**
+A workflow execution instance. Can be contract-based (with validation rules) or non-contract (free-form).
+
+### 3. **Step**
+An atomic unit of work within a thread. Steps have:
+- **Name**: Identifies the step type
+- **Context**: Business data associated with the step
+- **Status**: `in_progress`, `success`, `failed`, `error`, `skipped`
+- **Idempotency**: Automatic deduplication based on name + context
+
+### 4. **Contract**
+A YAML-defined workflow specification that enforces:
+- Entry point validation
+- Step existence checks
+- Required business context fields
+- Role-based access control
+- Step transitions (future)
+
+---
+
+## Common Scenarios
+
+### Track a Simple Workflow
+
+```javascript
+const connection = await Threadify.connect('your-api-key');
+const thread = await connection.start();
+
+// Each step is automatically validated and tracked
+await thread.step('order_received')
+  .addContext({ orderId: 'ORD-123', total: 299.99 })
+  .success();
+
+await thread.step('inventory_checked')
+  .addContext({ inStock: true, warehouse: 'US-EAST' })
+  .success();
+
+await thread.step('payment_captured')
+  .addContext({ paymentId: 'ch_abc123', amount: 299.99 })
+  .success();
+```
+
+### Link to External Systems
+
+```javascript
+// Connect your workflow to Stripe, Shopify, etc.
+await thread.step('process_payment')
+  .addContext({ amount: 299.99, currency: 'USD' })
+  .addRefs({
+    stripe_payment_id: 'pi_abc123',
+    shopify_order_id: '12345',
+    customer_email: 'customer@example.com'
+  })
+  .success();
+
+// Now you can trace from Stripe back to your workflow instantly
+```
+
+### Handle Failures Gracefully
+
+```javascript
+try {
+  await processPayment(orderId);
+  await thread.step('payment_processed')
+    .addContext({ orderId, status: 'success' })
+    .success();
+} catch (error) {
+  // Threadify tracks failures too
+  await thread.step('payment_processed')
+    .addContext({ orderId, error: error.message })
+    .failed('Payment gateway timeout');
+  
+  // You'll get notified automatically if this violates your workflow rules
+}
+```
+
+### Work with Contracts (Predefined Workflows)
+
+```javascript
+// Use a contract to enforce your workflow structure
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// Contract ensures you follow the right steps in the right order
+await thread.step('order_placed')
+  .addContext({ orderId: 'ORD-123' })
+  .success();
+
+// Threadify validates this is a valid next step
+await thread.step('payment_authorized')
+  .addContext({ authCode: 'AUTH-456' })
+  .success();
+```
+
+### Join an Existing Thread
+
+```javascript
+// Token-based join (external party)
+const thread = await connection.join('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
+
+// Direct join (internal service within same company)
+const thread = await connection.join('thread-uuid-123', 'logistics');
+
+// Continue the workflow
+await thread.step('shipment_created')
+  .addContext({ trackingNumber: 'TRACK-456' })
+  .success();
+```
+
+---
+
+## Table of Contents
+
+1. [Core Concepts](#core-concepts) - Connection, Thread, Step, Contract
+2. [Common Scenarios](#common-scenarios) - Quick examples to get started
+   - [Track a Simple Workflow](#track-a-simple-workflow)
+   - [Link to External Systems](#link-to-external-systems)
+   - [Handle Failures](#handle-failures-gracefully)
+   - [Work with Contracts](#work-with-contracts-predefined-workflows)
+   - [Join an Existing Thread](#join-an-existing-thread)
+3. [Data Retrieval API](#data-retrieval-api)
+   - [Connection Methods](#connection-methods)
+   - [ArchivedThread Methods](#archivedthread-methods)
+   - [ArchivedStep Methods](#archivedstep-methods)
+4. [Real-Time Notifications](#real-time-notifications)
+   - [Subscribing to Notifications](#subscribing-to-notifications)
+   - [Notification Object](#notification-object)
+   - [Subscription Patterns](#subscription-patterns)
+   - [Flow Control & HPA Support](#flow-control)
+5. [Support](#support)
 
 ---
 
@@ -266,6 +431,137 @@ console.log(`Failed attempts: ${failures.length}`);
 
 failures.forEach(f => {
   console.log(`  ${f.timestamp}: ${f.error}`);
+});
+```
+
+---
+
+## Real-Time Notifications
+
+Threadify provides a push-based notification system for real-time validation alerts. Notifications are delivered via WebSocket with automatic deduplication and flow control.
+
+### Connecting with Notifications
+
+Notifications are enabled automatically when you connect. Use the `maxInFlight` option to control flow (default: 10, max: 100).
+
+---
+
+### Subscribing to Notifications
+
+Subscribe to validation events using these methods:
+
+- **`connection.onViolation(stepName, handler)`** - Validation violations
+- **`connection.onCompleted(stepName, handler)`** - Successful completions
+- **`connection.onFailed(stepName, handler)`** - Step failures
+
+**Parameters:**
+- `stepName` (string): Step name or "contract@stepName" for contract-specific
+- `handler` (function): Callback `(notification) => {}`
+
+**Example:**
+```javascript
+// All contracts
+connection.onViolation('order_placed', (notification) => {
+  console.log('Violation:', notification.message);
+  notification.ack(); // IMPORTANT: Must ACK
+});
+
+// Contract-specific
+connection.onViolation('product_delivery@order_placed', (notification) => {
+  console.log('Product delivery violation');
+  notification.ack();
+});
+```
+
+---
+
+### Notification Object
+
+Each notification has the following properties:
+
+```javascript
+{
+  notificationId: 'uuid',           // Unique notification ID
+  threadId: 'uuid',                 // Thread ID
+  stepId: 'uuid',                   // Step ID
+  stepName: 'order_placed',         // Step name
+  ownerId: 'user-123',              // Owner ID
+  contractName: 'product_delivery', // Contract name (or empty)
+  stepStatus: 'success',            // Step status: success, failed, error
+  status: 'violated',               // Validation status: passed, violated
+  violationType: 'timeout',         // Type of violation (if any)
+  severity: 'critical',             // Severity: info, warning, critical
+  message: 'Step timeout exceeded', // Human-readable message
+  details: {},                      // Additional details
+  timestamp: '2026-01-19T...',      // ISO timestamp
+  
+  // Methods
+  ack()                             // Acknowledge notification
+}
+```
+
+---
+
+### Notification Methods
+
+#### `notification.ack()`
+
+Acknowledge receipt and processing of the notification. **You must call this** to prevent redelivery.
+
+**Example:**
+```javascript
+connection.onViolation('order_placed', (notification) => {
+  // Process the notification
+  logToDatabase(notification);
+  
+  // ACK to confirm processing
+  notification.ack();
+});
+```
+
+**Important:**
+- ⚠️ If you don't ACK within 30 seconds, the notification will be redelivered
+- ⚠️ After 3 failed deliveries, the notification moves to the Dead Letter Queue
+- ✅ ACK is idempotent - safe to call multiple times
+
+---
+
+### Subscription Patterns
+
+**Wildcard (all contracts):**
+```javascript
+connection.onViolation('order_placed', handler); // Any contract
+```
+
+**Contract-specific:**
+```javascript
+connection.onViolation('product_delivery@order_placed', handler); // Specific contract only
+```
+
+**Multiple events:**
+```javascript
+connection.onViolation('order_placed', handleViolation);
+connection.onCompleted('order_placed', handleSuccess);
+connection.onFailed('order_placed', handleFailure);
+```
+
+---
+
+### Flow Control & HPA Support
+
+**Flow Control:** Set `maxInFlight` to limit pending notifications (prevents overwhelming client)
+
+**HPA-Safe:** Each notification delivered to **exactly one pod** - no duplicate processing, automatic load balancing
+
+**Error Handling:**
+```javascript
+connection.onViolation('order_placed', async (notification) => {
+  try {
+    await processViolation(notification);
+    notification.ack();  // ACK on success
+  } catch (error) {
+    // Don't ACK - notification redelivered after 30s (max 3 attempts)
+  }
 });
 ```
 
