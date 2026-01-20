@@ -74,7 +74,7 @@ func NewNotificationRouter(nc *nats.Conn, natsConfig *config.NATSConfig) (*Notif
 		return nil, fmt.Errorf("NOTIFICATIONS stream not found: %w", err)
 	}
 
-	log.Println("✅ NotificationRouter initialized with owner-based consumers")
+	// NotificationRouter initialized
 
 	return &NotificationRouter{
 		nc:                 nc,
@@ -152,11 +152,11 @@ func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFligh
 		metrics.ConsumerCreated.WithLabelValues(ownerID).Inc()
 		metrics.ActiveConsumers.WithLabelValues(ownerID).Set(1)
 
-		log.Printf("[NATS-CONSUMER] Created owner-%s (maxInFlight=%d)", ownerID, maxInFlight)
+		// Created NATS consumer for owner
 	} else {
 		// Consumer exists, update MaxAckPending (sum of all sessions)
 		r.updateConsumerMaxAckPending(ownerID)
-		log.Printf("[NATS-CONSUMER] Session %s joined owner-%s consumer", sessionID, ownerID)
+		// Session joined existing consumer
 	}
 
 	return nil
@@ -221,7 +221,7 @@ func (r *NotificationRouter) HandleDisconnect(sessionID string) error {
 		if err := r.js.DeleteConsumer(r.ctx, "NOTIFICATIONS", consumerName); err != nil {
 			log.Printf("⚠️ Failed to delete consumer %s: %v", consumerName, err)
 		} else {
-			log.Printf("[NATS-CONSUMER] Deleted %s", consumerName)
+			// Deleted NATS consumer
 		}
 
 		delete(r.consumers, ownerID)
@@ -236,7 +236,7 @@ func (r *NotificationRouter) HandleDisconnect(sessionID string) error {
 
 	r.mu.Unlock()
 
-	log.Printf("[DISCONNECT] Session %s disconnected", sessionID)
+	// Session disconnected
 	return nil
 }
 
@@ -286,12 +286,7 @@ func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract strin
 		return fmt.Errorf("failed to update consumer: %w", err)
 	}
 
-	contractInfo := "all contracts"
-	if contract != "" {
-		contractInfo = fmt.Sprintf("contract=%s", contract)
-	}
-	log.Printf("[SUBSCRIBE] Session %s subscribed to step=%s, %s", sessionID, stepName, contractInfo)
-
+	// Session subscribed
 	return nil
 }
 
@@ -306,7 +301,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 		return
 	}
 
-	log.Printf("🚀 Starting notification router for owner %s", ownerID)
+	// Starting notification router
 
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
 		// Parse notification
@@ -323,8 +318,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 		r.mu.RUnlock()
 
 		if len(matchingSessions) == 0 {
-			log.Printf("⚠️ No sessions subscribed to %s@%s for owner %s, ACKing",
-				notification.StepName, notification.ContractName, ownerID)
+			// No sessions subscribed, ACKing
 			msg.Ack()
 			return
 		}
@@ -360,8 +354,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 			return
 		}
 
-		log.Printf("📤 Routed notification %s to session %s (step=%s@%s)",
-			notification.NotificationID, targetSessionID, notification.StepName, notification.ContractName)
+		// Routed notification to session
 
 		// Track metrics
 		metrics.NotificationsSent.WithLabelValues(
@@ -385,7 +378,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 		consumeCtx.Stop()
 	}
 
-	log.Printf("🛑 Stopped notification router for owner %s", ownerID)
+	// Stopped notification router
 }
 
 // HandleAck handles client ACK using opaque ACK token
@@ -403,7 +396,7 @@ func (r *NotificationRouter) HandleAck(ackToken string) error {
 		return fmt.Errorf("failed to ACK NATS message: %w", err)
 	}
 
-	log.Printf("✅ ACKed NATS message sequence %d via reply subject", sequence)
+	// ACKed NATS message
 
 	// Track ACK metric (we don't have ownerID here, so track without label)
 	metrics.NotificationsAcked.WithLabelValues("unknown").Inc()
@@ -599,9 +592,9 @@ func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
 
 // Stop gracefully stops the notification router
 func (r *NotificationRouter) Stop() {
-	log.Println("🛑 Stopping notification router")
+	// Stopping notification router
 	r.cancel()
-	log.Println("✅ Notification router stopped")
+	// Notification router stopped
 }
 
 // createAckToken creates an opaque ACK token from sequence and reply subject

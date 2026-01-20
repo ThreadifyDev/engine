@@ -71,7 +71,7 @@ func main() {
 	if err := db.InitSchema(context.Background()); err != nil {
 		logger.Fatal("Failed to initialize schema", zap.Error(err))
 	}
-	logger.Info("Connected to PostgreSQL")
+	// Connected to PostgreSQL
 
 	// Connect to Redis/Valkey
 	redisHost := viper.GetString("redis.host")
@@ -83,7 +83,7 @@ func main() {
 		logger.Fatal("Failed to connect to Redis/Valkey", zap.Error(err))
 	}
 	defer valkeyService.Close()
-	logger.Info("Connected to Redis/Valkey")
+	// Connected to Redis/Valkey
 
 	// Initialize services
 	jwtSecret := viper.GetString("jwt.secret")
@@ -102,7 +102,7 @@ func main() {
 		natsArchivalPublisher = nil
 	} else {
 		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
-		logger.Info("NATS archival publisher initialized successfully")
+		// NATS archival publisher initialized
 	}
 
 	// Initialize step event service first
@@ -140,7 +140,7 @@ func main() {
 	}
 
 	invitationService := service.NewInvitationTokenService(jwtSecret)
-	log.Printf("Invitation service initialized with %d allowed roles", len(invitationConfig.AllowedRoles))
+	// Invitation service initialized
 
 	// Setup rate limiters with config
 	var rateLimitCfg config.RateLimitConfig
@@ -156,10 +156,7 @@ func main() {
 			ipRateLimiter.Cleanup(cleanupInterval)
 		}
 	}
-	log.Printf("✅ IP rate limiter initialized (enabled: %v, %d req/min, burst: %d)",
-		rateLimitCfg.PerIP.Enabled,
-		rateLimitCfg.PerIP.RequestsPerMinute,
-		rateLimitCfg.PerIP.Burst)
+	// IP rate limiter initialized
 
 	// Create bot scanner
 	var botScannerCfg config.BotScannerConfig
@@ -167,10 +164,7 @@ func main() {
 		log.Fatalf("Failed to load bot scanner config: %v", err)
 	}
 	botScanner := middleware.NewBotScanner(&botScannerCfg)
-	log.Printf("✅ Bot scanner initialized (enabled: %v, block_bots: %v, log_suspicious: %v)",
-		botScannerCfg.Enabled,
-		botScannerCfg.BlockKnownBots,
-		botScannerCfg.LogSuspicious)
+	// Bot scanner initialized
 
 	// Initialize notification router with NATS
 	var notificationRouter *handlers.NotificationRouter
@@ -180,9 +174,9 @@ func main() {
 			log.Fatalf("Failed to create notification router: %v", err)
 		}
 		defer notificationRouter.Stop()
-		log.Println("✅ Notification router initialized with session-based consumers")
+		// Notification router initialized
 	} else {
-		log.Println("⚠️ Notification router disabled (NATS not available)")
+		// Notification router disabled (NATS not available)
 	}
 
 	// Initialize GraphQL handler with cached thread repository and step state repository with PostgreSQL fallback
@@ -216,7 +210,7 @@ func main() {
 
 	// Initialize GraphQL resolver with batch loading repos
 	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo)
-	log.Printf("✅ GraphQL resolver created: %v", graphqlResolver != nil)
+	// GraphQL resolver created
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
 
@@ -229,7 +223,7 @@ func main() {
 	// Enable introspection for development (includes schema documentation)
 	graphqlHandler.Use(extension.Introspection{})
 
-	log.Printf("✅ GraphQL handler created with complexity limit: 1000 points", graphqlHandler != nil)
+	// GraphQL handler created with complexity limit: 1000
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)

@@ -131,7 +131,6 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 }
 
 func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
-	startTime := time.Now()
 	msgBytes, _ := json.Marshal(msg)
 
 	// Rate limit authenticated WebSocket messages (skip "connect" action)
@@ -172,8 +171,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 					maxInFlight = h.websocketConfig.MaxInFlightDefault
 				}
 				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn); err != nil {
-					log.Printf("Failed to create session consumer: %v", err)
-					// Don't fail the connect, just log
+					// Failed to create session consumer (non-fatal)
 				}
 			}
 		}
@@ -251,9 +249,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		}
 	}
 
-	// Log timing metrics
-	duration := time.Since(startTime)
-	log.Printf("[%s] Request processed in %v", action, duration)
+	// Request processed
 
 	return response
 }
@@ -323,14 +319,11 @@ func (h *WebSocketHandler) handleJoinThread(session *WSSession, req *models.Join
 // subscribeToNotifications subscribes a session to notifications for a thread
 func (h *WebSocketHandler) subscribeToNotifications(session *WSSession, threadID, scope string) {
 	if h.notificationConsumer == nil {
-		log.Println("[WS-NOTIFICATION] Notification consumer not available")
+		// Notification consumer not available
 		return
 	}
 
-	// Notification subscriptions are now handled by NotificationRouter via handleSubscribe
-	// Legacy NATS consumer subscription removed - using push-based model instead
-	log.Printf("[WS-NOTIFICATION] Subscribed user %s to thread %s notifications (scope: %s)\n",
-		session.ownerID, threadID, scope)
+	// Notification subscriptions handled by NotificationRouter
 }
 
 // unsubscribeFromNotifications unsubscribes a session from all thread notifications
@@ -347,7 +340,7 @@ func (h *WebSocketHandler) unsubscribeFromNotifications(session *WSSession) {
 	// Unsubscribe from all threads
 	for _, threadID := range threadIDs {
 		if err := h.notificationConsumer.Unsubscribe(threadID, ownerID); err != nil {
-			log.Printf("[WS-NOTIFICATION] Failed to unsubscribe from thread %s: %v\n", threadID, err)
+			// Failed to unsubscribe (non-fatal)
 		}
 	}
 
@@ -398,7 +391,7 @@ func (h *WebSocketHandler) handleSubscribe(session *WSSession, req *struct {
 
 	// Call notification router to update FilterSubjects
 	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName); err != nil {
-		log.Printf("[SUBSCRIBE] Failed to subscribe session %s: %v", session.sessionID, err)
+		// Failed to subscribe session
 		return models.ErrorResponse{
 			Action:  "subscribe",
 			Status:  "error",
@@ -406,12 +399,7 @@ func (h *WebSocketHandler) handleSubscribe(session *WSSession, req *struct {
 		}
 	}
 
-	contractInfo := "all contracts"
-	if contractName != "" {
-		contractInfo = fmt.Sprintf("contract=%s", contractName)
-	}
-	log.Printf("[SUBSCRIBE] Session %s subscribed to step=%s, %s",
-		session.sessionID, stepName, contractInfo)
+	// Session subscribed to notifications
 
 	return map[string]interface{}{
 		"action":  "subscribe",
@@ -433,8 +421,7 @@ func (h *WebSocketHandler) handleUnsubscribe(session *WSSession, req *struct {
 		}
 	}
 
-	// For MVP, unsubscribe is not implemented (consumer persists until disconnect)
-	log.Printf("[UNSUBSCRIBE] Session %s requested unsubscribe from %s (not implemented in MVP)", session.sessionID, req.StepName)
+	// Unsubscribe not implemented in MVP
 
 	return map[string]interface{}{
 		"action":  "unsubscribe",
@@ -457,17 +444,16 @@ func (h *WebSocketHandler) handleNotificationAck(session *WSSession, ackMsg *Not
 	if ackMsg.AckToken != "" {
 		// Stateless ACK using opaque token
 		if err := h.notificationRouter.HandleAck(ackMsg.AckToken); err != nil {
-			log.Printf("[WS-ACK] Error handling ACK: %v", err)
+			// Error handling ACK
 			return models.ErrorResponse{
 				Action:  "ack_notification",
 				Status:  "error",
 				Message: err.Error(),
 			}
 		}
-		log.Printf("[WS-ACK] ACKed notification with token")
+		// ACKed notification
 	} else {
-		// Fallback: old ACK format (just log for MVP)
-		log.Printf("[WS-ACK] Received old-format ACK for notification %s (no ackToken)", ackMsg.NotificationID)
+		// Old ACK format (no ackToken)
 	}
 
 	// Return success response

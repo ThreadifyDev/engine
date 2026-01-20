@@ -115,7 +115,7 @@ func main() {
 		log.Fatalf("Failed to connect to Valkey: %v", err)
 	}
 	defer valkeyClient.Close()
-	log.Println("Connected to Valkey")
+	// Connected to Valkey
 
 	// Initialize Postgres
 	pgURL := viper.GetString("postgres.url")
@@ -125,10 +125,9 @@ func main() {
 		log.Fatalf("Failed to connect to Postgres: %v", err)
 	}
 	defer db.Close()
-	log.Println("Connected to Postgres")
+	// Connected to Postgres
 
-	log.Println("Archiver service starting...")
-	log.Printf("Consumer group: %s\n", archiverConfig.Streams.ConsumerGroup)
+	// Archiver service starting
 
 	// Setup signal handling for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -144,7 +143,7 @@ func main() {
 		log.Printf("Warning: Failed to connect to NATS - archival will use Redis only: %v", err)
 	} else {
 		defer nc.Close()
-		log.Println("Connected to NATS")
+		// Connected to NATS
 
 		// Create NATS consumer for general archival
 		natsConsumer, err := archiver.NewNATSConsumer(
@@ -165,7 +164,7 @@ func main() {
 				}
 			}()
 			defer natsConsumer.Stop()
-			log.Println("NATS archival consumer started")
+			// NATS archival consumer started
 		}
 
 		// Create step state consumer
@@ -191,7 +190,7 @@ func main() {
 				}
 			}()
 			defer stepStateConsumer.Stop()
-			log.Println("Step state archival consumer started")
+			// Step state archival consumer started
 		}
 	}
 
@@ -204,12 +203,12 @@ func main() {
 		cancel()
 	}()
 
-	log.Println("Archiver service ready - using NATS JetStream for all archival")
+	log.Println("Archiver service ready")
 
 	// Block until shutdown signal
 	<-ctx.Done()
 
-	log.Println("Archiver service stopped")
+	// Archiver service stopped
 }
 
 func loadConfig(path string) (*Config, error) {
