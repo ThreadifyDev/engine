@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 )
@@ -15,6 +16,9 @@ var updateThreadStatusScript string
 
 //go:embed lua/grant_or_update_access.lua
 var grantOrUpdateAccessScript string
+
+//go:embed lua/check_user_rate_limit.lua
+var checkUserRateLimitScript string
 
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
@@ -36,6 +40,7 @@ func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	scripts := map[string]string{
 		"update_thread_status":   updateThreadStatusScript,
 		"grant_or_update_access": grantOrUpdateAccessScript,
+		"check_user_rate_limit":  checkUserRateLimitScript,
 	}
 
 	for name, script := range scripts {
@@ -97,4 +102,43 @@ func (m *LuaScriptManager) UpdateThreadStatus(
 	}
 
 	return "", fmt.Errorf("unexpected result type from script: %T", result)
+}
+
+// CheckUserRateLimit executes the check_user_rate_limit Lua script atomically
+// Returns true if request is allowed, false if rate limit exceeded
+func (m *LuaScriptManager) CheckUserRateLimit(
+	ctx context.Context,
+	userID string,
+	requestsPerMinute int,
+	windowSeconds int,
+) (bool, error) {
+	scriptHash, exists := m.scriptHashes["check_user_rate_limit"]
+	if !exists {
+		return false, fmt.Errorf("script check_user_rate_limit not loaded")
+	}
+
+	key := fmt.Sprintf("ratelimit:user:%s", userID)
+	nowUnix := time.Now().Unix()
+	windowStart := nowUnix - int64(windowSeconds)
+	ttl := windowSeconds * 2 // TTL = 2x window for cleanup
+
+	keys := []string{key}
+	args := []interface{}{
+		nowUnix,
+		windowStart,
+		requestsPerMinute,
+		ttl,
+	}
+
+	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
+	if err != nil {
+		return false, fmt.Errorf("failed to execute check_user_rate_limit: %w", err)
+	}
+
+	// Result is 1 (allowed) or 0 (denied)
+	if allowed, ok := result.(int64); ok {
+		return allowed == 1, nil
+	}
+
+	return false, fmt.Errorf("unexpected result type from script: %T", result)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 )
@@ -54,10 +55,11 @@ type NotificationRouter struct {
 	mu                 sync.RWMutex
 	ctx                context.Context
 	cancel             context.CancelFunc
+	natsConfig         *config.NATSConfig // NATS configuration
 }
 
 // NewNotificationRouter creates a new session-based notification router
-func NewNotificationRouter(nc *nats.Conn) (*NotificationRouter, error) {
+func NewNotificationRouter(nc *nats.Conn, natsConfig *config.NATSConfig) (*NotificationRouter, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
@@ -86,6 +88,7 @@ func NewNotificationRouter(nc *nats.Conn) (*NotificationRouter, error) {
 		ownerConsumerCount: make(map[string]int),
 		ctx:                ctx,
 		cancel:             cancel,
+		natsConfig:         natsConfig,
 	}, nil
 }
 
@@ -124,8 +127,8 @@ func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFligh
 			FilterSubjects:    []string{}, // Empty initially, updated on subscribe
 			AckPolicy:         jetstream.AckExplicitPolicy,
 			MaxAckPending:     maxInFlight,
-			AckWait:           30 * time.Second,
-			MaxDeliver:        3,
+			AckWait:           time.Duration(r.natsConfig.ConsumerAckWaitSeconds) * time.Second,
+			MaxDeliver:        r.natsConfig.ConsumerMaxDeliver,
 			DeliverPolicy:     jetstream.DeliverAllPolicy,
 			InactiveThreshold: 0,
 			Description:       fmt.Sprintf("Owner consumer for %s", ownerID),
@@ -553,8 +556,8 @@ func (r *NotificationRouter) updateConsumerMaxAckPending(ownerID string) error {
 		FilterSubjects:    allFilters,
 		AckPolicy:         jetstream.AckExplicitPolicy,
 		MaxAckPending:     maxAckPending,
-		AckWait:           30 * time.Second,
-		MaxDeliver:        3,
+		AckWait:           time.Duration(r.natsConfig.ConsumerAckWaitSeconds) * time.Second,
+		MaxDeliver:        r.natsConfig.ConsumerMaxDeliver,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		InactiveThreshold: 0,
 	})

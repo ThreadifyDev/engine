@@ -19,6 +19,7 @@ type Config struct {
 	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
 	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
 	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
+	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
 }
 
 // ServerConfig holds server configuration
@@ -70,9 +71,25 @@ type ThreadActivitiesConfig struct {
 
 // RateLimitConfig holds rate limiting configuration
 type RateLimitConfig struct {
-	RequestsPerSecond    int `yaml:"requests_per_second" mapstructure:"requests_per_second"`
-	BurstSize            int `yaml:"burst_size" mapstructure:"burst_size"`
-	CleanupIntervalHours int `yaml:"cleanup_interval_hours" mapstructure:"cleanup_interval_hours"`
+	Enabled         bool            `yaml:"enabled" mapstructure:"enabled"`
+	CleanupInterval string          `yaml:"cleanup_interval" mapstructure:"cleanup_interval"`
+	PerIP           IPLimitConfig   `yaml:"per_ip" mapstructure:"per_ip"`
+	PerUser         UserLimitConfig `yaml:"per_user" mapstructure:"per_user"`
+}
+
+// IPLimitConfig holds per-IP rate limiting configuration
+type IPLimitConfig struct {
+	Enabled           bool `yaml:"enabled" mapstructure:"enabled"`
+	RequestsPerMinute int  `yaml:"requests_per_minute" mapstructure:"requests_per_minute"`
+	Burst             int  `yaml:"burst" mapstructure:"burst"`
+}
+
+// UserLimitConfig holds per-user rate limiting configuration
+type UserLimitConfig struct {
+	Enabled           bool `yaml:"enabled" mapstructure:"enabled"`
+	RequestsPerMinute int  `yaml:"requests_per_minute" mapstructure:"requests_per_minute"`
+	Burst             int  `yaml:"burst" mapstructure:"burst"`
+	WindowSeconds     int  `yaml:"window_seconds" mapstructure:"window_seconds"`
 }
 
 // CacheConfig holds cache configuration
@@ -107,13 +124,19 @@ type TimeoutsConfig struct {
 
 // NATSConfig holds NATS configuration
 type NATSConfig struct {
-	URL            string `yaml:"url" mapstructure:"url"`
-	ClusterID      string `yaml:"cluster_id" mapstructure:"cluster_id"`
-	ClientID       string `yaml:"client_id" mapstructure:"client_id"`
-	StreamName     string `yaml:"stream_name" mapstructure:"stream_name"`
-	RetentionHours int    `yaml:"retention_hours" mapstructure:"retention_hours"`
-	MaxAgeHours    int    `yaml:"max_age_hours" mapstructure:"max_age_hours"`
-	AckWaitSeconds int    `yaml:"ack_wait_seconds" mapstructure:"ack_wait_seconds"`
+	URL                        string `yaml:"url" mapstructure:"url"`
+	ClusterID                  string `yaml:"cluster_id" mapstructure:"cluster_id"`
+	ClientID                   string `yaml:"client_id" mapstructure:"client_id"`
+	StreamName                 string `yaml:"stream_name" mapstructure:"stream_name"`
+	RetentionHours             int    `yaml:"retention_hours" mapstructure:"retention_hours"`
+	MaxAgeHours                int    `yaml:"max_age_hours" mapstructure:"max_age_hours"`
+	AckWaitSeconds             int    `yaml:"ack_wait_seconds" mapstructure:"ack_wait_seconds"`
+	ConsumerAckWaitSeconds     int    `yaml:"consumer_ack_wait_seconds" mapstructure:"consumer_ack_wait_seconds"`
+	ConsumerMaxDeliver         int    `yaml:"consumer_max_deliver" mapstructure:"consumer_max_deliver"`
+	ArchiverMaxDeliver         int    `yaml:"archiver_max_deliver" mapstructure:"archiver_max_deliver"`
+	ArchiverAckWaitSeconds     int    `yaml:"archiver_ack_wait_seconds" mapstructure:"archiver_ack_wait_seconds"`
+	NotificationsRetentionDays int    `yaml:"notifications_retention_days" mapstructure:"notifications_retention_days"`
+	DLQRetentionDays           int    `yaml:"dlq_retention_days" mapstructure:"dlq_retention_days"`
 }
 
 // NotificationSystemConfig holds notification system configuration
@@ -176,4 +199,13 @@ type StreamsConfig struct {
 type SecurityConfig struct {
 	HashChainSecrets        map[string]string `yaml:"hash_chain_secrets" mapstructure:"hash_chain_secrets"`
 	HashChainCurrentVersion string            `yaml:"hash_chain_current_version" mapstructure:"hash_chain_current_version"`
+}
+
+// WebSocketConfig holds WebSocket configuration
+type WebSocketConfig struct {
+	HandshakeTimeoutSeconds int `yaml:"handshake_timeout_seconds" mapstructure:"handshake_timeout_seconds"`
+	ReadBufferSize          int `yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize         int `yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	MaxInFlightMax          int `yaml:"max_in_flight_max" mapstructure:"max_in_flight_max"`
+	MaxInFlightDefault      int `yaml:"max_in_flight_default" mapstructure:"max_in_flight_default"`
 }

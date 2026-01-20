@@ -83,13 +83,15 @@ export class Threadify {
         ws.send(JSON.stringify(connectMessage));
       });
 
-      ws.on('message', (data) => {
+      // Set up one-time handler for connect response only
+      const connectHandler = (data) => {
         try {
           const message = JSON.parse(data.toString());
           connection._debugLog('Received message:', message.action);
 
           // Handle connect response
           if (message.action === 'connect') {
+            ws.off('message', connectHandler); // Remove this handler after connect
             if (message.status === 'success') {
               connection.isConnected = true;
               connection._debugLog('Connection successful');
@@ -98,17 +100,6 @@ export class Threadify {
               reject(new Error(message.message || 'Connection failed'));
               ws.close();
             }
-          }  // Don't process further for connect messages
-
-          // Handle even
-          if (connection.eventHandlers && message.action in connection.eventHandlers) {
-            connection.eventHandlers[message.action].forEach(handler => {
-              try {
-                handler(message);
-              } catch (e) {
-                console.error('Error in event handler:', e);
-              }
-            });
           }
         } catch (e) {
           connection._debugLog('Failed to parse WebSocket message:', e.message);
@@ -116,7 +107,9 @@ export class Threadify {
             console.error('[DEBUG] Raw data:', data.toString());
           }
         }
-      });
+      };
+      
+      ws.on('message', connectHandler);
 
       ws.on('error', (error) => {
         reject(new Error(`WebSocket error: ${error.message}`));

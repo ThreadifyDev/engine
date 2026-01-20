@@ -8,6 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 )
 
@@ -26,10 +27,11 @@ type NATSConsumer struct {
 	batchTimeout time.Duration
 	consumerName string
 	stopChan     chan struct{}
+	cfg          *config.Config
 }
 
 // NewNATSConsumer creates a new NATS consumer for archival
-func NewNATSConsumer(nc *nats.Conn, db *database.PostgresDB, batchSize int, batchTimeout time.Duration, consumerName string) (*NATSConsumer, error) {
+func NewNATSConsumer(nc *nats.Conn, db *database.PostgresDB, batchSize int, batchTimeout time.Duration, consumerName string, cfg *config.Config) (*NATSConsumer, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
@@ -43,6 +45,7 @@ func NewNATSConsumer(nc *nats.Conn, db *database.PostgresDB, batchSize int, batc
 		batchTimeout: batchTimeout,
 		consumerName: consumerName,
 		stopChan:     make(chan struct{}),
+		cfg:          cfg,
 	}, nil
 }
 
@@ -74,8 +77,8 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 	consumer, err := c.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		Durable:       fmt.Sprintf("archiver-%s", streamName),
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		MaxDeliver:    10,
-		AckWait:       30 * time.Second,
+		MaxDeliver:    c.cfg.NATS.ArchiverMaxDeliver,
+		AckWait:       time.Duration(c.cfg.NATS.ArchiverAckWaitSeconds) * time.Second,
 		FilterSubject: subject,
 	})
 	if err != nil {

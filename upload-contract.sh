@@ -7,11 +7,12 @@ API_KEY="api-key-123"
 OWNER_ID="user-123"
 COMPANY_ID="company-abc"
 CONTRACT_FILE="threadify-go/examples/contract_example.yaml"
-BASE_URL="http://localhost:8081"
+BASE_URL="https://eng.threadify.dev"
 
 echo "🔐 Logging in to get JWT token..."
 login_response=$(curl -s -X POST "$BASE_URL/v1/contracts/login" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
   -d "{\"api_key\": \"$API_KEY\", \"owner_id\": \"$OWNER_ID\"}")
 
 TOKEN=$(echo "$login_response" | jq -r '.token // empty')

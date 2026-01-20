@@ -142,18 +142,29 @@ func main() {
 	invitationService := service.NewInvitationTokenService(jwtSecret)
 	log.Printf("Invitation service initialized with %d allowed roles", len(invitationConfig.AllowedRoles))
 
-	// Setup rate limiter with config
-	rateLimitRPS := viper.GetFloat64("rate_limit.requests_per_second")
-	rateLimitBurst := viper.GetInt("rate_limit.burst_size")
-	rateLimitCleanupHours := viper.GetInt("rate_limit.cleanup_interval_hours")
+	// Setup rate limiters with config
+	var rateLimitCfg config.RateLimitConfig
+	if err := viper.UnmarshalKey("rate_limit", &rateLimitCfg); err != nil {
+		log.Fatalf("Failed to load rate limit config: %v", err)
+	}
 
-	rateLimiter := middleware.NewRateLimiter(rateLimitRPS, rateLimitBurst)
-	rateLimiter.Cleanup(time.Duration(rateLimitCleanupHours) * time.Hour)
+	// Create IP rate limiter (in-memory, per-pod)
+	ipRateLimiter := middleware.NewIPRateLimiter(&rateLimitCfg)
+	if rateLimitCfg.CleanupInterval != "" {
+		cleanupInterval, err := time.ParseDuration(rateLimitCfg.CleanupInterval)
+		if err == nil {
+			ipRateLimiter.Cleanup(cleanupInterval)
+		}
+	}
+	log.Printf("✅ IP rate limiter initialized (enabled: %v, %d req/min, burst: %d)",
+		rateLimitCfg.PerIP.Enabled,
+		rateLimitCfg.PerIP.RequestsPerMinute,
+		rateLimitCfg.PerIP.Burst)
 
 	// Initialize notification router with NATS
 	var notificationRouter *handlers.NotificationRouter
 	if natsClient != nil {
-		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn())
+		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn(), &cfg.NATS)
 		if err != nil {
 			log.Fatalf("Failed to create notification router: %v", err)
 		}
@@ -162,9 +173,6 @@ func main() {
 	} else {
 		log.Println("⚠️ Notification router disabled (NATS not available)")
 	}
-
-	// Create WebSocket handler with notification consumer and router
-	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService)
 
 	// Initialize GraphQL handler with cached thread repository and step state repository with PostgreSQL fallback
 	stepEventTTLHours := viper.GetInt("cache.step_event_ttl_hours")
@@ -185,6 +193,9 @@ func main() {
 	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
+
+	// Create WebSocket handler with notification consumer, router, and rate limiting
+	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService, luaScriptManager, &rateLimitCfg, &cfg.WebSocket)
 
 	// Initialize refs repository for batch loading
 	refsRepo := postgres.NewThreadRefsRepository(db.Pool)
@@ -216,8 +227,8 @@ func main() {
 	// Apply Prometheus metrics middleware
 	r.Use(middleware.PrometheusMiddleware())
 
-	// Apply rate limiting globally
-	r.Use(rateLimiter.Middleware())
+	// Apply IP rate limiting globally
+	r.Use(ipRateLimiter.Middleware())
 
 	// Prometheus metrics endpoint
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
@@ -239,27 +250,31 @@ func main() {
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
 	// GraphQL endpoints with custom auth wrapper
-	r.POST("/graphql", middleware.GraphQLAuthMiddleware(authService), func(c *gin.Context) {
-		// Extract user info from Gin context
-		ownerID, _ := c.Get("ownerID")
-		companyID, _ := c.Get("companyID")
-		role, _ := c.Get("role")
+	r.POST("/graphql",
+		middleware.GraphQLAuthMiddleware(authService),
+		middleware.UserRateLimiter(luaScriptManager, &rateLimitCfg),
+		func(c *gin.Context) {
+			// Extract user info from Gin context
+			ownerID, _ := c.Get("ownerID")
+			companyID, _ := c.Get("companyID")
+			role, _ := c.Get("role")
 
-		// Create new context with user info for GraphQL resolvers
-		ctx := context.WithValue(c.Request.Context(), "ownerID", ownerID)
-		ctx = context.WithValue(ctx, "companyID", companyID)
-		ctx = context.WithValue(ctx, "role", role)
+			// Create new context with user info for GraphQL resolvers
+			ctx := context.WithValue(c.Request.Context(), "ownerID", ownerID)
+			ctx = context.WithValue(ctx, "companyID", companyID)
+			ctx = context.WithValue(ctx, "role", role)
 
-		// Update request with enriched context
-		c.Request = c.Request.WithContext(ctx)
+			// Update request with enriched context
+			c.Request = c.Request.WithContext(ctx)
 
-		// Serve GraphQL with enriched context
-		graphqlHandler.ServeHTTP(c.Writer, c.Request)
-	})
+			// Serve GraphQL with enriched context
+			graphqlHandler.ServeHTTP(c.Writer, c.Request)
+		})
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authService))
+	v1.Use(middleware.UserRateLimiter(luaScriptManager, &rateLimitCfg))
 	{
 		v1.GET("/contracts", contractHandler.GetAllContracts)
 		v1.POST("/contracts", contractHandler.CreateContract)

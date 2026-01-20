@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,18 +13,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/utils"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin:      func(r *http.Request) bool { return true },
-	HandshakeTimeout: 10 * time.Second,
-	ReadBufferSize:   1024,
-	WriteBufferSize:  1024,
-}
+// upgrader will be initialized with config values
+var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
 	threadService        *service.ThreadService
@@ -33,6 +31,9 @@ type WebSocketHandler struct {
 	notificationRouter   *NotificationRouter
 	valkeyClient         interfaces.ValkeyClient
 	sessions             sync.Map
+	luaScriptManager     interfaces.LuaScriptManager
+	rateLimitConfig      *config.RateLimitConfig
+	websocketConfig      *config.WebSocketConfig
 }
 
 type WSSession struct {
@@ -54,7 +55,15 @@ type NotificationACKMessage struct {
 	AckToken       string `json:"ackToken"` // Opaque token for stateless ACK (base64 encoded)
 }
 
-func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient) *WebSocketHandler {
+func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient, luaScriptManager interfaces.LuaScriptManager, rateLimitConfig *config.RateLimitConfig, websocketConfig *config.WebSocketConfig) *WebSocketHandler {
+	// Initialize upgrader with config values
+	upgrader = websocket.Upgrader{
+		CheckOrigin:      func(r *http.Request) bool { return true },
+		HandshakeTimeout: time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
+		ReadBufferSize:   websocketConfig.ReadBufferSize,
+		WriteBufferSize:  websocketConfig.WriteBufferSize,
+	}
+
 	return &WebSocketHandler{
 		threadService:        threadService,
 		stepEventService:     stepEventService,
@@ -62,6 +71,9 @@ func NewWebSocketHandler(threadService *service.ThreadService, stepEventService 
 		notificationConsumer: notificationConsumer,
 		notificationRouter:   notificationRouter,
 		valkeyClient:         valkeyClient,
+		luaScriptManager:     luaScriptManager,
+		rateLimitConfig:      rateLimitConfig,
+		websocketConfig:      websocketConfig,
 	}
 }
 
@@ -122,6 +134,23 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	startTime := time.Now()
 	msgBytes, _ := json.Marshal(msg)
 
+	// Rate limit authenticated WebSocket messages (skip "connect" action)
+	if action != "connect" && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
+		allowed, err := h.luaScriptManager.CheckUserRateLimit(
+			context.Background(),
+			session.ownerID,
+			h.rateLimitConfig.PerUser.RequestsPerMinute,
+			h.rateLimitConfig.PerUser.WindowSeconds,
+		)
+		if err == nil && !allowed {
+			return models.ErrorResponse{
+				Action:  action,
+				Status:  "error",
+				Message: "Rate limit exceeded. Please slow down.",
+			}
+		}
+	}
+
 	var response interface{}
 	switch action {
 	case "connect":
@@ -137,10 +166,10 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 			// Create NATS consumer and start push for this session
 			if h.notificationRouter != nil {
-				// Use client-specified maxInFlight with validation
+				// Use client-specified maxInFlight with validation from config
 				maxInFlight := req.MaxInFlight
-				if maxInFlight < 1 || maxInFlight > 100 {
-					maxInFlight = 10 // Default if invalid or not specified
+				if maxInFlight < 1 || maxInFlight > h.websocketConfig.MaxInFlightMax {
+					maxInFlight = h.websocketConfig.MaxInFlightDefault
 				}
 				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn); err != nil {
 					log.Printf("Failed to create session consumer: %v", err)

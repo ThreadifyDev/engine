@@ -186,6 +186,7 @@ export class Connection {
 
       // Set up one-time listener for response
       const responseHandler = (data) => {
+        this._debugLog('[start] Response handler called with:', data.action, data.status);
         if (data.action === 'startThread') {
           if (data.status === 'success') {
             const threadInstance = new ThreadInstance(this, data.threadId, contractName, null, {});
@@ -194,11 +195,15 @@ export class Connection {
             this._debugLog(`Thread started: ${data.threadId}`);
             resolve(threadInstance);
           } else {
+            this._debugLog('[start] Failed:', data.message);
             reject(new Error(data.message || 'Failed to start thread'));
           }
+        } else {
+          this._debugLog('[start] Ignoring message with action:', data.action);
         }
       };
 
+      this._debugLog('[start] Setting up response handler and sending message:', message);
       this._onceResponse(responseHandler);
       this._send(message);
     });
@@ -333,6 +338,7 @@ export class Connection {
     const wrapper = (data) => {
       try {
         const message = JSON.parse(data.toString());
+        this._debugLog('[_onceResponse] Received message:', message.action, message.status);
         handler(message);
         this.ws.off('message', wrapper);
       } catch (e) {
@@ -340,6 +346,7 @@ export class Connection {
       }
     };
     this.ws.on('message', wrapper);
+    this._debugLog('[_onceResponse] Handler registered, waiting for response...');
   }
 
   /**
@@ -665,6 +672,7 @@ export class ThreadInstance {
   constructor(connection, threadId, contractId, role, refs) {
     this.connection = connection;
     this.threadId = threadId;
+    this.id = threadId; // Alias for backward compatibility
     this.contractId = contractId;
     this.role = role;
     this.refs = refs;
