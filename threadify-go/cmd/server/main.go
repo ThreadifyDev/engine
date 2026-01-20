@@ -161,6 +161,17 @@ func main() {
 		rateLimitCfg.PerIP.RequestsPerMinute,
 		rateLimitCfg.PerIP.Burst)
 
+	// Create bot scanner
+	var botScannerCfg config.BotScannerConfig
+	if err := viper.UnmarshalKey("bot_scanner", &botScannerCfg); err != nil {
+		log.Fatalf("Failed to load bot scanner config: %v", err)
+	}
+	botScanner := middleware.NewBotScanner(&botScannerCfg)
+	log.Printf("✅ Bot scanner initialized (enabled: %v, block_bots: %v, log_suspicious: %v)",
+		botScannerCfg.Enabled,
+		botScannerCfg.BlockKnownBots,
+		botScannerCfg.LogSuspicious)
+
 	// Initialize notification router with NATS
 	var notificationRouter *handlers.NotificationRouter
 	if natsClient != nil {
@@ -226,6 +237,9 @@ func main() {
 
 	// Apply Prometheus metrics middleware
 	r.Use(middleware.PrometheusMiddleware())
+
+	// Apply bot scanner first (before rate limiting)
+	r.Use(botScanner.Middleware())
 
 	// Apply IP rate limiting globally
 	r.Use(ipRateLimiter.Middleware())

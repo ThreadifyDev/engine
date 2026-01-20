@@ -20,6 +20,7 @@ type Config struct {
 	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
 	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
 	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
+	BotScanner         BotScannerConfig         `yaml:"bot_scanner" mapstructure:"bot_scanner"`
 }
 
 // ServerConfig holds server configuration
@@ -90,6 +91,9 @@ type UserLimitConfig struct {
 	RequestsPerMinute int  `yaml:"requests_per_minute" mapstructure:"requests_per_minute"`
 	Burst             int  `yaml:"burst" mapstructure:"burst"`
 	WindowSeconds     int  `yaml:"window_seconds" mapstructure:"window_seconds"`
+	CacheSize         int  `yaml:"cache_size" mapstructure:"cache_size"`               // Max cached users per pod
+	CacheTTLSeconds   int  `yaml:"cache_ttl_seconds" mapstructure:"cache_ttl_seconds"` // Cache TTL
+	RedisTimeoutMs    int  `yaml:"redis_timeout_ms" mapstructure:"redis_timeout_ms"`   // Redis timeout in milliseconds
 }
 
 // CacheConfig holds cache configuration
@@ -208,4 +212,12 @@ type WebSocketConfig struct {
 	WriteBufferSize         int `yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 	MaxInFlightMax          int `yaml:"max_in_flight_max" mapstructure:"max_in_flight_max"`
 	MaxInFlightDefault      int `yaml:"max_in_flight_default" mapstructure:"max_in_flight_default"`
+}
+
+// BotScannerConfig holds bot detection and prevention configuration
+type BotScannerConfig struct {
+	Enabled                bool `yaml:"enabled" mapstructure:"enabled"`
+	BlockKnownBots         bool `yaml:"block_known_bots" mapstructure:"block_known_bots"`
+	LogSuspicious          bool `yaml:"log_suspicious" mapstructure:"log_suspicious"`
+	CleanupIntervalMinutes int  `yaml:"cleanup_interval_minutes" mapstructure:"cleanup_interval_minutes"`
 }
