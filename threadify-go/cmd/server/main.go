@@ -227,7 +227,33 @@ func main() {
 
 	// Setup Gin router
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
+	r := gin.New()
+
+	// Add recovery middleware
+	r.Use(gin.Recovery())
+
+	// Add custom logger that skips bot/rate limit responses
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/metrics"},
+		Formatter: func(param gin.LogFormatterParams) string {
+			// Skip logging for bot blocks (403), rate limits (429), and scanner 404s
+			if param.StatusCode == 403 || param.StatusCode == 429 {
+				return ""
+			}
+			// Only log non-bot 404s (legitimate missing endpoints)
+			if param.StatusCode == 404 && param.Path != "/" {
+				return ""
+			}
+			return fmt.Sprintf("[GIN] %v | %3d | %13v | %15s | %-7s %#v\n",
+				param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+				param.StatusCode,
+				param.Latency,
+				param.ClientIP,
+				param.Method,
+				param.Path,
+			)
+		},
+	}))
 
 	// Apply Prometheus metrics middleware
 	r.Use(middleware.PrometheusMiddleware())

@@ -8,6 +8,34 @@ Build business process graphs with context—track what happened, validate every
 npm install @threadify/sdk
 ```
 
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [Core Concepts](#core-concepts) - Connection, Thread, Step, Contract
+3. [Common Scenarios](#common-scenarios) - Quick examples to get started
+   - [Track a Simple Workflow](#track-a-simple-workflow)
+   - [Link to External Systems](#link-to-external-systems)
+   - [Handle Failures](#handle-failures-gracefully)
+   - [Work with Contracts](#work-with-contracts-predefined-workflows)
+   - [Invite Others & Join Existing Threads](#invite-others--join-existing-threads)
+4. [Data Retrieval](#data-retrieval)
+   - [Connection Methods](#connection-methods)
+   - [ArchivedThread Methods](#archivedthread-methods)
+   - [ArchivedStep Methods](#archivedstep-methods)
+5. [Real-Time Notifications](#real-time-notifications)
+   - [Subscribing to Notifications](#subscribing-to-notifications)
+   - [Notification Object](#notification-object)
+   - [Subscription Patterns](#subscription-patterns)
+   - [Flow Control & HPA Support](#flow-control)
+6. [Data Structures](#data-structures)
+   - [ArchivedThread](#archivedthread-structure)
+   - [ArchivedStep](#archivedstep-structure)
+   - [ValidationResult](#validationresult-structure)
+   - [StepHistory](#stephistory-structure)
+7. [Support](#support)
+
+---
+
 ## Quick Start
 
 ```javascript
@@ -47,14 +75,12 @@ An atomic unit of work within a thread. Steps have:
 - **Idempotency**: Automatic deduplication based on name + context
 
 ### 4. **Contract**
-A YAML-defined workflow specification that enforces:
-- Entry point validation
-- Step existence checks
-- Required business context fields
-- Role-based access control
-- Step transitions (future)
+Optional YAML-defined workflow specifications that enforce validation rules. Contracts define entry points, valid transitions, required fields, and role-based access control.
 
----
+**Usage:**
+- `contractName` - Uses the latest version
+- `contractName:version` - Uses a specific version (e.g., `order_fulfillment:v2`)
+
 
 ## Common Scenarios
 
@@ -114,65 +140,91 @@ try {
 
 ### Work with Contracts (Predefined Workflows)
 
+Contracts enforce workflow structure and validate your steps automatically.
+
 ```javascript
-// Use a contract to enforce your workflow structure
+// Start with latest version of contract
 const thread = await connection.start('order_fulfillment', 'merchant');
 
-// Contract ensures you follow the right steps in the right order
+// Or use a specific version
+const thread2 = await connection.start('order_fulfillment:v2', 'merchant');
+
+// Contract validates: entry point, required fields, role access
 await thread.step('order_placed')
-  .addContext({ orderId: 'ORD-123' })
+  .addContext({ 
+    order_id: 'ORD-123',      // Required by contract
+    product_id: 'PROD-456',   // Required by contract
+    quantity: '2'             // Required by contract
+  })
   .success();
 
-// Threadify validates this is a valid next step
-await thread.step('payment_authorized')
-  .addContext({ authCode: 'AUTH-456' })
+// Contract ensures this is a valid next step for your role
+await thread.step('payment_processed')
+  .addContext({ 
+    payment_id: 'PAY-789',
+    amount: '99.99'
+  })
   .success();
 ```
 
-### Join an Existing Thread
+### Invite Others & Join Existing Threads
+
+Collaborate on threads by inviting external partners or joining existing workflows.
+
+**Inviting Others:**
+- Thread owners can create invitation tokens for external parties
+- Set role, permissions, and expiration time
+- Share token securely with partner
+- Partner uses token to join the thread
+
+**Joining Methods:**
+
+**1. Token-Based Join (External Parties)**
+- For external partners/services outside your organization
+- Requires an invitation token created by the thread owner
+- Token contains thread ID, role, permissions, and expiry
+- Secure, time-limited access
+
+**2. Direct Join (Internal Services)**
+- For services within the same organization
+- Only requires the thread ID and your role
+- Authentication via API key
+- Faster, simpler for internal collaboration
+
+---
 
 ```javascript
-// Token-based join (external party)
+// Creating an invitation token (if you're the thread owner):
+const invitationToken = await thread.inviteParty({
+  role: 'logistics',
+  permissions: 'read,write',
+  expiresIn: '48h'
+});
+// Share this token with external partner
+
+// METHOD 1: Token-Based Join (for external partners/services)
+// The thread owner creates an invitation token and shares it with you
 const thread = await connection.join('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
 
-// Direct join (internal service within same company)
+// METHOD 2: Direct Join (for internal services in same organization)
+// You just need the thread ID and specify your role
 const thread = await connection.join('thread-uuid-123', 'logistics');
 
-// Continue the workflow
+// Once joined, continue the workflow
 await thread.step('shipment_created')
-  .addContext({ trackingNumber: 'TRACK-456' })
+  .addContext({ 
+    trackingNumber: 'TRACK-456',
+    carrier: 'FedEx'
+  })
   .success();
+
 ```
 
 ---
 
-## Table of Contents
+## Data Retrieval
 
-1. [Core Concepts](#core-concepts) - Connection, Thread, Step, Contract
-2. [Common Scenarios](#common-scenarios) - Quick examples to get started
-   - [Track a Simple Workflow](#track-a-simple-workflow)
-   - [Link to External Systems](#link-to-external-systems)
-   - [Handle Failures](#handle-failures-gracefully)
-   - [Work with Contracts](#work-with-contracts-predefined-workflows)
-   - [Join an Existing Thread](#join-an-existing-thread)
-3. [Data Retrieval API](#data-retrieval-api)
-   - [Connection Methods](#connection-methods)
-   - [ArchivedThread Methods](#archivedthread-methods)
-   - [ArchivedStep Methods](#archivedstep-methods)
-4. [Real-Time Notifications](#real-time-notifications)
-   - [Subscribing to Notifications](#subscribing-to-notifications)
-   - [Notification Object](#notification-object)
-   - [Subscription Patterns](#subscription-patterns)
-   - [Flow Control & HPA Support](#flow-control)
-5. [Support](#support)
-
----
-
-## Data Retrieval API
-
-Threadify lets you build business process graphs with context—track what happened, validate every step, and trigger context-aware actions.
-
-This SDK provides a concise, modern GraphQL-based API for accessing all archived thread data, step history, and validations.
+Query archived thread data, step history, and validation results.
 
 ### Connection Methods
 
@@ -180,37 +232,22 @@ This SDK provides a concise, modern GraphQL-based API for accessing all archived
 
 Get a thread by ID with access to all its data.
 
-**Parameters:**
-- `threadId` (string, required): Thread ID
-
-**Returns:** `Promise<ArchivedThread>`
-
-**Example:**
 ```javascript
 const thread = await connection.getThread('thread-uuid-123');
 // thread.id, thread.status, thread.contractName
 ```
 
+**Returns:** [`Promise<ArchivedThread>`](#archivedthread-structure)
+
 ---
 
-#### `connection.getThreadsByRef({ refKey, refValue, ...filters })`
+#### `connection.getThreadsByRef(options)`
 
 Find threads by external reference with optional server-side filtering.
 
-**Parameters:**
-- `refKey` (string, required): Reference key (e.g., "orderId")
-- `refValue` (string, required): Reference value (e.g., "ORDER-12345")
-- `status` (string, optional): Filter by status ("active", "completed", etc.)
-- `startedAfter` (string, optional): ISO timestamp - only threads started after this time
-- `startedBefore` (string, optional): ISO timestamp - only threads started before this time
-- `limit` (number, optional): Maximum results (default: 50)
-- `offset` (number, optional): Pagination offset (default: 0)
-
-**Returns:** `Promise<Array<ArchivedThread>>`
-
-**Example:**
 ```javascript
 const threads = await connection.getThreadsByRef({ refKey: 'orderId', refValue: 'ORDER-12345' });
+
 // With filters: status, time range, pagination
 const filtered = await connection.getThreadsByRef({ 
   refKey: 'orderId', 
@@ -221,6 +258,8 @@ const filtered = await connection.getThreadsByRef({
 });
 ```
 
+**Returns:** [`Promise<Array<ArchivedThread>>`](#archivedthread-structure)
+
 ---
 
 ### ArchivedThread Methods
@@ -229,19 +268,13 @@ const filtered = await connection.getThreadsByRef({
 
 Get all steps for this thread, optionally filtered.
 
-**Parameters:**
-- `filters` (object, optional):
-  - `stepName` (string): Filter by step name
-  - `idempotencyKey` (string): Filter by idempotency key
-
-**Returns:** `Promise<Array<ArchivedStep>>`
-
-**Example:**
 ```javascript
 const allSteps = await thread.steps(); // all steps
 const stepsByName = await thread.steps({ stepName: 'order_placed' }); // filter by name
 const stepsByNameAndIdemp = await thread.steps({ stepName: 'order_placed', idempotencyKey: 'order-123' }); // filter by name and idempKey
 ```
+
+**Returns:** [`Promise<Array<ArchivedStep>>`](#archivedstep-structure)
 
 ---
 
@@ -249,81 +282,58 @@ const stepsByNameAndIdemp = await thread.steps({ stepName: 'order_placed', idemp
 
 Get a specific step by name or "name:idempotencyKey".
 
-**Parameters:**
-- `stepIdentifier` (string, required): Step name or "stepName:idempKey"
-
-**Returns:** `Promise<ArchivedStep>`
-
-**Example:**
 ```javascript
 const step = await thread.getStep('order_placed'); // by step name
 const stepWithIdemp = await thread.getStep('order_placed:order-123'); // by stepName:idempKey
 ```
 
+**Returns:** [`Promise<ArchivedStep>`](#archivedstep-structure)
+
 ---
 
 #### `thread.validationResults(options)`
 
-Get validation results for this thread.
+Get validation results (contract violations, timeouts, etc.) for this thread.
 
-**Parameters:**
-- `options` (object, optional):
-  - `limit` (number): Maximum results to return
-  - `stepName` (string): Filter by step name
-  - `validationType` (string): Filter by validation type
-
-**Returns:** `Promise<Array<ValidationResult>>`
-
-**Example:**
 ```javascript
 const validations = await thread.validationResults({ limit: 10 });
-// validations is an array of ValidationResult objects
+validations.forEach(v => {
+  if (v.hasCriticalViolation) {
+    console.log(`❌ ${v.stepName}: ${v.validations[0].message}`);
+  }
+});
 ```
+
+**Returns:** [`Promise<Array<ValidationResult>>`](#validationresult-structure)
 
 ---
 
-#### `thread.getCompleteData(options)` ⭐ **NEW**
+#### `thread.getCompleteData(options)`
 
-Get complete thread picture with all nested data in a **single GraphQL query**. This is the most efficient way to retrieve all thread data.
+Get complete thread data with all nested steps, history, and validations in a single request.
 
-**Parameters:**
-- `options` (object, optional):
-  - `stepHistoryLimit` (number): Limit for step history per step (default: 50)
-  - `validationLimit` (number): Limit for validation results (default: 10)
-  - `stepName` (string): Filter steps by name
-  - `idempotencyKey` (string): Filter steps by idempotency key
-
-**Returns:** `Promise<Object>` with structure:
 ```javascript
-{
-  id, contractId, contractVersion, contractName,
-  ownerId, companyId, status, lastHash, refs,
-  startedAt, completedAt, error,
-  steps: [{
-    threadId, stepName, idempotencyKey, status,
-    retryCount, firstSeenAt, lastUpdatedAt,
-    latestStepID, previousStep,
-    history: [{ attempt, timestamp, status, context, duration, error }]
-  }],
-  validationResults: [{
-    validationId, threadId, stepId, stepName,
-    idempotencyKey, timestamp, overallStatus,
-    hasCriticalViolation, criticalCount, warningCount,
-    validations: [{ type, message, field, expected, actual, rule }]
-  }]
-}
+const data = await thread.getCompleteData({ stepHistoryLimit: 50, validationLimit: 10 });
+
+console.log(`Thread: ${data.id}`);
+console.log(`Status: ${data.status}`);
+console.log(`Steps: ${data.steps.length}`);
+console.log(`Validations: ${data.validationResults.length}`);
+
+// Access nested data
+data.steps.forEach(step => {
+  console.log(`${step.stepName}: ${step.status}`);
+  step.history.forEach(h => {
+    console.log(`  ${h.timestamp}: ${h.status}`);
+  });
+});
 ```
 
-**Example:**
-```javascript
-const completeData = await thread.getCompleteData({ stepHistoryLimit: 50, validationLimit: 10 });
-// completeData.steps, completeData.validationResults, etc.
-```
+**Returns:** [Complete thread object](#complete-thread-data-structure) with nested steps, history, and validations
 
 **Benefits:**
-- ✅ Single network request (much faster)
+- ✅ Single network request
 - ✅ Atomic data snapshot
-- ✅ Reduced server load
 - ✅ Perfect for dashboards and audit trails
 
 ---
@@ -334,29 +344,17 @@ const completeData = await thread.getCompleteData({ stepHistoryLimit: 50, valida
 
 Get execution history for this step.
 
-**Parameters:**
-- `options` (object, optional):
-  - `limit` (number): Maximum records (default: 100)
-  - `offset` (number): Pagination offset (default: 0)
-  - `startAt` (string): ISO timestamp to filter from
-  - `endAt` (string): ISO timestamp to filter to
-  - `activityType` (string): Filter by activity type
-  - `actor` (string): Filter by actor
-
-**Returns:** `Promise<Array<StepHistory>>`
-
-**Example:**
 ```javascript
 const step = await thread.getStep('order_placed');
 const history = await step.history({ limit: 100 }); // all history
 const filtered = await step.history({ limit: 10, activityType: 'step_recorded', startAt: '2026-01-01T00:00:00Z' }); // filtered
 ```
 
+**Returns:** [`Promise<Array<StepHistory>>`](#stephistory-structure)
+
 ---
 
-## Data Retrieval Examples
-
-### Example: Complete Thread Audit Trail
+### Complete Thread Audit Trail
 
 ```javascript
 import { Threadify } from 'threadify-sdk';
@@ -396,7 +394,7 @@ completeData.validationResults.forEach(val => {
 });
 ```
 
-### Example: Find Threads by Reference
+### Find Threads by Reference
 
 ```javascript
 // Find all threads for a specific order
@@ -415,7 +413,7 @@ for (const thread of threads) {
 }
 ```
 
-### Example: Step-Level Analysis
+### Step-Level Analysis
 
 ```javascript
 const thread = await connection.getThread('thread-uuid');
@@ -454,11 +452,6 @@ Subscribe to validation events using these methods:
 - **`connection.onCompleted(stepName, handler)`** - Successful completions
 - **`connection.onFailed(stepName, handler)`** - Step failures
 
-**Parameters:**
-- `stepName` (string): Step name or "contract@stepName" for contract-specific
-- `handler` (function): Callback `(notification) => {}`
-
-**Example:**
 ```javascript
 // All contracts
 connection.onViolation('order_placed', (notification) => {
@@ -508,7 +501,6 @@ Each notification has the following properties:
 
 Acknowledge receipt and processing of the notification. **You must call this** to prevent redelivery.
 
-**Example:**
 ```javascript
 connection.onViolation('order_placed', (notification) => {
   // Process the notification
@@ -567,12 +559,167 @@ connection.onViolation('order_placed', async (notification) => {
 
 ---
 
+## Data Structures
+
+Detailed structure of objects returned by data retrieval methods.
+
+### ArchivedThread Structure
+
+Returned by `getThread()` and `getThreadsByRef()`.
+
+```javascript
+{
+  id: string,
+  contractId: string,
+  contractVersion: string,
+  contractName: string,
+  ownerId: string,
+  companyId: string,
+  status: 'active' | 'completed' | 'failed',
+  lastHash: string,
+  refs: { [key: string]: string },  // External references
+  startedAt: string,                 // ISO timestamp
+  completedAt: string,               // ISO timestamp
+  error: string                      // Error message if failed
+}
+```
+
+---
+
+### ArchivedStep Structure
+
+Returned by `thread.steps()` and `thread.getStep()`.
+
+```javascript
+{
+  threadId: string,
+  stepName: string,
+  idempotencyKey: string,
+  status: 'in_progress' | 'success' | 'failed' | 'error' | 'skipped',
+  retryCount: number,
+  firstSeenAt: string,    // ISO timestamp
+  lastUpdatedAt: string,  // ISO timestamp
+  latestStepID: string,   // UUID of latest attempt
+  previousStep: string    // Previous step name
+}
+```
+
+---
+
+### ValidationResult Structure
+
+Returned by `thread.validationResults()`.
+
+```javascript
+{
+  validationId: string,
+  threadId: string,
+  stepName: string,
+  timestamp: string,      // ISO timestamp
+  overallStatus: 'critical' | 'warning' | 'info',
+  hasCriticalViolation: boolean,
+  criticalCount: number,
+  warningCount: number,
+  validations: [{
+    type: string,        // e.g., 'invalid_transition', 'timeout', 'missing_field'
+    message: string,     // Human-readable description
+    severity: 'critical' | 'warning' | 'info',
+    field: string,       // Affected field (if applicable)
+    expected: any,       // Expected value
+    actual: any          // Actual value
+  }]
+}
+```
+
+---
+
+### StepHistory Structure
+
+Returned by `step.history()`.
+
+```javascript
+{
+  attempt: number,        // Retry attempt number
+  timestamp: string,      // ISO timestamp
+  status: 'in_progress' | 'success' | 'failed' | 'error' | 'skipped',
+  context: object,        // Business context data
+  duration: number,       // Execution time in ms
+  error: string          // Error message if failed
+}
+```
+
+---
+
+### Complete Thread Data Structure
+
+Returned by `thread.getCompleteData()`.
+
+```javascript
+{
+  // Thread metadata (same as ArchivedThread)
+  id: string,
+  contractId: string,
+  contractVersion: string,
+  contractName: string,
+  ownerId: string,
+  companyId: string,
+  status: 'active' | 'completed' | 'failed',
+  lastHash: string,
+  refs: { [key: string]: string },
+  startedAt: string,
+  completedAt: string,
+  error: string,
+  
+  // Nested step data
+  steps: [{
+    threadId: string,
+    stepName: string,
+    idempotencyKey: string,
+    status: string,
+    retryCount: number,
+    firstSeenAt: string,
+    lastUpdatedAt: string,
+    latestStepID: string,
+    previousStep: string,
+    
+    // Nested history for each step
+    history: [{
+      attempt: number,
+      timestamp: string,
+      status: string,
+      context: object,
+      duration: number,
+      error: string
+    }]
+  }],
+  
+  // Nested validation results
+  validationResults: [{
+    validationId: string,
+    threadId: string,
+    stepName: string,
+    timestamp: string,
+    overallStatus: string,
+    hasCriticalViolation: boolean,
+    criticalCount: number,
+    warningCount: number,
+    validations: [{
+      type: string,
+      message: string,
+      severity: string,
+      field: string,
+      expected: any,
+      actual: any
+    }]
+  }]
+}
+```
+
+---
+
 ## Support
 
 For issues, questions, or contributions:
-- GitHub: [ThreadifyEngine Repository]
-- Documentation: This file
-- Examples: See `/tests/e2e-validation.test.js`
-- Examples: See `/tests/e2e-data-retrieval.test.js`
+- Email: [support@threadify.dev](mailto:support@threadify.dev)
 
 ---

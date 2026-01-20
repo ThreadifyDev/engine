@@ -1,6 +1,6 @@
 {
   "name": "@threadify/sdk",
-  "version": "0.0.2",
+  "version": "0.1.1",
   "description": "JavaScript SDK for Threadify Engine - Real-time thread management and event tracking",
   "main": "src/index.js",
   "type": "module",
