@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
 	"github.com/threadify/engine/internal/archiver"
+	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"gopkg.in/yaml.v3"
 )
@@ -98,6 +99,12 @@ func main() {
 		log.Fatalf("Failed to read viper config: %v", err)
 	}
 
+	// Load full config for NATS consumer (after viper is initialized)
+	fullConfig, err := appconfig.LoadFromViper()
+	if err != nil {
+		log.Fatalf("Failed to load full config: %v", err)
+	}
+
 	redisHost := viper.GetString("redis.host")
 	redisPort := viper.GetInt("redis.port")
 	redisPassword := viper.GetString("redis.password")
@@ -146,6 +153,7 @@ func main() {
 			archiverConfig.Streams.BatchSize,
 			archiverConfig.Streams.BlockTimeout,
 			"archiver-nats-1",
+			fullConfig,
 		)
 		if err != nil {
 			log.Printf("Warning: Failed to create NATS consumer: %v", err)

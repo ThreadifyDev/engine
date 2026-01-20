@@ -47,12 +47,51 @@ An atomic unit of work within a thread. Steps have:
 - **Idempotency**: Automatic deduplication based on name + context
 
 ### 4. **Contract**
-A YAML-defined workflow specification that enforces:
-- Entry point validation
-- Step existence checks
-- Required business context fields
-- Role-based access control
-- Step transitions (future)
+A YAML-defined workflow specification that enforces validation rules for your threads. Contracts define the structure and requirements of your workflows.
+
+**What Contracts Provide:**
+- **Entry Points**: Which steps can start a thread
+- **Step Definitions**: Valid step names and their requirements
+- **Required Context**: Business data fields that must be present
+- **Role-Based Access**: Which services/roles can execute each step
+- **Validation Rules**: Automatic checking of workflow correctness
+
+**Contract Formats:**
+- `contractName` - Uses the latest version
+- `contractName:version` - Uses a specific version (e.g., `order_fulfillment:v2`)
+
+**Example Contract (YAML):**
+```yaml
+name: order_fulfillment
+version: "1.0"
+entry_points:
+  - order_placed
+steps:
+  order_placed:
+    roles: [merchant]
+    business_context:
+      required: [order_id, product_id, quantity]
+      optional: [customer_notes]
+  payment_processed:
+    roles: [merchant, payment_service]
+    business_context:
+      required: [payment_id, amount]
+```
+
+### 5. **Joining Threads**
+There are two ways to join an existing thread:
+
+**Token-Based Join (External Parties):**
+- Used when inviting external partners/services outside your organization
+- Requires an invitation token (JWT) created by the thread owner
+- Token contains thread ID, role, permissions, and expiry
+- Secure way to grant temporary access
+
+**Direct Join (Internal Services):**
+- Used by services within the same organization
+- Only requires the thread ID and your role
+- No token needed - authentication via API key
+- Faster and simpler for internal collaboration
 
 ---
 
@@ -114,34 +153,61 @@ try {
 
 ### Work with Contracts (Predefined Workflows)
 
+Contracts enforce workflow structure and validate your steps automatically.
+
 ```javascript
-// Use a contract to enforce your workflow structure
+// Start with latest version of contract
 const thread = await connection.start('order_fulfillment', 'merchant');
 
-// Contract ensures you follow the right steps in the right order
+// Or use a specific version
+const thread2 = await connection.start('order_fulfillment:v2', 'merchant');
+
+// Contract validates: entry point, required fields, role access
 await thread.step('order_placed')
-  .addContext({ orderId: 'ORD-123' })
+  .addContext({ 
+    order_id: 'ORD-123',      // Required by contract
+    product_id: 'PROD-456',   // Required by contract
+    quantity: '2'             // Required by contract
+  })
   .success();
 
-// Threadify validates this is a valid next step
-await thread.step('payment_authorized')
-  .addContext({ authCode: 'AUTH-456' })
+// Contract ensures this is a valid next step for your role
+await thread.step('payment_processed')
+  .addContext({ 
+    payment_id: 'PAY-789',
+    amount: '99.99'
+  })
   .success();
 ```
 
 ### Join an Existing Thread
 
+Two ways to join depending on whether you're internal or external to the organization.
+
 ```javascript
-// Token-based join (external party)
+// METHOD 1: Token-Based Join (for external partners/services)
+// The thread owner creates an invitation token and shares it with you
 const thread = await connection.join('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
 
-// Direct join (internal service within same company)
+// METHOD 2: Direct Join (for internal services in same organization)
+// You just need the thread ID and specify your role
 const thread = await connection.join('thread-uuid-123', 'logistics');
 
-// Continue the workflow
+// Once joined, continue the workflow
 await thread.step('shipment_created')
-  .addContext({ trackingNumber: 'TRACK-456' })
+  .addContext({ 
+    trackingNumber: 'TRACK-456',
+    carrier: 'FedEx'
+  })
   .success();
+
+// Creating an invitation token (if you're the thread owner):
+const invitationToken = await thread.inviteParty({
+  role: 'logistics',
+  permissions: 'read,write',
+  expiresIn: '48h'
+});
+// Share this token with external partner
 ```
 
 ---
@@ -282,7 +348,7 @@ const validations = await thread.validationResults({ limit: 10 });
 
 ---
 
-#### `thread.getCompleteData(options)` ⭐ **NEW**
+#### `thread.getCompleteData(options)`
 
 Get complete thread picture with all nested data in a **single GraphQL query**. This is the most efficient way to retrieve all thread data.
 
@@ -572,7 +638,5 @@ connection.onViolation('order_placed', async (notification) => {
 For issues, questions, or contributions:
 - GitHub: [ThreadifyEngine Repository]
 - Documentation: This file
-- Examples: See `/tests/e2e-validation.test.js`
-- Examples: See `/tests/e2e-data-retrieval.test.js`
 
 ---
