@@ -101,13 +101,22 @@ export class ArchivedThread {
 
   /**
    * Get all steps for this thread
-   * @param {Object} filters - Optional filters
-   * @param {string} filters.stepName - Filter by step name
-   * @param {string} filters.idempotencyKey - Filter by idempotency key
-   * @param {string} filters.status - Filter by status (success, failed, error)
+   * @param {string} stepIdentifier - Optional filter: "stepName" or "stepName:idempotencyKey"
+   * @param {Object} options - Optional query options
+   * @param {string} options.status - Filter by status (success, failed, error)
    * @returns {Promise<Array<ArchivedStep>>}
    */
-  async steps(filters = {}) {
+  async steps(stepIdentifier = null, options = {}) {
+    let stepName = null;
+    let idempotencyKey = null;
+
+    // Parse stepIdentifier if provided
+    if (stepIdentifier) {
+      [stepName, idempotencyKey] = stepIdentifier.split(':');
+    }
+
+    const status = options.status || null;
+
     const query = `
       query GetThreadSteps($threadId: ID!, $stepName: String, $idempotencyKey: String, $status: String) {
         thread(id: $threadId) {
@@ -123,9 +132,9 @@ export class ArchivedThread {
 
     const variables = {
       threadId: this.id,
-      stepName: filters.stepName || null,
-      idempotencyKey: filters.idempotencyKey || null,
-      status: filters.status || null
+      stepName,
+      idempotencyKey,
+      status
     };
 
     const data = await this.graphqlClient.query(query, variables);
@@ -139,31 +148,6 @@ export class ArchivedThread {
     );
   }
 
-  /**
-   * Get a specific step by name or name:idempotencyKey
-   * @param {string} stepIdentifier - Step name or "stepName:idempKey"
-   * @returns {Promise<ArchivedStep>}
-   */
-  async getStep(stepIdentifier) {
-    const [stepName, idempotencyKey] = stepIdentifier.split(':');
-    
-    const steps = await this.steps({ 
-      stepName, 
-      idempotencyKey: idempotencyKey || null 
-    });
-
-    if (steps.length === 0) {
-      throw new Error(`Step not found: ${stepIdentifier}`);
-    }
-
-    // If idempotencyKey provided, return exact match
-    if (idempotencyKey) {
-      return steps[0];
-    }
-
-    // If only stepName, return first (or could return all attempts)
-    return steps[0];
-  }
 
   /**
    * Get validation results for this thread

@@ -86,27 +86,6 @@ export class Connection {
     return this._getDataRetriever().getThreadsByRef(refQuery);
   }
 
-  /**
-   * Get archived step from a thread
-   * @param {string} threadId - Thread ID
-   * @param {string} stepName - Step name
-   * @param {string} idempotencyKey - Optional idempotency key
-   * @returns {Promise<ArchivedStep>} - Archived step
-   */
-  async getStep(threadId, stepName, idempotencyKey = null) {
-    return this._getDataRetriever().getStep(threadId, stepName, idempotencyKey);
-  }
-
-  /**
-   * Get step history
-   * @param {string} threadId - Thread ID
-   * @param {string} stepName - Step name
-   * @param {Object} options - History options
-   * @returns {Promise<Array>} - Step history
-   */
-  async getStepHistory(threadId, stepName, options = {}) {
-    return this._getDataRetriever().getStepHistory(threadId, stepName, options);
-  }
 
   /**
    * Get validation results for a thread

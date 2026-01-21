@@ -46,10 +46,9 @@ func NewBotScanner(cfg *config.BotScannerConfig) *BotScanner {
 		suspiciousIPs:   make(map[string]*IPBehavior),
 		cleanupInterval: time.Duration(cfg.CleanupIntervalMinutes) * time.Minute,
 		knownBotPatterns: []string{
-			"bot", "crawler", "spider", "scraper", "curl", "wget",
-			"python-requests", "go-http-client", "java", "perl",
 			"scanner", "nikto", "nmap", "masscan", "sqlmap",
 			"havij", "acunetix", "nessus", "openvas", "metasploit",
+			"burpsuite", "zaproxy", "w3af", "skipfish",
 		},
 		suspiciousPaths: []string{
 			"/admin", "/wp-admin", "/phpmyadmin", "/.env", "/.git",
@@ -127,11 +126,26 @@ func (bs *BotScanner) Middleware() gin.HandlerFunc {
 
 // isKnownBot checks if user agent matches known bot patterns
 func (bs *BotScanner) isKnownBot(userAgent string) bool {
+	// Allow empty user agents (some legitimate clients don't set it)
 	if userAgent == "" {
-		return true // Empty user agent is suspicious
+		return false
 	}
 
 	lowerUA := strings.ToLower(userAgent)
+
+	// Whitelist legitimate API clients and SDKs
+	legitimate := []string{
+		"threadify",                            // Our own SDK
+		"axios", "fetch", "okhttp", "retrofit", // Common HTTP clients
+		"postman", "insomnia", "paw", // API testing tools
+	}
+	for _, legit := range legitimate {
+		if strings.Contains(lowerUA, legit) {
+			return false
+		}
+	}
+
+	// Only block obvious malicious patterns
 	for _, pattern := range bs.knownBotPatterns {
 		if strings.Contains(lowerUA, pattern) {
 			return true
@@ -213,45 +227,41 @@ func (bs *BotScanner) isBlocked(ip string) bool {
 // isSuspiciousBehavior detects suspicious patterns
 func (bs *BotScanner) isSuspiciousBehavior(ip string) bool {
 	bs.mu.RLock()
-	defer bs.mu.RUnlock()
-
 	behavior, exists := bs.suspiciousIPs[ip]
 	if !exists {
+		bs.mu.RUnlock()
 		return false
 	}
 
-	// Check for suspicious patterns
+	// Check for suspicious patterns (read-only, no blocking yet)
 	timeSinceFirst := time.Since(behavior.FirstSeen)
+	shouldBlock := false
 
 	// Too many requests in short time (>100 req/min)
 	if timeSinceFirst < time.Minute && behavior.RequestCount > 100 {
-		bs.mu.RUnlock()
-		bs.blockIP(ip)
-		bs.mu.RLock()
-		return true
+		shouldBlock = true
 	}
 
 	// High 404 rate (>50% of requests)
 	if behavior.RequestCount > 10 && float64(behavior.NotFoundCount)/float64(behavior.RequestCount) > 0.5 {
-		bs.mu.RUnlock()
-		bs.blockIP(ip)
-		bs.mu.RLock()
-		return true
+		shouldBlock = true
 	}
 
 	// Multiple user agents from same IP (>5 different UAs)
 	if len(behavior.UserAgents) > 5 {
-		bs.mu.RUnlock()
-		bs.blockIP(ip)
-		bs.mu.RLock()
-		return true
+		shouldBlock = true
 	}
 
 	// High suspicious request rate (>30% suspicious)
 	if behavior.RequestCount > 20 && float64(behavior.SuspiciousCount)/float64(behavior.RequestCount) > 0.3 {
-		bs.mu.RUnlock()
+		shouldBlock = true
+	}
+
+	bs.mu.RUnlock()
+
+	// Block IP if suspicious (acquire write lock separately)
+	if shouldBlock {
 		bs.blockIP(ip)
-		bs.mu.RLock()
 		return true
 	}
 

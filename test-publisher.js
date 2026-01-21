@@ -29,8 +29,10 @@ const NOTIFICATION_COUNT = parseInt(process.env.NOTIFICATION_COUNT) || parseInt(
 const STEP_NAME = process.env.STEP_NAME || process.argv.find(arg => arg.startsWith('--step='))?.split('=')[1] || 'order_placed';
 
 // Test state
-let connection;
+let connection = null;
 let publishedCount = 0;
+let failedCount = 0;
+let publishLatencies = [];
 
 // Colors for console output
 const colors = {
@@ -72,6 +74,7 @@ async function connect() {
   logInfo('Connecting to Threadify...');
   connection = await Threadify.connect(API_KEY, SERVICE_NAME, {
     url: WS_URL,
+    debug: true,
   });
   
   logSuccess('Connected to Threadify');
@@ -81,6 +84,8 @@ async function connect() {
 // Publish a notification
 async function publishNotification(index) {
   try {
+    const startTime = Date.now();
+    
     logInfo(`[${index + 1}/${NOTIFICATION_COUNT}] Starting thread...`);
     const thread = await connection.start('product_delivery', 'merchant');
     
@@ -93,10 +98,13 @@ async function publishNotification(index) {
       })
       .success();
     
-    publishedCount++;
-    logPublish(`Published notification ${index + 1}: ${STEP_NAME} (thread: ${thread.id.substring(0, 8)}...)`);
+    const latency = Date.now() - startTime;
+    publishLatencies.push(latency);
     
+    publishedCount++;
+    logPublish(`Published notification ${index + 1}: ${STEP_NAME} (thread: ${thread.id.substring(0, 8)}...) [${latency}ms]`);
   } catch (error) {
+    failedCount++;
     logError(`Failed to publish notification ${index + 1}: ${error.message}`);
   }
 }
@@ -116,11 +124,27 @@ function printSummary() {
   log('║  Publisher Summary                                    ║', 'cyan');
   log('╚════════════════════════════════════════════════════════╝', 'cyan');
   
-  log(`\n📊 Statistics:`, 'cyan');
-  log(`   • Service: ${SERVICE_NAME}`, 'blue');
-  log(`   • Step name: ${STEP_NAME}`, 'blue');
-  log(`   • Notifications published: ${publishedCount}/${NOTIFICATION_COUNT}`, 'blue');
-  log(`   • Success rate: ${((publishedCount / NOTIFICATION_COUNT) * 100).toFixed(1)}%`, 'blue');
+  log('\n📊 Statistics:', 'cyan');
+  logInfo(`   • Service: ${SERVICE_NAME}`);
+  logInfo(`   • Step name: ${STEP_NAME}`);
+  logInfo(`   • Notifications published: ${publishedCount}/${NOTIFICATION_COUNT}`);
+  logInfo(`   • Success rate: ${((publishedCount / NOTIFICATION_COUNT) * 100).toFixed(1)}%`);
+  
+  // Calculate publish latency statistics
+  if (publishLatencies.length > 0) {
+    const avgLatency = (publishLatencies.reduce((a, b) => a + b, 0) / publishLatencies.length).toFixed(2);
+    const minLatency = Math.min(...publishLatencies);
+    const maxLatency = Math.max(...publishLatencies);
+    const p95Latency = publishLatencies.sort((a, b) => a - b)[Math.floor(publishLatencies.length * 0.95)];
+    
+    log('\n⏱️  Publish Latency:', 'cyan');
+    logInfo(`   • Average: ${avgLatency}ms`);
+    logInfo(`   • Min: ${minLatency}ms`);
+    logInfo(`   • Max: ${maxLatency}ms`);
+    logInfo(`   • P95: ${p95Latency}ms`);
+  }
+  
+  log('\n✅ Publisher completed successfully!', 'green');
 }
 
 // Main

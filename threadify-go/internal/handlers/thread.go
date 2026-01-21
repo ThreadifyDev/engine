@@ -205,9 +205,13 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		response = h.threadService.HandleAddRefs(&req, session.ownerID)
 
 	case "closeConnection":
-		resp := h.threadService.HandleClose(session.ownerID)
-		// Response will be sent, then connection will close gracefully in main loop
-		response = resp
+		// Don't call HandleClose here - it will be called after loop exits
+		// Just return success response and let the loop break
+		response = &models.CloseConnectionResponse{
+			Action:  "closeConnection",
+			Status:  "success",
+			Message: "Connection will be closed",
+		}
 
 	case "inviteParty":
 		var req models.InvitePartyRequest

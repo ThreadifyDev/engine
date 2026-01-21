@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,6 +95,9 @@ func main() {
 
 	// Enable automatic environment variable support
 	viper.AutomaticEnv()
+	// Map environment variables with underscores to config keys with dots
+	// e.g., REDIS_PASSWORD -> redis.password
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read viper config: %v", err)
@@ -209,6 +213,13 @@ func main() {
 	<-ctx.Done()
 
 	// Archiver service stopped
+}
+
+func maskPassword(password string) string {
+	if len(password) <= 4 {
+		return "****"
+	}
+	return password[:2] + "****" + password[len(password)-2:]
 }
 
 func loadConfig(path string) (*Config, error) {

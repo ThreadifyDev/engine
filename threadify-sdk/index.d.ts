@@ -21,7 +21,7 @@ export interface ThreadRefs {
   [key: string]: string;
 }
 
-export type StepStatus = 'success' | 'failed' | 'error' | 'skipped';
+export type StepStatus = 'success' | 'failed' | 'error';
 
 export interface StepResult {
   stepName: string;
@@ -36,25 +36,116 @@ export interface ThreadOptions {
   external_refs?: ThreadRefs;
 }
 
-export interface ArchivedThread {
+export interface ArchivedThreadData {
   id: string;
   contractId: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  context: StepContext;
-  refs: ThreadRefs;
-}
-
-export interface ArchivedStep {
-  id: string;
-  threadId: string;
-  stepName: string;
+  contractName: string;
+  contractVersion: string;
+  ownerId: string;
+  companyId: string;
   status: string;
   startedAt: string;
-  finishedAt?: string;
-  context: StepContext;
-  refs: ThreadRefs;
+  completedAt?: string;
+  error?: string;
+  refs: string;
+}
+
+export interface ArchivedStepData {
+  threadId: string;
+  stepName: string;
+  idempotencyKey: string;
+  status: StepStatus;
+  retryCount: number;
+  firstSeenAt: string;
+  lastUpdatedAt: string;
+  latestStepID: string;
+  previousStep?: string;
+  verified: boolean;
+  verificationError?: string;
+}
+
+export interface StepHistoryData {
+  attempt: number;
+  timestamp: string;
+  status: StepStatus;
+  context: string;
+  duration: number;
+  error?: string;
+}
+
+export interface ValidationResult {
+  validationId: string;
+  threadId: string;
+  stepId: string;
+  stepName: string;
+  idempotencyKey?: string;
+  timestamp: string;
+  validations: Array<{
+    type: string;
+    severity: 'critical' | 'warning' | 'info';
+    message: string;
+    details?: any;
+  }>;
+  overallStatus: 'critical' | 'warning' | 'info';
+  hasCriticalViolation: boolean;
+  criticalCount: number;
+  warningCount: number;
+  infoCount: number;
+}
+
+export class ArchivedStep {
+  readonly threadId: string;
+  readonly stepName: string;
+  readonly idempotencyKey: string;
+  readonly status: StepStatus;
+  readonly retryCount: number;
+  readonly firstSeenAt: string;
+  readonly lastUpdatedAt: string;
+  readonly latestStepID: string;
+  readonly previousStep?: string;
+  readonly verified: boolean;
+  readonly verificationError?: string;
+
+  /**
+   * Get execution history for this step
+   * @param options - Query options
+   * @returns Promise resolving to step history
+   */
+  history(options?: {
+    limit?: number;
+    activityType?: string;
+    startAt?: string;
+    endAt?: string;
+  }): Promise<StepHistoryData[]>;
+}
+
+export class ArchivedThread {
+  readonly id: string;
+  readonly contractId: string;
+  readonly contractName: string;
+  readonly contractVersion: string;
+  readonly ownerId: string;
+  readonly companyId: string;
+  readonly status: string;
+  readonly startedAt: string;
+  readonly completedAt?: string;
+  readonly error?: string;
+  readonly refs: any;
+
+  /**
+   * Get all steps for this thread, optionally filtered
+   * @param stepIdentifier - Optional filter: "stepName" or "stepName:idempotencyKey"
+   * @param options - Optional query options
+   * @returns Promise resolving to array of archived steps
+   */
+  steps(stepIdentifier?: string, options?: { status?: StepStatus }): Promise<ArchivedStep[]>;
+
+  /**
+   * Get validation results for this thread
+   * @param options - Query options
+   * @returns Promise resolving to validation results
+   */
+  validationResults(options?: { limit?: number }): Promise<ValidationResult[]>;
 }
 
 export interface NotificationData {
@@ -205,41 +296,32 @@ export class Connection {
   getThreadByRef(refKey: string, refValue: string): Promise<ArchivedThread>;
   
   /**
-   * Get archived step by thread ID and step name
-   * @param threadId - Thread ID
-   * @param stepName - Step name
-   * @returns Promise resolving to archived step
+   * Get multiple threads by reference
+   * @param refQuery - Reference query {refKey, refValue}
+   * @returns Promise resolving to array of archived threads
    */
-  getStep(threadId: string, stepName: string): Promise<ArchivedStep>;
+  getThreadsByRef(refQuery: { refKey: string; refValue: string }): Promise<ArchivedThread[]>;
   
   /**
-   * Get step history
-   * @param threadId - Thread ID
-   * @param stepName - Step name
-   * @param options - Query options
-   * @returns Promise resolving to step history
+   * Subscribe to violation notifications for a specific step
+   * @param stepIdentifier - Step name or "contractName@stepName"
+   * @param handler - Notification handler function
    */
-  getStepHistory(threadId: string, stepName: string, options?: { limit?: number }): Promise<ArchivedStep[]>;
+  onViolation(stepIdentifier: string, handler: (notification: any) => void): void;
   
   /**
-   * Get validation results
-   * @param threadId - Thread ID
-   * @param options - Query options
-   * @returns Promise resolving to validation results
+   * Subscribe to completion notifications for a specific step
+   * @param stepIdentifier - Step name or "contractName@stepName"
+   * @param handler - Notification handler function
    */
-  getValidationResults(threadId: string, options?: { limit?: number }): Promise<any[]>;
+  onCompleted(stepIdentifier: string, handler: (notification: any) => void): void;
   
   /**
-   * Add notification handlers
-   * @param handlers - Notification handlers
+   * Subscribe to failure notifications for a specific step
+   * @param stepIdentifier - Step name or "contractName@stepName"
+   * @param handler - Notification handler function
    */
-  addNotificationHandlers(handlers: NotificationHandlers): void;
-  
-  /**
-   * Remove notification handlers
-   * @param handlers - Notification handlers to remove
-   */
-  removeNotificationHandlers(handlers: NotificationHandlers): void;
+  onFailed(stepIdentifier: string, handler: (notification: any) => void): void;
   
   /**
    * Close the WebSocket connection

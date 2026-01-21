@@ -121,12 +121,19 @@ func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFligh
 		// First session for this owner - create consumer
 		consumerName := fmt.Sprintf("owner-%s", ownerID)
 
+		// Use configured value or calculate from clients
+		maxAckPending := r.natsConfig.ConsumerMaxAckPending
+		if maxAckPending == 0 {
+			// If not configured, use sum of client maxInFlight values
+			maxAckPending = maxInFlight
+		}
+
 		consumer, err := r.js.CreateOrUpdateConsumer(r.ctx, "NOTIFICATIONS", jetstream.ConsumerConfig{
 			Name:              consumerName,
 			Durable:           consumerName,
 			FilterSubjects:    []string{}, // Empty initially, updated on subscribe
 			AckPolicy:         jetstream.AckExplicitPolicy,
-			MaxAckPending:     maxInFlight,
+			MaxAckPending:     maxAckPending,
 			AckWait:           time.Duration(r.natsConfig.ConsumerAckWaitSeconds) * time.Second,
 			MaxDeliver:        r.natsConfig.ConsumerMaxDeliver,
 			DeliverPolicy:     jetstream.DeliverAllPolicy,
@@ -540,8 +547,14 @@ func (r *NotificationRouter) calculateMaxAckPending(ownerID string) int {
 
 // updateConsumerMaxAckPending updates consumer with recalculated MaxAckPending and FilterSubjects
 func (r *NotificationRouter) updateConsumerMaxAckPending(ownerID string) error {
-	maxAckPending := r.calculateMaxAckPending(ownerID)
 	allFilters := r.buildUnionFilterSubjects(ownerID)
+
+	// Use configured value or calculate from clients
+	maxAckPending := r.natsConfig.ConsumerMaxAckPending
+	if maxAckPending == 0 {
+		// If not configured, use sum of client maxInFlight values
+		maxAckPending = r.calculateMaxAckPending(ownerID)
+	}
 
 	_, err := r.js.UpdateConsumer(r.ctx, "NOTIFICATIONS", jetstream.ConsumerConfig{
 		Name:              fmt.Sprintf("owner-%s", ownerID),

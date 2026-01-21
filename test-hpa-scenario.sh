@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 NUM_CONSUMERS=${NUM_CONSUMERS:-3}
+NUM_PUBLISHERS=${NUM_PUBLISHERS:-1}
 NOTIFICATION_COUNT=${NOTIFICATION_COUNT:-5}
 STEP_NAME=${STEP_NAME:-order_placed}
 
@@ -29,7 +30,9 @@ echo -e "${NC}"
 
 echo -e "${BLUE}Configuration:${NC}"
 echo "  • Number of consumers (pods): $NUM_CONSUMERS"
-echo "  • Notifications to publish: $NOTIFICATION_COUNT"
+echo "  • Number of publishers: $NUM_PUBLISHERS"
+echo "  • Notifications per publisher: $NOTIFICATION_COUNT"
+echo "  • Total notifications: $((NUM_PUBLISHERS * NOTIFICATION_COUNT))"
 echo "  • Step name: $STEP_NAME"
 echo ""
 
@@ -72,15 +75,33 @@ echo -e "${GREEN}✅ All consumers started${NC}\n"
 echo -e "${YELLOW}Waiting 3 seconds for consumers to be ready...${NC}"
 sleep 3
 
-# Start publisher
-echo -e "${CYAN}Starting publisher...${NC}"
-NOTIFICATION_COUNT=$NOTIFICATION_COUNT STEP_NAME=$STEP_NAME node test-publisher.js
+# Start publishers in parallel
+echo -e "${CYAN}Starting $NUM_PUBLISHERS publisher(s)...${NC}"
+PUBLISHER_PIDS=()
+for i in $(seq 1 $NUM_PUBLISHERS); do
+    PUBLISHER_ID="publisher-$i"
+    LOG_FILE="/tmp/publisher-$i.log"
+    
+    echo -e "${BLUE}  • Starting publisher $i (ID: $PUBLISHER_ID)${NC}"
+    
+    NOTIFICATION_COUNT=$NOTIFICATION_COUNT STEP_NAME=$STEP_NAME node test-publisher.js > "$LOG_FILE" 2>&1 &
+    PUBLISHER_PID=$!
+    PUBLISHER_PIDS+=($PUBLISHER_PID)
+    
+    echo "    PID: $PUBLISHER_PID, Log: $LOG_FILE"
+done
 
-echo -e "${GREEN}✅ Publisher completed${NC}\n"
+# Wait for all publishers to complete (not consumers)
+echo -e "${YELLOW}Waiting for publishers to complete...${NC}"
+for pid in "${PUBLISHER_PIDS[@]}"; do
+    wait $pid
+done
+
+echo -e "${GREEN}✅ All publishers completed${NC}\n"
 
 # Wait for notifications to be processed
-echo -e "${YELLOW}Waiting 3 seconds for notifications to be processed...${NC}"
-sleep 3
+echo -e "${YELLOW}Waiting 10 seconds for notifications to be processed...${NC}"
+sleep 10
 
 # Analyze results
 echo -e "${CYAN}"
@@ -100,7 +121,7 @@ for i in $(seq 1 $NUM_CONSUMERS); do
     LOG_FILE="/tmp/consumer-$i.log"
     
     if [ -f "$LOG_FILE" ]; then
-        count=$(grep -c "Notification received:" "$LOG_FILE" || echo "0")
+        count=$(grep -ac "Notification received:" "$LOG_FILE" || echo "0")
         total_notifications=$((total_notifications + count))
         
         echo -e "${BLUE}Consumer $i:${NC}"
@@ -109,13 +130,16 @@ for i in $(seq 1 $NUM_CONSUMERS); do
         # Extract and show all notifications with IDs
         if [ "$count" -gt 0 ]; then
             echo "  • Notifications:"
-            grep "Notification received:" "$LOG_FILE" | while read -r line; do
+            grep -a "Notification received:" "$LOG_FILE" | while read -r line; do
                 # Extract thread ID from the line
                 thread_id=$(echo "$line" | grep -oE 'thread: [a-f0-9-]+' | cut -d' ' -f2)
-                echo "    - Thread: $thread_id"
                 
-                # Add to global list for duplicate detection
-                echo "$thread_id" >> "$ALL_NOTIFICATIONS_FILE"
+                # Only process if we got a valid thread ID
+                if [ -n "$thread_id" ]; then
+                    echo "    - Thread: $thread_id"
+                    # Add to global list for duplicate detection
+                    echo "$thread_id" >> "$ALL_NOTIFICATIONS_FILE"
+                fi
             done
         fi
         echo ""
@@ -148,23 +172,25 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║  Verification                                         ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════╝${NC}\n"
 
-echo -e "${BLUE}Expected:${NC} $NOTIFICATION_COUNT notifications total"
+EXPECTED_TOTAL=$((NUM_PUBLISHERS * NOTIFICATION_COUNT))
+
+echo -e "${BLUE}Expected:${NC} $EXPECTED_TOTAL notifications total ($NUM_PUBLISHERS publishers × $NOTIFICATION_COUNT each)"
 echo -e "${BLUE}Actual:${NC} $total_notifications notifications received"
 echo -e "${BLUE}Unique:${NC} $unique_threads unique thread IDs"
 echo ""
 
-if [ "$total_notifications" -eq "$NOTIFICATION_COUNT" ] && [ "$duplicate_count" -eq 0 ]; then
+if [ "$total_notifications" -eq "$EXPECTED_TOTAL" ] && [ "$duplicate_count" -eq 0 ]; then
     echo -e "${GREEN}✅ SUCCESS: Each notification delivered to exactly ONE consumer!${NC}"
     echo -e "${GREEN}   No duplicate processing detected.${NC}"
     exit 0
 elif [ "$duplicate_count" -gt 0 ]; then
     echo -e "${RED}❌ FAILURE: Duplicate processing detected!${NC}"
-    echo -e "${RED}   Expected $NOTIFICATION_COUNT unique but got $unique_threads unique${NC}"
+    echo -e "${RED}   Expected $EXPECTED_TOTAL unique but got $unique_threads unique${NC}"
     echo -e "${RED}   $duplicate_count notification(s) were processed by multiple consumers.${NC}"
     exit 1
-elif [ "$total_notifications" -lt "$NOTIFICATION_COUNT" ]; then
+elif [ "$total_notifications" -lt "$EXPECTED_TOTAL" ]; then
     echo -e "${YELLOW}⚠️  WARNING: Some notifications were not received!${NC}"
-    echo -e "${YELLOW}   Expected $NOTIFICATION_COUNT but got $total_notifications${NC}"
+    echo -e "${YELLOW}   Expected $EXPECTED_TOTAL but got $total_notifications${NC}"
     echo -e "${YELLOW}   Check consumer logs for errors.${NC}"
     exit 1
 else

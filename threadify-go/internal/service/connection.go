@@ -1,6 +1,7 @@
 package service
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -10,14 +11,16 @@ import (
 
 // ConnectionService implements the ConnectionManager interface with in-memory client tracking
 type ConnectionService struct {
-	clients map[string]*models.ConnectedClient
-	mu      sync.RWMutex // Thread safety for concurrent access
+	clients       map[string]*models.ConnectedClient
+	sessionCounts map[string]int // Track number of active sessions per ownerID
+	mu            sync.RWMutex   // Thread safety for concurrent access
 }
 
 // NewConnectionService creates a new connection service
 func NewConnectionService() interfaces.ConnectionManager {
 	return &ConnectionService{
-		clients: make(map[string]*models.ConnectedClient),
+		clients:       make(map[string]*models.ConnectedClient),
+		sessionCounts: make(map[string]int),
 	}
 }
 
@@ -35,17 +38,45 @@ func (c *ConnectionService) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceN
 		SubscribedEvents: []string{}, // Default empty events
 	}
 
-	// Store client in memory
-	c.clients[ownerID] = client
+	// Store client in memory (or update if exists)
+	if _, exists := c.clients[ownerID]; !exists {
+		c.clients[ownerID] = client
+	} else {
+		// Update ConnectedAt to reflect latest connection
+		c.clients[ownerID].ConnectedAt = time.Now()
+	}
+
+	// Increment session count
+	c.sessionCounts[ownerID]++
+	log.Printf("[CONNECTION] Session connected for owner %s (total sessions: %d)", ownerID, c.sessionCounts[ownerID])
 	return nil
 }
 
-// Disconnect removes a client connection
+// Disconnect removes a client connection (only removes if last session)
 func (c *ConnectionService) Disconnect(ownerID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	delete(c.clients, ownerID)
+	// Decrement session count
+	if count, exists := c.sessionCounts[ownerID]; exists {
+		if count <= 1 {
+			// Last session closing, remove client
+			log.Printf("[CONNECTION] Last session disconnected for owner %s, removing client", ownerID)
+			delete(c.clients, ownerID)
+			delete(c.sessionCounts, ownerID)
+		} else if count > 1 {
+			// Other sessions still active, just decrement
+			c.sessionCounts[ownerID]--
+			log.Printf("[CONNECTION] Session disconnected for owner %s (remaining sessions: %d)", ownerID, c.sessionCounts[ownerID])
+		} else {
+			// Safety check: count should never be < 1
+			log.Printf("[CONNECTION] WARNING: Invalid session count %d for owner %s, cleaning up", count, ownerID)
+			delete(c.clients, ownerID)
+			delete(c.sessionCounts, ownerID)
+		}
+	} else {
+		log.Printf("[CONNECTION] WARNING: Disconnect called for non-existent owner %s", ownerID)
+	}
 	return nil
 }
 

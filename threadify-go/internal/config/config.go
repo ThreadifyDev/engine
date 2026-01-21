@@ -137,6 +137,7 @@ type NATSConfig struct {
 	AckWaitSeconds             int    `yaml:"ack_wait_seconds" mapstructure:"ack_wait_seconds"`
 	ConsumerAckWaitSeconds     int    `yaml:"consumer_ack_wait_seconds" mapstructure:"consumer_ack_wait_seconds"`
 	ConsumerMaxDeliver         int    `yaml:"consumer_max_deliver" mapstructure:"consumer_max_deliver"`
+	ConsumerMaxAckPending      int    `yaml:"consumer_max_ack_pending" mapstructure:"consumer_max_ack_pending"`
 	ArchiverMaxDeliver         int    `yaml:"archiver_max_deliver" mapstructure:"archiver_max_deliver"`
 	ArchiverAckWaitSeconds     int    `yaml:"archiver_ack_wait_seconds" mapstructure:"archiver_ack_wait_seconds"`
 	NotificationsRetentionDays int    `yaml:"notifications_retention_days" mapstructure:"notifications_retention_days"`

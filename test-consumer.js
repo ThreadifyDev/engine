@@ -27,8 +27,9 @@ const MAX_IN_FLIGHT = parseInt(process.env.MAX_IN_FLIGHT) || 20;
 const CONSUMER_ID = process.env.CONSUMER_ID || uuidv4();
 
 // Test state
-let connection;
+let connection = null;
 let receivedNotifications = [];
+let latencies = [];
 
 // Colors for console output
 const colors = {
@@ -71,7 +72,7 @@ async function connect() {
   connection = await Threadify.connect(API_KEY, SERVICE_NAME, {
     url: WS_URL,
     maxInFlight: MAX_IN_FLIGHT,
-    debug: false, // Set to true for detailed SDK logs
+    debug: true, // Set to true for detailed SDK logs
   });
   
   logSuccess('Connected to Threadify');
@@ -87,8 +88,19 @@ async function subscribe() {
   
   // Subscribe to order_placed violations for product_delivery contract
   connection.onViolation('product_delivery@order_placed', async (notification) => {
+    const receiveTime = Date.now();
     console.log(`Notification received: thread: ${notification.threadId}`);
-    logNotification(`[VIOLATION] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...)`);
+    
+    // Calculate latency if timestamp is available
+    if (notification.timestamp) {
+      const sentTime = new Date(notification.timestamp).getTime();
+      const latency = receiveTime - sentTime;
+      latencies.push(latency);
+      logNotification(`[VIOLATION] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...) [Latency: ${latency}ms]`);
+    } else {
+      logNotification(`[VIOLATION] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...)`);
+    }
+    
     logInfo(`   Notification ID: ${notification.notificationId}`);
     logInfo(`   Status: ${notification.status}`);
     logInfo(`   Message: ${notification.message}`);
@@ -101,10 +113,22 @@ async function subscribe() {
   
   // Subscribe to order_placed completions for product_delivery contract
   connection.onCompleted('product_delivery@order_placed', async (notification) => {
+    const receiveTime = Date.now();
     console.log(`Notification received: thread: ${notification.threadId}`);
-    logNotification(`[COMPLETED] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...)`);
+    
+    // Calculate latency if timestamp is available
+    if (notification.timestamp) {
+      const sentTime = new Date(notification.timestamp).getTime();
+      const latency = receiveTime - sentTime;
+      latencies.push(latency);
+      logNotification(`[COMPLETED] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...) [Latency: ${latency}ms]`);
+    } else {
+      logNotification(`[COMPLETED] ${notification.stepName} (thread: ${notification.threadId.substring(0, 8)}...)`);
+    }
+    
     logInfo(`   Notification ID: ${notification.notificationId}`);
     logInfo(`   Status: ${notification.status}`);
+    logInfo(`   Message: ${notification.message}`);
     
     receivedNotifications.push(notification);
     await notification.ack();
@@ -156,14 +180,30 @@ async function subscribe() {
 // Print summary
 function printSummary() {
   log('\n╔════════════════════════════════════════════════════════╗', 'cyan');
-  log('║  Consumer Summary                                     ║', 'cyan');
+  log(`║  Consumer ${CONSUMER_ID.substring(0, 8)}... Summary          ║`, 'cyan');
   log('╚════════════════════════════════════════════════════════╝', 'cyan');
   
-  log(`\n📊 Statistics:`, 'cyan');
-  log(`   • Consumer ID: ${CONSUMER_ID}`, 'blue');
-  log(`   • Service: ${SERVICE_NAME}`, 'blue');
-  log(`   • Notifications received: ${receivedNotifications.length}`, 'blue');
-  log(`   • MaxInFlight: ${MAX_IN_FLIGHT}`, 'blue');
+  log('\n📊 Statistics:', 'cyan');
+  logInfo(`   • Consumer ID: ${CONSUMER_ID}`);
+  logInfo(`   • Service: ${SERVICE_NAME}`);
+  logInfo(`   • Notifications received: ${receivedNotifications.length}`);
+  logInfo(`   • MaxInFlight: ${MAX_IN_FLIGHT}`);
+  
+  // Calculate latency statistics
+  if (latencies.length > 0) {
+    const avgLatency = (latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(2);
+    const minLatency = Math.min(...latencies);
+    const maxLatency = Math.max(...latencies);
+    const p95Latency = latencies.sort((a, b) => a - b)[Math.floor(latencies.length * 0.95)];
+    
+    log('\n⏱️  Latency Metrics:', 'cyan');
+    logInfo(`   • Average: ${avgLatency}ms`);
+    logInfo(`   • Min: ${minLatency}ms`);
+    logInfo(`   • Max: ${maxLatency}ms`);
+    logInfo(`   • P95: ${p95Latency}ms`);
+  }
+  
+  log('\n✅ Consumer completed successfully!', 'green');
   
   if (receivedNotifications.length > 0) {
     log(`\n📬 Received notifications:`, 'cyan');
