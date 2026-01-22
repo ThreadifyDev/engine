@@ -20,7 +20,7 @@ func (r *ThreadRepository) extendAllThreadTTLs(ctx context.Context, threadID str
 	pipe.Expire(ctx, fmt.Sprintf("thread:%s:access", threadID), ttl)
 	pipe.Expire(ctx, fmt.Sprintf("thread:%s:role_index", threadID), ttl)
 	pipe.Expire(ctx, fmt.Sprintf("thread:%s:current_steps", threadID), ttl)
-	pipe.Expire(ctx, fmt.Sprintf("thread:%s:activity", threadID), ttl)
+	// Note: thread:*:activity keys removed - activities go directly to NATS, not Valkey
 
 	// Extend all step hashes
 	stepKeys, _ := r.valkey.Keys(ctx, fmt.Sprintf("thread:%s:steps:*", threadID))
@@ -116,12 +116,46 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 		return 0, nil
 	}
 
-	log.Printf("⚠️ [COLD] Completed steps count for thread %s not in Valkey, would check PostgreSQL", threadID)
+	log.Printf("[COLD] Completed steps count for thread %s not in Valkey, checking PostgreSQL", threadID)
 
-	// TODO: Implement PostgreSQL fallback when GetCompletedSteps is available
-	// For now, return 0 to avoid breaking the build
-	_ = shouldWriteBack // Use the variable to avoid unused warning
-	return 0, nil
+	// Get completed steps from PostgreSQL
+	pgSteps, pgErr := r.postgresRepo.GetCompletedSteps(ctx, threadID)
+	if pgErr != nil {
+		log.Printf("[ERROR] Failed to get completed steps from PostgreSQL for thread %s: %v", threadID, pgErr)
+		return 0, pgErr
+	}
+
+	count = int64(len(pgSteps))
+
+	// Optionally write back to Valkey for future hot reads
+	if shouldWriteBack && count > 0 {
+		go func() {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Rebuild the current_steps sorted set in batch
+			for _, step := range pgSteps {
+				stepKey := fmt.Sprintf("%s:%s", step.StepName, "unknown") // We don't have idempotency key from this query
+				score := float64(step.CompletedAt.Unix())
+				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
+					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
+					return
+				}
+			}
+
+			// Set TTL
+			ttl := time.Duration(r.ttl) * time.Second
+			if err := r.valkey.Expire(writeCtx, currentStepsKey, ttl); err != nil {
+				log.Printf("[WARN] Failed to set TTL: %v", err)
+				return
+			}
+
+			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", count, threadID)
+		}()
+	}
+
+	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", count, threadID)
+	return count, nil
 }
 
 // GetCompletedSteps returns list of completed step names
@@ -144,12 +178,52 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 		return []string{}, nil
 	}
 
-	log.Printf("⚠️ [COLD] Completed steps for thread %s not in Valkey, would check PostgreSQL", threadID)
+	log.Printf("[COLD] Completed steps for thread %s not in Valkey, checking PostgreSQL", threadID)
 
-	// TODO: Implement PostgreSQL fallback when GetCompletedSteps is available
-	// For now, return empty to avoid breaking the build
-	_ = shouldWriteBack // Use the variable to avoid unused warning
-	return []string{}, nil
+	// Get completed steps from PostgreSQL
+	pgSteps, pgErr := r.postgresRepo.GetCompletedSteps(ctx, threadID)
+	if pgErr != nil {
+		log.Printf("[ERROR] Failed to get completed steps from PostgreSQL for thread %s: %v", threadID, pgErr)
+		return []string{}, pgErr
+	}
+
+	// Extract step names (format: stepName:idempKey)
+	stepNames := make([]string, 0, len(pgSteps))
+	for _, step := range pgSteps {
+		// We don't have idempotency key from PostgreSQL, so use placeholder
+		stepKey := fmt.Sprintf("%s:%s", step.StepName, "unknown")
+		stepNames = append(stepNames, stepKey)
+	}
+
+	// Optionally write back to Valkey for future hot reads
+	if shouldWriteBack && len(stepNames) > 0 {
+		go func() {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Rebuild the current_steps sorted set in batch
+			for _, step := range pgSteps {
+				stepKey := fmt.Sprintf("%s:%s", step.StepName, "unknown")
+				score := float64(step.CompletedAt.Unix())
+				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
+					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
+					return
+				}
+			}
+
+			// Set TTL
+			ttl := time.Duration(r.ttl) * time.Second
+			if err := r.valkey.Expire(writeCtx, currentStepsKey, ttl); err != nil {
+				log.Printf("[WARN] Failed to set TTL: %v", err)
+				return
+			}
+
+			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", len(stepNames), threadID)
+		}()
+	}
+
+	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", len(stepNames), threadID)
+	return stepNames, nil
 }
 
 // writeBackAllStepsToValkey writes all step states and rebuilds sorted set in a single atomic batch

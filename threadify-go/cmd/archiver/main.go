@@ -114,7 +114,7 @@ func main() {
 	redisPassword := viper.GetString("redis.password")
 	redisDB := viper.GetInt("redis.db")
 
-	valkeyClient, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
+	valkeyClient, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 	if err != nil {
 		log.Fatalf("Failed to connect to Valkey: %v", err)
 	}

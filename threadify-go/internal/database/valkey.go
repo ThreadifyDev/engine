@@ -14,20 +14,49 @@ type ValkeyService struct {
 	Client *redis.Client
 }
 
-func NewValkeyService(host string, port int, password string, db int) (*ValkeyService, error) {
+func NewValkeyService(host string, port int, password string, db int, poolSize int, minIdleConns int, maxIdleConns int, maxRetries int, dialTimeoutMs int, readTimeoutMs int, writeTimeoutMs int, poolTimeoutMs int, connMaxIdleTimeMs int) (*ValkeyService, error) {
+	// Apply defaults if values are 0
+	if poolSize == 0 {
+		poolSize = 50
+	}
+	if minIdleConns == 0 {
+		minIdleConns = 10
+	}
+	if maxIdleConns == 0 {
+		maxIdleConns = 100
+	}
+	if maxRetries == 0 {
+		maxRetries = 1
+	}
+	if dialTimeoutMs == 0 {
+		dialTimeoutMs = 2000
+	}
+	if readTimeoutMs == 0 {
+		readTimeoutMs = 500
+	}
+	if writeTimeoutMs == 0 {
+		writeTimeoutMs = 500
+	}
+	if poolTimeoutMs == 0 {
+		poolTimeoutMs = 5000
+	}
+	if connMaxIdleTimeMs == 0 {
+		connMaxIdleTimeMs = 300000
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            fmt.Sprintf("%s:%d", host, port),
 		Password:        password,
 		DB:              db,
-		PoolSize:        50,                     // Max concurrent connections
-		MinIdleConns:    10,                     // Reduced to allow more active connections
-		MaxRetries:      1,                      // Fail fast
-		DialTimeout:     2 * time.Second,        // Connection establishment timeout
-		ReadTimeout:     500 * time.Millisecond, // Read operation timeout
-		WriteTimeout:    500 * time.Millisecond, // Write operation timeout
-		PoolTimeout:     5 * time.Second,        // INCREASED: Wait up to 5s for connection from pool
-		MaxIdleConns:    100,                    // Max idle connections to keep
-		ConnMaxIdleTime: 5 * time.Minute,        // How long idle connections stay alive
+		PoolSize:        poolSize,
+		MinIdleConns:    minIdleConns,
+		MaxRetries:      maxRetries,
+		DialTimeout:     time.Duration(dialTimeoutMs) * time.Millisecond,
+		ReadTimeout:     time.Duration(readTimeoutMs) * time.Millisecond,
+		WriteTimeout:    time.Duration(writeTimeoutMs) * time.Millisecond,
+		PoolTimeout:     time.Duration(poolTimeoutMs) * time.Millisecond,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxIdleTime: time.Duration(connMaxIdleTimeMs) * time.Millisecond,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

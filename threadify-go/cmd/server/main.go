@@ -78,7 +78,22 @@ func main() {
 	redisPort := viper.GetInt("redis.port")
 	redisPassword := viper.GetString("redis.password")
 	redisDB := viper.GetInt("redis.db")
-	valkeyService, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB)
+	redisPoolSize := viper.GetInt("redis.pool_size")
+	redisMinIdleConns := viper.GetInt("redis.min_idle_conns")
+	redisMaxIdleConns := viper.GetInt("redis.max_idle_conns")
+	redisMaxRetries := viper.GetInt("redis.max_retries")
+	redisDialTimeoutMs := viper.GetInt("redis.dial_timeout_ms")
+	redisReadTimeoutMs := viper.GetInt("redis.read_timeout_ms")
+	redisWriteTimeoutMs := viper.GetInt("redis.write_timeout_ms")
+	redisPoolTimeoutMs := viper.GetInt("redis.pool_timeout_ms")
+	redisConnMaxIdleTimeMs := viper.GetInt("redis.conn_max_idle_time_ms")
+
+	valkeyService, err := database.NewValkeyService(
+		redisHost, redisPort, redisPassword, redisDB,
+		redisPoolSize, redisMinIdleConns, redisMaxIdleConns, redisMaxRetries,
+		redisDialTimeoutMs, redisReadTimeoutMs, redisWriteTimeoutMs,
+		redisPoolTimeoutMs, redisConnMaxIdleTimeMs,
+	)
 	if err != nil {
 		logger.Fatal("Failed to connect to Redis/Valkey", zap.Error(err))
 	}
@@ -106,8 +121,8 @@ func main() {
 	}
 
 	// Initialize step event service first
-	threadTTLHours := viper.GetInt("cache.thread_ttl_hours")
-	threadTTL := time.Duration(threadTTLHours) * time.Hour
+	threadTTLMs := viper.GetInt("cache.thread_ttl_ms")
+	threadTTL := time.Duration(threadTTLMs) * time.Millisecond
 
 	// Create PostgreSQL repositories for fallback
 	postgresThreadRepo := postgres.NewThreadRepository(db.Pool)
@@ -122,8 +137,8 @@ func main() {
 	stepEventService := service.NewStepEventService(valkeyService, threadRepo, natsArchivalPublisher, cfg, 4, batchSize, batchTimeout)
 
 	// Initialize thread service with step event service and TTL configs
-	contractTTLHours := viper.GetInt("cache.contract_ttl_hours")
-	contractTTL := time.Duration(contractTTLHours) * time.Hour
+	contractTTLMs := viper.GetInt("cache.contract_ttl_ms")
+	contractTTL := time.Duration(contractTTLMs) * time.Millisecond
 	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()))
 
 	// Start step event service
@@ -180,8 +195,8 @@ func main() {
 	}
 
 	// Initialize GraphQL handler with cached thread repository and step state repository with PostgreSQL fallback
-	stepEventTTLHours := viper.GetInt("cache.step_event_ttl_hours")
-	stepEventTTL := time.Duration(stepEventTTLHours) * time.Hour
+	stepEventTTLMs := viper.GetInt("cache.step_event_ttl_ms")
+	stepEventTTL := time.Duration(stepEventTTLMs) * time.Millisecond
 	postgresStepRepo := postgres.NewStepStateRepository(db.Pool)
 	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(valkeyService, postgresStepRepo, int(stepEventTTL.Seconds()))
 

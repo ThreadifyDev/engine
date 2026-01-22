@@ -1,7 +1,7 @@
 {
   "name": "@threadify/sdk",
-  "version": "0.1.1",
-  "description": "JavaScript SDK for Threadify Engine - Real-time thread management and event tracking",
+  "version": "0.1.2",
+  "description": "JavaScript SDK for Threadify - Execute business process graphs with context—track what happened, validate every step, and trigger context-aware actions",
   "main": "src/index.js",
   "type": "module",
   "types": "index.d.ts",
@@ -20,11 +20,21 @@
     "publish:beta": "npm publish --tag beta"
   },
   "keywords": [
-    "threadify",
+    "workflow",
+    "orchestration",
+    "state-machine",
+    "business-process",
+    "event-driven",
+    "audit-trail",
+    "saga-pattern",
+    "distributed-transactions",
     "websocket",
-    "sdk",
-    "thread-management",
-    "real-time"
+    "real-time-notifications",
+    "validation",
+    "contract-enforcement",
+    "idempotency",
+    "retry-logic",
+    "thread-management"
   ],
   "author": "Threadify Team",
   "license": "MIT",

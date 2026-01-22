@@ -43,11 +43,19 @@ type PostgresConfig struct {
 
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
-	Host     string `yaml:"host" mapstructure:"host"`
-	Port     int    `yaml:"port" mapstructure:"port"`
-	Password string `yaml:"password" mapstructure:"password"`
-	DB       int    `yaml:"db" mapstructure:"db"`
-	PoolSize int    `yaml:"pool_size" mapstructure:"pool_size"`
+	Host              string `yaml:"host" mapstructure:"host"`
+	Port              int    `yaml:"port" mapstructure:"port"`
+	Password          string `yaml:"password" mapstructure:"password"`
+	DB                int    `yaml:"db" mapstructure:"db"`
+	PoolSize          int    `yaml:"pool_size" mapstructure:"pool_size"`
+	MinIdleConns      int    `yaml:"min_idle_conns" mapstructure:"min_idle_conns"`
+	MaxIdleConns      int    `yaml:"max_idle_conns" mapstructure:"max_idle_conns"`
+	MaxRetries        int    `yaml:"max_retries" mapstructure:"max_retries"`
+	DialTimeoutMs     int    `yaml:"dial_timeout_ms" mapstructure:"dial_timeout_ms"`
+	ReadTimeoutMs     int    `yaml:"read_timeout_ms" mapstructure:"read_timeout_ms"`
+	WriteTimeoutMs    int    `yaml:"write_timeout_ms" mapstructure:"write_timeout_ms"`
+	PoolTimeoutMs     int    `yaml:"pool_timeout_ms" mapstructure:"pool_timeout_ms"`
+	ConnMaxIdleTimeMs int    `yaml:"conn_max_idle_time_ms" mapstructure:"conn_max_idle_time_ms"`
 }
 
 // JWTConfig holds JWT configuration
@@ -98,10 +106,10 @@ type UserLimitConfig struct {
 
 // CacheConfig holds cache configuration
 type CacheConfig struct {
-	ContractTTLHours  int `yaml:"contract_ttl_hours" mapstructure:"contract_ttl_hours"`
-	ThreadTTLHours    int `yaml:"thread_ttl_hours" mapstructure:"thread_ttl_hours"`
-	StepEventTTLHours int `yaml:"step_event_ttl_hours" mapstructure:"step_event_ttl_hours"`
-	SessionTTLMinutes int `yaml:"session_ttl_minutes" mapstructure:"session_ttl_minutes"`
+	ContractTTLMs  int `yaml:"contract_ttl_ms" mapstructure:"contract_ttl_ms"`     // Default: 18000000ms (5 hours)
+	ThreadTTLMs    int `yaml:"thread_ttl_ms" mapstructure:"thread_ttl_ms"`         // Default: 18000000ms (5 hours, hot cache, PostgreSQL fallback)
+	StepEventTTLMs int `yaml:"step_event_ttl_ms" mapstructure:"step_event_ttl_ms"` // Default: 18000000ms (5 hours)
+	SessionTTLMs   int `yaml:"session_ttl_ms" mapstructure:"session_ttl_ms"`       // Default: 1800000ms (30 minutes, ephemeral, no persistence)
 }
 
 // InvitationsConfig holds invitation configuration

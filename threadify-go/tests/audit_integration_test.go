@@ -17,7 +17,7 @@ func TestAuditEventService_Integration(t *testing.T) {
 	}
 
 	// Create test ValkeyService
-	valkeyService, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0)
+	valkeyService, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 	require.NoError(t, err)
 	defer valkeyService.Close()
 
@@ -60,7 +60,7 @@ func TestAuditEventService_Integration(t *testing.T) {
 }
 
 func TestAuditEventService_ConfigurationValidation(t *testing.T) {
-	valkeyService, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0)
+	valkeyService, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 	require.NoError(t, err)
 	defer valkeyService.Close()
 

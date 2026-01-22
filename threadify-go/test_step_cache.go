@@ -23,7 +23,7 @@ func main() {
 	}
 	defer db.Pool.Close()
 
-	valkeyClient, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0)
+	valkeyClient, err := database.NewValkeyService("localhost", 6379, "threadify_secure_password", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 	if err != nil {
 		log.Fatalf("Failed to connect to Valkey: %v", err)
 	}

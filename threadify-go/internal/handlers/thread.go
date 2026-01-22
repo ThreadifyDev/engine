@@ -170,7 +170,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 				if maxInFlight < 1 || maxInFlight > h.websocketConfig.MaxInFlightMax {
 					maxInFlight = h.websocketConfig.MaxInFlightDefault
 				}
-				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn); err != nil {
+				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn, &session.sendMu); err != nil {
 					// Failed to create session consumer (non-fatal)
 				}
 			}

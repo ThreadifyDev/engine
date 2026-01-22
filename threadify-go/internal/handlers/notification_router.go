@@ -35,7 +35,7 @@ type Session struct {
 	Conn          *websocket.Conn
 	Subscriptions map[string]*ClientSubscription // stepName -> subscription
 	mu            sync.RWMutex
-	sendMu        sync.Mutex // Separate mutex for WebSocket writes
+	sendMu        *sync.Mutex // Pointer to shared connection-level mutex for WebSocket writes
 }
 
 // WebSocketClient is an alias for Session for backward compatibility
@@ -93,7 +93,7 @@ func NewNotificationRouter(nc *nats.Conn, natsConfig *config.NATSConfig) (*Notif
 }
 
 // HandleConnect creates or reuses owner-based NATS consumer and starts router goroutine
-func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn *websocket.Conn) error {
+func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn *websocket.Conn, connMutex *sync.Mutex) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -103,13 +103,14 @@ func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFligh
 		return fmt.Errorf("rate limit exceeded: owner %s has 100 active consumers", ownerID)
 	}
 
-	// Create session
+	// Create session with shared mutex from WSSession
 	session := &Session{
 		ID:            sessionID,
 		OwnerID:       ownerID,
 		MaxInFlight:   maxInFlight,
 		Conn:          conn,
 		Subscriptions: make(map[string]*ClientSubscription),
+		sendMu:        connMutex, // Use mutex from WSSession to prevent concurrent writes
 	}
 
 	// Add to maps
