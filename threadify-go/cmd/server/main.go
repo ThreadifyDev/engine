@@ -212,7 +212,32 @@ func main() {
 	accessRepo := valkey.NewAccessRepository(valkeyService, int(threadTTL.Seconds()))
 	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
-	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager)
+
+	// Initialize access batcher for bulk operations
+	accessBatchSize := viper.GetInt("thread_access.batch_size")
+	accessBatchTimeoutMs := viper.GetInt("thread_access.batch_timeout_ms")
+	accessBufferSize := viper.GetInt("thread_access.buffer_size")
+	if accessBatchSize == 0 {
+		accessBatchSize = 25
+	}
+	if accessBatchTimeoutMs == 0 {
+		accessBatchTimeoutMs = 50
+	}
+	if accessBufferSize == 0 {
+		accessBufferSize = 100
+	}
+
+	accessBatcher := service.NewAccessBatcher(
+		accessBufferSize,
+		accessBatchSize,
+		time.Duration(accessBatchTimeoutMs)*time.Millisecond,
+		accessRepo,
+		luaScriptManager,
+	)
+	accessBatcher.Start()
+	defer accessBatcher.Stop()
+
+	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, accessBatcher)
 
 	// Create WebSocket handler with notification consumer, router, and rate limiting
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService, luaScriptManager, &rateLimitCfg, &cfg.WebSocket)

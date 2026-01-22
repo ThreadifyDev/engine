@@ -71,7 +71,7 @@ A workflow execution instance. Can be contract-based (with validation rules) or 
 An atomic unit of work within a thread. Steps have:
 - **Name**: Identifies the step type
 - **Context**: Business data associated with the step
-- **Status**: `in_progress`, `success`, `failed`, `error`, `skipped`
+- **Status**: `success`, `failed`, `error`
 - **Idempotency**: Automatic deduplication based on name + context
 
 ### 4. **Contract**
@@ -264,30 +264,28 @@ const filtered = await connection.getThreadsByRef({
 
 ### ArchivedThread Methods
 
-#### `thread.steps(filters)`
+#### `thread.steps(stepIdentifier, options)`
 
 Get all steps for this thread, optionally filtered.
 
 ```javascript
-const allSteps = await thread.steps(); // all steps
-const stepsByName = await thread.steps({ stepName: 'order_placed' }); // filter by name
-const stepsByNameAndIdemp = await thread.steps({ stepName: 'order_placed', idempotencyKey: 'order-123' }); // filter by name and idempKey
+// Get all steps
+const allSteps = await thread.steps();
+
+// Filter by step name
+const stepsByName = await thread.steps('order_placed');
+
+// Filter by step name and idempotency key
+const specificStep = await thread.steps('order_placed:order-123');
+
+// Filter by step name and status
+const successfulSteps = await thread.steps('order_placed', { status: 'success' });
+
+// Get first step (single result)
+const step = (await thread.steps('order_placed'))[0];
 ```
 
 **Returns:** [`Promise<Array<ArchivedStep>>`](#archivedstep-structure)
-
----
-
-#### `thread.getStep(stepIdentifier)`
-
-Get a specific step by name or "name:idempotencyKey".
-
-```javascript
-const step = await thread.getStep('order_placed'); // by step name
-const stepWithIdemp = await thread.getStep('order_placed:order-123'); // by stepName:idempKey
-```
-
-**Returns:** [`Promise<ArchivedStep>`](#archivedstep-structure)
 
 ---
 
@@ -345,12 +343,15 @@ data.steps.forEach(step => {
 Get execution history for this step.
 
 ```javascript
-const step = await thread.getStep('order_placed');
+const steps = await thread.steps('order_placed');
+const step = steps[0];
 const history = await step.history({ limit: 100 }); // all history
 const filtered = await step.history({ limit: 10, activityType: 'step_recorded', startAt: '2026-01-01T00:00:00Z' }); // filtered
 ```
 
 **Returns:** [`Promise<Array<StepHistory>>`](#stephistory-structure)
+
+**Important:** The `status` field in step history shows the **step execution status** (`success`, `failed`, `error`) that you set when recording the step. Contract violations are tracked separately in `thread.validationResults()` and do **not** change the step status. A step can have `status: 'success'` but still have validation violations.
 
 ---
 
@@ -417,7 +418,8 @@ for (const thread of threads) {
 
 ```javascript
 const thread = await connection.getThread('thread-uuid');
-const step = await thread.getStep('payment_processing');
+const steps = await thread.steps('payment_processing');
+const step = steps[0]; // Get first matching step
 
 // Get detailed history
 const history = await step.history({ limit: 50 });
@@ -430,6 +432,27 @@ console.log(`Failed attempts: ${failures.length}`);
 failures.forEach(f => {
   console.log(`  ${f.timestamp}: ${f.error}`);
 });
+```
+
+### Understanding Step Status vs Violations
+
+```javascript
+const thread = await connection.getThread('thread-uuid');
+
+// Step status shows execution outcome (what YOU set)
+const steps = await thread.steps('order_placed');
+console.log(`Step status: ${steps[0].status}`); // "success", "failed", or "error"
+
+// Validation results show contract violations (what Threadify detected)
+const validations = await thread.validationResults();
+validations.forEach(v => {
+  console.log(`Validation: ${v.overallStatus}`); // "critical", "warning", or "info"
+  console.log(`Step was: ${v.stepName}`);
+});
+
+// Example: A step can succeed but violate contract rules
+// - Step status: "success" (payment processed successfully)
+// - Validation: "critical" (invalid transition, missing required field, timeout, etc.)
 ```
 
 ---
@@ -588,14 +611,14 @@ Returned by `getThread()` and `getThreadsByRef()`.
 
 ### ArchivedStep Structure
 
-Returned by `thread.steps()` and `thread.getStep()`.
+Returned by `thread.steps()`.
 
 ```javascript
 {
   threadId: string,
   stepName: string,
   idempotencyKey: string,
-  status: 'in_progress' | 'success' | 'failed' | 'error' | 'skipped',
+  status: 'success' | 'failed' | 'error',
   retryCount: number,
   firstSeenAt: string,    // ISO timestamp
   lastUpdatedAt: string,  // ISO timestamp
@@ -641,7 +664,7 @@ Returned by `step.history()`.
 {
   attempt: number,        // Retry attempt number
   timestamp: string,      // ISO timestamp
-  status: 'in_progress' | 'success' | 'failed' | 'error' | 'skipped',
+  status: 'success' | 'failed' | 'error',
   context: object,        // Business context data
   duration: number,       // Execution time in ms
   error: string          // Error message if failed

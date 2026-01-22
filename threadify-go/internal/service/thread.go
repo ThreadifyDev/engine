@@ -68,7 +68,9 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 	}
 
 	// Create thread access service for permission/role management
-	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts)
+	// Note: Using nil batcher for internal service - batching is handled by main.go's service
+	// This internal service is only used for permission checks, not writes
+	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts, nil)
 
 	// Create invitation service
 	invitationService := NewInvitationTokenService("demo-secret")

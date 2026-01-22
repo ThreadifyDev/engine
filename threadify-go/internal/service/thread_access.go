@@ -14,21 +14,21 @@ import (
 // This centralizes all permission/role operations with in-memory caching (mutex-protected)
 // before hitting Valkey, following the same pattern as contract graph caching.
 //
-// TODO: Add batching support for permission/role writes to Valkey (similar to step event batching)
-// This would reduce Valkey write operations by buffering multiple permission changes
-// and flushing them in batches (e.g., every 100ms or 50 operations).
+// Access writes are batched to reduce Valkey load (hybrid: 25 items OR 50ms flush)
 type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
 	luaScripts   *valkey.LuaScriptManager
+	batcher      *AccessBatcher
 }
 
 // NewThreadAccessService creates a new thread access service
-func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager) *ThreadAccessService {
+func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager, batcher *AccessBatcher) *ThreadAccessService {
 	return &ThreadAccessService{
 		accessRepo:   accessRepo,
 		cacheManager: cacheManager,
 		luaScripts:   luaScripts,
+		batcher:      batcher,
 	}
 }
 
@@ -65,7 +65,7 @@ func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]str
 	return perms, nil
 }
 
-// GrantOrUpdateAccess grants or updates user access using unified method
+// GrantOrUpdateAccess grants or updates user access using batched writes
 // Handles all scenarios: thread creator (invitedBy="self"), invitation join, and direct join
 // Validates that thread is not completed before granting access
 func (s *ThreadAccessService) GrantOrUpdateAccess(
@@ -80,22 +80,37 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 		return fmt.Errorf("cannot join thread with status: %s", thread.Status)
 	}
 
-	// Write to Valkey using unified Lua script
-	// Pass nil for threadData/threadTTL (not creating thread here, only managing access)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := s.accessRepo.GrantOrUpdateAccess(
-		ctx,
-		threadID, userID,
-		role,
-		permissions,
-		invitedBy,
-		s.luaScripts,
-		nil, // threadData - not creating thread
-		nil, // threadTTL - not creating thread
-	)
-	if err != nil {
-		return fmt.Errorf("failed to grant/update access: %w", err)
+	// Write to Valkey (batched if batcher available, otherwise direct)
+	if s.batcher != nil {
+		// Queue write to batcher (non-blocking)
+		write := &AccessWrite{
+			ThreadID:    threadID,
+			UserID:      userID,
+			Role:        role,
+			Permissions: permissions,
+			InvitedBy:   invitedBy,
+		}
+
+		if err := s.batcher.Write(write); err != nil {
+			return fmt.Errorf("failed to queue access write: %w", err)
+		}
+	} else {
+		// Fallback to direct write (for internal services without batcher)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := s.accessRepo.GrantOrUpdateAccess(
+			ctx,
+			threadID, userID,
+			role,
+			permissions,
+			invitedBy,
+			s.luaScripts,
+			nil, // threadData
+			nil, // threadTTL
+		)
+		if err != nil {
+			return fmt.Errorf("failed to grant/update access: %w", err)
+		}
 	}
 
 	// Update in-memory cache
