@@ -132,31 +132,55 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 }
 
 func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
+	// Track WebSocket message handling latency
+	wsStart := time.Now()
+	sessionID := session.sessionID
+	if sessionID == "" {
+		sessionID = "unknown"
+	}
+	log.Printf("[PERF] WebSocket START: action=%s | session=%s", action, sessionID)
+
+	defer func() {
+		duration := time.Since(wsStart)
+		log.Printf("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
+	}()
+
 	msgBytes, _ := json.Marshal(msg)
 
 	// Rate limit authenticated WebSocket messages (skip "connect" action)
 	if action != "connect" && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
+		rateLimitStart := time.Now()
 		allowed, err := h.luaScriptManager.CheckUserRateLimit(
 			context.Background(),
 			session.ownerID,
 			h.rateLimitConfig.PerUser.RequestsPerMinute,
 			h.rateLimitConfig.PerUser.WindowSeconds,
 		)
+		rateLimitDuration := time.Since(rateLimitStart)
+		log.Printf("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | duration=%v | allowed=%t", action, sessionID, rateLimitDuration, allowed)
+
 		if err == nil && !allowed {
+			log.Printf("[PERF] WebSocket RATE_LIMIT_EXCEEDED: action=%s | session=%s", action, sessionID)
 			return models.ErrorResponse{
 				Action:  action,
 				Status:  "error",
 				Message: "Rate limit exceeded. Please slow down.",
 			}
 		}
+	} else {
+		log.Printf("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | SKIPPED", action, sessionID)
 	}
 
 	var response interface{}
 	switch action {
 	case "connect":
+		connectStart := time.Now()
 		var req models.ConnectRequest
 		json.Unmarshal(msgBytes, &req)
 		resp := h.threadService.HandleConnect(&req)
+		connectDuration := time.Since(connectStart)
+		log.Printf("[PERF] WebSocket CONNECT: session=%s | duration=%v | success=%t", sessionID, connectDuration, resp.Status == "success")
+
 		if resp.Status == "success" {
 			session.mu.Lock()
 			session.ownerID = resp.OwnerID
@@ -173,15 +197,33 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 				}
 				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn, &session.sendMu); err != nil {
 					// Failed to create session consumer (non-fatal)
+					log.Printf("[PERF] WebSocket NATS_SETUP_FAILED: session=%s | error=%v", sessionID, err)
+				} else {
+					log.Printf("[PERF] WebSocket NATS_SETUP: session=%s | success", sessionID)
 				}
 			}
 		}
 		response = resp
 
 	case "startThread":
+		startThreadStart := time.Now()
+		log.Printf("[PERF] WebSocket START_THREAD_BEGIN: session=%s", sessionID)
+
+		// Parse request
+		parseStart := time.Now()
 		var req models.StartThreadRequest
 		json.Unmarshal(msgBytes, &req)
+		log.Printf("[PERF] WebSocket START_THREAD_PARSE: session=%s | duration=%v", sessionID, time.Since(parseStart))
+
+		// Handle business logic
+		handleStart := time.Now()
 		response = h.threadService.HandleStartThread(&req, session.ownerID, session.companyID)
+		handleDuration := time.Since(handleStart)
+		log.Printf("[PERF] WebSocket START_THREAD_HANDLE: session=%s | duration=%v | success=%t", sessionID, handleDuration, response.(*models.StartThreadResponse).Status == "success")
+
+		// Total duration
+		totalDuration := time.Since(startThreadStart)
+		log.Printf("[PERF] WebSocket START_THREAD: session=%s | duration=%v | success=%t", sessionID, totalDuration, response.(*models.StartThreadResponse).Status == "success")
 
 		// Add created thread to session's threadIDs
 		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
@@ -196,14 +238,31 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		}
 
 	case "recordThreadEvent":
+		recordEventStart := time.Now()
+		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_BEGIN: session=%s", sessionID)
+
+		// Parse request
+		parseStart := time.Now()
 		var req models.RecordEventRequest
 		json.Unmarshal(msgBytes, &req)
+		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_PARSE: session=%s | duration=%v", sessionID, time.Since(parseStart))
+
+		// Handle business logic
+		handleStart := time.Now()
 		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
+		handleDuration := time.Since(handleStart)
+		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_HANDLE: session=%s | duration=%v | success=%t", sessionID, handleDuration, response.(*models.RecordEventResponse).Status == "success")
+
+		// Total duration
+		totalDuration := time.Since(recordEventStart)
+		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT: session=%s | duration=%v | success=%t", sessionID, totalDuration, response.(*models.RecordEventResponse).Status == "success")
 
 	case "addRefs":
+		addRefsStart := time.Now()
 		var req models.AddRefsRequest
 		json.Unmarshal(msgBytes, &req)
 		response = h.threadService.HandleAddRefs(&req, session.ownerID)
+		log.Printf("[PERF] WebSocket ADD_REFS: session=%s | duration=%v | success=%t", sessionID, time.Since(addRefsStart), response.(*models.AddRefsResponse).Status == "success")
 
 	case "closeConnection":
 		// Don't call HandleClose here - it will be called after loop exits

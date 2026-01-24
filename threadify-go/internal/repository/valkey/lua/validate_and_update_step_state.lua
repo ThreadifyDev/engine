@@ -27,6 +27,8 @@ local cjson = cjson
 -- ARGV[9]: terminalSteps (JSON array: ["delivered","cancelled"])
 -- ARGV[10]: allowMultipleTerminals ("true" | "false")
 -- ARGV[11]: ttl (TTL in seconds from config)
+-- ARGV[12]: threadID (passed from Go to avoid regex extraction)
+-- ARGV[13]: idempotencyKey (passed from Go to avoid regex extraction)
 
 local metaKey = KEYS[1]
 local currentStepsKey = KEYS[2]
@@ -44,6 +46,8 @@ local allowedTransitionsJSON = ARGV[8]
 local terminalStepsJSON = ARGV[9]
 local allowMultipleTerminals = ARGV[10]
 local ttl = tonumber(ARGV[11]) or 604800  -- Default to 7 days if not provided
+local threadID = ARGV[12]  -- Passed from Go to avoid regex extraction
+local idempotencyKey = ARGV[13]  -- Passed from Go to avoid regex extraction
 
 -- Extract stepName from stepKey (format: stepName:idempKey)
 local stepName = string.match(stepKey, '([^:]+):')
@@ -71,13 +75,9 @@ local currentSteps = redis.call('ZRANGE', currentStepsKey, 0, -1, 'WITHSCORES')
 local previousStepKey = ''
 local previousStepName = ''
 
--- DEBUG: Log current steps
-redis.call('SET', 'debug:current_steps_count', tostring(#currentSteps))
 if #currentSteps > 0 then
-    redis.call('SET', 'debug:current_steps_raw', table.concat(currentSteps, ','))
     previousStepKey = currentSteps[#currentSteps - 1]
     previousStepName = string.match(previousStepKey, '([^:]+):')
-    redis.call('SET', 'debug:previous_step', string.format('key=%s, name=%s', previousStepKey or 'nil', previousStepName or 'nil'))
 end
 
 -- Check if step hash exists (for retry detection)
@@ -94,18 +94,42 @@ local currentRetryCount = tonumber(redis.call('HGET', stepHashKey, 'retryCount')
 local violations = {}
 local hasCriticalViolation = false
 
--- Parse transitions map (stepName -> allowed next steps)
+-- Parse transitions from pre-computed URL-encoded string format: "step1:next1,next2|step2:next3"
 local transitionsMap = {}
-if allowedTransitionsJSON ~= '' and allowedTransitionsJSON ~= '{}' then
-    transitionsMap = cjson.decode(allowedTransitionsJSON)
+if allowedTransitionsJSON ~= '' then
+    for transitionPair in string.gmatch(allowedTransitionsJSON, '([^|]+)') do
+        local fromStep, toStepsStr = string.match(transitionPair, '([^:]+):(.*)')
+        if fromStep and toStepsStr then
+            -- URL decode step names (handle both + and %XX patterns)
+            local decodedFromStep = string.gsub(fromStep, '+', ' ')
+            decodedFromStep = string.gsub(decodedFromStep, '%%([0-9A-Fa-f][0-9A-Fa-f])', function(hex)
+                return string.char(tonumber(hex, 16))
+            end)
+            
+            local allowedNextSteps = {}
+            for encodedStep in string.gmatch(toStepsStr, '([^,]+)') do
+                -- URL decode each step name
+                local decodedStep = string.gsub(encodedStep, '+', ' ')
+                decodedStep = string.gsub(decodedStep, '%%([0-9A-Fa-f][0-9A-Fa-f])', function(hex)
+                    return string.char(tonumber(hex, 16))
+                end)
+                table.insert(allowedNextSteps, decodedStep)
+            end
+            transitionsMap[decodedFromStep] = allowedNextSteps
+        end
+    end
 end
 
--- Parse terminal steps
+-- Parse terminal steps from pre-computed URL-encoded comma-separated string
 local terminalSteps = {}
-if terminalStepsJSON ~= '' and terminalStepsJSON ~= '[]' then
-    local terminalStepsTable = cjson.decode(terminalStepsJSON)
-    for _, terminalStep in ipairs(terminalStepsTable) do
-        terminalSteps[terminalStep] = true
+if terminalStepsJSON ~= '' then
+    for encodedStep in string.gmatch(terminalStepsJSON, '([^,]+)') do
+        -- URL decode step name (handle both + and %XX patterns)
+        local decodedStep = string.gsub(encodedStep, '+', ' ')
+        decodedStep = string.gsub(decodedStep, '%%([0-9A-Fa-f][0-9A-Fa-f])', function(hex)
+            return string.char(tonumber(hex, 16))
+        end)
+        terminalSteps[decodedStep] = true
     end
 end
 
@@ -286,8 +310,7 @@ end
 -- SECTION 4: WRITE TO ACTIVITY LOG STREAM
 -- ============================================================================
 
-local threadID = string.match(metaKey, 'thread:([^:]+):meta')
-local idempKey = string.match(stepKey, '[^:]+:(.+)')
+-- threadID and idempotencyKey now passed as ARGV[12] and ARGV[13] to avoid regex extraction
 
 local finalRetryCount = redis.call('HGET', stepHashKey, 'retryCount') or '0'
 local firstSeenAt = redis.call('HGET', stepHashKey, 'firstSeenAt') or timestamp
@@ -301,12 +324,12 @@ local previousStepStored = redis.call('HGET', stepHashKey, 'previousStep') or ''
 -- ============================================================================
 -- Extend TTL on all thread-related keys to prevent partial expiration
 -- This ensures all thread data expires together, maintaining consistency
+-- KEYS command removed for performance - only extend known keys
 
--- Extract threadID from metaKey (format: thread:ID:meta)
-local threadID = string.match(metaKey, 'thread:([^:]+):meta')
+-- threadID already passed as ARGV[12] to avoid regex extraction
 
 if threadID then
-    -- Core thread keys
+    -- Core thread keys (these always exist)
     redis.call('EXPIRE', 'thread:' .. threadID, ttl)
     redis.call('EXPIRE', metaKey, ttl)
     redis.call('EXPIRE', currentStepsKey, ttl)
@@ -318,11 +341,8 @@ if threadID then
     redis.call('EXPIRE', 'thread:' .. threadID .. ':role_index', ttl)
     redis.call('EXPIRE', 'thread:' .. threadID .. ':activity', ttl)
     
-    -- Extend TTL on all step hashes (pattern: thread:ID:steps:*)
-    local stepKeys = redis.call('KEYS', 'thread:' .. threadID .. ':steps:*')
-    for _, key in ipairs(stepKeys) do
-        redis.call('EXPIRE', key, ttl)
-    end
+    -- Note: Removed KEYS pattern matching for performance
+    -- Step hash TTLs are extended when they are created/updated
 end
 
 -- ============================================================================

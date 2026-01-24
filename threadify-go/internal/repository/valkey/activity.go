@@ -52,46 +52,43 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 
 	// Publish to NATS for archival
 	rolesJSON, _ := json.Marshal(access.Roles)
+	// SYNCHRONOUS - Critical for access control persistence
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
-				"threadId":    threadID,
-				"userId":      userID,
-				"roles":       string(rolesJSON),
-				"permissions": strings.Join(access.Permissions, ","),
-				"grantedBy":   invitedBy,
-				"grantedAt":   access.GrantedAt,
-				"status":      access.Status,
-				"event_type":  eventType,
-				"scope":       scope,
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread access to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
+			"threadId":    threadID,
+			"userId":      userID,
+			"roles":       string(rolesJSON),
+			"permissions": strings.Join(access.Permissions, ","),
+			"grantedBy":   invitedBy,
+			"grantedAt":   access.GrantedAt,
+			"status":      access.Status,
+			"event_type":  eventType,
+			"scope":       scope,
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread access to NATS: %v\n", err)
+		}
 	}
 
-	// Publish activity log to NATS
+	// Publish activity log to NATS (SYNCHRONOUS - critical for audit trail)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-				"type":          "access_granted",
-				"thread_id":     threadID,
-				"user_id":       userID,
-				"actor":         userID,      // user-123 (person getting access)
-				"actor_service": serviceName, // merchant-service
-				"role":          strings.Join(access.Roles, ","),
-				"permissions":   strings.Join(access.Permissions, ","),
-				"granted_by":    invitedBy,
-				"granted_at":    access.GrantedAt,
-				"method":        "direct", // Service layer should determine method
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish access granted activity to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+			"type":          "access_granted",
+			"thread_id":     threadID,
+			"user_id":       userID,
+			"actor":         userID,      // user-123 (person getting access)
+			"actor_service": serviceName, // merchant-service
+			"role":          strings.Join(access.Roles, ","),
+			"permissions":   strings.Join(access.Permissions, ","),
+			"granted_by":    invitedBy,
+			"granted_at":    access.GrantedAt,
+			"method":        "direct", // Service layer should determine method
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish access granted activity to NATS: %v\n", err)
+		}
 	}
 
 	return nil
@@ -99,24 +96,22 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 
 // RecordInvitationUsed records an invitation used event to streams
 func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error {
-	// Publish to NATS for archival
+	// Publish to NATS for archival (SYNCHRONOUS - critical for audit trail)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-				"type":          "invitation_used",
-				"thread_id":     threadID,
-				"user_id":       userID,
-				"actor":         userID,      // user-123 (person using invitation)
-				"actor_service": serviceName, // merchant-service
-				"role":          role,
-				"invited_by":    invitedBy,
-				"timestamp":     time.Now().Format(time.RFC3339),
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish invitation used to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+			"type":          "invitation_used",
+			"thread_id":     threadID,
+			"user_id":       userID,
+			"actor":         userID,      // user-123 (person using invitation)
+			"actor_service": serviceName, // merchant-service
+			"role":          role,
+			"invited_by":    invitedBy,
+			"timestamp":     time.Now().Format(time.RFC3339),
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish invitation used to NATS: %v\n", err)
+		}
 	}
 
 	return nil
@@ -124,40 +119,36 @@ func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID,
 
 // RecordThreadCreated records a thread created event to streams
 func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error {
-	// Publish thread metadata to NATS
+	// Publish thread metadata to NATS (SYNCHRONOUS - critical for PostgreSQL persistence)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
-				"threadId":    threadID,
-				"creatorId":   creatorID,
-				"creatorRole": creatorRole,
-				"createdAt":   time.Now().Format(time.RFC3339),
-				"status":      "active",
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
+			"threadId":    threadID,
+			"creatorId":   creatorID,
+			"creatorRole": creatorRole,
+			"createdAt":   time.Now().Format(time.RFC3339),
+			"status":      "active",
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+		}
 	}
 
-	// Publish activity log to NATS
+	// Publish activity log to NATS (SYNCHRONOUS - critical for audit trail)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-				"type":          "thread_created",
-				"thread_id":     threadID,
-				"user_id":       creatorID,
-				"actor":         creatorID,   // user-123
-				"actor_service": serviceName, // merchant-service
-				"role":          creatorRole,
-				"timestamp":     time.Now().Format(time.RFC3339),
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread created activity to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+			"type":          "thread_created",
+			"thread_id":     threadID,
+			"user_id":       creatorID,
+			"actor":         creatorID,   // user-123
+			"actor_service": serviceName, // merchant-service
+			"role":          creatorRole,
+			"timestamp":     time.Now().Format(time.RFC3339),
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread created activity to NATS: %v\n", err)
+		}
 	}
 
 	return nil
@@ -237,15 +228,13 @@ func (r *ActivityRepository) ArchiveValidationResults(
 		"limit":                100000,
 	}
 
-	// Publish to NATS for archival
+	// Publish to NATS for archival (SYNCHRONOUS - critical for validation persistence)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishThreadValidation(pubCtx, streamValues); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread validations to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishThreadValidation(pubCtx, streamValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread validations to NATS: %v\n", err)
+		}
 	}
 
 	return nil
@@ -289,68 +278,61 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 		"limit":           100000,
 	}
 
-	// Publish to NATS for archival
+	// Publish to NATS for archival (SYNCHRONOUS - critical for PostgreSQL persistence)
 	if r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+		}
 	}
 
-	// Publish thread_completed event to NATS for audit trail
+	// Publish thread_completed event to NATS for audit trail (SYNCHRONOUS - critical for audit trail)
 	if status == "completed" && r.natsPublisher != nil {
-		go func() {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-				"type":          "thread_completed",
-				"thread_id":     thread.ID,
-				"actor":         thread.OwnerID, // user-123 (thread owner)
-				"actor_service": "system",       // system-generated event
-				"final_status":  status,
-				"last_hash":     thread.LastHash,
-				"completed_at":  completedAt,
-				"timestamp":     time.Now().Format(time.RFC3339),
-			}); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread completed activity to NATS: %v\n", err)
-			}
-		}()
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+			"type":          "thread_completed",
+			"thread_id":     thread.ID,
+			"actor":         thread.OwnerID, // user-123 (thread owner)
+			"actor_service": "system",       // system-generated event
+			"final_status":  status,
+			"last_hash":     thread.LastHash,
+			"completed_at":  completedAt,
+			"timestamp":     time.Now().Format(time.RFC3339),
+		}); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread completed activity to NATS: %v\n", err)
+		}
 	}
 
 	return nil
 }
 
 // ArchiveStepState publishes step state snapshot to NATS for archival to Postgres
+// SYNCHRONOUS - Critical for PostgreSQL persistence (DB-first architecture)
 func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *interfaces.StepStateSnapshot) error {
 	if r.natsPublisher == nil {
 		return fmt.Errorf("NATS publisher not available")
 	}
 
-	// Publish to NATS for archival
-	go func() {
-		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	stepStateData := map[string]interface{}{
+		"step_id":         stepState.ID,
+		"thread_id":       stepState.ThreadID,
+		"step_name":       stepState.StepName,
+		"idempotency_key": stepState.IdempotencyKey,
+		"status":          stepState.Status,
+		"retry_count":     stepState.RetryCount,
+		"first_seen_at":   stepState.FirstSeenAt,
+		"last_updated_at": stepState.LastUpdatedAt,
+		"previous_step":   stepState.PreviousStep,
+	}
 
-		stepStateData := map[string]interface{}{
-			"step_id":         stepState.ID,
-			"thread_id":       stepState.ThreadID,
-			"step_name":       stepState.StepName,
-			"idempotency_key": stepState.IdempotencyKey,
-			"status":          stepState.Status,
-			"retry_count":     stepState.RetryCount,
-			"first_seen_at":   stepState.FirstSeenAt,
-			"last_updated_at": stepState.LastUpdatedAt,
-			"previous_step":   stepState.PreviousStep,
-		}
+	// Synchronous publish - fail request if NATS is down (PostgreSQL persistence is critical)
+	if err := r.natsPublisher.PublishStepState(ctx, stepStateData); err != nil {
+		return fmt.Errorf("failed to archive step state to NATS: %w", err)
+	}
 
-		if err := r.natsPublisher.PublishStepState(pubCtx, stepStateData); err != nil {
-			fmt.Printf("❌ ERROR: Failed to publish step state to NATS: %v\n", err)
-		}
-	}()
-
+	fmt.Printf("✅ [ARCHIVE-SUCCESS] Step state archived for step=%s\n", stepState.StepName)
 	return nil
 }
 

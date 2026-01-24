@@ -350,36 +350,32 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			"limit":           100000,
 		}
 
-		// Publish to NATS for archival (async)
+		// Publish to NATS for archival (SYNCHRONOUS - critical for PostgreSQL persistence)
 		if s.natsArchivalPublisher != nil {
-			go func() {
-				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
-					fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
-				} else {
-					fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
-				}
-			}()
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			// Publish refs as individual events
+			if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+				// Log error but don't fail thread creation (thread already in Valkey)
+			} else {
+				fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
+			}
+
+			// Publish refs as individual events (synchronous)
 			if thread.Refs != nil && len(thread.Refs) > 0 {
-				go func() {
-					pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					for key, value := range thread.Refs {
-						refEvent := map[string]interface{}{
-							"threadId": threadID,
-							"refKey":   key,
-							"refValue": value,
-							"action":   "ref_added",
-						}
-						if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
-							fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
-						}
+				for key, value := range thread.Refs {
+					refEvent := map[string]interface{}{
+						"threadId": threadID,
+						"refKey":   key,
+						"refValue": value,
+						"action":   "ref_added",
 					}
-					fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(thread.Refs), threadID)
-				}()
+					if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+						fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+					}
+				}
+				fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(thread.Refs), threadID)
 			}
 		}
 
@@ -408,15 +404,13 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		// Note: This is handled by ActivityRepository, not needed here
 		// Activity logging is done via activityRepo.RecordAccessGranted
 
-		// 2. Publish to NATS for archival (async)
+		// 2. Publish to NATS for archival (SYNCHRONOUS - critical for audit trail)
 		if s.natsArchivalPublisher != nil {
-			go func() {
-				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityValues); err != nil {
-					fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
-				}
-			}()
+			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityValues); err != nil {
+				fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
+			}
 		}
 	}()
 

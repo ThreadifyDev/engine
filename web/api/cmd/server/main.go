@@ -6,6 +6,7 @@ import (
 	"log"
 	"threadify-web-api/config"
 	"threadify-web-api/internal/middleware"
+	"threadify-web-api/internal/utils"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,11 @@ func main() {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 	log.Println("✅ Connected to PostgreSQL database")
+
+	// Run database migrations
+	if err := utils.RunMigrations(db, "./migrations"); err != nil {
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	// Setup Gin router
 	router := gin.Default()

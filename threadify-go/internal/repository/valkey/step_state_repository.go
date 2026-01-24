@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -77,34 +78,43 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		existingViolationsJSON = string(data)
 	}
 
-	// Marshal transitions map (handle nil/empty map)
-	var transitionsMapJSON []byte
-	if params.TransitionsMap == nil || len(params.TransitionsMap) == 0 {
-		transitionsMapJSON = []byte("{}")
-	} else {
-		var err error
-		transitionsMapJSON, err = json.Marshal(params.TransitionsMap)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal transitions map: %w", err)
-		}
-	}
-
-	// Marshal terminal steps (handle nil/empty slices)
-	var terminalStepsJSON []byte
-	if params.TerminalSteps == nil || len(params.TerminalSteps) == 0 {
-		terminalStepsJSON = []byte("[]")
-	} else {
-		var err error
-		terminalStepsJSON, err = json.Marshal(params.TerminalSteps)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal terminal steps: %w", err)
-		}
-	}
-
+	// Pre-compute static data in Go to avoid JSON parsing in Lua
 	// Convert booleans to strings
 	isTerminalStr := "false"
 	if params.IsTerminalStep {
 		isTerminalStr = "true"
+	}
+
+	// Pre-compute terminal steps using URL encoding to handle special characters
+	var terminalStepsStr string
+	if params.TerminalSteps == nil || len(params.TerminalSteps) == 0 {
+		terminalStepsStr = ""
+	} else {
+		var encodedSteps []string
+		for _, step := range params.TerminalSteps {
+			encodedSteps = append(encodedSteps, url.QueryEscape(step))
+		}
+		terminalStepsStr = strings.Join(encodedSteps, ",")
+	}
+
+	// Pre-compute allowed transitions using URL encoding to handle special characters
+	var transitionsStr string
+	if params.TransitionsMap == nil || len(params.TransitionsMap) == 0 {
+		transitionsStr = ""
+	} else {
+		var transitions []string
+		for fromStep, toSteps := range params.TransitionsMap {
+			if len(toSteps) > 0 {
+				// URL encode to handle special characters in step names
+				encodedFromStep := url.QueryEscape(fromStep)
+				var encodedToSteps []string
+				for _, toStep := range toSteps {
+					encodedToSteps = append(encodedToSteps, url.QueryEscape(toStep))
+				}
+				transitions = append(transitions, fmt.Sprintf("%s:%s", encodedFromStep, strings.Join(encodedToSteps, ",")))
+			}
+		}
+		transitionsStr = strings.Join(transitions, "|")
 	}
 
 	allowMultipleTerminalsStr := "false"
@@ -131,17 +141,19 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 
 	// Prepare args
 	args := []interface{}{
-		stepKey,                    // ARGV[1]
-		params.StepID,              // ARGV[2]
-		params.Status,              // ARGV[3]
-		params.Timestamp,           // ARGV[4]
-		existingViolationsJSON,     // ARGV[5]
-		isTerminalStr,              // ARGV[6]
-		params.MaxRetries,          // ARGV[7]
-		string(transitionsMapJSON), // ARGV[8] - Changed to transitions map
-		string(terminalStepsJSON),  // ARGV[9]
-		allowMultipleTerminalsStr,  // ARGV[10]
-		r.ttl,                      // ARGV[11] - TTL in seconds from config
+		stepKey,                   // ARGV[1]
+		params.StepID,             // ARGV[2]
+		params.Status,             // ARGV[3]
+		params.Timestamp,          // ARGV[4]
+		existingViolationsJSON,    // ARGV[5]
+		isTerminalStr,             // ARGV[6]
+		params.MaxRetries,         // ARGV[7]
+		transitionsStr,            // ARGV[8] - Pre-computed transitions string
+		terminalStepsStr,          // ARGV[9] - Pre-computed terminal steps string
+		allowMultipleTerminalsStr, // ARGV[10]
+		r.ttl,                     // ARGV[11] - TTL in seconds from config
+		params.ThreadID,           // ARGV[12] - threadID (passed to avoid regex extraction)
+		params.IdempotencyKey,     // ARGV[13] - idempotencyKey (passed to avoid regex extraction)
 	}
 
 	// Execute Lua script

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -388,7 +389,8 @@ func (s *NotificationService) processValidationNotifications(
 	fmt.Printf("[DEBUG-LUA-PARAMS] thread=%s, step=%s, transitionsMap=%v, maxRetries=%d\n",
 		threadID, stepName, transitionsMap, maxRetries)
 
-	// Call repository to validate and update atomically
+	// Call repository to validate and update atomically with timing
+	luaStart := time.Now()
 	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, interfaces.ValidateStepParams{
 		ThreadID:               threadID,
 		StepID:                 stepID,
@@ -403,6 +405,10 @@ func (s *NotificationService) processValidationNotifications(
 		TerminalSteps:          terminalSteps,
 		AllowMultipleTerminals: allowMultipleTerminals,
 	})
+
+	luaDuration := time.Since(luaStart)
+	stepEventID := fmt.Sprintf("%s:%s:%s", threadID, stepName, idempotencyKey)
+	log.Printf("[PERF] Validation LUA_SCRIPT: %s | duration=%v | success=%t", stepEventID, luaDuration, err == nil)
 
 	if err != nil {
 		fmt.Printf("[REPO-ERROR] Error validating and updating step state: %v\n", err)
