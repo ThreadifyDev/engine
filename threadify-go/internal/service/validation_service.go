@@ -30,7 +30,7 @@ func NewValidationService(valkeyClient interfaces.ValkeyClient, threadRepo inter
 // GetCurrentSteps retrieves current step names from the sorted set
 func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string) []string {
 	// Use repository method instead of direct Valkey call
-	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID)
+	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID, true)
 	if err != nil {
 		return []string{}
 	}

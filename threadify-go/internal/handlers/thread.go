@@ -58,10 +58,11 @@ type NotificationACKMessage struct {
 func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient, luaScriptManager interfaces.LuaScriptManager, rateLimitConfig *config.RateLimitConfig, websocketConfig *config.WebSocketConfig) *WebSocketHandler {
 	// Initialize upgrader with config values
 	upgrader = websocket.Upgrader{
-		CheckOrigin:      func(r *http.Request) bool { return true },
-		HandshakeTimeout: time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
-		ReadBufferSize:   websocketConfig.ReadBufferSize,
-		WriteBufferSize:  websocketConfig.WriteBufferSize,
+		CheckOrigin:       func(r *http.Request) bool { return true },
+		HandshakeTimeout:  time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
+		ReadBufferSize:    websocketConfig.ReadBufferSize,
+		WriteBufferSize:   websocketConfig.WriteBufferSize,
+		EnableCompression: true, // Enable per-message compression (reduces bandwidth by 60-80%)
 	}
 
 	return &WebSocketHandler{

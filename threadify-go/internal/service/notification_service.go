@@ -123,14 +123,16 @@ func (s *NotificationService) PerformAsyncValidation(
 				Timestamp:      time.Now(),
 			}
 
-			// Publish immediately
+			// Publish immediately (async, non-blocking)
 			if s.natsPublisher != nil {
-				if err := s.natsPublisher.PublishNotification(ctx, immediateNotif); err != nil {
-					fmt.Printf("[NATS-ERROR] Error publishing immediate notification: %v\n", err)
-				} else {
-					fmt.Printf("[IMMEDIATE-NOTIF] Published for step=%s, status=%s (no contract)\n",
-						stepName, req.Status)
-				}
+				go func(notif models.ValidationNotification) {
+					if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
+						fmt.Printf("[NATS-ERROR] Error publishing immediate notification: %v\n", err)
+					} else {
+						fmt.Printf("[IMMEDIATE-NOTIF] Published for step=%s, status=%s (no contract)\n",
+							stepName, req.Status)
+					}
+				}(immediateNotif)
 			}
 
 			// Archive step state even for threads without contracts
@@ -485,11 +487,13 @@ func (s *NotificationService) processValidationNotifications(
 		Timestamp:      time.Now(),
 	}
 
-	// Publish final status notification
+	// Publish final status notification (async, non-blocking)
 	if s.natsPublisher != nil {
-		if err := s.natsPublisher.PublishNotification(ctx, finalStatusNotif); err != nil {
-			fmt.Printf("[NATS-ERROR] Error publishing final status notification: %v\n", err)
-		}
+		go func(notif models.ValidationNotification) {
+			if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
+				fmt.Printf("[NATS-ERROR] Error publishing final status notification: %v\n", err)
+			}
+		}(finalStatusNotif)
 	}
 
 	// Handle terminal step completion
@@ -513,13 +517,15 @@ func (s *NotificationService) processValidationNotifications(
 			Timestamp:      time.Now(),
 		}
 
-		// Publish thread completion notification to NATS
+		// Publish thread completion notification to NATS (async, non-blocking)
 		if s.natsPublisher != nil {
-			if err := s.natsPublisher.PublishNotification(ctx, threadCompletionNotif); err != nil {
-				fmt.Printf("[NATS-ERROR] Error publishing thread completion notification: %v\n", err)
-			} else {
-				fmt.Printf("[THREAD-COMPLETE] Thread completion notification published\n")
-			}
+			go func(notif models.ValidationNotification) {
+				if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
+					fmt.Printf("[NATS-ERROR] Error publishing thread completion notification: %v\n", err)
+				} else {
+					fmt.Printf("[THREAD-COMPLETE] Thread completion notification published\n")
+				}
+			}(threadCompletionNotif)
 		}
 
 		// Archive thread metadata

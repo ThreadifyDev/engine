@@ -37,12 +37,17 @@ if threadJSON ~= "" then
         return redis.error_reply("THREAD_ALREADY_EXISTS")
     end
     
-    -- Create thread hash atomically with access grant
-    redis.call('HSET', threadKey, 'data', threadJSON)
+    -- Create thread data as JSON string (matches ThreadRepository.Save format)
+    redis.call('SET', threadKey, threadJSON)
+    
+    -- Create thread metadata hash (required by step validation)
+    local metaKey = threadKey .. ':meta'
+    redis.call('HSET', metaKey, 'status', 'active')
     
     -- Set TTL if provided
     if threadTTL > 0 then
         redis.call('EXPIRE', threadKey, threadTTL)
+        redis.call('EXPIRE', metaKey, threadTTL)
     end
 end
 

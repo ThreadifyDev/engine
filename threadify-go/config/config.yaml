@@ -15,9 +15,17 @@ postgres:
 redis:
   host: localhost
   port: 6379
-  password: thread0fy_server
+  password: threadify_secure_queue_password
   db: 0
   pool_size: 200  # Increased for archiver with many concurrent streams
+  min_idle_conns: 10              # Minimum idle connections to keep ready
+  max_idle_conns: 100             # Maximum idle connections to maintain
+  max_retries: 1                  # Fail fast on errors
+  dial_timeout_ms: 2000           # Connection establishment timeout (2s)
+  read_timeout_ms: 500            # Read operation timeout (500ms)
+  write_timeout_ms: 500           # Write operation timeout (500ms) - can be increased for high goroutine concurrency
+  pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
+  conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
 jwt:
   secret: your-256-bit-secret-key-change-this-in-production-min-32-chars
@@ -40,7 +48,7 @@ rate_limit:
   
   # Per-IP rate limiting (in-memory, per-pod)
   per_ip:
-    enabled: true
+    enabled: false
     requests_per_minute: 60
     burst: 10
   
@@ -70,10 +78,10 @@ bot_scanner:
   cleanup_interval_minutes: 30 # How often to clean up old tracking data
 
 cache:
-  contract_ttl_hours: 24    # Contract data expires after 24 hours
-  thread_ttl_hours: 72      # Thread data expires after 72 hours
-  step_event_ttl_hours: 168  # Step events expire after 7 days
-  session_ttl_minutes: 30   # WebSocket session expires after 30 minutes
+  contract_ttl_ms: 18000000    # Contract data expires after 5 hours (hot cache, PostgreSQL fallback)
+  thread_ttl_ms: 18000000      # Thread data expires after 5 hours (hot cache, PostgreSQL fallback)
+  step_event_ttl_ms: 18000000  # Step events expire after 5 hours (hot cache, PostgreSQL fallback)
+  session_ttl_ms: 1800000      # WebSocket session expires after 30 minutes (short-lived, no persistence)
 
 # Invitation configuration
 invitations:
@@ -81,6 +89,12 @@ invitations:
   default_expiry: "24h"               # Default expiry for invitation tokens
   max_expiry: "7d"                    # Maximum allowed expiry
   # allowed_roles removed - roles now validated dynamically against contract parties
+
+# Thread access batching configuration
+thread_access:
+  batch_size: 25              # Flush when buffer reaches this size
+  batch_timeout_ms: 50        # Flush every 50ms (hybrid: whichever comes first)
+  buffer_size: 100            # Channel buffer size for async writes
 
 logging:
   level: info

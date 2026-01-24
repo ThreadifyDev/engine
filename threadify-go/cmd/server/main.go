@@ -109,15 +109,18 @@ func main() {
 
 	contractService := service.NewContractService(db)
 
-	// Initialize NATS client for archival (graceful degradation if unavailable)
+	// Initialize NATS client for notifications and archival (graceful degradation if unavailable)
 	var natsArchivalPublisher *natsrepo.ArchivalPublisher
+	var natsNotificationPublisher *natsrepo.Publisher
 	natsClient, err := natsrepo.NewClient(&cfg.NATS)
 	if err != nil {
-		logger.Warn("Failed to connect to NATS - archival will be disabled", zap.Error(err))
+		logger.Warn("Failed to connect to NATS - notifications and archival will be disabled", zap.Error(err))
 		natsArchivalPublisher = nil
+		natsNotificationPublisher = nil
 	} else {
 		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
-		// NATS archival publisher initialized
+		natsNotificationPublisher = natsrepo.NewPublisher(natsClient)
+		logger.Info("NATS notification and archival publishers initialized successfully")
 	}
 
 	// Initialize step event service first
@@ -139,7 +142,7 @@ func main() {
 	// Initialize thread service with step event service and TTL configs
 	contractTTLMs := viper.GetInt("cache.contract_ttl_ms")
 	contractTTL := time.Duration(contractTTLMs) * time.Millisecond
-	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()))
+	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()), natsNotificationPublisher, natsArchivalPublisher)
 
 	// Start step event service
 	stepEventService.Start()

@@ -59,16 +59,19 @@ func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, owner
 	}
 
 	// 3. Send activity event to NATS for archival (async, non-blocking)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	// Skip if NATS publisher is not available (graceful degradation)
+	if ses.natsPublisher != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
+			activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
 
-		if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-			logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
-		}
-	}()
+			if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+				logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
+			}
+		}()
+	}
 
 	return nil
 }

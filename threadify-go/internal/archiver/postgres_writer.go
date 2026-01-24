@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/threadify/engine/internal/database"
@@ -223,6 +224,9 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 			status = EXCLUDED.status
 	`
 
+	successCount := 0
+	skippedCount := 0
+
 	for _, event := range events {
 		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s\n",
 			event.Data["threadId"], event.Data["userId"], event.Data["roles"])
@@ -237,12 +241,24 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 			event.Data["status"],
 		)
 		if err != nil {
+			// Check if it's a foreign key violation (thread doesn't exist yet)
+			if strings.Contains(err.Error(), "fk_thread_access_thread") || strings.Contains(err.Error(), "23503") {
+				fmt.Printf("⚠️  [PostgresWriter] Skipping thread_access for non-existent thread %s (will retry on next batch)\n", event.Data["threadId"])
+				skippedCount++
+				// Don't return error - just skip this record, it will be redelivered by NATS
+				continue
+			}
 			fmt.Printf("❌ [PostgresWriter] Failed to write thread_access event: %v\n", err)
 			return err
 		}
+		successCount++
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread access events\n", len(events))
+	if skippedCount > 0 {
+		fmt.Printf("✅ [PostgresWriter] Wrote %d thread access events (%d skipped due to missing threads)\n", successCount, skippedCount)
+	} else {
+		fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread access events\n", successCount)
+	}
 	return nil
 }
 

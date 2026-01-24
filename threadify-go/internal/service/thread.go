@@ -43,7 +43,8 @@ type ThreadService struct {
 
 // NewThreadService creates ThreadService with all dependencies
 // This is the main constructor used in production
-func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int) *ThreadService {
+// natsPublisher and natsArchivalPublisher can be nil for graceful degradation
+func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
 	// Create cache service first
 	cacheService := NewCacheService()
 
@@ -78,25 +79,12 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 	// Create scope resolver for notification access control
 	scopeResolver := NewScopeResolver(cfg, valkeyGraphRepo, threadRepo)
 
-	// Initialize NATS publisher and consumer for notifications (graceful degradation if NATS unavailable)
-	var natsPublisher NotificationPublisher
-	var natsConsumer *NotificationConsumer
-	var natsArchivalPublisher *natsrepo.ArchivalPublisher
-	natsClient, err := natsrepo.NewClient(&cfg.NATS)
-	if err != nil {
-		fmt.Printf("Warning: Failed to connect to NATS - notifications and archival will be disabled: %v\n", err)
-		natsPublisher = nil
-		natsConsumer = nil
-		natsArchivalPublisher = nil
-	} else {
-		natsPublisher = natsrepo.NewPublisher(natsClient)
-		natsConsumer = NewNotificationConsumer(natsClient, scopeResolver)
-		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
-		fmt.Printf("NATS publisher, consumer, and archival publisher initialized successfully\n")
-	}
-
-	// Create activity repository with NATS publisher
+	// Create activity repository with NATS archival publisher (passed as parameter)
+	// natsArchivalPublisher can be nil for graceful degradation
 	activityRepo := valkey.NewActivityRepository(valkeyService, natsArchivalPublisher)
+
+	// Note: natsPublisher is now passed as a parameter from main.go
+	// This avoids duplicate NATS connection attempts
 
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyService, threadRepo)
@@ -118,7 +106,7 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		notificationService:   notificationService,
 		invitationService:     invitationService,
 		scopeResolver:         scopeResolver,
-		notificationConsumer:  natsConsumer,
+		notificationConsumer:  nil, // Consumer is managed by NotificationRouter in main.go
 		valkeyClient:          valkeyService,
 		luaScripts:            luaScripts,
 		natsArchivalPublisher: natsArchivalPublisher,
@@ -244,35 +232,85 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 	fmt.Printf("[WebSocket DEBUG] Creating thread %s with ownerID %s\n", threadID, ownerID)
 
-	// Save thread to repository
-	if err := s.repo.Save(context.Background(), thread); err != nil {
-		fmt.Printf("[WebSocket DEBUG] Failed to save thread %s to Redis: %v\n", threadID, err)
-		return &models.StartThreadResponse{
-			Action:  "startThread",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to save thread: %v", err),
-		}
-	}
-
-	fmt.Printf("[WebSocket DEBUG] Successfully saved thread %s to Redis\n", threadID)
-
-	// Cache the thread for fast access
-	s.cacheManager.SetThread(threadID, thread)
-
-	// Grant access to thread creator (role + full permissions)
-	// invitedBy = "self" indicates this is the thread creator
+	// Prepare creator access
 	creatorRole := req.Role
 	if creatorRole == "" {
 		creatorRole = "owner" // Default role if not specified
 	}
 	creatorPermissions := []string{"read", "write", "invite", "manage"}
 
-	// Use GrantOrUpdateThreadAccess to ensure scope resolution happens
-	// Creator always gets isCreator=true, which resolves to "owner" scope
-	if err := s.GrantOrUpdateThreadAccess(threadID, ownerID, creatorRole, creatorPermissions, "self", true, nil); err != nil {
-		// Log error but don't fail thread creation
-		fmt.Printf("Warning: failed to grant creator access: %v\n", err)
+	// OPTIMIZATION: Atomic thread creation + access grant in single operation
+	// This combines repo.Save() and GrantOrUpdateAccess() to reduce roundtrips
+	createCtx, createCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer createCancel()
+
+	// Resolve scope for creator
+	scope, err := s.scopeResolver.ResolveScope(
+		createCtx,
+		threadID,
+		ownerID,
+		creatorRole,
+		true, // isCreator
+		nil,  // explicitScope
+	)
+	if err != nil {
+		log.Printf("Failed to resolve scope for creator %s in thread %s: %v", ownerID, threadID, err)
+		scope = ""
 	}
+
+	// Serialize thread data for atomic creation
+	threadDataBytes, err := thread.ToJSON()
+	if err != nil {
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to serialize thread: %v", err),
+		}
+	}
+	threadDataStr := string(threadDataBytes)
+
+	// Atomic thread creation + access grant via Lua script
+	// This combines both operations into a single Valkey roundtrip
+	// TTL: 5 hours (18000 seconds) - matches config default
+	threadTTLSeconds := 18000
+	access, err := s.accessRepo.GrantOrUpdateAccess(
+		createCtx,
+		threadID,
+		ownerID,
+		creatorRole,
+		creatorPermissions,
+		"self", // invitedBy
+		s.luaScripts,
+		&threadDataStr,    // Pass thread data for atomic creation
+		&threadTTLSeconds, // Pass TTL in seconds
+	)
+	if err != nil {
+		fmt.Printf("[WebSocket DEBUG] Failed to create thread %s atomically: %v\n", threadID, err)
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to create thread: %v", err),
+		}
+	}
+
+	fmt.Printf("[WebSocket DEBUG] Successfully created thread %s atomically with access\n", threadID)
+
+	// Cache the thread for fast access
+	s.cacheManager.SetThread(threadID, thread)
+
+	// Record activity asynchronously (don't block)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		client, exists := s.connectionMgr.GetClient(ownerID)
+		serviceName := ""
+		if exists {
+			serviceName = client.ServiceName
+		}
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, scope); err != nil {
+			log.Printf("Failed to record access granted activity: %v", err)
+		}
+	}()
 
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
 	go func() {
@@ -395,7 +433,7 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 	// Use repository method instead of direct Valkey call
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID)
+	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, true)
 	if err != nil {
 		return false
 	}
@@ -497,7 +535,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		// Use repository method instead of direct Valkey call
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, idempotencyKey)
+		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, idempotencyKey, true)
 		if err == nil && existingStatus != "" {
 			// Step exists - check if it's already completed
 			if existingStatus == "completed" {

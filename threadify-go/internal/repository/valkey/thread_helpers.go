@@ -42,13 +42,24 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName
 	stepKey := fmt.Sprintf("%s:%s", stepName, idempotencyKey)
 	stepHashKey := fmt.Sprintf("thread:%s:steps:%s", threadID, stepKey)
 
-	// Try Valkey first (hot path)
+	// 1. Try Valkey first (hot path) - check if THIS step exists
 	status, err := r.valkey.HGet(ctx, stepHashKey, "status")
 	if err == nil && status != "" {
 		return status, nil
 	}
 
-	// Fallback to PostgreSQL (cold path)
+	// 2. Step not found in Valkey - check if thread exists in Valkey
+	// If thread exists in Valkey, the step definitely doesn't exist (it's new)
+	// Only check PostgreSQL if thread was evicted from cache
+	threadKey := fmt.Sprintf("thread:%s", threadID)
+	threadExists, threadErr := r.valkey.Exists(ctx, threadKey)
+	if threadErr == nil && threadExists {
+		// Thread is in Valkey but step is not - this is a new step
+		// Skip PostgreSQL check (step definitely doesn't exist)
+		return "", nil
+	}
+
+	// Thread not in Valkey - entire thread was evicted - check PostgreSQL
 	if r.stepStatePostgres == nil {
 		return "", nil // Not found, not an error
 	}
@@ -107,11 +118,19 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 
 	// Try Valkey first
 	count, err := r.valkey.ZCard(ctx, currentStepsKey)
-	if err == nil && count > 0 {
+	if err == nil {
 		return count, nil
 	}
 
-	// Fallback to PostgreSQL
+	// Check if thread exists in Valkey - if not, it's a brand new thread with no steps
+	threadKey := fmt.Sprintf("thread:%s", threadID)
+	exists, existsErr := r.valkey.Exists(ctx, threadKey)
+	if existsErr == nil && !exists {
+		// Thread doesn't exist in cache yet - it's brand new, no need to check PostgreSQL
+		return 0, nil
+	}
+
+	// Fallback to PostgreSQL only if thread exists but steps are missing (cache eviction scenario)
 	if r.postgresRepo == nil {
 		return 0, nil
 	}
