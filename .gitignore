@@ -48,3 +48,4 @@ test-app/node_modules/
 test-app/package-lock.json
 node_modules/
 .DS_Store
+# web/**
