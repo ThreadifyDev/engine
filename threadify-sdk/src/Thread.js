@@ -787,29 +787,7 @@ export class ThreadInstance {
       });
     });
   }
-
-  /**
-   * Handle incoming notification for this thread
-   * @private
-   */
-  _handleNotification(notification) {
-    const stepName = notification.stepName;
-    const pending = this.pendingWaits.get(stepName);
-    
-    if (pending) {
-      // Check if status matches filter (if provided)
-      if (!pending.statuses || pending.statuses.includes(notification.stepStatus)) {
-        clearTimeout(pending.timeoutId);
-        this.pendingWaits.delete(stepName);
-        
-        // ✅ AUTO-ACK for waitFor() - promise fulfilled means notification received
-        notification.ack();
-        
-        pending.resolve(notification);
-      }
-    }
-  }
-
+  
   /**
    * Add external references to this thread
    * @param {Object} refs - Key-value pairs of external references
