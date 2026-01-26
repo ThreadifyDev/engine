@@ -157,6 +157,9 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 }
 
 func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerID string, companyID string) *models.StartThreadResponse {
+	start := time.Now()
+	log.Printf("[PERF] HandleStartThread BEGIN: owner=%s, contract=%s", ownerID, req.ContractName)
+
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.StartThreadResponse{
 			Action:  "startThread",
@@ -414,6 +417,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		}
 	}()
 
+	totalDuration := time.Since(start)
+	log.Printf("[PERF] HandleStartThread COMPLETE: duration=%v | success=true", totalDuration)
+
 	return &models.StartThreadResponse{
 		Action:   "startThread",
 		Status:   "success",
@@ -435,6 +441,9 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 }
 
 func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string, companyID string) *models.RecordEventResponse {
+	start := time.Now()
+	log.Printf("[PERF] HandleRecordEvent BEGIN: owner=%s, thread=%s, step=%s", ownerID, req.ThreadID[:8], req.StepName)
+
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -687,6 +696,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	if req.Status == "success" || req.Status == "failed" || req.Status == "error" {
 		s.notificationService.PerformAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
 	}
+
+	totalDuration := time.Since(start)
+	log.Printf("[PERF] HandleRecordEvent COMPLETE: duration=%v | success=true", totalDuration)
 
 	return &models.RecordEventResponse{
 		Action:   "recordThreadEvent",

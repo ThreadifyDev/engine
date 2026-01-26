@@ -209,3 +209,28 @@ archiver:
     block_timeout_ms: 5000
     batch_size: 100
     step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)
+
+# Web API service configuration
+web_api:
+  enabled: true
+  port: 3001
+  host: 0.0.0.0
+  cors_origins: "http://localhost:3000"
+  
+  # Email service (Plunk)
+  email:
+    plunk_api_key: "sk_b2383fde9b0f52295c5410166454519f4db28e48561bd419"
+    plunk_from_email: "noreply@threadify.com"
+  
+  # Threadify Engine integration
+  threadify_engine:
+    url: "http://localhost:8081"
+    graphql_url: "http://localhost:8081/graphql"
+  
+  # API Key settings
+  api_key_ttl_hours: 8760  # 365 days
+  
+  # Rate limiting
+  rate_limit:
+    requests: 100
+    window_minutes: 1

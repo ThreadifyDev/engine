@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -19,6 +20,7 @@ type AuthService struct {
 	issuer     string
 	audience   string
 	expiration time.Duration
+	db         *sql.DB
 }
 
 func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthService {
@@ -28,6 +30,11 @@ func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthS
 		audience:   audience,
 		expiration: time.Duration(expirationHours) * time.Hour,
 	}
+}
+
+// SetDB sets the database connection for API key validation
+func (s *AuthService) SetDB(db *sql.DB) {
+	s.db = db
 }
 
 // ValidateApiKey provides a mock implementation for API key validation

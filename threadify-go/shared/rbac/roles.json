@@ -1,0 +1,65 @@
+{
+  "app_level": {
+    "standard_account": {
+      "name": "Standard Account",
+      "description": "Default role for user accounts",
+      "permissions": [
+        "apikey.create",
+        "apikey.read",
+        "contract.read.*",
+        "contract.create",
+        "contract.update.*",
+        "serviceaccount.*",
+        "query.execution.*"
+      ]
+    }
+  },
+  "api_level": {
+    "standard_service": {
+      "name": "Standard Service",
+      "description": "Default role for service accounts",
+      "permissions": [
+        "thread.read",
+        "thread.write",
+        "query.execution.*"
+      ]
+    },
+    "reader": {
+      "name": "Reader",
+      "description": "Read-only access",
+      "permissions": [
+        "thread.read",
+        "query.execution.*"
+      ]
+    }
+  },
+  "runtime_level": {
+    "owner": {
+      "name": "Thread Owner",
+      "description": "Full access to threads and steps",
+      "permissions": [
+        "thread.create",
+        "thread.read.*",
+        "thread.write.*",
+        "step.record.*",
+        "thread.invite"
+      ]
+    },
+    "participant": {
+      "name": "Thread Participant",
+      "description": "Can read and write to threads",
+      "permissions": [
+        "thread.read.*",
+        "thread.write.*",
+        "step.record.*"
+      ]
+    },
+    "observer": {
+      "name": "Thread Observer",
+      "description": "Read-only access to threads",
+      "permissions": [
+        "thread.read.*"
+      ]
+    }
+  }
+}

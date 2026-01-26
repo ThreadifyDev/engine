@@ -20,13 +20,14 @@ type Config struct {
 	// API Keys
 	APIKeyTTL time.Duration
 
-	// Email
+	// Plunk Email Service
 	PlunkAPIKey    string
 	PlunkFromEmail string
 
-	// Threadify Engine
+	// ThreadifyEngine URLs
 	ThreadifyEngineURL        string
 	ThreadifyEngineGraphQLURL string
+	ThreadifyEngineUserID     string
 
 	// Server
 	Port        string
@@ -51,8 +52,9 @@ func Load() *Config {
 		APIKeyTTL:                 parseDuration(getEnv("API_KEY_TTL", "8760h")),             // 365 days
 		PlunkAPIKey:               getEnv("PLUNK_API_KEY", ""),
 		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.com"),
-		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "ws://localhost:8080"),
-		ThreadifyEngineGraphQLURL: getEnv("THREADIFY_ENGINE_GRAPHQL_URL", "http://localhost:8080/graphql"),
+		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "http://localhost:8081"),
+		ThreadifyEngineGraphQLURL: getEnv("THREADIFY_ENGINE_GRAPHQL_URL", "http://localhost:8081/graphql"),
+		ThreadifyEngineUserID:     getEnv("THREADIFY_ENGINE_USER_ID", "123456"),
 		Port:                      getEnv("PORT", "3001"),
 		CORSOrigins:               getEnv("CORS_ORIGINS", "http://localhost:3000"),
 		RateLimitRequests:         100,

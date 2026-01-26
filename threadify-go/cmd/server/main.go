@@ -12,6 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"threadify-go/shared/jwt"
+	"threadify-go/shared/rbac"
+
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
@@ -98,7 +101,6 @@ func main() {
 		logger.Fatal("Failed to connect to Redis/Valkey", zap.Error(err))
 	}
 	defer valkeyService.Close()
-	// Connected to Redis/Valkey
 
 	// Initialize services
 	jwtSecret := viper.GetString("jwt.secret")
@@ -106,6 +108,15 @@ func main() {
 	jwtAudience := viper.GetString("jwt.audience")
 	jwtExpHours := viper.GetInt("jwt.expiration_hours")
 	authService := service.NewAuthService(jwtSecret, jwtIssuer, jwtAudience, jwtExpHours)
+
+	// Initialize shared JWT validator for contract endpoints
+	jwtValidator := jwt.NewValidator(jwtSecret, jwtIssuer, jwtAudience)
+
+	// Initialize RBAC loader for contract permissions
+	rbacLoader, err := rbac.NewLoader("./shared/rbac/permissions.json", "./shared/rbac/roles.json")
+	if err != nil {
+		logger.Fatal("Failed to load RBAC roles", zap.Error(err))
+	}
 
 	contractService := service.NewContractService(db)
 
@@ -350,17 +361,43 @@ func main() {
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	v1 := r.Group("/v1")
-	v1.Use(middleware.AuthMiddleware(authService))
 	v1.Use(middleware.UserRateLimiter(luaScriptManager, &rateLimitCfg))
+
+	// Contract endpoints with JWT authentication and RBAC
+	contracts := v1.Group("/contracts")
+	contracts.Use(middleware.ContractJWTMiddleware(jwtValidator))
 	{
-		v1.GET("/contracts", contractHandler.GetAllContracts)
-		v1.POST("/contracts", contractHandler.CreateContract)
-		v1.POST("/contracts/preview", contractHandler.PreviewContract)
-		v1.GET("/contracts/:id", contractHandler.GetContract)
-		v1.PUT("/contracts/:id", contractHandler.UpdateContract)
-		v1.DELETE("/contracts/:id", contractHandler.DeleteContract)
-		v1.GET("/contracts/:id/versions", contractHandler.GetAllContractVersions)
-		v1.DELETE("/contracts/:id/versions/:version", contractHandler.DeleteContractVersion)
+		contracts.GET("",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
+			contractHandler.GetAllContracts)
+
+		contracts.POST("",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.create"),
+			contractHandler.CreateContract)
+
+		contracts.POST("/preview",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
+			contractHandler.PreviewContract)
+
+		contracts.GET("/:id",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
+			contractHandler.GetContract)
+
+		contracts.PUT("/:id",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"),
+			contractHandler.UpdateContract)
+
+		contracts.DELETE("/:id",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"),
+			contractHandler.DeleteContract)
+
+		contracts.GET("/:id/versions",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
+			contractHandler.GetAllContractVersions)
+
+		contracts.DELETE("/:id/versions/:version",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"),
+			contractHandler.DeleteContractVersion)
 	}
 
 	// Start server

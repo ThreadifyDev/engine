@@ -41,21 +41,8 @@ func (db *PostgresDB) Close() {
 
 func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	schema := `
-	CREATE TABLE IF NOT EXISTS companies (
-		id VARCHAR(255) PRIMARY KEY,
-		name VARCHAR(255) NOT NULL,
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-	);
-
-	CREATE TABLE IF NOT EXISTS users (
-		id VARCHAR(255) PRIMARY KEY,
-		email VARCHAR(255) UNIQUE NOT NULL,
-		name VARCHAR(255),
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-	);
-
+	-- Note: companies and users tables are now owned by Web API InitSchema
+	
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
 		name VARCHAR(255) NOT NULL,
