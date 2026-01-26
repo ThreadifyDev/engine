@@ -109,6 +109,9 @@ func main() {
 	jwtExpHours := viper.GetInt("jwt.expiration_hours")
 	authService := service.NewAuthService(jwtSecret, jwtIssuer, jwtAudience, jwtExpHours)
 
+	// Inject database connection for API key validation
+	authService.SetDB(db.Pool)
+
 	// Initialize shared JWT validator for contract endpoints
 	jwtValidator := jwt.NewValidator(jwtSecret, jwtIssuer, jwtAudience)
 
