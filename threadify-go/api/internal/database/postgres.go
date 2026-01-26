@@ -76,12 +76,28 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		last_used_at TIMESTAMP,
-		created_by VARCHAR(255) NOT NULL,
-		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+		created_by VARCHAR(255) NOT NULL
 	);
 	
 	-- Add missing columns to service_accounts table
 	ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+	
+	-- Drop old foreign key constraints that reference old table names
+	ALTER TABLE service_accounts DROP CONSTRAINT IF EXISTS service_accounts_company_id_fkey;
+	ALTER TABLE service_accounts DROP CONSTRAINT IF EXISTS service_accounts_created_by_fkey;
+	
+	-- Add correct foreign key constraints
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'service_accounts_company_fkey') THEN
+			ALTER TABLE service_accounts ADD CONSTRAINT service_accounts_company_fkey 
+				FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'service_accounts_created_by_users_fkey') THEN
+			ALTER TABLE service_accounts ADD CONSTRAINT service_accounts_created_by_users_fkey 
+				FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+		END IF;
+	END $$;
 
 	-- API keys table
 	CREATE TABLE IF NOT EXISTS api_keys (
@@ -90,13 +106,15 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 		key_hash VARCHAR(255) NOT NULL UNIQUE,
 		key_prefix VARCHAR(20) NOT NULL,
 		name VARCHAR(255),
-		is_active BOOLEAN NOT NULL DEFAULT TRUE,
 		expires_at TIMESTAMP,
 		last_used_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (service_account_id) REFERENCES service_accounts(id) ON DELETE CASCADE
 	);
+	
+	-- Add missing columns to api_keys table
+	ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 	
 	-- Drop old foreign key constraints that reference old table names
 	ALTER TABLE api_keys DROP CONSTRAINT IF EXISTS api_keys_user_id_fkey;
