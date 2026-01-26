@@ -44,7 +44,7 @@ type ThreadService struct {
 // NewThreadService creates ThreadService with all dependencies
 // This is the main constructor used in production
 // natsPublisher and natsArchivalPublisher can be nil for graceful degradation
-func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher) *ThreadService {
+func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher, authService *AuthService) *ThreadService {
 	// Create cache service first
 	cacheService := NewCacheService()
 
@@ -100,7 +100,7 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		cacheManager:          cacheService,
 		connectionMgr:         NewConnectionService(),
 		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService),
-		authService:           NewAuthService("demo-secret", "threadify", "threadify-api", 24),
+		authService:           authService, // Use the passed authService with database connection
 		accessService:         accessService,
 		validationService:     validationService,
 		notificationService:   notificationService,

@@ -156,7 +156,7 @@ func main() {
 	// Initialize thread service with step event service and TTL configs
 	contractTTLMs := viper.GetInt("cache.contract_ttl_ms")
 	contractTTL := time.Duration(contractTTLMs) * time.Millisecond
-	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()), natsNotificationPublisher, natsArchivalPublisher)
+	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()), natsNotificationPublisher, natsArchivalPublisher, authService)
 
 	// Start step event service
 	stepEventService.Start()

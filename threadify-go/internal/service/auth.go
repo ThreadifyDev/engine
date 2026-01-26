@@ -47,7 +47,7 @@ func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthS
 // SetDB sets the database connection for API key validation
 func (s *AuthService) SetDB(db *pgxpool.Pool) {
 	s.db = db
-	s.cacheTTL = 5 * time.Minute // Cache API key lookups for 5 minutes
+	s.cacheTTL = 1 * time.Hour // Cache API key lookups for 1 hour
 
 	// Start cache cleanup goroutine
 	go s.cleanupExpiredCache()
@@ -122,18 +122,21 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 	keyHash := hex.EncodeToString(hash[:])
 
 	// Query to get service account info from API key
+	// Role is fetched from user_roles table (service accounts use principal_id)
 	query := `
 		SELECT 
 			sa.id as owner_id,
 			sa.company_id,
-			sa.role,
+			COALESCE(ur.role_name, 'standard_service') as role,
 			ak.is_active,
 			ak.expires_at
 		FROM api_keys ak
 		JOIN service_accounts sa ON ak.service_account_id = sa.id
+		LEFT JOIN user_roles ur ON ur.principal_id = sa.id AND ur.principal_type = 'service_account'
 		WHERE ak.key_hash = $1
 		AND ak.is_active = true
 		AND sa.is_active = true
+		LIMIT 1
 	`
 
 	var userInfo UserInfo

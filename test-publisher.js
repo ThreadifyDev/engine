@@ -23,7 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Configuration
 const WS_URL = process.env.WS_URL || 'ws://localhost:8081/threads';
-const API_KEY = process.env.API_KEY || 'api-key-123';
+const API_KEY = 'td_oqyuBOZtddPLxbcTUO1VxkRRLW47PwRvxvq-zTQsFB8' || process.env.API_KEY || 'api-key-123';
 const SERVICE_NAME = 'test-publisher';
 const NOTIFICATION_COUNT = parseInt(process.env.NOTIFICATION_COUNT) || parseInt(process.argv.find(arg => arg.startsWith('--count='))?.split('=')[1]) || 1;
 const STEP_NAME = process.env.STEP_NAME || process.argv.find(arg => arg.startsWith('--step='))?.split('=')[1] || 'order_placed';
@@ -33,6 +33,8 @@ let connection = null;
 let publishedCount = 0;
 let failedCount = 0;
 let publishLatencies = [];
+let connectLatencies = [];
+let startThreadLatencies = [];
 
 // Colors for console output
 const colors = {
@@ -72,24 +74,30 @@ async function connect() {
   log('╚════════════════════════════════════════════════════════╝', 'cyan');
   
   logInfo('Connecting to Threadify...');
+  const connectStart = Date.now();
   connection = await Threadify.connect(API_KEY, SERVICE_NAME, {
     url: WS_URL,
     debug: true,
   });
+  const connectLatency = Date.now() - connectStart;
+  connectLatencies.push(connectLatency);
   
-  logSuccess('Connected to Threadify');
+  logSuccess(`Connected to Threadify [${connectLatency}ms]`);
   return connection;
 }
 
 // Publish a notification
 async function publishNotification(index) {
   try {
-    const startTime = Date.now();
+    const totalStartTime = Date.now();
     
     logInfo(`[${index + 1}/${NOTIFICATION_COUNT}] Starting thread...`);
+    const startThreadStart = Date.now();
     const thread = await connection.start('product_delivery', 'merchant');
+    const startThreadLatency = Date.now() - startThreadStart;
+    startThreadLatencies.push(startThreadLatency);
     
-    logInfo(`[${index + 1}/${NOTIFICATION_COUNT}] Recording step: ${STEP_NAME}`);
+    logInfo(`[${index + 1}/${NOTIFICATION_COUNT}] Recording step: ${STEP_NAME} [start: ${startThreadLatency}ms]`);
     await thread.step(STEP_NAME)
       .addContext({
         order_id: `ORDER-${uuidv4().substring(0, 8)}`,
@@ -98,11 +106,13 @@ async function publishNotification(index) {
       })
       .success();
     
-    const latency = Date.now() - startTime;
-    publishLatencies.push(latency);
+    const totalLatency = Date.now() - totalStartTime;
+    publishLatencies.push(totalLatency);
     
     publishedCount++;
-    logPublish(`Published notification ${index + 1}: ${STEP_NAME} (thread: ${thread.id.substring(0, 8)}...) [${latency}ms]`);
+    const threadId = thread?.id || thread?.threadId || 'unknown';
+    const shortThreadId = threadId !== 'unknown' ? threadId.substring(0, 8) : threadId;
+    logPublish(`Published notification ${index + 1}: ${STEP_NAME} (thread: ${shortThreadId}...) [total: ${totalLatency}ms]`);
   } catch (error) {
     failedCount++;
     logError(`Failed to publish notification ${index + 1}: ${error.message}`);
@@ -130,14 +140,37 @@ function printSummary() {
   logInfo(`   • Notifications published: ${publishedCount}/${NOTIFICATION_COUNT}`);
   logInfo(`   • Success rate: ${((publishedCount / NOTIFICATION_COUNT) * 100).toFixed(1)}%`);
   
-  // Calculate publish latency statistics
+  // Calculate connect latency statistics
+  if (connectLatencies.length > 0) {
+    const avgLatency = (connectLatencies.reduce((a, b) => a + b, 0) / connectLatencies.length).toFixed(2);
+    
+    log('\n🔌 Connect Latency:', 'cyan');
+    logInfo(`   • Average: ${avgLatency}ms`);
+    logInfo(`   • Total connects: ${connectLatencies.length}`);
+  }
+  
+  // Calculate start thread latency statistics
+  if (startThreadLatencies.length > 0) {
+    const avgLatency = (startThreadLatencies.reduce((a, b) => a + b, 0) / startThreadLatencies.length).toFixed(2);
+    const minLatency = Math.min(...startThreadLatencies);
+    const maxLatency = Math.max(...startThreadLatencies);
+    const p95Latency = startThreadLatencies.sort((a, b) => a - b)[Math.floor(startThreadLatencies.length * 0.95)];
+    
+    log('\n🚀 Start Thread Latency:', 'cyan');
+    logInfo(`   • Average: ${avgLatency}ms`);
+    logInfo(`   • Min: ${minLatency}ms`);
+    logInfo(`   • Max: ${maxLatency}ms`);
+    logInfo(`   • P95: ${p95Latency}ms`);
+  }
+  
+  // Calculate total publish latency statistics
   if (publishLatencies.length > 0) {
     const avgLatency = (publishLatencies.reduce((a, b) => a + b, 0) / publishLatencies.length).toFixed(2);
     const minLatency = Math.min(...publishLatencies);
     const maxLatency = Math.max(...publishLatencies);
     const p95Latency = publishLatencies.sort((a, b) => a - b)[Math.floor(publishLatencies.length * 0.95)];
     
-    log('\n⏱️  Publish Latency:', 'cyan');
+    log('\n⏱️  Total Publish Latency (start + step):', 'cyan');
     logInfo(`   • Average: ${avgLatency}ms`);
     logInfo(`   • Min: ${minLatency}ms`);
     logInfo(`   • Max: ${maxLatency}ms`);
