@@ -123,18 +123,27 @@ func main() {
 
 	contractService := service.NewContractService(db)
 
-	// Initialize NATS client for notifications and archival (graceful degradation if unavailable)
+	// Initialize NATS connection pool for notifications and archival (graceful degradation if unavailable)
 	var natsArchivalPublisher *natsrepo.ArchivalPublisher
 	var natsNotificationPublisher *natsrepo.Publisher
-	natsClient, err := natsrepo.NewClient(&cfg.NATS)
+	natsPoolSize := viper.GetInt("nats.pool_size")
+	if natsPoolSize <= 0 {
+		natsPoolSize = 5 // Default to 5 connections
+	}
+
+	natsPool, err := natsrepo.NewPool(&cfg.NATS, natsPoolSize)
 	if err != nil {
 		logger.Warn("Failed to connect to NATS - notifications and archival will be disabled", zap.Error(err))
 		natsArchivalPublisher = nil
 		natsNotificationPublisher = nil
 	} else {
-		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsClient)
-		natsNotificationPublisher = natsrepo.NewPublisher(natsClient)
-		logger.Info("NATS notification and archival publishers initialized successfully")
+		// Use round-robin client selection from pool
+		natsArchivalPublisher = natsrepo.NewArchivalPublisher(natsPool.GetClient())
+		natsNotificationPublisher = natsrepo.NewPublisher(natsPool.GetClient())
+		logger.Info("NATS connection pool initialized successfully",
+			zap.Int("pool_size", natsPoolSize),
+			zap.Bool("healthy", natsPool.IsHealthy()))
+		defer natsPool.Close()
 	}
 
 	// Initialize step event service first
@@ -200,8 +209,8 @@ func main() {
 
 	// Initialize notification router with NATS
 	var notificationRouter *handlers.NotificationRouter
-	if natsClient != nil {
-		notificationRouter, err = handlers.NewNotificationRouter(natsClient.Conn(), &cfg.NATS)
+	if natsPool != nil {
+		notificationRouter, err = handlers.NewNotificationRouter(natsPool.GetClient().Conn(), &cfg.NATS)
 		if err != nil {
 			log.Fatalf("Failed to create notification router: %v", err)
 		}
