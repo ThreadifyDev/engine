@@ -233,8 +233,6 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		StartedAt:       time.Now(),
 	}
 
-	fmt.Printf("[WebSocket DEBUG] Creating thread %s with ownerID %s\n", threadID, ownerID)
-
 	// Prepare creator access
 	creatorRole := req.Role
 	if creatorRole == "" {
@@ -288,15 +286,12 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		&threadTTLSeconds, // Pass TTL in seconds
 	)
 	if err != nil {
-		fmt.Printf("[WebSocket DEBUG] Failed to create thread %s atomically: %v\n", threadID, err)
 		return &models.StartThreadResponse{
 			Action:  "startThread",
 			Status:  "error",
 			Message: fmt.Sprintf("Failed to create thread: %v", err),
 		}
 	}
-
-	fmt.Printf("[WebSocket DEBUG] Successfully created thread %s atomically with access\n", threadID)
 
 	// Cache the thread for fast access
 	s.cacheManager.SetThread(threadID, thread)

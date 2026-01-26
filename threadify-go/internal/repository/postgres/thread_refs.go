@@ -220,8 +220,6 @@ func (r *ThreadRefsRepository) GetThreadChain(ctx context.Context, rootID string
 
 	rows, err := r.pool.Query(ctx, query, rootID, maxDepth)
 	if err != nil {
-		fmt.Printf("🔴 GetThreadChain SQL ERROR: %v\n", err)
-		fmt.Printf("🔴 Query params: rootID=%s, maxDepth=%d\n", rootID, maxDepth)
 		return nil, fmt.Errorf("failed to query thread chain: %w", err)
 	}
 	defer rows.Close()

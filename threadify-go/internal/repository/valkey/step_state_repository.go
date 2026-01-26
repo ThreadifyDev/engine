@@ -58,7 +58,6 @@ func (r *StepStateRepository) LoadScripts(ctx context.Context) error {
 		return fmt.Errorf("failed to load validate_and_update_step_state script: %w", err)
 	}
 	r.scriptHashes["validate_and_update"] = sha
-	fmt.Printf("Loaded Lua script 'validate_and_update_step_state' with SHA: %s\n", sha)
 	return nil
 }
 
@@ -175,10 +174,6 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		fmt.Printf("[LUA-RESULT-ERROR] Failed to parse: %s\n", resultStr)
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
-
-	// DEBUG: Always log the result
-	fmt.Printf("[LUA-RESULT-DEBUG] violations=%d, hasCritical=%v, status=%s\n",
-		len(luaResult.Violations), luaResult.HasCriticalViolation, luaResult.Status)
 
 	return &luaResult, nil
 }

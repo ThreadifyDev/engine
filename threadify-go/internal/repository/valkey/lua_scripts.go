@@ -45,7 +45,6 @@ func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 			return fmt.Errorf("failed to load script %s: %w", name, err)
 		}
 		m.scriptHashes[name] = sha
-		fmt.Printf("Loaded Lua script '%s' with SHA: %s\n", name, sha)
 	}
 
 	return nil

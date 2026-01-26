@@ -65,7 +65,6 @@ func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event m
 		return fmt.Errorf("failed to publish to NATS subject %s: %w", subject, err)
 	}
 
-	fmt.Printf("✅ [NATS-ARCHIVAL] Published to %s (size: %d bytes)\n", subject, len(data))
 	return nil
 }
 
