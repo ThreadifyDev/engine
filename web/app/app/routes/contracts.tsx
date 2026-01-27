@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
 import SideNav from '~/components/SideNav';
+import YamlEditor from '~/components/YamlEditor';
 
 export default function Contracts() {
   const navigate = useNavigate();
@@ -188,13 +189,11 @@ export default function Contracts() {
                 <label className="block text-sm font-medium mb-2">
                   YAML Contract <span className="text-red-600">*</span>
                 </label>
-                <textarea
-                  required
+                <YamlEditor
                   value={uploadForm.yaml}
-                  onChange={(e) => setUploadForm({ ...uploadForm, yaml: e.target.value })}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black font-mono text-sm"
-                  rows={20}
+                  onChange={(value) => setUploadForm({ ...uploadForm, yaml: value })}
                   placeholder="Paste your YAML contract here..."
+                  height="500px"
                 />
                 <p className="text-sm text-gray-600 mt-2">
                   Define your workflow steps, transitions, and validation rules in YAML format

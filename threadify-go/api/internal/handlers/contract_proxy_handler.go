@@ -156,26 +156,34 @@ func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 	// Read raw body (YAML)
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to read request body: %v", err)})
 		return
 	}
+
+	// Log the request for debugging
+	fmt.Printf("[PROXY] UpdateContract - ID: %s, Body length: %d bytes, Content-Type: %s\n",
+		id, len(bodyBytes), c.GetHeader("Content-Type"))
 
 	// Create request to ThreadifyEngine
 	url := fmt.Sprintf("%s/v1/contracts/%s", h.threadifyEngineURL, id)
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
 		return
 	}
 
 	// Forward headers
 	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("Content-Type", c.GetHeader("Content-Type")) // Forward original content type
+	contentType := c.GetHeader("Content-Type")
+	if contentType == "" {
+		contentType = "text/plain" // Default for YAML
+	}
+	req.Header.Set("Content-Type", contentType)
 
 	// Execute request
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to connect to ThreadifyEngine: %v", err)})
 		return
 	}
 	defer resp.Body.Close()
@@ -183,11 +191,14 @@ func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read response: %v", err)})
 		return
 	}
 
-	// Forward response
+	// Log the response for debugging
+	fmt.Printf("[PROXY] UpdateContract - Response status: %d, Body: %s\n", resp.StatusCode, string(respBody))
+
+	// Forward response with exact status code and body from Engine
 	c.Data(resp.StatusCode, "application/json", respBody)
 }
 
