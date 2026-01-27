@@ -3,7 +3,7 @@ services:
   threadify_storage:
     image: 'postgres:16-alpine'
     ports:
-      - '5432'
+      - '5434:5432'
     environment:
       POSTGRES_USER: '${PS_STORAGE_USER:-td_engine}'
       POSTGRES_PASSWORD: '${PS_STORAGE_PASSWORD:-tdtdtd}'

@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/metrics"
 )
 
 // UserInfo represents user information derived from an API key
@@ -89,6 +90,7 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 		if cachedInfo, ok := cached.(*cachedUserInfo); ok {
 			// Check if cache entry is still valid
 			if time.Now().Before(cachedInfo.expiresAt) {
+				metrics.APIKeyCacheHits.Inc()
 				return cachedInfo.userInfo, nil
 			}
 			// Cache expired, remove it
@@ -97,6 +99,7 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	}
 
 	// Cache miss or expired - query database
+	metrics.APIKeyCacheMisses.Inc()
 	userInfo, err := s.validateApiKeyFromDB(apiKey)
 	if err != nil {
 		return nil, err

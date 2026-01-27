@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
@@ -198,12 +200,34 @@ func main() {
 		}
 	}
 
+	// Start Prometheus metrics HTTP server
+	metricsPort := 8082
+	metricsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", metricsPort),
+		Handler: promhttp.Handler(),
+	}
+
+	go func() {
+		log.Printf("Prometheus metrics endpoint enabled at http://localhost:%d/metrics", metricsPort)
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
 		<-sigChan
 		log.Println("Received shutdown signal, stopping archiver...")
+
+		// Shutdown metrics server
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Metrics server shutdown error: %v", err)
+		}
+
 		cancel()
 	}()
 

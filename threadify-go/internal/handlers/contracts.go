@@ -229,6 +229,33 @@ func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
 	c.JSON(statusCode, response)
 }
 
+func (h *ContractHandler) GetContractVersion(c *gin.Context) {
+	contractID := c.Param("id")
+	versionParam := c.Param("version")
+
+	claimsInterface := c.MustGet("claims")
+	claims, ok := claimsInterface.(jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
+		return
+	}
+	requesterID, ok := claims["ownerId"].(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
+		return
+	}
+
+	// Parse version parameter
+	version, err := strconv.Atoi(versionParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid version number is required"})
+		return
+	}
+
+	statusCode, response := h.contractService.GetContractVersion(c.Request.Context(), contractID, version, requesterID)
+	c.JSON(statusCode, response)
+}
+
 func (h *ContractHandler) PreviewContract(c *gin.Context) {
 	// Read YAML body
 	yamlBody, err := io.ReadAll(c.Request.Body)

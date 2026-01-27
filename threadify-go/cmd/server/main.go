@@ -407,6 +407,10 @@ func main() {
 			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
 			contractHandler.GetAllContractVersions)
 
+		contracts.GET("/:id/versions/:version",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"),
+			contractHandler.GetContractVersion)
+
 		contracts.DELETE("/:id/versions/:version",
 			middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"),
 			contractHandler.DeleteContractVersion)
