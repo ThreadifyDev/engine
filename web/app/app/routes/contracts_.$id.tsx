@@ -3,6 +3,7 @@ import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import SideNav from '~/components/SideNav';
+import YamlEditor from '~/components/YamlEditor';
 
 export default function ContractDetail() {
   const navigate = useNavigate();
@@ -197,12 +198,11 @@ export default function ContractDetail() {
                 <label className="block text-black font-medium mb-2">
                   Contract YAML
                 </label>
-                <textarea
+                <YamlEditor
                   value={updateYaml}
-                  onChange={(e) => setUpdateYaml(e.target.value)}
-                  className="w-full h-64 p-3 border-2 border-black font-mono text-sm"
+                  onChange={setUpdateYaml}
                   placeholder="Paste your updated contract YAML here..."
-                  required
+                  height="500px"
                 />
               </div>
               {updateError && (
