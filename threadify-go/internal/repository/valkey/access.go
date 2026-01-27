@@ -46,15 +46,16 @@ func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRep
 // Handles all scenarios: thread creator, invitation join, and direct join
 // - invitedBy = "self" → Thread creator (creates new access)
 // - invitedBy != "self" && user exists → Add role only
-// - invitedBy != "self" && user new → Create access with role + permissions
+// - invitedBy != "self" && user new → Create access with role
 // Uses exponential backoff retry to handle concurrent access creation race conditions
 // Returns the updated UserAccess object so service layer can pass it to ActivityRepository
 // Optional threadData parameter enables atomic thread creation to prevent orphaned threads
+// Note: runtime_role is stored in both Valkey (for fast permission checks) and PostgreSQL (via ActivityRepository)
 func (r *AccessRepository) GrantOrUpdateAccess(
 	ctx context.Context,
 	threadID, userID string,
 	role string,
-	permissions []string,
+	runtimeRole string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
 	threadData *string,
@@ -65,7 +66,7 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 	// Use existing ExecuteWithBackoff for retry logic (10ms initial, 100ms max, 500ms total)
 	err := r.valkey.ExecuteWithBackoff(ctx, func() error {
 		access, err := r.attemptGrantOrUpdateAccess(
-			ctx, threadID, userID, role, permissions, invitedBy, luaScripts, threadData, threadTTL,
+			ctx, threadID, userID, role, runtimeRole, invitedBy, luaScripts, threadData, threadTTL,
 		)
 		if err != nil {
 			// Check if error is retryable (concurrent creation detected)
@@ -90,11 +91,12 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 // attemptGrantOrUpdateAccess performs a single attempt to grant/update access
 // Extracted from GrantOrUpdateAccess to enable retry logic
 // Supports atomic thread creation via optional threadData and threadTTL parameters
+// Note: runtime_role must be passed in and will be stored in Valkey for fast permission checks
 func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	ctx context.Context,
 	threadID, userID string,
 	role string,
-	permissions []string,
+	runtimeRole string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
 	threadData *string,
@@ -103,11 +105,6 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	roleIndexKey := r.getRoleIndexKey(threadID)
 	accessKey := r.getAccessKey(threadID)
 	threadKey := r.getThreadKey(threadID)
-
-	permissionsJSON, err := json.Marshal(permissions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal permissions: %w", err)
-	}
 
 	timestamp := time.Now().Format(time.RFC3339)
 
@@ -131,15 +128,15 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		ctx,
 		scriptHash,
 		[]string{roleIndexKey, accessKey, threadKey}, // KEYS[1], KEYS[2], KEYS[3]
-		invitedBy,               // ARGV[1]
-		userID,                  // ARGV[2]
-		role,                    // ARGV[3]
-		string(permissionsJSON), // ARGV[4]
-		timestamp,               // ARGV[5]
-		"active",                // ARGV[6]
-		threadJSON,              // ARGV[7] - optional thread data
-		ttl,                     // ARGV[8] - optional thread TTL
-		r.ttl,                   // ARGV[9] - TTL for extending all thread keys
+		invitedBy,   // ARGV[1]
+		userID,      // ARGV[2]
+		role,        // ARGV[3]
+		runtimeRole, // ARGV[4] - runtime_role for permission checks
+		timestamp,   // ARGV[5]
+		"active",    // ARGV[6]
+		threadJSON,  // ARGV[7] - optional thread data
+		ttl,         // ARGV[8] - optional thread TTL
+		r.ttl,       // ARGV[9] - TTL for extending all thread keys
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant/update access: %w", err)

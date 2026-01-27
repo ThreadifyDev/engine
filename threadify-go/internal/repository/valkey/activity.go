@@ -43,7 +43,7 @@ func NewActivityRepositoryWithPostgres(valkey interfaces.ValkeyClient, natsPubli
 }
 
 // RecordAccessGranted records an access granted event to streams
-func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName, scope string) error {
+func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	// Determine event type based on context
 	eventType := "access_granted"
 	if invitedBy != "self" && len(access.Roles) > 1 {
@@ -57,15 +57,14 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := r.natsPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
-			"threadId":    threadID,
-			"userId":      userID,
-			"roles":       string(rolesJSON),
-			"permissions": strings.Join(access.Permissions, ","),
-			"grantedBy":   invitedBy,
-			"grantedAt":   access.GrantedAt,
-			"status":      access.Status,
-			"event_type":  eventType,
-			"scope":       scope,
+			"threadId":     threadID,
+			"userId":       userID,
+			"roles":        string(rolesJSON),
+			"runtime_role": runtimeRole,
+			"grantedBy":    invitedBy,
+			"grantedAt":    access.GrantedAt,
+			"status":       access.Status,
+			"event_type":   eventType,
 		}); err != nil {
 			fmt.Printf("❌ ERROR: Failed to publish thread access to NATS: %v\n", err)
 		}
@@ -82,7 +81,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 			"actor":         userID,      // user-123 (person getting access)
 			"actor_service": serviceName, // merchant-service
 			"role":          strings.Join(access.Roles, ","),
-			"permissions":   strings.Join(access.Permissions, ","),
+			"runtime_role":  access.RuntimeRole,
 			"granted_by":    invitedBy,
 			"granted_at":    access.GrantedAt,
 			"method":        "direct", // Service layer should determine method

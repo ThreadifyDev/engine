@@ -11,10 +11,10 @@ import (
 
 // CacheService implements the CacheManager interface with LRU in-memory caching
 type CacheService struct {
-	contractCache   *lru.Cache[string, *models.ContractGraph]
-	threadCache     *lru.Cache[string, *models.Thread]
-	permissionCache *lru.Cache[string, []string] // "threadID:userID" -> permissions
-	roleCache       *lru.Cache[string, string]   // "threadID:userID" -> role
+	contractCache              *lru.Cache[string, *models.ContractGraph]
+	threadCache                *lru.Cache[string, *models.Thread]
+	runtimeRolePermissionCache *lru.Cache[string, []string] // "runtime_role" -> permissions (global)
+	roleCache                  *lru.Cache[string, string]   // "threadID:userID" -> role
 }
 
 // NewCacheService creates a new cache service with LRU eviction
@@ -30,9 +30,10 @@ func NewCacheService() interfaces.CacheManager {
 		log.Fatalf("Failed to create thread cache: %v", err)
 	}
 
-	permissionCache, err := lru.New[string, []string](50000) // 50k permission entries
+	// Runtime role permission cache - only ~5 entries (owner, participant, observer, external, etc.)
+	runtimeRolePermissionCache, err := lru.New[string, []string](10)
 	if err != nil {
-		log.Fatalf("Failed to create permission cache: %v", err)
+		log.Fatalf("Failed to create runtime role permission cache: %v", err)
 	}
 
 	roleCache, err := lru.New[string, string](50000) // 50k role entries
@@ -41,10 +42,10 @@ func NewCacheService() interfaces.CacheManager {
 	}
 
 	return &CacheService{
-		contractCache:   contractCache,
-		threadCache:     threadCache,
-		permissionCache: permissionCache,
-		roleCache:       roleCache,
+		contractCache:              contractCache,
+		threadCache:                threadCache,
+		runtimeRolePermissionCache: runtimeRolePermissionCache,
+		roleCache:                  roleCache,
 	}
 }
 
@@ -81,16 +82,14 @@ func (c *CacheService) ClearThreadCache(threadID string) {
 	c.threadCache.Remove(threadID)
 }
 
-// GetUserPermissions retrieves permissions from in-memory cache
-func (c *CacheService) GetUserPermissions(threadID, userID string) ([]string, bool) {
-	key := fmt.Sprintf("%s:%s", threadID, userID)
-	return c.permissionCache.Get(key)
+// GetRuntimeRolePermissions retrieves permissions for a runtime_role from cache
+func (c *CacheService) GetRuntimeRolePermissions(runtimeRole string) ([]string, bool) {
+	return c.runtimeRolePermissionCache.Get(runtimeRole)
 }
 
-// SetUserPermissions stores permissions in in-memory cache
-func (c *CacheService) SetUserPermissions(threadID, userID string, permissions []string) {
-	key := fmt.Sprintf("%s:%s", threadID, userID)
-	c.permissionCache.Add(key, permissions)
+// SetRuntimeRolePermissions stores permissions for a runtime_role in cache
+func (c *CacheService) SetRuntimeRolePermissions(runtimeRole string, permissions []string) {
+	c.runtimeRolePermissionCache.Add(runtimeRole, permissions)
 }
 
 // GetUserRole retrieves role from in-memory cache
@@ -105,17 +104,12 @@ func (c *CacheService) SetUserRole(threadID, userID, role string) {
 	c.roleCache.Add(key, role)
 }
 
-// ClearThreadPermissions removes all permissions and roles for a thread
-func (c *CacheService) ClearThreadPermissions(threadID string) {
-	// Remove all entries starting with threadID
+// ClearThreadRoles removes all roles for a thread
+func (c *CacheService) ClearThreadRoles(threadID string) {
+	// Remove all role entries starting with threadID
 	prefix := threadID + ":"
 
 	// LRU cache doesn't support prefix deletion, so we iterate through keys
-	for _, key := range c.permissionCache.Keys() {
-		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-			c.permissionCache.Remove(key)
-		}
-	}
 	for _, key := range c.roleCache.Keys() {
 		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
 			c.roleCache.Remove(key)

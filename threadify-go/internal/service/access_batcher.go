@@ -14,7 +14,7 @@ type AccessWrite struct {
 	ThreadID    string
 	UserID      string
 	Role        string
-	Permissions []string
+	RuntimeRole string
 	InvitedBy   string
 	ResultChan  chan error // For synchronous error handling if needed
 }
@@ -136,7 +136,7 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 			write.ThreadID,
 			write.UserID,
 			write.Role,
-			write.Permissions,
+			write.RuntimeRole,
 			write.InvitedBy,
 			b.luaScripts,
 			nil, // threadData - not creating thread
@@ -183,7 +183,7 @@ func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 		write.ThreadID,
 		write.UserID,
 		write.Role,
-		write.Permissions,
+		write.RuntimeRole,
 		write.InvitedBy,
 		b.luaScripts,
 		nil, // threadData

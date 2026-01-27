@@ -263,7 +263,7 @@ func main() {
 	accessBatcher.Start()
 	defer accessBatcher.Stop()
 
-	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, accessBatcher)
+	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, accessBatcher, rbacLoader)
 
 	// Create WebSocket handler with notification consumer, router, and rate limiting
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService, luaScriptManager, &rateLimitCfg, &cfg.WebSocket)

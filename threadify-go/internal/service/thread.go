@@ -69,9 +69,10 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 	}
 
 	// Create thread access service for permission/role management
-	// Note: Using nil batcher for internal service - batching is handled by main.go's service
+	// Note: Using nil batcher and rbacLoader for internal service - batching is handled by main.go's service
 	// This internal service is only used for permission checks, not writes
-	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts, nil)
+	// rbacLoader is nil here because this is an internal service without RBAC loaded
+	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts, nil, nil)
 
 	// Create invitation service
 	invitationService := NewInvitationTokenService("demo-secret")
@@ -236,17 +237,16 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Prepare creator access
 	creatorRole := req.Role
 	if creatorRole == "" {
-		creatorRole = "owner" // Default role if not specified
+		creatorRole = "owner" // Default thread role if not specified
 	}
-	creatorPermissions := []string{"read", "write", "invite", "manage"}
 
 	// OPTIMIZATION: Atomic thread creation + access grant in single operation
 	// This combines repo.Save() and GrantOrUpdateAccess() to reduce roundtrips
 	createCtx, createCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer createCancel()
 
-	// Resolve scope for creator
-	scope, err := s.scopeResolver.ResolveScope(
+	// Resolve runtime_role for creator
+	runtimeRole, err := s.scopeResolver.ResolveScope(
 		createCtx,
 		threadID,
 		ownerID,
@@ -255,8 +255,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		nil,  // explicitScope
 	)
 	if err != nil {
-		log.Printf("Failed to resolve scope for creator %s in thread %s: %v", ownerID, threadID, err)
-		scope = ""
+		log.Printf("Failed to resolve runtime_role for creator %s in thread %s: %v", ownerID, threadID, err)
+		runtimeRole = ""
 	}
 
 	// Serialize thread data for atomic creation
@@ -278,9 +278,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		createCtx,
 		threadID,
 		ownerID,
-		creatorRole,
-		creatorPermissions,
-		"self", // invitedBy
+		creatorRole, // Thread role (e.g., "merchant", "supplier")
+		runtimeRole, // Runtime-level permission scope (e.g., "owner")
+		"self",      // invitedBy
 		s.luaScripts,
 		&threadDataStr,    // Pass thread data for atomic creation
 		&threadTTLSeconds, // Pass TTL in seconds
@@ -305,7 +305,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		if exists {
 			serviceName = client.ServiceName
 		}
-		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, scope); err != nil {
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, runtimeRole); err != nil {
 			log.Printf("Failed to record access granted activity: %v", err)
 		}
 	}()
@@ -784,7 +784,6 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 // HandleJoinThread handles both token-based and direct thread joining
 func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
 	var threadID, role, invitedBy string
-	var permissions []string
 	var thread *models.Thread
 
 	// Mode 1: Token-based join (invitation)
@@ -797,7 +796,6 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 		threadID = claims.ThreadID
 		role = claims.Role
-		permissions = strings.Split(claims.Permissions, ",")
 		invitedBy = claims.InvitedBy
 
 		// Mode 2: Direct join (same company, no token)
@@ -825,8 +823,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 		threadID = req.ThreadID
 		role = req.Role
-		permissions = []string{"read", "write"} // Default permissions for direct join
-		invitedBy = companyID                   // Company ID as inviter
+		invitedBy = companyID // Company ID as inviter
 
 	} else {
 		return nil, fmt.Errorf("either threadToken or (threadId + role) is required")
@@ -858,19 +855,18 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 	// Grant or update access using unified method
 	// For join: not creator, no explicit scope (will use contract defaults or system default)
-	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, permissions, invitedBy, false, nil)
+	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, nil)
 	if err != nil {
 		log.Printf("Failed to grant access for user %s to thread %s: %v", ownerID, threadID, err)
 		return nil, fmt.Errorf("failed to grant access")
 	}
 
 	return &models.JoinThreadResponse{
-		Action:      "joinThread",
-		Status:      "success",
-		ThreadID:    threadID,
-		Role:        role,
-		Permissions: strings.Join(permissions, ","),
-		Message:     "Successfully joined thread",
+		Action:   "joinThread",
+		Status:   "success",
+		ThreadID: threadID,
+		Role:     role,
+		Message:  "Successfully joined thread",
 	}, nil
 }
 
@@ -945,11 +941,11 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 }
 
 // GrantOrUpdateThreadAccess grants or updates user access using unified method with proper orchestration
-func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, permissions []string, invitedBy string, isCreator bool, explicitScope *string) error {
-	// 1. Resolve notification scope
+func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string, invitedBy string, isCreator bool, explicitScope *string) error {
+	// 1. Resolve runtime_role (notification/permission scope)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	scope, err := s.scopeResolver.ResolveScope(
+	runtimeRole, err := s.scopeResolver.ResolveScope(
 		ctx,
 		threadID,
 		userID,
@@ -958,21 +954,22 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 		explicitScope,
 	)
 	if err != nil {
-		log.Printf("Failed to resolve scope for user %s in thread %s: %v", userID, threadID, err)
-		// Continue with empty scope rather than failing the entire operation
-		scope = ""
+		log.Printf("Failed to resolve runtime_role for user %s in thread %s: %v", userID, threadID, err)
+		// Continue with empty runtime_role rather than failing the entire operation
+		runtimeRole = ""
 	}
 
 	// 2. Grant access via AccessRepository (atomic via Lua script)
 	// Pass nil for threadData/threadTTL (not creating thread here, only managing access)
 	accessCtx, accessCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer accessCancel()
-	access, err := s.accessRepo.GrantOrUpdateAccess(accessCtx, threadID, userID, role, permissions, invitedBy, s.luaScripts, nil, nil)
+	access, err := s.accessRepo.GrantOrUpdateAccess(accessCtx, threadID, userID, role, runtimeRole, invitedBy, s.luaScripts, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to grant access: %w", err)
 	}
 
 	// 3. Record activity via ActivityRepository (async, don't block main operation)
+	// This is where runtime_role gets persisted to PostgreSQL via NATS archival
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -982,7 +979,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 		if exists {
 			serviceName = client.ServiceName
 		}
-		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, scope); err != nil {
+		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole); err != nil {
 			log.Printf("Failed to record access granted activity: %v", err)
 		}
 	}()

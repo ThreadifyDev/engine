@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"threadify-go/shared/rbac"
+
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -15,63 +17,74 @@ import (
 // before hitting Valkey, following the same pattern as contract graph caching.
 //
 // Access writes are batched to reduce Valkey load (hybrid: 25 items OR 50ms flush)
+// Permissions are resolved from runtime_role using RBAC loader (no storage needed)
 type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
 	luaScripts   *valkey.LuaScriptManager
 	batcher      *AccessBatcher
+	rbacLoader   *rbac.Loader
 }
 
 // NewThreadAccessService creates a new thread access service
-func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager, batcher *AccessBatcher) *ThreadAccessService {
+func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager, batcher *AccessBatcher, rbacLoader *rbac.Loader) *ThreadAccessService {
 	return &ThreadAccessService{
 		accessRepo:   accessRepo,
 		cacheManager: cacheManager,
 		luaScripts:   luaScripts,
 		batcher:      batcher,
+		rbacLoader:   rbacLoader,
 	}
 }
 
-// GetUserPermissions retrieves user permissions with three-tier caching:
-// Tier 1: In-memory cache (fastest)
-// Tier 2: Valkey (fast)
-// Tier 3: PostgreSQL (slowest, not implemented yet)
+// GetUserPermissions retrieves user permissions by resolving from runtime_role:
+// 1. Get user's runtime_role from Valkey/PostgreSQL
+// 2. Check global runtime_role permission cache
+// 3. If cache miss, resolve from RBAC loader and cache by runtime_role
 func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]string, error) {
 	start := time.Now()
 
-	// Tier 1: Check in-memory cache
-	cacheCheckStart := time.Now()
-	if perms, exists := s.cacheManager.GetUserPermissions(threadID, userID); exists {
-		fmt.Printf("[PERF] GetUserPermissions.cacheHit: %v (Tier 1)\n", time.Since(cacheCheckStart))
-		fmt.Printf("[PERF] GetUserPermissions total: %v (cache hit)\n", time.Since(start))
-		return perms, nil
-	}
-	fmt.Printf("[PERF] GetUserPermissions.cacheMiss: %v (Tier 1)\n", time.Since(cacheCheckStart))
-
-	// Tier 2: Check Valkey
+	// Tier 1: Get user access (runtime_role) from Valkey/PostgreSQL
 	valkeyStart := time.Now()
 	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
-	fmt.Printf("[PERF] GetUserPermissions.valkeyLookup: %v (Tier 2)\n", time.Since(valkeyStart))
+	fmt.Printf("[PERF] GetUserPermissions.valkeyLookup: %v\n", time.Since(valkeyStart))
 	if err != nil {
 		return nil, err
 	}
-	perms := access.Permissions
 
-	// Cache in memory for future use
+	// Tier 2: Check global runtime_role permission cache
+	cacheCheckStart := time.Now()
+	if perms, exists := s.cacheManager.GetRuntimeRolePermissions(access.RuntimeRole); exists {
+		fmt.Printf("[PERF] GetUserPermissions.cacheHit: %v (runtime_role=%s)\n", time.Since(cacheCheckStart), access.RuntimeRole)
+		fmt.Printf("[PERF] GetUserPermissions total: %v (cache hit)\n", time.Since(start))
+		return perms, nil
+	}
+	fmt.Printf("[PERF] GetUserPermissions.cacheMiss: %v\n", time.Since(cacheCheckStart))
+
+	// Tier 3: Resolve permissions from RBAC loader
+	if s.rbacLoader == nil {
+		return nil, fmt.Errorf("RBAC loader not initialized - cannot resolve permissions for runtime_role: %s", access.RuntimeRole)
+	}
+	rbacStart := time.Now()
+	perms := s.rbacLoader.GetPermissionsForRoles([]string{access.RuntimeRole}, "runtime_level")
+	fmt.Printf("[PERF] GetUserPermissions.rbacResolve: %v (runtime_role=%s)\n", time.Since(rbacStart), access.RuntimeRole)
+
+	// Cache by runtime_role (global, not per-user)
 	cacheSetStart := time.Now()
-	s.cacheManager.SetUserPermissions(threadID, userID, perms)
+	s.cacheManager.SetRuntimeRolePermissions(access.RuntimeRole, perms)
 	fmt.Printf("[PERF] GetUserPermissions.cacheSet: %v\n", time.Since(cacheSetStart))
-	fmt.Printf("[PERF] GetUserPermissions total: %v (valkey lookup)\n", time.Since(start))
+	fmt.Printf("[PERF] GetUserPermissions total: %v (rbac resolution)\n", time.Since(start))
 	return perms, nil
 }
 
 // GrantOrUpdateAccess grants or updates user access using batched writes
 // Handles all scenarios: thread creator (invitedBy="self"), invitation join, and direct join
 // Validates that thread is not completed before granting access
+// Permissions are resolved from runtimeRole using RBAC loader (not stored)
 func (s *ThreadAccessService) GrantOrUpdateAccess(
 	threadID, userID string,
 	role string,
-	permissions []string,
+	runtimeRole string,
 	invitedBy string,
 	thread *models.Thread,
 ) error {
@@ -87,7 +100,7 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 			ThreadID:    threadID,
 			UserID:      userID,
 			Role:        role,
-			Permissions: permissions,
+			RuntimeRole: runtimeRole,
 			InvitedBy:   invitedBy,
 		}
 
@@ -102,7 +115,7 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 			ctx,
 			threadID, userID,
 			role,
-			permissions,
+			runtimeRole,
 			invitedBy,
 			s.luaScripts,
 			nil, // threadData
@@ -115,7 +128,12 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 
 	// Update in-memory cache
 	s.cacheManager.SetUserRole(threadID, userID, role)
-	s.cacheManager.SetUserPermissions(threadID, userID, permissions)
+	// Resolve and cache permissions from runtime_role (global cache)
+	// Only if RBAC loader is available (may be nil for internal services)
+	if s.rbacLoader != nil {
+		perms := s.rbacLoader.GetPermissionsForRoles([]string{runtimeRole}, "runtime_level")
+		s.cacheManager.SetRuntimeRolePermissions(runtimeRole, perms)
+	}
 	return nil
 }
 
@@ -251,8 +269,9 @@ func (s *ThreadAccessService) ValidateUserRoleForStep(threadID, userID, required
 	return userRole == requiredRole, nil
 }
 
-// ClearThreadCache clears all cached permissions and roles for a thread
+// ClearThreadCache clears all cached roles for a thread
 // This should be called when a thread is completed or deleted
+// Note: Permissions are cached globally by runtime_role, not per-thread
 func (s *ThreadAccessService) ClearThreadCache(threadID string) {
-	s.cacheManager.ClearThreadPermissions(threadID)
+	s.cacheManager.ClearThreadRoles(threadID)
 }

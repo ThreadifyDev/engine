@@ -201,7 +201,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		thread_id VARCHAR(255) NOT NULL,
 		user_id VARCHAR(255) NOT NULL,
 		roles JSONB NOT NULL,
-		permissions TEXT,
+		runtime_role TEXT,
 		granted_by VARCHAR(255),
 		granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		revoked_at TIMESTAMP,
@@ -210,8 +210,34 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		UNIQUE(thread_id, user_id)
 	);
 
-	-- Add scope column for notification access control
-	ALTER TABLE thread_access ADD COLUMN IF NOT EXISTS scope TEXT;
+	-- Migrate existing scope data to runtime_role (if any)
+	DO $$ 
+	BEGIN
+		-- Add runtime_role column if it doesn't exist
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_access' AND column_name = 'runtime_role'
+		) THEN
+			ALTER TABLE thread_access ADD COLUMN runtime_role TEXT;
+		END IF;
+		
+		-- Migrate scope to runtime_role if scope column exists
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_access' AND column_name = 'scope'
+		) THEN
+			UPDATE thread_access SET runtime_role = scope WHERE scope IS NOT NULL AND runtime_role IS NULL;
+			ALTER TABLE thread_access DROP COLUMN scope;
+		END IF;
+		
+		-- Drop permissions column if it exists
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_access' AND column_name = 'permissions'
+		) THEN
+			ALTER TABLE thread_access DROP COLUMN permissions;
+		END IF;
+	END $$;
 
 	-- Add foreign key constraint for data integrity and query optimization
 	DO $$ 
@@ -226,12 +252,19 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		END IF;
 	END $$;
 
-	-- Basic indexes (keep for backward compatibility)
+	-- Basic indexes
 	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_id ON thread_access(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
+	
+	-- GIN index for thread roles (JSONB array) - for querying by specific thread role
 	CREATE INDEX IF NOT EXISTS idx_thread_access_roles_gin ON thread_access USING GIN (roles);
-	CREATE INDEX IF NOT EXISTS idx_thread_access_scope ON thread_access(scope) WHERE scope IS NOT NULL;
+	
+	-- Index for runtime_role (notification/permission scope)
+	CREATE INDEX IF NOT EXISTS idx_thread_access_runtime_role ON thread_access(runtime_role) WHERE runtime_role IS NOT NULL;
+	
+	-- Drop old scope index if it exists
+	DROP INDEX IF EXISTS idx_thread_access_scope;
 
 	-- Composite indexes for efficient JOIN queries with threads table
 	-- For user-based thread filtering: "show me all threads user X has access to"
@@ -244,11 +277,15 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		ON thread_access(thread_id, user_id) 
 		WHERE status = 'active';
 
-	-- Covering index for permission checks without table lookup (PostgreSQL 11+)
+	-- Covering index for access checks without table lookup (PostgreSQL 11+)
 	-- INCLUDE clause adds columns to index without making them part of the key
-	CREATE INDEX IF NOT EXISTS idx_thread_access_user_thread_covering 
+	-- Drop old covering index with permissions
+	DROP INDEX IF EXISTS idx_thread_access_user_thread_covering;
+	
+	-- Create new covering index with runtime_role instead of permissions
+	CREATE INDEX IF NOT EXISTS idx_thread_access_user_thread_runtime_covering 
 		ON thread_access(user_id, thread_id) 
-		INCLUDE (permissions, roles, status) 
+		INCLUDE (runtime_role, roles, status) 
 		WHERE status = 'active';
 
 	CREATE TABLE IF NOT EXISTS thread_validations (

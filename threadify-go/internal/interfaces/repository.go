@@ -80,7 +80,11 @@ type ThreadRepository interface {
 // AccessRepository defines the interface for role and permission management with hot/cold fallback
 type AccessRepository interface {
 	// Write operations
-	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, permissions []string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
+	// GrantOrUpdateAccess grants or updates user access with thread role and runtime_role
+	// role: Thread-specific business role (e.g., "merchant", "supplier")
+	// runtimeRole: Runtime-level permission scope (e.g., "owner", "participant", "observer")
+	// runtime_role is stored in both Valkey (for fast permission checks) and PostgreSQL (via ActivityRepository)
+	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, runtimeRole string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
 	RevokeAccess(ctx context.Context, threadID, userID string) error
 
 	// Hot/cold fallback read operations (writeBack defaults to false)
@@ -94,7 +98,7 @@ type AccessRepository interface {
 // ActivityRepository defines the interface for stream and event operations with hot/cold fallback
 type ActivityRepository interface {
 	// Write operations (archival)
-	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy, serviceName, scope string) error
+	RecordAccessGranted(ctx context.Context, threadID, userID string, access *UserAccess, invitedBy, serviceName, runtimeRole string) error
 	RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error
 	RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error
 	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
@@ -129,8 +133,8 @@ type StepWithTimestamp struct {
 
 // UserAccess represents merged access control structure
 type UserAccess struct {
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
+	Roles       []string `json:"roles"`        // Thread-specific business roles (e.g., ["merchant", "supplier"])
+	RuntimeRole string   `json:"runtime_role"` // Runtime-level permission scope (e.g., "owner", "participant", "observer")
 	GrantedBy   string   `json:"granted_by"`
 	GrantedAt   string   `json:"granted_at"`
 	UpdatedAt   string   `json:"updated_at,omitempty"`

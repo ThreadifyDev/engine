@@ -8,8 +8,8 @@
 -- KEYS[3]: thread:{id} (optional - thread hash key for creation)
 -- ARGV[1]: invitedBy ("self" for creator, companyID/userID for others)
 -- ARGV[2]: userID
--- ARGV[3]: role
--- ARGV[4]: permissions JSON array (e.g., '["read","write"]')
+-- ARGV[3]: role (thread-specific business role, e.g., "merchant", "supplier")
+-- ARGV[4]: runtime_role (runtime-level permission scope, e.g., "owner", "participant", "observer")
 -- ARGV[5]: timestamp (RFC3339)
 -- ARGV[6]: status
 -- ARGV[7]: threadJSON (optional - thread data if creating, empty string if not)
@@ -22,7 +22,7 @@ local threadKey = KEYS[3] or ""
 local invitedBy = ARGV[1]
 local userID = ARGV[2]
 local newRole = ARGV[3]
-local newPermissions = cjson.decode(ARGV[4])
+local runtimeRole = ARGV[4]
 local timestamp = ARGV[5]
 local status = ARGV[6]
 local threadJSON = ARGV[7] or ""
@@ -96,7 +96,7 @@ end
 -- User doesn't have access - create new access with race detection
 local access = {
     roles = {newRole},
-    permissions = newPermissions,
+    runtime_role = runtimeRole,
     granted_by = invitedBy,
     granted_at = timestamp,
     status = status,
