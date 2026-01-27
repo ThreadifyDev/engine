@@ -68,7 +68,7 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to subscribe to state.step: %w", err)
 	}
 
-	fmt.Printf("✅ [STEP-STATE-CONSUMER] Started consuming from state.step\n")
+	fmt.Printf("[STEP-STATE-CONSUMER] Started consuming from state.step\n")
 
 	// Process messages
 	go func() {
@@ -81,7 +81,7 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 			case <-c.flushTicker.C:
 				if len(c.buffer) > 0 {
 					if err := c.flush(ctx); err != nil {
-						fmt.Printf("❌ [STEP-STATE-CONSUMER] Flush failed: %v\n", err)
+						fmt.Printf("[STEP-STATE-CONSUMER] Flush failed: %v\n", err)
 					}
 				}
 			default:
@@ -92,7 +92,7 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 						// Timeout is normal when no messages available
 						continue
 					}
-					fmt.Printf("❌ [STEP-STATE-CONSUMER] Error fetching messages: %v\n", err)
+					fmt.Printf("[STEP-STATE-CONSUMER] Error fetching messages: %v\n", err)
 					time.Sleep(1 * time.Second)
 					continue
 				}
@@ -100,7 +100,7 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 				for _, msg := range msgs {
 					var event StepStateEvent
 					if err := json.Unmarshal(msg.Data, &event); err != nil {
-						fmt.Printf("❌ [STEP-STATE-CONSUMER] Failed to unmarshal event: %v\n", err)
+						fmt.Printf("[STEP-STATE-CONSUMER] Failed to unmarshal event: %v\n", err)
 						msg.Nak()
 						continue
 					}
@@ -110,7 +110,7 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 					// Flush if buffer is full
 					if len(c.buffer) >= c.batchSize {
 						if err := c.flush(ctx); err != nil {
-							fmt.Printf("❌ [STEP-STATE-CONSUMER] Flush failed: %v\n", err)
+							fmt.Printf("[STEP-STATE-CONSUMER] Flush failed: %v\n", err)
 							// Nak all messages in buffer
 							msg.Nak()
 						} else {
@@ -185,7 +185,7 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 		return fmt.Errorf("failed to insert step states: %w", err)
 	}
 
-	fmt.Printf("✅ [STEP-STATE-CONSUMER] Successfully wrote %d step states to Postgres\n", len(c.buffer))
+	fmt.Printf("[STEP-STATE-CONSUMER] Successfully wrote %d step states to Postgres\n", len(c.buffer))
 
 	// Clear buffer
 	c.buffer = c.buffer[:0]

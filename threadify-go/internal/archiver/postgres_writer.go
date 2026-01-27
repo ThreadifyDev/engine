@@ -58,7 +58,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 		// Extract values from event data
 		contextJSON, err := json.Marshal(event.Data["context"])
 		if err != nil {
-			fmt.Printf("❌ [PostgresWriter] Failed to marshal context for step %s: %v\n", event.Data["stepId"], err)
+			fmt.Printf("[PostgresWriter] Failed to marshal context for step %s: %v\n", event.Data["stepId"], err)
 			return fmt.Errorf("failed to marshal context: %w", err)
 		}
 
@@ -84,7 +84,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 	duration := time.Since(start)
 
 	if err != nil {
-		fmt.Printf("❌ [PostgresWriter] Failed to write step events: %v\n", err)
+		fmt.Printf("[PostgresWriter] Failed to write step events: %v\n", err)
 		DatabaseWritesTotal.WithLabelValues("thread_activities", "error").Inc()
 		DatabaseWriteDuration.WithLabelValues("thread_activities").Observe(duration.Seconds())
 		return err
@@ -92,7 +92,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 
 	DatabaseWritesTotal.WithLabelValues("thread_activities", "success").Inc()
 	DatabaseWriteDuration.WithLabelValues("thread_activities").Observe(duration.Seconds())
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d step events to Postgres in %v\n", len(events), duration)
+	fmt.Printf("[PostgresWriter] Successfully wrote %d step events to Postgres in %v\n", len(events), duration)
 	return nil
 }
 
@@ -169,12 +169,12 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			event.Data["startedAt"], // Use startedAt as updated_at for new records
 		)
 		if err != nil {
-			fmt.Printf("❌ ERROR: Failed to write thread metadata to Postgres: %v\n", err)
+			fmt.Printf("ERROR: Failed to write thread metadata to Postgres: %v\n", err)
 			return err
 		}
 	}
 
-	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread metadata records to Postgres\n", len(metadataEvents))
+	fmt.Printf("SUCCESS: Successfully wrote %d thread metadata records to Postgres\n", len(metadataEvents))
 	return nil
 }
 
@@ -202,12 +202,12 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 			event.Data["refValue"],
 		)
 		if err != nil {
-			fmt.Printf("❌ ERROR: Failed to write thread ref to Postgres: %v\n", err)
+			fmt.Printf("ERROR: Failed to write thread ref to Postgres: %v\n", err)
 			return err
 		}
 	}
 
-	fmt.Printf("✅ SUCCESS: Successfully wrote %d thread refs to Postgres\n", len(events))
+	fmt.Printf("SUCCESS: Successfully wrote %d thread refs to Postgres\n", len(events))
 	return nil
 }
 
@@ -250,21 +250,21 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 		if err != nil {
 			// Check if it's a foreign key violation (thread doesn't exist yet)
 			if strings.Contains(err.Error(), "fk_thread_access_thread") || strings.Contains(err.Error(), "23503") {
-				fmt.Printf("⚠️  [PostgresWriter] Skipping thread_access for non-existent thread %s (will retry on next batch)\n", event.Data["threadId"])
+				fmt.Printf("[PostgresWriter] Skipping thread_access for non-existent thread %s (will retry on next batch)\n", event.Data["threadId"])
 				skippedCount++
 				// Don't return error - just skip this record, it will be redelivered by NATS
 				continue
 			}
-			fmt.Printf("❌ [PostgresWriter] Failed to write thread_access event: %v\n", err)
+			fmt.Printf("[PostgresWriter] Failed to write thread_access event: %v\n", err)
 			return err
 		}
 		successCount++
 	}
 
 	if skippedCount > 0 {
-		fmt.Printf("✅ [PostgresWriter] Wrote %d thread access events (%d skipped due to missing threads)\n", successCount, skippedCount)
+		fmt.Printf("[PostgresWriter] Wrote %d thread access events (%d skipped due to missing threads)\n", successCount, skippedCount)
 	} else {
-		fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread access events\n", successCount)
+		fmt.Printf("[PostgresWriter] Successfully wrote %d thread access events\n", successCount)
 	}
 	return nil
 }
@@ -326,11 +326,11 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	if err != nil {
-		fmt.Printf("❌ [PostgresWriter] Failed to write validation results: %v\n", err)
+		fmt.Printf("[PostgresWriter] Failed to write validation results: %v\n", err)
 		return err
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d validation results to Postgres\n", len(events))
+	fmt.Printf("[PostgresWriter] Successfully wrote %d validation results to Postgres\n", len(events))
 	return nil
 }
 
@@ -399,11 +399,11 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	if err != nil {
-		fmt.Printf("❌ [PostgresWriter] Failed to write thread activities: %v\n", err)
+		fmt.Printf("[PostgresWriter] Failed to write thread activities: %v\n", err)
 		return err
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d activity log events to thread_activities\n", len(events))
+	fmt.Printf("[PostgresWriter] Successfully wrote %d activity log events to thread_activities\n", len(events))
 	return nil
 }
 
@@ -436,7 +436,7 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 
 	// If all events were deduplicated away, nothing to do
 	if len(deduped) == 0 {
-		fmt.Printf("✅ [PostgresWriter] No new step states to write (all were duplicates)\n")
+		fmt.Printf("[PostgresWriter] No new step states to write (all were duplicates)\n")
 		return nil
 	}
 
@@ -488,11 +488,11 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
 	if err != nil {
-		fmt.Printf("❌ [PostgresWriter] Failed to write thread step state: %v\n", err)
-		fmt.Printf("❌ [PostgresWriter] Full query: %s\n", query)
+		fmt.Printf("[PostgresWriter] Failed to write thread step state: %v\n", err)
+		fmt.Printf("[PostgresWriter] Full query: %s\n", query)
 		return err
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d thread step state events\n", len(events))
+	fmt.Printf("[PostgresWriter] Successfully wrote %d thread step state events\n", len(events))
 	return nil
 }
