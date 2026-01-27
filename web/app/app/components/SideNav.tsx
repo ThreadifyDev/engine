@@ -17,6 +17,7 @@ export default function SideNav() {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard' },
+    { path: '/threads', label: 'Threads' },
     { path: '/contracts', label: 'Contracts' },
     { path: '/api-keys', label: 'API Keys' },
     { path: '/service-accounts', label: 'Service Accounts' },

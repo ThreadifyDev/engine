@@ -109,6 +109,7 @@ func main() {
 	// Initialize contract proxy handler with engine URL
 	engineURL := "http://localhost:8081" // Engine default port
 	contractProxyHandler := handlers.NewContractProxyHandler(engineURL)
+	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(engineURL)
 
 	// JWT middleware
 	jwtMiddleware := jwtValidator.AuthMiddleware()
@@ -179,6 +180,9 @@ func main() {
 			contracts.GET("/:id/versions/:version", contractProxyHandler.GetContractVersion)
 			contracts.DELETE("/:id/versions/:version", contractProxyHandler.DeleteContractVersion)
 		}
+
+		// GraphQL proxy route (proxy to Engine - Engine handles JWT auth + RBAC)
+		api.POST("/graphql", graphqlProxyHandler.ProxyGraphQL)
 	}
 
 	// Add Prometheus metrics endpoint

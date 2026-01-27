@@ -30,16 +30,16 @@ type CacheManager interface {
 	SetContractGraph(contractName string, version int, companyID string, graph *models.ContractGraph)
 	ClearContractCache(contractName string, version int, companyID string)
 
-	// Permission caching
-	GetUserPermissions(threadID, userID string) ([]string, bool)
-	SetUserPermissions(threadID, userID string, permissions []string)
+	// Runtime role permission caching (global, not per-user)
+	GetRuntimeRolePermissions(runtimeRole string) ([]string, bool)
+	SetRuntimeRolePermissions(runtimeRole string, permissions []string)
 
-	// Role caching
+	// Role caching (per-user per-thread)
 	GetUserRole(threadID, userID string) (string, bool)
 	SetUserRole(threadID, userID, role string)
 
-	// Clear all permissions and roles for a thread
-	ClearThreadPermissions(threadID string)
+	// Clear all roles for a thread
+	ClearThreadRoles(threadID string)
 }
 
 // ContractValidator defines the interface for contract validation operations
