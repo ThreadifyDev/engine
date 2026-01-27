@@ -26,6 +26,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 		return nil
 	}
 
+	start := time.Now()
 	fmt.Printf("📝 [PostgresWriter] Writing %d step events to Postgres...\n", len(events))
 	for i, event := range events {
 		fmt.Printf("   Event %d: stepId=%s, threadId=%s, stepName=%s, status=%s\n",
@@ -80,12 +81,18 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 	query += placeholders + " ON CONFLICT (step_id) DO NOTHING"
 
 	_, err := w.db.Pool.Exec(ctx, query, values...)
+	duration := time.Since(start)
+
 	if err != nil {
 		fmt.Printf("❌ [PostgresWriter] Failed to write step events: %v\n", err)
+		DatabaseWritesTotal.WithLabelValues("thread_activities", "error").Inc()
+		DatabaseWriteDuration.WithLabelValues("thread_activities").Observe(duration.Seconds())
 		return err
 	}
 
-	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d step events to Postgres\n", len(events))
+	DatabaseWritesTotal.WithLabelValues("thread_activities", "success").Inc()
+	DatabaseWriteDuration.WithLabelValues("thread_activities").Observe(duration.Seconds())
+	fmt.Printf("✅ [PostgresWriter] Successfully wrote %d step events to Postgres in %v\n", len(events), duration)
 	return nil
 }
 

@@ -265,3 +265,83 @@ func (s *AuthService) VerifyOTP(req *models.VerifyOTPRequest) (*models.AuthRespo
 		User:  user,
 	}, nil
 }
+
+// ForgotPassword generates a JWT reset token and sends email
+func (s *AuthService) ForgotPassword(req *models.ForgotPasswordRequest) error {
+	// Find user by email
+	user, err := s.userRepo.FindByEmail(req.Email)
+	if err != nil {
+		return fmt.Errorf("failed to find user: %w", err)
+	}
+	// Don't reveal if user exists or not for security
+	if user == nil {
+		return nil // Silently succeed
+	}
+
+	// Generate JWT reset token (expires in 1 hour)
+	resetToken, err := s.jwtValidator.CreateToken(
+		user.ID,
+		user.CompanyID,
+		user.Email,
+		[]string{"password_reset"}, // Special role for reset
+		1*time.Hour,                // 1 hour expiration
+	)
+	if err != nil {
+		return fmt.Errorf("failed to generate reset token: %w", err)
+	}
+
+	// Send reset email
+	if err := s.emailSvc.SendPasswordResetEmail(user.Email, resetToken); err != nil {
+		return fmt.Errorf("failed to send reset email: %w", err)
+	}
+
+	return nil
+}
+
+// ResetPassword validates JWT token and updates password
+func (s *AuthService) ResetPassword(req *models.ResetPasswordRequest) error {
+	// Validate JWT token
+	claims, err := s.jwtValidator.ValidateToken(req.Token)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	// Verify this is a password reset token (has password_reset role)
+	hasResetRole := false
+	for _, role := range claims.Roles {
+		if role == "password_reset" {
+			hasResetRole = true
+			break
+		}
+	}
+	if !hasResetRole {
+		return errors.New("invalid reset token")
+	}
+
+	// Get user's last password change time
+	passwordChangedAt, err := s.userRepo.GetPasswordChangedAt(claims.UserID)
+	if err != nil {
+		return fmt.Errorf("failed to check password change time: %w", err)
+	}
+
+	// If password was changed after token was issued, token is invalid (prevents reuse)
+	if passwordChangedAt != nil && *passwordChangedAt != "" {
+		changedTime, err := time.Parse(time.RFC3339, *passwordChangedAt)
+		if err == nil && claims.IssuedAt != nil && changedTime.After(claims.IssuedAt.Time) {
+			return errors.New("reset token has already been used")
+		}
+	}
+
+	// Hash new password
+	passwordHash, err := utils.HashPassword(req.Password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Update user password (also updates password_changed_at)
+	if err := s.userRepo.UpdatePassword(claims.UserID, passwordHash); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	return nil
+}

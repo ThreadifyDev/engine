@@ -66,6 +66,9 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
+	-- Add password_changed_at column to users table for JWT-based password reset
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP;
+
 	-- Service accounts table
 	CREATE TABLE IF NOT EXISTS service_accounts (
 		id VARCHAR(255) PRIMARY KEY,
@@ -81,6 +84,8 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 	
 	-- Add missing columns to service_accounts table
 	ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+	ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP;
+	ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS role VARCHAR(100);
 	
 	-- Drop old foreign key constraints that reference old table names
 	ALTER TABLE service_accounts DROP CONSTRAINT IF EXISTS service_accounts_company_id_fkey;
@@ -115,6 +120,7 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 	
 	-- Add missing columns to api_keys table
 	ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+	ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMP;
 	
 	-- Drop old foreign key constraints that reference old table names
 	ALTER TABLE api_keys DROP CONSTRAINT IF EXISTS api_keys_user_id_fkey;

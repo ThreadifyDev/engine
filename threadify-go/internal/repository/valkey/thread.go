@@ -24,15 +24,12 @@ type ThreadRepository struct {
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
 // PostgreSQL fallback is always required for production hot/cold architecture
 func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository) *ThreadRepository {
-	log.Printf("🏗️ [CONSTRUCTOR] Creating ThreadRepository with postgresRepo: %v, stepStatePostgres: %v", postgresRepo != nil, stepStatePostgres != nil)
-	repo := &ThreadRepository{
+	return &ThreadRepository{
 		valkey:            valkey,
 		ttl:               ttl,
 		postgresRepo:      postgresRepo,
 		stepStatePostgres: stepStatePostgres,
 	}
-	log.Printf("🏗️ [CONSTRUCTOR] Created ThreadRepository, postgresRepo field: %v, stepStatePostgres: %v", repo.postgresRepo != nil, repo.stepStatePostgres != nil)
-	return repo
 }
 
 // GetPostgresRepo returns the underlying postgres repository for direct queries

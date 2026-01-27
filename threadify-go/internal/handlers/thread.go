@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/utils"
@@ -143,6 +144,9 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	defer func() {
 		duration := time.Since(wsStart)
 		log.Printf("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
+
+		// Record metrics
+		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
 	}()
 
 	msgBytes, _ := json.Marshal(msg)
@@ -235,6 +239,12 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 			// Subscribe to notifications for this thread (old consumer)
 			h.subscribeToNotifications(session, startResp.ThreadID, "owner")
+
+			// Record metrics
+			metrics.ThreadsCreated.Inc()
+			metrics.RequestsTotal.WithLabelValues("startThread", "success").Inc()
+		} else {
+			metrics.RequestsTotal.WithLabelValues("startThread", "error").Inc()
 		}
 
 	case "recordThreadEvent":

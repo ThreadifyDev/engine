@@ -18,6 +18,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -116,6 +117,8 @@ func main() {
 	router.POST("/api/auth/signup", authHandler.Signup)
 	router.POST("/api/auth/login", authHandler.Login)
 	router.POST("/api/auth/verify-otp", authHandler.VerifyOTP)
+	router.POST("/api/auth/forgot-password", authHandler.ForgotPassword)
+	router.POST("/api/auth/reset-password", authHandler.ResetPassword)
 	router.GET("/api/code-samples", codeSamplesHandler.GetCodeSample)
 	router.GET("/api/roles", roleHandler.GetRoles)
 	router.GET("/api/roles/:level", roleHandler.GetRolesByLevel)
@@ -173,9 +176,14 @@ func main() {
 			contracts.PUT("/:id", contractProxyHandler.UpdateContract)
 			contracts.DELETE("/:id", contractProxyHandler.DeleteContract)
 			contracts.GET("/:id/versions", contractProxyHandler.GetAllContractVersions)
+			contracts.GET("/:id/versions/:version", contractProxyHandler.GetContractVersion)
 			contracts.DELETE("/:id/versions/:version", contractProxyHandler.DeleteContractVersion)
 		}
 	}
+
+	// Add Prometheus metrics endpoint
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	log.Println("✅ Prometheus metrics endpoint enabled at /metrics")
 
 	// Start server
 	addr := fmt.Sprintf(":%d", cfg.WebAPI.Port)

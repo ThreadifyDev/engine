@@ -13,6 +13,7 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
+	"github.com/threadify/engine/internal/utils"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -339,10 +340,59 @@ func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID
 
 	return 200, map[string]interface{}{
 		"contractId":    contractID,
+		"name":          contract.Name,
+		"description":   contract.Description,
+		"latestVersion": contract.LatestVersion,
+		"createdAt":     contract.CreatedAt,
+		"updatedAt":     contract.UpdatedAt,
 		"totalVersions": len(versions),
 		"versions":      versions,
 		"isOwner":       isOwner,
 	}
+}
+
+func (s *ContractService) GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{}) {
+	// Find contract (only non-deleted)
+	contract, err := s.getContractByIDNotDeleted(ctx, contractID)
+	if err != nil {
+		return 404, map[string]string{"message": "Contract not found"}
+	}
+
+	// Check if contract is accessible (public or owned by requester)
+	isOwner := contract.OwnerID == requesterID
+	if !contract.IsPublic && !isOwner {
+		return 403, map[string]string{"message": "Access denied. This contract is private."}
+	}
+
+	// Get the specific version
+	contractVersion, err := s.getContractVersion(ctx, contractID, version)
+	if err != nil {
+		return 404, map[string]string{"message": "Contract version not found"}
+	}
+
+	// Parse the graph and generate Mermaid code
+	var graph models.ContractGraph
+	if err := json.Unmarshal(contractVersion.Graph, &graph); err == nil {
+		mermaidCode := utils.ContractGraphToMermaid(contract.Name, &graph)
+
+		// Return version with Mermaid code
+		return 200, map[string]interface{}{
+			"id":          contractVersion.ID,
+			"version":     contractVersion.Version,
+			"content":     contractVersion.Content,
+			"yamlContent": contractVersion.YAMLContent,
+			"contentHash": contractVersion.ContentHash,
+			"contractId":  contractVersion.ContractID,
+			"createdBy":   contractVersion.CreatedBy,
+			"graph":       graph,
+			"mermaid":     mermaidCode,
+			"isDeleted":   contractVersion.IsDeleted,
+			"createdAt":   contractVersion.CreatedAt,
+			"updatedAt":   contractVersion.UpdatedAt,
+		}
+	}
+
+	return 200, contractVersion
 }
 
 func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{}) {

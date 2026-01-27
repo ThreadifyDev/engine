@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
@@ -73,15 +74,22 @@ func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *mode
 
 // Thread is the resolver for the thread field.
 func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, error) {
+	start := time.Now()
+	defer func() {
+		metrics.RequestDuration.WithLabelValues("graphql_thread").Observe(time.Since(start).Seconds())
+	}()
+
 	// Get user info from context
 	ownerID, _, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
 	// Use the cached repository for thread retrieval
 	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
 	if err != nil {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		// Return user-friendly error without exposing internal details
 		if apperrors.IsNotFound(err) {
 			return nil, err // Already wrapped with user-friendly message
@@ -94,15 +102,18 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	// This supports both ownership and invitation-based access
 	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
 	if err != nil {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("failed to verify thread access: %w", err)
 	}
 	if !hasAccess {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 	}
 
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
 	ctx = cacheAccessCheck(ctx, thread.ID, hasAccess)
 
+	metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
 	return thread, nil
 }
 
@@ -112,6 +123,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	fmt.Printf("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
 		fmt.Printf("[PERF] ========== Threads() Resolver TOTAL: %v ==========\n\n", time.Since(resolverStart))
+		metrics.RequestDuration.WithLabelValues("graphql_threads").Observe(time.Since(resolverStart).Seconds())
 	}()
 
 	// Get user info from context (companyID for security)

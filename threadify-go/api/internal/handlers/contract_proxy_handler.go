@@ -145,13 +145,50 @@ func (h *ContractProxyHandler) GetContract(c *gin.Context) {
 // UpdateContract - PUT /api/contracts/:id
 func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 	id := c.Param("id")
-	var body map[string]interface{}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+
+	// Get JWT token from incoming request
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 		return
 	}
-	path := fmt.Sprintf("/v1/contracts/%s", id)
-	h.proxyRequest(c, "PUT", path, body)
+
+	// Read raw body (YAML)
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
+	}
+
+	// Create request to ThreadifyEngine
+	url := fmt.Sprintf("%s/v1/contracts/%s", h.threadifyEngineURL, id)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
+		return
+	}
+
+	// Forward headers
+	req.Header.Set("Authorization", authHeader)
+	req.Header.Set("Content-Type", c.GetHeader("Content-Type")) // Forward original content type
+
+	// Execute request
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
+		return
+	}
+
+	// Forward response
+	c.Data(resp.StatusCode, "application/json", respBody)
 }
 
 // DeleteContract - DELETE /api/contracts/:id
@@ -165,6 +202,14 @@ func (h *ContractProxyHandler) DeleteContract(c *gin.Context) {
 func (h *ContractProxyHandler) GetAllContractVersions(c *gin.Context) {
 	id := c.Param("id")
 	path := fmt.Sprintf("/v1/contracts/%s/versions", id)
+	h.proxyRequest(c, "GET", path, nil)
+}
+
+// GetContractVersion - GET /api/contracts/:id/versions/:version
+func (h *ContractProxyHandler) GetContractVersion(c *gin.Context) {
+	id := c.Param("id")
+	version := c.Param("version")
+	path := fmt.Sprintf("/v1/contracts/%s/versions/%s", id, version)
 	h.proxyRequest(c, "GET", path, nil)
 }
 

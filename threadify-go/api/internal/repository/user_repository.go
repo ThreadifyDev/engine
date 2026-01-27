@@ -100,3 +100,19 @@ func (r *UserRepository) MarkFirstInstrumentationDone(id string) error {
 	_, err := r.db.Exec(query, id)
 	return err
 }
+
+func (r *UserRepository) UpdatePassword(id string, passwordHash string) error {
+	query := `UPDATE users SET password_hash = $1, password_changed_at = NOW(), updated_at = NOW() WHERE id = $2`
+	_, err := r.db.Exec(query, passwordHash, id)
+	return err
+}
+
+func (r *UserRepository) GetPasswordChangedAt(id string) (*string, error) {
+	var changedAt *string
+	query := `SELECT password_changed_at FROM users WHERE id = $1`
+	err := r.db.QueryRow(query, id).Scan(&changedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return changedAt, err
+}

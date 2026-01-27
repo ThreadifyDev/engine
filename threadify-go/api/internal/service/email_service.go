@@ -122,3 +122,56 @@ func (s *EmailService) SendWelcomeEmail(email, fullName string) error {
 
 	return nil
 }
+
+func (s *EmailService) SendPasswordResetEmail(email, resetToken string) error {
+	// Construct reset link (adjust domain as needed)
+	resetLink := fmt.Sprintf("http://localhost:3000/auth/reset-password?token=%s", resetToken)
+
+	emailBody := fmt.Sprintf(`
+		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+			<h2 style="color: #000;">Reset Your Password</h2>
+			<p>You requested to reset your password for your Threadify account.</p>
+			<p>Click the button below to reset your password:</p>
+			<div style="margin: 30px 0;">
+				<a href="%s" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; display: inline-block;">
+					Reset Password
+				</a>
+			</div>
+			<p>Or copy and paste this link into your browser:</p>
+			<p style="word-break: break-all; color: #666; font-size: 12px;">%s</p>
+			<p style="color: #666; margin-top: 30px;">This link will expire in 1 hour.</p>
+			<p style="color: #666; font-size: 12px;">If you didn't request this password reset, please ignore this email. Your password will remain unchanged.</p>
+		</div>
+	`, resetLink, resetLink)
+
+	payload := PlunkEmailRequest{
+		To:      email,
+		Subject: "Reset Your Threadify Password",
+		Body:    emailBody,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal email payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("email service returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}

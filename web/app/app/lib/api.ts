@@ -23,6 +23,15 @@ export interface VerifyOTPData {
   code: string;
 }
 
+export interface ForgotPasswordData {
+  email: string;
+}
+
+export interface ResetPasswordData {
+  token: string;
+  password: string;
+}
+
 export interface User {
   id: string;
   company_id: string;
@@ -144,6 +153,20 @@ class ApiClient {
     return response;
   }
 
+  async forgotPassword(data: ForgotPasswordData): Promise<{ message: string }> {
+    return this.request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetPassword(data: ResetPasswordData): Promise<{ message: string }> {
+    return this.request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   logout() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
@@ -236,7 +259,10 @@ class ApiClient {
   async updateContract(id: string, data: { yaml: string }): Promise<any> {
     return this.request(`/contracts/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: data.yaml,
+      headers: {
+        'Content-Type': 'text/plain',
+      },
     });
   }
 
@@ -248,6 +274,10 @@ class ApiClient {
 
   async getContractVersions(id: string): Promise<any> {
     return this.request(`/contracts/${id}/versions`);
+  }
+
+  async getContractVersion(id: string, version: string): Promise<any> {
+    return this.request(`/contracts/${id}/versions/${version}`);
   }
 
   async deleteContractVersion(id: string, version: string): Promise<any> {

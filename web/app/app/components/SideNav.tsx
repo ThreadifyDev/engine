@@ -11,7 +11,8 @@ export default function SideNav() {
   };
 
   const isActive = (path: string) => {
-    return location.pathname === path;
+    // Exact match or starts with the path (for nested routes)
+    return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
   const navItems = [

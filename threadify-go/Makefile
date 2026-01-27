@@ -22,14 +22,30 @@ build: generate-graphql ## Build the server binary
 	@echo "✓ Binary created at bin/server"
 
 run: ## Run the server
+	@echo "Killing any process on port 8081..."
+	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
 	go build -o bin/server cmd/server/main.go
 	./bin/server
 
 run-archiver: ## Build and run the archiver binary
+	@echo "Killing any process on port 8082..."
+	@lsof -ti:8082 | xargs kill -9 2>/dev/null || true
 	@echo "Building archiver..."
 	go build -o bin/archiver cmd/archiver/main.go
 	@echo "✓ Binary created at bin/archiver"
 	./bin/archiver
+
+build-api: ## Build the Web API binary
+	@echo "Building Web API..."
+	@mkdir -p bin
+	cd api && go build -o ../bin/api cmd/server/main.go
+	@echo "✓ Binary created at bin/api"
+
+run-api: ## Run the Web API server
+	@echo "Killing any process on port 3001..."
+	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
+	make build-api
+	cd api && go run cmd/server/main.go --config=../config/config.yaml
 
 test: ## Run all tests
 	go test ./tests/... -v -count=1

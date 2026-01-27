@@ -94,3 +94,57 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 
 	c.JSON(http.StatusOK, authResp)
 }
+
+// ForgotPassword handles password reset request
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req models.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate required fields
+	if req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Email is required"})
+		return
+	}
+
+	if err := h.authService.ForgotPassword(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "If an account exists with this email, you will receive a password reset link.",
+	})
+}
+
+// ResetPassword handles password reset with token
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req models.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate required fields
+	if req.Token == "" || req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Token and password are required"})
+		return
+	}
+
+	// Validate password length
+	if len(req.Password) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
+		return
+	}
+
+	if err := h.authService.ResetPassword(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Password has been reset successfully.",
+	})
+}
