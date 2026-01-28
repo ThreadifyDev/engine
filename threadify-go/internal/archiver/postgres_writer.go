@@ -221,11 +221,12 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	// Use COALESCE to only update non-empty fields (allows separate role and runtime_role updates)
 	query := `
 		INSERT INTO thread_access (
-			thread_id, user_id, roles, runtime_role, granted_by, granted_at, status
-		) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+			thread_id, user_id, roles, runtime_role, permissions, granted_by, granted_at, status
+		) VALUES ($1, $2, $3::jsonb, $4, $5::text[], $6, $7, $8)
 		ON CONFLICT (thread_id, user_id) DO UPDATE SET
 			roles = COALESCE(NULLIF(EXCLUDED.roles, '[]'::jsonb), thread_access.roles),
 			runtime_role = COALESCE(NULLIF(EXCLUDED.runtime_role, ''::text), thread_access.runtime_role),
+			permissions = COALESCE(NULLIF(EXCLUDED.permissions, '{}'::text[]), thread_access.permissions),
 			granted_by = COALESCE(NULLIF(EXCLUDED.granted_by, ''::text), thread_access.granted_by),
 			granted_at = EXCLUDED.granted_at,
 			status = EXCLUDED.status
@@ -235,14 +236,24 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	skippedCount := 0
 
 	for _, event := range events {
-		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s, runtimeRole=%s\n",
-			event.Data["threadId"], event.Data["userId"], event.Data["roles"], event.Data["runtimeRole"])
+		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s, runtimeRole=%s, permissions=%s\n",
+			event.Data["threadId"], event.Data["userId"], event.Data["roles"], event.Data["runtimeRole"], event.Data["permissions"])
+
+		// Parse permissions from JSON string to []string
+		var permissions []string
+		if permStr := event.Data["permissions"]; permStr != "" {
+			if err := json.Unmarshal([]byte(permStr), &permissions); err != nil {
+				fmt.Printf("[PostgresWriter] Failed to parse permissions JSON: %v\n", err)
+				permissions = []string{} // Use empty array on parse error
+			}
+		}
 
 		_, err := w.db.Pool.Exec(ctx, query,
 			event.Data["threadId"],
 			event.Data["userId"],
 			event.Data["roles"],
 			event.Data["runtimeRole"],
+			permissions, // Use parsed []string instead of JSON string
 			event.Data["grantedBy"],
 			event.Data["grantedAt"],
 			event.Data["status"],

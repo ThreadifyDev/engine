@@ -25,19 +25,21 @@ func NewAccessRepository(pool *pgxpool.Pool) *AccessRepository {
 // GetUserAccess retrieves user access from thread_access table
 func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error) {
 	query := `
-		SELECT roles, runtime_role, granted_by, granted_at, updated_at, status
+		SELECT roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
 		WHERE thread_id = $1 AND user_id = $2
 	`
 
 	var rolesJSON []byte
 	var runtimeRole string
+	var permissions []string
 	var grantedBy, grantedAt, status string
 	var updatedAt sql.NullString
 
 	err := r.pool.QueryRow(ctx, query, threadID, userID).Scan(
 		&rolesJSON,
 		&runtimeRole,
+		&permissions,
 		&grantedBy,
 		&grantedAt,
 		&updatedAt,
@@ -60,6 +62,7 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 	access := &interfaces.UserAccess{
 		Roles:       roles,
 		RuntimeRole: runtimeRole,
+		Permissions: permissions,
 		GrantedBy:   grantedBy,
 		GrantedAt:   grantedAt,
 		Status:      status,
@@ -75,7 +78,7 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 // GetAllAccess retrieves all user access for a thread from thread_access table
 func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error) {
 	query := `
-		SELECT user_id, roles, runtime_role, granted_by, granted_at, updated_at, status
+		SELECT user_id, roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
 		WHERE thread_id = $1
 	`
@@ -92,6 +95,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 		var userID string
 		var rolesJSON []byte
 		var runtimeRole string
+		var permissions []string
 		var grantedBy, grantedAt, status string
 		var updatedAt sql.NullString
 
@@ -99,6 +103,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 			&userID,
 			&rolesJSON,
 			&runtimeRole,
+			&permissions,
 			&grantedBy,
 			&grantedAt,
 			&updatedAt,
@@ -115,19 +120,18 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 			continue
 		}
 
-		access := &interfaces.UserAccess{
+		result[userID] = &interfaces.UserAccess{
 			Roles:       roles,
 			RuntimeRole: runtimeRole,
+			Permissions: permissions,
 			GrantedBy:   grantedBy,
 			GrantedAt:   grantedAt,
 			Status:      status,
 		}
 
 		if updatedAt.Valid {
-			access.UpdatedAt = updatedAt.String
+			result[userID].UpdatedAt = updatedAt.String
 		}
-
-		result[userID] = access
 	}
 
 	if err := rows.Err(); err != nil {
@@ -135,4 +139,97 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 	}
 
 	return result, nil
+}
+
+// UserRoleInfo contains minimal user info for notification routing
+type UserRoleInfo struct {
+	UserID      string
+	RuntimeRole string
+}
+
+// UserPermissionInfo contains user info with permissions for .own filtering
+type UserPermissionInfo struct {
+	UserID      string
+	Permissions []string
+}
+
+// GetUsersByRuntimeRoles retrieves users filtered by runtime_role for a thread
+// Returns minimal data (user_id, runtime_role) for efficient notification routing
+// Returns interface{} to avoid circular dependency - actual type is []UserRoleInfo
+func (r *AccessRepository) GetUsersByRuntimeRoles(
+	ctx context.Context,
+	threadID string,
+	runtimeRoles []string,
+) (interface{}, error) {
+	query := `
+		SELECT user_id, runtime_role
+		FROM thread_access
+		WHERE thread_id = $1
+		  AND status = 'active'
+		  AND runtime_role = ANY($2)
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID, runtimeRoles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users by runtime roles: %w", err)
+	}
+	defer rows.Close()
+
+	var users []UserRoleInfo
+
+	for rows.Next() {
+		var user UserRoleInfo
+		if err := rows.Scan(&user.UserID, &user.RuntimeRole); err != nil {
+			continue // Skip invalid entries
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return users, nil
+}
+
+// GetUsersByPermissions retrieves users who have ANY of the required permissions
+// Uses GIN index on permissions column for efficient array overlap queries
+// Returns user_id AND permissions array for .own filtering in application layer
+// Returns interface{} to avoid circular dependency - actual type is []UserPermissionInfo
+func (r *AccessRepository) GetUsersByPermissions(
+	ctx context.Context,
+	threadID string,
+	requiredPermissions []string,
+) (interface{}, error) {
+	// Use && operator for array overlap - returns true if arrays have any common elements
+	// GIN index on permissions column makes this O(log N) instead of O(N)
+	query := `
+		SELECT user_id, permissions
+		FROM thread_access
+		WHERE thread_id = $1
+		  AND status = 'active'
+		  AND permissions && $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID, requiredPermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users by permissions: %w", err)
+	}
+	defer rows.Close()
+
+	var users []UserPermissionInfo
+
+	for rows.Next() {
+		var user UserPermissionInfo
+		if err := rows.Scan(&user.UserID, &user.Permissions); err != nil {
+			continue // Skip invalid entries
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return users, nil
 }

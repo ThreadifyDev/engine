@@ -211,6 +211,21 @@ func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func()
 	return backoffv4.Retry(operation, backoffStrategy)
 }
 
+// SAdd adds members to a SET
+func (v *ValkeyService) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	return v.Client.SAdd(ctx, key, members...).Err()
+}
+
+// SMembers returns all members of a SET
+func (v *ValkeyService) SMembers(ctx context.Context, key string) ([]string, error) {
+	return v.Client.SMembers(ctx, key).Result()
+}
+
+// SRem removes members from a SET
+func (v *ValkeyService) SRem(ctx context.Context, key string, members ...interface{}) error {
+	return v.Client.SRem(ctx, key, members...).Err()
+}
+
 // RedisPipeline implements the ValkeyPipeline interface
 type RedisPipeline struct {
 	pipe redis.Pipeliner

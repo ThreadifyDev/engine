@@ -20,7 +20,7 @@ func NewPublisher(client *Client) *Publisher {
 	}
 }
 
-// PublishNotification publishes a notification to NATS with contract-aware subject
+// PublishNotification publishes a notification to NATS with enhanced subject for client-side filtering
 func (p *Publisher) PublishNotification(ctx context.Context, notification models.ValidationNotification) error {
 	// Determine contract or use "global"
 	contract := "global"
@@ -28,9 +28,26 @@ func (p *Publisher) PublishNotification(ctx context.Context, notification models
 		contract = notification.ContractName
 	}
 
-	// Build subject: notifications.user.{ownerID}.{contract}.{stepName}
-	subject := fmt.Sprintf("notifications.user.%s.%s.%s",
+	// Extract notification type from NotificationType field
+	// Format: "execution.success" → type = "success"
+	//         "validation.violated" → type = "violated"
+	notifType := "unknown"
+	if notification.NotificationType != "" {
+		// Split on dot and take second part
+		parts := splitNotificationType(notification.NotificationType)
+		if len(parts) > 1 {
+			notifType = parts[1]
+		}
+	}
+
+	// Build subject: notifications.user.{ownerID}.{source}.{type}.{contract}.{stepName}
+	// Examples:
+	// - notifications.user.123.execution.success.product_delivery.order_placed
+	// - notifications.user.123.validation.violated.product_delivery.order_placed
+	subject := fmt.Sprintf("notifications.user.%s.%s.%s.%s.%s",
 		notification.OwnerID,
+		notification.Source, // execution | validation | thread
+		notifType,           // success | failed | passed | violated
 		contract,
 		notification.StepName)
 
@@ -46,8 +63,28 @@ func (p *Publisher) PublishNotification(ctx context.Context, notification models
 		return fmt.Errorf("failed to publish to NATS: %w", err)
 	}
 
-	fmt.Printf("[NATS-PUBLISH] Published to %s (status=%s, severity=%s)\n",
-		subject, notification.Status, notification.Severity)
+	fmt.Printf("[NATS-PUBLISH] Published to %s\n", subject)
 
 	return nil
+}
+
+// splitNotificationType splits "execution.success" into ["execution", "success"]
+func splitNotificationType(notifType string) []string {
+	parts := make([]string, 0, 2)
+	dotIndex := -1
+	for i, c := range notifType {
+		if c == '.' {
+			dotIndex = i
+			break
+		}
+	}
+
+	if dotIndex > 0 {
+		parts = append(parts, notifType[:dotIndex])
+		parts = append(parts, notifType[dotIndex+1:])
+	} else {
+		parts = append(parts, notifType)
+	}
+
+	return parts
 }

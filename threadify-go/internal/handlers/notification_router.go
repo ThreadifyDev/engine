@@ -18,6 +18,7 @@ import (
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/utils"
 )
 
 // ClientSubscription represents a client's subscription to step notifications
@@ -282,7 +283,7 @@ func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract strin
 	}
 
 	sessions := r.subscriptionIndex[ownerID][subscriptionKey]
-	if !contains(sessions, sessionID) {
+	if !utils.Contains(sessions, sessionID) {
 		r.subscriptionIndex[ownerID][subscriptionKey] = append(sessions, sessionID)
 	}
 
@@ -412,16 +413,6 @@ func (r *NotificationRouter) HandleAck(ackToken string) error {
 	return nil
 }
 
-// containsString checks if a string slice contains a specific string
-func containsString(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 // shouldSendToClient checks if notification should be sent to this client based on subscriptions
 func (r *NotificationRouter) shouldSendToClient(client *WebSocketClient, notification *models.ValidationNotification) bool {
 	client.mu.RLock()
@@ -502,16 +493,6 @@ func buildSubscriptionKey(stepName, contract string) string {
 		return fmt.Sprintf("%s@%s", stepName, contract)
 	}
 	return fmt.Sprintf("%s@*", stepName)
-}
-
-// contains checks if a string slice contains a specific string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 // getMatchingSessions returns sessions subscribed to the given step and contract (O(1) lookup)

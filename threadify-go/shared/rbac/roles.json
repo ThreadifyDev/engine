@@ -36,29 +36,48 @@
   "runtime_level": {
     "owner": {
       "name": "Thread Owner",
-      "description": "Full access to threads and steps",
+      "description": "Full access to threads and all notifications",
       "permissions": [
         "thread.create",
         "thread.read.*",
         "thread.write.*",
-        "step.record.*",
-        "thread.invite"
+        "thread.invite",
+        "notification.execution.*",
+        "notification.validation.*",
+        "notification.thread.*"
       ]
     },
     "participant": {
       "name": "Thread Participant",
-      "description": "Can read and write to threads",
+      "description": "Can read and write to threads, receives own notifications",
       "permissions": [
         "thread.read.*",
         "thread.write.*",
-        "step.record.*"
+        "notification.execution.failed.own",
+        "notification.execution.success.own",
+        "notification.validation.violated.own",
+        "notification.validation.violated.timeout.own",
+        "notification.validation.violated.retry_limit.own",
+        "notification.validation.passed.own"
       ]
     },
     "observer": {
       "name": "Thread Observer",
-      "description": "Read-only access to threads",
+      "description": "Read-only access, monitors critical violations",
       "permissions": [
-        "thread.read.*"
+        "thread.read.*",
+        "notification.validation.violated.critical",
+        "notification.validation.violated.timeout.*",
+        "notification.validation.violated.retry_limit.*"
+      ]
+    },
+    "external": {
+      "name": "Thread External",
+      "description": "Limited read access, own execution notifications only",
+      "permissions": [
+        "thread.read.own",
+        "notification.execution.failed.own",
+        "notification.execution.success.own"
       ]
     }
   }

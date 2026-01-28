@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"threadify-go/shared/rbac"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,11 +24,13 @@ type NotificationPublisher interface {
 
 // NotificationService handles async validation processing and coordination
 type NotificationService struct {
-	validationService *ValidationService
-	activityRepo      interfaces.ActivityRepository
-	stepStateRepo     interfaces.StepStateRepository
-	cacheManager      interfaces.CacheManager
-	natsPublisher     NotificationPublisher
+	validationService   *ValidationService
+	activityRepo        interfaces.ActivityRepository
+	stepStateRepo       interfaces.StepStateRepository
+	cacheManager        interfaces.CacheManager
+	natsPublisher       NotificationPublisher
+	threadAccessService *ThreadAccessService
+	rbacLoader          *rbac.Loader
 }
 
 // NewNotificationService creates a new notification service
@@ -37,13 +40,17 @@ func NewNotificationService(
 	stepStateRepo interfaces.StepStateRepository,
 	cacheManager interfaces.CacheManager,
 	natsPublisher NotificationPublisher,
+	threadAccessService *ThreadAccessService,
+	rbacLoader *rbac.Loader,
 ) *NotificationService {
 	return &NotificationService{
-		validationService: validationService,
-		activityRepo:      activityRepo,
-		stepStateRepo:     stepStateRepo,
-		cacheManager:      cacheManager,
-		natsPublisher:     natsPublisher,
+		validationService:   validationService,
+		activityRepo:        activityRepo,
+		stepStateRepo:       stepStateRepo,
+		cacheManager:        cacheManager,
+		natsPublisher:       natsPublisher,
+		threadAccessService: threadAccessService,
+		rbacLoader:          rbacLoader,
 	}
 }
 
@@ -68,47 +75,26 @@ func (s *NotificationService) PerformAsyncValidation(
 		// Perform all non-blocking validations (contract-specific if graph exists)
 		var notifications []models.ValidationNotification
 
-		// If no contract, send immediate success notification (can't validate)
+		// If no contract, send execution notification only (no validation possible)
 		if graph == nil {
-			var notifStatus, message string
 			contractName := ""
-
-			// Get contract name from thread if available
 			if thread != nil {
 				contractName = thread.ContractName
 			}
 
+			// Create execution notification based on SDK status
+			var message string
 			if req.Status == "success" {
-				notifStatus = "passed"
-				if contractName != "" {
-					message = fmt.Sprintf("Step '%s' completed successfully", stepName)
-				} else {
-					message = fmt.Sprintf("Step '%s' completed successfully (no contract)", stepName)
-				}
+				message = fmt.Sprintf("Step '%s' completed successfully (no contract)", stepName)
 			} else if req.Status == "failed" {
-				notifStatus = "failed"
-				if contractName != "" {
-					message = fmt.Sprintf("Step '%s' failed", stepName)
-				} else {
-					message = fmt.Sprintf("Step '%s' failed (no contract)", stepName)
-				}
+				message = fmt.Sprintf("Step '%s' failed (no contract)", stepName)
 			} else if req.Status == "error" {
-				notifStatus = "error"
-				if contractName != "" {
-					message = fmt.Sprintf("Step '%s' encountered an error", stepName)
-				} else {
-					message = fmt.Sprintf("Step '%s' encountered an error (no contract)", stepName)
-				}
+				message = fmt.Sprintf("Step '%s' encountered an error (no contract)", stepName)
 			} else {
-				notifStatus = "none"
-				if contractName != "" {
-					message = fmt.Sprintf("Step '%s' recorded with status '%s'", stepName, req.Status)
-				} else {
-					message = fmt.Sprintf("Step '%s' recorded with status '%s' (no contract)", stepName, req.Status)
-				}
+				message = fmt.Sprintf("Step '%s' recorded with status '%s' (no contract)", stepName, req.Status)
 			}
 
-			immediateNotif := models.ValidationNotification{
+			executionNotif := models.ValidationNotification{
 				NotificationID: uuid.New().String(),
 				ThreadID:       threadID,
 				StepID:         stepID,
@@ -116,7 +102,7 @@ func (s *NotificationService) PerformAsyncValidation(
 				OwnerID:        ownerID,
 				ContractName:   contractName,
 				StepStatus:     req.Status,
-				Status:         notifStatus,
+				Status:         "none", // No validation status
 				ViolationType:  "",
 				Severity:       string(models.SeverityInfo),
 				Message:        message,
@@ -124,16 +110,10 @@ func (s *NotificationService) PerformAsyncValidation(
 				Timestamp:      time.Now(),
 			}
 
-			// Publish immediately (async, non-blocking)
+			// Publish execution notification
+			// Use background context to avoid cancellation when parent goroutine finishes
 			if s.natsPublisher != nil {
-				go func(notif models.ValidationNotification) {
-					if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
-						fmt.Printf("[NATS-ERROR] Error publishing immediate notification: %v\n", err)
-					} else {
-						fmt.Printf("[IMMEDIATE-NOTIF] Published for step=%s, status=%s (no contract)\n",
-							stepName, req.Status)
-					}
-				}(immediateNotif)
+				go s.publishToAuthorizedMembers(context.Background(), executionNotif)
 			}
 
 			// Archive step state even for threads without contracts
@@ -477,7 +457,25 @@ func (s *NotificationService) processValidationNotifications(
 		finalMessage = fmt.Sprintf("Step '%s' completed successfully", stepName)
 	}
 
-	finalStatusNotif := models.ValidationNotification{
+	// Send both execution and validation notifications in a single pass
+	executionMessage := fmt.Sprintf("Step '%s' execution %s", stepName, originalStatus)
+	executionNotif := models.ValidationNotification{
+		NotificationID: uuid.New().String(),
+		ThreadID:       threadID,
+		StepID:         stepID,
+		StepName:       stepName,
+		OwnerID:        ownerID,
+		ContractName:   thread.ContractName,
+		StepStatus:     originalStatus,
+		Status:         "none", // Execution notification has no validation status
+		ViolationType:  "",
+		Severity:       string(models.SeverityInfo),
+		Message:        executionMessage,
+		Details:        make(map[string]interface{}),
+		Timestamp:      time.Now(),
+	}
+
+	validationNotif := models.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
 		StepID:         stepID,
@@ -493,13 +491,10 @@ func (s *NotificationService) processValidationNotifications(
 		Timestamp:      time.Now(),
 	}
 
-	// Publish final status notification (async, non-blocking)
+	// Publish both notifications efficiently (single member query)
+	// Use background context to avoid cancellation when parent goroutine finishes
 	if s.natsPublisher != nil {
-		go func(notif models.ValidationNotification) {
-			if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
-				fmt.Printf("[NATS-ERROR] Error publishing final status notification: %v\n", err)
-			}
-		}(finalStatusNotif)
+		go s.publishDualNotifications(context.Background(), executionNotif, validationNotif)
 	}
 
 	// Handle terminal step completion
@@ -523,15 +518,9 @@ func (s *NotificationService) processValidationNotifications(
 			Timestamp:      time.Now(),
 		}
 
-		// Publish thread completion notification to NATS (async, non-blocking)
+		// Publish thread completion notification to all authorized members
 		if s.natsPublisher != nil {
-			go func(notif models.ValidationNotification) {
-				if err := s.natsPublisher.PublishNotification(ctx, notif); err != nil {
-					fmt.Printf("[NATS-ERROR] Error publishing thread completion notification: %v\n", err)
-				} else {
-					fmt.Printf("[THREAD-COMPLETE] Thread completion notification published\n")
-				}
-			}(threadCompletionNotif)
+			go s.publishToAuthorizedMembers(ctx, threadCompletionNotif)
 		}
 
 		// Archive thread metadata
@@ -592,4 +581,262 @@ func (s *NotificationService) processValidationNotifications(
 
 	// Invalidate cache to force reload on next access
 	s.cacheManager.ClearThreadCache(threadID)
+}
+
+// getRequiredPermissionsForNotification determines which permissions are needed
+// to receive a notification based on its type, status, and severity
+// Returns both wildcard and .own versions so users with either can receive notifications
+func getRequiredPermissionsForNotification(
+	status string, // "violated", "passed", "none"
+	stepStatus string, // "success", "failed", "error"
+	severity string, // "critical", "major", "minor", "warning", "info"
+	violationType string, // e.g., "step_timeout_exceeded", "retry_limit_exceeded"
+) []string {
+	// No contract validation - use step status (execution notifications)
+	if status == "none" {
+		switch stepStatus {
+		case "failed", "error":
+			// Step execution failed - both wildcard and .own
+			return []string{"notification.execution.failed.*", "notification.execution.failed.own"}
+		case "success":
+			// Step execution succeeded - both wildcard and .own
+			return []string{"notification.execution.success.*", "notification.execution.success.own"}
+		default:
+			return []string{}
+		}
+	}
+
+	// Contract-based validation notifications
+	switch status {
+	case "violated":
+		// Check for specific violation types (timeout, retry_limit)
+		if violationType == "step_timeout_exceeded" {
+			return []string{
+				"notification.validation.violated.*",
+				"notification.validation.violated.timeout.*",
+				"notification.validation.violated.timeout.own",
+				"notification.validation.violated.own",
+			}
+		}
+		if violationType == "retry_limit_exceeded" {
+			return []string{
+				"notification.validation.violated.*",
+				"notification.validation.violated.retry_limit.*",
+				"notification.validation.violated.retry_limit.own",
+				"notification.validation.violated.own",
+			}
+		}
+
+		// General contract violation
+		if severity == "critical" {
+			// Critical violations: wildcard, critical-specific, or .own
+			return []string{
+				"notification.validation.violated.*",
+				"notification.validation.violated.critical",
+				"notification.validation.violated.own",
+			}
+		}
+		// Non-critical violations: wildcard or .own
+		return []string{"notification.validation.violated.*", "notification.validation.violated.own"}
+
+	case "passed":
+		// Contract validation passed - both wildcard and .own
+		return []string{"notification.validation.passed.*", "notification.validation.passed.own"}
+
+	default:
+		return []string{}
+	}
+}
+
+// publishToAuthorizedMembers publishes notification to all thread members with appropriate permissions
+// Uses permission-based filtering with .own logic: users with wildcard permissions get all notifications,
+// users with .own permissions only get notifications for steps they own
+func (s *NotificationService) publishToAuthorizedMembers(
+	ctx context.Context,
+	notification models.ValidationNotification,
+) {
+	// Set notification source and type based on status
+	if notification.Status == "none" {
+		notification.Source = models.NotificationSourceExecution
+		notification.NotificationType = fmt.Sprintf("execution.%s", notification.StepStatus)
+	} else {
+		notification.Source = models.NotificationSourceValidation
+		notification.NotificationType = fmt.Sprintf("validation.%s", notification.Status)
+	}
+
+	// 1. Determine required permissions for this notification
+	requiredPerms := getRequiredPermissionsForNotification(
+		notification.Status,
+		notification.StepStatus,
+		notification.Severity,
+		notification.ViolationType,
+	)
+
+	if len(requiredPerms) == 0 {
+		log.Printf("[NOTIF-SKIP] No permissions required for notification type")
+		return
+	}
+
+	// 2. Get users with required permissions via ThreadAccessService
+	// Returns users with their actual permissions for .own filtering
+	users, err := s.threadAccessService.GetUsersByPermissions(
+		ctx,
+		notification.ThreadID,
+		requiredPerms,
+	)
+	if err != nil {
+		log.Printf("[NOTIF-ERROR] Failed to get authorized users: %v", err)
+		return
+	}
+
+	if len(users) == 0 {
+		log.Printf("[NOTIF-SKIP] No users found with required permissions")
+		return
+	}
+
+	// 3. Filter users based on .own permissions and publish
+	publishedCount := 0
+	for _, user := range users {
+		// Check if user should receive based on their actual permissions
+		if !s.shouldReceiveNotification(user.Permissions, requiredPerms, user.UserID, notification.OwnerID) {
+			continue
+		}
+
+		userNotif := notification
+		userNotif.OwnerID = user.UserID
+
+		if err := s.natsPublisher.PublishNotification(ctx, userNotif); err != nil {
+			log.Printf("[NOTIF-ERROR] Failed to publish to user %s: %v", user.UserID, err)
+			continue
+		}
+		publishedCount++
+	}
+
+	log.Printf("[NOTIF-SUCCESS] Published to %d/%d users with permissions %v", publishedCount, len(users), requiredPerms)
+}
+
+// publishDualNotifications sends both execution and validation notifications efficiently
+// Queries thread members once and filters for each notification type
+func (s *NotificationService) publishDualNotifications(
+	ctx context.Context,
+	executionNotif models.ValidationNotification,
+	validationNotif models.ValidationNotification,
+) {
+	// Set notification sources
+	executionNotif.Source = models.NotificationSourceExecution
+	executionNotif.NotificationType = fmt.Sprintf("execution.%s", executionNotif.StepStatus)
+
+	validationNotif.Source = models.NotificationSourceValidation
+	validationNotif.NotificationType = fmt.Sprintf("validation.%s", validationNotif.Status)
+
+	// Get permissions for both notification types
+	executionPerms := getRequiredPermissionsForNotification(
+		executionNotif.Status,
+		executionNotif.StepStatus,
+		executionNotif.Severity,
+		executionNotif.ViolationType,
+	)
+
+	validationPerms := getRequiredPermissionsForNotification(
+		validationNotif.Status,
+		validationNotif.StepStatus,
+		validationNotif.Severity,
+		validationNotif.ViolationType,
+	)
+
+	if len(executionPerms) == 0 && len(validationPerms) == 0 {
+		log.Printf("[NOTIF-SKIP] No permissions required for either notification")
+		return
+	}
+
+	// Combine permissions to get all users who need at least one notification
+	allPerms := append(executionPerms, validationPerms...)
+
+	// Get users with any of the required permissions (single query)
+	users, err := s.threadAccessService.GetUsersByPermissions(
+		ctx,
+		executionNotif.ThreadID,
+		allPerms,
+	)
+	if err != nil {
+		log.Printf("[NOTIF-ERROR] Failed to get authorized users: %v", err)
+		return
+	}
+
+	if len(users) == 0 {
+		log.Printf("[NOTIF-SKIP] No users found with required permissions")
+		return
+	}
+
+	// For each user, check which notifications they should receive
+	executionCount := 0
+	validationCount := 0
+
+	for _, user := range users {
+		// Check execution notification
+		if len(executionPerms) > 0 && s.shouldReceiveNotification(user.Permissions, executionPerms, user.UserID, executionNotif.OwnerID) {
+			userExecNotif := executionNotif
+			userExecNotif.OwnerID = user.UserID
+
+			if err := s.natsPublisher.PublishNotification(ctx, userExecNotif); err != nil {
+				log.Printf("[NOTIF-ERROR] Failed to publish execution notif to %s: %v", user.UserID, err)
+			} else {
+				executionCount++
+			}
+		}
+
+		// Check validation notification
+		if len(validationPerms) > 0 && s.shouldReceiveNotification(user.Permissions, validationPerms, user.UserID, validationNotif.OwnerID) {
+			userValNotif := validationNotif
+			userValNotif.OwnerID = user.UserID
+
+			if err := s.natsPublisher.PublishNotification(ctx, userValNotif); err != nil {
+				log.Printf("[NOTIF-ERROR] Failed to publish validation notif to %s: %v", user.UserID, err)
+			} else {
+				validationCount++
+			}
+		}
+	}
+
+	log.Printf("[NOTIF-SUCCESS] Published execution:%d validation:%d to %d users", executionCount, validationCount, len(users))
+}
+
+// shouldReceiveNotification checks if a user should receive a notification based on their actual permissions
+// Handles .own permissions: user must own the step to receive .own-only notifications
+func (s *NotificationService) shouldReceiveNotification(
+	userPerms []string,
+	requiredPerms []string,
+	userID string,
+	stepOwnerID string,
+) bool {
+	// Check if user has any matching permission
+	for _, userPerm := range userPerms {
+		for _, reqPerm := range requiredPerms {
+			// Exact match (e.g., "notification.violations.critical")
+			if userPerm == reqPerm {
+				return true
+			}
+
+			// Wildcard match (e.g., user has "notification.violations.*", req is "notification.violations.own")
+			if strings.HasSuffix(userPerm, ".*") {
+				prefix := strings.TrimSuffix(userPerm, ".*")
+				if strings.HasPrefix(reqPerm, prefix) {
+					return true
+				}
+			}
+
+			// .own match (user has .own permission and is the owner)
+			if strings.HasSuffix(userPerm, ".own") && userID == stepOwnerID {
+				// Check if .own permission matches required permission base
+				ownBase := strings.TrimSuffix(userPerm, ".own")
+				reqBase := strings.TrimSuffix(reqPerm, ".*")
+				reqBaseOwn := strings.TrimSuffix(reqPerm, ".own")
+				if ownBase == reqBase || ownBase == reqBaseOwn {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
