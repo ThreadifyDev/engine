@@ -43,7 +43,6 @@ func (c *InvitationConfig) IsRoleAllowed(role string) bool {
 // ThreadInvitationClaims represents JWT claims for thread invitations
 type ThreadInvitationClaims struct {
 	ThreadID    string `json:"threadId"`
-	ContractID  string `json:"contractId"`
 	Role        string `json:"role"`
 	Permissions string `json:"permissions"`
 	InvitedBy   string `json:"invitedBy"`
@@ -57,20 +56,20 @@ type InvitationTokenService struct {
 }
 
 // NewInvitationTokenService creates a new invitation token service
-func NewInvitationTokenService(secretKey string) *InvitationTokenService {
+func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService {
 	return &InvitationTokenService{
 		secretKey: secretKey,
-		issuer:    "threadify-engine",
+		issuer:    issuer,
 	}
 }
 
 // CreateToken creates a JWT token for thread invitation
-func (s *InvitationTokenService) CreateToken(threadID, userID, role, permissions string, expiry time.Duration) (string, error) {
+func (s *InvitationTokenService) CreateToken(threadID, userID, role string, permissions []string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := &ThreadInvitationClaims{
 		ThreadID:    threadID,
 		Role:        role,
-		Permissions: permissions,
+		Permissions: strings.Join(permissions, ","),
 		InvitedBy:   userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),

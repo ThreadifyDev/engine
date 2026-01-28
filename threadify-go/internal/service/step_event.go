@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -251,30 +250,4 @@ func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 		return fmt.Errorf("context is required")
 	}
 	return nil
-}
-
-// updateThreadLastHash updates the thread's last hash and refreshes TTL
-func (ses *StepEventService) updateThreadLastHash(threadID, newHash string) error {
-	// Get current thread data using the same key pattern as ThreadRepository
-	threadKey := fmt.Sprintf("thread:%s", threadID)
-	threadData, err := ses.valkeyRepo.Get(context.Background(), threadKey)
-	if err != nil {
-		return fmt.Errorf("failed to get thread data: %w", err)
-	}
-
-	// Parse and update thread
-	var thread models.Thread
-	if err := json.Unmarshal([]byte(threadData), &thread); err != nil {
-		return fmt.Errorf("failed to parse thread data: %w", err)
-	}
-
-	thread.LastHash = newHash
-
-	// Serialize and store back with refreshed TTL
-	updatedData, err := json.Marshal(thread)
-	if err != nil {
-		return fmt.Errorf("failed to serialize thread: %w", err)
-	}
-
-	return ses.valkeyRepo.Set(context.Background(), threadKey, string(updatedData), 24*time.Hour)
 }
