@@ -143,9 +143,8 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 
 		// Store in both Valkey and memory caches for future use
 		// Use targetVersion for caching, not the input version (which might be 0)
-		saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer saveCancel()
-		if err := v.graphRepo.Save(saveCtx, contractName, targetVersion, companyID, &loadedGraph); err != nil {
+		// Reuse existing context (still has time remaining from 15s timeout)
+		if err := v.graphRepo.Save(ctx, contractName, targetVersion, companyID, &loadedGraph); err != nil {
 			// Log error but don't fail - we still have the graph
 			fmt.Printf("Warning: failed to cache contract graph in Valkey: %v\n", err)
 		}
