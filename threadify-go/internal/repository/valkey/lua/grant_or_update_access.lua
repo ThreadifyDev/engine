@@ -10,11 +10,12 @@
 -- ARGV[2]: userID
 -- ARGV[3]: role (thread-specific business role, e.g., "merchant", "supplier")
 -- ARGV[4]: runtime_role (runtime-level permission scope, e.g., "owner", "participant", "observer")
--- ARGV[5]: timestamp (RFC3339)
--- ARGV[6]: status
--- ARGV[7]: threadJSON (optional - thread data if creating, empty string if not)
--- ARGV[8]: threadTTL (optional - TTL in seconds for thread if creating)
--- ARGV[9]: ttl (TTL in seconds for extending all thread keys)
+-- ARGV[5]: permissionsJSON (JSON array of resolved permissions, e.g., '["notification.violations.*","thread.read"]')
+-- ARGV[6]: timestamp (RFC3339)
+-- ARGV[7]: status
+-- ARGV[8]: threadJSON (optional - thread data if creating, empty string if not)
+-- ARGV[9]: threadTTL (optional - TTL in seconds for thread if creating)
+-- ARGV[10]: ttl (TTL in seconds for extending all thread keys)
 
 local roleIndexKey = KEYS[1]
 local accessKey = KEYS[2]
@@ -23,11 +24,12 @@ local invitedBy = ARGV[1]
 local userID = ARGV[2]
 local newRole = ARGV[3]
 local runtimeRole = ARGV[4]
-local timestamp = ARGV[5]
-local status = ARGV[6]
-local threadJSON = ARGV[7] or ""
-local threadTTL = tonumber(ARGV[8] or "0")
-local ttl = tonumber(ARGV[9] or "604800")  -- Default to 7 days if not provided
+local permissionsJSON = ARGV[5]
+local timestamp = ARGV[6]
+local status = ARGV[7]
+local threadJSON = ARGV[8] or ""
+local threadTTL = tonumber(ARGV[9] or "0")
+local ttl = tonumber(ARGV[10] or "604800")  -- Default to 7 days if not provided
 
 -- ATOMIC THREAD CREATION (if threadJSON provided)
 -- This ensures thread and access are created together or not at all
@@ -84,6 +86,27 @@ if current then
         access.updated_at = timestamp
         access.version = (access.version or 0) + 1
         
+        -- Check if runtime_role changed
+        local oldRuntimeRole = access.runtime_role
+        if oldRuntimeRole ~= runtimeRole then
+            -- Runtime role changed - update role SETs
+            local threadID = string.match(roleIndexKey, 'thread:([^:]+):role_index')
+            if threadID then
+                -- Remove from old role SET
+                redis.call('SREM', 'thread:' .. threadID .. ':users:' .. oldRuntimeRole, userID)
+                -- Add to new role SET
+                redis.call('SADD', 'thread:' .. threadID .. ':users:' .. runtimeRole, userID)
+            end
+            access.runtime_role = runtimeRole
+            -- Update permissions when runtime_role changes
+            local updatedPermissions = cjson.decode(permissionsJSON)
+            -- Handle empty array case (cjson quirk)
+            if next(updatedPermissions) == nil then
+                updatedPermissions = cjson.empty_array
+            end
+            access.permissions = updatedPermissions
+        end
+        
         -- Update role index to claim this role
         redis.call('HSET', roleIndexKey, newRole, userID)
         
@@ -94,9 +117,17 @@ if current then
 end
 
 -- User doesn't have access - create new access with race detection
+-- Decode permissions, handling empty array case (cjson quirk)
+local decodedPermissions = cjson.decode(permissionsJSON)
+-- If permissions is empty, ensure it's encoded as array [] not object {}
+if next(decodedPermissions) == nil then
+    decodedPermissions = cjson.empty_array
+end
+
 local access = {
     roles = {newRole},
     runtime_role = runtimeRole,
+    permissions = decodedPermissions,
     granted_by = invitedBy,
     granted_at = timestamp,
     status = status,
@@ -116,6 +147,12 @@ end
 
 -- Update role index to claim this role
 redis.call('HSET', roleIndexKey, newRole, userID)
+
+-- Add user to runtime_role SET for notification routing
+local threadID = string.match(roleIndexKey, 'thread:([^:]+):role_index')
+if threadID then
+    redis.call('SADD', 'thread:' .. threadID .. ':users:' .. runtimeRole, userID)
+end
 
 -- ============================================================================
 -- EXTEND TTL ON ALL THREAD KEYS
@@ -137,6 +174,12 @@ if threadID then
     redis.call('EXPIRE', 'thread:' .. threadID .. ':current_steps', ttl)
     redis.call('EXPIRE', 'thread:' .. threadID .. ':violations', ttl)
     redis.call('EXPIRE', 'thread:' .. threadID .. ':activity', ttl)
+    
+    -- Extend TTL on runtime_role SETs for notification routing
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':users:owner', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':users:participant', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':users:observer', ttl)
+    redis.call('EXPIRE', 'thread:' .. threadID .. ':users:external', ttl)
     
     -- Extend TTL on all step hashes (pattern: thread:ID:steps:*)
     local stepKeys = redis.call('KEYS', 'thread:' .. threadID .. ':steps:*')

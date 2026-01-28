@@ -65,11 +65,10 @@ func NewInvitationTokenService(secretKey string) *InvitationTokenService {
 }
 
 // CreateToken creates a JWT token for thread invitation
-func (s *InvitationTokenService) CreateToken(threadID, contractID, userID, role, permissions string, expiry time.Duration) (string, error) {
+func (s *InvitationTokenService) CreateToken(threadID, userID, role, permissions string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := &ThreadInvitationClaims{
 		ThreadID:    threadID,
-		ContractID:  contractID,
 		Role:        role,
 		Permissions: permissions,
 		InvitedBy:   userID,

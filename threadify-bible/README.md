@@ -66,6 +66,15 @@ Each case is documented in a separate file with complete pseudocode flows, datab
    - Flexible filtering and pagination
    - SDK integration patterns
 
+### System Documentation
+
+12. **[PERMISSIONS_AND_ROLES.md](./PERMISSIONS_AND_ROLES.md)** - Permission and Role Model
+   - Two-layer permission system (app_level + runtime_level)
+   - Default roles and permissions
+   - Notification scope resolution
+   - Authorization flow and security
+   - RBAC configuration and best practices
+
 ## Architecture Overview
 
 ### Data Flow Layers

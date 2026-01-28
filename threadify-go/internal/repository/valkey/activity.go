@@ -52,6 +52,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 
 	// Publish to NATS for archival
 	rolesJSON, _ := json.Marshal(access.Roles)
+	permissionsJSON, _ := json.Marshal(access.Permissions)
 	// SYNCHRONOUS - Critical for access control persistence
 	if r.natsPublisher != nil {
 		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -61,6 +62,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 			"userId":       userID,
 			"roles":        string(rolesJSON),
 			"runtime_role": runtimeRole,
+			"permissions":  string(permissionsJSON),
 			"grantedBy":    invitedBy,
 			"grantedAt":    access.GrantedAt,
 			"status":       access.Status,

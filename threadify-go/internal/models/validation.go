@@ -34,6 +34,15 @@ const (
 	NotificationStatusFailed    NotificationStatus = "failed"
 )
 
+// NotificationSource represents the origin of a notification
+type NotificationSource string
+
+const (
+	NotificationSourceExecution  NotificationSource = "execution"  // SDK-reported step status
+	NotificationSourceValidation NotificationSource = "validation" // Contract validation result
+	NotificationSourceThread     NotificationSource = "thread"     // Thread-level events
+)
+
 // ThreadViolation tracks all failed steps in a thread
 type ThreadViolation struct {
 	FailedSteps map[string]StepViolation `json:"failedSteps"` // key: stepID
@@ -61,6 +70,10 @@ type ValidationNotification struct {
 	StepName       string `json:"stepName"`
 	OwnerID        string `json:"ownerId"`      // Who published the step
 	ContractName   string `json:"contractName"` // Contract name (empty for non-contract threads)
+
+	// Notification metadata
+	Source           NotificationSource `json:"source"`           // execution, validation, or thread
+	NotificationType string             `json:"notificationType"` // e.g., "execution.failed", "validation.violated"
 
 	// Status (always present)
 	StepStatus string `json:"stepStatus"` // User's set status: "success", "failed", "error"

@@ -8,21 +8,29 @@ import (
 	"strings"
 	"time"
 
+	"threadify-go/shared/rbac"
+
 	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/models"
 )
 
 // AccessRepository handles role and permission management in Valkey
 type AccessRepository struct {
 	valkey       interfaces.ValkeyClient
 	postgresRepo PostgresAccessRepository // For hot/cold fallback
+	rbacLoader   *rbac.Loader             // For dynamic permission-to-role mapping
 	ttl          int                      // TTL in seconds for access keys
 }
 
 // PostgresAccessRepository defines the interface for PostgreSQL access operations
+// Note: GetUsersByRuntimeRoles and GetUsersByPermissions return interface{} to avoid circular dependency
+// The actual types are []models.UserRoleInfo and []models.UserPermissionInfo respectively
 type PostgresAccessRepository interface {
 	GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error)
 	GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error)
+	GetUsersByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) (interface{}, error)
+	GetUsersByPermissions(ctx context.Context, threadID string, requiredPermissions []string) (interface{}, error)
 }
 
 // NewAccessRepository creates a new access repository
@@ -42,6 +50,11 @@ func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRep
 	}
 }
 
+// SetRBACLoader sets the RBAC loader for dynamic permission-to-role mapping
+func (r *AccessRepository) SetRBACLoader(loader *rbac.Loader) {
+	r.rbacLoader = loader
+}
+
 // GrantOrUpdateAccess grants or updates user access using unified Lua script with role_index
 // Handles all scenarios: thread creator, invitation join, and direct join
 // - invitedBy = "self" → Thread creator (creates new access)
@@ -56,6 +69,7 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 	threadID, userID string,
 	role string,
 	runtimeRole string,
+	permissions []string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
 	threadData *string,
@@ -66,7 +80,7 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 	// Use existing ExecuteWithBackoff for retry logic (10ms initial, 100ms max, 500ms total)
 	err := r.valkey.ExecuteWithBackoff(ctx, func() error {
 		access, err := r.attemptGrantOrUpdateAccess(
-			ctx, threadID, userID, role, runtimeRole, invitedBy, luaScripts, threadData, threadTTL,
+			ctx, threadID, userID, role, runtimeRole, permissions, invitedBy, luaScripts, threadData, threadTTL,
 		)
 		if err != nil {
 			// Check if error is retryable (concurrent creation detected)
@@ -97,6 +111,7 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	threadID, userID string,
 	role string,
 	runtimeRole string,
+	permissions []string,
 	invitedBy string,
 	luaScripts interfaces.LuaScriptManager,
 	threadData *string,
@@ -124,19 +139,26 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		ttl = fmt.Sprintf("%d", *threadTTL)
 	}
 
+	// Serialize permissions to JSON for Lua script
+	permissionsJSON, err := json.Marshal(permissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal permissions: %w", err)
+	}
+
 	result, err := r.valkey.EvalSHA(
 		ctx,
 		scriptHash,
 		[]string{roleIndexKey, accessKey, threadKey}, // KEYS[1], KEYS[2], KEYS[3]
-		invitedBy,   // ARGV[1]
-		userID,      // ARGV[2]
-		role,        // ARGV[3]
-		runtimeRole, // ARGV[4] - runtime_role for permission checks
-		timestamp,   // ARGV[5]
-		"active",    // ARGV[6]
-		threadJSON,  // ARGV[7] - optional thread data
-		ttl,         // ARGV[8] - optional thread TTL
-		r.ttl,       // ARGV[9] - TTL for extending all thread keys
+		invitedBy,               // ARGV[1]
+		userID,                  // ARGV[2]
+		role,                    // ARGV[3]
+		runtimeRole,             // ARGV[4] - runtime_role for permission checks
+		string(permissionsJSON), // ARGV[5] - resolved permissions as JSON array
+		timestamp,               // ARGV[6]
+		"active",                // ARGV[7]
+		threadJSON,              // ARGV[8] - optional thread data
+		ttl,                     // ARGV[9] - optional thread TTL
+		r.ttl,                   // ARGV[10] - TTL for extending all thread keys
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant/update access: %w", err)
@@ -307,4 +329,295 @@ func (r *AccessRepository) writeAccessToValkey(ctx context.Context, threadID, us
 
 	_, err = pipe.Exec(ctx)
 	return err
+}
+
+// GetUserIDsByRuntimeRoles retrieves user IDs for runtime_roles
+// Returns all user IDs across all roles
+// Handles both single and multiple roles efficiently
+func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) ([]string, error) {
+	if len(runtimeRoles) == 0 {
+		return []string{}, nil
+	}
+
+	result := make([]string, 0)
+
+	// Get members from each role SET
+	for _, role := range runtimeRoles {
+		key := r.getUsersByRoleKey(threadID, role)
+		userIDs, err := r.valkey.SMembers(ctx, key)
+		if err != nil {
+			// Ignore key not found errors, just skip
+			continue
+		}
+		result = append(result, userIDs...)
+	}
+
+	// Use efficient query to get only users with specified roles
+	usersInterface, err := r.postgresRepo.GetUsersByRuntimeRoles(ctx, threadID, runtimeRoles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users from postgres: %w", err)
+	}
+
+	// Convert interface{} to []models.UserRoleInfo
+	var users []models.UserRoleInfo
+	jsonData, err := json.Marshal(usersInterface)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal users: %w", err)
+	}
+	if err := json.Unmarshal(jsonData, &users); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal users: %w", err)
+	}
+
+	// Single pass: extract user IDs and group by role
+	userIDs := make([]string, 0, len(users))
+	roleToUsers := make(map[string][]string)
+
+	for _, user := range users {
+		userIDs = append(userIDs, user.UserID)
+		roleToUsers[user.RuntimeRole] = append(roleToUsers[user.RuntimeRole], user.UserID)
+	}
+
+	// Write to Redis SETs (async, don't block on this)
+	go func() {
+		// Use timeout context for async write (5s should be plenty for Redis operations)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		for runtimeRole, ids := range roleToUsers {
+			key := r.getUsersByRoleKey(threadID, runtimeRole)
+			// SAdd accepts variadic interface{}, convert slice
+			members := make([]interface{}, len(ids))
+			for i, id := range ids {
+				members[i] = id
+			}
+			// Add members to SET
+			if err := r.valkey.SAdd(ctx, key, members...); err != nil {
+				// Log error but don't fail (async write)
+				continue
+			}
+			// Set TTL
+			r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
+		}
+	}()
+
+	return userIDs, nil
+}
+
+// AddUserToRoleSet adds a user to a runtime_role SET
+// Used when populating from PostgreSQL or when Lua script data has expired
+func (r *AccessRepository) AddUserToRoleSet(ctx context.Context, threadID, runtimeRole, userID string) error {
+	key := r.getUsersByRoleKey(threadID, runtimeRole)
+	if err := r.valkey.SAdd(ctx, key, userID); err != nil {
+		return err
+	}
+	return r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
+}
+
+// RemoveUserFromRoleSet removes a user from a runtime_role SET
+func (r *AccessRepository) RemoveUserFromRoleSet(ctx context.Context, threadID, runtimeRole, userID string) error {
+	key := r.getUsersByRoleKey(threadID, runtimeRole)
+	return r.valkey.SRem(ctx, key, userID)
+}
+
+// PopulateRoleSetsFromPostgres rebuilds role SETs from PostgreSQL data
+// Called when Redis SETs are missing (cache miss) to warm the cache
+// Only fetches and caches the specified runtime_roles for efficiency
+// Returns the user IDs that were fetched (no need to read from Redis again)
+func (r *AccessRepository) PopulateRoleSetsFromPostgres(
+	ctx context.Context,
+	threadID string,
+	runtimeRoles []string,
+) ([]string, error) {
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("postgres repository not configured")
+	}
+
+	// Use efficient query to get only users with specified roles
+	usersInterface, err := r.postgresRepo.GetUsersByRuntimeRoles(ctx, threadID, runtimeRoles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users from postgres: %w", err)
+	}
+
+	// Convert interface{} to []models.UserRoleInfo
+	var users []models.UserRoleInfo
+	jsonData, err := json.Marshal(usersInterface)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal users: %w", err)
+	}
+	if err := json.Unmarshal(jsonData, &users); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal users: %w", err)
+	}
+
+	// Single pass: extract user IDs and group by role
+	userIDs := make([]string, 0, len(users))
+	roleToUsers := make(map[string][]string)
+
+	for _, user := range users {
+		userIDs = append(userIDs, user.UserID)
+		roleToUsers[user.RuntimeRole] = append(roleToUsers[user.RuntimeRole], user.UserID)
+	}
+
+	// Write to Redis SETs (async, don't block on this)
+	go func() {
+		// Use timeout context for async write (5s should be plenty for Redis operations)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		for runtimeRole, ids := range roleToUsers {
+			key := r.getUsersByRoleKey(threadID, runtimeRole)
+			// SAdd accepts variadic interface{}, convert slice
+			members := make([]interface{}, len(ids))
+			for i, id := range ids {
+				members[i] = id
+			}
+			// Add members to SET
+			if err := r.valkey.SAdd(ctx, key, members...); err != nil {
+				// Log error but don't fail (async write)
+				continue
+			}
+			// Set TTL
+			r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
+		}
+	}()
+
+	return userIDs, nil
+}
+
+// GetUsersByPermissions retrieves users who have ANY of the required permissions
+// Returns user_id AND permissions array for .own filtering in application layer
+// Uses role-based lookup for efficiency (queries role sets, not all users)
+func (r *AccessRepository) GetUsersByPermissions(
+	ctx context.Context,
+	threadID string,
+	requiredPermissions []string,
+) ([]models.UserPermissionInfo, error) {
+	// Step 1: Map permissions to runtime roles
+	// This determines which roles could have any of the required permissions
+	runtimeRoles := r.getRuntimeRolesForPermissions(requiredPermissions)
+
+	if len(runtimeRoles) == 0 {
+		// No roles grant these permissions
+		return []models.UserPermissionInfo{}, nil
+	}
+
+	// Step 2: Get user IDs from role sets (efficient O(1) lookup per role)
+	userIDs, err := r.GetUserIDsByRuntimeRoles(ctx, threadID, runtimeRoles)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(userIDs) == 0 {
+		return []models.UserPermissionInfo{}, nil
+	}
+
+	// Step 3: Get full access data for these users only
+	accessKey := r.getAccessKey(threadID)
+	var users []models.UserPermissionInfo
+
+	for _, userID := range userIDs {
+		accessJSON, err := r.valkey.HGet(ctx, accessKey, userID)
+		if err != nil {
+			continue // Skip if user not found
+		}
+
+		var access interfaces.UserAccess
+		if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
+			continue // Skip invalid entries
+		}
+
+		// Step 4: Verify user actually has the required permissions (wildcard matching)
+		// This handles cases where role might have been updated but permissions changed
+		if hasAnyPermission(access.Permissions, requiredPermissions) {
+			users = append(users, models.UserPermissionInfo{
+				UserID:      userID,
+				Permissions: access.Permissions,
+			})
+		}
+	}
+
+	return users, nil
+}
+
+// getRuntimeRolesForPermissions maps required permissions to runtime roles
+// Returns which runtime roles could grant ANY of the required permissions
+// Uses RBAC loader to dynamically determine mapping from roles.json
+func (r *AccessRepository) getRuntimeRolesForPermissions(requiredPermissions []string) []string {
+	// Fallback to all roles if RBAC loader not available (should not happen in production)
+	if r.rbacLoader == nil {
+		return []string{"owner", "participant", "observer", "external"}
+	}
+
+	allRuntimeRoles := []string{"owner", "participant", "observer", "external"}
+	matchedRoles := make([]string, 0, len(allRuntimeRoles))
+
+	// For each runtime role, check if it has ANY of the required permissions
+	for _, role := range allRuntimeRoles {
+		if r.roleHasAnyPermission(role, requiredPermissions) {
+			matchedRoles = append(matchedRoles, role)
+		}
+	}
+
+	return matchedRoles
+}
+
+// roleHasAnyPermission checks if a runtime role has any of the required permissions
+func (r *AccessRepository) roleHasAnyPermission(role string, requiredPermissions []string) bool {
+	// Get permissions for this role from roles.json via RBAC loader
+	rolePerms := r.rbacLoader.GetPermissionsForRoles([]string{role}, "runtime_level")
+
+	// Check if this role has any of the required permissions
+	for _, rolePerm := range rolePerms {
+		for _, reqPerm := range requiredPermissions {
+			if matchesPermission(rolePerm, reqPerm) {
+				return true // Found a match
+			}
+		}
+	}
+
+	return false // No matches found
+}
+
+// matchesPermission checks if a role permission matches a required permission
+// Handles wildcard permissions (e.g., "notification.execution.*" matches "notification.execution.success.*")
+func matchesPermission(rolePerm, reqPerm string) bool {
+	// Exact match
+	if rolePerm == reqPerm {
+		return true
+	}
+
+	// Wildcard match: role has "notification.execution.*", req is "notification.execution.success.*"
+	if strings.HasSuffix(rolePerm, ".*") {
+		prefix := strings.TrimSuffix(rolePerm, ".*")
+		if strings.HasPrefix(reqPerm, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasAnyPermission checks if user has any of the required permissions
+// Handles wildcard permissions (e.g., "notification.execution.*")
+func hasAnyPermission(userPerms []string, requiredPerms []string) bool {
+	for _, userPerm := range userPerms {
+		for _, reqPerm := range requiredPerms {
+			// Exact match
+			if userPerm == reqPerm {
+				return true
+			}
+
+			// Wildcard match: user has "notification.execution.*", req is "notification.execution.success.*"
+			if strings.HasSuffix(userPerm, ".*") {
+				prefix := strings.TrimSuffix(userPerm, ".*")
+				if strings.HasPrefix(reqPerm, prefix) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (r *AccessRepository) getUsersByRoleKey(threadID, runtimeRole string) string {
+	return fmt.Sprintf("thread:%s:users:%s", threadID, runtimeRole)
 }

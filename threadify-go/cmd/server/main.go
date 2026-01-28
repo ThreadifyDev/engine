@@ -236,6 +236,7 @@ func main() {
 	// Initialize thread access service for invitation-based authentication
 	// Use thread TTL for access keys (same as thread metadata)
 	accessRepo := valkey.NewAccessRepository(valkeyService, int(threadTTL.Seconds()))
+	accessRepo.SetRBACLoader(rbacLoader) // Enable dynamic permission-to-role mapping
 	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 
@@ -253,17 +254,7 @@ func main() {
 		accessBufferSize = 100
 	}
 
-	accessBatcher := service.NewAccessBatcher(
-		accessBufferSize,
-		accessBatchSize,
-		time.Duration(accessBatchTimeoutMs)*time.Millisecond,
-		accessRepo,
-		luaScriptManager,
-	)
-	accessBatcher.Start()
-	defer accessBatcher.Stop()
-
-	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, accessBatcher, rbacLoader)
+	threadAccessService := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader)
 
 	// Create WebSocket handler with notification consumer, router, and rate limiting
 	wsHandler := handlers.NewWebSocketHandler(threadService, stepEventService, invitationService, threadService.GetNotificationConsumer(), notificationRouter, valkeyService, luaScriptManager, &rateLimitCfg, &cfg.WebSocket)
@@ -349,9 +340,9 @@ func main() {
 	// WebSocket route (no auth at connection level)
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
-	// GraphQL endpoints with custom auth wrapper
+	// GraphQL endpoints with dual auth (API Key or JWT)
 	r.POST("/graphql",
-		middleware.GraphQLAuthMiddleware(authService),
+		middleware.DualAuthMiddleware(authService, jwtValidator),
 		middleware.UserRateLimiter(luaScriptManager, &rateLimitCfg),
 		func(c *gin.Context) {
 			// Extract user info from Gin context

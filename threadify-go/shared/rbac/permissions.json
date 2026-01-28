@@ -107,43 +107,88 @@
   ],
   "runtime_level": [
     {
-      "name": "notification.violations.*",
-      "description": "All violation notifications",
+      "name": "notification.execution.*",
+      "description": "All step execution status notifications (SDK-reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.violations.critical",
-      "description": "System-wide critical violation notifications",
-      "is_wildcard": false
-    },
-    {
-      "name": "notification.violations.own",
-      "description": "Violation notifications on own steps",
-      "is_wildcard": false
-    },
-    {
-      "name": "notification.completions.*",
-      "description": "All step completion notifications",
+      "name": "notification.execution.failed.*",
+      "description": "Step execution failures (SDK reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.completions.own",
-      "description": "Completion notifications on own steps",
+      "name": "notification.execution.failed.own",
+      "description": "Own step execution failures",
       "is_wildcard": false
     },
     {
-      "name": "notification.failed.*",
-      "description": "All step failure notifications",
+      "name": "notification.execution.success.*",
+      "description": "Step execution successes (SDK reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.failed.own",
-      "description": "Failure notifications on own steps",
+      "name": "notification.execution.success.own",
+      "description": "Own step execution successes",
       "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.*",
+      "description": "All contract validation notifications",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.*",
+      "description": "All contract violations (business rules, timeout, retries)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.critical",
+      "description": "Critical contract violations only",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.own",
+      "description": "Own contract violations",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.timeout.*",
+      "description": "Step duration exceeded (contract rule)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.timeout.own",
+      "description": "Own step duration exceeded",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.retry_limit.*",
+      "description": "Max retries exceeded (contract rule)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.retry_limit.own",
+      "description": "Own max retries exceeded",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.passed.*",
+      "description": "Contract validations passed",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.passed.own",
+      "description": "Own contract validations passed",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.thread.*",
+      "description": "All thread-level notifications",
+      "is_wildcard": true
     },
     {
       "name": "notification.thread.lifecycle",
-      "description": "Thread lifecycle notifications",
+      "description": "Thread lifecycle events (created, completed)",
       "is_wildcard": false
     },
     {
@@ -157,34 +202,19 @@
       "is_wildcard": false
     },
     {
-      "name": "thread.read",
-      "description": "Read threads (base permission)",
-      "is_wildcard": false
-    },
-    {
       "name": "thread.read.*",
-      "description": "Read any thread",
+      "description": "Read from any thread",
       "is_wildcard": true
     },
     {
       "name": "thread.read.own",
-      "description": "Read own threads",
-      "is_wildcard": false
-    },
-    {
-      "name": "thread.write",
-      "description": "Write to threads (base permission)",
-      "is_wildcard": false
-    },
-    {
-      "name": "thread.write.*",
-      "description": "Write to any thread",
+      "description": "Read only your step from a thread",
       "is_wildcard": true
     },
     {
-      "name": "thread.write.own",
-      "description": "Write to own threads",
-      "is_wildcard": false
+      "name": "thread.write.*",
+      "description": "Write to a thread",
+      "is_wildcard": true
     },
     {
       "name": "thread.delete",

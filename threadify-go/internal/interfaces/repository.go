@@ -30,6 +30,10 @@ type ValkeyClient interface {
 	ZRem(ctx context.Context, key string, members ...string) error
 	ZCard(ctx context.Context, key string) (int64, error)
 	ZRange(ctx context.Context, key string, start, stop int64) ([]string, error)
+	// Set operations for notification recipient caching
+	SAdd(ctx context.Context, key string, members ...interface{}) error
+	SMembers(ctx context.Context, key string) ([]string, error)
+	SRem(ctx context.Context, key string, members ...interface{}) error
 	// Script operations for atomic operations
 	Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error)
 	// Lua script operations
@@ -83,8 +87,9 @@ type AccessRepository interface {
 	// GrantOrUpdateAccess grants or updates user access with thread role and runtime_role
 	// role: Thread-specific business role (e.g., "merchant", "supplier")
 	// runtimeRole: Runtime-level permission scope (e.g., "owner", "participant", "observer")
-	// runtime_role is stored in both Valkey (for fast permission checks) and PostgreSQL (via ActivityRepository)
-	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, runtimeRole string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
+	// permissions: Resolved permissions from runtime_role (e.g., ["notification.violations.*", "thread.read"])
+	// runtime_role and permissions are stored in both Valkey (for fast permission checks) and PostgreSQL (via ActivityRepository)
+	GrantOrUpdateAccess(ctx context.Context, threadID, userID string, role string, runtimeRole string, permissions []string, invitedBy string, luaScripts LuaScriptManager, threadData *string, threadTTL *int) (*UserAccess, error)
 	RevokeAccess(ctx context.Context, threadID, userID string) error
 
 	// Hot/cold fallback read operations (writeBack defaults to false)
@@ -135,6 +140,7 @@ type StepWithTimestamp struct {
 type UserAccess struct {
 	Roles       []string `json:"roles"`        // Thread-specific business roles (e.g., ["merchant", "supplier"])
 	RuntimeRole string   `json:"runtime_role"` // Runtime-level permission scope (e.g., "owner", "participant", "observer")
+	Permissions []string `json:"permissions"`  // Resolved permissions from runtime_role (e.g., ["notification.violations.*", "thread.read"])
 	GrantedBy   string   `json:"granted_by"`
 	GrantedAt   string   `json:"granted_at"`
 	UpdatedAt   string   `json:"updated_at,omitempty"`

@@ -72,8 +72,8 @@ done
 echo -e "${GREEN}✅ All consumers started${NC}\n"
 
 # Wait for consumers to be ready
-echo -e "${YELLOW}Waiting 3 seconds for consumers to be ready...${NC}"
-sleep 3
+echo -e "${YELLOW}Waiting 1 second for consumers to be ready...${NC}"
+sleep 1
 
 # Start publishers in parallel
 echo -e "${CYAN}Starting $NUM_PUBLISHERS publisher(s)...${NC}"

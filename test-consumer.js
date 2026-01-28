@@ -21,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Configuration
 const WS_URL = process.env.WS_URL || 'ws://localhost:8081/threads';
-const API_KEY = process.env.API_KEY || 'api-key-123';
+const API_KEY = 'td_oqyuBOZtddPLxbcTUO1VxkRRLW47PwRvxvq-zTQsFB8' || process.env.API_KEY || 'api-key-123';
 const SERVICE_NAME = process.env.SERVICE_NAME || 'test-service';
 const MAX_IN_FLIGHT = parseInt(process.env.MAX_IN_FLIGHT) || 20;
 const CONSUMER_ID = process.env.CONSUMER_ID || uuidv4();

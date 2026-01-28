@@ -17,12 +17,10 @@ export class Connection {
     this.activeThreads = new Map(); // Map of threadId -> thread info
     this.threads = new Map(); // Map of threadId -> ThreadInstance (for notification routing)
     
-    // Global notification handlers (step-specific)
-    this.notificationHandlers = {
-      violation: new Map(),  // stepName -> [handlers]
-      completed: new Map(),
-      failed: new Map()
-    };
+    // Global notification handlers (step-specific) - v2.0.0 API
+    // Maps event pattern to stepName to handlers
+    // e.g., 'step.success' -> 'order_placed' -> [handler1, handler2]
+    this.notificationHandlers = new Map();
     
     this.processedNotifications = new Set(); // Track processed notification IDs
     this.maxProcessedSize = 10000; // Prevent memory leak
@@ -345,66 +343,124 @@ export class Connection {
   }
 
   /**
-   * Register a global violation handler for a specific step
+   * Register a notification handler for specific events (v2.0.0 API)
+   * @param {string} event - Event pattern: 'step.success', 'step.failed', 'rule.violated', 'rule.passed', 'step.*', 'rule.*', '*'
    * @param {string} stepName - Name of the step (or "contract@stepName")
    * @param {Function} handler - Handler function (receives Notification)
    * @returns {Connection} - Returns this for chaining
+   * 
+   * @example
+   * // Step execution events
+   * thread.on('step.success', 'order_placed', (notif) => { ... });
+   * thread.on('step.failed', 'order_placed', (notif) => { ... });
+   * 
+   * // Contract validation events
+   * thread.on('rule.violated', 'order_placed', (notif) => { ... });
+   * thread.on('rule.passed', 'order_placed', (notif) => { ... });
+   * 
+   * // Wildcards
+   * thread.on('step.*', 'order_placed', (notif) => { ... }); // All step events
+   * thread.on('rule.*', 'order_placed', (notif) => { ... }); // All rule events
+   * thread.on('*', 'order_placed', (notif) => { ... });      // All events
    */
-  onViolation(stepName, handler) {
+  on(event, stepName, handler) {
     if (typeof handler !== 'function') {
       throw new Error('Handler must be a function');
     }
     
-    // Send subscription to server
-    this._sendSubscription(stepName, ['violation']);
+    // Parse event to get source and type for NATS subscription
+    const [source, type] = this._parseEvent(event);
     
-    if (!this.notificationHandlers.violation.has(stepName)) {
-      this.notificationHandlers.violation.set(stepName, []);
+    // Build event types array for subscription
+    const eventTypes = this._buildEventTypes(source, type);
+    
+    // Send subscription to server
+    this._sendSubscription(stepName, eventTypes);
+    
+    // Store handler
+    const handlerKey = `${event}:${stepName}`;
+    if (!this.notificationHandlers.has(handlerKey)) {
+      this.notificationHandlers.set(handlerKey, []);
     }
-    this.notificationHandlers.violation.get(stepName).push(handler);
+    this.notificationHandlers.get(handlerKey).push(handler);
+    
     return this;
   }
 
   /**
-   * Register a global completion handler for a specific step
-   * @param {string} stepName - Name of the step (or "contract@stepName")
-   * @param {Function} handler - Handler function (receives Notification)
+   * Unsubscribe from notification events
+   * @param {string} event - Event pattern
+   * @param {string} stepName - Step name
    * @returns {Connection} - Returns this for chaining
    */
-  onCompleted(stepName, handler) {
-    if (typeof handler !== 'function') {
-      throw new Error('Handler must be a function');
+  off(event, stepName) {
+    const handlerKey = `${event}:${stepName}`;
+    this.notificationHandlers.delete(handlerKey);
+    
+    // Check if any handlers remain for this step
+    const hasHandlers = Array.from(this.notificationHandlers.keys())
+      .some(key => key.endsWith(`:${stepName}`));
+    
+    if (!hasHandlers) {
+      this._sendUnsubscription(stepName);
     }
     
-    // Send subscription to server
-    this._sendSubscription(stepName, ['completed']);
-    
-    if (!this.notificationHandlers.completed.has(stepName)) {
-      this.notificationHandlers.completed.set(stepName, []);
-    }
-    this.notificationHandlers.completed.get(stepName).push(handler);
     return this;
   }
 
   /**
-   * Register a global failure handler for a specific step
-   * @param {string} stepName - Name of the step (or "contract@stepName")
-   * @param {Function} handler - Handler function (receives Notification)
-   * @returns {Connection} - Returns this for chaining
+   * Parse event string into source and type
+   * @private
+   * @param {string} event - Event pattern like 'step.success' or 'rule.violated'
+   * @returns {[string, string]} - [source, type]
+   * 
+   * Examples:
+   *   'step.success' → ['execution', 'success']
+   *   'rule.violated' → ['validation', 'violated']
+   *   'step.*' → ['execution', '*']
+   *   '*' → ['*', '*']
    */
-  onFailed(stepName, handler) {
-    if (typeof handler !== 'function') {
-      throw new Error('Handler must be a function');
+  _parseEvent(event) {
+    // Replace semantic names with NATS source names
+    const normalized = event
+      .replace('step', 'execution')
+      .replace('rule', 'validation');
+    
+    // Split on dot
+    const parts = normalized.split('.');
+    
+    return [
+      parts[0] || '*',  // source: execution | validation | *
+      parts[1] || '*'   // type: success | failed | passed | violated | *
+    ];
+  }
+
+  /**
+   * Build event types array for subscription based on source and type
+   * @private
+   * @param {string} source - Source: execution | validation | *
+   * @param {string} type - Type: success | failed | passed | violated | *
+   * @returns {string[]} - Array of event types for subscription
+   */
+  _buildEventTypes(source, type) {
+    const eventTypes = [];
+    
+    // Handle wildcards
+    if (source === '*' && type === '*') {
+      // Subscribe to all events
+      return ['execution.success', 'execution.failed', 'validation.passed', 'validation.violated'];
     }
     
-    // Send subscription to server
-    this._sendSubscription(stepName, ['failed']);
-    
-    if (!this.notificationHandlers.failed.has(stepName)) {
-      this.notificationHandlers.failed.set(stepName, []);
+    if (source === 'execution' && type === '*') {
+      return ['execution.success', 'execution.failed'];
     }
-    this.notificationHandlers.failed.get(stepName).push(handler);
-    return this;
+    
+    if (source === 'validation' && type === '*') {
+      return ['validation.passed', 'validation.violated'];
+    }
+    
+    // Specific event
+    return [`${source}.${type}`];
   }
 
   /**
@@ -466,7 +522,7 @@ export class Connection {
   }
 
   /**
-   * Handle incoming notification
+   * Handle incoming notification (v2.0.0)
    * @private
    * @param {Object} notificationData - Notification data
    * @param {string} ackToken - Opaque ACK token for stateless ACK
@@ -492,17 +548,14 @@ export class Connection {
     }
     
     const notification = new Notification(notificationData, this, ackToken);
-    const stepName = notification.stepName;
-    const contractName = notification.contractName;
     
-    // Trigger global handlers based on notification type
-    if (notification.isViolated()) {
-      this._triggerHandlers(this.notificationHandlers.violation, stepName, contractName, notification);
-    } else if (notification.isSuccess()) {
-      this._triggerHandlers(this.notificationHandlers.completed, stepName, contractName, notification);
-    } else if (notification.isFailed() || notification.isError()) {
-      this._triggerHandlers(this.notificationHandlers.failed, stepName, contractName, notification);
-    }
+    // Determine event pattern from notification
+    // notification.source: 'execution' | 'validation' | 'thread'
+    // notification.notificationType: 'execution.success', 'validation.violated', etc.
+    const eventPattern = this._getEventPattern(notification);
+    
+    // Trigger handlers for this event pattern
+    this._triggerHandlers(eventPattern, notification);
 
     // Route to thread-specific waitFor()
     const thread = this.threads.get(notification.threadId);
@@ -512,16 +565,60 @@ export class Connection {
   }
 
   /**
-   * Trigger handlers for a specific step name with contract matching
+   * Get event pattern from notification for handler matching
    * @private
+   * @param {Notification} notification - Notification object
+   * @returns {string} - Event pattern like 'step.success' or 'rule.violated'
    */
-  _triggerHandlers(handlerMap, stepName, contractName, notification) {
-    // Try exact match: "contract@stepName"
+  _getEventPattern(notification) {
+    // Map notification source and type back to SDK event pattern
+    // execution.success → step.success
+    // validation.violated → rule.violated
+    const source = notification.source || 'execution';
+    const type = notification.notificationType ? notification.notificationType.split('.')[1] : 'success';
+    
+    const sourceMap = {
+      'execution': 'step',
+      'validation': 'rule',
+      'thread': 'thread'
+    };
+    
+    return `${sourceMap[source] || source}.${type}`;
+  }
+
+  /**
+   * Trigger handlers for a specific event pattern (v2.0.0)
+   * @private
+   * @param {string} eventPattern - Event pattern like 'step.success' or 'rule.violated'
+   * @param {Notification} notification - Notification object
+   */
+  _triggerHandlers(eventPattern, notification) {
+    const stepName = notification.stepName;
+    const contractName = notification.contractName;
+    
+    // Build possible handler keys to check
+    const keysToCheck = [];
+    
+    // 1. Exact match: "event:contract@stepName"
     if (contractName) {
-      const exactKey = `${contractName}@${stepName}`;
-      const exactHandlers = handlerMap.get(exactKey);
-      if (exactHandlers && exactHandlers.length > 0) {
-        exactHandlers.forEach(handler => {
+      keysToCheck.push(`${eventPattern}:${contractName}@${stepName}`);
+    }
+    
+    // 2. Wildcard contract: "event:stepName"
+    keysToCheck.push(`${eventPattern}:${stepName}`);
+    
+    // 3. Wildcard type: "source.*:stepName" (e.g., "step.*:order_placed")
+    const [source] = eventPattern.split('.');
+    keysToCheck.push(`${source}.*:${stepName}`);
+    
+    // 4. Full wildcard: "*:stepName"
+    keysToCheck.push(`*:${stepName}`);
+    
+    // Trigger all matching handlers
+    keysToCheck.forEach(key => {
+      const handlers = this.notificationHandlers.get(key);
+      if (handlers && handlers.length > 0) {
+        handlers.forEach(handler => {
           try {
             handler(notification);
           } catch (error) {
@@ -529,19 +626,7 @@ export class Connection {
           }
         });
       }
-    }
-
-    // Try wildcard match: just "stepName" (any contract)
-    const wildcardHandlers = handlerMap.get(stepName);
-    if (wildcardHandlers && wildcardHandlers.length > 0) {
-      wildcardHandlers.forEach(handler => {
-        try {
-          handler(notification);
-        } catch (error) {
-          console.error('[Notification] Handler error:', error);
-        }
-      });
-    }
+    });
   }
 
   /**

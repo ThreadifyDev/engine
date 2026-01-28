@@ -56,7 +56,8 @@ Main Server → NATS JetStream → Archiver → PostgreSQL
    │   │    streams: {
    │   │      consumer_group: "archivers",
    │   │      block_timeout_ms: 5000,
-   │   │      batch_size: 100
+   │   │      batch_size: 100,
+   │   │      step_state_flush_interval_ms: 5000
    │   │    }
    │   │  }
    │   └─ Check if archiver.enabled == true
@@ -95,7 +96,18 @@ Main Server → NATS JetStream → Archiver → PostgreSQL
    │       ├─ Start consumer for "metadata.thread" → processThreadMetadata
    │       ├─ Start consumer for "access.thread" → processThreadAccess
    │       ├─ Start consumer for "validations.thread" → processThreadValidations
+   │       ├─ Start consumer for "state.step" → StepStateConsumer (separate consumer)
    │       └─ Log: "NATS archival consumer started successfully"
+   │
+   ├─> 6b. START STEP STATE CONSUMER (main.go:163-187)
+   │   ├─ Create StepStateConsumer with config:
+   │   │  {
+   │   │    batchSize: 100,
+   │   │    flushInterval: 5 seconds (configurable via step_state_flush_interval_ms),
+   │   │    consumerID: "archiver-step-state-1"
+   │   │  }
+   │   ├─ Call stepStateConsumer.Start(ctx) in goroutine
+   │   └─ Log: "Step state archival consumer started"
    │
    ├─> 7. SETUP SIGNAL HANDLING (main.go:159-166)
    │   ├─ Create signal channel for SIGINT, SIGTERM
@@ -558,6 +570,124 @@ CREATE TABLE thread_validations (
 
 ---
 
+### **PROCESSOR 5: Step State**
+
+**Subject**: `state.step`  
+**Consumer**: `StepStateConsumer` (separate from NATS consumer)  
+**Location**: `/internal/archiver/step_state_consumer.go`
+
+**Flow Pseudocode**:
+
+```pseudo
+1. STEP STATE CONSUMER (step_state_consumer.go:48-134)
+   ├─ Input: Dedicated consumer for step state archival
+   ├─ Configuration:
+   │  - batchSize: 100 (from archiver config)
+   │  - flushInterval: 5 seconds (configurable via step_state_flush_interval_ms)
+   │  - consumerID: "archiver-step-state-1"
+   │
+   ├─> 2. CREATE JETSTREAM CONSUMER (step_state_consumer.go:63-71)
+   │   ├─ Create or update durable consumer:
+   │   │  {
+   │   │    Durable: "step-state-archivers",
+   │   │    AckPolicy: AckExplicitPolicy,
+   │   │    FilterSubject: "state.step"
+   │   │  }
+   │   └─ Log: "Started consuming from state.step"
+   │
+   ├─> 3. BATCH PROCESSING LOOP (step_state_consumer.go:74-131)
+   │   ├─ Initialize buffer: []StepStateEvent
+   │   ├─ Create flush ticker: time.NewTicker(flushInterval)
+   │   │
+   │   └─ SELECT statement (3 channels):
+   │       │
+   │       ├─> CASE 1: Context cancelled (shutdown)
+   │       │   ├─ Flush remaining buffer
+   │       │   └─ Exit loop
+   │       │
+   │       ├─> CASE 2: Flush ticker (every 5 seconds)
+   │       │   ├─ IF buffer not empty:
+   │       │   │  ├─ Call flush(ctx)
+   │       │   │  ├─ IF error: Log error, keep buffer
+   │       │   │  └─ ELSE: Clear buffer
+   │       │   └─ Ensures periodic flushing
+   │       │
+   │       └─> CASE 3: New message from NATS
+   │           ├─ Fetch messages: sub.Fetch(batchSize, MaxWait: 5s)
+   │           ├─ FOR EACH msg:
+   │           │  ├─ Unmarshal JSON: json.Unmarshal(msg.Data, &event)
+   │           │  ├─ Append to buffer
+   │           │  └─ ACK message
+   │           │
+   │           └─ IF buffer size >= batchSize:
+   │              ├─ Call flush(ctx)
+   │              ├─ IF error: NAK messages
+   │              └─ ELSE: Clear buffer
+   │
+   ├─> 4. FLUSH TO POSTGRES (step_state_consumer.go:137-197)
+   │   ├─ Build batch UPSERT query:
+   │   │  INSERT INTO thread_step_states (
+   │   │    id, thread_id, step_name, idempotency_key, status,
+   │   │    retry_count, first_seen_at, last_updated_at, previous_step, created_at
+   │   │  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()), ...
+   │   │  ON CONFLICT (thread_id, step_name, idempotency_key) DO UPDATE SET
+   │   │    status = EXCLUDED.status,
+   │   │    retry_count = EXCLUDED.retry_count,
+   │   │    last_updated_at = EXCLUDED.last_updated_at,
+   │   │    previous_step = EXCLUDED.previous_step
+   │   │
+   │   ├─ Note: first_seen_at is NOT updated on conflict (preserves original)
+   │   ├─ Execute: db.Pool.Exec(ctx, query, values...)
+   │   ├─ Clear buffer on success
+   │   └─ Log: "Successfully wrote {count} step states to Postgres"
+   │
+   └─ Return error (if any)
+```
+
+**Database Table**: `thread_step_states`
+
+**Schema**:
+```sql
+CREATE TABLE thread_step_states (
+    id VARCHAR(255) PRIMARY KEY,           -- Step UUID
+    thread_id VARCHAR(255) NOT NULL,       -- Thread UUID
+    step_name VARCHAR(255) NOT NULL,       -- Step name (e.g., 'order_placed')
+    idempotency_key VARCHAR(255) NOT NULL, -- Idempotency key for deduplication
+    status VARCHAR(50) NOT NULL,           -- Step status: success, failed, error
+    retry_count INT NOT NULL DEFAULT 0,    -- Number of retries
+    first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen (preserved on updates)
+    last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
+    previous_step VARCHAR(255),            -- Previous step name for transition tracking
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(thread_id, step_name, idempotency_key)
+);
+
+-- Indexes for fast queries
+CREATE INDEX idx_step_states_thread_step ON thread_step_states(thread_id, step_name);
+CREATE INDEX idx_step_states_thread_status ON thread_step_states(thread_id, status);
+CREATE INDEX idx_step_states_retry ON thread_step_states(retry_count) WHERE retry_count > 0;
+CREATE INDEX idx_step_states_thread_updated ON thread_step_states(thread_id, last_updated_at DESC);
+CREATE INDEX idx_step_states_status_updated ON thread_step_states(status, last_updated_at DESC);
+```
+
+**Key Features**:
+- **UPSERT Logic**: Prevents duplicates, updates existing step state
+- **Preserved Timestamps**: `first_seen_at` never changes after initial insert
+- **Transition Tracking**: `previous_step` field tracks step flow
+- **Retry Tracking**: `retry_count` incremented on retries (for threads with contracts)
+- **Fast Queries**: Optimized indexes for GraphQL queries
+
+**Event Types Handled**:
+- Step state snapshots from both:
+  - Threads WITH contracts (includes retry_count, previous_step from Redis)
+  - Threads WITHOUT contracts (basic state tracking)
+
+**Data Sources**:
+- For threads WITH contracts: Data comes from Redis validation result
+- For threads WITHOUT contracts: Data comes from step recording event
+
+---
+
 ## End-to-End Flow Example: Step Recording
 
 Let's trace a complete flow from main server to PostgreSQL:
@@ -881,6 +1011,8 @@ Scenario B: Low traffic
 📡 Starting consumer for stream: thread_access (subject: access.thread)
 📡 Starting consumer for stream: thread_validations (subject: validations.thread)
 ✅ NATS archival consumer started successfully
+✅ [STEP-STATE-CONSUMER] Started consuming from state.step
+Step state archival consumer started
 ```
 
 **Processing**:
@@ -929,3 +1061,9 @@ Scenario B: Low traffic
 6. **Observability**: Detailed logging for debugging and monitoring
 7. **Graceful degradation**: If archiver is down, NATS buffers messages
 8. **Data integrity**: Cryptographic hash chains for audit trail
+9. **Step State Archival**: Dedicated consumer for fast step state queries
+   - Preserves `first_seen_at` timestamp on updates
+   - Tracks step transitions via `previous_step`
+   - Supports both contract and non-contract threads
+   - UPSERT logic prevents duplicates
+   - Optimized indexes for GraphQL queries

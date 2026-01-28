@@ -202,6 +202,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		user_id VARCHAR(255) NOT NULL,
 		roles JSONB NOT NULL,
 		runtime_role TEXT,
+		permissions TEXT[] DEFAULT '{}',
 		granted_by VARCHAR(255),
 		granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		revoked_at TIMESTAMP,
@@ -230,12 +231,12 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 			ALTER TABLE thread_access DROP COLUMN scope;
 		END IF;
 		
-		-- Drop permissions column if it exists
-		IF EXISTS (
+		-- Add permissions column if it doesn't exist
+		IF NOT EXISTS (
 			SELECT 1 FROM information_schema.columns 
 			WHERE table_name = 'thread_access' AND column_name = 'permissions'
 		) THEN
-			ALTER TABLE thread_access DROP COLUMN permissions;
+			ALTER TABLE thread_access ADD COLUMN permissions TEXT[] DEFAULT '{}';
 		END IF;
 	END $$;
 
@@ -262,6 +263,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	
 	-- Index for runtime_role (notification/permission scope)
 	CREATE INDEX IF NOT EXISTS idx_thread_access_runtime_role ON thread_access(runtime_role) WHERE runtime_role IS NOT NULL;
+	
+	-- GIN index for permissions array - for efficient permission-based notification queries
+	CREATE INDEX IF NOT EXISTS idx_thread_access_permissions_gin ON thread_access USING GIN (permissions);
 	
 	-- Drop old scope index if it exists
 	DROP INDEX IF EXISTS idx_thread_access_scope;

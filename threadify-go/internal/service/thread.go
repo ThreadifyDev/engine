@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"threadify-go/shared/rbac"
+
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
@@ -39,6 +41,7 @@ type ThreadService struct {
 	valkeyClient          interfaces.ValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
+	rbacLoader            *rbac.Loader
 }
 
 // NewThreadService creates ThreadService with all dependencies
@@ -68,14 +71,8 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		fmt.Printf("Warning: Failed to load step state repository scripts: %v\n", err)
 	}
 
-	// Create thread access service for permission/role management
-	// Note: Using nil batcher and rbacLoader for internal service - batching is handled by main.go's service
-	// This internal service is only used for permission checks, not writes
-	// rbacLoader is nil here because this is an internal service without RBAC loaded
-	accessService := NewThreadAccessService(accessRepo, cacheService, luaScripts, nil, nil)
-
-	// Create invitation service
-	invitationService := NewInvitationTokenService("demo-secret")
+	// Create invitation service with JWT config from environment
+	invitationService := NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
 	// Create scope resolver for notification access control
 	scopeResolver := NewScopeResolver(cfg, valkeyGraphRepo, threadRepo)
@@ -87,9 +84,27 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 	// Note: natsPublisher is now passed as a parameter from main.go
 	// This avoids duplicate NATS connection attempts
 
+	// Create PostgreSQL access repository for notification recipient lookup
+	postgresAccessRepo := postgres.NewAccessRepository(db.Pool)
+	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(valkeyService, postgresAccessRepo, 259200)
+
+	// Load RBAC for permissions resolution
+	rbacLoader, err := rbac.NewLoader("./shared/rbac/permissions.json", "./shared/rbac/roles.json")
+	if err != nil {
+		fmt.Printf("Warning: Failed to load RBAC: %v\n", err)
+		rbacLoader = nil
+	}
+
+	// Set RBAC loader on access repository for dynamic permission-to-role mapping
+	accessRepoWithPostgres.SetRBACLoader(rbacLoader)
+
+	// Create thread access service with RBAC loader for permission resolution
+	// This service is used for both thread creation and notification recipient lookup
+	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader)
+
 	// Create validation and notification services
 	validationService := NewValidationService(valkeyService, threadRepo)
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, natsPublisher)
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, natsPublisher, accessService, rbacLoader)
 
 	// Construct and return the service
 	return &ThreadService{
@@ -111,6 +126,7 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		valkeyClient:          valkeyService,
 		luaScripts:            luaScripts,
 		natsArchivalPublisher: natsArchivalPublisher,
+		rbacLoader:            rbacLoader,
 	}
 }
 
@@ -270,18 +286,17 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	}
 	threadDataStr := string(threadDataBytes)
 
-	// Atomic thread creation + access grant via Lua script
+	// Atomic thread creation + access grant via service layer
 	// This combines both operations into a single Valkey roundtrip
+	// Service layer resolves permissions from runtime_role before storing
 	// TTL: 5 hours (18000 seconds) - matches config default
 	threadTTLSeconds := 18000
-	access, err := s.accessRepo.GrantOrUpdateAccess(
+	access, err := s.accessService.GrantAccessWithThreadCreation(
 		createCtx,
 		threadID,
 		ownerID,
-		creatorRole, // Thread role (e.g., "merchant", "supplier")
-		runtimeRole, // Runtime-level permission scope (e.g., "owner")
-		"self",      // invitedBy
-		s.luaScripts,
+		creatorRole,       // Thread role (e.g., "merchant", "supplier")
+		runtimeRole,       // Runtime-level permission scope (e.g., "owner")
 		&threadDataStr,    // Pass thread data for atomic creation
 		&threadTTLSeconds, // Pass TTL in seconds
 	)
@@ -761,10 +776,8 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		return nil, err
 	}
 
-	contractID := "contract-123" // This would come from thread data
-
 	// Create JWT token
-	threadToken, err := s.invitationService.CreateToken(threadID, contractID, ownerID, req.Role, permissions, expiry)
+	threadToken, err := s.invitationService.CreateToken(threadID, ownerID, req.Role, permissions, expiry)
 	if err != nil {
 		log.Printf("Failed to create invitation token: %v", err)
 		return nil, fmt.Errorf("failed to create invitation token")
@@ -959,13 +972,20 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 		runtimeRole = ""
 	}
 
-	// 2. Grant access via AccessRepository (atomic via Lua script)
-	// Pass nil for threadData/threadTTL (not creating thread here, only managing access)
-	accessCtx, accessCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer accessCancel()
-	access, err := s.accessRepo.GrantOrUpdateAccess(accessCtx, threadID, userID, role, runtimeRole, invitedBy, s.luaScripts, nil, nil)
+	// 2. Grant access via ThreadAccessService (resolves permissions automatically)
+	err = s.accessService.GrantOrUpdateAccess(threadID, userID, []string{role}, runtimeRole, invitedBy)
 	if err != nil {
 		return fmt.Errorf("failed to grant access: %w", err)
+	}
+
+	// Get the access object for activity recording
+	accessCtx, accessCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer accessCancel()
+	access, err := s.accessRepo.GetUserAccess(accessCtx, threadID, userID)
+	if err != nil {
+		log.Printf("Failed to get access for activity recording: %v", err)
+		// Don't fail the operation, just log it
+		access = nil
 	}
 
 	// 3. Record activity via ActivityRepository (async, don't block main operation)
@@ -987,11 +1007,33 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 	return nil
 }
 
-// IsValidRole validates if a role name is valid
+// IsValidRole validates if a role name is valid runtime-level role
 func (s *ThreadService) IsValidRole(role string) bool {
-	// Add your role validation logic here
-	// For now, just check it's not empty
-	return true
+	if role == "" {
+		return false
+	}
+
+	// If RBAC loader is not available, fall back to basic validation
+	if s.rbacLoader == nil {
+		// Accept known runtime roles as fallback
+		validRoles := map[string]bool{
+			"owner":       true,
+			"participant": true,
+			"observer":    true,
+			"external":    true,
+		}
+		return validRoles[role]
+	}
+
+	// Get all runtime-level roles from RBAC configuration
+	validRoles := s.rbacLoader.GetAllRuntimeLevelRoles()
+	for _, validRole := range validRoles {
+		if validRole == role {
+			return true
+		}
+	}
+
+	return false
 }
 
 // isRoleInParties checks if a role is defined in the contract parties array
