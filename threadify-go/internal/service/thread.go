@@ -16,7 +16,6 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
-	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/utils"
 )
@@ -44,90 +43,28 @@ type ThreadService struct {
 	rbacLoader            *rbac.Loader
 }
 
-// NewThreadService creates ThreadService with all dependencies
+// NewThreadService creates ThreadService with all dependencies using builder pattern
 // This is the main constructor used in production
 // natsPublisher and natsArchivalPublisher can be nil for graceful degradation
 func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher, authService *AuthService) *ThreadService {
-	// Create cache service first
-	cacheService := NewCacheService()
+	service, err := NewThreadServiceBuilder().
+		WithConfig(cfg).
+		WithDatabase(db).
+		WithValkey(valkeyService).
+		WithStepEventService(stepEventService).
+		WithThreadRepository(threadRepo).
+		WithContractTTL(contractTTLSeconds).
+		WithNATSPublisher(natsPublisher).
+		WithNATSArchivalPublisher(natsArchivalPublisher).
+		WithAuthService(authService).
+		Build()
 
-	// Create repositories
-	contractRepo := postgres.NewContractRepository(db.Pool)
-	valkeyGraphRepo := valkey.NewContractGraphRepository(valkeyService, contractTTLSeconds) // Configurable TTL for graphs
-	// threadRepo is now passed as parameter (with PostgreSQL fallback already configured)
-	// Use 72 hours (259200 seconds) for access TTL to match thread metadata TTL
-	accessRepo := valkey.NewAccessRepository(valkeyService, 259200)
-
-	// Create and load Lua scripts
-	luaScripts := valkey.NewLuaScriptManager(valkeyService)
-	if err := luaScripts.LoadScripts(context.Background()); err != nil {
-		fmt.Printf("Warning: Failed to load Lua scripts: %v\n", err)
-	}
-
-	// Create step state repository and load its scripts
-	// Use 7 days (604800 seconds) as default TTL for step events
-	stepStateRepo := valkey.NewStepStateRepository(valkeyService, 604800)
-	if err := stepStateRepo.LoadScripts(context.Background()); err != nil {
-		fmt.Printf("Warning: Failed to load step state repository scripts: %v\n", err)
-	}
-
-	// Create invitation service with JWT config from environment
-	invitationService := NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
-
-	// Create scope resolver for notification access control
-	scopeResolver := NewScopeResolver(cfg, valkeyGraphRepo, threadRepo)
-
-	// Create activity repository with NATS archival publisher (passed as parameter)
-	// natsArchivalPublisher can be nil for graceful degradation
-	activityRepo := valkey.NewActivityRepository(valkeyService, natsArchivalPublisher)
-
-	// Note: natsPublisher is now passed as a parameter from main.go
-	// This avoids duplicate NATS connection attempts
-
-	// Create PostgreSQL access repository for notification recipient lookup
-	postgresAccessRepo := postgres.NewAccessRepository(db.Pool)
-	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(valkeyService, postgresAccessRepo, 259200)
-
-	// Load RBAC for permissions resolution
-	rbacLoader, err := rbac.NewLoader("./shared/rbac/permissions.json", "./shared/rbac/roles.json")
 	if err != nil {
-		fmt.Printf("Warning: Failed to load RBAC: %v\n", err)
-		rbacLoader = nil
+		// Fallback to panic since this is a critical initialization error
+		panic(fmt.Sprintf("Failed to build ThreadService: %v", err))
 	}
 
-	// Set RBAC loader on access repository for dynamic permission-to-role mapping
-	accessRepoWithPostgres.SetRBACLoader(rbacLoader)
-
-	// Create thread access service with RBAC loader for permission resolution
-	// This service is used for both thread creation and notification recipient lookup
-	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader)
-
-	// Create validation and notification services
-	validationService := NewValidationService(valkeyService, threadRepo)
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, natsPublisher, accessService, rbacLoader)
-
-	// Construct and return the service
-	return &ThreadService{
-		repo:                  threadRepo,
-		accessRepo:            accessRepo,
-		activityRepo:          activityRepo,
-		graphRepo:             valkeyGraphRepo,
-		stepEventService:      stepEventService,
-		cacheManager:          cacheService,
-		connectionMgr:         NewConnectionService(),
-		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService),
-		authService:           authService, // Use the passed authService with database connection
-		accessService:         accessService,
-		validationService:     validationService,
-		notificationService:   notificationService,
-		invitationService:     invitationService,
-		scopeResolver:         scopeResolver,
-		notificationConsumer:  nil, // Consumer is managed by NotificationRouter in main.go
-		valkeyClient:          valkeyService,
-		luaScripts:            luaScripts,
-		natsArchivalPublisher: natsArchivalPublisher,
-		rbacLoader:            rbacLoader,
-	}
+	return service
 }
 
 // GetNotificationConsumer returns the notification consumer (can be nil)
@@ -312,120 +249,10 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	s.cacheManager.SetThread(threadID, thread)
 
 	// Record activity asynchronously (don't block)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		client, exists := s.connectionMgr.GetClient(ownerID)
-		serviceName := ""
-		if exists {
-			serviceName = client.ServiceName
-		}
-		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, runtimeRole); err != nil {
-			log.Printf("Failed to record access granted activity: %v", err)
-		}
-	}()
+	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
 
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("❌ PANIC in thread metadata goroutine: %v\n", r)
-			}
-		}()
-
-		fmt.Printf("🔄 DEBUG: Starting thread metadata goroutine for thread %s\n", threadID)
-
-		// Convert contract version to string (handle nil pointer)
-		contractVersion := "0"
-		if thread.ContractVersion != nil {
-			contractVersion = fmt.Sprintf("%d", *thread.ContractVersion)
-		}
-
-		// Handle nil contract ID
-		contractID := ""
-		if thread.ContractID != nil {
-			contractID = *thread.ContractID
-		}
-
-		fmt.Printf("🔄 DEBUG: About to write to streams:thread_metadata for thread %s\n", threadID)
-
-		// Write to thread_metadata stream for normalized table
-		streamValues := map[string]interface{}{
-			"threadId":        threadID, // Use threadId to avoid collision with Redis stream ID
-			"ownerId":         ownerID,
-			"companyId":       companyID, // Add company_id to satisfy foreign key constraint
-			"contractId":      contractID,
-			"contractName":    thread.ContractName, // Add contract name for archival
-			"contractVersion": contractVersion,
-			"error":           "", // Initialize with empty error
-			"startedAt":       thread.StartedAt.Format(time.RFC3339),
-			"maxlen":          "~",
-			"limit":           100000,
-		}
-
-		// Publish to NATS for archival (SYNCHRONOUS - critical for PostgreSQL persistence)
-		if s.natsArchivalPublisher != nil {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
-				// Log error but don't fail thread creation (thread already in Valkey)
-			} else {
-				fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
-			}
-
-			// Publish refs as individual events (synchronous)
-			if thread.Refs != nil && len(thread.Refs) > 0 {
-				for key, value := range thread.Refs {
-					refEvent := map[string]interface{}{
-						"threadId": threadID,
-						"refKey":   key,
-						"refValue": value,
-						"action":   "ref_added",
-					}
-					if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
-						fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
-					}
-				}
-				fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(thread.Refs), threadID)
-			}
-		}
-
-		// Write thread_created event to activity log
-		// Get service name from connection manager
-		client, exists := s.connectionMgr.GetClient(ownerID)
-		serviceName := ""
-		if exists {
-			serviceName = client.ServiceName
-		}
-
-		activityValues := map[string]interface{}{
-			"type":             "thread_created",
-			"thread_id":        threadID,
-			"owner_id":         ownerID,
-			"actor":            ownerID,     // user-123
-			"actor_service":    serviceName, // merchant-service
-			"contract_id":      contractID,
-			"contract_name":    thread.ContractName,
-			"contract_version": contractVersion,
-			"role":             req.Role,
-			"timestamp":        thread.StartedAt.Format(time.RFC3339),
-		}
-
-		// 1. Write to per-thread LIST for fast queries
-		// Note: This is handled by ActivityRepository, not needed here
-		// Activity logging is done via activityRepo.RecordAccessGranted
-
-		// 2. Publish to NATS for archival (SYNCHRONOUS - critical for audit trail)
-		if s.natsArchivalPublisher != nil {
-			pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityValues); err != nil {
-				fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
-			}
-		}
-	}()
+	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
 	totalDuration := time.Since(start)
 	log.Printf("[PERF] HandleStartThread COMPLETE: duration=%v | success=true", totalDuration)
@@ -1153,5 +980,117 @@ func (s *ThreadService) HandleAddRefs(req *models.AddRefsRequest, ownerID string
 		Status:   "success",
 		Message:  fmt.Sprintf("Added %d refs to thread", len(req.Refs)),
 		ThreadID: req.ThreadID,
+	}
+}
+
+// recordThreadCreationActivity records thread creation activity asynchronously
+func (s *ThreadService) recordThreadCreationActivity(threadID, ownerID string, access *interfaces.UserAccess, runtimeRole string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, exists := s.connectionMgr.GetClient(ownerID)
+	serviceName := ""
+	if exists {
+		serviceName = client.ServiceName
+	}
+
+	if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, runtimeRole); err != nil {
+		log.Printf("Failed to record access granted activity: %v", err)
+	}
+}
+
+// publishThreadMetadataAsync publishes thread metadata and activity logs asynchronously
+func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID string, thread *models.Thread, role string) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("❌ PANIC in thread metadata goroutine: %v\n", r)
+		}
+	}()
+
+	fmt.Printf("🔄 DEBUG: Starting thread metadata goroutine for thread %s\n", threadID)
+
+	// Convert contract version to string (handle nil pointer)
+	contractVersion := "0"
+	if thread.ContractVersion != nil {
+		contractVersion = fmt.Sprintf("%d", *thread.ContractVersion)
+	}
+
+	// Handle nil contract ID
+	contractID := ""
+	if thread.ContractID != nil {
+		contractID = *thread.ContractID
+	}
+
+	fmt.Printf("🔄 DEBUG: About to write to streams:thread_metadata for thread %s\n", threadID)
+
+	// Write to thread_metadata stream for normalized table
+	streamValues := map[string]interface{}{
+		"threadId":        threadID,
+		"ownerId":         ownerID,
+		"companyId":       companyID,
+		"contractId":      contractID,
+		"contractName":    thread.ContractName,
+		"contractVersion": contractVersion,
+		"error":           "",
+		"startedAt":       thread.StartedAt.Format(time.RFC3339),
+		"maxlen":          "~",
+		"limit":           100000,
+	}
+
+	// Publish to NATS for archival
+	if s.natsArchivalPublisher != nil {
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, streamValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread metadata to NATS: %v\n", err)
+		} else {
+			fmt.Printf("✅ SUCCESS: Thread metadata published to NATS for thread %s\n", threadID)
+		}
+
+		// Publish refs as individual events
+		if thread.Refs != nil && len(thread.Refs) > 0 {
+			for key, value := range thread.Refs {
+				refEvent := map[string]interface{}{
+					"threadId": threadID,
+					"refKey":   key,
+					"refValue": value,
+					"action":   "ref_added",
+				}
+				if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+					fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+				}
+			}
+			fmt.Printf("✅ SUCCESS: Published %d refs to NATS for thread %s\n", len(thread.Refs), threadID)
+		}
+	}
+
+	// Write thread_created event to activity log
+	client, exists := s.connectionMgr.GetClient(ownerID)
+	serviceName := ""
+	if exists {
+		serviceName = client.ServiceName
+	}
+
+	activityValues := map[string]interface{}{
+		"type":             "thread_created",
+		"thread_id":        threadID,
+		"owner_id":         ownerID,
+		"actor":            ownerID,
+		"actor_service":    serviceName,
+		"contract_id":      contractID,
+		"contract_name":    thread.ContractName,
+		"contract_version": contractVersion,
+		"role":             role,
+		"timestamp":        thread.StartedAt.Format(time.RFC3339),
+	}
+
+	// Publish to NATS for archival
+	if s.natsArchivalPublisher != nil {
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityValues); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
+		}
 	}
 }

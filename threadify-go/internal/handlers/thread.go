@@ -210,24 +210,9 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		response = resp
 
 	case "startThread":
-		startThreadStart := time.Now()
-		log.Printf("[PERF] WebSocket START_THREAD_BEGIN: session=%s", sessionID)
-
-		// Parse request
-		parseStart := time.Now()
 		var req models.StartThreadRequest
 		json.Unmarshal(msgBytes, &req)
-		log.Printf("[PERF] WebSocket START_THREAD_PARSE: session=%s | duration=%v", sessionID, time.Since(parseStart))
-
-		// Handle business logic
-		handleStart := time.Now()
 		response = h.threadService.HandleStartThread(&req, session.ownerID, session.companyID)
-		handleDuration := time.Since(handleStart)
-		log.Printf("[PERF] WebSocket START_THREAD_HANDLE: session=%s | duration=%v | success=%t", sessionID, handleDuration, response.(*models.StartThreadResponse).Status == "success")
-
-		// Total duration
-		totalDuration := time.Since(startThreadStart)
-		log.Printf("[PERF] WebSocket START_THREAD: session=%s | duration=%v | success=%t", sessionID, totalDuration, response.(*models.StartThreadResponse).Status == "success")
 
 		// Add created thread to session's threadIDs
 		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
@@ -237,9 +222,6 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			}
 			session.mu.Unlock()
 
-			// Subscribe to notifications for this thread (old consumer)
-			h.subscribeToNotifications(session, startResp.ThreadID, "owner")
-
 			// Record metrics
 			metrics.ThreadsCreated.Inc()
 			metrics.RequestsTotal.WithLabelValues("startThread", "success").Inc()
@@ -248,31 +230,14 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		}
 
 	case "recordThreadEvent":
-		recordEventStart := time.Now()
-		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_BEGIN: session=%s", sessionID)
-
-		// Parse request
-		parseStart := time.Now()
 		var req models.RecordEventRequest
 		json.Unmarshal(msgBytes, &req)
-		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_PARSE: session=%s | duration=%v", sessionID, time.Since(parseStart))
-
-		// Handle business logic
-		handleStart := time.Now()
 		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
-		handleDuration := time.Since(handleStart)
-		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT_HANDLE: session=%s | duration=%v | success=%t", sessionID, handleDuration, response.(*models.RecordEventResponse).Status == "success")
-
-		// Total duration
-		totalDuration := time.Since(recordEventStart)
-		log.Printf("[PERF] WebSocket RECORD_THREAD_EVENT: session=%s | duration=%v | success=%t", sessionID, totalDuration, response.(*models.RecordEventResponse).Status == "success")
 
 	case "addRefs":
-		addRefsStart := time.Now()
 		var req models.AddRefsRequest
 		json.Unmarshal(msgBytes, &req)
 		response = h.threadService.HandleAddRefs(&req, session.ownerID)
-		log.Printf("[PERF] WebSocket ADD_REFS: session=%s | duration=%v | success=%t", sessionID, time.Since(addRefsStart), response.(*models.AddRefsResponse).Status == "success")
 
 	case "closeConnection":
 		// Don't call HandleClose here - it will be called after loop exits
@@ -382,22 +347,9 @@ func (h *WebSocketHandler) handleJoinThread(session *WSSession, req *models.Join
 		session.mu.Lock()
 		session.threadIDs = append(session.threadIDs, response.ThreadID)
 		session.mu.Unlock()
-
-		// Subscribe to notifications for joined thread (old consumer)
-		h.subscribeToNotifications(session, response.ThreadID, "owner")
 	}
 
 	return response
-}
-
-// subscribeToNotifications subscribes a session to notifications for a thread
-func (h *WebSocketHandler) subscribeToNotifications(session *WSSession, threadID, scope string) {
-	if h.notificationConsumer == nil {
-		// Notification consumer not available
-		return
-	}
-
-	// Notification subscriptions handled by NotificationRouter
 }
 
 // unsubscribeFromNotifications unsubscribes a session from all thread notifications

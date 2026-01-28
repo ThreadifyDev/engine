@@ -24,13 +24,11 @@ type AccessRepository struct {
 }
 
 // PostgresAccessRepository defines the interface for PostgreSQL access operations
-// Note: GetUsersByRuntimeRoles and GetUsersByPermissions return interface{} to avoid circular dependency
-// The actual types are []models.UserRoleInfo and []models.UserPermissionInfo respectively
 type PostgresAccessRepository interface {
 	GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error)
 	GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error)
-	GetUsersByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) (interface{}, error)
-	GetUsersByPermissions(ctx context.Context, threadID string, requiredPermissions []string) (interface{}, error)
+	GetUsersByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) ([]models.UserRoleInfo, error)
+	GetUsersByPermissions(ctx context.Context, threadID string, requiredPermissions []string) ([]models.UserPermissionInfo, error)
 }
 
 // NewAccessRepository creates a new access repository
@@ -353,19 +351,9 @@ func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadI
 	}
 
 	// Use efficient query to get only users with specified roles
-	usersInterface, err := r.postgresRepo.GetUsersByRuntimeRoles(ctx, threadID, runtimeRoles)
+	users, err := r.postgresRepo.GetUsersByRuntimeRoles(ctx, threadID, runtimeRoles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get users from postgres: %w", err)
-	}
-
-	// Convert interface{} to []models.UserRoleInfo
-	var users []models.UserRoleInfo
-	jsonData, err := json.Marshal(usersInterface)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal users: %w", err)
-	}
-	if err := json.Unmarshal(jsonData, &users); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal users: %w", err)
 	}
 
 	// Single pass: extract user IDs and group by role

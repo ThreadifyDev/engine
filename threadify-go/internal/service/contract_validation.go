@@ -52,26 +52,7 @@ func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNod
 		return nil
 	}
 
-	var requiredFields []string
-
-	// BusinessContext can be either *models.BusinessContext or map[string]interface{} (from JSON unmarshal)
-	switch bc := stepNode.BusinessContext.(type) {
-	case *models.BusinessContext:
-		// Direct struct pointer (from graph builder)
-		requiredFields = bc.Required
-	case map[string]interface{}:
-		// Map from JSON unmarshal (from cache/database)
-		if reqFields, ok := bc["required"].([]interface{}); ok {
-			for _, field := range reqFields {
-				if fieldStr, ok := field.(string); ok {
-					requiredFields = append(requiredFields, fieldStr)
-				}
-			}
-		}
-	default:
-		// Unknown type, skip validation
-		return nil
-	}
+	requiredFields := v.extractRequiredFields(stepNode.BusinessContext)
 
 	// Validate required fields are present
 	for _, requiredField := range requiredFields {
@@ -83,26 +64,43 @@ func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNod
 	return nil
 }
 
+// extractRequiredFields extracts required fields from BusinessContext regardless of type
+func (v *ContractValidationService) extractRequiredFields(businessContext interface{}) []string {
+	switch bc := businessContext.(type) {
+	case *models.BusinessContext:
+		// Direct struct pointer (from graph builder)
+		return bc.Required
+	case map[string]interface{}:
+		// Map from JSON unmarshal (from cache/database)
+		var fields []string
+		if reqFields, ok := bc["required"].([]interface{}); ok {
+			for _, field := range reqFields {
+				if fieldStr, ok := field.(string); ok {
+					fields = append(fields, fieldStr)
+				}
+			}
+		}
+		return fields
+	default:
+		// Unknown type, return empty
+		return []string{}
+	}
+}
+
 // GetContractGraph retrieves contract graph from cache first, then Valkey, then PostgreSQL as fallback
 func (v *ContractValidationService) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
-	// Normalize version: if 0, we need to look up the latest version first
-	targetVersion := version
-	if version == 0 && v.contractRepo != nil {
-		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
-		if err == nil {
-			targetVersion = contract.LatestVersion
-		}
-		// If lookup fails, we'll try with version 0 and let it fail later
-	}
+	// Normalize version: if 0, resolve to latest version
+	targetVersion := v.resolveVersion(contractName, version, companyID)
 
 	// Tier 1: Check memory cache first (use targetVersion for lookup)
 	if graph, exists := v.cacheManager.GetContractGraph(contractName, targetVersion, companyID); exists {
 		return graph, nil
 	}
 
-	// Tier 2: Check Valkey cache (use targetVersion for lookup)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Tier 2 & 3: Check Valkey cache, then PostgreSQL (use single context for all operations)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
 	graph, err := v.graphRepo.Get(ctx, contractName, targetVersion, companyID)
 	if err == nil {
 		// Cache the graph from Valkey in memory for future use
@@ -113,9 +111,7 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 	// Tier 3: Load from PostgreSQL if not in Valkey (only if contract repo is available)
 	if v.contractRepo != nil {
 		// Look up the contract by name and company to get its UUID and latest version
-		dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer dbCancel()
-		contract, err := v.contractRepo.GetByNameAndCompany(dbCtx, contractName, companyID)
+		contract, err := v.contractRepo.GetByNameAndCompany(ctx, contractName, companyID)
 		if err != nil {
 			// Error is already sanitized by repository layer
 			return nil, err
@@ -127,9 +123,7 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 		}
 
 		// Get the specific version
-		versionCtx, versionCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer versionCancel()
-		contractVersion, err := v.contractRepo.GetVersion(versionCtx, contract.ID, targetVersion)
+		contractVersion, err := v.contractRepo.GetVersion(ctx, contract.ID, targetVersion)
 		if err != nil {
 			// Error is already sanitized by repository layer
 			return nil, err
@@ -167,15 +161,8 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 // LoadContractGraphIntoCache preloads a contract graph into the cache using three-tier strategy
 // Returns the actual version that was loaded (resolves version 0 to latest)
 func (v *ContractValidationService) LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error) {
-	// Normalize version: if 0, we need to look up the latest version first
-	targetVersion := version
-	if version == 0 && v.contractRepo != nil {
-		contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
-		if err == nil {
-			targetVersion = contract.LatestVersion
-		}
-		// If lookup fails, we'll try with version 0 and let it fail later
-	}
+	// Normalize version: if 0, resolve to latest version
+	targetVersion := v.resolveVersion(contractName, version, companyID)
 
 	// Check if already cached - don't reload if exists
 	if _, exists := v.cacheManager.GetContractGraph(contractName, targetVersion, companyID); exists {
@@ -185,6 +172,24 @@ func (v *ContractValidationService) LoadContractGraphIntoCache(contractName stri
 	// Use GetContractGraph which implements the three-tier caching strategy
 	_, err := v.GetContractGraph(contractName, version, companyID)
 	return targetVersion, err
+}
+
+// resolveVersion resolves version 0 to the latest version, returns version as-is otherwise
+func (v *ContractValidationService) resolveVersion(contractName string, version int, companyID string) int {
+	if version != 0 {
+		return version
+	}
+
+	if v.contractRepo == nil {
+		return version // Return 0 if no repo available
+	}
+
+	contract, err := v.contractRepo.GetByNameAndCompany(context.Background(), contractName, companyID)
+	if err != nil {
+		return version // Return 0 if lookup fails
+	}
+
+	return contract.LatestVersion
 }
 
 // GetContractByNameAndCompany retrieves a contract by name and company ID

@@ -1,6 +1,6 @@
 {
   "name": "@threadify/sdk",
-  "version": "2.0.0",
+  "version": "0.1.3",
   "description": "JavaScript SDK for Threadify - Execute business process graphs with context—track what happened, validate every step, and trigger context-aware actions",
   "main": "src/index.js",
   "type": "module",
