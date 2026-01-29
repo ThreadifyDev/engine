@@ -599,15 +599,15 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		return nil, fmt.Errorf("thread not found")
 	}
 
-	// Get contract graph to validate role exists in contract parties
+	// Get contract graph to validate role exists in contract parties (optional for non-contract threads)
 	contractGraph, err := s.GetContractGraphForThread(thread)
 	if err != nil {
-		log.Printf("Failed to get contract graph for thread %s: %v", threadID, err)
-		return nil, fmt.Errorf("failed to load contract configuration")
+		// Non-contract threads don't have a contract graph - this is OK
+		log.Printf("No contract graph for thread %s (non-contract thread): %v", threadID, err)
 	}
 
-	// Validate role exists in contract parties
-	if len(contractGraph.Parties) > 0 {
+	// Validate role exists in contract parties (only if contract exists with defined parties)
+	if contractGraph != nil && len(contractGraph.Parties) > 0 {
 		roleInParties := false
 		for _, party := range contractGraph.Parties {
 			if party == req.Role {
