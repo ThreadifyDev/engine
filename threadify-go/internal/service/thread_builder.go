@@ -11,6 +11,7 @@ import (
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // ThreadServiceBuilder builds ThreadService with dependency injection
@@ -24,6 +25,7 @@ type ThreadServiceBuilder struct {
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
+	workerPools           *workerpool.Pools
 }
 
 // NewThreadServiceBuilder creates a new builder
@@ -82,6 +84,12 @@ func (b *ThreadServiceBuilder) WithNATSArchivalPublisher(publisher *natsrepo.Arc
 // WithAuthService sets the auth service
 func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *ThreadServiceBuilder {
 	b.authService = authService
+	return b
+}
+
+// WithWorkerPools sets the worker pools for bounded concurrency
+func (b *ThreadServiceBuilder) WithWorkerPools(pools *workerpool.Pools) *ThreadServiceBuilder {
+	b.workerPools = pools
 	return b
 }
 
@@ -149,7 +157,14 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	// Create validation and notification services
 	validationService := NewValidationService(b.valkeyService, b.threadRepo)
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, b.natsPublisher, accessService, rbacLoader)
+
+	// Get worker pools (use nil-safe access - pools may be nil in tests)
+	var validationPool, notificationPool *workerpool.Pool
+	if b.workerPools != nil {
+		validationPool = b.workerPools.Validation
+		notificationPool = b.workerPools.Notification
+	}
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, b.natsPublisher, accessService, rbacLoader, validationPool, notificationPool)
 
 	// Construct and return the service
 	return &ThreadService{

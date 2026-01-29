@@ -828,7 +828,13 @@ export class ThreadInstance {
     return new Promise((resolve, reject) => {
       this._onceResponse((message) => {
         if (message.status === 'success') {
-          resolve(message.threadToken);
+          resolve({
+            token: message.threadToken,
+            threadId: this.threadId,
+            role: message.role,
+            permissions: message.permissions,
+            expiresAt: message.expiresAt
+          });
         } else {
           reject(new Error(message.message || 'Failed to create invitation token'));
         }

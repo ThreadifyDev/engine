@@ -8,6 +8,7 @@ import (
 	"threadify-go/shared/rbac"
 
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
@@ -132,6 +133,7 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 	threadTTL *int,
 ) (*interfaces.UserAccess, error) {
 	// Resolve permissions from runtime_role using RBAC loader
+	rbacStart := time.Now()
 	var permissions []string
 	if s.rbacLoader != nil {
 		permissions = s.rbacLoader.GetPermissionsForRoles([]string{runtimeRole}, "runtime_level")
@@ -141,8 +143,10 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 		// If RBAC loader not available, use empty permissions
 		permissions = []string{}
 	}
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(time.Since(rbacStart).Seconds())
 
 	// Call repository with resolved permissions
+	repoStart := time.Now()
 	access, err := s.accessRepo.GrantOrUpdateAccess(
 		ctx,
 		threadID, userID,
@@ -154,12 +158,15 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 		threadData,
 		threadTTL,
 	)
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "lua_script_exec").Observe(time.Since(repoStart).Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant access with thread creation: %w", err)
 	}
 
 	// Update in-memory cache
+	cacheStart := time.Now()
 	s.cacheManager.SetUserRole(threadID, userID, role)
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "cache_update").Observe(time.Since(cacheStart).Seconds())
 
 	return access, nil
 }

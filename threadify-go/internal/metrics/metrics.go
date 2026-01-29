@@ -124,4 +124,14 @@ var (
 		},
 		[]string{"error_type"},
 	)
+
+	// Granular Operation Metrics for Performance Analysis
+	OperationDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "threadify_operation_duration_seconds",
+			Help:    "Duration of specific operations within handlers",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
+		},
+		[]string{"handler", "operation"},
+	)
 )

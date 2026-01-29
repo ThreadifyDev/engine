@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
-	"threadify-go/shared/rbac"
 	"time"
+
+	"threadify-go/shared/rbac"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // NotificationService orchestrates async validation and notification archival.
@@ -31,6 +34,8 @@ type NotificationService struct {
 	natsPublisher       NotificationPublisher
 	threadAccessService *ThreadAccessService
 	rbacLoader          *rbac.Loader
+	validationPool      *workerpool.Pool
+	notificationPool    *workerpool.Pool
 }
 
 // NewNotificationService creates a new notification service
@@ -42,6 +47,8 @@ func NewNotificationService(
 	natsPublisher NotificationPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
+	validationPool *workerpool.Pool,
+	notificationPool *workerpool.Pool,
 ) *NotificationService {
 	return &NotificationService{
 		validationService:   validationService,
@@ -51,10 +58,12 @@ func NewNotificationService(
 		natsPublisher:       natsPublisher,
 		threadAccessService: threadAccessService,
 		rbacLoader:          rbacLoader,
+		validationPool:      validationPool,
+		notificationPool:    notificationPool,
 	}
 }
 
-// PerformAsyncValidation runs all non-blocking validations in a goroutine
+// PerformAsyncValidation runs all non-blocking validations via worker pool
 func (s *NotificationService) PerformAsyncValidation(
 	threadID string,
 	stepID string,
@@ -65,12 +74,10 @@ func (s *NotificationService) PerformAsyncValidation(
 	graph *models.ContractGraph,
 	stepNode models.GraphNode,
 ) {
-	go func() {
-		// Use configurable timeout to prevent goroutine leaks
-		// Default: 60 seconds (from config.Timeouts.ValidationSeconds)
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		fmt.Printf("[ASYNC-VALIDATION] Starting validation for thread=%s, step=%s, stepName=%s (timeout: 60s)\n", threadID, stepID, stepName)
+	// Submit to validation worker pool instead of spawning unbounded goroutines
+	// The pool provides timeout via job context
+	submitted := s.validationPool.Submit(func(ctx context.Context) {
+		fmt.Printf("[ASYNC-VALIDATION] Starting validation for thread=%s, step=%s, stepName=%s\n", threadID, stepID, stepName)
 
 		// Perform all non-blocking validations (contract-specific if graph exists)
 		var notifications []models.ValidationNotification
@@ -85,13 +92,13 @@ func (s *NotificationService) PerformAsyncValidation(
 			// Create execution notification based on SDK status
 			var message string
 			if req.Status == "success" {
-				message = fmt.Sprintf("Step '%s' completed successfully (no contract)", stepName)
+				message = "Step '" + stepName + "' completed successfully (no contract)"
 			} else if req.Status == "failed" {
-				message = fmt.Sprintf("Step '%s' failed (no contract)", stepName)
+				message = "Step '" + stepName + "' failed (no contract)"
 			} else if req.Status == "error" {
-				message = fmt.Sprintf("Step '%s' encountered an error (no contract)", stepName)
+				message = "Step '" + stepName + "' encountered an error (no contract)"
 			} else {
-				message = fmt.Sprintf("Step '%s' recorded with status '%s' (no contract)", stepName, req.Status)
+				message = "Step '" + stepName + "' recorded with status '" + req.Status + "' (no contract)"
 			}
 
 			executionNotif := models.ValidationNotification{
@@ -106,14 +113,13 @@ func (s *NotificationService) PerformAsyncValidation(
 				ViolationType:  "",
 				Severity:       string(models.SeverityInfo),
 				Message:        message,
-				Details:        make(map[string]interface{}),
+				Details:        nil, // Use nil for empty map to avoid allocation
 				Timestamp:      time.Now(),
 			}
 
-			// Publish execution notification
-			// Use background context to avoid cancellation when parent goroutine finishes
+			// Publish execution notification via notification worker pool
 			if s.natsPublisher != nil {
-				go s.publishToAuthorizedMembers(context.Background(), executionNotif)
+				s.submitNotificationJob(executionNotif)
 			}
 
 			// Archive step state even for threads without contracts
@@ -168,7 +174,11 @@ func (s *NotificationService) PerformAsyncValidation(
 		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status)
 
 		fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s\n", threadID)
-	}()
+	})
+
+	if !submitted {
+		fmt.Printf("[ASYNC-VALIDATION] Job dropped due to backpressure for thread=%s, step=%s\n", threadID, stepName)
+	}
 }
 
 // performNonBlockingValidations executes all validation checks
@@ -181,7 +191,8 @@ func (s *NotificationService) performNonBlockingValidations(
 	stepID string,
 	ownerID string,
 ) []models.ValidationNotification {
-	notifications := []models.ValidationNotification{}
+	// Pre-allocate with capacity to avoid reallocation (typical: 0-3 violations)
+	notifications := make([]models.ValidationNotification, 0, 5)
 	now := time.Now()
 
 	// === STRUCTURAL/TIME-BASED VALIDATIONS (Run for ALL statuses) ===
@@ -400,7 +411,8 @@ func (s *NotificationService) processValidationNotifications(
 		result.Status, len(result.Violations), result.RetryCount)
 
 	// Combine Go and Lua violations
-	var allViolations []map[string]interface{}
+	// Pre-allocate with known size to avoid reallocation
+	allViolations := make([]map[string]interface{}, 0, len(notifications)+len(result.Violations))
 
 	// Add Go violations
 	for _, notif := range notifications {
@@ -450,16 +462,16 @@ func (s *NotificationService) processValidationNotifications(
 			}
 		} else {
 			// Multiple violations - include all in details
-			finalMessage = fmt.Sprintf("Step '%s' completed with %d violations", stepName, totalViolations)
+			finalMessage = "Step '" + stepName + "' completed with " + strconv.Itoa(totalViolations) + " violations"
 			finalDetails["violations"] = allViolations
 		}
 	} else {
 		finalStatus = "passed"
-		finalMessage = fmt.Sprintf("Step '%s' completed successfully", stepName)
+		finalMessage = "Step '" + stepName + "' completed successfully"
 	}
 
 	// Send both execution and validation notifications in a single pass
-	executionMessage := fmt.Sprintf("Step '%s' execution %s", stepName, originalStatus)
+	executionMessage := "Step '" + stepName + "' execution " + originalStatus
 	executionNotif := models.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
@@ -472,7 +484,7 @@ func (s *NotificationService) processValidationNotifications(
 		ViolationType:  "",
 		Severity:       string(models.SeverityInfo),
 		Message:        executionMessage,
-		Details:        make(map[string]interface{}),
+		Details:        nil, // Use nil for empty map to avoid allocation
 		Timestamp:      time.Now(),
 	}
 
@@ -514,8 +526,8 @@ func (s *NotificationService) processValidationNotifications(
 			Status:         "passed",
 			ViolationType:  "",
 			Severity:       "",
-			Message:        fmt.Sprintf("Thread completed successfully at terminal step '%s'", stepName),
-			Details:        make(map[string]interface{}),
+			Message:        "Thread completed successfully at terminal step '" + stepName + "'",
+			Details:        nil, // Use nil for empty map to avoid allocation
 			Timestamp:      time.Now(),
 		}
 
@@ -647,6 +659,13 @@ func getRequiredPermissionsForNotification(
 	default:
 		return []string{}
 	}
+}
+
+// submitNotificationJob submits a notification publishing job to the notification worker pool
+func (s *NotificationService) submitNotificationJob(notification models.ValidationNotification) {
+	s.notificationPool.Submit(func(ctx context.Context) {
+		s.publishToAuthorizedMembers(ctx, notification)
+	})
 }
 
 // publishToAuthorizedMembers publishes notification to all thread members with appropriate permissions

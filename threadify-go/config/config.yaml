@@ -234,3 +234,50 @@ web_api:
   rate_limit:
     requests: 100
     window_minutes: 1
+
+# Worker pool configuration for bounded concurrency
+worker_pools:
+  validation:
+    min_workers: 10              # CPU cores (default: runtime.NumCPU())
+    max_workers: 40              # 4x CPU cores
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 30000   # 30 seconds
+    job_timeout_ms: 60000        # 60 seconds
+    submit_retry_wait_ms: 10     # Non-blocking: drop immediately if full
+  
+  notification:
+    min_workers: 20              # 2x CPU cores
+    max_workers: 80              # 8x CPU cores
+    queue_size: 10000
+    scale_up_threshold: 1000
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 30000        # 30 seconds
+    submit_retry_wait_ms: 0      # Non-blocking: drop immediately if full
+  
+  writeback:
+    min_workers: 2
+    max_workers: 10              # CPU cores
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 120000  # 120 seconds
+    job_timeout_ms: 10000        # 10 seconds
+    submit_retry_wait_ms: 10      # Drop immediately (low priority)
+  
+  archival:
+    min_workers: 10              # CPU cores
+    max_workers: 40              # 4x CPU cores
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 15000        # 15 seconds
+    submit_retry_wait_ms: 10    # Try harder before dropping (audit data)
+  
+  activity:
+    min_workers: 5               # CPU cores / 2
+    max_workers: 20              # 2x CPU cores
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 30000        # 30 seconds
+    submit_retry_wait_ms: 10     # Brief retry
