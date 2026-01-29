@@ -31,6 +31,7 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/workerpool"
 	"go.uber.org/zap"
 )
 
@@ -121,6 +122,15 @@ func main() {
 		logger.Fatal("Failed to load RBAC roles", zap.Error(err))
 	}
 
+	// Initialize worker pools for bounded concurrency
+	workerPools := workerpool.NewPools(workerpool.NewPrometheusMetrics())
+	logger.Info("Worker pools initialized",
+		zap.Int32("validation_workers", workerPools.Validation.Stats().TotalWorkers),
+		zap.Int32("notification_workers", workerPools.Notification.Stats().TotalWorkers),
+		zap.Int32("writeback_workers", workerPools.WriteBack.Stats().TotalWorkers),
+		zap.Int32("activity_workers", workerPools.Activity.Stats().TotalWorkers),
+	)
+
 	contractService := service.NewContractService(db)
 
 	// Initialize NATS connection pool for notifications and archival (graceful degradation if unavailable)
@@ -165,7 +175,7 @@ func main() {
 	// Initialize thread service with step event service and TTL configs
 	contractTTLMs := viper.GetInt("cache.contract_ttl_ms")
 	contractTTL := time.Duration(contractTTLMs) * time.Millisecond
-	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()), natsNotificationPublisher, natsArchivalPublisher, authService)
+	threadService := service.NewThreadService(cfg, db, valkeyService, stepEventService, threadRepo, int(contractTTL.Seconds()), natsNotificationPublisher, natsArchivalPublisher, authService, workerPools)
 
 	// Start step event service
 	stepEventService.Start()
@@ -435,6 +445,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logger.Info("Shutting down server...")
+
+	// Gracefully shutdown worker pools (wait up to 30s for in-flight jobs)
+	logger.Info("Shutting down worker pools...")
+	if err := workerPools.Shutdown(30 * time.Second); err != nil {
+		logger.Warn("Worker pools shutdown with error", zap.Error(err))
+	} else {
+		logger.Info("Worker pools shutdown complete")
+	}
 
 	// StepEventService.Stop() is handled by defer at function exit
 	// No need to call it explicitly here to avoid double shutdown

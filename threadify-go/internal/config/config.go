@@ -21,6 +21,7 @@ type Config struct {
 	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
 	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
 	BotScanner         BotScannerConfig         `yaml:"bot_scanner" mapstructure:"bot_scanner"`
+	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
 }
 
 // ServerConfig holds server configuration
@@ -229,4 +230,24 @@ type BotScannerConfig struct {
 	BlockKnownBots         bool `yaml:"block_known_bots" mapstructure:"block_known_bots"`
 	LogSuspicious          bool `yaml:"log_suspicious" mapstructure:"log_suspicious"`
 	CleanupIntervalMinutes int  `yaml:"cleanup_interval_minutes" mapstructure:"cleanup_interval_minutes"`
+}
+
+// WorkerPoolsConfig holds configuration for all worker pools
+type WorkerPoolsConfig struct {
+	Validation   PoolConfig `yaml:"validation" mapstructure:"validation"`
+	Notification PoolConfig `yaml:"notification" mapstructure:"notification"`
+	WriteBack    PoolConfig `yaml:"writeback" mapstructure:"writeback"`
+	Archival     PoolConfig `yaml:"archival" mapstructure:"archival"`
+	Activity     PoolConfig `yaml:"activity" mapstructure:"activity"`
+}
+
+// PoolConfig holds configuration for a single worker pool
+type PoolConfig struct {
+	MinWorkers        int `yaml:"min_workers" mapstructure:"min_workers"`
+	MaxWorkers        int `yaml:"max_workers" mapstructure:"max_workers"`
+	QueueSize         int `yaml:"queue_size" mapstructure:"queue_size"`
+	ScaleUpThreshold  int `yaml:"scale_up_threshold" mapstructure:"scale_up_threshold"`
+	ScaleDownAfterMs  int `yaml:"scale_down_after_ms" mapstructure:"scale_down_after_ms"`
+	JobTimeoutMs      int `yaml:"job_timeout_ms" mapstructure:"job_timeout_ms"`
+	SubmitRetryWaitMs int `yaml:"submit_retry_wait_ms" mapstructure:"submit_retry_wait_ms"`
 }

@@ -14,10 +14,12 @@ import (
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/utils"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // ThreadService orchestrates thread operations across multiple repositories
@@ -46,7 +48,8 @@ type ThreadService struct {
 // NewThreadService creates ThreadService with all dependencies using builder pattern
 // This is the main constructor used in production
 // natsPublisher and natsArchivalPublisher can be nil for graceful degradation
-func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher, authService *AuthService) *ThreadService {
+// workerPools can be nil for tests (will spawn unbounded goroutines)
+func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService *database.ValkeyService, stepEventService *StepEventService, threadRepo *valkey.ThreadRepository, contractTTLSeconds int, natsPublisher NotificationPublisher, natsArchivalPublisher *natsrepo.ArchivalPublisher, authService *AuthService, workerPools *workerpool.Pools) *ThreadService {
 	service, err := NewThreadServiceBuilder().
 		WithConfig(cfg).
 		WithDatabase(db).
@@ -57,6 +60,7 @@ func NewThreadService(cfg *config.Config, db *database.PostgresDB, valkeyService
 		WithNATSPublisher(natsPublisher).
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
+		WithWorkerPools(workerPools).
 		Build()
 
 	if err != nil {
@@ -140,7 +144,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 		// Load contract graph with parsed name and version (uses company_id internally)
 		// This returns the actual version loaded (resolves version 0 to latest)
+		contractLoadStart := time.Now()
 		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, companyID)
+		metrics.OperationDuration.WithLabelValues("startThread", "contract_load").Observe(time.Since(contractLoadStart).Seconds())
 		if err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
@@ -151,7 +157,9 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		contractVersion = actualVersion // Use the actual version that was loaded
 
 		// Get contract UUID for referential integrity
+		contractFetchStart := time.Now()
 		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
+		metrics.OperationDuration.WithLabelValues("startThread", "contract_fetch").Observe(time.Since(contractFetchStart).Seconds())
 		if err != nil {
 			return &models.StartThreadResponse{
 				Action:  "startThread",
@@ -201,6 +209,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Resolve runtime_role for creator
 	// CRITICAL: Creator must always get "owner" runtime_role
 	// If this fails, it indicates a fundamental system error
+	rbacStart := time.Now()
 	runtimeRole, err := s.scopeResolver.ResolveScope(
 		createCtx,
 		threadID,
@@ -209,6 +218,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		true, // isCreator
 		nil,  // explicitScope
 	)
+	metrics.OperationDuration.WithLabelValues("startThread", "rbac_resolve").Observe(time.Since(rbacStart).Seconds())
 	if err != nil {
 		log.Printf("[CRITICAL] Failed to resolve runtime_role for creator %s in thread %s: %v", ownerID, threadID, err)
 		return &models.StartThreadResponse{
@@ -244,6 +254,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Service layer resolves permissions from runtime_role before storing
 	// TTL: 5 hours (18000 seconds) - matches config default
 	threadTTLSeconds := 18000
+	redisStart := time.Now()
 	access, err := s.accessService.GrantAccessWithThreadCreation(
 		createCtx,
 		threadID,
@@ -253,6 +264,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		&threadDataStr,    // Pass thread data for atomic creation
 		&threadTTLSeconds, // Pass TTL in seconds
 	)
+	metrics.OperationDuration.WithLabelValues("startThread", "redis_thread_create").Observe(time.Since(redisStart).Seconds())
 	if err != nil {
 		return &models.StartThreadResponse{
 			Action:  "startThread",
@@ -350,7 +362,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Get thread
+	threadFetchStart := time.Now()
 	thread, err := s.GetThread(req.ThreadID)
+	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "thread_fetch").Observe(time.Since(threadFetchStart).Seconds())
 	if err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -360,7 +374,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Check permission - user must have write access
+	permCheckStart := time.Now()
 	hasAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "write", thread)
+	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "permission_check").Observe(time.Since(permCheckStart).Seconds())
 	if err != nil || !hasAccess {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -382,7 +398,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	idempotencyKey := req.IdempotencyKey
 	if idempotencyKey == "" && req.Context != nil && len(req.Context) > 0 {
 		// Generate deterministic hash from context fields
+		hashStart := time.Now()
 		idempotencyKey = utils.GenerateContextHash(req.Context)
+		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "context_hash").Observe(time.Since(hashStart).Seconds())
 		fmt.Printf("[IDEMPOTENCY] Auto-generated key from context hash: %s\n", idempotencyKey)
 	}
 
@@ -391,7 +409,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		// Use repository method instead of direct Valkey call
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		idempCheckStart := time.Now()
 		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, idempotencyKey, true)
+		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "idempotency_check").Observe(time.Since(idempCheckStart).Seconds())
 		if err == nil && existingStatus != "" {
 			// Step exists - check if it's already completed
 			if existingStatus == "completed" {
@@ -426,7 +446,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 		// Get contract graph (three-tier cached) using company_id
 		var err error
+		contractValidateStart := time.Now()
 		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
+		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "contract_validate").Observe(time.Since(contractValidateStart).Seconds())
 		if err != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
@@ -477,7 +499,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 				}
 			}
 
+			roleValidateStart := time.Now()
 			hasRole, err := s.accessService.ValidateUserRoleForStep(req.ThreadID, ownerID, stepNode.Owner)
+			metrics.OperationDuration.WithLabelValues("recordThreadEvent", "role_validate").Observe(time.Since(roleValidateStart).Seconds())
 			if err != nil || !hasRole {
 				userRole, _ := s.accessService.GetUserRole(req.ThreadID, ownerID)
 				return &models.RecordEventResponse{
@@ -489,7 +513,10 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 
 		// Validate step context against contract (using already-fetched stepNode)
-		if validationErr := s.contractValidator.ValidateStepContext(stepNode, req.Context); validationErr != nil {
+		stepContextStart := time.Now()
+		validationErr := s.contractValidator.ValidateStepContext(stepNode, req.Context)
+		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "step_context_validate").Observe(time.Since(stepContextStart).Seconds())
+		if validationErr != nil {
 			return &models.RecordEventResponse{
 				Action:  "recordThreadEvent",
 				Status:  "error",
@@ -536,6 +563,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 
 	// Process step event immediately
+	stepProcessStart := time.Now()
 	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID, serviceName); err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
@@ -543,6 +571,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 			Message: fmt.Sprintf("Failed to process step event: %v", err),
 		}
 	}
+	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "step_event_process").Observe(time.Since(stepProcessStart).Seconds())
 
 	// Trigger async validation for ALL threads (contract or not) with successful or failed steps
 	// The async validation will update step state via Lua script and check retry limits
