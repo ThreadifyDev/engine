@@ -153,6 +153,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		r.ttl,                     // ARGV[11] - TTL in seconds from config
 		params.ThreadID,           // ARGV[12] - threadID (passed to avoid regex extraction)
 		params.IdempotencyKey,     // ARGV[13] - idempotencyKey (passed to avoid regex extraction)
+		params.Actor,              // ARGV[14] - actor (user who recorded this step, for .own permission filtering)
 	}
 
 	// Execute Lua script
@@ -460,4 +461,148 @@ func (r *StepStateRepository) GetStepHistory(ctx context.Context, threadID, step
 	}
 
 	return r.postgresRepo.GetStepHistory(ctx, threadID, stepIdentifier, limit, offset, startAt, endAt, activityType, actor)
+}
+
+// GetStepsWithPermissionCheck retrieves steps with permission filtering
+// Hot path: Valkey first with in-memory permission filtering
+// Cold path: PostgreSQL with SQL-level permission filtering
+// Permission logic:
+// - thread.read.* = can see all steps
+// - thread.read.own = can only see steps where actor = userID
+func (r *StepStateRepository) GetStepsWithPermissionCheck(
+	ctx context.Context,
+	threadID string,
+	userID string,
+	permCheck *PermissionCheckResult,
+	stepName *string,
+	idempotencyKey *string,
+	status *string,
+) ([]*models.StepStateInfo, error) {
+	// If no access, return empty
+	if permCheck == nil || !permCheck.HasAccess {
+		return []*models.StepStateInfo{}, nil
+	}
+
+	pattern := fmt.Sprintf("thread:%s:steps:*", threadID)
+
+	// Scan for all step keys
+	keys, err := r.client.Keys(ctx, pattern)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan step keys: %w", err)
+	}
+
+	// Hot path: Read from Valkey
+	if len(keys) > 0 {
+		var steps []*models.StepStateInfo
+		hasData := false
+
+		for _, key := range keys {
+			// Extract stepName and idempotencyKey from key
+			// Key format: thread:{threadID}:steps:{stepName}:{idempotencyKey}
+			parts := strings.Split(key, ":")
+			if len(parts) < 5 {
+				continue
+			}
+
+			stepNameFromKey := parts[3]
+			idempKeyFromKey := parts[4]
+
+			// Apply key-level filtering (before fetching data)
+			if stepName != nil && *stepName != stepNameFromKey {
+				continue
+			}
+			if idempotencyKey != nil && *idempotencyKey != idempKeyFromKey {
+				continue
+			}
+
+			// Get hash data from Valkey
+			hashData, err := r.client.HGetAll(ctx, key)
+			if err != nil || len(hashData) == 0 {
+				continue
+			}
+
+			hasData = true
+
+			// Parse step state from hash
+			step := &models.StepStateInfo{
+				ThreadID:       threadID,
+				StepName:       stepNameFromKey,
+				IdempotencyKey: idempKeyFromKey,
+				Status:         hashData["status"],
+				LatestStepID:   hashData["latestStepID"],
+				PreviousStep:   hashData["previousStep"],
+			}
+
+			// Parse actor field for permission filtering
+			if actor, exists := hashData["actor"]; exists {
+				step.Actor = actor
+			}
+
+			if retryCount, err := strconv.Atoi(hashData["retryCount"]); err == nil {
+				step.RetryCount = retryCount
+			}
+
+			if firstSeenAt, err := time.Parse(time.RFC3339, hashData["firstSeenAt"]); err == nil {
+				step.FirstSeenAt = firstSeenAt
+			}
+
+			if lastUpdatedAt, err := time.Parse(time.RFC3339, hashData["lastUpdatedAt"]); err == nil {
+				step.LastUpdatedAt = lastUpdatedAt
+			}
+
+			// Apply status filter
+			if status != nil && *status != step.Status {
+				continue
+			}
+
+			// Apply permission-based filtering
+			// If user only has .own permission, filter by actor
+			if !permCheck.HasFullRead && permCheck.HasOwnRead {
+				if step.Actor != userID {
+					continue // Skip steps not owned by this user
+				}
+			}
+
+			steps = append(steps, step)
+		}
+
+		if hasData {
+			log.Printf("✅ [HOT] Found %d permission-filtered step states in Valkey for thread %s, user %s", len(steps), threadID, userID)
+			return steps, nil
+		}
+	}
+
+	// Cold path: Fallback to PostgreSQL with SQL-level permission filtering
+	if r.postgresRepo == nil {
+		log.Printf("⚠️ No steps in Valkey and no PostgreSQL fallback for thread %s", threadID)
+		return []*models.StepStateInfo{}, nil
+	}
+
+	log.Printf("⚠️ [COLD] Steps not in Valkey for thread %s, querying PostgreSQL with permission check", threadID)
+
+	// Use SQL-level permission filtering
+	return r.postgresRepo.GetStepsWithPermissionCheck(ctx, threadID, userID, stepName, idempotencyKey, status)
+}
+
+// GetStepHistoryWithPermissionCheck retrieves step history with permission filtering
+// Always goes to PostgreSQL (archival data) with SQL-level permission filtering
+func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
+	ctx context.Context,
+	threadID string,
+	userID string,
+	stepIdentifier string,
+	limit int,
+	offset int,
+	startAt *string,
+	endAt *string,
+	activityType *string,
+	actorFilter *string,
+) ([]models.StepHistory, error) {
+	// Step history always queries PostgreSQL directly (archival data)
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("step history requires PostgreSQL repository")
+	}
+
+	// Use SQL-level permission filtering
+	return r.postgresRepo.GetStepHistoryWithPermissionCheck(ctx, threadID, userID, stepIdentifier, limit, offset, startAt, endAt, activityType, actorFilter)
 }

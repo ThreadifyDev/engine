@@ -52,6 +52,11 @@ func NewValidationRepositoryWithPostgres(client interfaces.ValkeyClient, postgre
 	}
 }
 
+// GetPostgresRepo returns the PostgreSQL repository for direct access when needed
+func (r *ValidationRepository) GetPostgresRepo() *postgres.ValidationRepository {
+	return r.postgresRepo
+}
+
 // GetValidationResultsWithCache implements cache-aside pattern
 func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context, threadID, stepName, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
 	validationKey := fmt.Sprintf("thread:%s:validations:%s:%s", threadID, stepName, idempotencyKey)
@@ -244,4 +249,40 @@ func (r *ValidationRepository) CacheStats(ctx context.Context, threadID string) 
 	stats["ttls"] = ttls
 
 	return stats, nil
+}
+
+// GetValidationResultsWithPermissionCheck retrieves validation results with permission filtering
+// Hot path: Valkey cache with in-memory permission filtering (via step actor lookup)
+// Cold path: PostgreSQL with SQL-level permission filtering
+// Permission logic:
+// - thread.read.* = can see all validations
+// - thread.read.own = can only see validations for steps where actor = userID
+func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
+	ctx context.Context,
+	threadID string,
+	userID string,
+	permCheck *PermissionCheckResult,
+	options *models.ValidationQueryOptions,
+) ([]*models.ValidationResultInfo, error) {
+	// If no access, return empty
+	if permCheck == nil || !permCheck.HasAccess {
+		return []*models.ValidationResultInfo{}, nil
+	}
+
+	// For full read access, use the standard cache path
+	if permCheck.HasFullRead {
+		return r.GetThreadValidationResultsWithCache(ctx, threadID, options)
+	}
+
+	// For .own access, we need to filter by step actor
+	// This requires checking step ownership, so go directly to PostgreSQL
+	// which has the SQL-level permission filtering with step actor join
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("no PostgreSQL repository configured for permission-filtered queries")
+	}
+
+	log.Printf("⚠️ [PERMISSION] User %s has .own access, using PostgreSQL for validation filtering", userID)
+
+	// Use SQL-level permission filtering
+	return r.postgresRepo.GetValidationResultsWithPermissionCheck(ctx, threadID, userID, options)
 }

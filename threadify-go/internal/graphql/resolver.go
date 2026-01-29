@@ -16,6 +16,7 @@ type Resolver struct {
 	threadRepo          *valkey.ThreadRepository
 	stepStateRepo       *valkey.StepStateRepository
 	validationRepo      *valkey.ValidationRepository
+	accessRepo          *valkey.AccessRepository // For permission checks (hot path)
 	threadAccessService *service.ThreadAccessService
 	contractValidator   interfaces.ContractValidator
 	contractRepo        *postgres.ContractRepository
@@ -24,11 +25,12 @@ type Resolver struct {
 	activityRepo        *postgres.ActivityRepository   // For hash chain verification
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository, activityRepo *postgres.ActivityRepository) *Resolver {
+func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, accessRepo *valkey.AccessRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository, activityRepo *postgres.ActivityRepository) *Resolver {
 	return &Resolver{
 		threadRepo:          threadRepo,
 		stepStateRepo:       stepStateRepo,
 		validationRepo:      validationRepo,
+		accessRepo:          accessRepo,
 		threadAccessService: threadAccessService,
 		contractValidator:   contractValidator,
 		contractRepo:        contractRepo,

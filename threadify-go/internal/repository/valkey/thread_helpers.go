@@ -260,7 +260,7 @@ func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, thread
 	ttl := time.Duration(r.ttl) * time.Second
 
 	// Batch write all step hashes in SAME format as validate_and_update_step_state.lua
-	// Fields must match exactly: status, retryCount, latestStepID, firstSeenAt, lastUpdatedAt, previousStep
+	// Fields must match exactly: status, retryCount, latestStepID, firstSeenAt, lastUpdatedAt, previousStep, actor
 	for _, step := range steps {
 		stepKey := fmt.Sprintf("%s:%s", step.StepName, step.IdempotencyKey)
 		stepHashKey := fmt.Sprintf("thread:%s:steps:%s", threadID, stepKey)
@@ -272,6 +272,7 @@ func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, thread
 			"firstSeenAt", step.FirstSeenAt.Format(time.RFC3339),
 			"lastUpdatedAt", step.LastUpdatedAt.Format(time.RFC3339),
 			"previousStep", step.PreviousStep,
+			"actor", step.Actor, // For .own permission filtering
 		)
 		pipe.Expire(ctx, stepHashKey, ttl)
 	}

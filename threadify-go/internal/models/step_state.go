@@ -16,6 +16,7 @@ type StepStateInfo struct {
 	LastUpdatedAt  time.Time `json:"lastUpdatedAt"`
 	LatestStepID   string    `json:"latestStepID"`
 	PreviousStep   string    `json:"previousStep"` // "stepName:idempKey" or empty
+	Actor          string    `json:"actor"`        // User who recorded this step (for .own permission filtering)
 }
 
 // GetStepKey returns the unique step key in format "stepName:idempotencyKey"

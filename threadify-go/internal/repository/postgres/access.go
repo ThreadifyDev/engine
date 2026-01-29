@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/models"
 )
 
 // AccessRepository handles access control retrieval from PostgreSQL
@@ -141,26 +142,13 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 	return result, nil
 }
 
-// UserRoleInfo contains minimal user info for notification routing
-type UserRoleInfo struct {
-	UserID      string
-	RuntimeRole string
-}
-
-// UserPermissionInfo contains user info with permissions for .own filtering
-type UserPermissionInfo struct {
-	UserID      string
-	Permissions []string
-}
-
 // GetUsersByRuntimeRoles retrieves users filtered by runtime_role for a thread
 // Returns minimal data (user_id, runtime_role) for efficient notification routing
-// Returns interface{} to avoid circular dependency - actual type is []UserRoleInfo
 func (r *AccessRepository) GetUsersByRuntimeRoles(
 	ctx context.Context,
 	threadID string,
 	runtimeRoles []string,
-) (interface{}, error) {
+) ([]models.UserRoleInfo, error) {
 	query := `
 		SELECT user_id, runtime_role
 		FROM thread_access
@@ -175,10 +163,10 @@ func (r *AccessRepository) GetUsersByRuntimeRoles(
 	}
 	defer rows.Close()
 
-	var users []UserRoleInfo
+	var users []models.UserRoleInfo
 
 	for rows.Next() {
-		var user UserRoleInfo
+		var user models.UserRoleInfo
 		if err := rows.Scan(&user.UserID, &user.RuntimeRole); err != nil {
 			continue // Skip invalid entries
 		}
@@ -195,12 +183,11 @@ func (r *AccessRepository) GetUsersByRuntimeRoles(
 // GetUsersByPermissions retrieves users who have ANY of the required permissions
 // Uses GIN index on permissions column for efficient array overlap queries
 // Returns user_id AND permissions array for .own filtering in application layer
-// Returns interface{} to avoid circular dependency - actual type is []UserPermissionInfo
 func (r *AccessRepository) GetUsersByPermissions(
 	ctx context.Context,
 	threadID string,
 	requiredPermissions []string,
-) (interface{}, error) {
+) ([]models.UserPermissionInfo, error) {
 	// Use && operator for array overlap - returns true if arrays have any common elements
 	// GIN index on permissions column makes this O(log N) instead of O(N)
 	query := `
@@ -217,10 +204,10 @@ func (r *AccessRepository) GetUsersByPermissions(
 	}
 	defer rows.Close()
 
-	var users []UserPermissionInfo
+	var users []models.UserPermissionInfo
 
 	for rows.Next() {
-		var user UserPermissionInfo
+		var user models.UserPermissionInfo
 		if err := rows.Scan(&user.UserID, &user.Permissions); err != nil {
 			continue // Skip invalid entries
 		}

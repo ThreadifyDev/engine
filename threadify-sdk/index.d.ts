@@ -209,11 +209,37 @@ export class ThreadStep {
   skip(message: string, finalContext?: StepContext): Promise<StepResult>;
 }
 
+export interface InvitePartyOptions {
+  /** Role for the invited user */
+  role: string;
+  /** Permissions (comma-separated: 'read', 'write', 'execute') */
+  permissions?: string;
+  /** Token expiration (e.g., '24h', '7d', '30d') */
+  expiresIn?: string;
+}
+
+export interface InvitePartyResponse {
+  /** JWT invitation token to share with invited user */
+  token: string;
+  /** Thread ID */
+  threadId: string;
+  /** Role assigned to invited user */
+  role: string;
+  /** Permissions granted */
+  permissions: string;
+  /** Token expiration timestamp */
+  expiresAt: string;
+}
+
 export class ThreadInstance {
   /** Thread ID */
   readonly threadId: string;
   /** Contract ID */
   readonly contractId: string;
+  /** User's role in this thread */
+  readonly role?: string;
+  /** User's permissions in this thread */
+  readonly permissions?: string;
   
   /**
    * Create a new step in this thread
@@ -222,6 +248,13 @@ export class ThreadInstance {
    * @returns New ThreadStep instance
    */
   step(stepName: string, options?: ThreadOptions): ThreadStep;
+  
+  /**
+   * Invite another user to join this thread
+   * @param options - Invitation options (role, permissions, expiration)
+   * @returns Promise resolving to invitation response with token
+   */
+  inviteParty(options: InvitePartyOptions): Promise<InvitePartyResponse>;
   
   /**
    * Get thread metadata
@@ -303,25 +336,38 @@ export class Connection {
   getThreadsByRef(refQuery: { refKey: string; refValue: string }): Promise<ArchivedThread[]>;
   
   /**
-   * Subscribe to violation notifications for a specific step
+   * Subscribe to notification events for a specific step
+   * @param event - Event pattern:
+   *   - 'step.success' - Step executed successfully
+   *   - 'step.failed' - Step execution failed
+   *   - 'rule.violated' - Contract validation violated
+   *   - 'rule.passed' - Contract validation passed
+   *   - 'step.*' - All step execution events
+   *   - 'rule.*' - All validation events
+   *   - '*' - All events
    * @param stepIdentifier - Step name or "contractName@stepName"
    * @param handler - Notification handler function
+   * @returns Connection instance for chaining
+   * @example
+   * connection.on('step.success', 'order_placed', (notif) => {
+   *   console.log('Order placed successfully');
+   *   notif.ack();
+   * });
+   * 
+   * connection.on('rule.violated', 'product_delivery@order_placed', (notif) => {
+   *   console.error('Validation failed:', notif.message);
+   *   notif.ack();
+   * });
    */
-  onViolation(stepIdentifier: string, handler: (notification: any) => void): void;
+  on(event: string, stepIdentifier: string, handler: (notification: any) => void): Connection;
   
   /**
-   * Subscribe to completion notifications for a specific step
+   * Unsubscribe from notification events
+   * @param event - Event pattern to unsubscribe from
    * @param stepIdentifier - Step name or "contractName@stepName"
-   * @param handler - Notification handler function
+   * @returns Connection instance for chaining
    */
-  onCompleted(stepIdentifier: string, handler: (notification: any) => void): void;
-  
-  /**
-   * Subscribe to failure notifications for a specific step
-   * @param stepIdentifier - Step name or "contractName@stepName"
-   * @param handler - Notification handler function
-   */
-  onFailed(stepIdentifier: string, handler: (notification: any) => void): void;
+  off(event: string, stepIdentifier: string): Connection;
   
   /**
    * Close the WebSocket connection

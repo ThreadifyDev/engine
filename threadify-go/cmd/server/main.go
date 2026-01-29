@@ -180,7 +180,7 @@ func main() {
 		log.Fatalf("Failed to load invitation config: %v", err)
 	}
 
-	invitationService := service.NewInvitationTokenService(jwtSecret)
+	invitationService := service.NewInvitationTokenService(jwtSecret, jwtIssuer)
 	// Invitation service initialized
 
 	// Setup rate limiters with config
@@ -265,8 +265,8 @@ func main() {
 	// Initialize activity repository for hash chain verification
 	activityRepo := postgres.NewActivityRepository(db.Pool, cfg)
 
-	// Initialize GraphQL resolver with batch loading repos
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo)
+	// Initialize GraphQL resolver with batch loading repos and access repo for permission checks
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, accessRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo)
 	// GraphQL resolver created
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))

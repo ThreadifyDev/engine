@@ -86,32 +86,44 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Use the cached repository for thread retrieval
-	thread, err := r.threadRepo.GetThreadWithCache(ctx, id)
+	// Hot path: Try Valkey first with permission check
+	if r.accessRepo != nil {
+		thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, ownerID, r.accessRepo)
+		if err == nil && thread != nil {
+			// Cache the access check result for child resolvers
+			ctx = cacheAccessCheck(ctx, thread.ID, true)
+			metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
+			return thread, nil
+		}
+		// If error is access denied, return it directly
+		if err != nil && (err.Error() == "access denied: user does not have read permission for this thread") {
+			metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
+			return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+		}
+		// Otherwise fall through to PostgreSQL
+	}
+
+	// Cold path: PostgreSQL with SQL-level permission check
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	// SQL-level permission check: thread_access JOIN with permissions array check
+	thread, err := postgresRepo.GetThreadWithPermissionCheck(ctx, id, ownerID)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		// Return user-friendly error without exposing internal details
 		if apperrors.IsNotFound(err) {
-			return nil, err // Already wrapped with user-friendly message
+			return nil, err
 		}
-		// Wrap other errors with generic message
-		return nil, apperrors.NewInternalError(apperrors.MsgInternalError, err)
-	}
-
-	// Enhanced access control: Check if user has read permission for this thread
-	// This supports both ownership and invitation-based access
-	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-	if err != nil {
-		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
-		return nil, fmt.Errorf("failed to verify thread access: %w", err)
-	}
-	if !hasAccess {
-		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 	}
 
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
-	ctx = cacheAccessCheck(ctx, thread.ID, hasAccess)
+	// SQL already verified access, so we cache true
+	ctx = cacheAccessCheck(ctx, thread.ID, true)
 
 	metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
 	return thread, nil
@@ -244,49 +256,11 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Get thread refs repository
-	refsRepo := postgresRepo.GetThreadRefsRepo()
-	if refsRepo == nil {
-		return nil, apperrors.NewInternalError("Thread refs repository not available", nil)
-	}
-
-	// Get the chain of thread IDs
-	threadIDs, err := refsRepo.GetThreadChain(ctx, rootID, depthVal)
+	// SQL-level permission check with recursive CTE
+	// Permission check happens at each level of the chain
+	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, ownerID, &depthVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
-	}
-
-	if len(threadIDs) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Load all threads with refs
-	allThreads := make([]*models.Thread, 0, len(threadIDs))
-	for _, threadID := range threadIDs {
-		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
-		if err != nil {
-			// Skip threads that can't be loaded (may have been deleted)
-			continue
-		}
-		allThreads = append(allThreads, thread)
-	}
-
-	if len(allThreads) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Batch check access for all threads (eliminates N+1)
-	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(allThreads, ownerID, "read")
-	if err != nil {
-		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
-	}
-
-	// Filter threads based on access
-	threads := make([]*models.Thread, 0, len(allThreads))
-	for _, thread := range allThreads {
-		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
-			threads = append(threads, thread)
-		}
 	}
 
 	return threads, nil
@@ -325,22 +299,6 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Check thread access first
-	thread, err := r.threadRepo.GetThreadWithCache(ctx, threadID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify thread access: %w", err)
-	}
-
-	// Enhanced access control: Check if user has read permission for this thread
-	// This supports both ownership and invitation-based access
-	hasAccess, err := r.threadAccessService.CheckThreadAccess(thread.ID, ownerID, "read", thread)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify thread access: %w", err)
-	}
-	if !hasAccess {
-		return nil, fmt.Errorf("access denied: you don't have permission to view step history for this thread")
-	}
-
 	// Enforce hard caps on pagination limits
 	limitVal := EnforceLimit(limit, MaxHistoryPerQuery, 100)
 	offsetVal := 0
@@ -358,8 +316,8 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 		stepIdentifier = stepName
 	}
 
-	// Get step history from PostgreSQL with enhanced filtering
-	history, err := r.stepStateRepo.GetStepHistory(ctx, threadID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
+	// SQL-level permission check: filters by thread_access permissions and actor for .own
+	history, err := r.stepStateRepo.GetStepHistoryWithPermissionCheck(ctx, threadID, ownerID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get step history: %w", err)
 	}
@@ -529,28 +487,14 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Check cached access result first (from parent Thread resolver)
-	hasAccess, cached := getCachedAccessCheck(ctx, obj.ID)
-	if !cached {
-		// Fallback: Check access if not cached (shouldn't happen in normal GraphQL flow)
-		var err error
-		hasAccess, err = r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
-		if err != nil {
-			return nil, fmt.Errorf("failed to verify thread access: %w", err)
-		}
-	}
-	if !hasAccess {
-		return nil, fmt.Errorf("access denied: you don't have permission to view steps for this thread")
-	}
-
 	// Check if steps were batch-loaded (from Threads query)
-	var steps []*models.StepStateInfo
+	// Note: Batch-loaded steps already have permission filtering applied at the thread level
 	if cachedSteps, found := getCachedSteps(ctx, obj.ID); found {
 		// Use batch-loaded steps and apply in-memory filtering
 		allSteps, _ := cachedSteps.([]*models.StepStateInfo)
 
 		// Apply filters in memory (batch-loaded steps don't have filters applied)
-		steps = make([]*models.StepStateInfo, 0)
+		steps := make([]*models.StepStateInfo, 0)
 		for _, step := range allSteps {
 			if stepName != nil && step.StepName != *stepName {
 				continue
@@ -563,13 +507,25 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 			}
 			steps = append(steps, step)
 		}
-	} else {
-		// Fallback: Load steps individually with filters applied at DB level
-		var err error
-		steps, err = r.stepStateRepo.ListSteps(ctx, obj.ID, stepName, idempotencyKey, status)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
+		return steps, nil
+	}
+
+	// Hot path: Try Valkey first with permission check
+	if r.accessRepo != nil {
+		permCheck, err := r.accessRepo.CheckUserReadPermission(ctx, obj.ID, ownerID)
+		if err == nil && permCheck != nil && permCheck.HasAccess {
+			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, permCheck, stepName, idempotencyKey, status)
+			if err == nil {
+				return steps, nil
+			}
+			// Fall through to PostgreSQL on error
 		}
+	}
+
+	// Cold path: PostgreSQL with SQL-level permission check
+	steps, err := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, stepName, idempotencyKey, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
 	}
 
 	return steps, nil
@@ -583,21 +539,25 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Check cached access result first (from parent Thread resolver)
-	hasAccess, cached := getCachedAccessCheck(ctx, obj.ID)
-	if !cached {
-		// Fallback: Check access if not cached (shouldn't happen in normal GraphQL flow)
-		var err error
-		hasAccess, err = r.threadAccessService.CheckThreadAccess(obj.ID, ownerID, "read", obj)
-		if err != nil {
-			return nil, fmt.Errorf("failed to verify thread access: %w", err)
+	// Hot path: Try Valkey first with permission check
+	if r.accessRepo != nil {
+		permCheck, err := r.accessRepo.CheckUserReadPermission(ctx, obj.ID, ownerID)
+		if err == nil && permCheck != nil && permCheck.HasAccess {
+			results, err := r.validationRepo.GetValidationResultsWithPermissionCheck(ctx, obj.ID, ownerID, permCheck, options)
+			if err == nil {
+				return results, nil
+			}
+			// Fall through to PostgreSQL on error
 		}
 	}
-	if !hasAccess {
-		return nil, fmt.Errorf("access denied: you don't have permission to view validation results for this thread")
+
+	// Cold path: PostgreSQL with SQL-level permission check
+	postgresValidationRepo := r.validationRepo.GetPostgresRepo()
+	if postgresValidationRepo == nil {
+		return nil, fmt.Errorf("no PostgreSQL repository configured for validation queries")
 	}
 
-	return r.validationRepo.GetThreadValidationResultsWithCache(ctx, obj.ID, options)
+	return postgresValidationRepo.GetValidationResultsWithPermissionCheck(ctx, obj.ID, ownerID, options)
 }
 
 // ThreadChain is the resolver for the threadChain field on Thread type.
@@ -623,49 +583,11 @@ func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, ma
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Get thread refs repository
-	refsRepo := postgresRepo.GetThreadRefsRepo()
-	if refsRepo == nil {
-		return nil, apperrors.NewInternalError("Thread refs repository not available", nil)
-	}
-
-	// Get the chain of thread IDs starting from this thread
-	threadIDs, err := refsRepo.GetThreadChain(ctx, obj.ID, depthVal)
+	// SQL-level permission check with recursive CTE
+	// Permission check happens at each level of the chain
+	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, obj.ID, ownerID, &depthVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
-	}
-
-	if len(threadIDs) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Load all threads with refs
-	allThreads := make([]*models.Thread, 0, len(threadIDs))
-	for _, threadID := range threadIDs {
-		thread, err := postgresRepo.GetWithRefs(ctx, threadID)
-		if err != nil {
-			// Skip threads that can't be loaded (may have been deleted)
-			continue
-		}
-		allThreads = append(allThreads, thread)
-	}
-
-	if len(allThreads) == 0 {
-		return []*models.Thread{}, nil
-	}
-
-	// Batch check access for all threads (eliminates N+1)
-	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(allThreads, ownerID, "read")
-	if err != nil {
-		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
-	}
-
-	// Filter threads based on access
-	threads := make([]*models.Thread, 0, len(allThreads))
-	for _, thread := range allThreads {
-		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
-			threads = append(threads, thread)
-		}
 	}
 
 	return threads, nil

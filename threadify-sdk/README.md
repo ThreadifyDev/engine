@@ -194,30 +194,50 @@ Collaborate on threads by inviting external partners or joining existing workflo
 ---
 
 ```javascript
-// Creating an invitation token (if you're the thread owner):
-const invitationToken = await thread.inviteParty({
-  role: 'logistics',
-  permissions: 'read,write',
-  expiresIn: '48h'
+// ============================================
+// OWNER: Creating an invitation token
+// ============================================
+const ownerConnection = await Threadify.connect('owner-api-key', 'merchant-service');
+const thread = await ownerConnection.start('order_fulfillment', 'merchant');
+
+// Create invitation token for external partner
+const invitationResponse = await thread.inviteParty({
+  role: 'logistics',           // Role for the invited user
+  permissions: 'read,write',   // Permissions (read, write, execute)
+  expiresIn: '48h'             // Token expiration (e.g., '24h', '7d')
 });
-// Share this token with external partner
+
+const invitationToken = invitationResponse.token;
+console.log('Share this token:', invitationToken);
+// Token format: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+// ============================================
+// INVITED USER: Joining with token
+// ============================================
+const invitedConnection = await Threadify.connect('invited-api-key', 'logistics-service');
 
 // METHOD 1: Token-Based Join (for external partners/services)
-// The thread owner creates an invitation token and shares it with you
-const thread = await connection.join('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
+// Use the invitation token shared by the thread owner
+const joinedThread = await invitedConnection.join(invitationToken);
 
 // METHOD 2: Direct Join (for internal services in same organization)
-// You just need the thread ID and specify your role
-const thread = await connection.join('thread-uuid-123', 'logistics');
+// Only requires thread ID and your role (no invitation needed)
+const directThread = await invitedConnection.join('thread-uuid-123', 'logistics');
 
-// Once joined, continue the workflow
-await thread.step('shipment_created')
+// ============================================
+// COLLABORATION: Continue the workflow
+// ============================================
+await joinedThread.step('shipment_created')
   .addContext({ 
     trackingNumber: 'TRACK-456',
     carrier: 'FedEx'
   })
   .success();
 
+// Check your access details
+console.log('Thread ID:', joinedThread.threadId);
+console.log('Your role:', joinedThread.role);
+console.log('Your permissions:', joinedThread.permissions);
 ```
 
 ---
@@ -469,22 +489,49 @@ Notifications are enabled automatically when you connect. Use the `maxInFlight` 
 
 ### Subscribing to Notifications
 
-Subscribe to validation events using these methods:
+Subscribe to events using the `.on()` method with event patterns:
 
-- **`connection.onViolation(stepName, handler)`** - Validation violations
-- **`connection.onCompleted(stepName, handler)`** - Successful completions
-- **`connection.onFailed(stepName, handler)`** - Step failures
+**Event Patterns:**
+- **`step.success`** - Step executed successfully
+- **`step.failed`** - Step execution failed
+- **`rule.violated`** - Contract validation violated
+- **`rule.passed`** - Contract validation passed
+- **`step.*`** - All step execution events
+- **`rule.*`** - All validation events
+- **`*`** - All events (execution + validation)
 
 ```javascript
-// All contracts
-connection.onViolation('order_placed', (notification) => {
-  console.log('Violation:', notification.message);
+// Subscribe to step execution events
+connection.on('step.success', 'order_placed', (notification) => {
+  console.log('Order placed successfully');
   notification.ack(); // IMPORTANT: Must ACK
 });
 
-// Contract-specific
-connection.onViolation('product_delivery@order_placed', (notification) => {
-  console.log('Product delivery violation');
+connection.on('step.failed', 'payment_processed', (notification) => {
+  console.error('Payment failed:', notification.message);
+  notification.ack();
+});
+
+// Subscribe to contract validation events
+connection.on('rule.violated', 'order_placed', (notification) => {
+  console.error('Validation violation:', notification.message);
+  notification.ack();
+});
+
+connection.on('rule.passed', 'order_placed', (notification) => {
+  console.log('Validation passed');
+  notification.ack();
+});
+
+// Wildcards - subscribe to all events for a step
+connection.on('*', 'order_placed', (notification) => {
+  console.log('Any event on order_placed:', notification);
+  notification.ack();
+});
+
+// Contract-specific subscriptions
+connection.on('rule.violated', 'product_delivery@order_placed', (notification) => {
+  console.log('Product delivery contract violation');
   notification.ack();
 });
 ```
@@ -525,7 +572,7 @@ Each notification has the following properties:
 Acknowledge receipt and processing of the notification. **You must call this** to prevent redelivery.
 
 ```javascript
-connection.onViolation('order_placed', (notification) => {
+connection.on('rule.violated', 'order_placed', (notification) => {
   // Process the notification
   logToDatabase(notification);
   
@@ -543,21 +590,35 @@ connection.onViolation('order_placed', (notification) => {
 
 ### Subscription Patterns
 
-**Wildcard (all contracts):**
+**Step execution events:**
 ```javascript
-connection.onViolation('order_placed', handler); // Any contract
+connection.on('step.success', 'order_placed', handler);
+connection.on('step.failed', 'order_placed', handler);
 ```
 
-**Contract-specific:**
+**Contract validation events:**
 ```javascript
-connection.onViolation('product_delivery@order_placed', handler); // Specific contract only
+connection.on('rule.violated', 'order_placed', handler);
+connection.on('rule.passed', 'order_placed', handler);
 ```
 
-**Multiple events:**
+**Wildcard patterns:**
 ```javascript
-connection.onViolation('order_placed', handleViolation);
-connection.onCompleted('order_placed', handleSuccess);
-connection.onFailed('order_placed', handleFailure);
+connection.on('step.*', 'order_placed', handler);  // All step events
+connection.on('rule.*', 'order_placed', handler);  // All validation events
+connection.on('*', 'order_placed', handler);       // All events
+```
+
+**Contract-specific subscriptions:**
+```javascript
+connection.on('rule.violated', 'product_delivery@order_placed', handler);
+```
+
+**Multiple subscriptions:**
+```javascript
+connection.on('step.success', 'order_placed', handleSuccess);
+connection.on('step.failed', 'order_placed', handleFailure);
+connection.on('rule.violated', 'order_placed', handleViolation);
 ```
 
 ---
@@ -570,7 +631,7 @@ connection.onFailed('order_placed', handleFailure);
 
 **Error Handling:**
 ```javascript
-connection.onViolation('order_placed', async (notification) => {
+connection.on('rule.violated', 'order_placed', async (notification) => {
   try {
     await processViolation(notification);
     notification.ack();  // ACK on success

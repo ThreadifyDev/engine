@@ -83,7 +83,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 			"actor":         userID,      // user-123 (person getting access)
 			"actor_service": serviceName, // merchant-service
 			"role":          strings.Join(access.Roles, ","),
-			"runtime_role":  access.RuntimeRole,
+			"runtime_role":  runtimeRole, // Use parameter, not access object (access may not have it populated yet)
 			"granted_by":    invitedBy,
 			"granted_at":    access.GrantedAt,
 			"method":        "direct", // Service layer should determine method

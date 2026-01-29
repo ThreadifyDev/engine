@@ -236,8 +236,8 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	skippedCount := 0
 
 	for _, event := range events {
-		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s, runtimeRole=%s, permissions=%s\n",
-			event.Data["threadId"], event.Data["userId"], event.Data["roles"], event.Data["runtimeRole"], event.Data["permissions"])
+		fmt.Printf("🔍 [PostgresWriter] Processing thread_access event: threadId=%s, userId=%s, roles=%s, runtime_role=%s, permissions=%s\n",
+			event.Data["threadId"], event.Data["userId"], event.Data["roles"], event.Data["runtime_role"], event.Data["permissions"])
 
 		// Parse permissions from JSON string to []string
 		var permissions []string
@@ -252,8 +252,8 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 			event.Data["threadId"],
 			event.Data["userId"],
 			event.Data["roles"],
-			event.Data["runtimeRole"],
-			permissions, // Use parsed []string instead of JSON string
+			event.Data["runtime_role"], // Fixed: use snake_case to match NATS publisher
+			permissions,                // Use parsed []string instead of JSON string
 			event.Data["grantedBy"],
 			event.Data["grantedAt"],
 			event.Data["status"],
