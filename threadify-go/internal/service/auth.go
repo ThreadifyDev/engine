@@ -155,7 +155,8 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("API key not found or inactive: %w", err)
+		// Don't leak database implementation details (e.g., "no rows in result set")
+		return nil, fmt.Errorf("API key not found or inactive")
 	}
 
 	// Check if key is expired

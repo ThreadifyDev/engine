@@ -94,13 +94,13 @@ func (c *CacheService) SetRuntimeRolePermissions(runtimeRole string, permissions
 
 // GetUserRole retrieves role from in-memory cache
 func (c *CacheService) GetUserRole(threadID, userID string) (string, bool) {
-	key := fmt.Sprintf("%s:%s", threadID, userID)
+	key := threadID + ":" + userID
 	return c.roleCache.Get(key)
 }
 
 // SetUserRole stores role in in-memory cache
 func (c *CacheService) SetUserRole(threadID, userID, role string) {
-	key := fmt.Sprintf("%s:%s", threadID, userID)
+	key := threadID + ":" + userID
 	c.roleCache.Add(key, role)
 }
 
