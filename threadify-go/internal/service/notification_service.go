@@ -384,6 +384,7 @@ func (s *NotificationService) processValidationNotifications(
 		TransitionsMap:         transitionsMap,
 		TerminalSteps:          terminalSteps,
 		AllowMultipleTerminals: allowMultipleTerminals,
+		Actor:                  ownerID, // User who recorded this step (for .own permission filtering)
 	})
 
 	luaDuration := time.Since(luaStart)

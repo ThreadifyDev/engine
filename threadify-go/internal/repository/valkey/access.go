@@ -609,3 +609,81 @@ func hasAnyPermission(userPerms []string, requiredPerms []string) bool {
 func (r *AccessRepository) getUsersByRoleKey(threadID, runtimeRole string) string {
 	return fmt.Sprintf("thread:%s:users:%s", threadID, runtimeRole)
 }
+
+// PermissionCheckResult contains the result of a permission check
+type PermissionCheckResult struct {
+	HasAccess   bool     // User has some form of read access
+	HasFullRead bool     // User has thread.read.* (can see all data)
+	HasOwnRead  bool     // User has thread.read.own (can only see own data)
+	Permissions []string // User's full permissions array
+	RuntimeRole string   // User's runtime role
+}
+
+// CheckUserReadPermission checks if a user has read permission for a thread
+// Returns detailed permission info for filtering decisions
+// Hot path: Valkey first, PostgreSQL fallback
+func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID, userID string) (*PermissionCheckResult, error) {
+	key := r.getAccessKey(threadID)
+
+	// Try Valkey first (hot path)
+	accessJSON, err := r.valkey.HGet(ctx, key, userID)
+	if err == nil && accessJSON != "" {
+		var access interfaces.UserAccess
+		if err := json.Unmarshal([]byte(accessJSON), &access); err == nil {
+			return r.evaluateReadPermissions(&access), nil
+		}
+	}
+
+	// Fallback to PostgreSQL
+	if r.postgresRepo == nil {
+		return &PermissionCheckResult{HasAccess: false}, nil
+	}
+
+	log.Printf("⚠️ [COLD] Permission check for user %s in thread %s not in Valkey, checking PostgreSQL", userID, threadID)
+
+	access, err := r.postgresRepo.GetUserAccess(ctx, threadID, userID)
+	if err != nil {
+		return &PermissionCheckResult{HasAccess: false}, nil
+	}
+
+	// Async write-back
+	go func(threadID, userID string, access *interfaces.UserAccess) {
+		writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		r.writeAccessToValkey(writeBackCtx, threadID, userID, access)
+	}(threadID, userID, access)
+
+	return r.evaluateReadPermissions(access), nil
+}
+
+// evaluateReadPermissions evaluates read permissions from UserAccess
+func (r *AccessRepository) evaluateReadPermissions(access *interfaces.UserAccess) *PermissionCheckResult {
+	result := &PermissionCheckResult{
+		HasAccess:   false,
+		HasFullRead: false,
+		HasOwnRead:  false,
+		Permissions: access.Permissions,
+		RuntimeRole: access.RuntimeRole,
+	}
+
+	// Check if user has active status
+	if access.Status != "active" {
+		return result
+	}
+
+	// Check permissions array for read access
+	for _, perm := range access.Permissions {
+		if perm == "thread.read.*" {
+			result.HasAccess = true
+			result.HasFullRead = true
+			return result // Full access, no need to check further
+		}
+		if perm == "thread.read.own" {
+			result.HasAccess = true
+			result.HasOwnRead = true
+			// Continue checking in case they also have full read
+		}
+	}
+
+	return result
+}

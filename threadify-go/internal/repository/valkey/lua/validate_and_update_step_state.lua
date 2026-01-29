@@ -29,6 +29,7 @@ local cjson = cjson
 -- ARGV[11]: ttl (TTL in seconds from config)
 -- ARGV[12]: threadID (passed from Go to avoid regex extraction)
 -- ARGV[13]: idempotencyKey (passed from Go to avoid regex extraction)
+-- ARGV[14]: actor (user who recorded this step, for .own permission filtering)
 
 local metaKey = KEYS[1]
 local currentStepsKey = KEYS[2]
@@ -48,6 +49,7 @@ local allowMultipleTerminals = ARGV[10]
 local ttl = tonumber(ARGV[11]) or 604800  -- Default to 7 days if not provided
 local threadID = ARGV[12]  -- Passed from Go to avoid regex extraction
 local idempotencyKey = ARGV[13]  -- Passed from Go to avoid regex extraction
+local actor = ARGV[14] or ''  -- User who recorded this step (for .own permission filtering)
 
 -- Extract stepName from stepKey (format: stepName:idempKey)
 local stepName = string.match(stepKey, '([^:]+):')
@@ -269,7 +271,8 @@ if isRetry then
     redis.call('HSET', stepHashKey,
         'status', status,
         'lastUpdatedAt', timestamp,
-        'latestStepID', stepID
+        'latestStepID', stepID,
+        'actor', actor
     )
 else
     redis.call('HSET', stepHashKey,
@@ -278,7 +281,8 @@ else
         'firstSeenAt', timestamp,
         'lastUpdatedAt', timestamp,
         'latestStepID', stepID,
-        'previousStep', previousStepKey
+        'previousStep', previousStepKey,
+        'actor', actor
     )
 end
 

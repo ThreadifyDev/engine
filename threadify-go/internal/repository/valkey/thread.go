@@ -287,3 +287,58 @@ func (r *ThreadRepository) getOwnerThreadPattern(ownerID string) string {
 func (r *ThreadRepository) getThreadMetaKey(threadID string) string {
 	return fmt.Sprintf("thread:%s:meta", threadID)
 }
+
+// GetThreadWithPermissionCheck retrieves a thread with permission verification
+// Hot path: Valkey first, then check permissions from access hash
+// Cold path: PostgreSQL with SQL-level permission filtering
+// Returns nil if user doesn't have read access
+func (r *ThreadRepository) GetThreadWithPermissionCheck(
+	ctx context.Context,
+	threadID string,
+	userID string,
+	accessRepo *AccessRepository,
+) (*models.Thread, error) {
+	// First check permissions (hot path via Valkey access hash)
+	permCheck, err := accessRepo.CheckUserReadPermission(ctx, threadID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check permissions: %w", err)
+	}
+
+	if !permCheck.HasAccess {
+		return nil, fmt.Errorf("access denied: user does not have read permission for this thread")
+	}
+
+	// User has access, get the thread
+	// Try Valkey first (hot path)
+	thread, err := r.getFromValkey(ctx, threadID)
+	if err == nil && thread != nil {
+		return thread, nil
+	}
+
+	// Fallback to PostgreSQL (cold path)
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	// For .own access, use SQL-level permission check
+	// For full access, just get the thread
+	if permCheck.HasFullRead {
+		thread, err = r.postgresRepo.GetWithRefs(ctx, threadID)
+	} else {
+		// Use SQL-level permission check for .own access
+		thread, err = r.postgresRepo.GetThreadWithPermissionCheck(ctx, threadID, userID)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Async write-back
+	go func(threadID string, thread *models.Thread) {
+		writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		r.Save(writeBackCtx, thread)
+	}(threadID, thread)
+
+	return thread, nil
+}

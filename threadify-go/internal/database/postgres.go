@@ -332,9 +332,13 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
 		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
 		previous_step VARCHAR(255),            -- Previous step name for transition tracking
+		actor VARCHAR(255),                    -- User who recorded this step (for .own permission filtering)
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		UNIQUE(thread_id, step_name, idempotency_key)
 	);
+
+	-- Add actor column if it doesn't exist (migration for existing databases)
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS actor VARCHAR(255);
 
 	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
 	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 
@@ -356,6 +360,11 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- For status-based analytics across all threads
 	CREATE INDEX IF NOT EXISTS idx_step_states_status_updated 
 		ON thread_step_states(status, last_updated_at DESC);
+
+	-- For actor-based filtering (external user .own permission)
+	CREATE INDEX IF NOT EXISTS idx_step_states_thread_actor 
+		ON thread_step_states(thread_id, actor)
+		WHERE actor IS NOT NULL;
 
 	-- Enhanced indexes for thread_activities to support GraphQL stepHistory query
 	-- For stepHistory query with step_id filtering (critical performance!)

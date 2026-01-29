@@ -199,6 +199,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	defer createCancel()
 
 	// Resolve runtime_role for creator
+	// CRITICAL: Creator must always get "owner" runtime_role
+	// If this fails, it indicates a fundamental system error
 	runtimeRole, err := s.scopeResolver.ResolveScope(
 		createCtx,
 		threadID,
@@ -208,8 +210,22 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		nil,  // explicitScope
 	)
 	if err != nil {
-		log.Printf("Failed to resolve runtime_role for creator %s in thread %s: %v", ownerID, threadID, err)
-		runtimeRole = ""
+		log.Printf("[CRITICAL] Failed to resolve runtime_role for creator %s in thread %s: %v", ownerID, threadID, err)
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: "System error: failed to assign creator permissions",
+		}
+	}
+
+	// Sanity check: creator must always be "owner"
+	if runtimeRole != "owner" {
+		log.Printf("[CRITICAL] Creator %s got runtime_role '%s' instead of 'owner' for thread %s", ownerID, runtimeRole, threadID)
+		return &models.StartThreadResponse{
+			Action:  "startThread",
+			Status:  "error",
+			Message: "System error: invalid creator permissions",
+		}
 	}
 
 	// Serialize thread data for atomic creation
@@ -554,6 +570,12 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		permissions = "read,write"
 	}
 
+	// Convert comma-separated string to slice for CreateToken
+	permissionsSlice := strings.Split(permissions, ",")
+	for i := range permissionsSlice {
+		permissionsSlice[i] = strings.TrimSpace(permissionsSlice[i])
+	}
+
 	// Parse expiry
 	expiry, err := s.invitationService.ParseExpiry(req.ExpiresIn)
 	if err != nil {
@@ -604,7 +626,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	}
 
 	// Create JWT token
-	threadToken, err := s.invitationService.CreateToken(threadID, ownerID, req.Role, permissions, expiry)
+	threadToken, err := s.invitationService.CreateToken(threadID, ownerID, req.Role, permissionsSlice, expiry)
 	if err != nil {
 		log.Printf("Failed to create invitation token: %v", err)
 		return nil, fmt.Errorf("failed to create invitation token")
@@ -794,9 +816,15 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role string,
 		explicitScope,
 	)
 	if err != nil {
-		log.Printf("Failed to resolve runtime_role for user %s in thread %s: %v", userID, threadID, err)
-		// Continue with empty runtime_role rather than failing the entire operation
-		runtimeRole = ""
+		log.Printf("[ERROR] Failed to resolve runtime_role for user %s in thread %s: %v", userID, threadID, err)
+		return fmt.Errorf("failed to resolve runtime_role: %w", err)
+	}
+
+	// Validate runtime_role is not empty (unless explicitly set to empty via explicitScope)
+	if runtimeRole == "" && (explicitScope == nil || *explicitScope != "") {
+		log.Printf("[ERROR] Empty runtime_role resolved for user %s in thread %s (isCreator=%v, role=%s)",
+			userID, threadID, isCreator, role)
+		return fmt.Errorf("invalid runtime_role: cannot be empty")
 	}
 
 	// 2. Grant access via ThreadAccessService (resolves permissions automatically)

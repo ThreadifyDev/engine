@@ -32,6 +32,7 @@ type ValidateStepParams struct {
 	TransitionsMap         map[string][]string // Map of stepName -> allowed next steps
 	TerminalSteps          []string
 	AllowMultipleTerminals bool
+	Actor                  string // User who recorded this step (for .own permission filtering)
 }
 
 // Violation represents a validation violation

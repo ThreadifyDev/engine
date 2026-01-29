@@ -973,3 +973,203 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 
 	return steps, nil
 }
+
+// GetThreadWithPermissionCheck retrieves a thread with SQL-level permission filtering
+// Returns the thread only if the user has read access via thread_access
+func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, threadID string, userID string) (*models.Thread, error) {
+	query := `
+		SELECT t.id, t.contract_id, t.contract_name, t.contract_version, 
+		       t.owner_id, t.company_id, t.status, t.error,
+		       t.created_at, t.updated_at, t.completed_at
+		FROM threads t
+		INNER JOIN thread_access ta ON t.id = ta.thread_id
+		WHERE t.id = $1
+		  AND ta.user_id = $2
+		  AND ta.status = 'active'
+		  AND (
+			'thread.read.*' = ANY(ta.permissions)
+			OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
+		  )
+		LIMIT 1
+	`
+
+	var thread models.Thread
+	var createdAt, updatedAt time.Time
+	var completedAt *time.Time
+	var contractID, contractName *string
+	var contractVersion *int
+	var status, errorMsg *string
+
+	err := r.pool.QueryRow(ctx, query, threadID, userID).Scan(
+		&thread.ID,
+		&contractID,
+		&contractName,
+		&contractVersion,
+		&thread.OwnerID,
+		&thread.CompanyID,
+		&status,
+		&errorMsg,
+		&createdAt,
+		&updatedAt,
+		&completedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("thread not found or access denied")
+		}
+		return nil, fmt.Errorf("failed to get thread with permission check: %w", err)
+	}
+
+	// Map nullable fields
+	if contractID != nil {
+		thread.ContractID = contractID
+	}
+	if contractName != nil {
+		thread.ContractName = *contractName
+	}
+	if contractVersion != nil {
+		thread.ContractVersion = contractVersion
+	}
+	if status != nil {
+		thread.Status = models.ThreadStatus(*status)
+	} else {
+		thread.Status = models.ThreadStatusActive
+	}
+	if errorMsg != nil {
+		thread.Error = *errorMsg
+	}
+
+	thread.StartedAt = createdAt
+	if completedAt != nil {
+		thread.CompletedAt = completedAt
+	}
+
+	thread.Refs = make(map[string]string)
+
+	return &thread, nil
+}
+
+// GetThreadChainWithPermissionCheck retrieves a thread chain with permission check at each level
+// Uses recursive CTE with permission filtering
+func (r *ThreadRepository) GetThreadChainWithPermissionCheck(
+	ctx context.Context,
+	rootID string,
+	userID string,
+	maxDepth *int,
+) ([]*models.Thread, error) {
+	depth := 10 // Default max depth
+	if maxDepth != nil && *maxDepth > 0 {
+		depth = *maxDepth
+	}
+
+	query := `
+		WITH RECURSIVE thread_chain AS (
+			-- Base case: root thread with permission check
+			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
+			       t.owner_id, t.company_id, t.status, t.error,
+			       t.created_at, t.updated_at, t.completed_at,
+			       1 as depth
+			FROM threads t
+			INNER JOIN thread_access ta ON t.id = ta.thread_id
+			WHERE t.id = $1
+			  AND ta.user_id = $2
+			  AND ta.status = 'active'
+			  AND (
+				'thread.read.*' = ANY(ta.permissions)
+				OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
+			  )
+			
+			UNION ALL
+			
+			-- Recursive case: linked threads with permission check
+			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
+			       t.owner_id, t.company_id, t.status, t.error,
+			       t.created_at, t.updated_at, t.completed_at,
+			       tc.depth + 1
+			FROM threads t
+			INNER JOIN thread_refs tr ON t.id = tr.ref_value
+			INNER JOIN thread_chain tc ON tr.thread_id = tc.id
+			INNER JOIN thread_access ta ON t.id = ta.thread_id
+			WHERE tr.ref_key LIKE 'linkedThread:%'
+			  AND tc.depth < $3
+			  AND ta.user_id = $2
+			  AND ta.status = 'active'
+			  AND (
+				'thread.read.*' = ANY(ta.permissions)
+				OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
+			  )
+		)
+		SELECT id, contract_id, contract_name, contract_version,
+		       owner_id, company_id, status, error,
+		       created_at, updated_at, completed_at
+		FROM thread_chain
+		ORDER BY depth ASC
+	`
+
+	rows, err := r.pool.Query(ctx, query, rootID, userID, depth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query thread chain: %w", err)
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var thread models.Thread
+		var createdAt, updatedAt time.Time
+		var completedAt *time.Time
+		var contractID, contractName *string
+		var contractVersion *int
+		var status, errorMsg *string
+
+		err := rows.Scan(
+			&thread.ID,
+			&contractID,
+			&contractName,
+			&contractVersion,
+			&thread.OwnerID,
+			&thread.CompanyID,
+			&status,
+			&errorMsg,
+			&createdAt,
+			&updatedAt,
+			&completedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan thread chain: %w", err)
+		}
+
+		// Map nullable fields
+		if contractID != nil {
+			thread.ContractID = contractID
+		}
+		if contractName != nil {
+			thread.ContractName = *contractName
+		}
+		if contractVersion != nil {
+			thread.ContractVersion = contractVersion
+		}
+		if status != nil {
+			thread.Status = models.ThreadStatus(*status)
+		} else {
+			thread.Status = models.ThreadStatusActive
+		}
+		if errorMsg != nil {
+			thread.Error = *errorMsg
+		}
+
+		thread.StartedAt = createdAt
+		if completedAt != nil {
+			thread.CompletedAt = completedAt
+		}
+
+		thread.Refs = make(map[string]string)
+		threads = append(threads, &thread)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating thread chain: %w", err)
+	}
+
+	return threads, nil
+}
