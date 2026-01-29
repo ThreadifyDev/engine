@@ -49,7 +49,7 @@ func (nc *NotificationConsumer) Subscribe(threadID, userID, scope string, handle
 	defer nc.mu.Unlock()
 
 	// Create unique key for this subscription
-	subKey := fmt.Sprintf("%s:%s", threadID, userID)
+	subKey := threadID + ":" + userID
 
 	// Check if already subscribed
 	if _, exists := nc.subscriptions[subKey]; exists {
@@ -78,7 +78,7 @@ func (nc *NotificationConsumer) Unsubscribe(threadID, userID string) error {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
 
-	subKey := fmt.Sprintf("%s:%s", threadID, userID)
+	subKey := threadID + ":" + userID
 
 	// Cancel the subscription context
 	if cancel, exists := nc.subscriptions[subKey]; exists {

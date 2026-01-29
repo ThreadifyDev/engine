@@ -39,8 +39,8 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName
 		shouldWriteBack = writeBack[0]
 	}
 
-	stepKey := fmt.Sprintf("%s:%s", stepName, idempotencyKey)
-	stepHashKey := fmt.Sprintf("thread:%s:steps:%s", threadID, stepKey)
+	stepKey := stepName + ":" + idempotencyKey
+	stepHashKey := "thread:" + threadID + ":steps:" + stepKey
 
 	// 1. Try Valkey first (hot path) - check if THIS step exists
 	status, err := r.valkey.HGet(ctx, stepHashKey, "status")
@@ -164,7 +164,7 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 
 			// Rebuild the current_steps sorted set in batch
 			for _, step := range pgSteps {
-				stepKey := fmt.Sprintf("%s:%s", step.StepName, "unknown") // We don't have idempotency key from this query
+				stepKey := step.StepName + ":unknown" // We don't have idempotency key from this query
 				score := float64(step.CompletedAt.Unix())
 				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
 					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
@@ -194,7 +194,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 		shouldWriteBack = writeBack[0]
 	}
 
-	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", threadID)
+	currentStepsKey := "thread:" + threadID + ":current_steps"
 
 	// Try Valkey first
 	steps, err := r.valkey.ZRange(ctx, currentStepsKey, 0, -1)
@@ -232,7 +232,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 
 			// Rebuild the current_steps sorted set in batch
 			for _, step := range pgSteps {
-				stepKey := fmt.Sprintf("%s:%s", step.StepName, "unknown")
+				stepKey := step.StepName + ":unknown"
 				score := float64(step.CompletedAt.Unix())
 				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
 					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
@@ -272,8 +272,8 @@ func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, thread
 	// Batch write all step hashes in SAME format as validate_and_update_step_state.lua
 	// Fields must match exactly: status, retryCount, latestStepID, firstSeenAt, lastUpdatedAt, previousStep, actor
 	for _, step := range steps {
-		stepKey := fmt.Sprintf("%s:%s", step.StepName, step.IdempotencyKey)
-		stepHashKey := fmt.Sprintf("thread:%s:steps:%s", threadID, stepKey)
+		stepKey := step.StepName + ":" + step.IdempotencyKey
+		stepHashKey := "thread:" + threadID + ":steps:" + stepKey
 
 		pipe.HSet(ctx, stepHashKey,
 			"status", step.Status,
