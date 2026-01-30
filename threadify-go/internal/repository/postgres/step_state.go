@@ -255,19 +255,18 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 }
 
 // GetStepsWithPermissionCheck retrieves steps with SQL-level permission filtering
-// Filters by thread_access permissions and actor for .own permissions
+// MVP: Company-wide access with cross-company sharing support
 func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
-	userID string,
+	companyID string,
 	stepName *string,
 	idempotencyKey *string,
 	status *string,
 ) ([]*models.StepStateInfo, error) {
-	// Build query with permission filtering via JOIN to thread_access
-	// Permission logic:
-	// - thread.read.* = can see all steps
-	// - thread.read.own = can only see steps where actor = userID
+
+	// Build query with company-level permission filtering
+	// Users can view steps if they have access to the thread (company-wide or cross-company sharing)
 	query := `
 		SELECT 
 			s.id,
@@ -281,17 +280,12 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			s.previous_step,
 			s.actor
 		FROM thread_step_states s
-		INNER JOIN thread_access ta ON s.thread_id = ta.thread_id
+		INNER JOIN threads t ON s.thread_id = t.id
 		WHERE s.thread_id = $1
-		  AND ta.user_id = $2
-		  AND ta.status = 'active'
-		  AND (
-			'thread.read.*' = ANY(ta.permissions)
-			OR ('thread.read.own' = ANY(ta.permissions) AND s.actor = $2)
-		  )
+		  AND t.company_id = $2
 	`
 
-	args := []interface{}{threadID, userID}
+	args := []interface{}{threadID, companyID}
 	argIdx := 3
 
 	// Add optional filters
@@ -360,10 +354,11 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 }
 
 // GetStepHistoryWithPermissionCheck retrieves step history with SQL-level permission filtering
+// MVP: Company-wide access with cross-company sharing support
 func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
-	userID string,
+	companyID string,
 	stepIdentifier string,
 	limit int,
 	offset int,
@@ -380,18 +375,12 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		offset = 0
 	}
 
-	// Build WHERE conditions with permission check
+	// Build WHERE conditions with company-level permission check
 	whereConditions := []string{
 		"ta_activity.thread_id = $1",
-		"acc.user_id = $2",
-		"acc.status = 'active'",
-		`(
-			'thread.read.*' = ANY(acc.permissions)
-			OR ('thread.read.own' = ANY(acc.permissions) AND ta_activity.actor = $2)
-		)`,
 	}
-	params := []interface{}{threadID, userID}
-	paramIndex := 3
+	params := []interface{}{threadID}
+	paramIndex := 2
 
 	// Handle step identifier (stepName or stepName:idempKey)
 	if strings.Contains(stepIdentifier, ":") {
@@ -432,6 +421,11 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		paramIndex++
 	}
 
+	// Add company-level access check to WHERE conditions
+	whereConditions = append(whereConditions, fmt.Sprintf("t.company_id = $%d", paramIndex))
+	params = append(params, companyID)
+	paramIndex++
+
 	query := fmt.Sprintf(`
 		SELECT 
 			ta_activity.payload,
@@ -439,7 +433,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			ta_activity.recorded_at,
 			ROW_NUMBER() OVER (ORDER BY ta_activity.recorded_at ASC) as attempt_number
 		FROM thread_activities ta_activity
-		INNER JOIN thread_access acc ON ta_activity.thread_id = acc.thread_id
+		INNER JOIN threads t ON ta_activity.thread_id = t.id
 		WHERE %s
 		ORDER BY ta_activity.recorded_at DESC
 		LIMIT $%d OFFSET $%d

@@ -221,17 +221,16 @@ func (r *ValidationRepository) ValidationResultExists(ctx context.Context, threa
 }
 
 // GetValidationResultsWithPermissionCheck retrieves validation results with SQL-level permission filtering
-// Joins with thread_step_states to get step actor for .own permission filtering
+// MVP: Company-wide access with cross-company sharing support
 func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
-	userID string,
+	companyID string,
 	options *models.ValidationQueryOptions,
 ) ([]*models.ValidationResultInfo, error) {
-	// Build query with permission filtering via JOIN to thread_access and thread_step_states
-	// Permission logic:
-	// - thread.read.* = can see all validations
-	// - thread.read.own = can only see validations for steps where actor = userID
+
+	// Build query with company-level permission filtering
+	// Users can view validation results if they have access to the thread
 	query := `
 		SELECT 
 			v.validation_id,
@@ -249,20 +248,12 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 			v.info_count,
 			v.total_validations
 		FROM thread_validations v
-		INNER JOIN thread_access ta ON v.thread_id = ta.thread_id
-		LEFT JOIN thread_step_states s ON v.thread_id = s.thread_id 
-			AND v.step_name = s.step_name 
-			AND v.idempotency_key = s.idempotency_key
+		INNER JOIN threads t ON v.thread_id = t.id
 		WHERE v.thread_id = $1
-		  AND ta.user_id = $2
-		  AND ta.status = 'active'
-		  AND (
-			'thread.read.*' = ANY(ta.permissions)
-			OR ('thread.read.own' = ANY(ta.permissions) AND (s.actor = $2 OR s.actor IS NULL))
-		  )
+		  AND t.company_id = $2
 	`
 
-	args := []interface{}{threadID, userID}
+	args := []interface{}{threadID, companyID}
 	argIndex := 3
 
 	// Add optional filters

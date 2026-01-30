@@ -468,23 +468,12 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 		query += ` LEFT JOIN thread_activities ta ON t.id = ta.thread_id`
 	}
 
+	// MVP: Company-wide access
+	// Users can view all threads that belong to their company
 	query += ` WHERE t.company_id = $1`
 
 	args := []interface{}{companyID}
 	argIdx := 2
-
-	// Add access control filter: user must be owner OR have explicit access
-	query += fmt.Sprintf(` AND (
-		t.owner_id = $%d
-		OR EXISTS (
-			SELECT 1 FROM thread_access ta_access
-			WHERE ta_access.thread_id = t.id
-			  AND ta_access.user_id = $%d
-			  AND ta_access.status = 'active'
-		)
-	)`, argIdx, argIdx)
-	args = append(args, userID)
-	argIdx++
 
 	// Add actor filter (matches both actor and actor_service)
 	if actor != nil && *actor != "" {
@@ -975,21 +964,18 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 }
 
 // GetThreadWithPermissionCheck retrieves a thread with SQL-level permission filtering
-// Returns the thread only if the user has read access via thread_access
-func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, threadID string, userID string) (*models.Thread, error) {
+// MVP: Company-wide access
+// Users can view all threads that belong to their company
+// Runtime roles (from thread_access) determine what data they can see, not whether they have access
+func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, threadID string, companyID string) (*models.Thread, error) {
+	// Query thread with company-level access check
 	query := `
 		SELECT t.id, t.contract_id, t.contract_name, t.contract_version, 
 		       t.owner_id, t.company_id, t.status, t.error,
 		       t.created_at, t.updated_at, t.completed_at
 		FROM threads t
-		INNER JOIN thread_access ta ON t.id = ta.thread_id
 		WHERE t.id = $1
-		  AND ta.user_id = $2
-		  AND ta.status = 'active'
-		  AND (
-			'thread.read.*' = ANY(ta.permissions)
-			OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
-		  )
+		  AND t.company_id = $2
 		LIMIT 1
 	`
 
@@ -1000,7 +986,7 @@ func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, thr
 	var contractVersion *int
 	var status, errorMsg *string
 
-	err := r.pool.QueryRow(ctx, query, threadID, userID).Scan(
+	err := r.pool.QueryRow(ctx, query, threadID, companyID).Scan(
 		&thread.ID,
 		&contractID,
 		&contractName,
@@ -1051,13 +1037,15 @@ func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, thr
 }
 
 // GetThreadChainWithPermissionCheck retrieves a thread chain with permission check at each level
-// Uses recursive CTE with permission filtering
+// MVP: Company-wide access
+// Uses recursive CTE with company-level filtering - only returns threads from user's company
 func (r *ThreadRepository) GetThreadChainWithPermissionCheck(
 	ctx context.Context,
 	rootID string,
-	userID string,
+	companyID string,
 	maxDepth *int,
 ) ([]*models.Thread, error) {
+
 	depth := 10 // Default max depth
 	if maxDepth != nil && *maxDepth > 0 {
 		depth = *maxDepth
@@ -1065,24 +1053,18 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(
 
 	query := `
 		WITH RECURSIVE thread_chain AS (
-			-- Base case: root thread with permission check
+			-- Base case: root thread with company-level permission check
 			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
 			       t.owner_id, t.company_id, t.status, t.error,
 			       t.created_at, t.updated_at, t.completed_at,
 			       1 as depth
 			FROM threads t
-			INNER JOIN thread_access ta ON t.id = ta.thread_id
 			WHERE t.id = $1
-			  AND ta.user_id = $2
-			  AND ta.status = 'active'
-			  AND (
-				'thread.read.*' = ANY(ta.permissions)
-				OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
-			  )
+			  AND t.company_id = $2
 			
 			UNION ALL
 			
-			-- Recursive case: linked threads with permission check
+			-- Recursive case: linked threads with company-level permission check
 			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
 			       t.owner_id, t.company_id, t.status, t.error,
 			       t.created_at, t.updated_at, t.completed_at,
@@ -1090,15 +1072,9 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(
 			FROM threads t
 			INNER JOIN thread_refs tr ON t.id = tr.ref_value
 			INNER JOIN thread_chain tc ON tr.thread_id = tc.id
-			INNER JOIN thread_access ta ON t.id = ta.thread_id
 			WHERE tr.ref_key LIKE 'linkedThread:%'
 			  AND tc.depth < $3
-			  AND ta.user_id = $2
-			  AND ta.status = 'active'
-			  AND (
-				'thread.read.*' = ANY(ta.permissions)
-				OR ('thread.read.own' = ANY(ta.permissions) AND t.owner_id = $2)
-			  )
+			  AND t.company_id = $2
 		)
 		SELECT id, contract_id, contract_name, contract_version,
 		       owner_id, company_id, status, error,
@@ -1107,7 +1083,7 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(
 		ORDER BY depth ASC
 	`
 
-	rows, err := r.pool.Query(ctx, query, rootID, userID, depth)
+	rows, err := r.pool.Query(ctx, query, rootID, companyID, depth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query thread chain: %w", err)
 	}

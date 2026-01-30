@@ -173,7 +173,7 @@ Collaborate on threads by inviting external partners or joining existing workflo
 
 **Inviting Others:**
 - Thread owners can create invitation tokens for external parties
-- Set role, permissions, and expiration time
+- Set business role, access level (permission tier), and expiration time
 - Share token securely with partner
 - Partner uses token to join the thread
 
@@ -202,13 +202,14 @@ const thread = await ownerConnection.start('order_fulfillment', 'merchant');
 
 // Create invitation token for external partner
 const invitationResponse = await thread.inviteParty({
-  role: 'logistics',           // Role for the invited user
-  permissions: 'read,write',   // Permissions (read, write, execute)
+  role: 'logistics',           // Business/contract role for the invited user
+  accessLevel: 'participant',  // Access level: owner/participant/observer/external (default: external)
   expiresIn: '48h'             // Token expiration (e.g., '24h', '7d')
 });
 
 const invitationToken = invitationResponse.token;
 console.log('Share this token:', invitationToken);
+console.log('Access level:', invitationResponse.accessLevel);
 // Token format: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 // ============================================
@@ -237,8 +238,19 @@ await joinedThread.step('shipment_created')
 // Check your access details
 console.log('Thread ID:', joinedThread.threadId);
 console.log('Your role:', joinedThread.role);
-console.log('Your permissions:', joinedThread.permissions);
+console.log('Your access level:', joinedThread.accessLevel);
 ```
+
+**Access Levels Explained:**
+
+Access levels control what users can do in a thread via the RBAC permission system:
+
+- **`owner`** - Full control: create, read, write, delete, invite others, all notifications
+- **`participant`** - Active collaboration: read, write, execute steps, critical notifications
+- **`observer`** - Read-only: view thread data, completion notifications only
+- **`external`** - Minimal access: view own steps/data only (default for invitations)
+
+The `role` parameter is your business/contract role (e.g., "supplier", "merchant"), while `accessLevel` determines your actual system permissions.
 
 ---
 

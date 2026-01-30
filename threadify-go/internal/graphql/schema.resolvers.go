@@ -80,28 +80,27 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	}()
 
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Hot path: Try Valkey first with permission check
-	if r.accessRepo != nil {
-		thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, ownerID, r.accessRepo)
-		if err == nil && thread != nil {
-			// Cache the access check result for child resolvers
-			ctx = cacheAccessCheck(ctx, thread.ID, true)
-			metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
-			return thread, nil
-		}
-		// If error is access denied, return it directly
-		if err != nil && (err.Error() == "access denied: user does not have read permission for this thread") {
-			metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
-			return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
-		}
-		// Otherwise fall through to PostgreSQL
+	// Hot path: Try Valkey first with company-wide access check
+	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
+	if err == nil && thread != nil {
+		// Cache the access check result for child resolvers
+		ctx = cacheAccessCheck(ctx, thread.ID, true)
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
+		return thread, nil
 	}
+	// If error is access denied, return it directly
+	if err != nil && (err.Error() == "access denied: thread belongs to a different company" ||
+		err.Error() == "access denied: you don't have permission to view this thread") {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
+		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+	}
+	// Otherwise fall through to PostgreSQL (cache miss)
 
 	// Cold path: PostgreSQL with SQL-level permission check
 	postgresRepo := r.threadRepo.GetPostgresRepo()
@@ -110,8 +109,8 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// SQL-level permission check: thread_access JOIN with permissions array check
-	thread, err := postgresRepo.GetThreadWithPermissionCheck(ctx, id, ownerID)
+	// SQL-level permission check: company-wide access
+	thread, err = postgresRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		// Return user-friendly error without exposing internal details
@@ -236,7 +235,7 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 // ThreadChain is the resolver for the threadChain field.
 func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error) {
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -258,7 +257,7 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 
 	// SQL-level permission check with recursive CTE
 	// Permission check happens at each level of the chain
-	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, ownerID, &depthVal)
+	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, companyID, &depthVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
 	}
@@ -294,7 +293,7 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 // StepHistory is the resolver for the stepHistory field.
 func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -316,8 +315,8 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 		stepIdentifier = stepName
 	}
 
-	// SQL-level permission check: filters by thread_access permissions and actor for .own
-	history, err := r.stepStateRepo.GetStepHistoryWithPermissionCheck(ctx, threadID, ownerID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
+	// SQL-level permission check: company-wide access with cross-company sharing
+	history, err := r.stepStateRepo.GetStepHistoryWithPermissionCheck(ctx, threadID, companyID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get step history: %w", err)
 	}
@@ -482,7 +481,7 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 // Steps is the resolver for the steps field.
 func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error) {
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -523,7 +522,7 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 	}
 
 	// Cold path: PostgreSQL with SQL-level permission check
-	steps, err := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, stepName, idempotencyKey, status)
+	steps, err := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, obj.ID, companyID, stepName, idempotencyKey, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list steps for thread %s: %w", obj.ID, err)
 	}
@@ -534,7 +533,7 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 // ValidationResults is the resolver for the validationResults field.
 func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -557,13 +556,13 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 		return nil, fmt.Errorf("no PostgreSQL repository configured for validation queries")
 	}
 
-	return postgresValidationRepo.GetValidationResultsWithPermissionCheck(ctx, obj.ID, ownerID, options)
+	return postgresValidationRepo.GetValidationResultsWithPermissionCheck(ctx, obj.ID, companyID, options)
 }
 
 // ThreadChain is the resolver for the threadChain field on Thread type.
 func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error) {
 	// Get user info from context
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -585,7 +584,7 @@ func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, ma
 
 	// SQL-level permission check with recursive CTE
 	// Permission check happens at each level of the chain
-	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, obj.ID, ownerID, &depthVal)
+	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, obj.ID, companyID, &depthVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
 	}

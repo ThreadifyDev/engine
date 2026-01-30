@@ -69,7 +69,9 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName
 	// TODO: Re-enable thread existence check if duplicate detection issues arise
 	return "", nil
 
+	// DEAD CODE: PostgreSQL fallback disabled for performance (kept for reference)
 	// Thread not in Valkey - entire thread was evicted - check PostgreSQL
+	//nolint:all
 	// if r.stepStatePostgres == nil {
 	// 	return "", nil // Not found, not an error
 	// }
