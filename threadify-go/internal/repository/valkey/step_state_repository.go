@@ -171,7 +171,6 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 	// Parse JSON response
 	var luaResult interfaces.StepStateResult
 	if err := json.Unmarshal([]byte(resultStr), &luaResult); err != nil {
-		// Debug: Print the actual Lua result
 		fmt.Printf("[LUA-RESULT-ERROR] Failed to parse: %s\n", resultStr)
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
@@ -451,16 +450,6 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 
 	log.Printf("✅ [COLD] Retrieved %d step states from PostgreSQL for thread %s", len(steps), threadID)
 	return steps, nil
-}
-
-// GetStepHistory delegates to PostgreSQL repository for step history queries
-func (r *StepStateRepository) GetStepHistory(ctx context.Context, threadID, stepIdentifier string, limit, offset int, startAt, endAt, activityType, actor *string) ([]models.StepHistory, error) {
-	// Step history queries PostgreSQL directly (archival data)
-	if r.postgresRepo == nil {
-		return nil, fmt.Errorf("step history requires PostgreSQL repository")
-	}
-
-	return r.postgresRepo.GetStepHistory(ctx, threadID, stepIdentifier, limit, offset, startAt, endAt, activityType, actor)
 }
 
 // GetStepsWithPermissionCheck retrieves steps with permission filtering

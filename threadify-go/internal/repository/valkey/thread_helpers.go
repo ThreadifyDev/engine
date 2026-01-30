@@ -34,11 +34,6 @@ func (r *ThreadRepository) extendAllThreadTTLs(ctx context.Context, threadID str
 
 // GetStepStatus checks step status in Valkey or PostgreSQL with optional write-back
 func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName, idempotencyKey string, writeBack ...bool) (string, error) {
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
-
 	stepKey := stepName + ":" + idempotencyKey
 	stepHashKey := "thread:" + threadID + ":steps:" + stepKey
 
@@ -68,55 +63,6 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName
 	// Step not found - assume it's a new step (skip PostgreSQL for performance)
 	// TODO: Re-enable thread existence check if duplicate detection issues arise
 	return "", nil
-
-	// DEAD CODE: PostgreSQL fallback disabled for performance (kept for reference)
-	// Thread not in Valkey - entire thread was evicted - check PostgreSQL
-	//nolint:all
-	// if r.stepStatePostgres == nil {
-	// 	return "", nil // Not found, not an error
-	// }
-
-	log.Printf("⚠️ [COLD] Step %s:%s not in Valkey, checking PostgreSQL", stepName, idempotencyKey)
-
-	// Get ALL step states for the thread using batch query (warm entire cache at once)
-	stepsMap, err := r.stepStatePostgres.GetStepsBatch(ctx, []string{threadID})
-	if err != nil {
-		log.Printf("❌ [COLD] Failed to get step states from PostgreSQL: %v", err)
-		return "", nil
-	}
-
-	allSteps := stepsMap[threadID]
-	if allSteps == nil {
-		allSteps = []*models.StepStateInfo{}
-	}
-
-	log.Printf("✅ [COLD] Retrieved %d step states from PostgreSQL for thread %s", len(allSteps), threadID)
-
-	// Find the requested step in the results
-	var requestedStatus string
-	for _, step := range allSteps {
-		if step.StepName == stepName && step.IdempotencyKey == idempotencyKey {
-			requestedStatus = step.Status
-			break
-		}
-	}
-
-	// Async write-back all steps to Valkey (warm the cache)
-	if shouldWriteBack && len(allSteps) > 0 {
-		go func(threadID string, steps []*models.StepStateInfo) {
-			writeBackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			log.Printf("🔄 [WRITE-BACK] Async caching %d step states for thread %s", len(steps), threadID)
-			if err := r.writeBackAllStepsToValkey(writeBackCtx, threadID, steps); err != nil {
-				log.Printf("⚠️ Async write-back failed for step states: %v", err)
-			} else {
-				log.Printf("✅ [WRITE-BACK] Cached %d step states successfully", len(steps))
-			}
-		}(threadID, allSteps)
-	}
-
-	return requestedStatus, nil
 }
 
 // GetCompletedStepsCount returns count of completed steps

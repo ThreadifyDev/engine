@@ -26,165 +26,7 @@ func NewStepStateRepository(pool *pgxpool.Pool) *StepStateRepository {
 
 // GetStepState has been removed - use GetStepsBatch() instead
 // Step state should always come from thread_step_states table, not thread_activities
-// For activity/event history, use GetStepHistory()
-
-// GetStepHistory retrieves filtered step history from thread_activities table
-func (r *StepStateRepository) GetStepHistory(ctx context.Context, threadID, stepIdentifier string, limit, offset int, startAt, endAt, activityType, actor *string) ([]models.StepHistory, error) {
-	// Validate pagination parameters
-	if limit <= 0 {
-		limit = 100 // Default to 100 records
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	// Build dynamic WHERE clause
-	whereConditions := []string{"thread_id = $1"}
-	params := []interface{}{threadID}
-	paramIndex := 2
-
-	// Handle step identifier (stepName or stepName:idempKey)
-	if strings.Contains(stepIdentifier, ":") {
-		// Exact match for stepName:idempKey
-		whereConditions = append(whereConditions, fmt.Sprintf("step_id = $%d", paramIndex))
-		params = append(params, stepIdentifier)
-		paramIndex++
-	} else {
-		// Wildcard match for stepName (all idempotency keys)
-		whereConditions = append(whereConditions, fmt.Sprintf("step_id LIKE $%d", paramIndex))
-		params = append(params, stepIdentifier+":%")
-		paramIndex++
-	}
-
-	// Add activity type filter if provided
-	if activityType != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("activity_type = $%d", paramIndex))
-		params = append(params, *activityType)
-		paramIndex++
-	} else {
-		// Default to step_recorded if no activity type specified
-		whereConditions = append(whereConditions, "activity_type = 'step_recorded'")
-	}
-
-	// Add actor filter if provided
-	if actor != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("actor = $%d", paramIndex))
-		params = append(params, *actor)
-		paramIndex++
-	}
-
-	// Add date range filters if provided
-	if startAt != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("recorded_at >= $%d", paramIndex))
-		params = append(params, *startAt)
-		paramIndex++
-	}
-	if endAt != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("recorded_at <= $%d", paramIndex))
-		params = append(params, *endAt)
-		paramIndex++
-	}
-
-	// Build final query - ORDER BY recorded_at DESC for most recent first
-	// Use ROW_NUMBER() to get absolute attempt numbers regardless of pagination
-	query := fmt.Sprintf(`
-		SELECT 
-			payload,
-			status,
-			recorded_at,
-			ROW_NUMBER() OVER (ORDER BY recorded_at ASC) as attempt_number
-		FROM thread_activities 
-		WHERE %s
-		ORDER BY recorded_at DESC
-		LIMIT $%d OFFSET $%d
-	`, strings.Join(whereConditions, " AND "), paramIndex, paramIndex+1)
-
-	params = append(params, limit, offset)
-
-	rows, err := r.pool.Query(ctx, query, params...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query step history: %w", err)
-	}
-	defer rows.Close()
-
-	var history []models.StepHistory
-
-	for rows.Next() {
-		var payload sql.NullString
-		var status sql.NullString
-		var recordedAt time.Time
-		var attemptNumber int
-
-		err := rows.Scan(&payload, &status, &recordedAt, &attemptNumber)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan step history: %w", err)
-		}
-
-		// Parse payload JSON to extract context, duration, and status
-		var contextStr string
-		var duration int
-		var errorMsg string
-		var statusFromPayload string
-
-		if payload.Valid {
-			var payloadData map[string]interface{}
-			if err := json.Unmarshal([]byte(payload.String), &payloadData); err == nil {
-				// Extract context as JSON string
-				if ctx, exists := payloadData["context"]; exists {
-					if ctxBytes, err := json.Marshal(ctx); err == nil {
-						contextStr = string(ctxBytes)
-					}
-				}
-
-				// Extract duration if available
-				if dur, exists := payloadData["duration"]; exists {
-					if durFloat, ok := dur.(float64); ok {
-						duration = int(durFloat)
-					}
-				}
-
-				// Extract status from payload (primary source)
-				if statusVal, exists := payloadData["status"]; exists {
-					if statusStr, ok := statusVal.(string); ok {
-						statusFromPayload = statusStr
-					}
-				}
-
-				// Extract error if status is failed/error
-				if statusFromPayload == "failed" || statusFromPayload == "error" {
-					if err, exists := payloadData["error"]; exists {
-						if errStr, ok := err.(string); ok {
-							errorMsg = errStr
-						}
-					}
-				}
-			}
-		}
-
-		// Use status from payload if available, otherwise use status column
-		statusValue := statusFromPayload
-		if statusValue == "" && status.Valid {
-			statusValue = status.String
-		}
-
-		stepHistory := models.StepHistory{
-			Attempt:   attemptNumber,
-			Timestamp: recordedAt.Format(time.RFC3339),
-			Status:    statusValue,
-			Context:   contextStr,
-			Duration:  duration,
-			Error:     errorMsg,
-		}
-
-		history = append(history, stepHistory)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows error: %w", err)
-	}
-
-	return history, nil
-}
+// For activity/event history, use GetStepHistoryWithPermissionCheck()
 
 // GetStepsBatch retrieves steps for multiple threads from thread_step_states table in a single query
 // Returns a map of threadID -> list of step states
@@ -421,7 +263,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		paramIndex++
 	}
 
-	// Add company-level access check to WHERE conditions
+	// Add company permission check
 	whereConditions = append(whereConditions, fmt.Sprintf("t.company_id = $%d", paramIndex))
 	params = append(params, companyID)
 	paramIndex++
@@ -431,9 +273,14 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			ta_activity.payload,
 			ta_activity.status,
 			ta_activity.recorded_at,
+			ta_activity.actor,
+			ta_activity.actor_service,
+			t.company_id,
+			c.name as company_name,
 			ROW_NUMBER() OVER (ORDER BY ta_activity.recorded_at ASC) as attempt_number
 		FROM thread_activities ta_activity
 		INNER JOIN threads t ON ta_activity.thread_id = t.id
+		LEFT JOIN companies c ON t.company_id = c.id
 		WHERE %s
 		ORDER BY ta_activity.recorded_at DESC
 		LIMIT $%d OFFSET $%d
@@ -453,9 +300,13 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		var payload sql.NullString
 		var status sql.NullString
 		var recordedAt time.Time
+		var actorVal sql.NullString
+		var actorServiceVal sql.NullString
+		var companyIdVal sql.NullString
+		var companyNameVal sql.NullString
 		var attemptNumber int
 
-		err := rows.Scan(&payload, &status, &recordedAt, &attemptNumber)
+		err := rows.Scan(&payload, &status, &recordedAt, &actorVal, &actorServiceVal, &companyIdVal, &companyNameVal, &attemptNumber)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan step history: %w", err)
 		}
@@ -499,13 +350,37 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			statusValue = status.String
 		}
 
+		// Extract actor and actor_service
+		actorStr := ""
+		if actorVal.Valid {
+			actorStr = actorVal.String
+		}
+		actorServiceStr := ""
+		if actorServiceVal.Valid {
+			actorServiceStr = actorServiceVal.String
+		}
+
+		// Extract company info
+		companyIdStr := ""
+		if companyIdVal.Valid {
+			companyIdStr = companyIdVal.String
+		}
+		companyNameStr := ""
+		if companyNameVal.Valid {
+			companyNameStr = companyNameVal.String
+		}
+
 		stepHistory := models.StepHistory{
-			Attempt:   attemptNumber,
-			Timestamp: recordedAt.Format(time.RFC3339),
-			Status:    statusValue,
-			Context:   contextStr,
-			Duration:  duration,
-			Error:     errorMsg,
+			Attempt:      attemptNumber,
+			Timestamp:    recordedAt.Format(time.RFC3339),
+			Status:       statusValue,
+			Context:      contextStr,
+			Duration:     duration,
+			Error:        errorMsg,
+			Actor:        actorStr,
+			ActorService: actorServiceStr,
+			CompanyId:    companyIdStr,
+			CompanyName:  companyNameStr,
 		}
 
 		history = append(history, stepHistory)

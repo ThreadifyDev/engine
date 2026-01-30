@@ -7,8 +7,9 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files and shared directory (required by replace directive)
 COPY go.mod go.sum ./
+COPY shared/ ./shared/
 
 # Download dependencies
 RUN go mod download

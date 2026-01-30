@@ -70,7 +70,6 @@ var (
 		[]string{"owner_id", "session_id"},
 	)
 
-	// FilterSubjectsUpdated tracks subscription changes
 	FilterSubjectsUpdated = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "threadify_filter_subjects_updated_total",

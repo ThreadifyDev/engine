@@ -274,9 +274,10 @@ func main() {
 
 	// Initialize activity repository for hash chain verification
 	activityRepo := postgres.NewActivityRepository(db.Pool, cfg)
+	actorRepo := postgres.NewActorRepository(db.Pool)
 
 	// Initialize GraphQL resolver with batch loading repos and access repo for permission checks
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, accessRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo)
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, accessRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo, actorRepo)
 	// GraphQL resolver created
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))

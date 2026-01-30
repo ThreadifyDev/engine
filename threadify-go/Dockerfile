@@ -7,8 +7,9 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files and shared directory (required by replace directive)
 COPY go.mod go.sum ./
+COPY shared/ ./shared/
 
 # Download dependencies
 RUN go mod download
@@ -30,7 +31,8 @@ WORKDIR /app
 
 # Copy the binary and config (distroless already runs as nonroot user)
 COPY --from=builder /app/bin/server /app/server
-COPY --from=builder /app/config/config.docker.yaml /app/config/config.yaml
+COPY --from=builder /app/internal /app/internal
+COPY --from=builder /app/config/config.yaml /app/config/config.yaml
 
 # Expose port
 EXPOSE 8081
