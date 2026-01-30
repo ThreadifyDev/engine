@@ -375,7 +375,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 	// Check permission - user must have write access
 	permCheckStart := time.Now()
-	hasAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "write", thread)
+	hasAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "thread.write.*", thread)
 	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "permission_check").Observe(time.Since(permCheckStart).Seconds())
 	if err != nil || !hasAccess {
 		return &models.RecordEventResponse{
@@ -593,16 +593,15 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 
 // HandleInviteParty creates invitation tokens for thread access
 func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error) {
-	// Set default permissions if not provided
-	permissions := req.Permissions
-	if permissions == "" {
-		permissions = "read,write"
+	// Set default access level if not provided
+	accessLevel := req.AccessLevel
+	if accessLevel == "" {
+		accessLevel = "external" // Default to external
 	}
 
-	// Convert comma-separated string to slice for CreateToken
-	permissionsSlice := strings.Split(permissions, ",")
-	for i := range permissionsSlice {
-		permissionsSlice[i] = strings.TrimSpace(permissionsSlice[i])
+	// Validate access level
+	if err := s.invitationService.ValidateAccessLevel(accessLevel); err != nil {
+		return nil, err
 	}
 
 	// Parse expiry
@@ -628,6 +627,12 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		return nil, fmt.Errorf("thread not found")
 	}
 
+	// Check permission - user must have invite access
+	hasInviteAccess, err := s.accessService.CheckThreadAccess(threadID, ownerID, "thread.invite", thread)
+	if err != nil || !hasInviteAccess {
+		return nil, fmt.Errorf("access denied: you don't have permission to invite users to this thread")
+	}
+
 	// Get contract graph to validate role exists in contract parties (optional for non-contract threads)
 	contractGraph, err := s.GetContractGraphForThread(thread)
 	if err != nil {
@@ -649,13 +654,8 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		}
 	}
 
-	// Validate permissions
-	if err := s.invitationService.ValidatePermissions(permissions); err != nil {
-		return nil, err
-	}
-
 	// Create JWT token
-	threadToken, err := s.invitationService.CreateToken(threadID, ownerID, req.Role, permissionsSlice, expiry)
+	threadToken, err := s.invitationService.CreateToken(threadID, ownerID, req.Role, accessLevel, expiry)
 	if err != nil {
 		log.Printf("Failed to create invitation token: %v", err)
 		return nil, fmt.Errorf("failed to create invitation token")
@@ -666,7 +666,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		Status:      "success",
 		ThreadToken: threadToken,
 		Role:        req.Role,
-		Permissions: permissions,
+		AccessLevel: accessLevel,
 		ExpiresAt:   time.Now().Add(expiry).Unix(),
 		Message:     "Invitation token created successfully",
 	}, nil
@@ -674,7 +674,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 
 // HandleJoinThread handles both token-based and direct thread joining
 func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
-	var threadID, role, invitedBy string
+	var threadID, role, accessLevel, invitedBy string
 	var thread *models.Thread
 
 	// Mode 1: Token-based join (invitation)
@@ -687,6 +687,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 		threadID = claims.ThreadID
 		role = claims.Role
+		accessLevel = claims.AccessLevel
 		invitedBy = claims.InvitedBy
 
 		// Mode 2: Direct join (same company, no token)
@@ -714,6 +715,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 		threadID = req.ThreadID
 		role = req.Role
+		accessLevel = ""      // Will be resolved by scopeResolver
 		invitedBy = companyID // Company ID as inviter
 
 	} else {
@@ -745,19 +747,34 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 	}
 
 	// Grant or update access using unified method
-	// For join: not creator, no explicit scope (will use contract defaults or system default)
-	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, nil)
+	// If accessLevel is set from token, use it explicitly; otherwise let scopeResolver determine it
+	var explicitScope *string
+	if accessLevel != "" {
+		explicitScope = &accessLevel
+	}
+	err = s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, explicitScope)
 	if err != nil {
 		log.Printf("Failed to grant access for user %s to thread %s: %v", ownerID, threadID, err)
 		return nil, fmt.Errorf("failed to grant access")
 	}
 
+	// Get the assigned access level for response (if not from token, it was resolved)
+	if accessLevel == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		access, err := s.accessRepo.GetUserAccess(ctx, threadID, ownerID)
+		if err == nil && access != nil {
+			accessLevel = access.RuntimeRole
+		}
+	}
+
 	return &models.JoinThreadResponse{
-		Action:   "joinThread",
-		Status:   "success",
-		ThreadID: threadID,
-		Role:     role,
-		Message:  "Successfully joined thread",
+		Action:      "joinThread",
+		Status:      "success",
+		ThreadID:    threadID,
+		Role:        role,
+		AccessLevel: accessLevel,
+		Message:     "Successfully joined thread",
 	}, nil
 }
 
@@ -983,7 +1000,7 @@ func (s *ThreadService) HandleAddRefs(req *models.AddRefsRequest, ownerID string
 
 	// Verify user has write permission for the thread
 	// This checks both ownership and explicit write permissions
-	hasWriteAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "write", thread)
+	hasWriteAccess, err := s.accessService.CheckThreadAccess(req.ThreadID, ownerID, "thread.write.*", thread)
 	if err != nil {
 		return &models.AddRefsResponse{
 			Action:  "addRefs",

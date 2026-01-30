@@ -43,8 +43,8 @@ func (c *InvitationConfig) IsRoleAllowed(role string) bool {
 // ThreadInvitationClaims represents JWT claims for thread invitations
 type ThreadInvitationClaims struct {
 	ThreadID    string `json:"threadId"`
-	Role        string `json:"role"`
-	Permissions string `json:"permissions"`
+	Role        string `json:"role"`        // Business/contract role
+	AccessLevel string `json:"accessLevel"` // Access level (owner/participant/observer/external)
 	InvitedBy   string `json:"invitedBy"`
 	jwt.RegisteredClaims
 }
@@ -64,12 +64,12 @@ func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService
 }
 
 // CreateToken creates a JWT token for thread invitation
-func (s *InvitationTokenService) CreateToken(threadID, userID, role string, permissions []string, expiry time.Duration) (string, error) {
+func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := &ThreadInvitationClaims{
 		ThreadID:    threadID,
 		Role:        role,
-		Permissions: strings.Join(permissions, ","),
+		AccessLevel: accessLevel,
 		InvitedBy:   userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),
@@ -142,28 +142,18 @@ func (s *InvitationTokenService) ValidateRole(role string, config *InvitationCon
 	return nil
 }
 
-// ValidatePermissions checks if permissions are valid
-func (s *InvitationTokenService) ValidatePermissions(permissions string) error {
-	if permissions == "" {
-		return nil // Empty permissions are allowed (will use default)
+// ValidateAccessLevel checks if access level is valid
+func (s *InvitationTokenService) ValidateAccessLevel(accessLevel string) error {
+	if accessLevel == "" {
+		return nil // Empty is allowed (will default to "external")
 	}
 
-	allowedPerms := []string{"read", "write", "execute"}
-	permList := strings.Split(permissions, ",")
-
-	for _, perm := range permList {
-		perm = strings.TrimSpace(perm)
-		valid := false
-		for _, allowed := range allowedPerms {
-			if perm == allowed {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("invalid permission: %s. Allowed permissions: %s", perm, strings.Join(allowedPerms, ", "))
+	allowedLevels := []string{"owner", "participant", "observer", "external"}
+	for _, allowed := range allowedLevels {
+		if accessLevel == allowed {
+			return nil
 		}
 	}
 
-	return nil
+	return fmt.Errorf("invalid access level: %s. Allowed levels: %s", accessLevel, strings.Join(allowedLevels, ", "))
 }

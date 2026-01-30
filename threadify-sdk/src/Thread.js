@@ -809,15 +809,15 @@ export class ThreadInstance {
   /**
    * Create an invitation token for this thread
    * @param {Object} options - Invitation options
-   * @param {string} options.role - Required role for the invitation
-   * @param {string} [options.permissions="read,write"] - Optional permissions
+   * @param {string} options.role - Required business/contract role (e.g., "supplier", "merchant")
+   * @param {string} [options.accessLevel="external"] - Optional access level (owner/participant/observer/external)
    * @param {string} [options.expiresIn="24h"] - Optional expiry duration
-   * @returns {Promise<string>} - JWT invitation token
+   * @returns {Promise<Object>} - Invitation response with token and metadata
    */
   async inviteParty(options = {}) {
     const {
       role,
-      permissions = "read,write",
+      accessLevel = "external",
       expiresIn = "24h"
     } = options;
     
@@ -832,7 +832,7 @@ export class ThreadInstance {
             token: message.threadToken,
             threadId: this.threadId,
             role: message.role,
-            permissions: message.permissions,
+            accessLevel: message.accessLevel,
             expiresAt: message.expiresAt
           });
         } else {
@@ -843,7 +843,7 @@ export class ThreadInstance {
       this._send({
         action: 'inviteParty',
         role,
-        permissions,
+        accessLevel,
         expiresIn
       });
     });

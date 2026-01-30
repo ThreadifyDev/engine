@@ -292,6 +292,12 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		INCLUDE (runtime_role, roles, status) 
 		WHERE status = 'active';
 
+	-- Index for thread_access lookups (used for runtime_role-based data filtering)
+	-- Note: Access control is company-wide (threads.company_id = user.company_id)
+	-- thread_access is used to determine what data users can SEE, not whether they have access
+	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_user_status 
+		ON thread_access(thread_id, user_id, status);
+
 	CREATE TABLE IF NOT EXISTS thread_validations (
 		validation_id VARCHAR(255) PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
