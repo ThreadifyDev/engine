@@ -160,7 +160,6 @@ func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 		return
 	}
 
-	// Log the request for debugging
 	fmt.Printf("[PROXY] UpdateContract - ID: %s, Body length: %d bytes, Content-Type: %s\n",
 		id, len(bodyBytes), c.GetHeader("Content-Type"))
 
@@ -195,7 +194,6 @@ func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 		return
 	}
 
-	// Log the response for debugging
 	fmt.Printf("[PROXY] UpdateContract - Response status: %d, Body: %s\n", resp.StatusCode, string(respBody))
 
 	// Forward response with exact status code and body from Engine

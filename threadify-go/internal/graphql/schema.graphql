@@ -17,6 +17,9 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Hash chain fields for cryptographic integrity
+  hash: String
+  prevHash: String
   # Cryptographic verification (lazy-loaded, only computed when requested)
   verified: Boolean
   verificationError: String
@@ -31,6 +34,13 @@ type StepHistory {
   context: String!
   duration: Int!
   error: String
+  actor: String!
+  actorService: String!
+  companyId: String!
+  companyName: String!
+  # Hash chain for cryptographic integrity verification
+  hash: String
+  prevHash: String
 }
 
 type Thread {
@@ -41,6 +51,7 @@ type Thread {
   ownerId: String!
   companyId: String!
   status: String!
+  createdBy: String
   # HMAC hash of the last activity event in the thread's hash chain (for cryptographic integrity verification)
   lastHash: String
   refs: JSON
@@ -172,6 +183,22 @@ type Query {
   ): [StepHistory!]!
   # Get validation results for a specific step
   validationResults(threadId: String!, stepName: String!, idempotencyKey: String!): [ValidationResultInfo!]!
+  
+  # Resolve actor names from IDs (users or service accounts)
+  resolveActors(ids: [String!]!): [ActorInfo!]!
+  
+  # Verify hash chain integrity for a thread (separate from thread query for performance)
+  verifyThreadIntegrity(threadId: String!): HashChainStatus!
+  
+  # Verify hash integrity for a single step
+  verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+}
+
+type StepIntegrityStatus {
+  verified: Boolean!
+  hash: String
+  prevHash: String
+  error: String
 }
 
 scalar JSON
@@ -210,4 +237,11 @@ input ValidationQueryOptions {
   validationType: String
   limit: Int
   offset: Int
+}
+
+type ActorInfo {
+  id: String!
+  name: String!
+  type: String!
+  companyName: String
 }

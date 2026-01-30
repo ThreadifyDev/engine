@@ -318,7 +318,6 @@ func (s *AuthService) ResetPassword(req *models.ResetPasswordRequest) error {
 		return errors.New("invalid reset token")
 	}
 
-	// Get user's last password change time
 	passwordChangedAt, err := s.userRepo.GetPasswordChangedAt(claims.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to check password change time: %w", err)
@@ -338,7 +337,6 @@ func (s *AuthService) ResetPassword(req *models.ResetPasswordRequest) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Update user password (also updates password_changed_at)
 	if err := s.userRepo.UpdatePassword(claims.UserID, passwordHash); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}

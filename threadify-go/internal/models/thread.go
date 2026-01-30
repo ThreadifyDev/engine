@@ -34,8 +34,9 @@ type Thread struct {
 	ContractName    string            `json:"contractName,omitempty"` // New field for contract name
 	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
 	OwnerID         string            `json:"ownerId"`
-	CompanyID       string            `json:"companyId"` // Company ID for multi-tenancy
-	Status          ThreadStatus      `json:"-"`         // Status comes from meta hash, not JSON
+	CompanyID       string            `json:"companyId"`           // Company ID for multi-tenancy
+	CreatedBy       string            `json:"createdBy,omitempty"` // User or service account that created the thread
+	Status          ThreadStatus      `json:"-"`                   // Status comes from meta hash, not JSON
 	LastHash        string            `json:"lastHash"`
 	Violated        *ThreadViolation  `json:"violated,omitempty"` // Tracks failed steps and violations
 	StartedAt       time.Time         `json:"startedAt"`

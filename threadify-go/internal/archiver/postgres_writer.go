@@ -491,7 +491,6 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 			last_updated_at = EXCLUDED.last_updated_at,
 			previous_step = EXCLUDED.previous_step`
 
-	// Debug: Log the query structure
 	if len(deduped) > 0 {
 		fmt.Printf("🔍 [PostgresWriter] SQL Query (first 500 chars): %s...\n", query[:min(500, len(query))])
 		fmt.Printf("🔍 [PostgresWriter] Values count: %d, Expected: %d\n", len(values), len(deduped)*9)

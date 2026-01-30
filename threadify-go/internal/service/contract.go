@@ -176,7 +176,6 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 500, map[string]string{"message": "Failed to serialize contract"}
 	}
 
-	// Calculate content hash
 	contentHash := s.calculateHash(contentOnlyJSON)
 
 	// Check if content has changed

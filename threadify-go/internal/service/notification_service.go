@@ -376,7 +376,6 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
-	// DEBUG: Log what we're passing to Lua
 	fmt.Printf("[DEBUG-LUA-PARAMS] thread=%s, step=%s, transitionsMap=%v, maxRetries=%d\n",
 		threadID, stepName, transitionsMap, maxRetries)
 

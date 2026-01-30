@@ -513,8 +513,7 @@ func (r *AccessRepository) GetUsersByPermissions(
 			continue // Skip invalid entries
 		}
 
-		// Step 4: Verify user actually has the required permissions (wildcard matching)
-		// This handles cases where role might have been updated but permissions changed
+		// Verify user has the required permissions (wildcard matching)
 		if hasAnyPermission(access.Permissions, requiredPermissions) {
 			users = append(users, models.UserPermissionInfo{
 				UserID:      userID,

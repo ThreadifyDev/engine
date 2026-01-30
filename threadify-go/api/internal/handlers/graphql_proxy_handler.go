@@ -65,7 +65,6 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 		return
 	}
 
-	// Log the response for debugging
 	fmt.Printf("[GRAPHQL-PROXY] Status: %d, Response: %s\n", resp.StatusCode, string(respBody))
 
 	// Forward response to client with same status code and content type

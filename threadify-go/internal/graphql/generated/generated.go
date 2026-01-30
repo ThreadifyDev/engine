@@ -52,6 +52,13 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	ActorInfo struct {
+		CompanyName func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Name        func(childComplexity int) int
+		Type        func(childComplexity int) int
+	}
+
 	ContractGraph struct {
 		Graph              func(childComplexity int) int
 		NotificationConfig func(childComplexity int) int
@@ -95,6 +102,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		ContractGraph     func(childComplexity int, name string, version *int) int
+		ResolveActors     func(childComplexity int, ids []string) int
 		StepHistory       func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread            func(childComplexity int, id string) int
 		ThreadChain       func(childComplexity int, rootID string, maxDepth *int) int
@@ -105,12 +113,16 @@ type ComplexityRoot struct {
 	}
 
 	StepHistory struct {
-		Attempt   func(childComplexity int) int
-		Context   func(childComplexity int) int
-		Duration  func(childComplexity int) int
-		Error     func(childComplexity int) int
-		Status    func(childComplexity int) int
-		Timestamp func(childComplexity int) int
+		Actor        func(childComplexity int) int
+		ActorService func(childComplexity int) int
+		Attempt      func(childComplexity int) int
+		CompanyId    func(childComplexity int) int
+		CompanyName  func(childComplexity int) int
+		Context      func(childComplexity int) int
+		Duration     func(childComplexity int) int
+		Error        func(childComplexity int) int
+		Status       func(childComplexity int) int
+		Timestamp    func(childComplexity int) int
 	}
 
 	StepStateInfo struct {
@@ -134,6 +146,7 @@ type ComplexityRoot struct {
 		ContractID        func(childComplexity int) int
 		ContractName      func(childComplexity int) int
 		ContractVersion   func(childComplexity int) int
+		CreatedBy         func(childComplexity int) int
 		Error             func(childComplexity int) int
 		HashChainStatus   func(childComplexity int) int
 		HashChainVerified func(childComplexity int) int
@@ -211,6 +224,7 @@ type QueryResolver interface {
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
 	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error)
+	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
 }
 type StepStateInfoResolver interface {
 	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
@@ -255,6 +269,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := executionContext{nil, e, 0, 0, nil}
 	_ = ec
 	switch typeName + "." + field {
+
+	case "ActorInfo.companyName":
+		if e.complexity.ActorInfo.CompanyName == nil {
+			break
+		}
+
+		return e.complexity.ActorInfo.CompanyName(childComplexity), true
+	case "ActorInfo.id":
+		if e.complexity.ActorInfo.ID == nil {
+			break
+		}
+
+		return e.complexity.ActorInfo.ID(childComplexity), true
+	case "ActorInfo.name":
+		if e.complexity.ActorInfo.Name == nil {
+			break
+		}
+
+		return e.complexity.ActorInfo.Name(childComplexity), true
+	case "ActorInfo.type":
+		if e.complexity.ActorInfo.Type == nil {
+			break
+		}
+
+		return e.complexity.ActorInfo.Type(childComplexity), true
 
 	case "ContractGraph.graph":
 		if e.complexity.ContractGraph.Graph == nil {
@@ -428,6 +467,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.ContractGraph(childComplexity, args["name"].(string), args["version"].(*int)), true
+	case "Query.resolveActors":
+		if e.complexity.Query.ResolveActors == nil {
+			break
+		}
+
+		args, err := ec.field_Query_resolveActors_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.ResolveActors(childComplexity, args["ids"].([]string)), true
 	case "Query.stepHistory":
 		if e.complexity.Query.StepHistory == nil {
 			break
@@ -506,12 +556,36 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Query.ValidationResults(childComplexity, args["threadId"].(string), args["stepName"].(string), args["idempotencyKey"].(string)), true
 
+	case "StepHistory.actor":
+		if e.complexity.StepHistory.Actor == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.Actor(childComplexity), true
+	case "StepHistory.actorService":
+		if e.complexity.StepHistory.ActorService == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.ActorService(childComplexity), true
 	case "StepHistory.attempt":
 		if e.complexity.StepHistory.Attempt == nil {
 			break
 		}
 
 		return e.complexity.StepHistory.Attempt(childComplexity), true
+	case "StepHistory.companyId":
+		if e.complexity.StepHistory.CompanyId == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.CompanyId(childComplexity), true
+	case "StepHistory.companyName":
+		if e.complexity.StepHistory.CompanyName == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.CompanyName(childComplexity), true
 	case "StepHistory.context":
 		if e.complexity.StepHistory.Context == nil {
 			break
@@ -651,6 +725,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Thread.ContractVersion(childComplexity), true
+	case "Thread.createdBy":
+		if e.complexity.Thread.CreatedBy == nil {
+			break
+		}
+
+		return e.complexity.Thread.CreatedBy(childComplexity), true
 	case "Thread.error":
 		if e.complexity.Thread.Error == nil {
 			break
@@ -1029,6 +1109,10 @@ type StepHistory {
   context: String!
   duration: Int!
   error: String
+  actor: String!
+  actorService: String!
+  companyId: String!
+  companyName: String!
 }
 
 type Thread {
@@ -1039,6 +1123,7 @@ type Thread {
   ownerId: String!
   companyId: String!
   status: String!
+  createdBy: String
   # HMAC hash of the last activity event in the thread's hash chain (for cryptographic integrity verification)
   lastHash: String
   refs: JSON
@@ -1170,6 +1255,9 @@ type Query {
   ): [StepHistory!]!
   # Get validation results for a specific step
   validationResults(threadId: String!, stepName: String!, idempotencyKey: String!): [ValidationResultInfo!]!
+  
+  # Resolve actor names from IDs (users or service accounts)
+  resolveActors(ids: [String!]!): [ActorInfo!]!
 }
 
 scalar JSON
@@ -1209,6 +1297,13 @@ input ValidationQueryOptions {
   limit: Int
   offset: Int
 }
+
+type ActorInfo {
+  id: String!
+  name: String!
+  type: String!
+  companyName: String
+}
 `, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
@@ -1241,6 +1336,17 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 		return nil, err
 	}
 	args["version"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_resolveActors_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids", ec.unmarshalNString2ᚕstringᚄ)
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
 	return args, nil
 }
 
@@ -1616,6 +1722,122 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 // endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _ActorInfo_id(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ActorInfo_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ActorInfo_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActorInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ActorInfo_name(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ActorInfo_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ActorInfo_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActorInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ActorInfo_type(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ActorInfo_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ActorInfo_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActorInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ActorInfo_companyName(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ActorInfo_companyName,
+		func(ctx context.Context) (any, error) {
+			return obj.CompanyName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ActorInfo_companyName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ActorInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _ContractGraph_graph(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -2466,6 +2688,8 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -2543,6 +2767,8 @@ func (ec *executionContext) fieldContext_Query_threads(ctx context.Context, fiel
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -2620,6 +2846,8 @@ func (ec *executionContext) fieldContext_Query_threadsByContract(ctx context.Con
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -2697,6 +2925,8 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -2774,6 +3004,8 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -2902,6 +3134,14 @@ func (ec *executionContext) fieldContext_Query_stepHistory(ctx context.Context, 
 				return ec.fieldContext_StepHistory_duration(ctx, field)
 			case "error":
 				return ec.fieldContext_StepHistory_error(ctx, field)
+			case "actor":
+				return ec.fieldContext_StepHistory_actor(ctx, field)
+			case "actorService":
+				return ec.fieldContext_StepHistory_actorService(ctx, field)
+			case "companyId":
+				return ec.fieldContext_StepHistory_companyId(ctx, field)
+			case "companyName":
+				return ec.fieldContext_StepHistory_companyName(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type StepHistory", field.Name)
 		},
@@ -2985,6 +3225,57 @@ func (ec *executionContext) fieldContext_Query_validationResults(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_validationResults_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_resolveActors(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_resolveActors,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().ResolveActors(ctx, fc.Args["ids"].([]string))
+		},
+		nil,
+		ec.marshalNActorInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfoᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_resolveActors(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_ActorInfo_id(ctx, field)
+			case "name":
+				return ec.fieldContext_ActorInfo_name(ctx, field)
+			case "type":
+				return ec.fieldContext_ActorInfo_type(ctx, field)
+			case "companyName":
+				return ec.fieldContext_ActorInfo_companyName(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ActorInfo", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_resolveActors_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3261,6 +3552,122 @@ func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphq
 }
 
 func (ec *executionContext) fieldContext_StepHistory_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_actor(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_actor,
+		func(ctx context.Context) (any, error) {
+			return obj.Actor, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_actor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_actorService(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_actorService,
+		func(ctx context.Context) (any, error) {
+			return obj.ActorService, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_actorService(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_companyId(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_companyId,
+		func(ctx context.Context) (any, error) {
+			return obj.CompanyId, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_companyId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_companyName(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_companyName,
+		func(ctx context.Context) (any, error) {
+			return obj.CompanyName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_companyName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StepHistory",
 		Field:      field,
@@ -3629,6 +4036,14 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 				return ec.fieldContext_StepHistory_duration(ctx, field)
 			case "error":
 				return ec.fieldContext_StepHistory_error(ctx, field)
+			case "actor":
+				return ec.fieldContext_StepHistory_actor(ctx, field)
+			case "actorService":
+				return ec.fieldContext_StepHistory_actorService(ctx, field)
+			case "companyId":
+				return ec.fieldContext_StepHistory_companyId(ctx, field)
+			case "companyName":
+				return ec.fieldContext_StepHistory_companyName(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type StepHistory", field.Name)
 		},
@@ -3843,6 +4258,35 @@ func (ec *executionContext) fieldContext_Thread_status(_ context.Context, field 
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Thread_createdBy(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_createdBy,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedBy, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_createdBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -4172,6 +4616,8 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 				return ec.fieldContext_Thread_companyId(ctx, field)
 			case "status":
 				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
 			case "lastHash":
 				return ec.fieldContext_Thread_lastHash(ctx, field)
 			case "refs":
@@ -6600,6 +7046,57 @@ func (ec *executionContext) unmarshalInputValidationQueryOptions(ctx context.Con
 
 // region    **************************** object.gotpl ****************************
 
+var actorInfoImplementors = []string{"ActorInfo"}
+
+func (ec *executionContext) _ActorInfo(ctx context.Context, sel ast.SelectionSet, obj *models.ActorInfo) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, actorInfoImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ActorInfo")
+		case "id":
+			out.Values[i] = ec._ActorInfo_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._ActorInfo_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "type":
+			out.Values[i] = ec._ActorInfo_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "companyName":
+			out.Values[i] = ec._ActorInfo_companyName(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var contractGraphImplementors = []string{"ContractGraph"}
 
 func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.SelectionSet, obj *models.ContractGraph) graphql.Marshaler {
@@ -7199,6 +7696,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "resolveActors":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_resolveActors(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -7268,6 +7787,26 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 			}
 		case "error":
 			out.Values[i] = ec._StepHistory_error(ctx, field, obj)
+		case "actor":
+			out.Values[i] = ec._StepHistory_actor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "actorService":
+			out.Values[i] = ec._StepHistory_actorService(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "companyId":
+			out.Values[i] = ec._StepHistory_companyId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "companyName":
+			out.Values[i] = ec._StepHistory_companyName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7599,6 +8138,8 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "createdBy":
+			out.Values[i] = ec._Thread_createdBy(ctx, field, obj)
 		case "lastHash":
 			out.Values[i] = ec._Thread_lastHash(ctx, field, obj)
 		case "refs":
@@ -8517,6 +9058,60 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) marshalNActorInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ActorInfo) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNActorInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfo(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNActorInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfo(ctx context.Context, sel ast.SelectionSet, v *models.ActorInfo) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ActorInfo(ctx, sel, v)
+}
 
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)

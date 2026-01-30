@@ -351,3 +351,84 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 
 	return true, "", nil
 }
+
+// GetStepHashes retrieves the hash and prevHash for a specific step
+// Returns hash, prevHash, and any error
+func (r *ActivityRepository) GetStepHashes(ctx context.Context, threadID, stepName, idempotencyKey string) (hash, prevHash string, err error) {
+	query := `
+		SELECT 
+			hash, 
+			prev_hash
+		FROM thread_activities 
+		WHERE thread_id = $1 
+		AND activity_type = 'step_recorded'
+		AND payload->>'step_name' = $2
+		AND payload->>'idempotency_key' = $3
+		ORDER BY recorded_at DESC
+		LIMIT 1
+	`
+
+	var storedHash, storedPrevHash sql.NullString
+
+	err = r.pool.QueryRow(ctx, query, threadID, stepName, idempotencyKey).Scan(
+		&storedHash, &storedPrevHash,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil // Step not found, return empty hashes
+		}
+		return "", "", fmt.Errorf("failed to query step hashes: %w", err)
+	}
+
+	hash = ""
+	if storedHash.Valid {
+		hash = storedHash.String
+	}
+
+	prevHash = ""
+	if storedPrevHash.Valid {
+		prevHash = storedPrevHash.String
+	}
+
+	return hash, prevHash, nil
+}
+
+// GetStepHashesByID retrieves the hash and prevHash for a step by its step ID
+// Returns hash, prevHash, and any error
+func (r *ActivityRepository) GetStepHashesByID(ctx context.Context, threadID, stepID string) (hash, prevHash string, err error) {
+	query := `
+		SELECT 
+			hash, 
+			prev_hash
+		FROM thread_activities 
+		WHERE thread_id = $1 
+		AND activity_type = 'step_recorded'
+		AND payload->>'step_uuid' = $2
+		ORDER BY recorded_at DESC
+		LIMIT 1
+	`
+
+	var storedHash, storedPrevHash sql.NullString
+
+	err = r.pool.QueryRow(ctx, query, threadID, stepID).Scan(
+		&storedHash, &storedPrevHash,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", nil // Step not found, return empty hashes
+		}
+		return "", "", fmt.Errorf("failed to query step hashes by ID: %w", err)
+	}
+
+	hash = ""
+	if storedHash.Valid {
+		hash = storedHash.String
+	}
+
+	prevHash = ""
+	if storedPrevHash.Valid {
+		prevHash = storedPrevHash.String
+	}
+
+	return hash, prevHash, nil
+}

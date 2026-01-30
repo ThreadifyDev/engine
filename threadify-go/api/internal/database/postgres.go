@@ -147,6 +147,11 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_service_accounts_company ON service_accounts(company_id);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_service_account ON api_keys(service_account_id);
 	CREATE INDEX IF NOT EXISTS idx_user_roles_principal ON user_roles(principal_id);
+	
+	-- Actor resolution indexes (for GraphQL resolveActors query optimization)
+	-- These indexes improve LEFT JOIN performance when fetching company names
+	CREATE INDEX IF NOT EXISTS idx_users_company_id ON users(company_id);
+	CREATE INDEX IF NOT EXISTS idx_service_accounts_company_id ON service_accounts(company_id);
 
 	-- Create trigger function for updated_at
 	CREATE OR REPLACE FUNCTION update_updated_at_column()
