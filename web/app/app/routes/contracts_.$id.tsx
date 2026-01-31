@@ -60,7 +60,7 @@ export default function ContractDetail() {
     return (
       <div className="flex h-screen bg-white">
         <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-64">
+        <div className="flex-1 flex items-center justify-center ml-16">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
             <p className="mt-4 text-black">Loading contract...</p>
@@ -74,7 +74,7 @@ export default function ContractDetail() {
     return (
       <div className="flex h-screen bg-white">
         <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-64">
+        <div className="flex-1 flex items-center justify-center ml-16">
           <div className="text-center">
             <p className="text-red-600 mb-4">
               {error instanceof Error ? error.message : 'Failed to load contract'}
@@ -94,7 +94,7 @@ export default function ContractDetail() {
   return (
     <div className="flex h-screen bg-white">
       <SideNav />
-      <div className="flex-1 overflow-auto ml-64">
+      <div className="flex-1 overflow-auto ml-16">
         <div className="p-8">
           {/* Header */}
           <div className="mb-8">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
-import { api } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import { api, type User } from '~/lib/api';
+import AppLayout from '~/components/AppLayout';
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -65,11 +65,8 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-
-      {/* Main Content */}
-      <div className="flex-1 ml-64 p-8">
+    <AppLayout>
+      <div className="p-8">
         <div className="mb-8">
           <h2 className="text-2xl font-bold mb-2">Settings</h2>
           <p className="text-gray-600">
@@ -118,7 +115,7 @@ export default function Settings() {
         {/* Profile Tab */}
         {activeTab === 'profile' && (
           <form onSubmit={handleProfileUpdate} className="space-y-6">
-            <div className="border-4 border-black p-6">
+            <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
               <h3 className="text-xl font-bold mb-6">Personal Information</h3>
 
               <div className="space-y-4">
@@ -146,7 +143,7 @@ export default function Settings() {
                     required
                     value={profileForm.full_name}
                     onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
 
@@ -159,7 +156,7 @@ export default function Settings() {
                     required
                     value={profileForm.job_role}
                     onChange={(e) => setProfileForm({ ...profileForm, job_role: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -178,7 +175,7 @@ export default function Settings() {
         {/* Company Tab */}
         {activeTab === 'company' && (
           <form onSubmit={handleProfileUpdate} className="space-y-6">
-            <div className="border-4 border-black p-6">
+            <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
               <h3 className="text-xl font-bold mb-6">Company Information</h3>
 
               <div className="space-y-4">
@@ -205,7 +202,7 @@ export default function Settings() {
                     required
                     value={companyForm.industry}
                     onChange={(e) => setCompanyForm({ ...companyForm, industry: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
                   >
                     <option value="">Select industry</option>
                     <option value="E-commerce">E-commerce</option>
@@ -227,7 +224,7 @@ export default function Settings() {
                     required
                     value={companyForm.company_size}
                     onChange={(e) => setCompanyForm({ ...companyForm, company_size: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
                   >
                     <option value="">Select size</option>
                     <option value="small">Small (1-10 employees)</option>
@@ -245,7 +242,7 @@ export default function Settings() {
                     required
                     value={companyForm.use_case}
                     onChange={(e) => setCompanyForm({ ...companyForm, use_case: e.target.value })}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
                   >
                     <option value="">Select use case</option>
                     <option value="Order Processing">Order Processing</option>
@@ -269,6 +266,6 @@ export default function Settings() {
           </form>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }

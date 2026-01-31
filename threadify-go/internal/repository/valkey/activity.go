@@ -326,6 +326,9 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *in
 		"first_seen_at":   stepState.FirstSeenAt,
 		"last_updated_at": stepState.LastUpdatedAt,
 		"previous_step":   stepState.PreviousStep,
+		"actor":           stepState.Actor,
+		"actor_service":   stepState.ActorService,
+		"latest_context":  stepState.LatestContext,
 	}
 
 	// Synchronous publish - fail request if NATS is down (PostgreSQL persistence is critical)

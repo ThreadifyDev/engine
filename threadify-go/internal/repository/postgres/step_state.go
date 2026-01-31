@@ -46,7 +46,9 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			first_seen_at,
 			last_updated_at,
 			previous_step,
-			actor
+			actor,
+			actor_service,
+			latest_context
 		FROM thread_step_states
 		WHERE thread_id = ANY($1)
 		ORDER BY thread_id, first_seen_at ASC
@@ -61,7 +63,7 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 	stepsMap := make(map[string][]*models.StepStateInfo)
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor sql.NullString
+		var previousStep, actor, actorService, latestContext sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -74,6 +76,8 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			&step.LastUpdatedAt,
 			&previousStep,
 			&actor,
+			&actorService,
+			&latestContext,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan step: %w", err)
@@ -84,6 +88,12 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 		}
 		if actor.Valid {
 			step.Actor = actor.String
+		}
+		if actorService.Valid {
+			step.ActorService = actorService.String
+		}
+		if latestContext.Valid {
+			step.LatestContext = latestContext.String
 		}
 
 		stepsMap[step.ThreadID] = append(stepsMap[step.ThreadID], step)
@@ -120,7 +130,9 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			s.first_seen_at,
 			s.last_updated_at,
 			s.previous_step,
-			s.actor
+			s.actor,
+			s.actor_service,
+			s.latest_context
 		FROM thread_step_states s
 		INNER JOIN threads t ON s.thread_id = t.id
 		WHERE s.thread_id = $1
@@ -160,7 +172,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	var steps []*models.StepStateInfo
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor sql.NullString
+		var previousStep, actor, actorService, latestContext sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -173,6 +185,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			&step.LastUpdatedAt,
 			&previousStep,
 			&actor,
+			&actorService,
+			&latestContext,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan step: %w", err)
@@ -183,6 +197,12 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		}
 		if actor.Valid {
 			step.Actor = actor.String
+		}
+		if actorService.Valid {
+			step.ActorService = actorService.String
+		}
+		if latestContext.Valid {
+			step.LatestContext = latestContext.String
 		}
 
 		steps = append(steps, step)

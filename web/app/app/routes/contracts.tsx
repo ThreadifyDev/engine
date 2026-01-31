@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
 
 export default function Contracts() {
@@ -71,11 +71,8 @@ export default function Contracts() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-
-      {/* Main Content */}
-      <div className="flex-1 ml-64 p-8">
+    <AppLayout>
+      <div className="p-8">
         <div className="flex justify-between items-center mb-8">
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
@@ -85,14 +82,14 @@ export default function Contracts() {
           </div>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
           >
             Upload Contract
           </button>
         </div>
 
         {error && (
-          <div className="bg-black text-white px-4 py-3 mb-6">
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-6">
             {error}
           </div>
         )}
@@ -102,14 +99,14 @@ export default function Contracts() {
             <p className="text-gray-600">Loading contracts...</p>
           </div>
         ) : contracts.length === 0 ? (
-          <div className="border-4 border-black p-12 text-center">
-            <h3 className="text-xl font-bold mb-2">No contracts yet</h3>
+          <div className="border border-gray-200 rounded-lg p-12 text-center bg-white shadow-sm">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">No contracts yet</h3>
             <p className="text-gray-600 mb-6">
               Upload your first contract to start validating workflows
             </p>
             <button
               onClick={() => setShowUploadModal(true)}
-              className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
+              className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
             >
               Upload Contract
             </button>
@@ -119,7 +116,7 @@ export default function Contracts() {
             {contracts.map((contract) => (
               <div
                 key={contract.id}
-                className="border-4 border-black p-6 hover:bg-gray-50 transition-colors"
+                className="bg-white border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors"
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
@@ -138,13 +135,13 @@ export default function Contracts() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => navigate(`/contracts/${contract.id}`)}
-                      className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+                      className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
                     >
                       View
                     </button>
                     <button
                       onClick={() => handleDelete(contract.id)}
-                      className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+                      className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
                     >
                       Delete
                     </button>
@@ -154,10 +151,9 @@ export default function Contracts() {
             ))}
           </div>
         )}
-      </div>
 
-      {/* Upload Modal */}
-      {showUploadModal && (
+        {/* Upload Modal */}
+        {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white border-4 border-black max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="border-b-4 border-black p-6 flex justify-between items-center">
@@ -204,14 +200,14 @@ export default function Contracts() {
                 <button
                   type="submit"
                   disabled={uploading}
-                  className="flex-1 px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-6 py-3 bg-gray-900 text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
                 >
                   {uploading ? 'Uploading...' : 'Upload Contract'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="px-6 py-3 border-2 border-black hover:bg-gray-100 transition-colors font-medium"
+                  className="px-6 py-3 bg-white border border-gray-300 hover:bg-gray-50 transition-colors font-medium text-gray-700 rounded-lg"
                 >
                   Cancel
                 </button>
@@ -219,7 +215,8 @@ export default function Contracts() {
             </form>
           </div>
         </div>
-      )}
-    </div>
+        )}
+      </div>
+    </AppLayout>
   );
 }

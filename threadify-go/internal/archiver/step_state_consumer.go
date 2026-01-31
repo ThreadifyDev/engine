@@ -32,6 +32,9 @@ type StepStateEvent struct {
 	FirstSeenAt    string `json:"first_seen_at"`
 	LastUpdatedAt  string `json:"last_updated_at"`
 	PreviousStep   string `json:"previous_step"`
+	Actor          string `json:"actor"`
+	ActorService   string `json:"actor_service"`
+	LatestContext  string `json:"latest_context"`
 }
 
 // NewStepStateConsumer creates a new step state consumer
@@ -141,10 +144,11 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 	query := `
 		INSERT INTO thread_step_states (
 			id, thread_id, step_name, idempotency_key, status,
-			retry_count, first_seen_at, last_updated_at, previous_step, created_at
+			retry_count, first_seen_at, last_updated_at, previous_step,
+			actor, actor_service, latest_context, created_at
 		) VALUES `
 
-	values := make([]interface{}, 0, len(c.buffer)*9)
+	values := make([]interface{}, 0, len(c.buffer)*12)
 	placeholders := ""
 
 	for i, event := range c.buffer {
@@ -152,11 +156,11 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			placeholders += ", "
 		}
 
-		offset := i * 9
+		offset := i * 12
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
 			offset+1, offset+2, offset+3, offset+4, offset+5,
-			offset+6, offset+7, offset+8, offset+9,
+			offset+6, offset+7, offset+8, offset+9, offset+10, offset+11, offset+12,
 		)
 
 		values = append(values,
@@ -169,6 +173,9 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			event.FirstSeenAt,
 			event.LastUpdatedAt,
 			event.PreviousStep,
+			event.Actor,
+			event.ActorService,
+			event.LatestContext,
 		)
 	}
 
@@ -177,7 +184,10 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			status = EXCLUDED.status,
 			retry_count = EXCLUDED.retry_count,
 			last_updated_at = EXCLUDED.last_updated_at,
-			previous_step = EXCLUDED.previous_step`
+			previous_step = EXCLUDED.previous_step,
+			actor = EXCLUDED.actor,
+			actor_service = EXCLUDED.actor_service,
+			latest_context = EXCLUDED.latest_context`
 
 	// Execute batch insert
 	_, err := c.db.Pool.Exec(ctx, query, values...)

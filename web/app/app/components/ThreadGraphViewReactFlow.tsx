@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ReactFlow, {
   Node,
@@ -11,10 +11,12 @@ import ReactFlow, {
   MarkerType,
   Handle,
   Position,
+  useReactFlow,
+  ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { type StepStateInfo, graphqlClient } from '~/lib/graphql';
-import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Link2, Link2Off } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ThreadGraphViewProps {
   steps: StepStateInfo[];
@@ -127,6 +129,14 @@ function StepNode({ data }: { data: any }) {
         </div>
       )}
 
+      {/* Retry Badge - Only show if retryCount > 1 */}
+      {data.retryCount > 1 && (
+        <div className="absolute -top-2 -right-2 bg-blue-500 text-white rounded-full px-2 py-0.5 text-xs font-bold shadow-md flex items-center gap-1">
+          <RefreshCw className="w-3 h-3" />
+          {data.retryCount}
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="px-4 pt-4 pb-3">
         {/* Title Row */}
@@ -189,23 +199,11 @@ function StepNode({ data }: { data: any }) {
           </div>
         )}
 
-        {/* Retries */}
-        {data.retryCount > 0 && (
-          <div className="flex items-center gap-1 text-orange-500">
+        {/* Retries - Only show if more than 1 retry */}
+        {data.retryCount > 1 && (
+          <div className="flex items-center gap-1 text-blue-600 font-semibold">
             <RefreshCw className="w-3 h-3" />
             <span>{data.retryCount}</span>
-          </div>
-        )}
-
-        {/* Hash Chain Verification Indicator */}
-        {data.hashChainValid !== undefined && (
-          <div 
-            className={`flex items-center gap-0.5 ${data.hashChainValid ? 'text-green-500' : 'text-red-500'} cursor-help`}
-            title={data.hashChainValid 
-              ? 'Verified: This step is correctly linked in the sequence and hasn\'t been tampered with.' 
-              : 'Warning: This step may be out of order or the sequence has been modified.'}
-          >
-            {data.hashChainValid ? <Link2 className="w-3 h-3" /> : <Link2Off className="w-3 h-3" />}
           </div>
         )}
 
@@ -250,145 +248,58 @@ const nodeTypes = {
   group: ServiceGroupNode,
 };
 
-export default function ThreadGraphView({ steps, validations = [], onNodeClick }: ThreadGraphViewProps) {
-  // Fetch step histories to get actor info
-  const { data: stepHistories } = useQuery({
-    queryKey: ['stepHistoriesForGraph', steps.map(s => `${s.stepName}:${s.idempotencyKey}`)],
-    queryFn: async () => {
-      if (steps.length === 0) return [];
-      const historyPromises = steps.map(step => 
-        graphqlClient.getStepHistory(step.threadId, step.stepName, step.idempotencyKey, 1)
-      );
-      const results = await Promise.all(historyPromises);
-      return results.map((history, idx) => ({
-        step: steps[idx],
-        history: history[0] || null,
-      }));
-    },
-    enabled: steps.length > 0,
+function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGraphViewProps) {
+  // Sort steps by timestamp (firstSeenAt)
+  const sortedSteps = [...steps].sort((a, b) => {
+    const timeA = new Date(a.firstSeenAt).getTime();
+    const timeB = new Date(b.firstSeenAt).getTime();
+    return timeA - timeB;
   });
 
-  // Extract unique actor IDs from step histories
-  const actorIds = new Set<string>();
-  stepHistories?.forEach(item => {
-    if (item.history?.actor) {
-      actorIds.add(item.history.actor);
-    }
-  });
-
-  // Resolve actor IDs to names
+  // Extract unique actor IDs and resolve them
+  const actorIds = Array.from(new Set(sortedSteps.map(s => s.actor).filter(Boolean)));
   const { data: resolvedActors } = useQuery({
-    queryKey: ['resolveActors', Array.from(actorIds)],
-    queryFn: () => graphqlClient.resolveActors(Array.from(actorIds)),
-    enabled: actorIds.size > 0,
+    queryKey: ['resolveActors', actorIds],
+    queryFn: () => graphqlClient.resolveActors(actorIds as string[]),
+    enabled: actorIds.length > 0,
   });
 
-  // Create a map of actor ID to name
+  // Create actor ID to name map
   const actorMap = new Map<string, string>();
   resolvedActors?.forEach(actor => {
     actorMap.set(actor.id, actor.name);
   });
 
-  // Sort steps using hash chain (cryptographic ordering)
-  const stepsWithHistory = stepHistories || steps.map(s => ({ step: s, history: null }));
-  
-  const sortStepsByHashChain = (stepsData: Array<{ step: any; history: any }>) => {
-    if (!stepsData || stepsData.length === 0) return [];
-    
-    // Build hash map for quick lookup
-    const hashMap = new Map<string, { step: any; history: any }>();
-    stepsData.forEach(item => {
-      if (item.step.hash) {
-        hashMap.set(item.step.hash, item);
-      }
-    });
-    
-    // Find genesis (step with no prevHash)
-    const genesis = stepsData.find(item => !item.step.prevHash);
-    if (!genesis) {
-      // Fallback to timestamp sorting if no genesis found
-      return [...stepsData].sort((a, b) => {
-        const timeA = new Date(a.step.firstSeenAt).getTime();
-        const timeB = new Date(b.step.firstSeenAt).getTime();
-        return timeA - timeB;
-      });
-    }
-    
-    // Build ordered list by following the hash chain
-    const ordered: Array<{ step: any; history: any }> = [genesis];
-    const orderedHashes = new Set<string>([genesis.step.hash]);
-    let current = genesis;
-    
-    while (ordered.length < stepsData.length) {
-      // Find next step (step whose prevHash matches current step's hash)
-      const next = stepsData.find(item => 
-        item.step.prevHash === current.step.hash && 
-        !orderedHashes.has(item.step.hash)
-      );
-      
-      if (!next) break; // Chain ends or is broken
-      
-      ordered.push(next);
-      orderedHashes.add(next.step.hash);
-      current = next;
-    }
-    
-    // Add any remaining steps that aren't in the chain (shouldn't happen with valid chain)
-    stepsData.forEach(item => {
-      if (!ordered.includes(item)) {
-        ordered.push(item);
-      }
-    });
-    
-    return ordered;
-  };
-  
-  const sortedStepsWithHistory = sortStepsByHashChain(stepsWithHistory);
-
-  // Group ALL steps by actorService (not consecutive, but all steps from same service)
+  // Group steps by actorService
   type ServiceGroup = {
     service: string;
-    steps: Array<{ step: any; history: any; index: number }>;
+    steps: Array<{ step: StepStateInfo; index: number }>;
   };
 
-  const serviceMap = new Map<string, Array<{ step: any; history: any; index: number }>>();
+  const serviceMap = new Map<string, Array<{ step: StepStateInfo; index: number }>>();
   
-  sortedStepsWithHistory.forEach((item, index) => {
-    const service = item.history?.actorService || 'Unknown Service';
+  sortedSteps.forEach((step, index) => {
+    const service = step.actorService || 'Unknown Service';
     
     if (!serviceMap.has(service)) {
       serviceMap.set(service, []);
     }
     
-    serviceMap.get(service)!.push({ step: item.step, history: item.history, index });
+    serviceMap.get(service)!.push({ step, index });
   });
 
   // Convert map to array of groups, maintaining the order of first appearance
   const serviceGroups: ServiceGroup[] = [];
   const seenServices = new Set<string>();
   
-  sortedStepsWithHistory.forEach((item) => {
-    const service = item.history?.actorService || 'Unknown Service';
+  sortedSteps.forEach((step) => {
+    const service = step.actorService || 'Unknown Service';
     if (!seenServices.has(service)) {
       seenServices.add(service);
       serviceGroups.push({
         service,
         steps: serviceMap.get(service)!,
       });
-    }
-  });
-
-  // Build hash→step map for edge creation using hash chain
-  const hashToStepMap = new Map<string, any>();
-  const prevHashToStepMap = new Map<string, any>();
-  const allSteps = sortedStepsWithHistory.map(item => item.step);
-  
-  allSteps.forEach(step => {
-    if (step.hash) {
-      hashToStepMap.set(step.hash, step);
-    }
-    if (step.prevHash) {
-      prevHashToStepMap.set(step.prevHash, step);
     }
   });
 
@@ -403,12 +314,17 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
   const GROUP_GAP = 60;
   const START_Y = 100;
 
-  // Calculate absolute positions for all steps first
+  // Calculate absolute positions for all steps with dynamic Y positioning
   let currentX = 50;
   const stepPositions = new Map<number, { x: number; y: number }>();
   
-  sortedStepsWithHistory.forEach((item, globalIndex) => {
-    stepPositions.set(globalIndex, { x: currentX, y: START_Y });
+  sortedSteps.forEach((step, globalIndex) => {
+    // Add some vertical variation for visual interest
+    // Alternate between slightly higher and lower positions
+    const yVariation = (globalIndex % 3 === 0) ? -20 : (globalIndex % 3 === 1) ? 20 : 0;
+    const dynamicY = START_Y + yVariation;
+    
+    stepPositions.set(globalIndex, { x: currentX, y: dynamicY });
     currentX += STEP_WIDTH + STEP_GAP;
   });
 
@@ -449,9 +365,8 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
     });
 
     // Create step nodes with absolute positioning (NOT relative to parent)
-    group.steps.forEach((item, stepIndex) => {
+    group.steps.forEach((item) => {
       const step = item.step;
-      const history = item.history;
       const globalIndex = item.index;
       
       // Count validations
@@ -466,17 +381,6 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
       );
       const hasCritical = stepValidations.some(v => v.hasCriticalViolation);
 
-      // Check hash chain validity
-      let hashChainValid: boolean | undefined = undefined;
-      if (globalIndex === 0) {
-        hashChainValid = !step.prevHash || step.prevHash === '';
-      } else {
-        const prevStepInOrder = allSteps[globalIndex - 1];
-        if (prevStepInOrder && step.prevHash) {
-          hashChainValid = step.prevHash === prevStepInOrder.hash;
-        }
-      }
-
       const nodeId = `step-${globalIndex}`;
       const pos = stepPositions.get(globalIndex)!;
 
@@ -490,14 +394,11 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
           status: step.status,
           retryCount: step.retryCount,
           step: step,
-          actor: history?.actor ? (actorMap.get(history.actor) || history.actor) : '',
-          actorService: history?.actorService || '',
+          actor: step.actor ? (actorMap.get(step.actor) || step.actor) : '',
+          actorService: step.actorService || '',
           validationCount: validationsWithIssues.length,
           hasCriticalValidation: hasCritical,
           inGroup: true, // Hide service badge since group shows it
-          hash: step.hash,
-          prevHash: step.prevHash,
-          hashChainValid,
           globalIndex,
         },
       };
@@ -512,9 +413,9 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
   // Build edges sequentially (step-0 → step-1 → step-2 → ...)
   const initialEdges: Edge[] = [];
   
-  for (let i = 1; i < allSteps.length; i++) {
-    const prevStep = allSteps[i - 1];
-    const currStep = allSteps[i];
+  for (let i = 1; i < sortedSteps.length; i++) {
+    const prevStep = sortedSteps[i - 1];
+    const currStep = sortedSteps[i];
     
     const sourceNodeId = `step-${i - 1}`;
     const targetNodeId = `step-${i}`;
@@ -550,14 +451,116 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [matchedNodes, setMatchedNodes] = useState<Node[]>([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const { fitView, setCenter } = useReactFlow();
 
-  // Update nodes when step histories or actor resolution changes
+  // Update nodes when steps or resolved actors change
   useEffect(() => {
-    if (stepHistories && stepHistories.length > 0) {
+    if (steps.length > 0) {
       setNodes(initialNodes);
       setEdges(initialEdges);
     }
-  }, [stepHistories, resolvedActors, setNodes, setEdges]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps, resolvedActors]);
+
+  // Search functionality
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    
+    if (!query.trim()) {
+      // Reset all nodes to normal state
+      setNodes((nds) =>
+        nds.map((node) => ({
+          ...node,
+          style: {
+            ...node.style,
+            opacity: 1,
+          },
+        }))
+      );
+      setMatchedNodes([]);
+      setCurrentMatchIndex(0);
+      return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+
+    // Find all matching nodes
+    setNodes((nds) => {
+      const matches: Node[] = [];
+      
+      const updatedNodes = nds.map((node) => {
+        const isMatch =
+          node.data.label?.toLowerCase().includes(lowerQuery) ||
+          node.data.actor?.toLowerCase().includes(lowerQuery) ||
+          node.data.actorService?.toLowerCase().includes(lowerQuery) ||
+          node.data.status?.toLowerCase().includes(lowerQuery);
+
+        // Collect all matching step nodes
+        if (isMatch && node.type === 'stepNode') {
+          matches.push(node);
+        }
+
+        return {
+          ...node,
+          style: {
+            ...node.style,
+            opacity: isMatch || node.type === 'group' ? 1 : 0.3,
+          },
+        };
+      });
+
+      // Store matched nodes and reset to first match
+      setMatchedNodes(matches);
+      setCurrentMatchIndex(0);
+
+      // Center on first match
+      if (matches.length > 0) {
+        const firstMatch = matches[0];
+        const nodeX = firstMatch.position.x;
+        const nodeY = firstMatch.position.y;
+        
+        requestAnimationFrame(() => {
+          setCenter(nodeX + 110, nodeY + 70, {
+            zoom: 1.2,
+            duration: 800,
+          });
+        });
+      }
+
+      return updatedNodes;
+    });
+  }, [setNodes, setCenter]);
+
+  // Navigate to next match
+  const handleNextMatch = useCallback(() => {
+    if (matchedNodes.length === 0) return;
+    
+    const nextIndex = (currentMatchIndex + 1) % matchedNodes.length;
+    setCurrentMatchIndex(nextIndex);
+    
+    const node = matchedNodes[nextIndex];
+    setCenter(node.position.x + 110, node.position.y + 70, {
+      zoom: 1.2,
+      duration: 800,
+    });
+  }, [matchedNodes, currentMatchIndex, setCenter]);
+
+  // Navigate to previous match
+  const handlePrevMatch = useCallback(() => {
+    if (matchedNodes.length === 0) return;
+    
+    const prevIndex = (currentMatchIndex - 1 + matchedNodes.length) % matchedNodes.length;
+    setCurrentMatchIndex(prevIndex);
+    
+    const node = matchedNodes[prevIndex];
+    setCenter(node.position.x + 110, node.position.y + 70, {
+      zoom: 1.2,
+      duration: 800,
+    });
+  }, [matchedNodes, currentMatchIndex, setCenter]);
 
   const onNodeClickHandler = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -580,7 +583,52 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
   }
 
   return (
-    <div className="border-2 border-gray-200 rounded-lg bg-gray-50" style={{ height: 'calc(100vh - 280px)' }}>
+    <div className="border-2 border-gray-200 rounded-lg bg-gray-50 relative" style={{ height: 'calc(100vh - 280px)' }}>
+      {/* Search Bar */}
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search steps, services, status..."
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="pl-10 pr-10 py-2 w-80 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => handleSearch('')}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        
+        {/* Navigation buttons - only show when there are matches */}
+        {matchedNodes.length > 1 && (
+          <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-lg px-2 py-1">
+            <button
+              onClick={handlePrevMatch}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              title="Previous match"
+            >
+              <ChevronLeft className="w-4 h-4 text-gray-600" />
+            </button>
+            <span className="text-xs text-gray-600 px-2 font-medium">
+              {currentMatchIndex + 1} / {matchedNodes.length}
+            </span>
+            <button
+              onClick={handleNextMatch}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              title="Next match"
+            >
+              <ChevronRight className="w-4 h-4 text-gray-600" />
+            </button>
+          </div>
+        )}
+      </div>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -610,5 +658,14 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
         />
       </ReactFlow>
     </div>
+  );
+}
+
+// Wrapper component with ReactFlowProvider
+export default function ThreadGraphView(props: ThreadGraphViewProps) {
+  return (
+    <ReactFlowProvider>
+      <ThreadGraphViewInner {...props} />
+    </ReactFlowProvider>
   );
 }

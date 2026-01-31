@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 
 export default function APIKeys() {
@@ -104,10 +104,8 @@ export default function APIKeys() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-
-      <div className="flex-1 ml-64 p-8">
+    <AppLayout>
+      <div className="p-8">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">API Keys</h1>
@@ -353,6 +351,6 @@ export default function APIKeys() {
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }

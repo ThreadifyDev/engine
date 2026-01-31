@@ -186,27 +186,51 @@ export class ThreadStep {
     
   /**
    * Mark step as successful
-   * @param message - Optional success message
-   * @param finalContext - Optional final context data
+   * @param messageOrData - Success message (string) or data object
    * @returns Promise resolving to step result (without internal details)
+   * @example
+   * // With string message
+   * await step.success('Order placed successfully');
+   * 
+   * // With data object
+   * await step.success({ message: 'Order placed', orderId: 'ORD-123', total: 99.99 });
+   * 
+   * // Without data
+   * await step.success();
    */
-  success(message?: string, finalContext?: StepContext): Promise<StepResult>;
+  success(messageOrData?: string | StepContext): Promise<StepResult>;
   
   /**
    * Mark step as failed
-   * @param message - Failure message
-   * @param finalContext - Optional final context data
+   * @param messageOrData - Failure message (string) or error data object
    * @returns Promise resolving to step result (without internal details)
+   * @example
+   * // With string message
+   * await step.failed('Payment processing failed');
+   * 
+   * // With error object
+   * await step.failed({ message: 'Payment processing failed', errorCode: 'TIMEOUT', retries: 2 });
+   * 
+   * // Without data
+   * await step.failed();
    */
-  failed(message: string, finalContext?: StepContext): Promise<StepResult>;
+  failed(messageOrData?: string | StepContext): Promise<StepResult>;
   
   /**
-   * Skip this step
-   * @param message - Skip reason
-   * @param finalContext - Optional final context data
+   * Mark step as error
+   * @param messageOrData - Error message (string) or error data object
    * @returns Promise resolving to step result (without internal details)
+   * @example
+   * // With string message
+   * await step.error('Service unavailable');
+   * 
+   * // With error object
+   * await step.error({ message: 'Service unavailable', service: 'inventory-api', statusCode: 503 });
+   * 
+   * // Without data
+   * await step.error();
    */
-  skip(message: string, finalContext?: StepContext): Promise<StepResult>;
+  error(messageOrData?: string | StepContext): Promise<StepResult>;
 }
 
 export interface InvitePartyOptions {

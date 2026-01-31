@@ -66,6 +66,7 @@
       "description": "Read-only access, monitors critical violations",
       "permissions": [
         "thread.read.*",
+        "thread.write.*",
         "notification.validation.violated.critical",
         "notification.validation.violated.timeout.*",
         "notification.validation.violated.retry_limit.*"
@@ -76,6 +77,7 @@
       "description": "Limited read access, own execution notifications only",
       "permissions": [
         "thread.read.own",
+        "thread.write.*",
         "notification.execution.failed.own",
         "notification.execution.success.own"
       ]
