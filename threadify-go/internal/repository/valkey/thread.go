@@ -19,16 +19,18 @@ type ThreadRepository struct {
 	ttl               int // TTL in seconds
 	postgresRepo      *postgres.ThreadRepository
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
+	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
 }
 
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
 // PostgreSQL fallback is always required for production hot/cold architecture
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository) *ThreadRepository {
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager) *ThreadRepository {
 	return &ThreadRepository{
 		valkey:            valkey,
 		ttl:               ttl,
 		postgresRepo:      postgresRepo,
 		stepStatePostgres: stepStatePostgres,
+		cacheManager:      cacheManager,
 	}
 }
 

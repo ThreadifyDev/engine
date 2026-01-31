@@ -101,15 +101,17 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		ContractGraph     func(childComplexity int, name string, version *int) int
-		ResolveActors     func(childComplexity int, ids []string) int
-		StepHistory       func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
-		Thread            func(childComplexity int, id string) int
-		ThreadChain       func(childComplexity int, rootID string, maxDepth *int) int
-		Threads           func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
-		ThreadsByContract func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
-		ThreadsByRef      func(childComplexity int, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
-		ValidationResults func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
+		ContractGraph         func(childComplexity int, name string, version *int) int
+		ResolveActors         func(childComplexity int, ids []string) int
+		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
+		Thread                func(childComplexity int, id string) int
+		ThreadChain           func(childComplexity int, rootID string, maxDepth *int) int
+		Threads               func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
+		ThreadsByContract     func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
+		ThreadsByRef          func(childComplexity int, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
+		ValidationResults     func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
+		VerifyStepIntegrity   func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
+		VerifyThreadIntegrity func(childComplexity int, threadID string) int
 	}
 
 	StepHistory struct {
@@ -121,16 +123,27 @@ type ComplexityRoot struct {
 		Context      func(childComplexity int) int
 		Duration     func(childComplexity int) int
 		Error        func(childComplexity int) int
+		Hash         func(childComplexity int) int
+		PrevHash     func(childComplexity int) int
 		Status       func(childComplexity int) int
 		Timestamp    func(childComplexity int) int
 	}
 
+	StepIntegrityStatus struct {
+		Error    func(childComplexity int) int
+		Hash     func(childComplexity int) int
+		PrevHash func(childComplexity int) int
+		Verified func(childComplexity int) int
+	}
+
 	StepStateInfo struct {
 		FirstSeenAt       func(childComplexity int) int
+		Hash              func(childComplexity int) int
 		History           func(childComplexity int, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		IdempotencyKey    func(childComplexity int) int
 		LastUpdatedAt     func(childComplexity int) int
 		LatestStepID      func(childComplexity int) int
+		PrevHash          func(childComplexity int) int
 		PreviousStep      func(childComplexity int) int
 		RetryCount        func(childComplexity int) int
 		Status            func(childComplexity int) int
@@ -225,11 +238,15 @@ type QueryResolver interface {
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
 	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error)
 	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
+	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
+	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
 }
 type StepStateInfoResolver interface {
 	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
 	LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
 
+	Hash(ctx context.Context, obj *models.StepStateInfo) (*string, error)
+	PrevHash(ctx context.Context, obj *models.StepStateInfo) (*string, error)
 	Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error)
 	VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error)
 	History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
@@ -555,6 +572,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.ValidationResults(childComplexity, args["threadId"].(string), args["stepName"].(string), args["idempotencyKey"].(string)), true
+	case "Query.verifyStepIntegrity":
+		if e.complexity.Query.VerifyStepIntegrity == nil {
+			break
+		}
+
+		args, err := ec.field_Query_verifyStepIntegrity_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.VerifyStepIntegrity(childComplexity, args["threadId"].(string), args["stepName"].(string), args["idempotencyKey"].(string)), true
+	case "Query.verifyThreadIntegrity":
+		if e.complexity.Query.VerifyThreadIntegrity == nil {
+			break
+		}
+
+		args, err := ec.field_Query_verifyThreadIntegrity_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.VerifyThreadIntegrity(childComplexity, args["threadId"].(string)), true
 
 	case "StepHistory.actor":
 		if e.complexity.StepHistory.Actor == nil {
@@ -604,6 +643,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepHistory.Error(childComplexity), true
+	case "StepHistory.hash":
+		if e.complexity.StepHistory.Hash == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.Hash(childComplexity), true
+	case "StepHistory.prevHash":
+		if e.complexity.StepHistory.PrevHash == nil {
+			break
+		}
+
+		return e.complexity.StepHistory.PrevHash(childComplexity), true
 	case "StepHistory.status":
 		if e.complexity.StepHistory.Status == nil {
 			break
@@ -617,12 +668,43 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.StepHistory.Timestamp(childComplexity), true
 
+	case "StepIntegrityStatus.error":
+		if e.complexity.StepIntegrityStatus.Error == nil {
+			break
+		}
+
+		return e.complexity.StepIntegrityStatus.Error(childComplexity), true
+	case "StepIntegrityStatus.hash":
+		if e.complexity.StepIntegrityStatus.Hash == nil {
+			break
+		}
+
+		return e.complexity.StepIntegrityStatus.Hash(childComplexity), true
+	case "StepIntegrityStatus.prevHash":
+		if e.complexity.StepIntegrityStatus.PrevHash == nil {
+			break
+		}
+
+		return e.complexity.StepIntegrityStatus.PrevHash(childComplexity), true
+	case "StepIntegrityStatus.verified":
+		if e.complexity.StepIntegrityStatus.Verified == nil {
+			break
+		}
+
+		return e.complexity.StepIntegrityStatus.Verified(childComplexity), true
+
 	case "StepStateInfo.firstSeenAt":
 		if e.complexity.StepStateInfo.FirstSeenAt == nil {
 			break
 		}
 
 		return e.complexity.StepStateInfo.FirstSeenAt(childComplexity), true
+	case "StepStateInfo.hash":
+		if e.complexity.StepStateInfo.Hash == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.Hash(childComplexity), true
 	case "StepStateInfo.history":
 		if e.complexity.StepStateInfo.History == nil {
 			break
@@ -652,6 +734,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.LatestStepID(childComplexity), true
+	case "StepStateInfo.prevHash":
+		if e.complexity.StepStateInfo.PrevHash == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.PrevHash(childComplexity), true
 	case "StepStateInfo.previousStep":
 		if e.complexity.StepStateInfo.PreviousStep == nil {
 			break
@@ -1095,6 +1183,9 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Hash chain fields for cryptographic integrity
+  hash: String
+  prevHash: String
   # Cryptographic verification (lazy-loaded, only computed when requested)
   verified: Boolean
   verificationError: String
@@ -1113,6 +1204,9 @@ type StepHistory {
   actorService: String!
   companyId: String!
   companyName: String!
+  # Hash chain for cryptographic integrity verification
+  hash: String
+  prevHash: String
 }
 
 type Thread {
@@ -1258,6 +1352,19 @@ type Query {
   
   # Resolve actor names from IDs (users or service accounts)
   resolveActors(ids: [String!]!): [ActorInfo!]!
+  
+  # Verify hash chain integrity for a thread (separate from thread query for performance)
+  verifyThreadIntegrity(threadId: String!): HashChainStatus!
+  
+  # Verify hash integrity for a single step
+  verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+}
+
+type StepIntegrityStatus {
+  verified: Boolean!
+  hash: String
+  prevHash: String
+  error: String
 }
 
 scalar JSON
@@ -1589,6 +1696,38 @@ func (ec *executionContext) field_Query_validationResults_args(ctx context.Conte
 		return nil, err
 	}
 	args["idempotencyKey"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_verifyStepIntegrity_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "threadId", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["threadId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "stepName", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["stepName"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "idempotencyKey", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["idempotencyKey"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_verifyThreadIntegrity_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "threadId", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["threadId"] = arg0
 	return args, nil
 }
 
@@ -3142,6 +3281,10 @@ func (ec *executionContext) fieldContext_Query_stepHistory(ctx context.Context, 
 				return ec.fieldContext_StepHistory_companyId(ctx, field)
 			case "companyName":
 				return ec.fieldContext_StepHistory_companyName(ctx, field)
+			case "hash":
+				return ec.fieldContext_StepHistory_hash(ctx, field)
+			case "prevHash":
+				return ec.fieldContext_StepHistory_prevHash(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type StepHistory", field.Name)
 		},
@@ -3276,6 +3419,110 @@ func (ec *executionContext) fieldContext_Query_resolveActors(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_resolveActors_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_verifyThreadIntegrity(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_verifyThreadIntegrity,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().VerifyThreadIntegrity(ctx, fc.Args["threadId"].(string))
+		},
+		nil,
+		ec.marshalNHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_verifyThreadIntegrity(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "verified":
+				return ec.fieldContext_HashChainStatus_verified(ctx, field)
+			case "lastVerifiedAt":
+				return ec.fieldContext_HashChainStatus_lastVerifiedAt(ctx, field)
+			case "totalEvents":
+				return ec.fieldContext_HashChainStatus_totalEvents(ctx, field)
+			case "brokenAt":
+				return ec.fieldContext_HashChainStatus_brokenAt(ctx, field)
+			case "error":
+				return ec.fieldContext_HashChainStatus_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type HashChainStatus", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_verifyThreadIntegrity_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_verifyStepIntegrity(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_verifyStepIntegrity,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Query().VerifyStepIntegrity(ctx, fc.Args["threadId"].(string), fc.Args["stepName"].(string), fc.Args["idempotencyKey"].(string))
+		},
+		nil,
+		ec.marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_verifyStepIntegrity(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "verified":
+				return ec.fieldContext_StepIntegrityStatus_verified(ctx, field)
+			case "hash":
+				return ec.fieldContext_StepIntegrityStatus_hash(ctx, field)
+			case "prevHash":
+				return ec.fieldContext_StepIntegrityStatus_prevHash(ctx, field)
+			case "error":
+				return ec.fieldContext_StepIntegrityStatus_error(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StepIntegrityStatus", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_verifyStepIntegrity_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -3680,6 +3927,180 @@ func (ec *executionContext) fieldContext_StepHistory_companyName(_ context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _StepHistory_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_hash,
+		func(ctx context.Context) (any, error) {
+			return obj.Hash, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_prevHash,
+		func(ctx context.Context) (any, error) {
+			return obj.PrevHash, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_prevHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepIntegrityStatus_verified(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepIntegrityStatus_verified,
+		func(ctx context.Context) (any, error) {
+			return obj.Verified, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepIntegrityStatus_verified(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepIntegrityStatus_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepIntegrityStatus_hash,
+		func(ctx context.Context) (any, error) {
+			return obj.Hash, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepIntegrityStatus_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepIntegrityStatus_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepIntegrityStatus_prevHash,
+		func(ctx context.Context) (any, error) {
+			return obj.PrevHash, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepIntegrityStatus_prevHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepIntegrityStatus_error(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepIntegrityStatus_error,
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepIntegrityStatus_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepStateInfo_threadId(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3941,6 +4362,64 @@ func (ec *executionContext) fieldContext_StepStateInfo_previousStep(_ context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _StepStateInfo_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_hash,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.StepStateInfo().Hash(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepStateInfo_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_prevHash,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.StepStateInfo().PrevHash(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_prevHash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepStateInfo_verified(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4044,6 +4523,10 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 				return ec.fieldContext_StepHistory_companyId(ctx, field)
 			case "companyName":
 				return ec.fieldContext_StepHistory_companyName(ctx, field)
+			case "hash":
+				return ec.fieldContext_StepHistory_hash(ctx, field)
+			case "prevHash":
+				return ec.fieldContext_StepHistory_prevHash(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type StepHistory", field.Name)
 		},
@@ -4482,6 +4965,10 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 				return ec.fieldContext_StepStateInfo_latestStepID(ctx, field)
 			case "previousStep":
 				return ec.fieldContext_StepStateInfo_previousStep(ctx, field)
+			case "hash":
+				return ec.fieldContext_StepStateInfo_hash(ctx, field)
+			case "prevHash":
+				return ec.fieldContext_StepStateInfo_prevHash(ctx, field)
 			case "verified":
 				return ec.fieldContext_StepStateInfo_verified(ctx, field)
 			case "verificationError":
@@ -7718,6 +8205,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "verifyThreadIntegrity":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_verifyThreadIntegrity(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "verifyStepIntegrity":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_verifyStepIntegrity(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -7807,6 +8338,55 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "hash":
+			out.Values[i] = ec._StepHistory_hash(ctx, field, obj)
+		case "prevHash":
+			out.Values[i] = ec._StepHistory_prevHash(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var stepIntegrityStatusImplementors = []string{"StepIntegrityStatus"}
+
+func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, obj *models.StepIntegrityStatus) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, stepIntegrityStatusImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StepIntegrityStatus")
+		case "verified":
+			out.Values[i] = ec._StepIntegrityStatus_verified(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hash":
+			out.Values[i] = ec._StepIntegrityStatus_hash(ctx, field, obj)
+		case "prevHash":
+			out.Values[i] = ec._StepIntegrityStatus_prevHash(ctx, field, obj)
+		case "error":
+			out.Values[i] = ec._StepIntegrityStatus_error(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -7945,6 +8525,72 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 			}
 		case "previousStep":
 			out.Values[i] = ec._StepStateInfo_previousStep(ctx, field, obj)
+		case "hash":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepStateInfo_hash(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "prevHash":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepStateInfo_prevHash(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "verified":
 			field := field
 
@@ -9201,6 +9847,20 @@ func (ec *executionContext) marshalNGraphNode2ᚖgithubᚗcomᚋthreadifyᚋengi
 	return ec._GraphNode(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNHashChainStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v models.HashChainStatus) graphql.Marshaler {
+	return ec._HashChainStatus(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *models.HashChainStatus) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._HashChainStatus(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNID2string(ctx context.Context, v any) (string, error) {
 	res, err := graphql.UnmarshalID(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -9285,6 +9945,20 @@ func (ec *executionContext) marshalNStepHistory2ᚖgithubᚗcomᚋthreadifyᚋen
 		return graphql.Null
 	}
 	return ec._StepHistory(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNStepIntegrityStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v models.StepIntegrityStatus) graphql.Marshaler {
+	return ec._StepIntegrityStatus(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v *models.StepIntegrityStatus) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._StepIntegrityStatus(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.StepStateInfo) graphql.Marshaler {

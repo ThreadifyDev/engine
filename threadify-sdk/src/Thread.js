@@ -682,7 +682,7 @@ export class Connection {
         if (data.action === 'joinThread') {
           if (data.status === 'success') {
             this._debugLog(`Joined thread: ${data.threadId}`);
-            this._debugLog(`Role: ${data.role}, Permissions: ${data.permissions}`);
+            this._debugLog(`Role: ${data.role}, AccessLevel: ${data.accessLevel}`);
             
             // Create and return a ThreadInstance
             const threadInstance = new ThreadInstance(
@@ -792,18 +792,16 @@ export class ThreadInstance {
    * @param {Function} handler - Response handler function
    */
   _onceResponse(handler) {
-    const listener = (data) => {
-      handler(data);
-      this.connection.ws.removeListener('message', listener);
-    };
-    this.connection.ws.on('message', (data) => {
+    const wrapper = (data) => {
       try {
         const message = JSON.parse(data.toString());
-        listener(message);
+        handler(message);
+        this.connection.ws.removeListener('message', wrapper);
       } catch (e) {
         console.error('Failed to parse message:', e);
       }
-    });
+    };
+    this.connection.ws.on('message', wrapper);
   }
 
   /**

@@ -131,11 +131,51 @@ try {
 } catch (error) {
   // Threadify tracks failures too
   await thread.step('payment_processed')
-    .addContext({ orderId, error: error.message })
-    .failed('Payment gateway timeout');
+    .addContext({ orderId })
+    .failed({ 
+      message: 'Payment gateway timeout',
+      errorCode: 'TIMEOUT',
+      retries: 2,
+      nextRetryAt: new Date(Date.now() + 5000).toISOString()
+    });
   
   // You'll get notified automatically if this violates your workflow rules
 }
+```
+
+### Mark Steps with Messages or Data
+
+Complete steps with either a simple message or rich data object:
+
+```javascript
+// Simple string message
+await thread.step('order_placed')
+  .addContext({ orderId: 'ORD-123' })
+  .success('Order placed successfully');
+
+// Rich data object
+await thread.step('payment_processed')
+  .addContext({ orderId: 'ORD-123' })
+  .success({ 
+    message: 'Payment processed',
+    transactionId: 'txn_abc123',
+    amount: 99.99,
+    timestamp: new Date().toISOString()
+  });
+
+// Error with details
+await thread.step('inventory_check')
+  .addContext({ warehouseId: 'WH-001' })
+  .error({ 
+    message: 'Inventory service unavailable',
+    service: 'inventory-api',
+    statusCode: 503,
+    retryable: true
+  });
+
+// No message or data
+await thread.step('simple_step')
+  .success();
 ```
 
 ### Work with Contracts (Predefined Workflows)
