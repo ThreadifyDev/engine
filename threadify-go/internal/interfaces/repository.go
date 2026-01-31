@@ -72,7 +72,7 @@ type ThreadRepository interface {
 	Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error)
 
 	// GetStepStatus checks step status in Valkey or PostgreSQL
-	GetStepStatus(ctx context.Context, threadID, stepName, idempotencyKey string, writeBack ...bool) (string, error)
+	GetStepStatus(ctx context.Context, threadID, stepName, stepStatus, idempotencyKey string, writeBack ...bool) (string, error)
 
 	// GetCompletedStepsCount returns count of completed steps
 	GetCompletedStepsCount(ctx context.Context, threadID string, writeBack ...bool) (int64, error)

@@ -82,6 +82,13 @@ cache:
   thread_ttl_ms: 18000000      # Thread data expires after 5 hours (hot cache, PostgreSQL fallback)
   step_event_ttl_ms: 18000000  # Step events expire after 5 hours (hot cache, PostgreSQL fallback)
   session_ttl_ms: 1800000      # WebSocket session expires after 30 minutes (short-lived, no persistence)
+  
+  # LRU cache sizes for in-memory caching
+  lru:
+    contract_cache_size: 1000        # Contract graph versions
+    thread_cache_size: 10000         # Thread metadata
+    role_cache_size: 50000           # User roles per thread
+    step_status_cache_size: 100000   # Step status for duplicate detection
 
 # Invitation configuration
 invitations:
@@ -131,8 +138,8 @@ nats:
   consumer_ack_wait_seconds: 30
   consumer_max_deliver: 3
   
-  # Archiver configuration
-  archiver_max_deliver: 10
+  # Archiver configuration (unlimited retries to prevent data loss)
+  archiver_max_deliver: -1  # -1 = unlimited retries
   archiver_ack_wait_seconds: 30
   
   # Stream retention

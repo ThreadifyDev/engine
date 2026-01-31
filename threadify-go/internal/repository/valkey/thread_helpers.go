@@ -32,36 +32,33 @@ func (r *ThreadRepository) extendAllThreadTTLs(ctx context.Context, threadID str
 	return err
 }
 
-// GetStepStatus checks step status in Valkey or PostgreSQL with optional write-back
-func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName, idempotencyKey string, writeBack ...bool) (string, error) {
+// GetStepStatus checks step status in cache, Valkey, or PostgreSQL with optional write-back
+func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName, stepStatus, idempotencyKey string, writeBack ...bool) (string, error) {
 	stepKey := stepName + ":" + idempotencyKey
 	stepHashKey := "thread:" + threadID + ":steps:" + stepKey
 
-	// 1. Try Valkey first (hot path) - check if THIS step exists
+	// 1. Check in-memory LRU cache first (fastest - catches duplicates immediately)
+	if r.cacheManager != nil {
+		if cachedStatus, found := r.cacheManager.GetStepStatus(stepHashKey); found {
+			return cachedStatus, nil
+		}
+	}
+
+	// 2. Try Valkey (hot path) - check if THIS step exists
 	status, err := r.valkey.HGet(ctx, stepHashKey, "status")
 	if err == nil && status != "" {
+		// Cache the status for future duplicate checks
+		if r.cacheManager != nil {
+			r.cacheManager.SetStepStatus(stepHashKey, status)
+		}
 		return status, nil
 	}
 
-	// PERFORMANCE: Thread existence check commented out (saves ~1.5ms per call)
-	// Rationale: If step not found, it's a new step 99.9% of the time
-	// Thread eviction is rare (threads active for hours with 5hr TTL)
-	// PostgreSQL fallback below still handles cold threads if needed
-	// ============================================================================
-	// 2. Step not found in Valkey - check if thread exists in Valkey
-	// If thread exists in Valkey, the step definitely doesn't exist (it's new)
-	// Only check PostgreSQL if thread was evicted from cache
-	// threadKey := fmt.Sprintf("thread:%s", threadID)
-	// threadExists, threadErr := r.valkey.Exists(ctx, threadKey)
-	// if threadErr == nil && threadExists {
-	// 	// Thread is in Valkey but step is not - this is a new step
-	// 	// Skip PostgreSQL check (step definitely doesn't exist)
-	// 	return "", nil
-	// }
-	// ============================================================================
-
-	// Step not found - assume it's a new step (skip PostgreSQL for performance)
+	// Step not found - add it to LRU cache
 	// TODO: Re-enable thread existence check if duplicate detection issues arise
+	if r.cacheManager != nil {
+		r.cacheManager.SetStepStatus(stepHashKey, stepStatus)
+	}
 	return "", nil
 }
 

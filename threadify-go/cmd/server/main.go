@@ -163,7 +163,11 @@ func main() {
 	// Create PostgreSQL repositories for fallback
 	postgresThreadRepo := postgres.NewThreadRepository(db.Pool)
 	stepStatePostgres := postgres.NewStepStateRepository(db.Pool)
-	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres)
+
+	// Create cache manager for duplicate detection
+	cacheManager := service.NewCacheService()
+
+	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager)
 
 	// Initialize step event service with config
 	batchSize := viper.GetInt("thread_activities.batch_size")
@@ -247,7 +251,6 @@ func main() {
 	// Use thread TTL for access keys (same as thread metadata)
 	accessRepo := valkey.NewAccessRepository(valkeyService, int(threadTTL.Seconds()))
 	accessRepo.SetRBACLoader(rbacLoader) // Enable dynamic permission-to-role mapping
-	cacheManager := service.NewCacheService()
 	luaScriptManager := valkey.NewLuaScriptManager(valkeyService)
 
 	// Initialize access batcher for bulk operations

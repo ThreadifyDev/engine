@@ -40,6 +40,11 @@ type CacheManager interface {
 
 	// Clear all roles for a thread
 	ClearThreadRoles(threadID string)
+
+	// Step status caching (for duplicate detection)
+	GetStepStatus(stepHashKey string) (string, bool)
+	SetStepStatus(stepHashKey, status string)
+	ClearStepStatus(stepHashKey string)
 }
 
 // ContractValidator defines the interface for contract validation operations

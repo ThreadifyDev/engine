@@ -115,23 +115,25 @@ export class ThreadStep {
   /**
    * Stop the step and send the event to server
    * @param {string} status - Final status ('success', 'failed', 'skipped')
-   * @param {string} message - Optional message for the step completion
-   * @param {Object} finalContext - Optional final context data
+   * @param {string|Object} messageOrData - Optional message (string) or data object
    * @returns {Promise<ThreadStep>} - Returns this for method chaining
    */
-  async stop(status = 'success', message = '', finalContext = {}) {
+  async stop(status = 'success', messageOrData = '') {
     // Set final state
     this.event.finishedAt = new Date().toISOString();
     this.event.status = status;
     
-    // Add final context if provided
-    if (Object.keys(finalContext).length > 0) {
-      this.addContext(finalContext);
-    }
-    
-    // Add message to context if provided
-    if (message) {
-      this.event.context.message = String(message);
+    // Handle messageOrData - can be string or object
+    if (typeof messageOrData === 'string') {
+      // If string, add as message field
+      if (messageOrData) {
+        this.addContext({ message: messageOrData });
+      }
+    } else if (typeof messageOrData === 'object' && messageOrData !== null) {
+      // If object, add directly to context
+      if (Object.keys(messageOrData).length > 0) {
+        this.addContext(messageOrData);
+      }
     }
     
     // Generate and add idempotency key
@@ -242,31 +244,55 @@ export class ThreadStep {
 
   /**
    * Complete step with success status (convenience method)
-   * @param {string} message - Success message (optional)
-   * @param {Object} result - Result data (optional)
+   * @param {string|Object} messageOrData - Success message (string) or data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.success('Order placed successfully');
+   * 
+   * // With data object
+   * await step.success({ message: 'Order placed', orderId: 'ORD-123', total: 99.99 });
+   * 
+   * // Without data
+   * await step.success();
    */
-  async success(message = 'Step completed successfully', result = {}) {
-    return this.stop('success', message, result);
+  async success(messageOrData = '') {
+    return this.stop('success', messageOrData);
   }
 
   /**
    * Complete step with error status (convenience method)
-   * @param {string} message - Error message (optional)
-   * @param {Object} error - Error data (optional)
+   * @param {string|Object} messageOrData - Error message (string) or error data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.error('Service unavailable');
+   * 
+   * // With error object
+   * await step.error({ message: 'Service unavailable', service: 'inventory-api', statusCode: 503 });
+   * 
+   * // Without data
+   * await step.error();
    */
-  async error(message = 'Step failed with error', error = {}) {
-    return this.stop('error', message, error);
+  async error(messageOrData = '') {
+    return this.stop('error', messageOrData);
   }
 
   /**
    * Complete step with failed status (convenience method)
-   * @param {string} message - Failure message (optional)
-   * @param {Object} error - Error data (optional)
+   * @param {string|Object} messageOrData - Failure message (string) or error data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.failed('Payment processing failed');
+   * 
+   * // With error object
+   * await step.failed({ message: 'Payment processing failed', errorCode: 'TIMEOUT', retries: 2 });
+   * 
+   * // Without data
+   * await step.failed();
    */
-  async failed(message = 'Step failed', error = {}) {
-    return this.stop('failed', message, error);
+  async failed(messageOrData = '') {
+    return this.stop('failed', messageOrData);
   }
 }

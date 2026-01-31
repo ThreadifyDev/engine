@@ -151,7 +151,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			return &models.StartThreadResponse{
 				Action:  "startThread",
 				Status:  "error",
-				Message: fmt.Sprintf("Failed to load contract: %v", err),
+				Message: "Failed to load contract",
 			}
 		}
 		contractVersion = actualVersion // Use the actual version that was loaded
@@ -164,7 +164,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 			return &models.StartThreadResponse{
 				Action:  "startThread",
 				Status:  "error",
-				Message: fmt.Sprintf("Failed to retrieve contract: %v", err),
+				Message: "Failed to retrieve contract",
 			}
 		}
 		contractUUID = contract.ID
@@ -244,7 +244,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		return &models.StartThreadResponse{
 			Action:  "startThread",
 			Status:  "error",
-			Message: fmt.Sprintf("Failed to serialize thread: %v", err),
+			Message: "Failed to serialize thread",
 		}
 	}
 	threadDataStr := string(threadDataBytes)
@@ -269,7 +269,7 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 		return &models.StartThreadResponse{
 			Action:  "startThread",
 			Status:  "error",
-			Message: fmt.Sprintf("Failed to create thread: %v", err),
+			Message: "Failed to create thread",
 		}
 	}
 
@@ -295,7 +295,6 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 
 // hasSuccessfulSteps checks if thread has any completed steps
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
-	// Use repository method instead of direct Valkey call
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, true)
@@ -369,7 +368,7 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",
-			Message: fmt.Sprintf("Thread not found: %s", req.ThreadID),
+			Message: "Thread not found: " + req.ThreadID,
 		}
 	}
 
@@ -410,11 +409,11 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		idempCheckStart := time.Now()
-		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, idempotencyKey, true)
+		existingStatus, err := s.repo.GetStepStatus(ctx, req.ThreadID, req.StepName, req.Status, idempotencyKey, true)
 		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "idempotency_check").Observe(time.Since(idempCheckStart).Seconds())
 		if err == nil && existingStatus != "" {
 			// Step exists - check if it's already completed
-			if existingStatus == "completed" {
+			if existingStatus == "completed" || existingStatus == "success" {
 				// Duplicate successful step - reject
 				return &models.RecordEventResponse{
 					Action:      "recordThreadEvent",
@@ -1095,7 +1094,7 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 		contractID = *thread.ContractID
 	}
 
-	fmt.Printf("🔄 DEBUG: About to write to streams:thread_metadata for thread %s\n", threadID)
+	fmt.Printf("🔄 DEBUG: About to publish to NATS:thread_metadata for thread %s\n", threadID)
 
 	// Write to thread_metadata stream for normalized table
 	streamValues := map[string]interface{}{

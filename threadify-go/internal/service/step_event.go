@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/threadify/engine/internal/config"
@@ -42,6 +44,24 @@ func (ses *StepEventService) Start() error {
 // Stop stops the step event service (no-op for direct write mode)
 func (ses *StepEventService) Stop() error {
 	return nil
+}
+
+// loadLuaScript loads a Lua script from the lua/ directory
+func loadLuaScript(filename string) (string, error) {
+	// Try multiple possible paths (handles different working directories)
+	possiblePaths := []string{
+		filepath.Join("internal", "repository", "valkey", "lua", filename),
+		filepath.Join("threadify-go", "internal", "repository", "valkey", "lua", filename),
+		filepath.Join("/Users/martins2/Downloads/ThreadifyEngine/threadify-go", "internal", "repository", "valkey", "lua", filename),
+	}
+
+	for _, path := range possiblePaths {
+		if data, err := os.ReadFile(path); err == nil {
+			return string(data), nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to load Lua script: %s", filename)
 }
 
 // RecordStepEventDirect records a step event immediately without batching
@@ -106,53 +126,11 @@ type HashResult struct {
 }
 
 // executeAtomicHashScript performs atomic hash generation and thread metadata update via Lua script
+// This MUST be atomic to prevent race conditions in the hash chain
 func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
-	stepEventID := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
+	stepEventID := event.ThreadID + ":" + event.StepName + ":" + event.IdempotencyKey
 
-	// Step 1: Get current hash atomically
-	getHashStart := time.Now()
-	threadKey := fmt.Sprintf("thread:%s", event.ThreadID)
-
-	luaScript := `
-		-- Get current thread metadata
-		local threadKey = KEYS[1]
-		local threadData = redis.call('GET', threadKey)
-		
-		if not threadData then
-			return {err = "Thread not found"}
-		end
-		
-		-- Parse thread JSON using cjson (no require needed in Redis/Valkey)
-		local threadObj = cjson.decode(threadData)
-		local oldHash = threadObj.lastHash or ""
-		
-		-- Return old hash for Go to calculate new hash
-		return {oldHash}
-	`
-
-	result, err := ses.valkeyRepo.Eval(context.Background(), luaScript, []string{threadKey})
-	getHashDuration := time.Since(getHashStart)
-	log.Printf("[PERF] StepEvent LUA_GET_HASH: %s | duration=%v | success=%t", stepEventID, getHashDuration, err == nil)
-
-	if err != nil {
-		log.Printf("[PERF] StepEvent LUA_GET_HASH FAILED: %s | duration=%v | error=%v", stepEventID, getHashDuration, err)
-		logInternalErrorWithDetails("executeAtomicHashScript (get old hash)", fmt.Sprintf("threadId=%s", event.ThreadID), err)
-		return nil, sanitizeError(err)
-	}
-
-	// Parse result to get oldHash
-	resultSlice, ok := result.([]interface{})
-	if !ok || len(resultSlice) < 1 {
-		log.Printf("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
-		logInternalError("executeAtomicHashScript", fmt.Errorf("unexpected result format: %v", result))
-		return nil, fmt.Errorf("failed to process step event")
-	}
-
-	oldHash, _ := resultSlice[0].(string)
-
-	// Step 2: Calculate new hash using HMAC-SHA256 with secret key
-	calcHashStart := time.Now()
-	// Format: hmac-sha256-{version}:{hash}
+	// Get hash configuration
 	version := ses.config.Security.HashChainCurrentVersion
 	if version == "" {
 		log.Printf("[PERF] StepEvent HASH_CALC_FAILED: %s | version not configured", stepEventID)
@@ -167,47 +145,97 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 		return nil, fmt.Errorf("failed to process step event")
 	}
 
-	h := hmac.New(sha256.New, []byte(secret))
-	hashData := fmt.Sprintf("%s:%s:%s:%s:%s", oldHash, event.ThreadID, event.StepID, event.IdempotencyKey, event.Timestamp.Format(time.RFC3339))
-	h.Write([]byte(hashData))
-	newHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
-	log.Printf("[PERF] StepEvent HASH_CALC: %s | duration=%v", stepEventID, time.Since(calcHashStart))
+	// Get old hash, calculate new hash, and update - with retry on race condition
+	var oldHash, newHash string
+	maxRetries := 3
+	atomicStart := time.Now()
+	threadKey := "thread:" + event.ThreadID
 
-	// Step 3: Update thread metadata atomically with new hash
-	updateStart := time.Now()
-	// Note: Thread TTL is managed by validate_and_update_step_state.lua
-	// which extends TTL on all thread keys to prevent partial expiration
-	updateScript := `
-		-- Update thread metadata with new hash
-		local threadKey = KEYS[1]
-		local newHash = ARGV[1]
-		local currentVersion = ARGV[2]
-		
-		-- Get current thread data
-		local threadData = redis.call('GET', threadKey)
-		if not threadData then
-			return {err = "Thread not found"}
-		end
-		
-		-- Parse and update
-		local threadObj = cjson.decode(threadData)
-		threadObj.lastHash = newHash
-		threadObj.hashVersion = currentVersion
-		
-		-- Save back atomically
-		redis.call('SET', threadKey, cjson.encode(threadObj))
-		
-		return {ok = "updated"}
-	`
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Load and execute get hash script
+		getScript, err := loadLuaScript("get_thread_hash.lua")
+		if err != nil {
+			log.Printf("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
 
-	_, err = ses.valkeyRepo.Eval(context.Background(), updateScript, []string{threadKey}, newHash, version)
-	updateDuration := time.Since(updateStart)
-	log.Printf("[PERF] StepEvent LUA_UPDATE_HASH: %s | duration=%v | success=%t", stepEventID, updateDuration, err == nil)
+		result, err := ses.valkeyRepo.Eval(context.Background(), getScript, []string{threadKey})
+		if err != nil {
+			log.Printf("[PERF] StepEvent GET_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
 
-	if err != nil {
-		log.Printf("[PERF] StepEvent LUA_UPDATE_HASH FAILED: %s | duration=%v | error=%v", stepEventID, updateDuration, err)
-		logInternalErrorWithDetails("executeAtomicHashScript (update hash)", fmt.Sprintf("threadId=%s", event.ThreadID), err)
-		return nil, sanitizeError(err)
+		resultSlice, ok := result.([]interface{})
+		if !ok || len(resultSlice) < 1 {
+			log.Printf("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
+			return nil, fmt.Errorf("failed to process step event")
+		}
+
+		oldHash, _ = resultSlice[0].(string)
+
+		// Calculate new hash
+		h := hmac.New(sha256.New, []byte(secret))
+		hashData := oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.IdempotencyKey + ":" + event.Timestamp.Format(time.RFC3339)
+		h.Write([]byte(hashData))
+		newHash = "hmac-sha256-" + version + ":" + fmt.Sprintf("%x", h.Sum(nil))
+
+		// Load and execute update hash script with optimistic locking
+		updateScript, err := loadLuaScript("update_thread_hash.lua")
+		if err != nil {
+			log.Printf("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		result, err = ses.valkeyRepo.Eval(
+			context.Background(),
+			updateScript,
+			[]string{threadKey},
+			oldHash,
+			newHash,
+			version,
+		)
+
+		if err != nil {
+			log.Printf("[PERF] StepEvent UPDATE_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		// Check if update succeeded
+		updateResult, ok := result.([]interface{})
+		if !ok || len(updateResult) < 1 {
+			log.Printf("[PERF] StepEvent UPDATE_PARSE_FAILED: %s | unexpected result: %v", stepEventID, result)
+			return nil, fmt.Errorf("failed to process step event")
+		}
+
+		success, _ := updateResult[0].(int64)
+		if success == 1 {
+			// Success!
+			atomicDuration := time.Since(atomicStart)
+			log.Printf("[PERF] StepEvent ATOMIC_HASH: %s | duration=%v | attempts=%d", stepEventID, atomicDuration, attempt+1)
+			break
+		}
+
+		// Race condition detected, retry
+		log.Printf("[PERF] StepEvent HASH_RACE_DETECTED: %s | attempt=%d | retrying...", stepEventID, attempt+1)
+		if attempt == maxRetries-1 {
+			return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
+		}
 	}
 
 	return &HashResult{

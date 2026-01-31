@@ -5,6 +5,7 @@ import (
 	"log"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/spf13/viper"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
@@ -15,17 +16,40 @@ type CacheService struct {
 	threadCache                *lru.Cache[string, *models.Thread]
 	runtimeRolePermissionCache *lru.Cache[string, []string] // "runtime_role" -> permissions (global)
 	roleCache                  *lru.Cache[string, string]   // "threadID:userID" -> role
+	stepStatusCache            *lru.Cache[string, string]   // "threadID:stepName:idempotencyKey" -> status
 }
 
 // NewCacheService creates a new cache service with LRU eviction
+// Cache sizes are configurable via config.yaml under cache.lru
 func NewCacheService() interfaces.CacheManager {
-	// Create LRU caches with reasonable size limits
-	contractCache, err := lru.New[string, *models.ContractGraph](1000) // 1000 contract versions
+	// Read cache sizes from config with sensible defaults
+	contractCacheSize := viper.GetInt("cache.lru.contract_cache_size")
+	if contractCacheSize == 0 {
+		contractCacheSize = 1000
+	}
+
+	threadCacheSize := viper.GetInt("cache.lru.thread_cache_size")
+	if threadCacheSize == 0 {
+		threadCacheSize = 10000
+	}
+
+	roleCacheSize := viper.GetInt("cache.lru.role_cache_size")
+	if roleCacheSize == 0 {
+		roleCacheSize = 50000
+	}
+
+	stepStatusCacheSize := viper.GetInt("cache.lru.step_status_cache_size")
+	if stepStatusCacheSize == 0 {
+		stepStatusCacheSize = 100000
+	}
+
+	// Create LRU caches with configured size limits
+	contractCache, err := lru.New[string, *models.ContractGraph](contractCacheSize)
 	if err != nil {
 		log.Fatalf("Failed to create contract cache: %v", err)
 	}
 
-	threadCache, err := lru.New[string, *models.Thread](10000) // 10k threads
+	threadCache, err := lru.New[string, *models.Thread](threadCacheSize)
 	if err != nil {
 		log.Fatalf("Failed to create thread cache: %v", err)
 	}
@@ -36,16 +60,25 @@ func NewCacheService() interfaces.CacheManager {
 		log.Fatalf("Failed to create runtime role permission cache: %v", err)
 	}
 
-	roleCache, err := lru.New[string, string](50000) // 50k role entries
+	roleCache, err := lru.New[string, string](roleCacheSize)
 	if err != nil {
 		log.Fatalf("Failed to create role cache: %v", err)
 	}
+
+	stepStatusCache, err := lru.New[string, string](stepStatusCacheSize)
+	if err != nil {
+		log.Fatalf("Failed to create step status cache: %v", err)
+	}
+
+	log.Printf("[CACHE] Initialized LRU caches: contracts=%d, threads=%d, roles=%d, stepStatus=%d",
+		contractCacheSize, threadCacheSize, roleCacheSize, stepStatusCacheSize)
 
 	return &CacheService{
 		contractCache:              contractCache,
 		threadCache:                threadCache,
 		runtimeRolePermissionCache: runtimeRolePermissionCache,
 		roleCache:                  roleCache,
+		stepStatusCache:            stepStatusCache,
 	}
 }
 
@@ -115,4 +148,20 @@ func (c *CacheService) ClearThreadRoles(threadID string) {
 			c.roleCache.Remove(key)
 		}
 	}
+}
+
+// GetStepStatus retrieves a step status from cache
+// Returns status and true if found, empty string and false otherwise
+func (c *CacheService) GetStepStatus(stepHashKey string) (string, bool) {
+	return c.stepStatusCache.Get(stepHashKey)
+}
+
+// SetStepStatus stores a step status in cache for duplicate detection
+func (c *CacheService) SetStepStatus(stepHashKey, status string) {
+	c.stepStatusCache.Add(stepHashKey, status)
+}
+
+// ClearStepStatus removes a step from cache
+func (c *CacheService) ClearStepStatus(stepHashKey string) {
+	c.stepStatusCache.Remove(stepHashKey)
 }
