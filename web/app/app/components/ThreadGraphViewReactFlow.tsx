@@ -14,7 +14,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { type StepStateInfo, graphqlClient } from '~/lib/graphql';
-import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Link2, Link2Off } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Link2, Link2Off, Shield, AlertCircle } from 'lucide-react';
 
 interface ThreadGraphViewProps {
   steps: StepStateInfo[];
@@ -200,10 +200,15 @@ function StepNode({ data }: { data: any }) {
         {/* Hash Chain Verification Indicator */}
         {data.hashChainValid !== undefined && (
           <div 
-            className={`flex items-center gap-0.5 ${data.hashChainValid ? 'text-green-500' : 'text-red-500'}`}
-            title={data.hashChainValid ? 'Hash chain verified' : 'Hash chain broken'}
+            className={`flex items-center gap-0.5 group relative cursor-help ${data.hashChainValid ? 'text-green-500' : 'text-red-500'}`}
+            title={data.hashChainValid ? 'Hash chain verified - prevHash matches previous step' : 'Hash chain broken - prevHash does not match previous step'}
           >
             {data.hashChainValid ? <Link2 className="w-3 h-3" /> : <Link2Off className="w-3 h-3" />}
+            {/* Tooltip */}
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-[10px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              {data.hashChainValid ? 'Hash chain verified' : 'Hash chain broken'}
+              <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+            </div>
           </div>
         )}
 
@@ -249,6 +254,24 @@ const nodeTypes = {
 };
 
 export default function ThreadGraphView({ steps, validations = [], onNodeClick }: ThreadGraphViewProps) {
+  // Get thread ID from first step
+  const threadId = steps.length > 0 ? steps[0].threadId : null;
+
+  // Fetch thread integrity verification
+  const { data: threadIntegrity, isLoading: integrityLoading } = useQuery({
+    queryKey: ['threadIntegrity', threadId],
+    queryFn: async () => {
+      if (!threadId) return null;
+      try {
+        return await graphqlClient.verifyThreadIntegrity(threadId);
+      } catch (error) {
+        console.error('Failed to verify thread integrity:', error);
+        return null;
+      }
+    },
+    enabled: threadId !== null,
+  });
+
   // Fetch step histories to get actor info
   const { data: stepHistories } = useQuery({
     queryKey: ['stepHistoriesForGraph', steps.map(s => `${s.stepName}:${s.idempotencyKey}`)],
@@ -578,7 +601,45 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
   }
 
   return (
-    <div className="border-2 border-gray-200 rounded-lg bg-gray-50" style={{ height: 'calc(100vh - 280px)' }}>
+    <div className="flex flex-col gap-3">
+      {/* Hash Verification Status Bar */}
+      {integrityLoading ? (
+        <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2 text-blue-700 text-sm">
+          <Clock className="w-4 h-4 animate-spin" />
+          <span>Verifying hash chain integrity...</span>
+        </div>
+      ) : threadIntegrity ? (
+        <div className={`px-4 py-3 rounded-lg flex items-center gap-3 text-sm border ${
+          threadIntegrity.verified 
+            ? 'bg-green-50 border-green-200 text-green-700' 
+            : 'bg-red-50 border-red-200 text-red-700'
+        }`}>
+          {threadIntegrity.verified ? (
+            <>
+              <Shield className="w-4 h-4 flex-shrink-0" />
+              <div className="flex-1">
+                <span className="font-medium">Hash chain verified</span>
+                <span className="text-xs opacity-75 ml-2">
+                  {threadIntegrity.validSteps} of {threadIntegrity.totalSteps} steps valid
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <div className="flex-1">
+                <span className="font-medium">Hash chain integrity issue</span>
+                <span className="text-xs opacity-75 ml-2">
+                  {threadIntegrity.brokenLinks} broken link{threadIntegrity.brokenLinks !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {/* React Flow Container */}
+      <div className="border-2 border-gray-200 rounded-lg bg-gray-50 flex-1" style={{ height: 'calc(100vh - 380px)' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -607,6 +668,7 @@ export default function ThreadGraphView({ steps, validations = [], onNodeClick }
           }}
         />
       </ReactFlow>
+      </div>
     </div>
   );
 }

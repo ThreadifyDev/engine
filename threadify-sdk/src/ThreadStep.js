@@ -125,14 +125,20 @@ export class ThreadStep {
     
     // Handle messageOrData - can be string or object
     if (typeof messageOrData === 'string') {
-      // If string, add as message field
+      // If string, add as message field in threadify_metadata
       if (messageOrData) {
-        this.addContext({ message: messageOrData });
+        if (!this.event.threadify_metadata) {
+          this.event.threadify_metadata = {};
+        }
+        this.event.threadify_metadata.message = messageOrData;
       }
     } else if (typeof messageOrData === 'object' && messageOrData !== null) {
-      // If object, add directly to context
+      // If object, add to threadify_metadata (keep separate from context)
       if (Object.keys(messageOrData).length > 0) {
-        this.addContext(messageOrData);
+        if (!this.event.threadify_metadata) {
+          this.event.threadify_metadata = {};
+        }
+        Object.assign(this.event.threadify_metadata, messageOrData);
       }
     }
     

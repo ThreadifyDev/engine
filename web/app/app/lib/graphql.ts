@@ -79,6 +79,14 @@ export interface ActorInfo {
   companyName?: string;
 }
 
+export interface HashChainStatus {
+  verified: boolean;
+  totalSteps: number;
+  validSteps: number;
+  brokenLinks: number;
+  error?: string;
+}
+
 export interface Thread {
   id: string;
   contractId?: string;
@@ -286,6 +294,23 @@ class GraphQLClient {
 
     const data = await this.request<{ threads: Thread[] }>(query, options);
     return data.threads;
+  }
+
+  async verifyThreadIntegrity(threadId: string): Promise<HashChainStatus> {
+    const query = `
+      query VerifyThreadIntegrity($threadId: String!) {
+        verifyThreadIntegrity(threadId: $threadId) {
+          verified
+          totalSteps
+          validSteps
+          brokenLinks
+          error
+        }
+      }
+    `;
+
+    const data = await this.request<{ verifyThreadIntegrity: HashChainStatus }>(query, { threadId });
+    return data.verifyThreadIntegrity;
   }
 }
 
