@@ -17,7 +17,10 @@ import {
   RefreshCw,
   Code,
   Copy,
-  Check
+  Check,
+  Shield,
+  ShieldAlert,
+  Loader2
 } from 'lucide-react';
 import { useState } from 'react';
 import SideNav from '~/components/SideNav';
@@ -271,6 +274,14 @@ function ThreadHeader({ thread }: { thread: Thread }) {
   const failedCount = steps.filter(s => s.status === 'failed').length;
   const pendingCount = steps.filter(s => s.status === 'pending' || s.status === 'in_progress').length;
 
+  // Fetch thread hash chain verification
+  const { data: hashChainStatus, isLoading: isVerifying } = useQuery({
+    queryKey: ['threadIntegrity', thread.id],
+    queryFn: () => graphqlClient.verifyThreadIntegrity(thread.id),
+    enabled: !!thread.id && steps.length > 0,
+    refetchInterval: false,
+  });
+
   const copyThreadId = () => {
     navigator.clipboard.writeText(thread.id);
     setCopied(true);
@@ -301,6 +312,41 @@ function ThreadHeader({ thread }: { thread: Thread }) {
         <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${config.color}`}>
           {config.label}
         </span>
+        
+        {/* Hash Chain Verification Badge */}
+        {steps.length > 0 && (
+          <div className="flex items-center">
+            {isVerifying ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200">
+                <Loader2 className="w-3.5 h-3.5 text-gray-400 animate-spin" />
+                <span className="text-xs text-gray-600">Verifying...</span>
+              </div>
+            ) : hashChainStatus ? (
+              <div 
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border cursor-help ${
+                  hashChainStatus.verified 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}
+                title={hashChainStatus.verified 
+                  ? `All ${hashChainStatus.totalEvents} steps verified - No tampering detected. Verified ${formatDistanceToNow(new Date(hashChainStatus.lastVerifiedAt), { addSuffix: true })}.`
+                  : `Integrity check failed - Steps may be out of order or modified. ${hashChainStatus.error || ''}`}
+              >
+                {hashChainStatus.verified ? (
+                  <>
+                    <Shield className="w-3.5 h-3.5 text-green-600" />
+                    <span className="text-xs font-medium text-green-700">Hash Verified</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                    <span className="text-xs font-medium text-red-700">Hash Broken</span>
+                  </>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {/* Metadata Row */}
