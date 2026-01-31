@@ -1,9 +1,23 @@
 import { useNavigate, useLocation } from '@remix-run/react';
+import { useState } from 'react';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  LogOut,
+  LayoutDashboard,
+  GitBranch,
+  FileText,
+  Key,
+  Bot,
+  Users,
+  Settings
+} from 'lucide-react';
 import { api } from '~/lib/api';
 
 export default function SideNav() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(true); // Collapsed by default
 
   const handleLogout = () => {
     api.logout();
@@ -16,26 +30,39 @@ export default function SideNav() {
   };
 
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard' },
-    { path: '/threads', label: 'Threads' },
-    { path: '/contracts', label: 'Contracts' },
-    { path: '/api-keys', label: 'API Keys' },
-    { path: '/service-accounts', label: 'Service Accounts' },
-    { path: '/team', label: 'Team' },
-    { path: '/settings', label: 'Settings' },
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/threads', label: 'Threads', icon: GitBranch },
+    { path: '/contracts', label: 'Contracts', icon: FileText },
+    { path: '/api-keys', label: 'API Keys', icon: Key },
+    { path: '/service-accounts', label: 'Service Accounts', icon: Bot },
+    { path: '/team', label: 'Team', icon: Users },
+    { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <div className="hidden lg:flex w-64 h-screen bg-black flex-col fixed left-0 top-0">
-      {/* Logo */}
-      <div className="p-6 border-b border-gray-800">
-        <h1 
-          className="text-xl font-bold cursor-pointer text-white" 
-          style={{ fontFamily: 'Block, sans-serif' }}
-          onClick={() => navigate('/dashboard')}
+    <div 
+      className={`hidden lg:flex h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 ${
+        isCollapsed ? 'w-16' : 'w-64'
+      }`}
+    >
+      {/* Logo & Toggle */}
+      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+        {!isCollapsed && (
+          <h1 
+            className="text-xl font-bold cursor-pointer text-white" 
+            style={{ fontFamily: 'Block, sans-serif' }}
+            onClick={() => navigate('/dashboard')}
+          >
+            Threadify
+          </h1>
+        )}
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="p-2 hover:bg-gray-800 rounded transition-colors text-white"
+          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          Threadify
-        </h1>
+          {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+        </button>
       </div>
 
       {/* Navigation Items */}
@@ -44,13 +71,15 @@ export default function SideNav() {
           <button
             key={item.path}
             onClick={() => navigate(item.path)}
-            className={`w-full px-6 py-3 text-left text-sm font-medium transition-all ${
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${
               isActive(item.path)
                 ? 'bg-white text-black'
                 : 'text-gray-300 hover:bg-gray-900 hover:text-white'
             }`}
+            title={isCollapsed ? item.label : undefined}
           >
-            {item.label}
+            <item.icon className="w-5 h-5" />
+            {!isCollapsed && <span>{item.label}</span>}
           </button>
         ))}
       </nav>
@@ -59,9 +88,13 @@ export default function SideNav() {
       <div className="p-4 border-t border-gray-800">
         <button
           onClick={handleLogout}
-          className="w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded"
+          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${
+            isCollapsed ? 'justify-center' : 'justify-start'
+          }`}
+          title={isCollapsed ? 'Logout' : undefined}
         >
-          Logout
+          <LogOut className="w-4 h-4" />
+          {!isCollapsed && <span>Logout</span>}
         </button>
       </div>
     </div>
