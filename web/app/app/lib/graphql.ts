@@ -29,6 +29,14 @@ export interface StepHistory {
   prevHash?: string;
 }
 
+export interface HashChainStatus {
+  verified: boolean;
+  lastVerifiedAt: string;
+  totalEvents: number;
+  brokenAt?: string;
+  error?: string;
+}
+
 export interface StepStateInfo {
   threadId: string;
   stepName: string;
@@ -77,14 +85,6 @@ export interface ActorInfo {
   name: string;
   type: string; // "user" or "service_account"
   companyName?: string;
-}
-
-export interface HashChainStatus {
-  verified: boolean;
-  totalSteps: number;
-  validSteps: number;
-  brokenLinks: number;
-  error?: string;
 }
 
 export interface Thread {
@@ -301,9 +301,9 @@ class GraphQLClient {
       query VerifyThreadIntegrity($threadId: String!) {
         verifyThreadIntegrity(threadId: $threadId) {
           verified
-          totalSteps
-          validSteps
-          brokenLinks
+          lastVerifiedAt
+          totalEvents
+          brokenAt
           error
         }
       }
