@@ -21,6 +21,12 @@ export interface StepHistory {
   context: string;
   duration: number;
   error?: string;
+  actor: string;
+  actorService: string;
+  companyId: string;
+  companyName: string;
+  hash?: string;
+  prevHash?: string;
 }
 
 export interface StepStateInfo {
@@ -33,6 +39,8 @@ export interface StepStateInfo {
   lastUpdatedAt: string;
   latestStepID: string;
   previousStep?: string;
+  hash?: string;
+  prevHash?: string;
   verified?: boolean;
   verificationError?: string;
   history?: StepHistory[];
@@ -64,6 +72,13 @@ export interface ValidationResultInfo {
   totalValidations: number;
 }
 
+export interface ActorInfo {
+  id: string;
+  name: string;
+  type: string; // "user" or "service_account"
+  companyName?: string;
+}
+
 export interface Thread {
   id: string;
   contractId?: string;
@@ -72,6 +87,7 @@ export interface Thread {
   ownerId: string;
   companyId: string;
   status: string;
+  createdBy?: string;
   lastHash?: string;
   refs?: Record<string, any>;
   startedAt?: string;
@@ -127,6 +143,7 @@ class GraphQLClient {
           ownerId
           companyId
           status
+          createdBy
           lastHash
           refs
           startedAt
@@ -142,6 +159,8 @@ class GraphQLClient {
             lastUpdatedAt
             latestStepID
             previousStep
+            hash
+            prevHash
           }
           validationResults {
             validationId
@@ -199,6 +218,12 @@ class GraphQLClient {
           context
           duration
           error
+          actor
+          actorService
+          companyId
+          companyName
+          hash
+          prevHash
         }
       }
     `;
@@ -211,6 +236,22 @@ class GraphQLClient {
     });
 
     return data.stepHistory;
+  }
+
+  async resolveActors(ids: string[]): Promise<ActorInfo[]> {
+    const query = `
+      query ResolveActors($ids: [String!]!) {
+        resolveActors(ids: $ids) {
+          id
+          name
+          type
+          companyName
+        }
+      }
+    `;
+
+    const data = await this.request<{ resolveActors: ActorInfo[] }>(query, { ids });
+    return data.resolveActors;
   }
 
   async getThreads(options?: {
