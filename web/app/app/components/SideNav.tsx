@@ -14,10 +14,19 @@ import {
 } from 'lucide-react';
 import { api } from '~/lib/api';
 
-export default function SideNav() {
+interface SideNavProps {
+  isCollapsed?: boolean;
+  onToggle?: () => void;
+}
+
+export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: SideNavProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isCollapsed, setIsCollapsed] = useState(true); // Collapsed by default
+  const [internalCollapsed, setInternalCollapsed] = useState(true);
+  
+  // Use controlled state if provided, otherwise use internal state
+  const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
+  const handleToggle = onToggle || (() => setInternalCollapsed(!internalCollapsed));
 
   const handleLogout = () => {
     api.logout();
@@ -57,7 +66,7 @@ export default function SideNav() {
           </h1>
         )}
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={handleToggle}
           className="p-2 hover:bg-gray-800 rounded transition-colors text-white"
           title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >

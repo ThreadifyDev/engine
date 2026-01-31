@@ -335,6 +335,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		idempotency_key VARCHAR(255) NOT NULL, -- Idempotency key for deduplication
 		status VARCHAR(50) NOT NULL,           -- Step status: success, failed, error
 		retry_count INT NOT NULL DEFAULT 0,    -- Number of retries
+		actor_service VARCHAR(255),      						-- actor service from step activities
+		latest_context JSONB,      												-- latest context from step activities
 		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
 		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
 		previous_step VARCHAR(255),            -- Previous step name for transition tracking
@@ -345,6 +347,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	-- Add actor column if it doesn't exist (migration for existing databases)
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS actor VARCHAR(255);
+	
+	-- Add actor_service and latest_context columns (migration for step state archival)
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS actor_service VARCHAR(255);
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS latest_context JSONB;
 
 	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
 	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 

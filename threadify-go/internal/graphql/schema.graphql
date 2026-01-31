@@ -17,6 +17,10 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Latest data from most recent history entry
+  actor: String
+  actorService: String
+  latestContext: String
   # Hash chain fields for cryptographic integrity
   hash: String
   prevHash: String

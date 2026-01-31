@@ -128,6 +128,9 @@ type StepStateSnapshot struct {
 	FirstSeenAt    string `json:"first_seen_at"`
 	LastUpdatedAt  string `json:"last_updated_at"`
 	PreviousStep   string `json:"previous_step,omitempty"`
+	Actor          string `json:"actor,omitempty"`          // User who recorded this step
+	ActorService   string `json:"actor_service,omitempty"`  // Service that recorded this step
+	LatestContext  string `json:"latest_context,omitempty"` // Latest context from most recent history (JSON string)
 }
 
 // StepWithTimestamp represents a completed step with its completion time

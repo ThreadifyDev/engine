@@ -47,6 +47,9 @@ export interface StepStateInfo {
   lastUpdatedAt: string;
   latestStepID: string;
   previousStep?: string;
+  actor?: string;
+  actorService?: string;
+  latestContext?: string;
   hash?: string;
   prevHash?: string;
   verified?: boolean;
@@ -167,6 +170,9 @@ class GraphQLClient {
             lastUpdatedAt
             latestStepID
             previousStep
+            actor
+            actorService
+            latestContext
             hash
             prevHash
           }

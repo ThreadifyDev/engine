@@ -137,11 +137,14 @@ type ComplexityRoot struct {
 	}
 
 	StepStateInfo struct {
+		Actor             func(childComplexity int) int
+		ActorService      func(childComplexity int) int
 		FirstSeenAt       func(childComplexity int) int
 		Hash              func(childComplexity int) int
 		History           func(childComplexity int, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		IdempotencyKey    func(childComplexity int) int
 		LastUpdatedAt     func(childComplexity int) int
+		LatestContext     func(childComplexity int) int
 		LatestStepID      func(childComplexity int) int
 		PrevHash          func(childComplexity int) int
 		PreviousStep      func(childComplexity int) int
@@ -693,6 +696,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.StepIntegrityStatus.Verified(childComplexity), true
 
+	case "StepStateInfo.actor":
+		if e.complexity.StepStateInfo.Actor == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.Actor(childComplexity), true
+	case "StepStateInfo.actorService":
+		if e.complexity.StepStateInfo.ActorService == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.ActorService(childComplexity), true
 	case "StepStateInfo.firstSeenAt":
 		if e.complexity.StepStateInfo.FirstSeenAt == nil {
 			break
@@ -728,6 +743,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.LastUpdatedAt(childComplexity), true
+	case "StepStateInfo.latestContext":
+		if e.complexity.StepStateInfo.LatestContext == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.LatestContext(childComplexity), true
 	case "StepStateInfo.latestStepID":
 		if e.complexity.StepStateInfo.LatestStepID == nil {
 			break
@@ -1183,6 +1204,10 @@ type StepStateInfo {
   lastUpdatedAt: String!
   latestStepID: String!
   previousStep: String
+  # Latest data from most recent history entry
+  actor: String
+  actorService: String
+  latestContext: String
   # Hash chain fields for cryptographic integrity
   hash: String
   prevHash: String
@@ -4362,6 +4387,93 @@ func (ec *executionContext) fieldContext_StepStateInfo_previousStep(_ context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _StepStateInfo_actor(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_actor,
+		func(ctx context.Context) (any, error) {
+			return obj.Actor, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_actor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepStateInfo_actorService(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_actorService,
+		func(ctx context.Context) (any, error) {
+			return obj.ActorService, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_actorService(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepStateInfo_latestContext(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_latestContext,
+		func(ctx context.Context) (any, error) {
+			return obj.LatestContext, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_latestContext(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepStateInfo_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4965,6 +5077,12 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 				return ec.fieldContext_StepStateInfo_latestStepID(ctx, field)
 			case "previousStep":
 				return ec.fieldContext_StepStateInfo_previousStep(ctx, field)
+			case "actor":
+				return ec.fieldContext_StepStateInfo_actor(ctx, field)
+			case "actorService":
+				return ec.fieldContext_StepStateInfo_actorService(ctx, field)
+			case "latestContext":
+				return ec.fieldContext_StepStateInfo_latestContext(ctx, field)
 			case "hash":
 				return ec.fieldContext_StepStateInfo_hash(ctx, field)
 			case "prevHash":
@@ -8525,6 +8643,12 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 			}
 		case "previousStep":
 			out.Values[i] = ec._StepStateInfo_previousStep(ctx, field, obj)
+		case "actor":
+			out.Values[i] = ec._StepStateInfo_actor(ctx, field, obj)
+		case "actorService":
+			out.Values[i] = ec._StepStateInfo_actorService(ctx, field, obj)
+		case "latestContext":
+			out.Values[i] = ec._StepStateInfo_latestContext(ctx, field, obj)
 		case "hash":
 			field := field
 

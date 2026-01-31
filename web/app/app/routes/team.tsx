@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 
 export default function Team() {
   const navigate = useNavigate();
@@ -68,11 +68,8 @@ export default function Team() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-
-      {/* Main Content */}
-      <div className="flex-1 ml-64 p-8">
+    <AppLayout>
+      <div className="p-8">
         <div className="flex justify-between items-center mb-8">
           <div>
             <h2 className="text-2xl font-bold mb-2">Team Members</h2>
@@ -156,15 +153,11 @@ export default function Team() {
             <div>
               <strong>Member:</strong> Can view and create threads
             </div>
-            <div>
-              <strong>Viewer:</strong> Read-only access to threads
-            </div>
           </div>
         </div>
-      </div>
 
-      {/* Invite Modal */}
-      {showInviteModal && (
+        {/* Invite Modal */}
+        {showInviteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white border-4 border-black max-w-md w-full">
             <div className="border-b-4 border-black p-6 flex justify-between items-center">
@@ -228,6 +221,7 @@ export default function Team() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AppLayout>
   );
 }

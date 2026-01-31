@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -129,6 +130,15 @@ func (s *NotificationService) PerformAsyncValidation(
 			}
 
 			now := time.Now().Format(time.RFC3339)
+
+			// Serialize context to JSON string
+			contextJSON := ""
+			if len(req.Context) > 0 {
+				if contextBytes, err := json.Marshal(req.Context); err == nil {
+					contextJSON = string(contextBytes)
+				}
+			}
+
 			stepStateSnapshot := &interfaces.StepStateSnapshot{
 				ID:             stepID,
 				ThreadID:       threadID,
@@ -139,6 +149,9 @@ func (s *NotificationService) PerformAsyncValidation(
 				FirstSeenAt:    now,
 				LastUpdatedAt:  now,
 				PreviousStep:   "",
+				Actor:          ownerID,
+				ActorService:   req.ServiceName,
+				LatestContext:  contextJSON,
 			}
 
 			if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {
@@ -171,7 +184,7 @@ func (s *NotificationService) PerformAsyncValidation(
 		}
 
 		// Process notifications and update step state
-		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status)
+		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req)
 
 		fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s\n", threadID)
 	})
@@ -303,6 +316,7 @@ func (s *NotificationService) processValidationNotifications(
 	graph *models.ContractGraph,
 	thread *models.Thread,
 	originalStatus string,
+	req *models.RecordEventRequest,
 ) {
 	// Don't publish Go violations individually - will be included in final notification
 	fmt.Printf("[PROCESS-NOTIFICATIONS] Processing %d Go violations for thread=%s, step=%s\n", len(notifications), threadID, stepName)
@@ -573,6 +587,14 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
+	// Serialize context to JSON string
+	contextJSON := ""
+	if len(req.Context) > 0 {
+		if contextBytes, err := json.Marshal(req.Context); err == nil {
+			contextJSON = string(contextBytes)
+		}
+	}
+
 	stepStateSnapshot := &interfaces.StepStateSnapshot{
 		ID:             stepID,
 		ThreadID:       threadID,
@@ -583,6 +605,9 @@ func (s *NotificationService) processValidationNotifications(
 		FirstSeenAt:    firstSeenAt,
 		LastUpdatedAt:  now,
 		PreviousStep:   previousStepName,
+		Actor:          ownerID,
+		ActorService:   req.ServiceName,
+		LatestContext:  contextJSON,
 	}
 
 	if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {

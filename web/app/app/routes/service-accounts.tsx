@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import { useServiceAccounts, useCreateServiceAccount, useToggleServiceAccount, useDeleteServiceAccount } from '~/hooks/useServiceAccounts';
 
 const ROLE_COLORS: Record<string, string> = {
-  standard_service: 'bg-blue-100 text-blue-800 border-blue-300',
-  reader: 'bg-gray-100 text-gray-800 border-gray-300',
-  standard_account: 'bg-green-100 text-green-800 border-green-300',
+  standard_service: 'bg-blue-50 text-blue-700 border-blue-200 text-xs px-2 py-0.5 rounded-full',
+  reader: 'bg-gray-50 text-gray-700 border-gray-200 text-xs px-2 py-0.5 rounded-full',
+  standard_account: 'bg-purple-50 text-purple-700 border-purple-200 text-xs px-2 py-0.5 rounded-full',
 };
 
 export default function ServiceAccounts() {
@@ -127,7 +127,7 @@ export default function ServiceAccounts() {
   };
 
   const getRoleBadgeColor = (role: string) => {
-    return ROLE_COLORS[role] || 'bg-gray-100 text-gray-800 border-gray-300';
+    return ROLE_COLORS[role] || 'bg-gray-50 text-gray-700 border-gray-200 text-xs px-2 py-0.5 rounded-full';
   };
 
   const getRoleDisplayName = (roleKey: string) => {
@@ -153,10 +153,8 @@ export default function ServiceAccounts() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <SideNav />
-
-      <div className="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8">
+    <AppLayout>
+      <div className="p-4 sm:p-6 lg:p-8">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Service Accounts</h1>
@@ -506,6 +504,6 @@ export default function ServiceAccounts() {
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }

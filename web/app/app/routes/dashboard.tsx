@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api, type User } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -40,11 +40,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-      
-      {/* Main Content */}
-      <main className="flex-1 ml-64 p-12">
+    <AppLayout>
+      <div className="p-12">
         {/* Welcome Section */}
         <div className="mb-12">
           <h2 className="text-4xl font-bold text-black mb-2">
@@ -57,31 +54,31 @@ export default function Dashboard() {
 
         {/* Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="border-2 border-black p-6">
+          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Email Status</h3>
-            <p className="text-2xl font-bold text-black">
+            <p className="text-2xl font-bold text-gray-900">
               {user.email_verified ? '✓ Verified' : '✗ Not Verified'}
             </p>
           </div>
 
-          <div className="border-2 border-black p-6">
+          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Onboarding</h3>
-            <p className="text-2xl font-bold text-black">
+            <p className="text-2xl font-bold text-gray-900">
               {user.onboarding_completed ? '✓ Complete' : 'Pending'}
             </p>
           </div>
 
-          <div className="border-2 border-black p-6">
+          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">First Instrumentation</h3>
-            <p className="text-2xl font-bold text-black">
+            <p className="text-2xl font-bold text-gray-900">
               {user.first_instrumentation_done ? '✓ Done' : 'Not Started'}
             </p>
           </div>
         </div>
 
         {/* Getting Started */}
-        <div className="border-2 border-black p-8">
-          <h3 className="text-2xl font-bold text-black mb-4">Getting Started</h3>
+        <div className="border border-gray-200 rounded-lg p-8 bg-white shadow-sm">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Getting Started</h3>
           <div className="space-y-4">
             <div className="flex items-start">
               <div className="flex-shrink-0 w-8 h-8 bg-black text-white flex items-center justify-center font-bold mr-4">
@@ -120,11 +117,11 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <button className="mt-6 bg-black text-white px-6 py-3 font-medium hover:bg-gray-800 transition-colors">
+          <button className="mt-6 bg-black text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
             View Documentation
           </button>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 }
