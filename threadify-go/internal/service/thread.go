@@ -572,6 +572,18 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 	}
 	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "step_event_process").Observe(time.Since(stepProcessStart).Seconds())
 
+	// Store refs if provided in the request
+	if len(req.Refs) > 0 {
+		refsCtx, refsCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer refsCancel()
+		if err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs); err != nil {
+			fmt.Printf("⚠️ [WARNING] Failed to store refs for thread %s: %v\n", req.ThreadID, err)
+			// Don't fail the request - refs are optional
+		} else {
+			fmt.Printf("✅ [REFS] Stored %d refs for thread %s\n", len(req.Refs), req.ThreadID)
+		}
+	}
+
 	// Trigger async validation for ALL threads (contract or not) with successful or failed steps
 	// The async validation will update step state via Lua script and check retry limits
 	if req.Status == "success" || req.Status == "failed" || req.Status == "error" {

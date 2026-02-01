@@ -20,6 +20,8 @@ export interface StepHistory {
   status: string;
   context: string;
   duration: number;
+  startedAt?: string;
+  finishedAt?: string;
   error?: string;
   actor: string;
   actorService: string;
@@ -231,6 +233,8 @@ class GraphQLClient {
           status
           context
           duration
+          startedAt
+          finishedAt
           error
           actor
           actorService

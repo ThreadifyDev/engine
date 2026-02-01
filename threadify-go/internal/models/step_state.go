@@ -48,6 +48,8 @@ type StepHistory struct {
 	Status       string `json:"status"`
 	Context      string `json:"context"`
 	Duration     int    `json:"duration"`
+	StartedAt    string `json:"startedAt,omitempty"`  // When step execution started
+	FinishedAt   string `json:"finishedAt,omitempty"` // When step execution finished
 	Error        string `json:"error,omitempty"`
 	Actor        string `json:"actor"`        // User/owner who triggered this step
 	ActorService string `json:"actorService"` // Service that executed this step

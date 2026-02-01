@@ -140,6 +140,25 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 
 	// Flushing step state events to Postgres
 
+	// Deduplicate buffer - keep only the latest event for each unique (thread_id, step_name, idempotency_key)
+	// Since NATS delivers in order, the last event in the buffer is the most recent
+	uniqueEvents := make(map[string]*StepStateEvent)
+	for i := range c.buffer {
+		event := &c.buffer[i]
+		key := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
+
+		// Last one wins (most recent)
+		uniqueEvents[key] = event
+	}
+
+	// Convert map to slice
+	deduplicatedEvents := make([]*StepStateEvent, 0, len(uniqueEvents))
+	for _, event := range uniqueEvents {
+		deduplicatedEvents = append(deduplicatedEvents, event)
+	}
+
+	fmt.Printf("[STEP-STATE-CONSUMER] Deduplicated %d events to %d unique step states\n", len(c.buffer), len(deduplicatedEvents))
+
 	// Build batch upsert query
 	query := `
 		INSERT INTO thread_step_states (
@@ -148,10 +167,10 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			actor, actor_service, latest_context, created_at
 		) VALUES `
 
-	values := make([]interface{}, 0, len(c.buffer)*12)
+	values := make([]interface{}, 0, len(deduplicatedEvents)*12)
 	placeholders := ""
 
-	for i, event := range c.buffer {
+	for i, event := range deduplicatedEvents {
 		if i > 0 {
 			placeholders += ", "
 		}

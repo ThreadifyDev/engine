@@ -35,6 +35,20 @@ import RightSidebar from '~/components/RightSidebar';
 type TabType = 'timeline' | 'graph';
 type SidebarView = 'step' | 'participants' | 'validations' | 'stepValidations' | null;
 
+// Helper function to calculate execution time from startedAt and finishedAt
+function calculateExecutionTime(startedAt?: string, finishedAt?: string): string | null {
+  if (!startedAt || !finishedAt) return null;
+  
+  const start = new Date(startedAt).getTime();
+  const end = new Date(finishedAt).getTime();
+  const durationMs = end - start;
+  
+  if (durationMs < 0) return null;
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60000) return `${(durationMs / 1000).toFixed(2)}s`;
+  return `${(durationMs / 60000).toFixed(2)}m`;
+}
+
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('graph');
@@ -48,7 +62,20 @@ export default function ThreadDetailPage() {
     queryKey: ['thread', id],
     queryFn: () => graphqlClient.getThread(id!),
     enabled: !!id,
-    refetchInterval: false, // We'll add real-time later
+  });
+
+  // Fetch step history only when participants view is opened
+  const { data: allStepHistory } = useQuery({
+    queryKey: ['allStepHistoryLatest', id],
+    queryFn: async () => {
+      if (!thread?.steps || thread.steps.length === 0) return [];
+      const historyPromises = thread.steps.map(step =>
+        graphqlClient.getStepHistory(id!, step.stepName, step.idempotencyKey, 1)
+      );
+      const results = await Promise.all(historyPromises);
+      return results.flat();
+    },
+    enabled: !!thread?.steps && thread.steps.length > 0 && sidebarView === 'participants',
   });
 
   if (isLoading) {
@@ -264,7 +291,7 @@ export default function ThreadDetailPage() {
             title="Thread Participants"
             width="md"
           >
-            <ParticipantsView threadId={id!} steps={thread.steps || []} />
+            <ParticipantsView threadId={id!} steps={thread.steps || []} stepHistory={allStepHistory} />
           </RightSidebar>
         )}
       </main>
@@ -274,6 +301,7 @@ export default function ThreadDetailPage() {
 
 function ThreadHeader({ thread }: { thread: Thread }) {
   const [copied, setCopied] = useState(false);
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
   const steps = thread.steps || [];
   const successCount = steps.filter(s => s.status === 'success').length;
   const failedCount = steps.filter(s => s.status === 'failed').length;
@@ -285,6 +313,13 @@ function ThreadHeader({ thread }: { thread: Thread }) {
     queryFn: () => graphqlClient.verifyThreadIntegrity(thread.id),
     enabled: !!thread.id && steps.length > 0,
     refetchInterval: false,
+  });
+
+  // Resolve owner name from ownerId
+  const { data: resolvedOwner } = useQuery({
+    queryKey: ['resolveOwner', thread.ownerId],
+    queryFn: () => graphqlClient.resolveActors([thread.ownerId]),
+    enabled: !!thread.ownerId,
   });
 
   const copyThreadId = () => {
@@ -363,10 +398,12 @@ function ThreadHeader({ thread }: { thread: Thread }) {
           </div>
         )}
         
-        {thread.createdBy && (
+        {thread.ownerId && (
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Created By</span>
-            <span className="font-medium text-gray-900">{thread.createdBy}</span>
+            <span className="font-medium text-gray-900">
+              {resolvedOwner?.[0]?.name || thread.ownerId}
+            </span>
           </div>
         )}
         
@@ -402,25 +439,66 @@ function ThreadHeader({ thread }: { thread: Thread }) {
 
       {/* External References */}
       <div className="mt-4 pt-4 border-t border-gray-100">
-        {thread.refs && typeof thread.refs === 'object' && Object.keys(thread.refs).length > 0 ? (
-          <>
-            <div className="text-xs text-gray-500 mb-2">External References</div>
-            <div className="flex flex-wrap gap-3">
-              {Object.entries(thread.refs).map(([key, value]) => {
-                // Skip numeric keys (array indices)
-                if (!isNaN(Number(key))) return null;
-                return (
-                  <div key={key} className="text-sm">
-                    <span className="text-gray-500">{key}:</span>{' '}
-                    <span className="font-mono text-gray-900">{String(value)}</span>
+        {(() => {
+          let refsObj: Record<string, any> | null = null;
+          
+          if (thread.refs) {
+            // Parse refs if it's a JSON string
+            if (typeof thread.refs === 'string') {
+              try {
+                refsObj = JSON.parse(thread.refs);
+              } catch (e) {
+                refsObj = null;
+              }
+            } else if (typeof thread.refs === 'object') {
+              refsObj = thread.refs;
+            }
+          }
+          
+          const refEntries = refsObj ? Object.entries(refsObj).filter(([key]) => isNaN(Number(key))) : [];
+          const hasRefs = refEntries.length > 0;
+          
+          const copyToClipboard = (value: string, refKey: string) => {
+            navigator.clipboard.writeText(value);
+            setCopiedRef(refKey);
+            setTimeout(() => setCopiedRef(null), 2000);
+          };
+          
+          return hasRefs ? (
+            <>
+              <div className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <span>External References</span>
+                <span className="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full">{refEntries.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {refEntries.map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs"
+                  >
+                    <span className="font-medium text-blue-900">{key}:</span>
+                    <span className="text-blue-700 font-mono text-xs truncate max-w-[120px]" title={String(value)}>
+                      {String(value)}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(String(value), key)}
+                      className="ml-1 p-0.5 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
+                      title="Copy value"
+                    >
+                      {copiedRef === key ? (
+                        <Check className="w-3 h-3 text-green-600" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-blue-600 hover:text-blue-800" />
+                      )}
+                    </button>
                   </div>
-                );
-              }).filter(Boolean)}
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-gray-400">No external system referenced</p>
-        )}
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">No external system referenced</p>
+          );
+        })()}
       </div>
 
       {thread.error && (
@@ -522,6 +600,7 @@ function StepTimelineWithGrouping({
   getStepIcon,
   getStepBgColor,
   getCompanyColor,
+  stepHistory,
 }: {
   steps: StepStateInfo[];
   currentCompanyId?: string;
@@ -529,18 +608,9 @@ function StepTimelineWithGrouping({
   getStepIcon: (status: string) => JSX.Element;
   getStepBgColor: (status: string) => string;
   getCompanyColor: (companyId: string) => { border: string; bg: string; text: string };
+  stepHistory?: any[];
 }) {
-  // Fetch all step histories to get company info for grouping
-  const historyQueries = steps.map(step => 
-    useQuery({
-      queryKey: ['stepHistoryLatest', step.threadId, step.stepName, step.idempotencyKey],
-      queryFn: () => graphqlClient.getStepHistory(step.threadId, step.stepName, step.idempotencyKey, 1),
-    })
-  );
-
-  const allLoaded = historyQueries.every(q => !q.isLoading);
-
-  if (!allLoaded) {
+  if (!stepHistory) {
     return (
       <>
         {steps.map((step) => (
@@ -569,7 +639,7 @@ function StepTimelineWithGrouping({
   const groups: StepGroup[] = [];
   
   steps.forEach((step, index) => {
-    const history = historyQueries[index].data?.[0];
+    const history = stepHistory.find(h => h.actor === step.stepName) || stepHistory[index];
     const companyId = history?.companyId || currentCompanyId || '';
     const companyName = history?.companyName || '';
     
@@ -904,7 +974,7 @@ function StepDetailContent({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Code className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-purple-900">
+              <span className="text-sm font-medium text-grey-900">
                 {showContext ? 'Hide' : 'Show'} Context Data
               </span>
             </div>
@@ -926,7 +996,14 @@ function StepDetailContent({
                     try {
                       const parsed = JSON.parse(step.latestContext);
                       const contextObj = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
-                      return JSON.stringify(contextObj, null, 2);
+                      // Sort keys for consistent display
+                      const sortedObj = Object.keys(contextObj)
+                        .sort()
+                        .reduce((acc, key) => {
+                          acc[key] = contextObj[key];
+                          return acc;
+                        }, {} as Record<string, any>);
+                      return JSON.stringify(sortedObj, null, 2);
                     } catch (e) {
                       return step.latestContext;
                     }
@@ -963,7 +1040,7 @@ function StepDetailContent({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-sm font-medium text-grey-900">
                 View Step History
               </span>
             </div>
@@ -1182,6 +1259,14 @@ function StepHistorySidebar({
                           }`}>
                             {item.status}
                           </span>
+                          {(() => {
+                            const executionTime = calculateExecutionTime(item.startedAt, item.finishedAt);
+                            return executionTime ? (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                {executionTime}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
                           {new Date(item.timestamp).toLocaleString()}
@@ -1209,12 +1294,6 @@ function StepHistorySidebar({
                               <div className="text-sm text-gray-900 font-mono">{item.actorService}</div>
                             </div>
                           )}
-                          {item.duration && item.duration > 0 && (
-                            <div>
-                              <div className="text-xs font-medium text-gray-500 mb-1">Execution Time</div>
-                              <div className="text-sm text-gray-900">{item.duration}ms</div>
-                            </div>
-                          )}
                         </div>
 
                         {/* Context */}
@@ -1226,7 +1305,14 @@ function StepHistorySidebar({
                                 try {
                                   const parsed = JSON.parse(item.context);
                                   const contextObj = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
-                                  return JSON.stringify(contextObj, null, 2);
+                                  // Sort keys for consistent display
+                                  const sortedObj = Object.keys(contextObj)
+                                    .sort()
+                                    .reduce((acc, key) => {
+                                      acc[key] = contextObj[key];
+                                      return acc;
+                                    }, {} as Record<string, any>);
+                                  return JSON.stringify(sortedObj, null, 2);
                                 } catch (e) {
                                   return item.context;
                                 }
@@ -1316,24 +1402,12 @@ function ActorSection({ actorId, actorService }: { actorId: string; actorService
   );
 }
 
-function ParticipantsView({ threadId, steps }: { threadId: string; steps: StepStateInfo[] }) {
-  // Fetch step history for all steps to extract participants
-  const { data: allHistory, isLoading } = useQuery({
-    queryKey: ['allStepHistory', threadId],
-    queryFn: async () => {
-      const historyPromises = steps.map(step => 
-        graphqlClient.getStepHistory(threadId, step.stepName, step.idempotencyKey, 1)
-      );
-      const results = await Promise.all(historyPromises);
-      return results.flat();
-    },
-  });
-
+function ParticipantsView({ threadId, steps, stepHistory }: { threadId: string; steps: StepStateInfo[]; stepHistory?: any[] }) {
   // Extract unique services and actor IDs from StepHistory objects
   const services = new Set<string>();
   const actorIds = new Set<string>();
   
-  allHistory?.forEach(item => {
+  stepHistory?.forEach(item => {
     if (item.actorService) services.add(item.actorService);
     if (item.actor) actorIds.add(item.actor);
   });
@@ -1345,7 +1419,7 @@ function ParticipantsView({ threadId, steps }: { threadId: string; steps: StepSt
     enabled: actorIds.size > 0,
   });
 
-  if (isLoading) {
+  if (!stepHistory) {
     return (
       <div className="flex items-center justify-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600"></div>

@@ -166,8 +166,21 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		hash TEXT,
 		prev_hash TEXT,
 		status TEXT,
+		started_at TIMESTAMP,
+		finished_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+	
+	-- Add columns to existing table if they don't exist
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='thread_activities' AND column_name='started_at') THEN
+			ALTER TABLE thread_activities ADD COLUMN started_at TIMESTAMP;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='thread_activities' AND column_name='finished_at') THEN
+			ALTER TABLE thread_activities ADD COLUMN finished_at TIMESTAMP;
+		END IF;
+	END $$;
 
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);

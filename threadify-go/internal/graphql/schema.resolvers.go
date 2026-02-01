@@ -363,6 +363,22 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	return status, nil
 }
 
+// StartedAt is the resolver for the startedAt field.
+func (r *stepHistoryResolver) StartedAt(ctx context.Context, obj *models.StepHistory) (*string, error) {
+	if obj.StartedAt == "" {
+		return nil, nil
+	}
+	return &obj.StartedAt, nil
+}
+
+// FinishedAt is the resolver for the finishedAt field.
+func (r *stepHistoryResolver) FinishedAt(ctx context.Context, obj *models.StepHistory) (*string, error) {
+	if obj.FinishedAt == "" {
+		return nil, nil
+	}
+	return &obj.FinishedAt, nil
+}
+
 // FirstSeenAt is the resolver for the firstSeenAt field.
 func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
 	return obj.FirstSeenAt.Format(time.RFC3339), nil
@@ -687,6 +703,9 @@ func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
+// StepHistory returns generated.StepHistoryResolver implementation.
+func (r *Resolver) StepHistory() generated.StepHistoryResolver { return &stepHistoryResolver{r} }
+
 // StepStateInfo returns generated.StepStateInfoResolver implementation.
 func (r *Resolver) StepStateInfo() generated.StepStateInfoResolver { return &stepStateInfoResolver{r} }
 
@@ -703,6 +722,7 @@ type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+type stepHistoryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }

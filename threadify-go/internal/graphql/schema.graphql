@@ -37,6 +37,8 @@ type StepHistory {
   status: String!
   context: String!
   duration: Int!
+  startedAt: String
+  finishedAt: String
   error: String
   actor: String!
   actorService: String!

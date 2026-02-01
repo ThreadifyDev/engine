@@ -249,12 +249,14 @@ const nodeTypes = {
 };
 
 function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGraphViewProps) {
-  // Sort steps by timestamp (firstSeenAt)
-  const sortedSteps = [...steps].sort((a, b) => {
-    const timeA = new Date(a.firstSeenAt).getTime();
-    const timeB = new Date(b.firstSeenAt).getTime();
-    return timeA - timeB;
-  });
+  // Sort steps by timestamp (firstSeenAt) - memoized to prevent recreation
+  const sortedSteps = useMemo(() => {
+    return [...steps].sort((a, b) => {
+      const timeA = new Date(a.firstSeenAt).getTime();
+      const timeB = new Date(b.firstSeenAt).getTime();
+      return timeA - timeB;
+    });
+  }, [steps]);
 
   // Extract unique actor IDs and resolve them
   const actorIds = Array.from(new Set(sortedSteps.map(s => s.actor).filter(Boolean)));
@@ -265,11 +267,16 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
   });
 
   // Create actor ID to name map
-  const actorMap = new Map<string, string>();
-  resolvedActors?.forEach(actor => {
-    actorMap.set(actor.id, actor.name);
-  });
+  const actorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    resolvedActors?.forEach(actor => {
+      map.set(actor.id, actor.name);
+    });
+    return map;
+  }, [resolvedActors]);
 
+  // Memoize nodes and edges to prevent hydration errors
+  const { initialNodes, initialEdges } = useMemo(() => {
   // Group steps by actorService
   type ServiceGroup = {
     service: string;
@@ -448,6 +455,9 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
 
   // Debug: Log edge creation stats
   console.log('[ReactFlow] Nodes created:', initialNodes.length, 'Edges created:', initialEdges.length);
+  
+  return { initialNodes, initialEdges };
+  }, [sortedSteps, validations, actorMap]);
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
