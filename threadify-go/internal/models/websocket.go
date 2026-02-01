@@ -39,6 +39,7 @@ type RecordEventRequest struct {
 	StartedAt      string            `json:"startedAt"`
 	FinishedAt     string            `json:"finishedAt"`
 	Context        map[string]string `json:"context"`
+	Refs           map[string]string `json:"refs,omitempty"`
 	Status         string            `json:"status"`
 	ServiceName    string            `json:"serviceName,omitempty"`
 	IdempotencyKey string            `json:"idempotencyKey,omitempty"`

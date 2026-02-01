@@ -295,6 +295,8 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			ta_activity.recorded_at,
 			ta_activity.actor,
 			ta_activity.actor_service,
+			ta_activity.started_at,
+			ta_activity.finished_at,
 			t.company_id,
 			c.name as company_name,
 			ROW_NUMBER() OVER (ORDER BY ta_activity.recorded_at ASC) as attempt_number
@@ -322,11 +324,13 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		var recordedAt time.Time
 		var actorVal sql.NullString
 		var actorServiceVal sql.NullString
+		var startedAtVal sql.NullTime
+		var finishedAtVal sql.NullTime
 		var companyIdVal sql.NullString
 		var companyNameVal sql.NullString
 		var attemptNumber int
 
-		err := rows.Scan(&payload, &status, &recordedAt, &actorVal, &actorServiceVal, &companyIdVal, &companyNameVal, &attemptNumber)
+		err := rows.Scan(&payload, &status, &recordedAt, &actorVal, &actorServiceVal, &startedAtVal, &finishedAtVal, &companyIdVal, &companyNameVal, &attemptNumber)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan step history: %w", err)
 		}
@@ -390,12 +394,24 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			companyNameStr = companyNameVal.String
 		}
 
+		// Format timestamps
+		startedAtStr := ""
+		if startedAtVal.Valid {
+			startedAtStr = startedAtVal.Time.Format(time.RFC3339)
+		}
+		finishedAtStr := ""
+		if finishedAtVal.Valid {
+			finishedAtStr = finishedAtVal.Time.Format(time.RFC3339)
+		}
+
 		stepHistory := models.StepHistory{
 			Attempt:      attemptNumber,
 			Timestamp:    recordedAt.Format(time.RFC3339),
 			Status:       statusValue,
 			Context:      contextStr,
 			Duration:     duration,
+			StartedAt:    startedAtStr,
+			FinishedAt:   finishedAtStr,
 			Error:        errorMsg,
 			Actor:        actorStr,
 			ActorService: actorServiceStr,
