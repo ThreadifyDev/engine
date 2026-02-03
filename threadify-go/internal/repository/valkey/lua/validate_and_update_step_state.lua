@@ -221,7 +221,11 @@ local retryLimitViolated = false
 if isRetry and maxRetries > 0 then
     local nextRetryCount = currentRetryCount + 1
     
-    if nextRetryCount > maxRetries then
+    -- Check if THIS retry (after increment) will exceed the limit
+    -- currentRetryCount is the count BEFORE this attempt
+    -- After HINCRBY, it will be currentRetryCount + 1
+    -- So we check if currentRetryCount >= maxRetries (meaning the next increment will exceed)
+    if currentRetryCount >= maxRetries then
         retryLimitViolated = true
         hasCriticalViolation = true
         
@@ -275,9 +279,16 @@ if isRetry then
         'actor', actor
     )
 else
+    -- For first attempt: if failed/error, start at retryCount=1 (this IS a retry attempt)
+    -- If success, start at retryCount=0 (no retry needed)
+    local initialRetryCount = '0'
+    if status == 'failed' or status == 'error' then
+        initialRetryCount = '1'
+    end
+    
     redis.call('HSET', stepHashKey,
         'status', status,
-        'retryCount', '0',
+        'retryCount', initialRetryCount,
         'firstSeenAt', timestamp,
         'lastUpdatedAt', timestamp,
         'latestStepID', stepID,

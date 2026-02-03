@@ -332,6 +332,7 @@ func (r *AccessRepository) writeAccessToValkey(ctx context.Context, threadID, us
 // GetUserIDsByRuntimeRoles retrieves user IDs for runtime_roles
 // Returns all user IDs across all roles
 // Handles both single and multiple roles efficiently
+// Hot/Cold pattern: Valkey first, PostgreSQL fallback with async write-back
 func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) ([]string, error) {
 	if len(runtimeRoles) == 0 {
 		return []string{}, nil
@@ -339,7 +340,7 @@ func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadI
 
 	result := make([]string, 0)
 
-	// Get members from each role SET
+	// HOT PATH: Get members from each role SET in Valkey
 	for _, role := range runtimeRoles {
 		key := r.getUsersByRoleKey(threadID, role)
 		userIDs, err := r.valkey.SMembers(ctx, key)
@@ -350,7 +351,12 @@ func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadI
 		result = append(result, userIDs...)
 	}
 
-	// Use efficient query to get only users with specified roles
+	// If Valkey has data, use it (hot path)
+	if len(result) > 0 {
+		return result, nil
+	}
+
+	// COLD PATH: Fall back to PostgreSQL if Valkey is empty
 	users, err := r.postgresRepo.GetUsersByRuntimeRoles(ctx, threadID, runtimeRoles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get users from postgres: %w", err)
@@ -365,7 +371,7 @@ func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadI
 		roleToUsers[user.RuntimeRole] = append(roleToUsers[user.RuntimeRole], user.UserID)
 	}
 
-	// Write to Redis SETs (async, don't block on this)
+	// Write back to Valkey SETs (async, don't block on this)
 	go func() {
 		// Use timeout context for async write (5s should be plenty for Redis operations)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

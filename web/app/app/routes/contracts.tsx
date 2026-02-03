@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from '@remix-run/react';
+import { Trash2 } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
@@ -116,36 +117,33 @@ export default function Contracts() {
             {contracts.map((contract) => (
               <div
                 key={contract.id}
-                className="bg-white border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors"
+                onClick={() => navigate(`/contracts/${contract.id}`)}
+                className="bg-white border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors cursor-pointer"
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <h3 className="text-xl font-bold mb-2">{contract.name}</h3>
                     <div className="flex gap-4 text-sm text-gray-600">
-                      <span>Version: {contract.latest_version || 'v1'}</span>
+                      <span>Version: v{contract.latestVersion || 1}</span>
                       <span>
                         Created: {
-                          contract.created_at 
-                            ? new Date(contract.created_at).toLocaleDateString()
+                          contract.createdAt 
+                            ? new Date(contract.createdAt).toLocaleDateString()
                             : 'N/A'
                         }
                       </span>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => navigate(`/contracts/${contract.id}`)}
-                      className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
-                    >
-                      View
-                    </button>
-                    <button
-                      onClick={() => handleDelete(contract.id)}
-                      className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(contract.id);
+                    }}
+                    className="p-2 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                    title="Delete contract"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             ))}

@@ -138,6 +138,7 @@ func (c *Client) initializeArchivalStreams() error {
 		{"thread_metadata", []string{"metadata.thread"}},
 		{"thread_access", []string{"access.thread"}},
 		{"thread_validations", []string{"validations.thread"}},
+		// Note: thread_notifications removed - now archived via activity.log with activity_type='validation_result'
 		{"step_state", []string{"state.step"}},
 	}
 

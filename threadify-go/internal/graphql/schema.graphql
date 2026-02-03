@@ -68,6 +68,10 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Get notification summary counts (lightweight - load this first)
+  notificationSummary: NotificationSummary!
+  # Get notifications for this thread with full context (execution, validation, thread events)
+  notifications(options: ThreadNotificationQueryOptions): [ThreadNotification!]!
   # Get thread chain starting from this thread, following linkedThread relationships
   threadChain(maxDepth: Int = 3): [Thread!]!
   # Hash chain integrity verification (lazy-loaded, only computed when requested)
@@ -243,6 +247,47 @@ input ValidationQueryOptions {
   validationType: String
   limit: Int
   offset: Int
+}
+
+type ThreadNotification {
+  notificationId: String!
+  threadId: String!
+  stepId: String!
+  stepName: String!
+  idempotencyKey: String
+  source: String!
+  notificationType: String!
+  stepStatus: String
+  validationStatus: String
+  violationType: String
+  severity: String
+  message: String!
+  details: JSON
+  timestamp: String!
+}
+
+input ThreadNotificationQueryOptions {
+  threadId: String
+  stepId: String
+  stepName: String
+  source: String
+  notificationType: String
+  severity: [String!]
+  limit: Int
+  offset: Int
+}
+
+type NotificationSummary {
+  totalNotifications: Int!
+  criticalCount: Int!
+  warningCount: Int!
+  majorCount: Int!
+  minorCount: Int!
+  infoCount: Int!
+  executionCount: Int!
+  validationCount: Int!
+  hasCritical: Boolean!
+  hasWarnings: Boolean!
 }
 
 type ActorInfo {

@@ -41,6 +41,11 @@ func (p *ArchivalPublisher) PublishThreadValidation(ctx context.Context, event m
 	return p.publish(ctx, "validations.thread", event)
 }
 
+// PublishThreadNotifications publishes individual thread notifications for archival
+func (p *ArchivalPublisher) PublishThreadNotifications(ctx context.Context, event map[string]interface{}) error {
+	return p.publish(ctx, "notifications.thread", event)
+}
+
 // PublishStepState publishes step state snapshot for archival
 func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "state.step", event)

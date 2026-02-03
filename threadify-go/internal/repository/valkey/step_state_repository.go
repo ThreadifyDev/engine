@@ -171,7 +171,6 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 	// Parse JSON response
 	var luaResult interfaces.StepStateResult
 	if err := json.Unmarshal([]byte(resultStr), &luaResult); err != nil {
-		fmt.Printf("[LUA-RESULT-ERROR] Failed to parse: %s\n", resultStr)
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
 

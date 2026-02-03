@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
@@ -28,15 +29,16 @@ type NotificationPublisher interface {
 
 // NotificationService handles async validation processing and coordination
 type NotificationService struct {
-	validationService   *ValidationService
-	activityRepo        interfaces.ActivityRepository
-	stepStateRepo       interfaces.StepStateRepository
-	cacheManager        interfaces.CacheManager
-	natsPublisher       NotificationPublisher
-	threadAccessService *ThreadAccessService
-	rbacLoader          *rbac.Loader
-	validationPool      *workerpool.Pool
-	notificationPool    *workerpool.Pool
+	validationService     *ValidationService
+	activityRepo          interfaces.ActivityRepository
+	stepStateRepo         interfaces.StepStateRepository
+	cacheManager          interfaces.CacheManager
+	natsPublisher         NotificationPublisher
+	natsArchivalPublisher *natsrepo.ArchivalPublisher
+	threadAccessService   *ThreadAccessService
+	rbacLoader            *rbac.Loader
+	validationPool        *workerpool.Pool
+	notificationPool      *workerpool.Pool
 }
 
 // NewNotificationService creates a new notification service
@@ -46,21 +48,23 @@ func NewNotificationService(
 	stepStateRepo interfaces.StepStateRepository,
 	cacheManager interfaces.CacheManager,
 	natsPublisher NotificationPublisher,
+	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
 ) *NotificationService {
 	return &NotificationService{
-		validationService:   validationService,
-		activityRepo:        activityRepo,
-		stepStateRepo:       stepStateRepo,
-		cacheManager:        cacheManager,
-		natsPublisher:       natsPublisher,
-		threadAccessService: threadAccessService,
-		rbacLoader:          rbacLoader,
-		validationPool:      validationPool,
-		notificationPool:    notificationPool,
+		validationService:     validationService,
+		activityRepo:          activityRepo,
+		stepStateRepo:         stepStateRepo,
+		cacheManager:          cacheManager,
+		natsPublisher:         natsPublisher,
+		natsArchivalPublisher: natsArchivalPublisher,
+		threadAccessService:   threadAccessService,
+		rbacLoader:            rbacLoader,
+		validationPool:        validationPool,
+		notificationPool:      notificationPool,
 	}
 }
 
@@ -272,33 +276,8 @@ func (s *NotificationService) performNonBlockingValidations(
 	// The Lua script checks allowed transitions and adds violation if invalid
 
 	// === BUSINESS/DATA QUALITY VALIDATIONS (Only run for successful steps) ===
-	if req.Status == "success" {
-		// 6. Missing Optional Fields (Info)
-		if violation := s.validationService.CheckMissingOptionalFields(stepNode, req.Context); violation != nil {
-			details := violation.Details
-			if details == nil {
-				details = make(map[string]interface{})
-			}
-			// Convert array to comma-separated string to avoid JSON parsing issues in Lua
-			details["missingFields"] = strings.Join(violation.MissingFields, ",")
-
-			notifications = append(notifications, models.ValidationNotification{
-				NotificationID: uuid.New().String(),
-				ThreadID:       req.ThreadID,
-				StepID:         stepID,
-				StepName:       req.StepName,
-				OwnerID:        ownerID,
-				ContractName:   thread.ContractName,
-				StepStatus:     req.Status,
-				Status:         "violated",
-				ViolationType:  string(models.ViolationMissingOptionalField),
-				Severity:       string(models.SeverityInfo),
-				Message:        violation.Message,
-				Details:        details,
-				Timestamp:      now,
-			})
-		}
-	}
+	// Note: Currently no business validations beyond invalid transitions
+	// Optional fields are not validated since they're optional
 
 	// Return only violation notifications; Lua script determines final status
 	return notifications
@@ -390,9 +369,6 @@ func (s *NotificationService) processValidationNotifications(
 		}
 	}
 
-	fmt.Printf("[DEBUG-LUA-PARAMS] thread=%s, step=%s, transitionsMap=%v, maxRetries=%d\n",
-		threadID, stepName, transitionsMap, maxRetries)
-
 	// Call repository to validate and update atomically with timing
 	luaStart := time.Now()
 	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, interfaces.ValidateStepParams{
@@ -482,6 +458,9 @@ func (s *NotificationService) processValidationNotifications(
 		finalStatus = "passed"
 		finalMessage = "Step '" + stepName + "' completed successfully"
 	}
+
+	// Add idempotencyKey to details for archival (needed for PostgreSQL foreign key)
+	finalDetails["idempotencyKey"] = idempotencyKey
 
 	// Send both execution and validation notifications in a single pass
 	executionMessage := "Step '" + stepName + "' execution " + originalStatus
@@ -757,6 +736,56 @@ func (s *NotificationService) publishToAuthorizedMembers(
 	}
 
 	log.Printf("[NOTIF-SUCCESS] Published to %d/%d users with permissions %v", publishedCount, len(users), requiredPerms)
+
+	// 4. Archive ONLY validation notifications to PostgreSQL (not execution status updates)
+	// Execution notifications are ephemeral - step status is already in thread_step_states
+	// Only violations/warnings are audit-worthy and need historical querying
+	shouldArchive := notification.Source == models.NotificationSourceValidation &&
+		(notification.Status == "violated" || notification.Severity == "warning")
+
+	if s.natsArchivalPublisher != nil && publishedCount > 0 && shouldArchive {
+		// Convert details map to JSON string for payload
+		detailsJSON, _ := json.Marshal(notification.Details)
+
+		// Extract idempotencyKey from details if available
+		idempotencyKey := ""
+		if notification.Details != nil {
+			if idempKey, ok := notification.Details["idempotencyKey"].(string); ok {
+				idempotencyKey = idempKey
+			}
+		}
+
+		// Build step_id in format "stepName:idempotencyKey"
+		stepID := notification.StepName
+		if idempotencyKey != "" {
+			stepID = notification.StepName + ":" + idempotencyKey
+		}
+
+		// Archive as activity.log event with activity_type='validation_result'
+		// Follows thread_activities schema: step_id, actor, actor_service, payload, status
+		activityEvent := map[string]interface{}{
+			"thread_id":     notification.ThreadID,
+			"type":          "validation_result",
+			"step_id":       stepID, // Format: "stepName:idempotencyKey"
+			"actor":         notification.OwnerID,
+			"actor_service": "rule_engine",
+			"timestamp":     notification.Timestamp.Format(time.RFC3339),
+			"status":        notification.Status, // violated/passed
+			// Payload contains notification-specific fields
+			"notification_id":   notification.NotificationID,
+			"source":            notification.Source,
+			"notification_type": notification.NotificationType,
+			"step_status":       notification.StepStatus,
+			"violation_type":    notification.ViolationType,
+			"severity":          notification.Severity,
+			"message":           notification.Message,
+			"details":           string(detailsJSON),
+		}
+
+		if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+			log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive validation result: %v", err)
+		}
+	}
 }
 
 // publishDualNotifications sends both execution and validation notifications efficiently
@@ -843,6 +872,90 @@ func (s *NotificationService) publishDualNotifications(
 	}
 
 	log.Printf("[NOTIF-SUCCESS] Published execution:%d validation:%d to %d users", executionCount, validationCount, len(users))
+
+	// Archive ONLY validation violations/warnings to PostgreSQL (not execution status)
+	if s.natsArchivalPublisher != nil {
+		// Skip execution notifications - they're ephemeral status updates
+		// Only archive validation violations/warnings for audit trail
+
+		// Add execution notification ONLY if it's a warning (future use case)
+		if executionCount > 0 && executionNotif.Severity == "warning" {
+			execDetailsJSON, _ := json.Marshal(executionNotif.Details)
+			execIdempKey := ""
+			if executionNotif.Details != nil {
+				if idempKey, ok := executionNotif.Details["idempotencyKey"].(string); ok {
+					execIdempKey = idempKey
+				}
+			}
+
+			// Build step_id in format "stepName:idempotencyKey"
+			execStepID := executionNotif.StepName
+			if execIdempKey != "" {
+				execStepID = executionNotif.StepName + ":" + execIdempKey
+			}
+
+			activityEvent := map[string]interface{}{
+				"thread_id":         executionNotif.ThreadID,
+				"type":              "validation_result",
+				"step_id":           execStepID,
+				"actor":             executionNotif.OwnerID,
+				"actor_service":     "rule_engine",
+				"timestamp":         executionNotif.Timestamp.Format(time.RFC3339),
+				"status":            executionNotif.Status,
+				"notification_id":   executionNotif.NotificationID,
+				"source":            executionNotif.Source,
+				"notification_type": executionNotif.NotificationType,
+				"step_status":       executionNotif.StepStatus,
+				"violation_type":    executionNotif.ViolationType,
+				"severity":          executionNotif.Severity,
+				"message":           executionNotif.Message,
+				"details":           string(execDetailsJSON),
+			}
+
+			if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+				log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive execution warning: %v", err)
+			}
+		}
+
+		// Add validation notification if published AND it's a violation or warning
+		if validationCount > 0 && (validationNotif.Status == "violated" || validationNotif.Severity == "warning") {
+			valDetailsJSON, _ := json.Marshal(validationNotif.Details)
+			valIdempKey := ""
+			if validationNotif.Details != nil {
+				if idempKey, ok := validationNotif.Details["idempotencyKey"].(string); ok {
+					valIdempKey = idempKey
+				}
+			}
+
+			// Build step_id in format "stepName:idempotencyKey"
+			valStepID := validationNotif.StepName
+			if valIdempKey != "" {
+				valStepID = validationNotif.StepName + ":" + valIdempKey
+			}
+
+			activityEvent := map[string]interface{}{
+				"thread_id":         validationNotif.ThreadID,
+				"type":              "validation_result",
+				"step_id":           valStepID,
+				"actor":             validationNotif.OwnerID,
+				"actor_service":     "rule_engine",
+				"timestamp":         validationNotif.Timestamp.Format(time.RFC3339),
+				"status":            validationNotif.Status,
+				"notification_id":   validationNotif.NotificationID,
+				"source":            validationNotif.Source,
+				"notification_type": validationNotif.NotificationType,
+				"step_status":       validationNotif.StepStatus,
+				"violation_type":    validationNotif.ViolationType,
+				"severity":          validationNotif.Severity,
+				"message":           validationNotif.Message,
+				"details":           string(valDetailsJSON),
+			}
+
+			if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+				log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive validation result: %v", err)
+			}
+		}
+	}
 }
 
 // shouldReceiveNotification checks if a user should receive a notification based on their actual permissions

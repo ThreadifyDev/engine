@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from '@remix-run/react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '~/lib/api';
+import { graphqlClient } from '~/lib/graphql';
 import SideNav from '~/components/SideNav';
+import ContractGraphView from '~/components/ContractGraphView';
 
-type TabType = 'mermaid' | 'yaml';
+type TabType = 'diagram' | 'yaml';
 
 export default function ContractVersionDetail() {
   const navigate = useNavigate();
@@ -11,23 +14,12 @@ export default function ContractVersionDetail() {
   const [versionData, setVersionData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<TabType>('mermaid');
-  const [mermaidLoaded, setMermaidLoaded] = useState(false);
-  const mermaidRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<TabType>('diagram');
 
-  useEffect(() => {
-    // Dynamically import mermaid only on client side
-    if (typeof window !== 'undefined') {
-      import('mermaid').then((m) => {
-        m.default.initialize({
-          startOnLoad: false,
-          theme: 'default',
-          securityLevel: 'loose',
-        });
-        setMermaidLoaded(true);
-      });
-    }
-  }, []);
+  // Contract graph is already in versionData.graph
+  const contractGraph = versionData?.graph;
+  const graphLoading = loading;
+  const graphError = error;
 
   useEffect(() => {
     // Check authentication
@@ -42,31 +34,6 @@ export default function ContractVersionDetail() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, version]);
-
-  useEffect(() => {
-    // Render mermaid when tab changes to mermaid and data is loaded
-    if (activeTab === 'mermaid' && versionData?.mermaid && mermaidLoaded && mermaidRef.current) {
-      import('mermaid').then(async (m) => {
-        const element = mermaidRef.current;
-        if (element) {
-          try {
-            // Clear previous content
-            element.innerHTML = '';
-            
-            // Create a unique ID for this diagram
-            const id = `mermaid-${Date.now()}`;
-            
-            // Render mermaid diagram
-            const { svg } = await m.default.render(id, versionData.mermaid);
-            element.innerHTML = svg;
-          } catch (error) {
-            console.error('Mermaid rendering error:', error);
-            element.innerHTML = '<div class="text-red-600 p-4">Failed to render diagram. Please check the contract definition.</div>';
-          }
-        }
-      });
-    }
-  }, [activeTab, versionData, mermaidLoaded]);
 
   const fetchVersion = async () => {
     try {
@@ -123,90 +90,109 @@ export default function ContractVersionDetail() {
           <div className="mb-8">
             <button
               onClick={() => navigate(`/contracts/${id}`)}
-              className="text-black hover:underline mb-4 flex items-center"
+              className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
             >
               ← Back to Contract
             </button>
-            <h1 className="text-4xl font-bold text-black mb-4" style={{ fontFamily: 'Block, sans-serif' }}>
-              Contract {version}
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Created: {versionData?.createdAt ? new Date(versionData.createdAt).toLocaleDateString() : 'N/A'}
-            </p>
-          </div>
+            
+            {loading ? (
+              <div className="flex items-center gap-2">
+                <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
+                <h1 className="text-2xl font-bold text-gray-900">Loading...</h1>
+              </div>
+            ) : (
+              <>
+                {/* Single line header like thread view */}
+                <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                  {versionData?.contractName || 'Unknown Contract'}
+                </h1>
+                
+                {/* Metadata inline */}
+                <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                  <span>
+                    Created <span className="text-gray-900 font-medium">
+                      {versionData?.createdAt ? new Date(versionData.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      }) : 'N/A'}
+                    </span>
+                  </span>
+                  <span className="text-gray-300">|</span>
+                  <span>
+                    Version <span className="text-gray-900 font-medium">v{version}</span>
+                  </span>
+                </div>
 
-          {/* Metadata Section */}
-          {versionData && (
-            <div className="mb-8 border-2 border-black p-6 bg-gray-50">
-              <h2 className="text-xl font-bold text-black mb-4" style={{ fontFamily: 'Block, sans-serif' }}>
-                Metadata
-              </h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600">Version</p>
-                  <p className="text-black font-medium">{versionData.version}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Contract ID</p>
-                  <p className="text-black font-medium">{versionData.contractId}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Created At</p>
-                  <p className="text-black font-medium">
-                    {versionData.createdAt ? new Date(versionData.createdAt).toLocaleString() : 'N/A'}
-                  </p>
-                </div>
-                {versionData.createdBy && (
-                  <div>
-                    <p className="text-sm text-gray-600">Created By</p>
-                    <p className="text-black font-medium">{versionData.createdBy}</p>
+                {/* Validation metadata */}
+                {versionData?.graph?.graph?.validation && (
+                  <div className="flex items-center gap-3 text-xs">
+                    {versionData.graph.graph.validation.MaxDuration && (
+                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                        Max Duration: <span className="font-semibold">{versionData.graph.graph.validation.MaxDuration}</span>
+                      </span>
+                    )}
+                    {versionData.graph.graph.validation.MultipleTerminalsSeverity && (
+                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded border border-amber-200">
+                        Multiple Terminals: <span className="font-semibold">{versionData.graph.graph.validation.MultipleTerminalsSeverity}</span>
+                      </span>
+                    )}
                   </div>
                 )}
-              </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
+
 
           {/* Tabbed View */}
-          <div className="bg-gray-50 border-2 border-black">
+          <div>
             {/* Tab Headers */}
-            <div className="flex border-b-2 border-black">
+            <div className="flex border-b border-gray-200 mb-6">
               <button
-                onClick={() => setActiveTab('mermaid')}
-                className={`flex-1 px-6 py-4 font-bold transition-colors ${
-                  activeTab === 'mermaid'
-                    ? 'bg-black text-white'
-                    : 'bg-white text-black hover:bg-gray-100'
+                onClick={() => setActiveTab('diagram')}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  activeTab === 'diagram'
+                    ? 'text-gray-900 border-b-2 border-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
                 }`}
-                style={{ fontFamily: 'Block, sans-serif' }}
               >
-                Mermaid Chart
+                Diagram
               </button>
               <button
                 onClick={() => setActiveTab('yaml')}
-                className={`flex-1 px-6 py-4 font-bold transition-colors border-l-2 border-black ${
+                className={`px-4 py-2 text-sm font-medium transition-colors ml-6 ${
                   activeTab === 'yaml'
-                    ? 'bg-black text-white'
-                    : 'bg-white text-black hover:bg-gray-100'
+                    ? 'text-gray-900 border-b-2 border-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
                 }`}
-                style={{ fontFamily: 'Block, sans-serif' }}
               >
                 YAML
               </button>
             </div>
 
             {/* Tab Content */}
-            <div className="p-6">
-              {activeTab === 'mermaid' && (
+            <div>
+              {activeTab === 'diagram' && (
                 <div>
-                  {versionData?.mermaid ? (
-                    <div className="bg-white border-2 border-black p-6 overflow-x-auto">
-                      <div ref={mermaidRef} className="mermaid">
-                        {/* Mermaid diagram will be rendered here */}
-                      </div>
+                  {graphLoading ? (
+                    <div className="bg-white border border-gray-200 rounded p-12 text-center">
+                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                      <p className="mt-4 text-gray-600">Loading contract graph...</p>
                     </div>
+                  ) : graphError ? (
+                    <div className="bg-red-50 border border-red-200 rounded p-6 text-center">
+                      <p className="text-red-600 font-medium mb-2">Failed to load contract graph</p>
+                      <p className="text-sm text-red-500">{graphError}</p>
+                    </div>
+                  ) : contractGraph ? (
+                    <ContractGraphView
+                      contractName={versionData?.contractName || 'Contract'}
+                      version={parseInt(version!)}
+                      graphData={contractGraph}
+                    />
                   ) : (
-                    <div className="bg-white border-2 border-black p-6 text-center text-gray-600">
-                      No Mermaid diagram available for this version
+                    <div className="bg-white border border-gray-200 rounded p-6 text-center text-gray-500">
+                      <p>No diagram available for this version</p>
                     </div>
                   )}
                 </div>
@@ -215,7 +201,7 @@ export default function ContractVersionDetail() {
               {activeTab === 'yaml' && (
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-bold text-black" style={{ fontFamily: 'Block, sans-serif' }}>
+                    <h3 className="text-sm font-medium text-gray-900">
                       Contract Definition
                     </h3>
                     <button
@@ -223,13 +209,13 @@ export default function ContractVersionDetail() {
                         navigator.clipboard.writeText(versionData?.yamlContent || '');
                         alert('YAML copied to clipboard!');
                       }}
-                      className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors text-sm"
+                      className="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-sm text-gray-700"
                     >
                       Copy YAML
                     </button>
                   </div>
-                  <pre className="bg-white border-2 border-black p-4 overflow-x-auto">
-                    <code className="text-sm text-black font-mono">
+                  <pre className="bg-white border border-gray-200 rounded p-4 overflow-x-auto">
+                    <code className="text-sm text-gray-900 font-mono">
                       {versionData?.yamlContent || 'No YAML content available'}
                     </code>
                   </pre>

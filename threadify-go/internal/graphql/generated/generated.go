@@ -43,9 +43,9 @@ type ResolverRoot interface {
 	HashChainStatus() HashChainStatusResolver
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
-	StepHistory() StepHistoryResolver
 	StepStateInfo() StepStateInfoResolver
 	Thread() ThreadResolver
+	ThreadNotification() ThreadNotificationResolver
 	ValidationResultInfo() ValidationResultInfoResolver
 }
 
@@ -99,6 +99,19 @@ type ComplexityRoot struct {
 	NotificationConfig struct {
 		DefaultScope func(childComplexity int) int
 		RoleDefaults func(childComplexity int) int
+	}
+
+	NotificationSummary struct {
+		CriticalCount      func(childComplexity int) int
+		ExecutionCount     func(childComplexity int) int
+		HasCritical        func(childComplexity int) int
+		HasWarnings        func(childComplexity int) int
+		InfoCount          func(childComplexity int) int
+		MajorCount         func(childComplexity int) int
+		MinorCount         func(childComplexity int) int
+		TotalNotifications func(childComplexity int) int
+		ValidationCount    func(childComplexity int) int
+		WarningCount       func(childComplexity int) int
 	}
 
 	Query struct {
@@ -160,24 +173,43 @@ type ComplexityRoot struct {
 	}
 
 	Thread struct {
-		CompanyID         func(childComplexity int) int
-		CompletedAt       func(childComplexity int) int
-		ContractID        func(childComplexity int) int
-		ContractName      func(childComplexity int) int
-		ContractVersion   func(childComplexity int) int
-		CreatedBy         func(childComplexity int) int
-		Error             func(childComplexity int) int
-		HashChainStatus   func(childComplexity int) int
-		HashChainVerified func(childComplexity int) int
-		ID                func(childComplexity int) int
-		LastHash          func(childComplexity int) int
-		OwnerID           func(childComplexity int) int
-		Refs              func(childComplexity int) int
-		StartedAt         func(childComplexity int) int
-		Status            func(childComplexity int) int
-		Steps             func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
-		ThreadChain       func(childComplexity int, maxDepth *int) int
-		ValidationResults func(childComplexity int, options *models.ValidationQueryOptions) int
+		CompanyID           func(childComplexity int) int
+		CompletedAt         func(childComplexity int) int
+		ContractID          func(childComplexity int) int
+		ContractName        func(childComplexity int) int
+		ContractVersion     func(childComplexity int) int
+		CreatedBy           func(childComplexity int) int
+		Error               func(childComplexity int) int
+		HashChainStatus     func(childComplexity int) int
+		HashChainVerified   func(childComplexity int) int
+		ID                  func(childComplexity int) int
+		LastHash            func(childComplexity int) int
+		NotificationSummary func(childComplexity int) int
+		Notifications       func(childComplexity int, options *models.ThreadNotificationQueryOptions) int
+		OwnerID             func(childComplexity int) int
+		Refs                func(childComplexity int) int
+		StartedAt           func(childComplexity int) int
+		Status              func(childComplexity int) int
+		Steps               func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
+		ThreadChain         func(childComplexity int, maxDepth *int) int
+		ValidationResults   func(childComplexity int, options *models.ValidationQueryOptions) int
+	}
+
+	ThreadNotification struct {
+		Details          func(childComplexity int) int
+		IdempotencyKey   func(childComplexity int) int
+		Message          func(childComplexity int) int
+		NotificationID   func(childComplexity int) int
+		NotificationType func(childComplexity int) int
+		Severity         func(childComplexity int) int
+		Source           func(childComplexity int) int
+		StepID           func(childComplexity int) int
+		StepName         func(childComplexity int) int
+		StepStatus       func(childComplexity int) int
+		ThreadID         func(childComplexity int) int
+		Timestamp        func(childComplexity int) int
+		ValidationStatus func(childComplexity int) int
+		ViolationType    func(childComplexity int) int
 	}
 
 	Transition struct {
@@ -247,10 +279,6 @@ type QueryResolver interface {
 	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
 	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
 }
-type StepHistoryResolver interface {
-	StartedAt(ctx context.Context, obj *models.StepHistory) (*string, error)
-	FinishedAt(ctx context.Context, obj *models.StepHistory) (*string, error)
-}
 type StepStateInfoResolver interface {
 	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
 	LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
@@ -270,9 +298,15 @@ type ThreadResolver interface {
 
 	Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error)
 	ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error)
+	NotificationSummary(ctx context.Context, obj *models.Thread) (*models.NotificationSummary, error)
+	Notifications(ctx context.Context, obj *models.Thread, options *models.ThreadNotificationQueryOptions) ([]*models.ThreadNotification, error)
 	ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error)
 	HashChainVerified(ctx context.Context, obj *models.Thread) (*bool, error)
 	HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error)
+}
+type ThreadNotificationResolver interface {
+	Details(ctx context.Context, obj *models.ThreadNotification) (*string, error)
+	Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error)
 }
 type ValidationResultInfoResolver interface {
 	Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error)
@@ -482,6 +516,67 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.NotificationConfig.RoleDefaults(childComplexity), true
+
+	case "NotificationSummary.criticalCount":
+		if e.complexity.NotificationSummary.CriticalCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.CriticalCount(childComplexity), true
+	case "NotificationSummary.executionCount":
+		if e.complexity.NotificationSummary.ExecutionCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.ExecutionCount(childComplexity), true
+	case "NotificationSummary.hasCritical":
+		if e.complexity.NotificationSummary.HasCritical == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.HasCritical(childComplexity), true
+	case "NotificationSummary.hasWarnings":
+		if e.complexity.NotificationSummary.HasWarnings == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.HasWarnings(childComplexity), true
+	case "NotificationSummary.infoCount":
+		if e.complexity.NotificationSummary.InfoCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.InfoCount(childComplexity), true
+	case "NotificationSummary.majorCount":
+		if e.complexity.NotificationSummary.MajorCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.MajorCount(childComplexity), true
+	case "NotificationSummary.minorCount":
+		if e.complexity.NotificationSummary.MinorCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.MinorCount(childComplexity), true
+	case "NotificationSummary.totalNotifications":
+		if e.complexity.NotificationSummary.TotalNotifications == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.TotalNotifications(childComplexity), true
+	case "NotificationSummary.validationCount":
+		if e.complexity.NotificationSummary.ValidationCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.ValidationCount(childComplexity), true
+	case "NotificationSummary.warningCount":
+		if e.complexity.NotificationSummary.WarningCount == nil {
+			break
+		}
+
+		return e.complexity.NotificationSummary.WarningCount(childComplexity), true
 
 	case "Query.contractGraph":
 		if e.complexity.Query.ContractGraph == nil {
@@ -889,6 +984,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Thread.LastHash(childComplexity), true
+	case "Thread.notificationSummary":
+		if e.complexity.Thread.NotificationSummary == nil {
+			break
+		}
+
+		return e.complexity.Thread.NotificationSummary(childComplexity), true
+	case "Thread.notifications":
+		if e.complexity.Thread.Notifications == nil {
+			break
+		}
+
+		args, err := ec.field_Thread_notifications_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Thread.Notifications(childComplexity, args["options"].(*models.ThreadNotificationQueryOptions)), true
 	case "Thread.ownerId":
 		if e.complexity.Thread.OwnerID == nil {
 			break
@@ -946,6 +1058,91 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Thread.ValidationResults(childComplexity, args["options"].(*models.ValidationQueryOptions)), true
+
+	case "ThreadNotification.details":
+		if e.complexity.ThreadNotification.Details == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.Details(childComplexity), true
+	case "ThreadNotification.idempotencyKey":
+		if e.complexity.ThreadNotification.IdempotencyKey == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.IdempotencyKey(childComplexity), true
+	case "ThreadNotification.message":
+		if e.complexity.ThreadNotification.Message == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.Message(childComplexity), true
+	case "ThreadNotification.notificationId":
+		if e.complexity.ThreadNotification.NotificationID == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.NotificationID(childComplexity), true
+	case "ThreadNotification.notificationType":
+		if e.complexity.ThreadNotification.NotificationType == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.NotificationType(childComplexity), true
+	case "ThreadNotification.severity":
+		if e.complexity.ThreadNotification.Severity == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.Severity(childComplexity), true
+	case "ThreadNotification.source":
+		if e.complexity.ThreadNotification.Source == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.Source(childComplexity), true
+	case "ThreadNotification.stepId":
+		if e.complexity.ThreadNotification.StepID == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.StepID(childComplexity), true
+	case "ThreadNotification.stepName":
+		if e.complexity.ThreadNotification.StepName == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.StepName(childComplexity), true
+	case "ThreadNotification.stepStatus":
+		if e.complexity.ThreadNotification.StepStatus == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.StepStatus(childComplexity), true
+	case "ThreadNotification.threadId":
+		if e.complexity.ThreadNotification.ThreadID == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.ThreadID(childComplexity), true
+	case "ThreadNotification.timestamp":
+		if e.complexity.ThreadNotification.Timestamp == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.Timestamp(childComplexity), true
+	case "ThreadNotification.validationStatus":
+		if e.complexity.ThreadNotification.ValidationStatus == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.ValidationStatus(childComplexity), true
+	case "ThreadNotification.violationType":
+		if e.complexity.ThreadNotification.ViolationType == nil {
+			break
+		}
+
+		return e.complexity.ThreadNotification.ViolationType(childComplexity), true
 
 	case "Transition.canRetry":
 		if e.complexity.Transition.CanRetry == nil {
@@ -1121,6 +1318,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputThreadNotificationQueryOptions,
 		ec.unmarshalInputValidationQueryOptions,
 	)
 	first := true
@@ -1274,6 +1472,10 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Get notification summary counts (lightweight - load this first)
+  notificationSummary: NotificationSummary!
+  # Get notifications for this thread with full context (execution, validation, thread events)
+  notifications(options: ThreadNotificationQueryOptions): [ThreadNotification!]!
   # Get thread chain starting from this thread, following linkedThread relationships
   threadChain(maxDepth: Int = 3): [Thread!]!
   # Hash chain integrity verification (lazy-loaded, only computed when requested)
@@ -1449,6 +1651,47 @@ input ValidationQueryOptions {
   validationType: String
   limit: Int
   offset: Int
+}
+
+type ThreadNotification {
+  notificationId: String!
+  threadId: String!
+  stepId: String!
+  stepName: String!
+  idempotencyKey: String
+  source: String!
+  notificationType: String!
+  stepStatus: String
+  validationStatus: String
+  violationType: String
+  severity: String
+  message: String!
+  details: JSON
+  timestamp: String!
+}
+
+input ThreadNotificationQueryOptions {
+  threadId: String
+  stepId: String
+  stepName: String
+  source: String
+  notificationType: String
+  severity: [String!]
+  limit: Int
+  offset: Int
+}
+
+type NotificationSummary {
+  totalNotifications: Int!
+  criticalCount: Int!
+  warningCount: Int!
+  majorCount: Int!
+  minorCount: Int!
+  infoCount: Int!
+  executionCount: Int!
+  validationCount: Int!
+  hasCritical: Boolean!
+  hasWarnings: Boolean!
 }
 
 type ActorInfo {
@@ -1810,6 +2053,17 @@ func (ec *executionContext) field_StepStateInfo_history_args(ctx context.Context
 		return nil, err
 	}
 	args["actor"] = arg5
+	return args, nil
+}
+
+func (ec *executionContext) field_Thread_notifications_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "options", ec.unmarshalOThreadNotificationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationQueryOptions)
+	if err != nil {
+		return nil, err
+	}
+	args["options"] = arg0
 	return args, nil
 }
 
@@ -2834,6 +3088,296 @@ func (ec *executionContext) fieldContext_NotificationConfig_roleDefaults(_ conte
 	return fc, nil
 }
 
+func (ec *executionContext) _NotificationSummary_totalNotifications(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_totalNotifications,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalNotifications, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_totalNotifications(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_criticalCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_criticalCount,
+		func(ctx context.Context) (any, error) {
+			return obj.CriticalCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_criticalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_warningCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_warningCount,
+		func(ctx context.Context) (any, error) {
+			return obj.WarningCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_warningCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_majorCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_majorCount,
+		func(ctx context.Context) (any, error) {
+			return obj.MajorCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_majorCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_minorCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_minorCount,
+		func(ctx context.Context) (any, error) {
+			return obj.MinorCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_minorCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_infoCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_infoCount,
+		func(ctx context.Context) (any, error) {
+			return obj.InfoCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_infoCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_executionCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_executionCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ExecutionCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_executionCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_validationCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_validationCount,
+		func(ctx context.Context) (any, error) {
+			return obj.ValidationCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_validationCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_hasCritical(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_hasCritical,
+		func(ctx context.Context) (any, error) {
+			return obj.HasCritical, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_hasCritical(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _NotificationSummary_hasWarnings(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_NotificationSummary_hasWarnings,
+		func(ctx context.Context) (any, error) {
+			return obj.HasWarnings, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_NotificationSummary_hasWarnings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "NotificationSummary",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_thread(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -2889,6 +3433,10 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -2968,6 +3516,10 @@ func (ec *executionContext) fieldContext_Query_threads(ctx context.Context, fiel
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -3047,6 +3599,10 @@ func (ec *executionContext) fieldContext_Query_threadsByContract(ctx context.Con
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -3126,6 +3682,10 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -3205,6 +3765,10 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -3839,10 +4403,10 @@ func (ec *executionContext) _StepHistory_startedAt(ctx context.Context, field gr
 		field,
 		ec.fieldContext_StepHistory_startedAt,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.StepHistory().StartedAt(ctx, obj)
+			return obj.StartedAt, nil
 		},
 		nil,
-		ec.marshalOString2ᚖstring,
+		ec.marshalOString2string,
 		true,
 		false,
 	)
@@ -3852,8 +4416,8 @@ func (ec *executionContext) fieldContext_StepHistory_startedAt(_ context.Context
 	fc = &graphql.FieldContext{
 		Object:     "StepHistory",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -3868,10 +4432,10 @@ func (ec *executionContext) _StepHistory_finishedAt(ctx context.Context, field g
 		field,
 		ec.fieldContext_StepHistory_finishedAt,
 		func(ctx context.Context) (any, error) {
-			return ec.resolvers.StepHistory().FinishedAt(ctx, obj)
+			return obj.FinishedAt, nil
 		},
 		nil,
-		ec.marshalOString2ᚖstring,
+		ec.marshalOString2string,
 		true,
 		false,
 	)
@@ -3881,8 +4445,8 @@ func (ec *executionContext) fieldContext_StepHistory_finishedAt(_ context.Contex
 	fc = &graphql.FieldContext{
 		Object:     "StepHistory",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type String does not have child fields")
 		},
@@ -5269,6 +5833,128 @@ func (ec *executionContext) fieldContext_Thread_validationResults(ctx context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _Thread_notificationSummary(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_notificationSummary,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.Thread().NotificationSummary(ctx, obj)
+		},
+		nil,
+		ec.marshalNNotificationSummary2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_notificationSummary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "totalNotifications":
+				return ec.fieldContext_NotificationSummary_totalNotifications(ctx, field)
+			case "criticalCount":
+				return ec.fieldContext_NotificationSummary_criticalCount(ctx, field)
+			case "warningCount":
+				return ec.fieldContext_NotificationSummary_warningCount(ctx, field)
+			case "majorCount":
+				return ec.fieldContext_NotificationSummary_majorCount(ctx, field)
+			case "minorCount":
+				return ec.fieldContext_NotificationSummary_minorCount(ctx, field)
+			case "infoCount":
+				return ec.fieldContext_NotificationSummary_infoCount(ctx, field)
+			case "executionCount":
+				return ec.fieldContext_NotificationSummary_executionCount(ctx, field)
+			case "validationCount":
+				return ec.fieldContext_NotificationSummary_validationCount(ctx, field)
+			case "hasCritical":
+				return ec.fieldContext_NotificationSummary_hasCritical(ctx, field)
+			case "hasWarnings":
+				return ec.fieldContext_NotificationSummary_hasWarnings(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type NotificationSummary", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Thread_notifications(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_notifications,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Thread().Notifications(ctx, obj, fc.Args["options"].(*models.ThreadNotificationQueryOptions))
+		},
+		nil,
+		ec.marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_notifications(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "notificationId":
+				return ec.fieldContext_ThreadNotification_notificationId(ctx, field)
+			case "threadId":
+				return ec.fieldContext_ThreadNotification_threadId(ctx, field)
+			case "stepId":
+				return ec.fieldContext_ThreadNotification_stepId(ctx, field)
+			case "stepName":
+				return ec.fieldContext_ThreadNotification_stepName(ctx, field)
+			case "idempotencyKey":
+				return ec.fieldContext_ThreadNotification_idempotencyKey(ctx, field)
+			case "source":
+				return ec.fieldContext_ThreadNotification_source(ctx, field)
+			case "notificationType":
+				return ec.fieldContext_ThreadNotification_notificationType(ctx, field)
+			case "stepStatus":
+				return ec.fieldContext_ThreadNotification_stepStatus(ctx, field)
+			case "validationStatus":
+				return ec.fieldContext_ThreadNotification_validationStatus(ctx, field)
+			case "violationType":
+				return ec.fieldContext_ThreadNotification_violationType(ctx, field)
+			case "severity":
+				return ec.fieldContext_ThreadNotification_severity(ctx, field)
+			case "message":
+				return ec.fieldContext_ThreadNotification_message(ctx, field)
+			case "details":
+				return ec.fieldContext_ThreadNotification_details(ctx, field)
+			case "timestamp":
+				return ec.fieldContext_ThreadNotification_timestamp(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ThreadNotification", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Thread_notifications_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_threadChain(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5324,6 +6010,10 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
 			case "threadChain":
 				return ec.fieldContext_Thread_threadChain(ctx, field)
 			case "hashChainVerified":
@@ -5413,6 +6103,412 @@ func (ec *executionContext) fieldContext_Thread_hashChainStatus(_ context.Contex
 				return ec.fieldContext_HashChainStatus_error(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type HashChainStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_notificationId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_notificationId,
+		func(ctx context.Context) (any, error) {
+			return obj.NotificationID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_notificationId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_threadId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_threadId,
+		func(ctx context.Context) (any, error) {
+			return obj.ThreadID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_threadId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_stepId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_stepId,
+		func(ctx context.Context) (any, error) {
+			return obj.StepID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_stepId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_stepName(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_stepName,
+		func(ctx context.Context) (any, error) {
+			return obj.StepName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_stepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_idempotencyKey,
+		func(ctx context.Context) (any, error) {
+			return obj.IdempotencyKey, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_idempotencyKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_source(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_source,
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_notificationType(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_notificationType,
+		func(ctx context.Context) (any, error) {
+			return obj.NotificationType, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_notificationType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_stepStatus(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_stepStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.StepStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_stepStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_validationStatus(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_validationStatus,
+		func(ctx context.Context) (any, error) {
+			return obj.ValidationStatus, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_validationStatus(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_violationType(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_violationType,
+		func(ctx context.Context) (any, error) {
+			return obj.ViolationType, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_violationType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_severity(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_severity,
+		func(ctx context.Context) (any, error) {
+			return obj.Severity, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_severity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_message(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_message,
+		func(ctx context.Context) (any, error) {
+			return obj.Message, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_message(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_details(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_details,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ThreadNotification().Details(ctx, obj)
+		},
+		nil,
+		ec.marshalOJSON2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_details(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadNotification_timestamp(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadNotification_timestamp,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.ThreadNotification().Timestamp(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadNotification_timestamp(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadNotification",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -7661,6 +8757,82 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputThreadNotificationQueryOptions(ctx context.Context, obj any) (models.ThreadNotificationQueryOptions, error) {
+	var it models.ThreadNotificationQueryOptions
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"threadId", "stepId", "stepName", "source", "notificationType", "severity", "limit", "offset"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "threadId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("threadId"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ThreadID = data
+		case "stepId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("stepId"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StepID = data
+		case "stepName":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("stepName"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.StepName = data
+		case "source":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("source"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Source = data
+		case "notificationType":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("notificationType"))
+			data, err := ec.unmarshalOString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.NotificationType = data
+		case "severity":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("severity"))
+			data, err := ec.unmarshalOString2ᚕstringᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Severity = data
+		case "limit":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("limit"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Limit = data
+		case "offset":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("offset"))
+			data, err := ec.unmarshalOInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Offset = data
+		}
+	}
+
+	return it, nil
+}
+
 func (ec *executionContext) unmarshalInputValidationQueryOptions(ctx context.Context, obj any) (models.ValidationQueryOptions, error) {
 	var it models.ValidationQueryOptions
 	asMap := map[string]any{}
@@ -8196,6 +9368,90 @@ func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.Sel
 	return out
 }
 
+var notificationSummaryImplementors = []string{"NotificationSummary"}
+
+func (ec *executionContext) _NotificationSummary(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationSummary) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, notificationSummaryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("NotificationSummary")
+		case "totalNotifications":
+			out.Values[i] = ec._NotificationSummary_totalNotifications(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "criticalCount":
+			out.Values[i] = ec._NotificationSummary_criticalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "warningCount":
+			out.Values[i] = ec._NotificationSummary_warningCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "majorCount":
+			out.Values[i] = ec._NotificationSummary_majorCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "minorCount":
+			out.Values[i] = ec._NotificationSummary_minorCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "infoCount":
+			out.Values[i] = ec._NotificationSummary_infoCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "executionCount":
+			out.Values[i] = ec._NotificationSummary_executionCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "validationCount":
+			out.Values[i] = ec._NotificationSummary_validationCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasCritical":
+			out.Values[i] = ec._NotificationSummary_hasCritical(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasWarnings":
+			out.Values[i] = ec._NotificationSummary_hasWarnings(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var queryImplementors = []string{"Query"}
 
 func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
@@ -8499,115 +9755,53 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 		case "attempt":
 			out.Values[i] = ec._StepHistory_attempt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "timestamp":
 			out.Values[i] = ec._StepHistory_timestamp(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "status":
 			out.Values[i] = ec._StepHistory_status(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "context":
 			out.Values[i] = ec._StepHistory_context(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "duration":
 			out.Values[i] = ec._StepHistory_duration(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "startedAt":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._StepHistory_startedAt(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			out.Values[i] = ec._StepHistory_startedAt(ctx, field, obj)
 		case "finishedAt":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._StepHistory_finishedAt(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			out.Values[i] = ec._StepHistory_finishedAt(ctx, field, obj)
 		case "error":
 			out.Values[i] = ec._StepHistory_error(ctx, field, obj)
 		case "actor":
 			out.Values[i] = ec._StepHistory_actor(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "actorService":
 			out.Values[i] = ec._StepHistory_actorService(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "companyId":
 			out.Values[i] = ec._StepHistory_companyId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "companyName":
 			out.Values[i] = ec._StepHistory_companyName(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				atomic.AddUint32(&out.Invalids, 1)
+				out.Invalids++
 			}
 		case "hash":
 			out.Values[i] = ec._StepHistory_hash(ctx, field, obj)
@@ -9238,6 +10432,78 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "notificationSummary":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Thread_notificationSummary(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "notifications":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Thread_notifications(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "threadChain":
 			field := field
 
@@ -9317,6 +10583,154 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 					}
 				}()
 				res = ec._Thread_hashChainStatus(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var threadNotificationImplementors = []string{"ThreadNotification"}
+
+func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.SelectionSet, obj *models.ThreadNotification) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, threadNotificationImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ThreadNotification")
+		case "notificationId":
+			out.Values[i] = ec._ThreadNotification_notificationId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "threadId":
+			out.Values[i] = ec._ThreadNotification_threadId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "stepId":
+			out.Values[i] = ec._ThreadNotification_stepId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "stepName":
+			out.Values[i] = ec._ThreadNotification_stepName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "idempotencyKey":
+			out.Values[i] = ec._ThreadNotification_idempotencyKey(ctx, field, obj)
+		case "source":
+			out.Values[i] = ec._ThreadNotification_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "notificationType":
+			out.Values[i] = ec._ThreadNotification_notificationType(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "stepStatus":
+			out.Values[i] = ec._ThreadNotification_stepStatus(ctx, field, obj)
+		case "validationStatus":
+			out.Values[i] = ec._ThreadNotification_validationStatus(ctx, field, obj)
+		case "violationType":
+			out.Values[i] = ec._ThreadNotification_violationType(ctx, field, obj)
+		case "severity":
+			out.Values[i] = ec._ThreadNotification_severity(ctx, field, obj)
+		case "message":
+			out.Values[i] = ec._ThreadNotification_message(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "details":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ThreadNotification_details(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "timestamp":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ThreadNotification_timestamp(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
 				return res
 			}
 
@@ -10170,6 +11584,20 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 	return res
 }
 
+func (ec *executionContext) marshalNNotificationSummary2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v models.NotificationSummary) graphql.Marshaler {
+	return ec._NotificationSummary(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNNotificationSummary2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v *models.NotificationSummary) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._NotificationSummary(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNStepHistory2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepHistoryᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.StepHistory) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -10390,6 +11818,60 @@ func (ec *executionContext) marshalNThread2ᚖgithubᚗcomᚋthreadifyᚋengine�
 		return graphql.Null
 	}
 	return ec._Thread(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ThreadNotification) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNThreadNotification2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotification(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNThreadNotification2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotification(ctx context.Context, sel ast.SelectionSet, v *models.ThreadNotification) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ThreadNotification(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNTransition2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransition(ctx context.Context, sel ast.SelectionSet, v models.Transition) graphql.Marshaler {
@@ -10914,6 +12396,14 @@ func (ec *executionContext) marshalOThread2ᚖgithubᚗcomᚋthreadifyᚋengine�
 		return graphql.Null
 	}
 	return ec._Thread(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOThreadNotificationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationQueryOptions(ctx context.Context, v any) (*models.ThreadNotificationQueryOptions, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputThreadNotificationQueryOptions(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOTransition2ᚕgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransitionᚄ(ctx context.Context, sel ast.SelectionSet, v []models.Transition) graphql.Marshaler {

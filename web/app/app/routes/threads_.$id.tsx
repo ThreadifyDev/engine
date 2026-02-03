@@ -1,6 +1,6 @@
 import { useParams } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
-import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory } from '~/lib/graphql';
+import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
 import { formatDistanceToNow } from 'date-fns';
 import {
   CheckCircle2,
@@ -57,6 +57,8 @@ export default function ThreadDetailPage() {
   const [showContext, setShowContext] = useState(false);
   const [previousView, setPreviousView] = useState<SidebarView>(null);
   const [severityFilter, setSeverityFilter] = useState<Set<string>>(new Set(['critical', 'warning', 'info']));
+  const [selectedNotification, setSelectedNotification] = useState<ThreadNotification | null>(null);
+  const [selectedStepForHistory, setSelectedStepForHistory] = useState<StepStateInfo | null>(null);
   
   const { data: thread, isLoading, error } = useQuery({
     queryKey: ['thread', id],
@@ -76,6 +78,16 @@ export default function ThreadDetailPage() {
       return results.flat();
     },
     enabled: !!thread?.steps && thread.steps.length > 0 && sidebarView === 'participants',
+  });
+
+  // Fetch full notifications only when validations view is opened
+  const { data: notifications, isLoading: notificationsLoading } = useQuery({
+    queryKey: ['threadNotifications', id, severityFilter],
+    queryFn: () => graphqlClient.getThreadNotifications(id!, {
+      severity: Array.from(severityFilter),
+      limit: 100,
+    }),
+    enabled: !!id && sidebarView === 'validations',
   });
 
   if (isLoading) {
@@ -144,7 +156,10 @@ export default function ThreadDetailPage() {
               <div className="relative group">
                 <button
                   onClick={() => {
-                    if (thread.contractName) {
+                    if (sidebarView === 'validations') {
+                      setSidebarView(null);
+                      setPreviousView(null);
+                    } else {
                       setSidebarView('validations');
                       setSelectedStep(null);
                       setPreviousView(null);
@@ -160,6 +175,11 @@ export default function ThreadDetailPage() {
                 >
                   <AlertTriangle className="w-4 h-4" />
                   Flow Validations
+                  {thread.notificationSummary && (thread.notificationSummary.hasCritical || thread.notificationSummary.hasWarnings) && (
+                    <span className="ml-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
+                      {thread.notificationSummary.criticalCount + thread.notificationSummary.warningCount}
+                    </span>
+                  )}
                 </button>
                 {!thread.contractName && (
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
@@ -226,6 +246,7 @@ export default function ThreadDetailPage() {
               showContext={showContext}
               onToggleContext={() => setShowContext(!showContext)}
               validations={thread.validationResults || []}
+              onShowHistory={(step) => setSelectedStepForHistory(step)}
             />
           </RightSidebar>
         )}
@@ -241,9 +262,64 @@ export default function ThreadDetailPage() {
             width="lg"
           >
             <ValidationResultsView 
-              validations={thread.validationResults || []} 
+              validations={thread.validationResults || []}
+              notifications={notifications || []}
+              notificationsLoading={notificationsLoading}
+              notificationSummary={thread.notificationSummary}
               severityFilter={severityFilter}
               onSeverityFilterChange={setSeverityFilter}
+              onNotificationClick={(notif) => setSelectedNotification(notif)}
+            />
+          </RightSidebar>
+        )}
+
+        {/* Notification Detail Sidebar */}
+        {selectedNotification && (
+          <RightSidebar
+            isOpen={true}
+            onClose={() => setSelectedNotification(null)}
+            title={
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedNotification(null)}
+                  className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                  Back
+                </button>
+                <span className="text-gray-300">|</span>
+                <span>Notification Details</span>
+              </div>
+            }
+            width="lg"
+          >
+            <NotificationDetailView notification={selectedNotification} />
+          </RightSidebar>
+        )}
+
+        {/* Step History Layered Sidebar */}
+        {selectedStepForHistory && (
+          <RightSidebar
+            isOpen={true}
+            onClose={() => setSelectedStepForHistory(null)}
+            title={
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedStepForHistory(null)}
+                  className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                  Back
+                </button>
+                <span className="text-gray-300">|</span>
+                <span>Step History</span>
+              </div>
+            }
+            width="lg"
+          >
+            <StepHistoryContent 
+              step={selectedStepForHistory}
+              threadId={id!}
             />
           </RightSidebar>
         )}
@@ -470,25 +546,25 @@ function ThreadHeader({ thread }: { thread: Thread }) {
                 <span>External References</span>
                 <span className="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full">{refEntries.length}</span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1">
                 {refEntries.map(([key, value]) => (
                   <div
                     key={key}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded-full text-2xs"
                   >
-                    <span className="font-medium text-blue-900">{key}:</span>
-                    <span className="text-blue-700 font-mono text-xs truncate max-w-[120px]" title={String(value)}>
+                    <span className="font-medium text-blue-900 text-2xs">{key}:</span>
+                    <span className="text-blue-700 font-mono text-2xs truncate max-w-[100px]" title={String(value)}>
                       {String(value)}
                     </span>
                     <button
                       onClick={() => copyToClipboard(String(value), key)}
-                      className="ml-1 p-0.5 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
+                      className="ml-0.5 p-0.5 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
                       title="Copy value"
                     >
                       {copiedRef === key ? (
-                        <Check className="w-3 h-3 text-green-600" />
+                        <Check className="w-2.5 h-2.5 text-green-600" />
                       ) : (
-                        <Copy className="w-3 h-3 text-blue-600 hover:text-blue-800" />
+                        <Copy className="w-2.5 h-2.5 text-blue-600 hover:text-blue-800" />
                       )}
                     </button>
                   </div>
@@ -781,13 +857,15 @@ function StepDetailContent({
   threadId, 
   showContext, 
   onToggleContext,
-  validations
+  validations,
+  onShowHistory
 }: { 
   step: StepStateInfo; 
   threadId: string; 
   showContext: boolean; 
   onToggleContext: () => void;
   validations: ValidationResultInfo[];
+  onShowHistory: (step: StepStateInfo) => void;
 }) {
   const [showValidations, setShowValidations] = useState(false);
   const [validationFilter, setValidationFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
@@ -802,8 +880,6 @@ function StepDetailContent({
       console.error('Failed to copy:', err);
     }
   };
-
-  const [showHistory, setShowHistory] = useState(false);
 
   // Count validations for this step
   const stepValidations = validations.filter(
@@ -855,25 +931,25 @@ function StepDetailContent({
           {step.status === 'pending' && <Clock className="w-6 h-6 text-gray-400" />}
         </div>
         
-        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
-          step.status === 'success' ? 'bg-green-100 text-green-800' :
-          step.status === 'failed' ? 'bg-red-100 text-red-800' :
-          step.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-          'bg-gray-100 text-gray-800'
-        }`}>
-          {step.status}
-        </span>
-      </div>
-
-      {/* Retry Count */}
-      {step.retryCount > 0 && (
-        <div className="bg-orange-50 border-2 border-orange-200 p-4 rounded">
-          <div className="flex items-center gap-2 text-orange-800">
-            <RefreshCw className="w-5 h-5" />
-            <span className="font-bold">Retried {step.retryCount} time{step.retryCount > 1 ? 's' : ''}</span>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
+            step.status === 'success' ? 'bg-green-100 text-green-800' :
+            step.status === 'failed' ? 'bg-red-100 text-red-800' :
+            step.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+            'bg-gray-100 text-gray-800'
+          }`}>
+            {step.status}
+          </span>
+          
+          {/* Retry Count */}
+          {step.retryCount > 0 && (
+            <div className="flex items-center gap-1 text-orange-700">
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium">Retried {step.retryCount} time{step.retryCount > 1 ? 's' : ''}</span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Timestamps */}
       <div className="space-y-3">
@@ -1034,7 +1110,7 @@ function StepDetailContent({
       {/* View History - Separate section */}
       <div className="border-t border-gray-200 pt-6">
         <button
-          onClick={() => setShowHistory(true)}
+          onClick={() => onShowHistory(step)}
           className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50 rounded-lg"
         >
           <div className="flex items-center justify-between">
@@ -1156,27 +1232,18 @@ function StepDetailContent({
         </div>
       )}
 
-      {/* Nested History Sidebar - Stripe pattern */}
-      {showHistory && (
-        <StepHistorySidebar
-          step={step}
-          threadId={threadId}
-          onClose={() => setShowHistory(false)}
-        />
-      )}
+      {/* History is now rendered as a layered sidebar at the top level */}
     </div>
   );
 }
 
-// Nested History Sidebar Component
-function StepHistorySidebar({
+// Nested History Sidebar Component - Content Only
+function StepHistoryContent({
   step,
   threadId,
-  onClose,
 }: {
   step: StepStateInfo;
   threadId: string;
-  onClose: () => void;
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
 
@@ -1201,33 +1268,7 @@ function StepHistorySidebar({
   });
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 bg-black/20 z-40"
-        onClick={onClose}
-      />
-
-      {/* Sidebar */}
-      <div className="fixed top-0 right-0 h-full w-[345px] bg-white shadow-2xl z-50 flex flex-col animate-slide-in-right">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <div>
-            <h3 className="font-semibold text-gray-900">Step History</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {step.stepName}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded hover:bg-gray-100 transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+    <div>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
@@ -1341,9 +1382,7 @@ function StepHistorySidebar({
               No history available
             </div>
           )}
-        </div>
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -1496,26 +1535,182 @@ function ParticipantsView({ threadId, steps, stepHistory }: { threadId: string; 
 
 function ValidationResultsView({ 
   validations,
+  notifications,
+  notificationsLoading,
+  notificationSummary,
   severityFilter,
-  onSeverityFilterChange
+  onSeverityFilterChange,
+  onNotificationClick
 }: { 
   validations: ValidationResultInfo[];
+  notifications: ThreadNotification[];
+  notificationsLoading: boolean;
+  notificationSummary?: NotificationSummary;
   severityFilter: Set<string>;
   onSeverityFilterChange: (filter: Set<string>) => void;
+  onNotificationClick: (notification: ThreadNotification) => void;
 }) {
+  // Use notifications if available (richer data)
+  const useNotifications = notifications.length > 0;
+
+  if (notificationsLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
+
+  // If using notifications, filter and display them
+  if (useNotifications) {
+    const filteredNotifications = notifications.filter(n => 
+      n.severity && severityFilter.has(n.severity)
+    );
+
+    const criticalCount = notifications.filter(n => n.severity === 'critical').length;
+    const warningCount = notifications.filter(n => n.severity === 'warning').length;
+    const infoCount = notifications.filter(n => n.severity === 'info').length;
+
+    const toggleSeverity = (severity: string) => {
+      const newFilter = new Set(severityFilter);
+      if (newFilter.has(severity)) {
+        newFilter.delete(severity);
+      } else {
+        newFilter.add(severity);
+      }
+      onSeverityFilterChange(newFilter);
+    };
+
+    if (notifications.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12">
+          <CheckCircle2 className="w-16 h-16 text-green-600 mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Notifications</h3>
+          <p className="text-sm text-gray-600">All validations passed successfully</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {/* Filter Checkboxes */}
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={severityFilter.has('critical')}
+              onChange={() => toggleSeverity('critical')}
+              className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+            />
+            <span className="text-sm text-gray-700 group-hover:text-gray-900">
+              Critical ({criticalCount})
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={severityFilter.has('warning')}
+              onChange={() => toggleSeverity('warning')}
+              className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+            />
+            <span className="text-sm text-gray-700 group-hover:text-gray-900">
+              Warning ({warningCount})
+            </span>
+          </label>
+        </div>
+
+        {/* Notification Cards */}
+        <div className="space-y-2">
+          {filteredNotifications.map((notification) => {
+            const getSeverityConfig = () => {
+              switch (notification.severity) {
+                case 'critical':
+                  return {
+                    bg: 'bg-red-50',
+                    border: 'border-l-red-500',
+                    icon: <XCircle className="w-4 h-4 text-red-600" />,
+                    badge: 'bg-red-100 text-red-700',
+                  };
+                case 'warning':
+                  return {
+                    bg: 'bg-yellow-50',
+                    border: 'border-l-yellow-500',
+                    icon: <AlertTriangle className="w-4 h-4 text-yellow-600" />,
+                    badge: 'bg-yellow-100 text-yellow-700',
+                  };
+                default:
+                  return {
+                    bg: 'bg-blue-50',
+                    border: 'border-l-blue-500',
+                    icon: <Info className="w-4 h-4 text-blue-600" />,
+                    badge: 'bg-blue-100 text-blue-700',
+                  };
+              }
+            };
+            const config = getSeverityConfig();
+
+            return (
+              <button
+                key={notification.notificationId}
+                onClick={() => onNotificationClick(notification)}
+                className={`w-full text-left ${config.bg} border-l-4 ${config.border} rounded-r-lg p-3 hover:shadow-md transition-all cursor-pointer group`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-900 text-sm truncate">
+                        {notification.stepName}
+                      </span>
+                      <div className="flex-shrink-0">
+                        {config.icon}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${config.badge}`}>
+                        {notification.severity}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700 line-clamp-2 mb-1">
+                      {notification.message}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="capitalize">{notification.source}</span>
+                      <span>•</span>
+                      <span>{formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 flex-shrink-0" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   // Determine severity for each validation
   const getSeverity = (validation: ValidationResultInfo): string => {
+    // Only show failed validations or those with actual issues
     if (validation.hasCriticalViolation || validation.criticalCount > 0) return 'critical';
     if (validation.warningCount > 0) return 'warning';
+    // If overallStatus is failed but no specific counts, treat as critical
+    if (validation.overallStatus === 'failed') return 'critical';
     return 'info';
   };
 
-  const criticalCount = validations.filter(v => getSeverity(v) === 'critical').length;
-  const warningCount = validations.filter(v => getSeverity(v) === 'warning').length;
-  const infoCount = validations.filter(v => getSeverity(v) === 'info').length;
+  // Filter out empty info validations (no actual issues to show)
+  const meaningfulValidations = validations.filter(v => {
+    const severity = getSeverity(v);
+    // Keep critical and warning always
+    if (severity === 'critical' || severity === 'warning') return true;
+    // For info, only keep if there are actual validation messages
+    return v.validations.length > 0;
+  });
+
+  const criticalCount = meaningfulValidations.filter(v => getSeverity(v) === 'critical').length;
+  const warningCount = meaningfulValidations.filter(v => getSeverity(v) === 'warning').length;
+  const infoCount = meaningfulValidations.filter(v => getSeverity(v) === 'info').length;
 
   // Filter validations by severity
-  const filteredValidations = validations.filter(v => severityFilter.has(getSeverity(v)));
+  const filteredValidations = meaningfulValidations.filter(v => severityFilter.has(getSeverity(v)));
 
   const toggleSeverity = (severity: string) => {
     const newFilter = new Set(severityFilter);
@@ -1527,7 +1722,7 @@ function ValidationResultsView({
     onSeverityFilterChange(newFilter);
   };
 
-  if (validations.length === 0) {
+  if (meaningfulValidations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <CheckCircle2 className="w-16 h-16 text-green-600 mb-4" />
@@ -1539,110 +1734,131 @@ function ValidationResultsView({
 
   return (
     <div className="space-y-6">
-      {/* Filter Buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => toggleSeverity('critical')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            severityFilter.has('critical')
-              ? 'bg-red-100 text-red-700 border-2 border-red-300'
-              : 'bg-gray-100 text-gray-400 border-2 border-gray-200'
-          }`}
-        >
-          Critical ({criticalCount})
-        </button>
-        <button
-          onClick={() => toggleSeverity('warning')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            severityFilter.has('warning')
-              ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-300'
-              : 'bg-gray-100 text-gray-400 border-2 border-gray-200'
-          }`}
-        >
-          Warning ({warningCount})
-        </button>
-        <button
-          onClick={() => toggleSeverity('info')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            severityFilter.has('info')
-              ? 'bg-blue-100 text-blue-700 border-2 border-blue-300'
-              : 'bg-gray-100 text-gray-400 border-2 border-gray-200'
-          }`}
-        >
-          Info ({infoCount})
-        </button>
+      {/* Filter Checkboxes */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={severityFilter.has('critical')}
+            onChange={() => toggleSeverity('critical')}
+            className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+          />
+          <span className="text-sm text-gray-700 group-hover:text-gray-900">
+            Critical ({criticalCount})
+          </span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={severityFilter.has('warning')}
+            onChange={() => toggleSeverity('warning')}
+            className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+          />
+          <span className="text-sm text-gray-700 group-hover:text-gray-900">
+            Warning ({warningCount})
+          </span>
+        </label>
+        {infoCount > 0 && (
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={severityFilter.has('info')}
+              onChange={() => toggleSeverity('info')}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700 group-hover:text-gray-900">
+              Info ({infoCount})
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Validation List */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {filteredValidations.map((validation) => {
           const severity = getSeverity(validation);
-          const getSeverityStyles = () => {
+          const getSeverityConfig = () => {
             switch (severity) {
               case 'critical':
                 return {
-                  bg: 'bg-red-50',
-                  border: 'border-red-200',
-                  icon: <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  border: 'border-l-4 border-l-red-500',
+                  icon: <AlertTriangle className="w-4 h-4 text-red-600" />,
+                  badge: 'bg-red-100 text-red-700',
+                  label: 'Failed'
                 };
               case 'warning':
                 return {
-                  bg: 'bg-yellow-50',
-                  border: 'border-yellow-200',
-                  icon: <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  border: 'border-l-4 border-l-yellow-500',
+                  icon: <AlertTriangle className="w-4 h-4 text-yellow-600" />,
+                  badge: 'bg-yellow-100 text-yellow-700',
+                  label: 'Warning'
                 };
               case 'info':
               default:
                 return {
-                  bg: 'bg-blue-50',
-                  border: 'border-blue-200',
-                  icon: <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  border: 'border-l-4 border-l-blue-500',
+                  icon: <Info className="w-4 h-4 text-blue-600" />,
+                  badge: 'bg-blue-100 text-blue-700',
+                  label: 'Info'
                 };
             }
           };
-          const styles = getSeverityStyles();
+          const config = getSeverityConfig();
+          
+          // Generate summary text
+          const getSummaryText = () => {
+            if (validation.validations.length > 0) {
+              return `${validation.validations.length} validation ${validation.validations.length === 1 ? 'issue' : 'issues'} detected`;
+            }
+            if (validation.overallStatus === 'failed') {
+              return 'Validation failed';
+            }
+            return 'Validation completed';
+          };
           
           return (
             <div
               key={validation.validationId}
-              className={`border-2 rounded-md p-4 ${styles.bg} ${styles.border}`}
+              className={`bg-white border border-gray-200 rounded-md p-3 ${config.border} hover:shadow-sm transition-shadow`}
             >
               <div className="flex items-start gap-3">
-                {styles.icon}
-              
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-gray-900 mb-1">
-                  {validation.stepName}
+                <div className="flex-shrink-0 mt-0.5">
+                  {config.icon}
                 </div>
-                <div className="text-xs text-gray-500 mb-2">
-                  {validation.idempotencyKey}
-                </div>
-                
-                <div className="space-y-2">
-                  {validation.validations.map((issue, idx) => (
-                    <div key={idx} className="text-sm">
-                      <div className="text-gray-900 font-medium">{issue.message}</div>
-                      {issue.field && (
-                        <div className="text-gray-600 mt-1 text-xs">
-                          Field: <span className="font-mono">{issue.field}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-gray-900 text-sm">{validation.stepName}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-2xs font-medium ${config.badge}`}>
+                      {config.label}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-600 mb-2">
+                    {getSummaryText()}
+                  </div>
+                  
+                  {/* Validation Issues */}
+                  {validation.validations.length > 0 && (
+                    <div className="space-y-1.5 mb-2">
+                      {validation.validations.map((issue, idx) => (
+                        <div key={idx} className="text-xs text-gray-700">
+                          • {issue.message}
+                          {issue.field && (
+                            <span className="text-gray-500 ml-1">
+                              (field: <span className="font-mono">{issue.field}</span>)
+                            </span>
+                          )}
                         </div>
-                      )}
-                      {issue.expected && issue.actual && (
-                        <div className="text-gray-600 mt-1 text-xs">
-                          Expected: {issue.expected} | Actual: {issue.actual}
-                        </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
-                </div>
-                
-                <div className="mt-2 text-xs text-gray-500">
-                  {formatDistanceToNow(new Date(validation.timestamp), { addSuffix: true })}
+                  )}
+                  
+                  <div className="text-2xs text-gray-400">
+                    {formatDistanceToNow(new Date(validation.timestamp), { addSuffix: true })}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        );
+          );
         })}
       </div>
     </div>
@@ -1837,6 +2053,148 @@ function StepValidationResultsView({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function NotificationDetailView({ notification }: { notification: ThreadNotification }) {
+  const getSeverityConfig = () => {
+    switch (notification.severity) {
+      case 'critical':
+        return {
+          bg: 'bg-red-50',
+          border: 'border-red-200',
+          icon: <XCircle className="w-5 h-5 text-red-600" />,
+          badge: 'bg-red-100 text-red-700',
+        };
+      case 'warning':
+        return {
+          bg: 'bg-yellow-50',
+          border: 'border-yellow-200',
+          icon: <AlertTriangle className="w-5 h-5 text-yellow-600" />,
+          badge: 'bg-yellow-100 text-yellow-700',
+        };
+      default:
+        return {
+          bg: 'bg-blue-50',
+          border: 'border-blue-200',
+          icon: <Info className="w-5 h-5 text-blue-600" />,
+          badge: 'bg-blue-100 text-blue-700',
+        };
+    }
+  };
+  const config = getSeverityConfig();
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className={`${config.bg} border ${config.border} rounded-lg p-4`}>
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-lg font-semibold text-gray-900">{notification.stepName}</h2>
+          <div className="flex-shrink-0">
+            {config.icon}
+          </div>
+          <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${config.badge}`}>
+            {notification.severity?.toUpperCase()}
+          </span>
+        </div>
+        <p className="text-sm text-gray-700">{notification.message}</p>
+      </div>
+
+      {/* Metadata */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Notification Details</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-600">Source</span>
+              <span className="text-sm font-medium text-gray-900 capitalize">{notification.source}</span>
+            </div>
+            <div className="flex justify-between py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-600">Type</span>
+              <span className="text-sm font-medium text-gray-900">{notification.notificationType}</span>
+            </div>
+            {notification.stepStatus && (
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Step Status</span>
+                <span className="text-sm font-medium text-gray-900 capitalize">{notification.stepStatus}</span>
+              </div>
+            )}
+            {notification.validationStatus && (
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Validation Status</span>
+                <span className="text-sm font-medium text-gray-900 capitalize">{notification.validationStatus}</span>
+              </div>
+            )}
+            {notification.violationType && (
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Violation Type</span>
+                <span className="text-sm font-medium text-gray-900">{notification.violationType.replace(/_/g, ' ')}</span>
+              </div>
+            )}
+            <div className="flex justify-between py-2 border-b border-gray-100">
+              <span className="text-sm text-gray-600">Timestamp</span>
+              <span className="text-sm font-medium text-gray-900">
+                {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Additional Details */}
+        {notification.details && (() => {
+          // Parse details if it's a JSON string
+          let detailsObj = notification.details;
+          if (typeof notification.details === 'string') {
+            try {
+              detailsObj = JSON.parse(notification.details);
+            } catch (e) {
+              detailsObj = notification.details;
+            }
+          }
+          return Object.keys(detailsObj).length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Additional Details</h3>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <pre className="text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap font-mono">
+                  {JSON.stringify(detailsObj, null, 2)}
+                </pre>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* IDs */}
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <Hash className="w-4 h-4 text-gray-700" />
+            <h3 className="text-sm font-semibold text-gray-900">Identifiers</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs text-gray-600 mb-1">Notification ID:</div>
+              <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm font-mono text-gray-900">
+                {notification.notificationId}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-600 mb-1">Step ID:</div>
+              <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm font-mono text-gray-900">
+                {notification.stepId}
+              </div>
+            </div>
+            {notification.idempotencyKey && (
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Idempotency Key:</div>
+                <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm font-mono text-gray-900">
+                  {notification.idempotencyKey}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

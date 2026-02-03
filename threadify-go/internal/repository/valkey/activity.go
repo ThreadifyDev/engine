@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -155,7 +154,8 @@ func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, 
 	return nil
 }
 
-// ArchiveValidationResults writes validation results to archival stream
+// ArchiveValidationResults writes validation notifications to archival stream
+// Now only publishes to thread_notifications table (not thread_validations)
 func (r *ActivityRepository) ArchiveValidationResults(
 	ctx context.Context,
 	threadID string,
@@ -166,75 +166,23 @@ func (r *ActivityRepository) ArchiveValidationResults(
 	finalStatus string,
 	hasCriticalViolation bool,
 ) error {
-	// Build validation summary
-	validationSummary := make([]map[string]interface{}, 0, len(notifications))
-	criticalCount := 0
-	warningCount := 0
-	minorCount := 0
-	infoCount := 0
-
-	for _, notif := range notifications {
-		validation := map[string]interface{}{
-			"type":       notif.ViolationType,
-			"severity":   notif.Severity,
-			"message":    notif.Message,
-			"passed":     notif.Status == "passed",
-			"stepStatus": notif.StepStatus,
-			"status":     notif.Status,
-		}
-
-		// Add details if present
-		if notif.Details != nil && len(notif.Details) > 0 {
-			validation["details"] = notif.Details
-		}
-
-		validationSummary = append(validationSummary, validation)
-
-		// Count by severity
-		switch notif.Severity {
-		case string(models.SeverityCritical):
-			criticalCount++
-		case string(models.SeverityWarning):
-			warningCount++
-		case string(models.SeverityMinor):
-			minorCount++
-		case string(models.SeverityInfo):
-			infoCount++
-		}
-	}
-
-	// Marshal validations to JSON
-	validationsJSON, err := json.Marshal(validationSummary)
-	if err != nil {
-		return fmt.Errorf("failed to marshal validations: %w", err)
-	}
-
-	// Build stream values for archival
-	streamValues := map[string]interface{}{
-		"validationID":         uuid.New().String(),
-		"threadID":             threadID,
-		"stepID":               stepID,
-		"stepName":             stepName,
-		"idempotencyKey":       idempotencyKey,
-		"timestamp":            time.Now().Format(time.RFC3339),
-		"validations":          string(validationsJSON),
-		"overallStatus":        finalStatus,
-		"hasCriticalViolation": hasCriticalViolation,
-		"criticalCount":        criticalCount,
-		"warningCount":         warningCount,
-		"minorCount":           minorCount,
-		"infoCount":            infoCount,
-		"totalValidations":     len(notifications),
-		"maxlen":               "~",
-		"limit":                100000,
-	}
-
-	// Publish to NATS for archival (SYNCHRONOUS - critical for validation persistence)
-	if r.natsPublisher != nil {
+	// Publish individual notifications to thread_notifications table
+	// This preserves full notification context (source, notificationType, message, etc.)
+	if r.natsPublisher != nil && len(notifications) > 0 {
 		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := r.natsPublisher.PublishThreadValidation(pubCtx, streamValues); err != nil {
-			fmt.Printf("❌ ERROR: Failed to publish thread validations to NATS: %v\n", err)
+
+		// Publish array of notifications (NATS publisher will handle JSON serialization)
+		notificationEvent := map[string]interface{}{
+			"threadID":      threadID,
+			"stepID":        stepID,
+			"stepName":      stepName,
+			"notifications": notifications, // Direct struct array - will be JSON serialized by NATS
+		}
+
+		if err := r.natsPublisher.PublishThreadNotifications(pubCtx, notificationEvent); err != nil {
+			fmt.Printf("❌ ERROR: Failed to publish thread notifications to NATS: %v\n", err)
+			return fmt.Errorf("failed to archive notifications: %w", err)
 		}
 	}
 

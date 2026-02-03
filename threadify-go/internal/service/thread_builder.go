@@ -164,7 +164,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		validationPool = b.workerPools.Validation
 		notificationPool = b.workerPools.Notification
 	}
-	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, b.natsPublisher, accessService, rbacLoader, validationPool, notificationPool)
+	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, b.natsPublisher, b.natsArchivalPublisher, accessService, rbacLoader, validationPool, notificationPool)
 
 	// Construct and return the service
 	return &ThreadService{

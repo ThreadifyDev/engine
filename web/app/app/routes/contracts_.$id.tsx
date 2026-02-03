@@ -97,50 +97,50 @@ export default function ContractDetail() {
       <div className="flex-1 overflow-auto ml-16">
         <div className="p-8">
           {/* Header */}
-          <div className="mb-8">
+          <div className="mb-12">
             <button
               onClick={() => navigate('/contracts')}
-              className="text-black hover:underline mb-4 flex items-center"
+              className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
             >
               ← Back to Contracts
             </button>
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-4xl font-bold text-black" style={{ fontFamily: 'Block, sans-serif' }}>
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-3xl font-semibold text-gray-900">
                 {contract?.name || id || 'Contract Details'}
               </h1>
               <button
                 onClick={() => setShowUpdateModal(true)}
-                className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
+                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors text-sm font-medium"
               >
                 Update Contract
               </button>
             </div>
             
             {/* Contract Metadata */}
-            <div className="grid grid-cols-2 gap-4 bg-gray-50 border-2 border-black p-6">
+            <div className="grid grid-cols-4 gap-8 py-6 border-b border-gray-200">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Description</p>
-                <p className="text-black font-medium">
-                  {contract?.description || 'No description provided'}
-                </p>
+                <p className="text-xs text-gray-500 mb-1">Latest Version</p>
+                <p className="text-sm text-gray-900 font-medium">v{contract?.latestVersion || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">Created</p>
-                <p className="text-black font-medium">
+                <p className="text-xs text-gray-500 mb-1">Total Versions</p>
+                <p className="text-sm text-gray-900 font-medium">{contract?.versions?.length || 0}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Created</p>
+                <p className="text-sm text-gray-900 font-medium">
                   {contract?.createdAt ? new Date(contract.createdAt).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
                   }) : 'N/A'}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">Latest Version</p>
-                <p className="text-black font-medium">v{contract?.latestVersion || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Versions</p>
-                <p className="text-black font-medium">{contract?.versions?.length || 0}</p>
+                <p className="text-xs text-gray-500 mb-1">Description</p>
+                <p className="text-sm text-gray-900 font-medium">
+                  {contract?.description || 'No description'}
+                </p>
               </div>
             </div>
           </div>
@@ -148,20 +148,19 @@ export default function ContractDetail() {
           {/* Versions Section */}
           {contract?.versions && contract.versions.length > 0 && (
             <div>
-              <h2 className="text-2xl font-bold text-black mb-4" style={{ fontFamily: 'Block, sans-serif' }}>
-                Versions ({contract.versions.length})
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Versions
               </h2>
-              <div className="border-2 border-black">
-                {contract.versions.map((version: any, index: number) => (
+              <div className="space-y-0">
+                {contract.versions.map((version: any) => (
                   <div
                     key={version.version}
-                    className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${
-                      index !== contract.versions.length - 1 ? 'border-b-2 border-black' : ''
-                    }`}
+                    onClick={() => navigate(`/contracts/${id}/versions/${version.version}`)}
+                    className="flex items-center justify-between py-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors px-2 -mx-2"
                   >
-                    <div className="flex items-center gap-4">
-                      <span className="font-bold text-black text-lg">v{version.version}</span>
-                      <span className="text-sm text-gray-600">
+                    <div className="flex items-center gap-6">
+                      <span className="font-medium text-gray-900">v{version.version}</span>
+                      <span className="text-sm text-gray-500">
                         {version.createdAt ? new Date(version.createdAt).toLocaleDateString('en-US', {
                           month: 'short',
                           day: 'numeric',
@@ -169,12 +168,6 @@ export default function ContractDetail() {
                         }) : 'N/A'}
                       </span>
                     </div>
-                    <button
-                      onClick={() => navigate(`/contracts/${id}/versions/${version.version}`)}
-                      className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors text-sm font-medium"
-                    >
-                      View
-                    </button>
                   </div>
                 ))}
               </div>
