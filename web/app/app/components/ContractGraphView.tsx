@@ -92,7 +92,7 @@ function ContractNode({ data }: { data: any }) {
         )}
 
         {/* Main Content */}
-        <div className="px-4 pt-4 pb-3">
+        <div className="px-4 pt-4 pb-1">
           {/* Step Name */}
           <div className="text-base font-semibold text-gray-900 mb-2">
             {data.label}
@@ -463,8 +463,8 @@ export default function ContractGraphView({ contractName, version, graphData }: 
             setSelectedNodeId(null);
             setShowContext(false);
           }}
-          title={selectedNode.data.label}
-          width="md"
+          title="Step Details"
+          width="lg"
         >
           <ContractStepDetail
             stepData={selectedNodeData}
@@ -484,7 +484,7 @@ export default function ContractGraphView({ contractName, version, graphData }: 
   );
 }
 
-// Contract Step Detail Component - Matches thread view style
+// Contract Step Detail Component - Matches thread view structure exactly
 function ContractStepDetail({
   stepData,
   showContext,
@@ -504,9 +504,9 @@ function ContractStepDetail({
   
   return (
     <div className="space-y-6">
-      {/* Step Name & Party */}
+      {/* Step Name & Status Badges - Like thread view header */}
       <div>
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <h4 className="text-2xl font-bold text-black">{stepData.id}</h4>
           <button
             onClick={() => onCopy(stepData.id, 'header')}
@@ -521,102 +521,64 @@ function ContractStepDetail({
           </button>
         </div>
         
-        {/* Party Badge */}
-        <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full ${colors.bg} border ${colors.border}`}>
-            <div className={`w-2 h-2 rounded-full ${colors.border.replace('border-', 'bg-')}`} />
-            <span className={`text-xs font-medium ${colors.text}`}>{stepData.owner}</span>
-          </span>
-          
-          {/* Required Badge */}
-          {stepData.required && (
-            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-              Required
+        {/* Timeout with Required Badge */}
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          {/* Required Badge on same line as timeout */}
+          {stepData.required ? (
+            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-800">
+              required
+            </span>
+          ) : (
+            <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-600">
+              optional
             </span>
           )}
-        </div>
-      </div>
-
-      {/* Timeout */}
-      {stepData.timeout && (
-        <div className="space-y-2">
-          <h5 className="font-bold text-gray-900 flex items-center gap-2">
-            <Clock className="w-4 h-4" />
-            Timeout
-          </h5>
-          <div className="bg-amber-50 border border-amber-200 p-3 rounded">
-            <div className="font-medium text-amber-900">{stepData.timeout}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Max Duration */}
-      {stepData.maxDuration && (
-        <div className="space-y-2">
-          <h5 className="font-bold text-gray-900 flex items-center gap-2">
-            <Clock className="w-4 h-4" />
-            Max Duration
-          </h5>
-          <div className="bg-blue-50 border border-blue-200 p-3 rounded">
-            <div className="font-medium text-blue-900">{stepData.maxDuration}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Type & Mode */}
-      <div className="space-y-3">
-        <h5 className="font-bold text-gray-900 flex items-center gap-2">
-          <Hash className="w-4 h-4" />
-          Properties
-        </h5>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Type:</span>
-            <span className="font-medium">{stepData.type}</span>
-          </div>
-          {stepData.mode && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Mode:</span>
-              <span className="font-medium">{stepData.mode}</span>
+          {stepData.timeout && (
+            <div className="flex items-center gap-1 text-amber-700">
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium">Timeout: {stepData.timeout}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Next Steps */}
-      {stepData.next && stepData.next.length > 0 && (
-        <div className="space-y-2">
-          <h5 className="font-bold text-gray-900 flex items-center gap-2">
-            <ChevronRight className="w-4 h-4" />
-            Next Steps
-          </h5>
-          <div className="space-y-2">
-            {stepData.next.map((nextStep: string) => (
-              <button
-                key={nextStep}
-                onClick={() => onNavigateToStep(nextStep)}
-                className="w-full text-left px-3 py-2 text-sm bg-gray-50 hover:bg-gray-100 rounded border border-gray-200 flex items-center justify-between transition-colors"
-              >
-                <span className="font-medium">{nextStep}</span>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
-              </button>
-            ))}
+      {/* Owner/Party Section - Like Actor section in thread view */}
+      <div className="space-y-3">
+        <h5 className="font-bold text-gray-900 flex items-center gap-2">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          Owner
+        </h5>
+        <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="font-medium text-sm text-gray-900">{stepData.owner}</div>
+              <div className="text-xs text-gray-500 mt-1">Party responsible for this step</div>
+            </div>
+            <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+              Service Account
+            </span>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Business Context */}
-      {stepData.businessContext && (
-        <div className="border-t border-gray-200 pt-6">
+      {/* Business Context - Accordion (collapsed by default) */}
+      {((stepData.businessContext?.required && stepData.businessContext.required.length > 0) || 
+        (stepData.business_context?.required && stepData.business_context.required.length > 0) ||
+        (stepData.businessContext?.optional && stepData.businessContext.optional.length > 0) || 
+        (stepData.business_context?.optional && stepData.business_context.optional.length > 0)) && (
+        <div className="border-t border-gray-200 pt-2">
           <button
             onClick={onToggleContext}
-            className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50"
+            className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50 rounded"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Code className="w-4 h-4 text-gray-600" />
                 <span className="text-sm font-medium text-gray-900">
-                  {showContext ? 'Hide' : 'Show'} Business Context
+                  {showContext ? 'Hide Context Data' : 'Show Context Data'}
                 </span>
               </div>
               <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${showContext ? 'rotate-90' : ''}`} />
@@ -624,56 +586,48 @@ function ContractStepDetail({
           </button>
           
           {showContext && (
-            <div className="mt-3 px-3 space-y-4">
-              {/* Required Fields */}
-              {stepData.businessContext.required && stepData.businessContext.required.length > 0 && (
-                <div>
-                  <h6 className="text-xs font-semibold text-gray-500 uppercase mb-2">Required Fields</h6>
-                  <div className="space-y-1">
-                    {stepData.businessContext.required.map((field: string) => (
-                      <div key={field} className="flex items-center gap-2 text-sm">
-                        <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                        <span className="font-mono text-gray-800">{field}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Optional Fields */}
-              {stepData.businessContext.optional && stepData.businessContext.optional.length > 0 && (
-                <div>
-                  <h6 className="text-xs font-semibold text-gray-500 uppercase mb-2">Optional Fields</h6>
-                  <div className="space-y-1">
-                    {stepData.businessContext.optional.map((field: string) => (
-                      <div key={field} className="flex items-center gap-2 text-sm">
-                        <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                        <span className="font-mono text-gray-600">{field}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* If there are other properties, show them as JSON */}
-              {Object.keys(stepData.businessContext).some(key => key !== 'required' && key !== 'optional') && (
-                <div>
-                  <h6 className="text-xs font-semibold text-gray-500 uppercase mb-2">Additional Context</h6>
-                  <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                    <pre className="text-xs font-mono text-gray-800 overflow-auto">
-                      {JSON.stringify(
-                        Object.fromEntries(
-                          Object.entries(stepData.businessContext).filter(([key]) => key !== 'required' && key !== 'optional')
-                        ),
-                        null,
-                        2
-                      )}
-                    </pre>
-                  </div>
-                </div>
-              )}
+            <div className="mt-3 px-3">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative">
+                <button
+                  onClick={() => {
+                    const contextObj = stepData.businessContext || stepData.business_context;
+                    navigator.clipboard.writeText(JSON.stringify(contextObj, null, 2));
+                  }}
+                  className="absolute top-3 right-3 p-1.5 hover:bg-gray-200 rounded transition-colors"
+                  title="Copy to clipboard"
+                >
+                  <Copy className="w-4 h-4 text-gray-500" />
+                </button>
+                <pre className="text-xs font-mono text-gray-800 overflow-auto pr-8">
+                  {JSON.stringify(stepData.businessContext || stepData.business_context, null, 2)}
+                </pre>
+              </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Next Steps - Like Previous Step section in thread view */}
+      {stepData.next && stepData.next.length > 0 && (
+        <div className="space-y-3">
+          <h5 className="font-bold text-gray-900 flex items-center gap-2">
+            <ChevronRight className="w-4 h-4" />
+            Next Steps
+          </h5>
+          <div className="space-y-3">
+            {stepData.next.map((nextStep: string) => (
+              <button
+                key={nextStep}
+                onClick={() => onNavigateToStep(nextStep)}
+                className="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded-lg hover:border-gray-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">{nextStep}</span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
