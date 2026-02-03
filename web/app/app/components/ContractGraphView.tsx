@@ -353,7 +353,7 @@ export default function ContractGraphView({ contractName, version, graphData }: 
   }, [graphData]);
 
   return (
-    <div className="w-full h-[800px] bg-white border border-gray-200 rounded relative">
+    <div className="w-full h-[calc(100vh-300px)] bg-white border border-gray-200 rounded relative">
       {/* Header with parties and controls */}
       <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between gap-4">
         {/* Left: Parties legend (scrollable if many) */}
