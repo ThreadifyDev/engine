@@ -339,6 +339,45 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_validations_thread_step 
 		ON thread_validations(thread_id, step_name, idempotency_key, timestamp DESC);
 
+	-- Thread Notifications Table: Individual notifications from async validation system
+	-- Stores full notification context (execution, validation, thread events)
+	CREATE TABLE IF NOT EXISTS thread_notifications (
+		notification_id VARCHAR(255) PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		step_id VARCHAR(255) NOT NULL,
+		step_name VARCHAR(255) NOT NULL,
+		idempotency_key VARCHAR(255),
+		
+		-- Notification metadata
+		source VARCHAR(50) NOT NULL,              -- 'execution', 'validation', 'thread'
+		notification_type VARCHAR(100) NOT NULL,  -- 'execution.success', 'validation.violated', etc.
+		
+		-- Status fields
+		step_status VARCHAR(50),                  -- 'success', 'failed', 'error' (from SDK)
+		validation_status VARCHAR(50),            -- 'passed', 'violated', 'none'
+		
+		-- Violation details (nullable for non-violation notifications)
+		violation_type VARCHAR(100),
+		severity VARCHAR(50),                     -- 'critical', 'warning', 'info', 'major', 'minor'
+		message TEXT NOT NULL,
+		details JSONB,
+		
+		-- Timestamps
+		timestamp TIMESTAMP NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	-- Indexes for common query patterns
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_thread ON thread_notifications(thread_id, timestamp DESC);
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_step ON thread_notifications(step_id);
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_source ON thread_notifications(thread_id, source);
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_severity ON thread_notifications(thread_id, severity) WHERE severity IS NOT NULL;
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_type ON thread_notifications(notification_type);
+	
+	-- Composite index for filtered queries (e.g., critical violations for a thread)
+	CREATE INDEX IF NOT EXISTS idx_thread_notifications_thread_severity 
+		ON thread_notifications(thread_id, severity, timestamp DESC) WHERE severity IN ('critical', 'warning');
+
 	-- Step State Table: Archived snapshots of step state from Redis
 	-- This provides fast queries for historical step state without reconstructing from activities
 	CREATE TABLE IF NOT EXISTS thread_step_states (
@@ -405,6 +444,42 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_linked_threads 
 		ON thread_refs(ref_value, created_at DESC)
 		WHERE ref_key LIKE 'linkedThread:%';
+
+	-- ========================================
+	-- NOTIFICATION QUERY OPTIMIZATION INDEXES
+	-- ========================================
+	-- These indexes optimize GraphQL notification queries from thread_activities
+	-- where activity_type='validation_result'
+
+	-- 1. Composite index for base notification query (thread_id + activity_type + timestamp)
+	-- Covers: WHERE thread_id = ? AND activity_type = 'validation_result' ORDER BY recorded_at DESC
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_notifications 
+		ON thread_activities(thread_id, activity_type, recorded_at DESC)
+		WHERE activity_type = 'validation_result';
+
+	-- 2. Expression indexes for frequently filtered JSONB fields
+	-- Note: source is always 'validation' for archived notifications (execution is ephemeral)
+	
+	-- Severity filter (critical/warning/major/minor/info)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_severity 
+		ON thread_activities(thread_id, (payload->>'severity'), recorded_at DESC)
+		WHERE activity_type = 'validation_result';
+
+	-- Notification type filter (validation.violated, validation.passed, etc.)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_type 
+		ON thread_activities(thread_id, (payload->>'notification_type'), recorded_at DESC)
+		WHERE activity_type = 'validation_result';
+
+	-- 3. Step-based notification queries
+	-- For filtering by step_id or step_name
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_step 
+		ON thread_activities(thread_id, step_id, recorded_at DESC)
+		WHERE activity_type = 'validation_result' AND step_id IS NOT NULL;
+
+	-- 5. GIN index on payload for flexible JSONB queries (already exists globally, but add partial for notifications)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_payload_gin 
+		ON thread_activities USING gin(payload)
+		WHERE activity_type = 'validation_result';
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

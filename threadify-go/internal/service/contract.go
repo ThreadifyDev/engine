@@ -376,18 +376,19 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 
 		// Return version with Mermaid code
 		return 200, map[string]interface{}{
-			"id":          contractVersion.ID,
-			"version":     contractVersion.Version,
-			"content":     contractVersion.Content,
-			"yamlContent": contractVersion.YAMLContent,
-			"contentHash": contractVersion.ContentHash,
-			"contractId":  contractVersion.ContractID,
-			"createdBy":   contractVersion.CreatedBy,
-			"graph":       graph,
-			"mermaid":     mermaidCode,
-			"isDeleted":   contractVersion.IsDeleted,
-			"createdAt":   contractVersion.CreatedAt,
-			"updatedAt":   contractVersion.UpdatedAt,
+			"id":           contractVersion.ID,
+			"version":      contractVersion.Version,
+			"content":      contractVersion.Content,
+			"yamlContent":  contractVersion.YAMLContent,
+			"contentHash":  contractVersion.ContentHash,
+			"contractId":   contractVersion.ContractID,
+			"contractName": contract.Name,
+			"createdBy":    contractVersion.CreatedBy,
+			"graph":        graph,
+			"mermaid":      mermaidCode,
+			"isDeleted":    contractVersion.IsDeleted,
+			"createdAt":    contractVersion.CreatedAt,
+			"updatedAt":    contractVersion.UpdatedAt,
 		}
 	}
 

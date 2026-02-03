@@ -20,13 +20,14 @@ type Resolver struct {
 	threadAccessService *service.ThreadAccessService
 	contractValidator   interfaces.ContractValidator
 	contractRepo        *postgres.ContractRepository
-	refsRepo            *postgres.ThreadRefsRepository // For batch loading refs
-	stepStatePostgres   *postgres.StepStateRepository  // For batch loading steps
-	activityRepo        *postgres.ActivityRepository   // For hash chain verification
-	actorRepo           *postgres.ActorRepository      // For resolving actor names
+	refsRepo            *postgres.ThreadRefsRepository         // For batch loading refs
+	stepStatePostgres   *postgres.StepStateRepository          // For batch loading steps
+	activityRepo        *postgres.ActivityRepository           // For hash chain verification
+	actorRepo           *postgres.ActorRepository              // For resolving actor names
+	notificationRepo    *postgres.ThreadNotificationRepository // For querying thread notifications
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, accessRepo *valkey.AccessRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository, activityRepo *postgres.ActivityRepository, actorRepo *postgres.ActorRepository) *Resolver {
+func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, accessRepo *valkey.AccessRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository, activityRepo *postgres.ActivityRepository, actorRepo *postgres.ActorRepository, notificationRepo *postgres.ThreadNotificationRepository) *Resolver {
 	return &Resolver{
 		threadRepo:          threadRepo,
 		stepStateRepo:       stepStateRepo,
@@ -39,5 +40,6 @@ func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.Step
 		stepStatePostgres:   stepStatePostgres,
 		activityRepo:        activityRepo,
 		actorRepo:           actorRepo,
+		notificationRepo:    notificationRepo,
 	}
 }

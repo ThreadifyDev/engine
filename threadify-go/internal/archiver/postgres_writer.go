@@ -345,6 +345,101 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 	return nil
 }
 
+// WriteThreadNotifications writes individual thread notifications to Postgres
+func (w *PostgresWriter) WriteThreadNotifications(ctx context.Context, events []StreamEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Writing %d thread notifications to Postgres...\n", len(events))
+
+	// Use multi-row INSERT for efficiency
+	query := `
+		INSERT INTO thread_notifications (
+			notification_id, thread_id, step_id, step_name, idempotency_key,
+			source, notification_type, step_status, validation_status,
+			violation_type, severity, message, details, timestamp
+		) VALUES `
+
+	values := make([]interface{}, 0, len(events)*14)
+	placeholders := ""
+
+	for i, event := range events {
+		if i > 0 {
+			placeholders += ", "
+		}
+
+		offset := i * 14
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7,
+			offset+8, offset+9, offset+10, offset+11, offset+12, offset+13, offset+14,
+		)
+
+		// Handle optional fields (use NULL if empty)
+		var idempotencyKey interface{} = event.Data["idempotencyKey"]
+		if idempotencyKey == "" {
+			idempotencyKey = nil
+		}
+
+		var stepStatus interface{} = event.Data["stepStatus"]
+		if stepStatus == "" {
+			stepStatus = nil
+		}
+
+		var validationStatus interface{} = event.Data["validationStatus"]
+		if validationStatus == "" {
+			validationStatus = nil
+		}
+
+		var violationType interface{} = event.Data["violationType"]
+		if violationType == "" {
+			violationType = nil
+		}
+
+		var severity interface{} = event.Data["severity"]
+		if severity == "" {
+			severity = nil
+		}
+
+		var details interface{} = event.Data["details"]
+		if details == "" {
+			details = nil
+		}
+
+		values = append(values,
+			event.Data["notificationID"],
+			event.Data["threadID"],
+			event.Data["stepID"],
+			event.Data["stepName"],
+			idempotencyKey,
+			event.Data["source"],
+			event.Data["notificationType"],
+			stepStatus,
+			validationStatus,
+			violationType,
+			severity,
+			event.Data["message"],
+			details,
+			event.Data["timestamp"],
+		)
+
+		fmt.Printf("   Notification %d: notificationID=%s, source=%s, type=%s, severity=%s\n",
+			i+1, event.Data["notificationID"], event.Data["source"], event.Data["notificationType"], severity)
+	}
+
+	query += placeholders + " ON CONFLICT (notification_id) DO NOTHING"
+
+	_, err := w.db.Pool.Exec(ctx, query, values...)
+	if err != nil {
+		fmt.Printf("[PostgresWriter] Failed to write thread notifications: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("[PostgresWriter] Successfully wrote %d thread notifications to Postgres\n", len(events))
+	return nil
+}
+
 // WriteActivityLog writes activity log events to Postgres (batched)
 func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {

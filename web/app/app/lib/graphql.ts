@@ -39,6 +39,40 @@ export interface HashChainStatus {
   error?: string;
 }
 
+export interface ContractGraph {
+  graph: {
+    nodes: Record<string, {
+      id: string;
+      owner: string;
+      type: string;
+      mode?: string;
+      required: boolean;
+      next: string[];
+      timeout?: string;
+      maxDuration?: string;
+      businessContext?: any;
+    }>;
+    entryPoints: string[];
+    terminalSteps: string[];
+  };
+  transitions: Array<{
+    From: string;
+    To: string[];
+    CanRetry?: boolean;
+    MaxRetries?: number;
+  }>;
+  parties: string[];
+  validation?: {
+    MaxDuration?: string;
+    AllowMultipleTerminals?: boolean;
+    MultipleTerminalsSeverity?: string;
+  };
+  notificationConfig?: {
+    DefaultScope?: string;
+    RoleDefaults?: any;
+  };
+}
+
 export interface StepStateInfo {
   threadId: string;
   stepName: string;
@@ -75,6 +109,7 @@ export interface ValidationResultInfo {
   stepName: string;
   idempotencyKey: string;
   timestamp: string;
+  message?: string; // Notification message
   validations: ValidationIssue[];
   overallStatus: string;
   hasCriticalViolation: boolean;
@@ -83,6 +118,36 @@ export interface ValidationResultInfo {
   minorCount: number;
   infoCount: number;
   totalValidations: number;
+}
+
+export interface ThreadNotification {
+  notificationId: string;
+  threadId: string;
+  stepId: string;
+  stepName: string;
+  idempotencyKey?: string;
+  source: string; // 'execution', 'validation', 'thread'
+  notificationType: string; // 'execution.success', 'validation.violated', etc.
+  stepStatus?: string; // 'success', 'failed', 'error'
+  validationStatus?: string; // 'passed', 'violated', 'none'
+  violationType?: string;
+  severity?: string; // 'critical', 'warning', 'info', 'major', 'minor'
+  message: string;
+  details?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface NotificationSummary {
+  totalNotifications: number;
+  criticalCount: number;
+  warningCount: number;
+  majorCount: number;
+  minorCount: number;
+  infoCount: number;
+  executionCount: number;
+  validationCount: number;
+  hasCritical: boolean;
+  hasWarnings: boolean;
 }
 
 export interface ActorInfo {
@@ -108,6 +173,8 @@ export interface Thread {
   error?: string;
   steps?: StepStateInfo[];
   validationResults?: ValidationResultInfo[];
+  notificationSummary?: NotificationSummary;
+  notifications?: ThreadNotification[];
 }
 
 class GraphQLClient {
@@ -128,6 +195,16 @@ class GraphQLClient {
       body: JSON.stringify({ query, variables }),
     });
 
+    // Handle token expiration (401 Unauthorized)
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        window.location.href = '/auth/login';
+      }
+      throw new Error('Token expired. Please log in again.');
+    }
+
     if (!response.ok) {
       throw new Error(`GraphQL request failed: ${response.statusText}`);
     }
@@ -135,7 +212,17 @@ class GraphQLClient {
     const result: GraphQLResponse<T> = await response.json();
 
     if (result.errors) {
-      throw new Error(result.errors[0]?.message || 'GraphQL request failed');
+      // Check if error is due to authentication
+      const errorMessage = result.errors[0]?.message || 'GraphQL request failed';
+      if (errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('invalid token')) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+          window.location.href = '/auth/login';
+        }
+        throw new Error('Token expired. Please log in again.');
+      }
+      throw new Error(errorMessage);
     }
 
     if (!result.data) {
@@ -201,12 +288,66 @@ class GraphQLClient {
             infoCount
             totalValidations
           }
+          notificationSummary {
+            totalNotifications
+            criticalCount
+            warningCount
+            majorCount
+            minorCount
+            infoCount
+            executionCount
+            validationCount
+            hasCritical
+            hasWarnings
+          }
         }
       }
     `;
 
     const data = await this.request<{ thread: Thread }>(query, { id: threadId });
     return data.thread;
+  }
+
+  async getThreadNotifications(
+    threadId: string,
+    options?: {
+      source?: string;
+      severity?: string[];
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<ThreadNotification[]> {
+    const query = `
+      query GetThreadNotifications(
+        $threadId: ID!
+        $options: ThreadNotificationQueryOptions
+      ) {
+        thread(id: $threadId) {
+          notifications(options: $options) {
+            notificationId
+            threadId
+            stepId
+            stepName
+            idempotencyKey
+            source
+            notificationType
+            stepStatus
+            validationStatus
+            violationType
+            severity
+            message
+            details
+            timestamp
+          }
+        }
+      }
+    `;
+
+    const data = await this.request<{ thread: { notifications: ThreadNotification[] } }>(query, {
+      threadId,
+      options: options || {},
+    });
+    return data.thread.notifications;
   }
 
   async getStepHistory(
@@ -277,6 +418,8 @@ class GraphQLClient {
     status?: string;
     limit?: number;
     offset?: number;
+    startedAfter?: string;
+    startedBefore?: string;
   }): Promise<Thread[]> {
     const query = `
       query GetThreads(
@@ -284,17 +427,22 @@ class GraphQLClient {
         $status: String
         $limit: Int
         $offset: Int
+        $startedAfter: String
+        $startedBefore: String
       ) {
         threads(
           contractName: $contractName
           status: $status
           limit: $limit
           offset: $offset
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
         ) {
           id
           contractName
           contractVersion
           status
+          refs
           startedAt
           completedAt
           error
@@ -304,6 +452,94 @@ class GraphQLClient {
 
     const data = await this.request<{ threads: Thread[] }>(query, options);
     return data.threads;
+  }
+
+  async getThreadsByContract(options: {
+    contractName: string;
+    contractVersion?: number;
+    status?: string;
+    limit?: number;
+    offset?: number;
+    startedAfter?: string;
+    startedBefore?: string;
+  }): Promise<Thread[]> {
+    const query = `
+      query GetThreadsByContract(
+        $contractName: String!
+        $contractVersion: Int
+        $status: String
+        $limit: Int
+        $offset: Int
+        $startedAfter: String
+        $startedBefore: String
+      ) {
+        threadsByContract(
+          contractName: $contractName
+          contractVersion: $contractVersion
+          status: $status
+          limit: $limit
+          offset: $offset
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
+        ) {
+          id
+          contractName
+          contractVersion
+          status
+          refs
+          startedAt
+          completedAt
+          error
+        }
+      }
+    `;
+
+    const data = await this.request<{ threadsByContract: Thread[] }>(query, options);
+    return data.threadsByContract;
+  }
+
+  async getThreadsByRef(options: {
+    refKey: string;
+    refValue: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+    startedAfter?: string;
+    startedBefore?: string;
+  }): Promise<Thread[]> {
+    const query = `
+      query GetThreadsByRef(
+        $refKey: String!
+        $refValue: String!
+        $status: String
+        $limit: Int
+        $offset: Int
+        $startedAfter: String
+        $startedBefore: String
+      ) {
+        threadsByRef(
+          refKey: $refKey
+          refValue: $refValue
+          status: $status
+          limit: $limit
+          offset: $offset
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
+        ) {
+          id
+          contractName
+          contractVersion
+          status
+          refs
+          startedAt
+          completedAt
+          error
+        }
+      }
+    `;
+
+    const data = await this.request<{ threadsByRef: Thread[] }>(query, options);
+    return data.threadsByRef;
   }
 
   async verifyThreadIntegrity(threadId: string): Promise<HashChainStatus> {
@@ -321,6 +557,56 @@ class GraphQLClient {
 
     const data = await this.request<{ verifyThreadIntegrity: HashChainStatus }>(query, { threadId });
     return data.verifyThreadIntegrity;
+  }
+
+  async getContractGraph(name: string, version?: number): Promise<any> {
+    const query = `
+      query GetContractGraph($name: String!, $version: Int) {
+        contractGraph(name: $name, version: $version) {
+          graph {
+            nodes {
+              id
+              owner
+              type
+              mode
+              required
+              next
+              timeout
+              maxDuration
+              businessContext
+            }
+            entryPoints
+            terminalSteps
+          }
+          transitions {
+            From
+            To
+            CanRetry
+            MaxRetries
+          }
+          parties
+        }
+      }
+    `;
+
+    const variables: { name: string; version?: number } = { name };
+    if (version !== undefined) {
+      variables.version = version;
+    }
+
+    const response = await this.request<{ contractGraph: any }>(query, variables);
+    
+    // Convert nodes array back to map for our component
+    const contractGraph = response.contractGraph;
+    if (contractGraph?.graph?.nodes && Array.isArray(contractGraph.graph.nodes)) {
+      const nodesMap: Record<string, any> = {};
+      contractGraph.graph.nodes.forEach((node: any) => {
+        nodesMap[node.id] = node;
+      });
+      contractGraph.graph.nodes = nodesMap;
+    }
+    
+    return contractGraph;
   }
 }
 

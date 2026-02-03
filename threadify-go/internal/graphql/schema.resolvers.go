@@ -98,7 +98,8 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		if apperrors.IsNotFound(err) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+		// Return other errors as-is (database errors, connection errors, etc.)
+		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
@@ -363,22 +364,6 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	return status, nil
 }
 
-// StartedAt is the resolver for the startedAt field.
-func (r *stepHistoryResolver) StartedAt(ctx context.Context, obj *models.StepHistory) (*string, error) {
-	if obj.StartedAt == "" {
-		return nil, nil
-	}
-	return &obj.StartedAt, nil
-}
-
-// FinishedAt is the resolver for the finishedAt field.
-func (r *stepHistoryResolver) FinishedAt(ctx context.Context, obj *models.StepHistory) (*string, error) {
-	if obj.FinishedAt == "" {
-		return nil, nil
-	}
-	return &obj.FinishedAt, nil
-}
-
 // FirstSeenAt is the resolver for the firstSeenAt field.
 func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
 	return obj.FirstSeenAt.Format(time.RFC3339), nil
@@ -557,11 +542,12 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	// Check if steps were batch-loaded (from Threads query)
-	// Note: Batch-loaded steps already have permission filtering applied at the thread level
+	// Check if steps are already cached from batch loading
 	if cachedSteps, found := getCachedSteps(ctx, obj.ID); found {
-		// Use batch-loaded steps and apply in-memory filtering
-		allSteps, _ := cachedSteps.([]*models.StepStateInfo)
+		allSteps, ok := cachedSteps.([]*models.StepStateInfo)
+		if !ok {
+			return nil, fmt.Errorf("invalid cached steps type")
+		}
 
 		// Apply filters in memory (batch-loaded steps don't have filters applied)
 		steps := make([]*models.StepStateInfo, 0)
@@ -630,6 +616,43 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 	return postgresValidationRepo.GetValidationResultsWithPermissionCheck(ctx, obj.ID, companyID, options)
 }
 
+// NotificationSummary is the resolver for the notificationSummary field.
+func (r *threadResolver) NotificationSummary(ctx context.Context, obj *models.Thread) (*models.NotificationSummary, error) {
+	// Permission already checked by parent Thread query
+	// If we got here, user has access to the thread
+
+	// Get notification summary (lightweight query)
+	if r.notificationRepo == nil {
+		return nil, fmt.Errorf("no notification repository configured")
+	}
+
+	return r.notificationRepo.GetNotificationSummary(ctx, obj.ID)
+}
+
+// Notifications is the resolver for the notifications field.
+func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, options *models.ThreadNotificationQueryOptions) ([]*models.ThreadNotification, error) {
+	// Permission already checked by parent Thread query
+	// If we got here, user has access to the thread
+
+	// Get postgres notification repository
+	postgresNotificationRepo := r.notificationRepo
+	if postgresNotificationRepo == nil {
+		return nil, fmt.Errorf("no notification repository configured")
+	}
+
+	// Set threadID in options if not already set
+	if options == nil {
+		options = &models.ThreadNotificationQueryOptions{
+			ThreadID: obj.ID,
+		}
+	} else if options.ThreadID == "" {
+		options.ThreadID = obj.ID
+	}
+
+	// Query notifications
+	return postgresNotificationRepo.GetThreadNotifications(ctx, obj.ID, options)
+}
+
 // ThreadChain is the resolver for the threadChain field on Thread type.
 func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error) {
 	// Get user info from context
@@ -679,6 +702,29 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread
 	return r.activityRepo.VerifyActivityChain(ctx, obj.ID)
 }
 
+// Details is the resolver for the details field.
+func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
+	// Return details as JSON string
+	if obj.Details == nil || len(obj.Details) == 0 {
+		emptyJSON := "{}"
+		return &emptyJSON, nil
+	}
+
+	detailsJSON, err := json.Marshal(obj.Details)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal details: %w", err)
+	}
+
+	result := string(detailsJSON)
+	return &result, nil
+}
+
+// Timestamp is the resolver for the timestamp field.
+func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error) {
+	// Format timestamp as RFC3339 string
+	return obj.Timestamp.Format(time.RFC3339), nil
+}
+
 // Timestamp is the resolver for the timestamp field.
 func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
 	return obj.Timestamp.Format(time.RFC3339), nil
@@ -703,14 +749,16 @@ func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
-// StepHistory returns generated.StepHistoryResolver implementation.
-func (r *Resolver) StepHistory() generated.StepHistoryResolver { return &stepHistoryResolver{r} }
-
 // StepStateInfo returns generated.StepStateInfoResolver implementation.
 func (r *Resolver) StepStateInfo() generated.StepStateInfoResolver { return &stepStateInfoResolver{r} }
 
 // Thread returns generated.ThreadResolver implementation.
 func (r *Resolver) Thread() generated.ThreadResolver { return &threadResolver{r} }
+
+// ThreadNotification returns generated.ThreadNotificationResolver implementation.
+func (r *Resolver) ThreadNotification() generated.ThreadNotificationResolver {
+	return &threadNotificationResolver{r}
+}
 
 // ValidationResultInfo returns generated.ValidationResultInfoResolver implementation.
 func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver {
@@ -722,7 +770,7 @@ type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
-type stepHistoryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
+type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }

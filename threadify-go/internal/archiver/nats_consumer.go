@@ -58,6 +58,7 @@ func (c *NATSConsumer) Start(ctx context.Context) error {
 	go c.consumeStream(ctx, "thread_metadata", "metadata.thread", c.processThreadMetadata)
 	go c.consumeStream(ctx, "thread_access", "access.thread", c.processThreadAccess)
 	go c.consumeStream(ctx, "thread_validations", "validations.thread", c.processThreadValidations)
+	// Note: Notifications now archived via activity.log stream with activity_type='validation_result'
 
 	fmt.Printf("NATS archival consumer started successfully\n")
 	return nil
@@ -332,3 +333,7 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 		len(msgs), duration, float64(len(msgs))/duration.Seconds())
 	return err
 }
+
+// processThreadNotifications - REMOVED
+// Notifications now archived via activity.log stream with activity_type='validation_result'
+// This consolidates all thread events (steps, validations, notifications) into thread_activities table
