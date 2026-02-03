@@ -156,7 +156,7 @@ export default function ContractVersionDetail() {
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                Diagram
+                Graph
               </button>
               <button
                 onClick={() => setActiveTab('yaml')}
@@ -214,7 +214,7 @@ export default function ContractVersionDetail() {
                       Copy YAML
                     </button>
                   </div>
-                  <pre className="bg-white border border-gray-200 rounded p-4 overflow-x-auto">
+                  <pre className="bg-white border border-gray-200 rounded p-4 overflow-x-auto overflow-y-auto h-[calc(100vh-300px)]">
                     <code className="text-sm text-gray-900 font-mono">
                       {versionData?.yamlContent || 'No YAML content available'}
                     </code>
