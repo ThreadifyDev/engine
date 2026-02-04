@@ -35,8 +35,11 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/bin/archiver .
 
-# Copy config files
-COPY --from=builder /app/config/config.docker.yaml ./config/config.yaml
+# Copy shared RBAC files (required by shared config package)
+COPY --from=builder /app/shared/rbac ./shared/rbac
+
+# Note: config.yaml is NOT copied - it must be mounted as a volume in production
+# This ensures the archiver always uses the production config from the host
 
 # Set proper ownership
 RUN chown -R archiver:archiver /app

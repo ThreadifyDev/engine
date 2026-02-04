@@ -13,7 +13,7 @@ RUN npm ci --only=production=false
 # Copy source code from web/app
 COPY ../web/app/ .
 
-# Build the Remix application
+# Build the Remix application (no build-time API URL needed - uses runtime config)
 RUN npm run build
 
 # Production stage
