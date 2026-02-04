@@ -420,7 +420,7 @@ class GraphQLClient {
     offset?: number;
     startedAfter?: string;
     startedBefore?: string;
-  }): Promise<Thread[]> {
+  }): Promise<{ threads: Thread[]; totalCount: number }> {
     const query = `
       query GetThreads(
         $contractName: String
@@ -438,20 +438,23 @@ class GraphQLClient {
           startedAfter: $startedAfter
           startedBefore: $startedBefore
         ) {
-          id
-          contractName
-          contractVersion
-          status
-          refs
-          startedAt
-          completedAt
-          error
+          threads {
+            id
+            contractName
+            contractVersion
+            status
+            refs
+            startedAt
+            completedAt
+            error
+          }
+          totalCount
         }
       }
     `;
 
-    const data = await this.request<{ threads: Thread[] }>(query, options);
-    return data.threads;
+    const data = await this.request<{ threads: { threads: Thread[]; totalCount: number } }>(query, options);
+    return { threads: data.threads.threads, totalCount: data.threads.totalCount };
   }
 
   async getThreadsByContract(options: {
@@ -462,7 +465,7 @@ class GraphQLClient {
     offset?: number;
     startedAfter?: string;
     startedBefore?: string;
-  }): Promise<Thread[]> {
+  }): Promise<{ threads: Thread[]; totalCount: number }> {
     const query = `
       query GetThreadsByContract(
         $contractName: String!
@@ -482,20 +485,23 @@ class GraphQLClient {
           startedAfter: $startedAfter
           startedBefore: $startedBefore
         ) {
-          id
-          contractName
-          contractVersion
-          status
-          refs
-          startedAt
-          completedAt
-          error
+          threads {
+            id
+            contractName
+            contractVersion
+            status
+            refs
+            startedAt
+            completedAt
+            error
+          }
+          totalCount
         }
       }
     `;
 
-    const data = await this.request<{ threadsByContract: Thread[] }>(query, options);
-    return data.threadsByContract;
+    const data = await this.request<{ threadsByContract: { threads: Thread[]; totalCount: number } }>(query, options);
+    return { threads: data.threadsByContract.threads, totalCount: data.threadsByContract.totalCount };
   }
 
   async getThreadsByRef(options: {
@@ -506,7 +512,7 @@ class GraphQLClient {
     offset?: number;
     startedAfter?: string;
     startedBefore?: string;
-  }): Promise<Thread[]> {
+  }): Promise<{ threads: Thread[]; totalCount: number }> {
     const query = `
       query GetThreadsByRef(
         $refKey: String!
@@ -526,20 +532,23 @@ class GraphQLClient {
           startedAfter: $startedAfter
           startedBefore: $startedBefore
         ) {
-          id
-          contractName
-          contractVersion
-          status
-          refs
-          startedAt
-          completedAt
-          error
+          threads {
+            id
+            contractName
+            contractVersion
+            status
+            refs
+            startedAt
+            completedAt
+            error
+          }
+          totalCount
         }
       }
     `;
 
-    const data = await this.request<{ threadsByRef: Thread[] }>(query, options);
-    return data.threadsByRef;
+    const data = await this.request<{ threadsByRef: { threads: Thread[]; totalCount: number } }>(query, options);
+    return { threads: data.threadsByRef.threads, totalCount: data.threadsByRef.totalCount };
   }
 
   async verifyThreadIntegrity(threadId: string): Promise<HashChainStatus> {

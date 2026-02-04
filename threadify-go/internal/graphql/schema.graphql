@@ -79,6 +79,12 @@ type Thread {
   hashChainStatus: HashChainStatus
 }
 
+# Wrapper type for paginated thread results
+type ThreadConnection {
+  threads: [Thread!]!
+  totalCount: Int!
+}
+
 type HashChainStatus {
   verified: Boolean!
   lastVerifiedAt: String!
@@ -149,7 +155,7 @@ type Query {
     completedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Contract-specific thread queries (optimized for contract monitoring, max limit: 100)
   threadsByContract(
@@ -161,7 +167,7 @@ type Query {
     startedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Find threads by reference key-value pair with filtering and pagination (max limit: 100)
   threadsByRef(
@@ -172,7 +178,7 @@ type Query {
     startedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!

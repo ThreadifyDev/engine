@@ -135,25 +135,27 @@ export default function ThreadsPage() {
         setTotalResults(results.length);
       } else if (queryType === 'contract') {
         // Contract name search (no version)
-        results = await graphqlClient.getThreadsByContract({
+        const response = await graphqlClient.getThreadsByContract({
           contractName: searchQuery.trim(),
           limit: resultsPerPage,
           offset,
         });
-        setTotalResults(results.length);
+        results = response.threads;
+        setTotalResults(response.totalCount);
       } else if (queryType === 'contractVersion') {
         // Contract with version (e.g., order_fulfillment:2)
         const colonIndex = searchQuery.lastIndexOf(':');
         const contractName = searchQuery.substring(0, colonIndex).trim();
         const version = parseInt(searchQuery.substring(colonIndex + 1).trim());
         
-        results = await graphqlClient.getThreadsByContract({
+        const response = await graphqlClient.getThreadsByContract({
           contractName,
           contractVersion: version,
           limit: resultsPerPage,
           offset,
         });
-        setTotalResults(results.length);
+        results = response.threads;
+        setTotalResults(response.totalCount);
       } else if (queryType === 'ref') {
         // Ref search (key:value where value is not a number)
         const colonIndex = searchQuery.indexOf(':');
@@ -161,13 +163,14 @@ export default function ThreadsPage() {
         const value = searchQuery.substring(colonIndex + 1).trim();
         
         if (key && value) {
-          results = await graphqlClient.getThreadsByRef({
+          const response = await graphqlClient.getThreadsByRef({
             refKey: key,
             refValue: value,
             limit: resultsPerPage,
             offset,
           });
-          setTotalResults(results.length);
+          results = response.threads;
+          setTotalResults(response.totalCount);
         }
       }
 
@@ -218,7 +221,7 @@ export default function ThreadsPage() {
       else if (activeFilters.refs.length > 0 && activeFilters.refs[0].key && activeFilters.refs[0].value) {
         // Search by first ref (only support one ref for now)
         const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
-        results = await graphqlClient.getThreadsByRef({
+        const response = await graphqlClient.getThreadsByRef({
           refKey: activeFilters.refs[0].key,
           refValue: activeFilters.refs[0].value,
           status: activeFilters.status,
@@ -227,13 +230,14 @@ export default function ThreadsPage() {
           limit: resultsPerPage,
           offset,
         });
-        setTotalResults(results.length);
+        results = response.threads;
+        setTotalResults(response.totalCount);
       }
       // Contract search
       else if (activeFilters.contractName) {
         // Search by contract
         const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
-        results = await graphqlClient.getThreadsByContract({
+        const response = await graphqlClient.getThreadsByContract({
           contractName: activeFilters.contractName,
           contractVersion: activeFilters.contractVersion,
           status: activeFilters.status,
@@ -242,19 +246,21 @@ export default function ThreadsPage() {
           limit: resultsPerPage,
           offset,
         });
-        setTotalResults(results.length);
+        results = response.threads;
+        setTotalResults(response.totalCount);
       }
       // General search with filters
       else {
         const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
-        results = await graphqlClient.getThreads({
+        const response = await graphqlClient.getThreads({
           status: activeFilters.status,
           startedAfter,
           startedBefore,
           limit: resultsPerPage,
           offset,
         });
-        setTotalResults(results.length);
+        results = response.threads;
+        setTotalResults(response.totalCount);
       }
 
       // Client-side filtering for multiple refs (if needed)
@@ -472,11 +478,14 @@ function PaginationControls({
   const totalPages = Math.ceil(totalResults / resultsPerPage);
   const hasNextPage = currentPage < totalPages;
   const hasPrevPage = currentPage > 1;
+  
+  const startResult = (currentPage - 1) * resultsPerPage + 1;
+  const endResult = Math.min(currentPage * resultsPerPage, totalResults);
 
   return (
     <div className="flex items-center justify-between mt-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
       <div className="text-sm text-gray-600">
-        Page {currentPage} • Showing {totalResults} results
+        Showing {startResult}-{endResult} of {totalResults.toLocaleString()} results
       </div>
       <div className="flex gap-2">
         <button
@@ -632,7 +641,7 @@ function AdvancedSearchFilters({
           {filters.timeRange === 'custom' && (
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Start</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Start (From)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedAfter || ''}
@@ -641,7 +650,7 @@ function AdvancedSearchFilters({
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-700 mb-1">End</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">End (To)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedBefore || ''}
