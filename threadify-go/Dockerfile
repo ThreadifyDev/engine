@@ -29,10 +29,11 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy the binary and config (distroless already runs as nonroot user)
+# Copy the binary, config, and RBAC files (distroless already runs as nonroot user)
 COPY --from=builder /app/bin/server /app/server
 COPY --from=builder /app/internal /app/internal
 COPY --from=builder /app/config/config.yaml /app/config/config.yaml
+COPY --from=builder /app/shared/rbac /app/shared/rbac
 
 # Expose port
 EXPOSE 8081

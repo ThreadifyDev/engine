@@ -111,18 +111,7 @@ func main() {
 		log.Fatalf("Failed to load full config: %v", err)
 	}
 
-	redisHost := viper.GetString("redis.host")
-	redisPort := viper.GetInt("redis.port")
-	redisPassword := viper.GetString("redis.password")
-	redisDB := viper.GetInt("redis.db")
-
-	valkeyClient, err := database.NewValkeyService(redisHost, redisPort, redisPassword, redisDB, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-	if err != nil {
-		log.Fatalf("Failed to connect to Valkey: %v", err)
-	}
-	defer valkeyClient.Close()
-	// Connected to Valkey
-
+	// Archiver only needs PostgreSQL and NATS (no Valkey/Redis required)
 	// Initialize Postgres
 	pgURL := viper.GetString("postgres.url")
 	maxConns := viper.GetInt("postgres.max_connections")

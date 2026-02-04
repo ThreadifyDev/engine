@@ -22,17 +22,18 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -a -installsuffix cgo \
     -ldflags="-s -w" \
     -trimpath \
-    -o bin/server cmd/server/main.go
+    -o bin/server api/cmd/server/main.go
 
 # Final stage - using distroless for minimal size
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy the binary and config (distroless already runs as nonroot user)
+# Copy the binary, config, and RBAC files (distroless already runs as nonroot user)
 COPY --from=builder /app/bin/server /app/server
-COPY --from=builder /app/internal /app/internal
+COPY --from=builder /app/api/internal /app/api/internal
 COPY --from=builder /app/config/config.yaml /app/config/config.yaml
+COPY --from=builder /app/shared/rbac /app/shared/rbac
 
 # Expose ports
 EXPOSE 8081 3001

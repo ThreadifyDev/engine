@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   threadify_storage:
     image: 'postgres:16-alpine'
@@ -83,42 +82,39 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-  # threadify-engine:
-  #   image: 'intelijence/th-engine:0.0.2'
-  #   container_name: threadify-engine
-  #   ports:
-  #     - '8081:8081'
-  #     - '6060:6060'
-  #   volumes:
-  #     - './config/:/app/config:ro'
-  #   environment:
-  #     # PostgreSQL configuration (optional - will use default URL if not set)
-  #     - POSTGRES_URL=postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable
-  #     
-  #     # Redis configuration (optional - will use defaults if not set)
-  #     - REDIS_HOST=threadify-queue
-  #     - REDIS_PORT=6379
-  #     - REDIS_PASSWORD=${FAST_STORAGE_PASSWORD:-thread0fy_server}
-  #     - REDIS_DB=0
-  #     - REDIS_POOL_SIZE=8
-  #   depends_on:
-  #     threadify_storage:
-  #       condition: service_healthy
-  #     threadify-queue:
-  #       condition: service_healthy
-  #   networks:
-  #     - threadify-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test:
-  #       - CMD
-  #       - curl
-  #       - '--fail'
-  #       - 'http://localhost:8081/health'
-  #     interval: 30s
-  #     timeout: 3s
-  #     start_period: 10s
-  #     retries: 3
+
+  # Threadify Main Engine (Go Backend)
+  th-engine:
+    build:
+      context: ./threadify-go
+      dockerfile: Dockerfile
+    image: intelligence/th-engine:latest
+    container_name: th-engine
+    ports:
+      - '8082:8081'  # GraphQL/WebSocket (host:container)
+      - '6060:6060'  # pprof
+    volumes:
+      - './threadify-go/config:/app/config:ro'
+    environment:
+      # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
+      # Only override if needed
+      JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
+    depends_on:
+      threadify_storage:
+        condition: service_healthy
+      threadify-queue:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
   # threadify-archiver:
   #   image: 'intelijence/th-archiver:0.0.2'
   #   volumes:
@@ -162,42 +158,32 @@ services:
     ports:
       - "8081:8081"
       - "3001:3001"
+    volumes:
+      - './threadify-go/config:/app/config:ro'
     environment:
-      # CORS Configuration
-      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000}"
+      # Override config.yaml defaults with environment variables if needed
+      # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
+      # Only set these if you need to override the defaults:
+      # POSTGRES_URL: "postgres://user:pass@host:port/db?sslmode=disable"
+      # POSTGRES_HOST: "custom-postgres-host"
+      # POSTGRES_USER: "custom-user"
+      # POSTGRES_PASSWORD: "custom-password"
+      # REDIS_HOST: "custom-redis-host"
+      # REDIS_PASSWORD: "custom-password"
+      # NATS_URL: "nats://custom-nats:4222"
       
-      # Database Configuration
-      POSTGRES_URL: "postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable"
-      POSTGRES_HOST: "threadify_storage"
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: "${PS_STORAGE_USER:-td_engine}"
-      POSTGRES_PASSWORD: "${PS_STORAGE_PASSWORD:-tdtdtd}"
-      POSTGRES_DB: "threadify"
-      
-      # Redis Configuration
-      REDIS_HOST: "threadify-queue"
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: "${FAST_STORAGE_PASSWORD:-threadify_secure_password}"
-      
-      # NATS Configuration
-      NATS_URL: "nats://nats:4222"
-      
-      # Security
+      # Secrets (no defaults in config.yaml, must be provided)
       JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
-      HASH_CHAIN_SECRET: "${HASH_CHAIN_SECRET:-demo-secret-key-replace-in-production-with-64-char-hex-string}"
-      
-      # Email Service (Plunk)
       PLUNK_API_KEY: "${PLUNK_API_KEY}"
       PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
-      
-      # Logging
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
     depends_on:
       threadify_storage:
         condition: service_healthy
       threadify-queue:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      th-engine:
         condition: service_healthy
     networks:
       - threadify-network
@@ -220,7 +206,7 @@ services:
       - "3000:3000"
     environment:
       # Backend API URL
-      API_URL: "http://th_web_api:3001"
+      API_URL: "https://web.threadify.dev"
       
       # Session Secret
       SESSION_SECRET: "${SESSION_SECRET:-your-session-secret-change-in-production}"
