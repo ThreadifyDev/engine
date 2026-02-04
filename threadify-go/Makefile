@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docker-up docker-down install lint fmt generate-graphql
+.PHONY: help build run test clean docker-up docker-down install lint fmt generate-graphql build-web-api build-web-ui push-web-api push-web-ui
 
 VERSION := $(shell git describe --tags --always)
 
@@ -82,14 +82,26 @@ dev: docker-up ## Start dev environment and run server
 build-image: ## Build Docker image
 	docker build -t intelijence/th-engine:${VERSION} .
 
-build-archiver:
+build-archiver: ## Build archiver Docker image
 	docker build -f Dockerfile.archiver -t intelijence/th-archiver:${VERSION} .
+
+build-web-api: ## Build Web API Docker image
+	docker build -f Dockerfile.api -t intelijence/th_web_api:${VERSION} .
+
+build-web-ui: ## Build Web UI Docker image
+	cd .. && docker build -f threadify-go/Dockerfile.web_ui -t intelijence/th_web_ui:${VERSION} .
 
 push: ## Push Threadify Engine server
 	docker push intelijence/th-engine:${VERSION}
 
-push-archiver:
+push-archiver: ## Push archiver Docker image
 	docker push intelijence/th-archiver:${VERSION}
+
+push-web-api: ## Push Web API Docker image
+	docker push intelijence/th_web_api:${VERSION}
+
+push-web-ui: ## Push Web UI Docker image
+	docker push intelijence/th_web_ui:${VERSION}
 
 run-docker: ## Run server in Docker
 	docker run -p 8080:8080 --env-file .env intelijence/th-engine:latest

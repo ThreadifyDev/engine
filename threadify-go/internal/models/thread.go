@@ -47,6 +47,12 @@ type Thread struct {
 	// - Step state: thread:ID:steps:{stepName}:{idempKey} (hashes)
 }
 
+// ThreadConnection wraps thread results with pagination metadata
+type ThreadConnection struct {
+	Threads    []*Thread `json:"threads"`
+	TotalCount int       `json:"totalCount"`
+}
+
 // StepState represents the state of a step in a thread
 type StepState struct {
 	StepID         string            `json:"stepId"`         // Unique step event ID (UUID)

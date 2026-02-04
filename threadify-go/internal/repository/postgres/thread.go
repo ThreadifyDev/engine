@@ -147,7 +147,7 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	startedBefore *string,
 	limit int,
 	offset int,
-) ([]*models.Thread, error) {
+) ([]*models.Thread, int, error) {
 	// Build query with dynamic filters
 	query := `
 		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version, 
@@ -182,14 +182,49 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 		argIdx++
 	}
 
-	// Add ordering and pagination
+	// Execute COUNT query first (without LIMIT/OFFSET)
+	// Build count query with same filters as main query
+	countQuery := `
+		SELECT COUNT(DISTINCT t.id)
+		FROM threads t
+		JOIN thread_refs tr ON t.id = tr.thread_id
+		WHERE t.company_id = $1
+		  AND tr.ref_key = $2
+		  AND tr.ref_value = $3
+	`
+
+	// Add all the same filters that were added to main query
+	countArgIdx := 4
+	if status != nil && *status != "" {
+		countQuery += fmt.Sprintf(" AND t.status = $%d", countArgIdx)
+		countArgIdx++
+	}
+	if startedAfter != nil && *startedAfter != "" {
+		countQuery += fmt.Sprintf(" AND t.created_at >= $%d", countArgIdx)
+		countArgIdx++
+	}
+	if startedBefore != nil && *startedBefore != "" {
+		countQuery += fmt.Sprintf(" AND t.created_at <= $%d", countArgIdx)
+		countArgIdx++
+	}
+
+	// Use same args (without limit/offset)
+	countArgs := args[:len(args)]
+
+	var totalCount int
+	err := r.pool.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count threads by ref: %w", err)
+	}
+
+	// Add ordering and pagination to main query
 	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, limit, offset)
 
-	// Execute query
+	// Execute main query
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query threads by ref with filters: %w", err)
+		return nil, 0, fmt.Errorf("failed to query threads by ref with filters: %w", err)
 	}
 	defer rows.Close()
 
@@ -216,7 +251,7 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 			&completedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan thread: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan thread: %w", err)
 		}
 
 		// Set optional fields
@@ -250,10 +285,10 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating threads: %w", err)
+		return nil, 0, fmt.Errorf("error iterating threads: %w", err)
 	}
 
-	return threads, nil
+	return threads, totalCount, nil
 }
 
 // QueryThreads performs a general thread search with flexible filtering
@@ -447,7 +482,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	completedBefore *string,
 	limit int,
 	offset int,
-) ([]*models.Thread, error) {
+) ([]*models.Thread, int, error) {
 	repoStart := time.Now()
 	fmt.Printf("[PERF] QueryThreadsWithAccess: START\n")
 	defer func() {
@@ -524,17 +559,75 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 		argIdx++
 	}
 
-	// Add ordering and pagination
-	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
-	args = append(args, limit, offset)
 	fmt.Printf("[PERF] QueryThreadsWithAccess.buildQuery: %v\n", time.Since(buildStart))
 
-	// Execute query
+	// Execute COUNT query first (without LIMIT/OFFSET)
+	countStart := time.Now()
+	countQuery := "SELECT COUNT(DISTINCT t.id) FROM threads t"
+
+	// Add LEFT JOIN if actor filter is provided
+	if actor != nil && *actor != "" {
+		countQuery += " LEFT JOIN thread_activities ta ON t.id = ta.thread_id"
+	}
+
+	// Add WHERE clause - same as main query
+	countQuery += " WHERE t.company_id = $1"
+
+	// Add all the same filters that were added to main query
+	countArgIdx := 2
+	if actor != nil && *actor != "" {
+		countQuery += fmt.Sprintf(" AND (ta.actor = $%d OR ta.actor_service = $%d)", countArgIdx, countArgIdx)
+		countArgIdx++
+	}
+	if contractName != nil && *contractName != "" {
+		countQuery += fmt.Sprintf(" AND t.contract_name = $%d", countArgIdx)
+		countArgIdx++
+	}
+	if contractVersion != nil {
+		countQuery += fmt.Sprintf(" AND t.contract_version = $%d", countArgIdx)
+		countArgIdx++
+	}
+	if status != nil && *status != "" {
+		countQuery += fmt.Sprintf(" AND t.status = $%d", countArgIdx)
+		countArgIdx++
+	}
+	if startedAfter != nil && *startedAfter != "" {
+		countQuery += fmt.Sprintf(" AND t.created_at >= $%d", countArgIdx)
+		countArgIdx++
+	}
+	if startedBefore != nil && *startedBefore != "" {
+		countQuery += fmt.Sprintf(" AND t.created_at <= $%d", countArgIdx)
+		countArgIdx++
+	}
+	if completedAfter != nil && *completedAfter != "" {
+		countQuery += fmt.Sprintf(" AND t.completed_at >= $%d", countArgIdx)
+		countArgIdx++
+	}
+	if completedBefore != nil && *completedBefore != "" {
+		countQuery += fmt.Sprintf(" AND t.completed_at <= $%d", countArgIdx)
+		countArgIdx++
+	}
+
+	// Use same args (without limit/offset)
+	countArgs := args[:len(args)]
+
+	var totalCount int
+	err := r.pool.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
+	fmt.Printf("[PERF] QueryThreadsWithAccess.countQuery: %v (total: %d)\n", time.Since(countStart), totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count threads: %w", err)
+	}
+
+	// Add ordering and pagination to main query
+	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	// Execute main query
 	execStart := time.Now()
 	rows, err := r.pool.Query(ctx, query, args...)
 	fmt.Printf("[PERF] QueryThreadsWithAccess.executeQuery: %v\n", time.Since(execStart))
 	if err != nil {
-		return nil, fmt.Errorf("failed to query threads with access: %w", err)
+		return nil, 0, fmt.Errorf("failed to query threads with access: %w", err)
 	}
 	defer rows.Close()
 
@@ -565,7 +658,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 			&completedAt,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan thread row: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan thread row: %w", err)
 		}
 
 		// Map nullable fields
@@ -600,10 +693,10 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	fmt.Printf("[PERF] QueryThreadsWithAccess.scanRows: %v (scanned %d rows)\n", time.Since(scanStart), rowCount)
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating threads: %w", err)
+		return nil, 0, fmt.Errorf("error iterating threads: %w", err)
 	}
 
-	return threads, nil
+	return threads, totalCount, nil
 }
 
 // QueryThreadsByContract performs contract-specific thread search (optimized for contract monitoring)

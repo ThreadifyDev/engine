@@ -32,25 +32,10 @@ WORKDIR /app
 # Copy the binary and config (distroless already runs as nonroot user)
 COPY --from=builder /app/bin/server /app/server
 COPY --from=builder /app/internal /app/internal
-COPY --from=builder /app/config/config.docker.api.yaml /app/config/config.yaml
+COPY --from=builder /app/config/config.yaml /app/config/config.yaml
 
 # Expose ports
 EXPOSE 8081 3001
-
-# Environment variables for CORS and other configurations
-ENV CORS_ORIGINS="http://localhost:3000" \
-    LOG_LEVEL="info" \
-    POSTGRES_HOST="postgres" \
-    POSTGRES_PORT="5432" \
-    POSTGRES_USER="td_engine" \
-    POSTGRES_PASSWORD="tdtdtd" \
-    POSTGRES_DB="threadify" \
-    REDIS_HOST="redis" \
-    REDIS_PORT="6379" \
-    REDIS_PASSWORD="threadify_secure_queue_password" \
-    NATS_URL="nats://nats:4222" \
-    JWT_SECRET="your-256-bit-secret-key-change-this-in-production-min-32-chars" \
-    HASH_CHAIN_SECRET="demo-secret-key-replace-in-production-with-64-char-hex-string"
 
 # Health check using the binary itself (no wget needed)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

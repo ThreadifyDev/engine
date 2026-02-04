@@ -109,7 +109,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 }
 
 // Threads is the resolver for the threads field.
-func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
 	resolverStart := time.Now()
 	fmt.Printf("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
@@ -136,8 +136,8 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 
 	// Query threads with SQL-based access filtering (includes archived data)
 	queryStart := time.Now()
-	threads, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
-	fmt.Printf("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads)\n", time.Since(queryStart), len(threads))
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	fmt.Printf("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", time.Since(queryStart), len(threads), totalCount)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads with access", err)
 	}
@@ -149,11 +149,14 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 		}
 	}
 
-	return threads, nil
+	return &models.ThreadConnection{
+		Threads:    threads,
+		TotalCount: totalCount,
+	}, nil
 }
 
 // ThreadsByContract is the resolver for the threadsByContract field.
-func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
 	// Get user info from context
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -170,7 +173,7 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	}
 
 	// Query threads with SQL-based access filtering
-	threads, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads by contract", err)
 	}
@@ -182,13 +185,16 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 		}
 	}
 
-	return threads, nil
+	return &models.ThreadConnection{
+		Threads:    threads,
+		TotalCount: totalCount,
+	}, nil
 }
 
 // ThreadsByRef is the resolver for the threadsByRef field.
-func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error) {
+func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
 	// Get user info from context (companyID for security)
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -203,13 +209,22 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey string, refValu
 	}
 
 	// Query threads by ref (this method already filters by company)
-	threads, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKey, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKey, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads by ref", err)
 	}
 
-	// Process: batch load + access filter (using helper)
-	return r.ProcessThreadQuery(ctx, threads, ownerID)
+	// Batch load refs if needed
+	if len(threads) > 0 {
+		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+			return nil, err
+		}
+	}
+
+	return &models.ThreadConnection{
+		Threads:    threads,
+		TotalCount: totalCount,
+	}, nil
 }
 
 // ThreadChain is the resolver for the threadChain field.

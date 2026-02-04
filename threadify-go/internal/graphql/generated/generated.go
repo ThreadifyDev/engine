@@ -195,6 +195,11 @@ type ComplexityRoot struct {
 		ValidationResults   func(childComplexity int, options *models.ValidationQueryOptions) int
 	}
 
+	ThreadConnection struct {
+		Threads    func(childComplexity int) int
+		TotalCount func(childComplexity int) int
+	}
+
 	ThreadNotification struct {
 		Details          func(childComplexity int) int
 		IdempotencyKey   func(childComplexity int) int
@@ -268,9 +273,9 @@ type NotificationConfigResolver interface {
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*models.Thread, error)
-	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
-	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
-	ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*models.Thread, error)
+	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
+	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
+	ThreadsByRef(ctx context.Context, refKey string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
@@ -1059,6 +1064,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Thread.ValidationResults(childComplexity, args["options"].(*models.ValidationQueryOptions)), true
 
+	case "ThreadConnection.threads":
+		if e.complexity.ThreadConnection.Threads == nil {
+			break
+		}
+
+		return e.complexity.ThreadConnection.Threads(childComplexity), true
+	case "ThreadConnection.totalCount":
+		if e.complexity.ThreadConnection.TotalCount == nil {
+			break
+		}
+
+		return e.complexity.ThreadConnection.TotalCount(childComplexity), true
+
 	case "ThreadNotification.details":
 		if e.complexity.ThreadNotification.Details == nil {
 			break
@@ -1483,6 +1501,12 @@ type Thread {
   hashChainStatus: HashChainStatus
 }
 
+# Wrapper type for paginated thread results
+type ThreadConnection {
+  threads: [Thread!]!
+  totalCount: Int!
+}
+
 type HashChainStatus {
   verified: Boolean!
   lastVerifiedAt: String!
@@ -1553,7 +1577,7 @@ type Query {
     completedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Contract-specific thread queries (optimized for contract monitoring, max limit: 100)
   threadsByContract(
@@ -1565,7 +1589,7 @@ type Query {
     startedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Find threads by reference key-value pair with filtering and pagination (max limit: 100)
   threadsByRef(
@@ -1576,7 +1600,7 @@ type Query {
     startedBefore: String
     limit: Int = 50
     offset: Int = 0
-  ): [Thread!]!
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
@@ -3472,7 +3496,7 @@ func (ec *executionContext) _Query_threads(ctx context.Context, field graphql.Co
 			return ec.resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
-		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection,
 		true,
 		true,
 	)
@@ -3486,48 +3510,12 @@ func (ec *executionContext) fieldContext_Query_threads(ctx context.Context, fiel
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_Thread_id(ctx, field)
-			case "contractId":
-				return ec.fieldContext_Thread_contractId(ctx, field)
-			case "contractVersion":
-				return ec.fieldContext_Thread_contractVersion(ctx, field)
-			case "contractName":
-				return ec.fieldContext_Thread_contractName(ctx, field)
-			case "ownerId":
-				return ec.fieldContext_Thread_ownerId(ctx, field)
-			case "companyId":
-				return ec.fieldContext_Thread_companyId(ctx, field)
-			case "status":
-				return ec.fieldContext_Thread_status(ctx, field)
-			case "createdBy":
-				return ec.fieldContext_Thread_createdBy(ctx, field)
-			case "lastHash":
-				return ec.fieldContext_Thread_lastHash(ctx, field)
-			case "refs":
-				return ec.fieldContext_Thread_refs(ctx, field)
-			case "startedAt":
-				return ec.fieldContext_Thread_startedAt(ctx, field)
-			case "completedAt":
-				return ec.fieldContext_Thread_completedAt(ctx, field)
-			case "error":
-				return ec.fieldContext_Thread_error(ctx, field)
-			case "steps":
-				return ec.fieldContext_Thread_steps(ctx, field)
-			case "validationResults":
-				return ec.fieldContext_Thread_validationResults(ctx, field)
-			case "notificationSummary":
-				return ec.fieldContext_Thread_notificationSummary(ctx, field)
-			case "notifications":
-				return ec.fieldContext_Thread_notifications(ctx, field)
-			case "threadChain":
-				return ec.fieldContext_Thread_threadChain(ctx, field)
-			case "hashChainVerified":
-				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
-			case "hashChainStatus":
-				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
+			case "threads":
+				return ec.fieldContext_ThreadConnection_threads(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_ThreadConnection_totalCount(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type ThreadConnection", field.Name)
 		},
 	}
 	defer func() {
@@ -3555,7 +3543,7 @@ func (ec *executionContext) _Query_threadsByContract(ctx context.Context, field 
 			return ec.resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
-		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection,
 		true,
 		true,
 	)
@@ -3569,48 +3557,12 @@ func (ec *executionContext) fieldContext_Query_threadsByContract(ctx context.Con
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_Thread_id(ctx, field)
-			case "contractId":
-				return ec.fieldContext_Thread_contractId(ctx, field)
-			case "contractVersion":
-				return ec.fieldContext_Thread_contractVersion(ctx, field)
-			case "contractName":
-				return ec.fieldContext_Thread_contractName(ctx, field)
-			case "ownerId":
-				return ec.fieldContext_Thread_ownerId(ctx, field)
-			case "companyId":
-				return ec.fieldContext_Thread_companyId(ctx, field)
-			case "status":
-				return ec.fieldContext_Thread_status(ctx, field)
-			case "createdBy":
-				return ec.fieldContext_Thread_createdBy(ctx, field)
-			case "lastHash":
-				return ec.fieldContext_Thread_lastHash(ctx, field)
-			case "refs":
-				return ec.fieldContext_Thread_refs(ctx, field)
-			case "startedAt":
-				return ec.fieldContext_Thread_startedAt(ctx, field)
-			case "completedAt":
-				return ec.fieldContext_Thread_completedAt(ctx, field)
-			case "error":
-				return ec.fieldContext_Thread_error(ctx, field)
-			case "steps":
-				return ec.fieldContext_Thread_steps(ctx, field)
-			case "validationResults":
-				return ec.fieldContext_Thread_validationResults(ctx, field)
-			case "notificationSummary":
-				return ec.fieldContext_Thread_notificationSummary(ctx, field)
-			case "notifications":
-				return ec.fieldContext_Thread_notifications(ctx, field)
-			case "threadChain":
-				return ec.fieldContext_Thread_threadChain(ctx, field)
-			case "hashChainVerified":
-				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
-			case "hashChainStatus":
-				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
+			case "threads":
+				return ec.fieldContext_ThreadConnection_threads(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_ThreadConnection_totalCount(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type ThreadConnection", field.Name)
 		},
 	}
 	defer func() {
@@ -3638,7 +3590,7 @@ func (ec *executionContext) _Query_threadsByRef(ctx context.Context, field graph
 			return ec.resolvers.Query().ThreadsByRef(ctx, fc.Args["refKey"].(string), fc.Args["refValue"].(string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
-		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection,
 		true,
 		true,
 	)
@@ -3652,48 +3604,12 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
-			case "id":
-				return ec.fieldContext_Thread_id(ctx, field)
-			case "contractId":
-				return ec.fieldContext_Thread_contractId(ctx, field)
-			case "contractVersion":
-				return ec.fieldContext_Thread_contractVersion(ctx, field)
-			case "contractName":
-				return ec.fieldContext_Thread_contractName(ctx, field)
-			case "ownerId":
-				return ec.fieldContext_Thread_ownerId(ctx, field)
-			case "companyId":
-				return ec.fieldContext_Thread_companyId(ctx, field)
-			case "status":
-				return ec.fieldContext_Thread_status(ctx, field)
-			case "createdBy":
-				return ec.fieldContext_Thread_createdBy(ctx, field)
-			case "lastHash":
-				return ec.fieldContext_Thread_lastHash(ctx, field)
-			case "refs":
-				return ec.fieldContext_Thread_refs(ctx, field)
-			case "startedAt":
-				return ec.fieldContext_Thread_startedAt(ctx, field)
-			case "completedAt":
-				return ec.fieldContext_Thread_completedAt(ctx, field)
-			case "error":
-				return ec.fieldContext_Thread_error(ctx, field)
-			case "steps":
-				return ec.fieldContext_Thread_steps(ctx, field)
-			case "validationResults":
-				return ec.fieldContext_Thread_validationResults(ctx, field)
-			case "notificationSummary":
-				return ec.fieldContext_Thread_notificationSummary(ctx, field)
-			case "notifications":
-				return ec.fieldContext_Thread_notifications(ctx, field)
-			case "threadChain":
-				return ec.fieldContext_Thread_threadChain(ctx, field)
-			case "hashChainVerified":
-				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
-			case "hashChainStatus":
-				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
+			case "threads":
+				return ec.fieldContext_ThreadConnection_threads(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_ThreadConnection_totalCount(ctx, field)
 			}
-			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+			return nil, fmt.Errorf("no field named %q was found under type ThreadConnection", field.Name)
 		},
 	}
 	defer func() {
@@ -6103,6 +6019,106 @@ func (ec *executionContext) fieldContext_Thread_hashChainStatus(_ context.Contex
 				return ec.fieldContext_HashChainStatus_error(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type HashChainStatus", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadConnection_threads(ctx context.Context, field graphql.CollectedField, obj *models.ThreadConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadConnection_threads,
+		func(ctx context.Context) (any, error) {
+			return obj.Threads, nil
+		},
+		nil,
+		ec.marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Thread_id(ctx, field)
+			case "contractId":
+				return ec.fieldContext_Thread_contractId(ctx, field)
+			case "contractVersion":
+				return ec.fieldContext_Thread_contractVersion(ctx, field)
+			case "contractName":
+				return ec.fieldContext_Thread_contractName(ctx, field)
+			case "ownerId":
+				return ec.fieldContext_Thread_ownerId(ctx, field)
+			case "companyId":
+				return ec.fieldContext_Thread_companyId(ctx, field)
+			case "status":
+				return ec.fieldContext_Thread_status(ctx, field)
+			case "createdBy":
+				return ec.fieldContext_Thread_createdBy(ctx, field)
+			case "lastHash":
+				return ec.fieldContext_Thread_lastHash(ctx, field)
+			case "refs":
+				return ec.fieldContext_Thread_refs(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_Thread_startedAt(ctx, field)
+			case "completedAt":
+				return ec.fieldContext_Thread_completedAt(ctx, field)
+			case "error":
+				return ec.fieldContext_Thread_error(ctx, field)
+			case "steps":
+				return ec.fieldContext_Thread_steps(ctx, field)
+			case "validationResults":
+				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "notificationSummary":
+				return ec.fieldContext_Thread_notificationSummary(ctx, field)
+			case "notifications":
+				return ec.fieldContext_Thread_notifications(ctx, field)
+			case "threadChain":
+				return ec.fieldContext_Thread_threadChain(ctx, field)
+			case "hashChainVerified":
+				return ec.fieldContext_Thread_hashChainVerified(ctx, field)
+			case "hashChainStatus":
+				return ec.fieldContext_Thread_hashChainStatus(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Thread", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ThreadConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *models.ThreadConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_ThreadConnection_totalCount,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_ThreadConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ThreadConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -10629,6 +10645,50 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 	return out
 }
 
+var threadConnectionImplementors = []string{"ThreadConnection"}
+
+func (ec *executionContext) _ThreadConnection(ctx context.Context, sel ast.SelectionSet, obj *models.ThreadConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, threadConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ThreadConnection")
+		case "threads":
+			out.Values[i] = ec._ThreadConnection_threads(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._ThreadConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var threadNotificationImplementors = []string{"ThreadNotification"}
 
 func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.SelectionSet, obj *models.ThreadNotification) graphql.Marshaler {
@@ -11818,6 +11878,20 @@ func (ec *executionContext) marshalNThread2ᚖgithubᚗcomᚋthreadifyᚋengine�
 		return graphql.Null
 	}
 	return ec._Thread(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNThreadConnection2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v models.ThreadConnection) graphql.Marshaler {
+	return ec._ThreadConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v *models.ThreadConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ThreadConnection(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ThreadNotification) graphql.Marshaler {

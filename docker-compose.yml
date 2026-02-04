@@ -151,6 +151,93 @@ services:
   #     timeout: 3s
   #     start_period: 10s
   #     retries: 3
+  
+  # Threadify Web API (Go Backend)
+  th_web_api:
+    build:
+      context: ./threadify-go
+      dockerfile: Dockerfile.api
+    image: intelligence/th_web_api:latest
+    container_name: th_web_api
+    ports:
+      - "8081:8081"
+      - "3001:3001"
+    environment:
+      # CORS Configuration
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000}"
+      
+      # Database Configuration
+      POSTGRES_URL: "postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable"
+      POSTGRES_HOST: "threadify_storage"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "${PS_STORAGE_USER:-td_engine}"
+      POSTGRES_PASSWORD: "${PS_STORAGE_PASSWORD:-tdtdtd}"
+      POSTGRES_DB: "threadify"
+      
+      # Redis Configuration
+      REDIS_HOST: "threadify-queue"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${FAST_STORAGE_PASSWORD:-threadify_secure_password}"
+      
+      # NATS Configuration
+      NATS_URL: "nats://nats:4222"
+      
+      # Security
+      JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
+      HASH_CHAIN_SECRET: "${HASH_CHAIN_SECRET:-demo-secret-key-replace-in-production-with-64-char-hex-string}"
+      
+      # Email Service (Plunk)
+      PLUNK_API_KEY: "${PLUNK_API_KEY}"
+      PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
+      
+      # Logging
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+    depends_on:
+      threadify_storage:
+        condition: service_healthy
+      threadify-queue:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["/app/server", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Threadify Web UI (Remix Frontend)
+  th_web_ui:
+    build:
+      context: .
+      dockerfile: threadify-go/Dockerfile.web_ui
+    image: intelligence/th_web_ui:latest
+    container_name: th_web_ui
+    ports:
+      - "3000:3000"
+    environment:
+      # Backend API URL
+      API_URL: "http://th_web_api:3001"
+      
+      # Session Secret
+      SESSION_SECRET: "${SESSION_SECRET:-your-session-secret-change-in-production}"
+      
+      # Node Environment
+      NODE_ENV: "production"
+    depends_on:
+      - th_web_api
+    networks:
+      - threadify-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 volumes:
   threadify-pg16:
     driver: local
