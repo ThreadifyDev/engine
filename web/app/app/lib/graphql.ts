@@ -1,4 +1,5 @@
 // GraphQL client for Threadify Engine (via Web API proxy)
+import { getConfig } from '../config.client';
 
 const GRAPHQL_ENDPOINT = '/api/graphql'; // Proxy endpoint on Web API
 
@@ -178,12 +179,16 @@ export interface Thread {
 }
 
 class GraphQLClient {
+  private getApiUrl(): string {
+    return getConfig().apiUrl;
+  }
+
   private async request<T>(query: string, variables?: Record<string, any>): Promise<T> {
     // Make GraphQL request through the Web API proxy
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    // Use Web API URL (port 3001, configurable via VITE_API_URL)
+    // Use Web API URL from runtime configuration
     const apiUrl = typeof window !== 'undefined' 
-      ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
+      ? this.getApiUrl()
       : 'http://localhost:3001';
     
     const response = await fetch(`${apiUrl}${GRAPHQL_ENDPOINT}`, {

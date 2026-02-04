@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	sharedconfig "threadify-go/shared/config"
+
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
@@ -92,15 +94,16 @@ func main() {
 		}
 	}
 
-	// Initialize Valkey client
+	// Load config using shared config loader (handles environment variable expansion)
+	sharedConfig, err := sharedconfig.Load(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Also initialize viper for backward compatibility with LoadFromViper
 	viper.SetConfigFile(*configPath)
-
-	// Enable automatic environment variable support
 	viper.AutomaticEnv()
-	// Map environment variables with underscores to config keys with dots
-	// e.g., REDIS_PASSWORD -> redis.password
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read viper config: %v", err)
 	}
@@ -112,9 +115,19 @@ func main() {
 	}
 
 	// Archiver only needs PostgreSQL and NATS (no Valkey/Redis required)
-	// Initialize Postgres
-	pgURL := viper.GetString("postgres.url")
-	maxConns := viper.GetInt("postgres.max_connections")
+	// Initialize Postgres using shared config (with env var expansion)
+	pgURL := sharedConfig.Postgres.URL
+	maxConns := sharedConfig.Postgres.MaxConnections
+
+	// Debug: Log the connection URL (mask password)
+	maskedURL := pgURL
+	if idx := strings.Index(maskedURL, "@"); idx > 0 {
+		if colonIdx := strings.LastIndex(maskedURL[:idx], ":"); colonIdx > 0 {
+			maskedURL = maskedURL[:colonIdx+1] + "****" + maskedURL[idx:]
+		}
+	}
+	log.Printf("Connecting to PostgreSQL: %s", maskedURL)
+
 	db, err := database.NewPostgresDB(pgURL, maxConns)
 	if err != nil {
 		log.Fatalf("Failed to connect to Postgres: %v", err)
@@ -129,7 +142,7 @@ func main() {
 	defer cancel()
 
 	// Initialize NATS consumer for archival (graceful degradation if unavailable)
-	natsURL := viper.GetString("nats.url")
+	natsURL := sharedConfig.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL // Default to nats://localhost:4222
 	}

@@ -97,8 +97,31 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 			return nil, errors.New("unauthorized: service account belongs to different company")
 		}
 		serviceAccountID = req.ServiceAccountID
+	} else {
+		// Option 3: Auto-create service account with default role
+		defaultRole := "standard_service" // Default service account role
+
+		sa := &models.ServiceAccount{
+			ID:        utils.GenerateID(),
+			CompanyID: companyID,
+			Name:      req.Name + " (auto-generated)", // Distinguish auto-generated
+			IsActive:  true,
+			CreatedBy: &userID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		if err := s.serviceAccountRepo.Create(sa); err != nil {
+			return nil, err
+		}
+
+		// Assign default role to service account
+		if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, defaultRole, userID); err != nil {
+			return nil, errors.New("failed to assign role to service account")
+		}
+
+		serviceAccountID = &sa.ID
 	}
-	// Option 3: No service account (legacy - link to user)
 
 	// Generate API key
 	key, err := utils.GenerateAPIKey()
@@ -123,16 +146,11 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 		KeyHash:          keyHash,
 		KeyPrefix:        keyPrefix,
 		Name:             req.Name,
-		UserID:           nil, // Don't link to user if service account is used
+		UserID:           &userID, // Track which user created the API key
 		ServiceAccountID: serviceAccountID,
 		CompanyID:        companyID,
 		ExpiresAt:        expiresAt,
 		CreatedAt:        time.Now(),
-	}
-
-	// If no service account, link to user (legacy behavior)
-	if serviceAccountID == nil {
-		apiKey.UserID = &userID
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {

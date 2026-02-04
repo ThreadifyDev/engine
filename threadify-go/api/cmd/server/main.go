@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"threadify-go/api/internal/database"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/middleware"
@@ -60,9 +61,14 @@ func main() {
 	// Setup Gin router
 	router := gin.Default()
 
-	// CORS middleware
+	// CORS middleware - split comma-separated origins
+	allowedOrigins := strings.Split(cfg.WebAPI.CORSOrigins, ",")
+	for i, origin := range allowedOrigins {
+		allowedOrigins[i] = strings.TrimSpace(origin)
+	}
+
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{cfg.WebAPI.CORSOrigins},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -87,7 +93,21 @@ func main() {
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 
 	// Load permissions and roles from JSON files
-	rbacLoader, err := rbac.NewLoader("../shared/rbac/permissions.json", "../shared/rbac/roles.json")
+	// Try multiple paths (Docker, local from api/, local from root)
+	permissionsPath := "../shared/rbac/permissions.json"
+	rolesPath := "../shared/rbac/roles.json"
+
+	// Check if running in Docker
+	if _, err := os.Stat("/app/shared/rbac/permissions.json"); err == nil {
+		permissionsPath = "/app/shared/rbac/permissions.json"
+		rolesPath = "/app/shared/rbac/roles.json"
+	} else if _, err := os.Stat("./shared/rbac/permissions.json"); err == nil {
+		// Running from threadify-go root
+		permissionsPath = "./shared/rbac/permissions.json"
+		rolesPath = "./shared/rbac/roles.json"
+	}
+
+	rbacLoader, err := rbac.NewLoader(permissionsPath, rolesPath)
 	if err != nil {
 		log.Fatalf("Failed to load permissions: %v", err)
 	}
