@@ -41,7 +41,33 @@ func (db *PostgresDB) Close() {
 
 func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	schema := `
-	-- Note: companies and users tables are now owned by Web API InitSchema
+	-- Shared tables (also created by Web API for independence)
+	CREATE TABLE IF NOT EXISTS companies (
+		id VARCHAR(255) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL,
+		industry VARCHAR(100),
+		size VARCHAR(50),
+		use_case TEXT,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS users (
+		id VARCHAR(255) PRIMARY KEY,
+		email VARCHAR(255) UNIQUE NOT NULL,
+		company_id VARCHAR(255),
+		password_hash VARCHAR(255),
+		full_name VARCHAR(255),
+		job_role VARCHAR(255),
+		email_verified BOOLEAN DEFAULT FALSE,
+		onboarding_completed BOOLEAN DEFAULT FALSE,
+		first_instrumentation_done BOOLEAN DEFAULT FALSE,
+		password_changed_at TIMESTAMP,
+		last_login_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 	
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
@@ -480,6 +506,106 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_payload_gin 
 		ON thread_activities USING gin(payload)
 		WHERE activity_type = 'validation_result';
+
+	-- ========================================
+	-- WEB API TABLES
+	-- ========================================
+	-- Tables specific to the Web API (authentication, service accounts, etc.)
+
+	-- OTP codes table (for email verification)
+	CREATE TABLE IF NOT EXISTS otp_codes (
+		id VARCHAR(255) PRIMARY KEY,
+		email VARCHAR(255) NOT NULL,
+		code VARCHAR(255) NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		verified BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_otp_codes_email ON otp_codes(email);
+	CREATE INDEX IF NOT EXISTS idx_otp_codes_expires ON otp_codes(expires_at);
+
+	-- Service accounts table (for API access)
+	CREATE TABLE IF NOT EXISTS service_accounts (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		description TEXT,
+		role VARCHAR(100) NOT NULL,
+		is_active BOOLEAN DEFAULT TRUE,
+		last_used_at TIMESTAMP,
+		created_by VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+		FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_service_accounts_company ON service_accounts(company_id);
+	CREATE INDEX IF NOT EXISTS idx_service_accounts_company_id ON service_accounts(company_id);
+
+	-- API keys table (for service account authentication)
+	CREATE TABLE IF NOT EXISTS api_keys (
+		id VARCHAR(255) PRIMARY KEY,
+		service_account_id VARCHAR(255) NOT NULL,
+		key_hash VARCHAR(255) NOT NULL UNIQUE,
+		key_prefix VARCHAR(20) NOT NULL,
+		name VARCHAR(255),
+		is_active BOOLEAN DEFAULT TRUE,
+		expires_at TIMESTAMP,
+		last_used_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (service_account_id) REFERENCES service_accounts(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_api_keys_service_account ON api_keys(service_account_id);
+	CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+	-- User roles table (for RBAC)
+	-- Engine uses principal_id/principal_type for polymorphism (users + service accounts)
+	CREATE TABLE IF NOT EXISTS user_roles (
+		id VARCHAR(255),
+		principal_id VARCHAR(255) NOT NULL,
+		principal_type VARCHAR(50) NOT NULL DEFAULT 'user',
+		role_name VARCHAR(100) NOT NULL,
+		assigned_by VARCHAR(255) NOT NULL,
+		assigned_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (principal_id, role_name)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_user_roles_principal ON user_roles(principal_id);
+	CREATE INDEX IF NOT EXISTS idx_user_roles_type ON user_roles(principal_type);
+
+	-- ========================================
+	-- TRIGGERS FOR AUTO-UPDATED TIMESTAMPS
+	-- ========================================
+
+	-- Create trigger function for updated_at (idempotent)
+	CREATE OR REPLACE FUNCTION update_updated_at_column()
+	RETURNS TRIGGER AS $$
+	BEGIN
+		NEW.updated_at = NOW();
+		RETURN NEW;
+	END;
+	$$ language 'plpgsql';
+
+	-- Apply triggers to all tables with updated_at column
+	DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+	CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	DROP TRIGGER IF EXISTS update_companies_updated_at ON companies;
+	CREATE TRIGGER update_companies_updated_at BEFORE UPDATE ON companies
+		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	DROP TRIGGER IF EXISTS update_service_accounts_updated_at ON service_accounts;
+	CREATE TRIGGER update_service_accounts_updated_at BEFORE UPDATE ON service_accounts
+		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
+	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
+		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)
