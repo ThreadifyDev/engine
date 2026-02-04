@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"threadify-go/api/internal/database"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/middleware"
@@ -22,8 +23,17 @@ import (
 )
 
 func main() {
-	// Load configuration
-	cfg, err := config.Load("../config/config.yaml")
+	// Load configuration (use /app/config/config.yaml in Docker, ../config/config.yaml locally)
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "../config/config.yaml"
+		// Check if running in Docker
+		if _, err := os.Stat("/app/config/config.yaml"); err == nil {
+			configPath = "/app/config/config.yaml"
+		}
+	}
+
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

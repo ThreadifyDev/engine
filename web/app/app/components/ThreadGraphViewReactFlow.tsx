@@ -452,9 +452,6 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
       },
     });
   }
-
-  // Debug: Log edge creation stats
-  console.log('[ReactFlow] Nodes created:', initialNodes.length, 'Edges created:', initialEdges.length);
   
   return { initialNodes, initialEdges };
   }, [sortedSteps, validations, actorMap]);

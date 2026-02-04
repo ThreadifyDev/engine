@@ -82,8 +82,18 @@ func Load(path string) (*Config, error) {
 	cfg.JWT.Issuer = expandEnv(cfg.JWT.Issuer)
 	cfg.JWT.Audience = expandEnv(cfg.JWT.Audience)
 	cfg.JWT.Realm = expandEnv(cfg.JWT.Realm)
+
+	// Postgres config
 	cfg.Postgres.URL = expandEnv(cfg.Postgres.URL)
+
+	// Redis config
+	cfg.Redis.Host = expandEnv(cfg.Redis.Host)
+	cfg.Redis.Password = expandEnv(cfg.Redis.Password)
+
+	// NATS config
 	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
+
+	// WebAPI config
 	cfg.WebAPI.Email.PlunkAPIKey = expandEnv(cfg.WebAPI.Email.PlunkAPIKey)
 	cfg.WebAPI.Email.PlunkFromEmail = expandEnv(cfg.WebAPI.Email.PlunkFromEmail)
 	cfg.WebAPI.ThreadifyEngine.URL = expandEnv(cfg.WebAPI.ThreadifyEngine.URL)
