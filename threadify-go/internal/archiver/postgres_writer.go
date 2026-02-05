@@ -157,13 +157,34 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		}
 		fmt.Printf("ContractVersion: %s\n", event.Data["contractVersion"])
 
+		// Validate owner_id exists in users OR service_accounts table, set to NULL if not
+		var ownerIDParam interface{} = event.Data["ownerId"]
+		if ownerID := event.Data["ownerId"]; ownerID != "" {
+			var exists bool
+			// Check both users and service_accounts tables
+			checkQuery := `
+				SELECT EXISTS(
+					SELECT 1 FROM users WHERE id = $1
+					UNION
+					SELECT 1 FROM service_accounts WHERE id = $1
+				)
+			`
+			err := w.db.Pool.QueryRow(ctx, checkQuery, ownerID).Scan(&exists)
+			if err != nil || !exists {
+				fmt.Printf("⚠️  WARNING: owner_id %s does not exist in users or service_accounts table, setting to NULL\n", ownerID)
+				ownerIDParam = nil // Set to nil which will be NULL in PostgreSQL
+			}
+		} else {
+			ownerIDParam = nil // Empty string should also be NULL
+		}
+
 		_, err := w.db.Pool.Exec(ctx, query,
 			event.Data["threadId"],  // Use threadId instead of id
 			event.Data["companyId"], // Add company_id from stream data
 			event.Data["contractId"],
 			event.Data["contractName"], // Add contract_name from stream data
 			event.Data["contractVersion"],
-			event.Data["ownerId"],
+			ownerIDParam,            // Use validated owner_id (NULL if user doesn't exist)
 			error,                   // Error field (optional)
 			event.Data["startedAt"], // Use startedAt as created_at
 			event.Data["startedAt"], // Use startedAt as updated_at for new records

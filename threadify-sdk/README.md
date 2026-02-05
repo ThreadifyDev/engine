@@ -8,6 +8,24 @@ Build business process graphs with context—track what happened, validate every
 npm install @threadify/sdk
 ```
 
+### Module Support
+
+The SDK supports both **ES Modules (ESM)** and **CommonJS (CJS)**:
+
+**ES Modules (recommended):**
+```javascript
+import { Threadify } from '@threadify/sdk';
+```
+
+**CommonJS:**
+```javascript
+const { Threadify } = require('@threadify/sdk');
+// or
+const Threadify = require('@threadify/sdk');
+```
+
+**Full CommonJS Example:** See [`examples/commonjs-example.js`](examples/commonjs-example.js) for a complete working example.
+
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
@@ -38,6 +56,7 @@ npm install @threadify/sdk
 
 ## Quick Start
 
+**ES Modules:**
 ```javascript
 import { Threadify } from '@threadify/sdk';
 
@@ -55,6 +74,21 @@ await thread.step('order_placed')
 await thread.step('payment_processed')
   .addContext({ paymentId: 'PAY-67890' })
   .success();
+```
+
+**CommonJS:**
+```javascript
+const { Threadify } = require('@threadify/sdk');
+
+// Same API as ESM
+(async () => {
+  const connection = await Threadify.connect('your-api-key', 'my-service');
+  const thread = await connection.start();
+  
+  await thread.step('order_placed')
+    .addContext({ orderId: 'ORD-12345', amount: 99.99 })
+    .success();
+})();
 ```
 
 ---
@@ -84,8 +118,11 @@ Optional YAML-defined workflow specifications that enforce validation rules. Con
 
 ## Common Scenarios
 
+> **Note:** All examples below work with both ES Modules and CommonJS. Just replace `import` with `require()` and wrap in an async function if needed.
+
 ### Track a Simple Workflow
 
+**ES Modules:**
 ```javascript
 const connection = await Threadify.connect('your-api-key');
 const thread = await connection.start();
