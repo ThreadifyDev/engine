@@ -98,10 +98,7 @@ func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEve
 
 // WriteThreadMetadata writes thread metadata to Postgres
 func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) error {
-	fmt.Printf("🔄 DEBUG: WriteThreadMetadata called with %d events\n", len(events))
-
 	if len(events) == 0 {
-		fmt.Printf(" DEBUG: WriteThreadMetadata - no events, returning\n")
 		return nil
 	}
 
@@ -129,12 +126,6 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		return nil
 	}
 
-	fmt.Printf(" DEBUG: Writing thread metadata for %d events\n", len(metadataEvents))
-	for i, event := range metadataEvents {
-		fmt.Printf("   Event %d: threadId=%s, ownerId=%s, contractId=%s\n",
-			i+1, event.Data["threadId"], event.Data["ownerId"], event.Data["contractId"])
-	}
-
 	// Upsert thread metadata
 	query := `
 		INSERT INTO threads (
@@ -145,6 +136,7 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			contract_id = EXCLUDED.contract_id,
 			contract_name = EXCLUDED.contract_name,
 			contract_version = EXCLUDED.contract_version,
+			owner_id = EXCLUDED.owner_id,
 			error = EXCLUDED.error,
 			updated_at = EXCLUDED.updated_at
 	`
@@ -155,23 +147,15 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		if event.Data["error"] != "" {
 			error = event.Data["error"]
 		}
-		fmt.Printf("ContractVersion: %s\n", event.Data["contractVersion"])
 
-		// Validate owner_id exists in users OR service_accounts table, set to NULL if not
+		// Validate owner_id exists in service_accounts table, set to NULL if not
+		// Note: owner_id is always a service account ID (threads are created via API keys)
 		var ownerIDParam interface{} = event.Data["ownerId"]
 		if ownerID := event.Data["ownerId"]; ownerID != "" {
 			var exists bool
-			// Check both users and service_accounts tables
-			checkQuery := `
-				SELECT EXISTS(
-					SELECT 1 FROM users WHERE id = $1
-					UNION
-					SELECT 1 FROM service_accounts WHERE id = $1
-				)
-			`
+			checkQuery := `SELECT EXISTS(SELECT 1 FROM service_accounts WHERE id = $1)`
 			err := w.db.Pool.QueryRow(ctx, checkQuery, ownerID).Scan(&exists)
 			if err != nil || !exists {
-				fmt.Printf("⚠️  WARNING: owner_id %s does not exist in users or service_accounts table, setting to NULL\n", ownerID)
 				ownerIDParam = nil // Set to nil which will be NULL in PostgreSQL
 			}
 		} else {
@@ -190,7 +174,6 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			event.Data["startedAt"], // Use startedAt as updated_at for new records
 		)
 		if err != nil {
-			fmt.Printf("ERROR: Failed to write thread metadata to Postgres: %v\n", err)
 			return err
 		}
 	}
