@@ -121,14 +121,14 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		contract_id VARCHAR(255),
 		contract_name VARCHAR(255),
 		contract_version INT,
-		owner_id VARCHAR(255),
+		owner_id VARCHAR(255),  -- Service account ID (threads are always created by service accounts)
 		company_id VARCHAR(255) NOT NULL,
 		status VARCHAR(50) DEFAULT 'active',
 		error TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
-		FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
+		FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
@@ -136,6 +136,29 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+
+	-- Migrate owner_id foreign key from users to service_accounts
+	DO $$ 
+	BEGIN
+		-- Drop old constraint if it exists (references users)
+		IF EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'threads_owner_id_fkey'
+			AND confrelid = 'users'::regclass
+		) THEN
+			ALTER TABLE threads DROP CONSTRAINT threads_owner_id_fkey;
+		END IF;
+		
+		-- Add new constraint if it doesn't exist (references service_accounts)
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'threads_owner_id_fkey'
+			AND confrelid = 'service_accounts'::regclass
+		) THEN
+			ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey 
+				FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+		END IF;
+	END $$;
 
 	-- Security-first indexes: company_id ALWAYS comes first to enforce isolation
 	-- These replace the old indexes that didn't include company_id

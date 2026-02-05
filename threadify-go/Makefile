@@ -83,7 +83,7 @@ build-image: ## Build Docker image
 	docker build -t intelijence/th-engine:${VERSION} .
 
 build-archiver: ## Build archiver Docker image
-	docker build -f Dockerfile.archiver -t intelijence/th-archiver:${VERSION} .
+	docker build $(DOCKER_BUILD_ARGS) -f Dockerfile.archiver -t intelijence/th-archiver:${VERSION} .
 
 build-web-api: ## Build Web API Docker image
 	docker build -f Dockerfile.api -t intelijence/th_web_api:${VERSION} .
