@@ -136,10 +136,12 @@ func main() {
 	serviceAccountHandler := handlers.NewServiceAccountHandler(serviceAccountService, rbacLoader)
 	roleHandler := handlers.NewRoleHandler(rbacLoader)
 	codeSamplesHandler := handlers.NewCodeSamplesHandler("./code_samples")
-	// Initialize contract proxy handler with engine URL
-	engineURL := "http://localhost:8081" // Engine default port
-	contractProxyHandler := handlers.NewContractProxyHandler(engineURL)
-	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(engineURL)
+
+	// Initialize contract proxy handler with engine URL from config
+	log.Printf("🔗 ThreadifyEngine URL: %s", cfg.WebAPI.ThreadifyEngine.URL)
+	log.Printf("🔗 ThreadifyEngine GraphQL URL: %s", cfg.WebAPI.ThreadifyEngine.GraphQLURL)
+	contractProxyHandler := handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL)
+	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
 
 	// JWT middleware
 	jwtMiddleware := jwtValidator.AuthMiddleware()

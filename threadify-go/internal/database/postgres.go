@@ -121,15 +121,15 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		contract_id VARCHAR(255),
 		contract_name VARCHAR(255),
 		contract_version INT,
-		owner_id VARCHAR(255) NOT NULL,
+		owner_id VARCHAR(255),
 		company_id VARCHAR(255) NOT NULL,
 		status VARCHAR(50) DEFAULT 'active',
 		error TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
-		FOREIGN KEY (owner_id) REFERENCES users(id),
-		FOREIGN KEY (company_id) REFERENCES companies(id)
+		FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
 	-- Add missing columns for existing databases (migration safety)
@@ -196,17 +196,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		finished_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
-	
-	-- Add columns to existing table if they don't exist
-	DO $$ 
-	BEGIN
-		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='thread_activities' AND column_name='started_at') THEN
-			ALTER TABLE thread_activities ADD COLUMN started_at TIMESTAMP;
-		END IF;
-		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='thread_activities' AND column_name='finished_at') THEN
-			ALTER TABLE thread_activities ADD COLUMN finished_at TIMESTAMP;
-		END IF;
-	END $$;
 
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);

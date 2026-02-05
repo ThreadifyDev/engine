@@ -53,6 +53,7 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path string,
 	// Forward JWT token from incoming request to Engine
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
 
 	// Execute request
 	resp, err := h.httpClient.Do(req)
@@ -105,6 +106,7 @@ func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
 	// Forward headers
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", c.GetHeader("Content-Type")) // Forward original content type
+	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
 
 	// Execute request
 	resp, err := h.httpClient.Do(req)
@@ -178,6 +180,7 @@ func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
 		contentType = "text/plain" // Default for YAML
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
 
 	// Execute request
 	resp, err := h.httpClient.Do(req)

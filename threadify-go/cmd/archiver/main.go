@@ -133,6 +133,12 @@ func main() {
 		log.Fatalf("Failed to connect to Postgres: %v", err)
 	}
 	defer db.Close()
+
+	// Initialize schema (ensure all tables exist)
+	if err := db.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Failed to initialize schema: %v", err)
+	}
+	log.Printf("✅ Database schema initialized")
 	// Connected to Postgres
 
 	// Archiver service starting

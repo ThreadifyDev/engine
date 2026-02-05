@@ -217,17 +217,17 @@ web_api:
   enabled: true
   port: 3001
   host: 0.0.0.0
-  cors_origins: "http://localhost:3000"
+  cors_origins: "$CORS_ORIGINS:http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
   
   # Email service (Plunk)
   email:
-    plunk_api_key: "sk_b2383fde9b0f52295c5410166454519f4db28e48561bd419"
-    plunk_from_email: "noreply@threadify.com"
+    plunk_api_key: "$PLUNK_API_KEY:sk_b2383fde9b0f52295c5410166454519f4db28e48561bd419"
+    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.com"
   
   # Threadify Engine integration
   threadify_engine:
-    url: "http://localhost:8081"
-    graphql_url: "http://localhost:8081/graphql"
+    url: "$THREADIFY_ENGINE_URL:http://th-engine:8081"
+    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://th-engine:8081/graphql"
   
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days

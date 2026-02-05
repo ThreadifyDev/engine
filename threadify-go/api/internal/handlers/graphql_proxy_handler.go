@@ -38,7 +38,9 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	}
 
 	// Create request to ThreadifyEngine GraphQL endpoint
-	url := fmt.Sprintf("%s/graphql", h.threadifyEngineURL)
+	// Note: threadifyEngineURL already includes the full GraphQL endpoint path
+	url := h.threadifyEngineURL
+	fmt.Printf("[GRAPHQL-PROXY] Proxying to URL: %s\n", url)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
@@ -49,6 +51,7 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	// Note: ThreadifyEngine should accept JWT tokens for GraphQL queries from admin users
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
 
 	// Execute request to ThreadifyEngine
 	resp, err := h.httpClient.Do(req)
