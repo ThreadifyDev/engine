@@ -454,10 +454,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 
 	query := `
 		INSERT INTO thread_activities (
-			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash, prev_hash, status
+			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash, prev_hash, status, content_hash
 		) VALUES `
 
-	values := make([]interface{}, 0, len(events)*10)
+	values := make([]interface{}, 0, len(events)*11)
 	placeholders := ""
 
 	for i, event := range events {
@@ -465,10 +465,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 			placeholders += ", "
 		}
 
-		offset := i * 10
+		offset := i * 11
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9, offset+10,
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9, offset+10, offset+11,
 		)
 
 		// Extract fields from event data
@@ -480,17 +480,18 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		hash := event.Data["hash"]
 		prevHash := event.Data["prev_hash"]
 		status := event.Data["status"]
+		contentHash := event.Data["content_hash"]
 		timestamp := event.Data["timestamp"]
 
 		// Handle empty timestamp - use current time as fallback
 		if timestamp == "" {
-			timestamp = time.Now().Format(time.RFC3339)
+			timestamp = time.Now().Format(time.RFC3339Nano)
 		}
 
 		// Create payload with all event data except the top-level fields
 		payload := make(map[string]interface{})
 		for k, v := range event.Data {
-			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "prev_hash" && k != "status" && k != "timestamp" {
+			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "prev_hash" && k != "status" && k != "content_hash" && k != "timestamp" {
 				payload[k] = v
 			}
 		}
@@ -502,7 +503,7 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		}
 
 		// Add values to the slice
-		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash, prevHash, status)
+		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash, prevHash, status, contentHash)
 	}
 
 	query += placeholders

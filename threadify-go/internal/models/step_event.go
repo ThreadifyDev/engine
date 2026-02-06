@@ -26,6 +26,7 @@ type StepEvent struct {
 	StartedAt      string                 `json:"started_at"`
 	FinishedAt     string                 `json:"finished_at"`
 	IdempotencyKey string                 `json:"idempotency_key"` // User-provided or context hash
+	ContentHash    string                 `json:"content_hash"`    // Always auto-generated SHA-256 hash of context
 }
 
 // HashedStepEvent represents a step event with its calculated hash

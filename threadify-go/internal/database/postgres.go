@@ -214,11 +214,15 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		recorded_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		hash TEXT,
 		prev_hash TEXT,
+		content_hash TEXT,
 		status TEXT,
 		started_at TIMESTAMP,
 		finished_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+
+	-- Migration: Add content_hash column if it doesn't exist (for existing databases)
+	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS content_hash TEXT;
 
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);
@@ -227,6 +231,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_service ON thread_activities(actor_service, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_payload_gin ON thread_activities USING gin(payload);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_prev_hash ON thread_activities(prev_hash);
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_content_hash ON thread_activities(content_hash) WHERE content_hash IS NOT NULL;
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_status ON thread_activities(status);
 	
 	-- Composite indexes for actor-based thread queries (critical for GraphQL performance)

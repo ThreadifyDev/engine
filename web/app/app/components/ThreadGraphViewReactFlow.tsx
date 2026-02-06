@@ -20,7 +20,6 @@ import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Search, X, Chev
 
 interface ThreadGraphViewProps {
   steps: StepStateInfo[];
-  validations?: any[];
   onNodeClick?: (step: StepStateInfo) => void;
 }
 
@@ -67,6 +66,13 @@ function StepNode({ data }: { data: any }) {
           iconColor: '#dc2626',
           badge: 'bg-red-100 text-red-700'
         };
+      case 'violated':
+        return { 
+          border: '#f97316', // orange-500
+          iconBg: '#ffedd5', // orange-100
+          iconColor: '#ea580c', // orange-600
+          badge: 'bg-orange-100 text-orange-700'
+        };
       case 'in_progress':
         return { 
           border: '#3b82f6',
@@ -90,6 +96,8 @@ function StepNode({ data }: { data: any }) {
         return <CheckCircle2 className="w-4 h-4" />;
       case 'failed':
         return <XCircle className="w-4 h-4" />;
+      case 'violated':
+        return <AlertTriangle className="w-4 h-4" />;
       case 'in_progress':
         return <Clock className="w-4 h-4 animate-pulse" />;
       default:
@@ -100,6 +108,9 @@ function StepNode({ data }: { data: any }) {
   const statusStyle = getStatusStyle(data.status);
   const serviceColor = getServiceColor(data.actorService || '');
   const step = data.step;
+  
+  // Check if step is violated (either from validations or status)
+  const isViolated = data.status === 'violated';
   const hasValidations = data.validationCount > 0;
   const hasCritical = data.hasCriticalValidation;
 
@@ -199,28 +210,28 @@ function StepNode({ data }: { data: any }) {
           </div>
         )}
 
-        {/* Retries - Only show if more than 1 retry */}
-        {data.retryCount > 1 && (
-          <div className="flex items-center gap-1 text-blue-600 font-semibold">
-            <RefreshCw className="w-3 h-3" />
-            <span>{data.retryCount}</span>
-          </div>
-        )}
-
-        {/* Validation Issues */}
+        {/* Validation Issues Count - only show if there are explicit validations */}
         {hasValidations && (
           <div className={`flex items-center gap-1 ${
-            hasCritical ? 'text-red-600' : 'text-yellow-600'
+            hasCritical ? 'text-orange-600' : 'text-amber-600'
           }`}>
             <AlertTriangle className="w-3 h-3" />
             <span>{data.validationCount}</span>
           </div>
         )}
 
-        {/* Status Badge */}
-        <div className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-medium ${statusStyle.badge}`}>
-          {data.status === 'in_progress' ? 'Running' : data.status}
-        </div>
+        {/* Status Badge or Violated Badge - positioned on the right */}
+        {isViolated ? (
+          <div className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-medium ${
+            hasCritical ? 'bg-orange-100 text-orange-700' : 'bg-amber-100 text-amber-700'
+          }`}>
+            violated
+          </div>
+        ) : (
+          <div className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-medium ${statusStyle.badge}`}>
+            {data.status === 'in_progress' ? 'Running' : data.status}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -248,7 +259,7 @@ const nodeTypes = {
   group: ServiceGroupNode,
 };
 
-function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGraphViewProps) {
+function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
   // Sort steps by timestamp (firstSeenAt) - memoized to prevent recreation
   const sortedSteps = useMemo(() => {
     return [...steps].sort((a, b) => {
@@ -376,17 +387,9 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
       const step = item.step;
       const globalIndex = item.index;
       
-      // Count validations
-      const stepValidations = validations.filter(
-        v => v.stepName === step.stepName && v.idempotencyKey === step.idempotencyKey
-      );
-      const validationsWithIssues = stepValidations.filter(v => 
-        v.hasCriticalViolation || 
-        v.criticalCount > 0 || 
-        v.warningCount > 0 || 
-        v.validations.length > 0
-      );
-      const hasCritical = stepValidations.some(v => v.hasCriticalViolation);
+      // Note: We no longer use the validationResults array since it's often empty.
+      // Instead, we rely on step.status === 'violated' to determine if there are violations.
+      // The notificationSummary at the thread level contains the actual validation counts.
 
       const nodeId = `step-${globalIndex}`;
       const pos = stepPositions.get(globalIndex)!;
@@ -403,8 +406,8 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
           step: step,
           actor: step.actor ? (actorMap.get(step.actor) || step.actor) : '',
           actorService: step.actorService || '',
-          validationCount: validationsWithIssues.length,
-          hasCriticalValidation: hasCritical,
+          validationCount: 0, // Deprecated - use status instead
+          hasCriticalValidation: false, // Deprecated - use status instead
           inGroup: true, // Hide service badge since group shows it
           globalIndex,
         },
@@ -428,7 +431,7 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
     const targetNodeId = `step-${i}`;
     
     // Color edge based on source step status
-    let edgeColor = '#d1d5db';
+    let edgeColor = '#dbb345ff';
     if (prevStep.status === 'success') edgeColor = '#86efac';
     else if (prevStep.status === 'failed') edgeColor = '#fca5a5';
     else if (prevStep.status === 'in_progress') edgeColor = '#93c5fd';
@@ -454,13 +457,14 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
   }
   
   return { initialNodes, initialEdges };
-  }, [sortedSteps, validations, actorMap]);
+  }, [sortedSteps, actorMap]);
   
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [searchQuery, setSearchQuery] = useState('');
   const [matchedNodes, setMatchedNodes] = useState<Node[]>([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
   const { fitView, setCenter } = useReactFlow();
 
   // Update nodes when steps or resolved actors change
@@ -591,48 +595,65 @@ function ThreadGraphViewInner({ steps, validations = [], onNodeClick }: ThreadGr
 
   return (
     <div className="border-2 border-gray-200 rounded-lg bg-gray-50 relative" style={{ height: 'calc(100vh - 280px)' }}>
-      {/* Search Bar */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search steps, services, status..."
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="pl-10 pr-10 py-2 w-80 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => handleSearch('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-        
-        {/* Navigation buttons - only show when there are matches */}
-        {matchedNodes.length > 1 && (
-          <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-lg px-2 py-1">
-            <button
-              onClick={handlePrevMatch}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
-              title="Previous match"
-            >
-              <ChevronLeft className="w-4 h-4 text-gray-600" />
-            </button>
-            <span className="text-xs text-gray-600 px-2 font-medium">
-              {currentMatchIndex + 1} / {matchedNodes.length}
-            </span>
-            <button
-              onClick={handleNextMatch}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
-              title="Next match"
-            >
-              <ChevronRight className="w-4 h-4 text-gray-600" />
-            </button>
-          </div>
+      {/* Search Toggle */}
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+        {!showSearch ? (
+          // Search button (collapsed state)
+          <button
+            onClick={() => setShowSearch(true)}
+            className="p-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Search"
+          >
+            <Search className="w-5 h-5 text-gray-600" />
+          </button>
+        ) : (
+          // Search input (expanded state)
+          <>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search steps..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                autoFocus
+                className="pl-10 pr-10 py-2 w-96 border border-gray-300 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={() => {
+                  handleSearch('');
+                  setShowSearch(false);
+                }}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                title="Close search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {/* Navigation buttons - only show when there are matches */}
+            {matchedNodes.length > 1 && (
+              <div className="flex items-center gap-1 bg-white border border-gray-300 rounded-lg px-2 py-1">
+                <button
+                  onClick={handlePrevMatch}
+                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                  title="Previous match"
+                >
+                  <ChevronLeft className="w-4 h-4 text-gray-600" />
+                </button>
+                <span className="text-xs text-gray-600 px-2 font-medium">
+                  {currentMatchIndex + 1} / {matchedNodes.length}
+                </span>
+                <button
+                  onClick={handleNextMatch}
+                  className="p-1 hover:bg-gray-100 rounded transition-colors"
+                  title="Next match"
+                >
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
