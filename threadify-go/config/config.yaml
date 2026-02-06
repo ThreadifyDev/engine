@@ -3,14 +3,14 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "$POSTGRES_URL:postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
+  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
   max_connections: 25
   max_idle_connections: 5
 
 redis:
-  host: "$REDIS_HOST:threadify-queue"
+  host: "localhost"
   port: 6379
-  password: "$REDIS_PASSWORD:threadify_secure_queue_password"
+  password: "threadify_secure_queue_password"
   db: 0
   pool_size: 200  # Increased for archiver with many concurrent streams
   min_idle_conns: 10              # Minimum idle connections to keep ready
@@ -121,7 +121,7 @@ timeouts:
 
 # NATS configuration for notification delivery
 nats:
-  url: "nats://threadify-nats:4222"
+  url: "nats://localhost:4222"
   cluster_id: "threadify-cluster"
   client_id: "threadify-server"
   stream_name: "NOTIFICATIONS"
@@ -217,7 +217,7 @@ web_api:
   enabled: true
   port: 3001
   host: 0.0.0.0
-  cors_origins: "$CORS_ORIGINS:http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
+  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
   
   # Email service (Plunk)
   email:
@@ -226,8 +226,8 @@ web_api:
   
   # Threadify Engine integration
   threadify_engine:
-    url: "$THREADIFY_ENGINE_URL:http://th-engine:8081"
-    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://th-engine:8081/graphql"
+    url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
+    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
   
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days

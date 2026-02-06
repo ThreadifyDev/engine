@@ -393,13 +393,19 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		}
 	}
 
-	// Generate idempotency key from context hash if not provided
+	// Generate content hash for cryptographic verification (always calculated)
+	// Also used as idempotency key if user doesn't provide one
+	hashStart := time.Now()
+	contentHash := ""
+	if req.Context != nil && len(req.Context) > 0 {
+		contentHash = utils.GenerateContextHash(req.Context)
+	}
+	metrics.OperationDuration.WithLabelValues("recordThreadEvent", "context_hash").Observe(time.Since(hashStart).Seconds())
+
 	idempotencyKey := req.IdempotencyKey
-	if idempotencyKey == "" && req.Context != nil && len(req.Context) > 0 {
-		// Generate deterministic hash from context fields
-		hashStart := time.Now()
-		idempotencyKey = utils.GenerateContextHash(req.Context)
-		metrics.OperationDuration.WithLabelValues("recordThreadEvent", "context_hash").Observe(time.Since(hashStart).Seconds())
+	if idempotencyKey == "" {
+		// Use content hash as idempotency key if not provided
+		idempotencyKey = contentHash
 		fmt.Printf("[IDEMPOTENCY] Auto-generated key from context hash: %s\n", idempotencyKey)
 	}
 
@@ -546,6 +552,13 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		contextInterface[k] = v
 	}
 
+	// Parse finishedAt timestamp from SDK (preserves millisecond precision)
+	finishedAtTime, err := time.Parse(time.RFC3339Nano, req.FinishedAt)
+	if err != nil {
+		// Fallback to current time if parsing fails
+		finishedAtTime = time.Now()
+	}
+
 	// Create step event for processing
 	stepEvent := &models.StepEvent{
 		StepID:         stepID, // Use StepID instead of ID
@@ -557,8 +570,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		Context:        contextInterface, // Use converted context
 		StartedAt:      req.StartedAt,
 		FinishedAt:     req.FinishedAt,
-		Timestamp:      time.Now(),         // Use Timestamp instead of CreatedAt
+		Timestamp:      finishedAtTime,     // Use SDK's finishedAt to preserve millisecond precision for ordering
 		IdempotencyKey: req.IdempotencyKey, // Pass through idempotency key (user-provided or auto-generated)
+		ContentHash:    contentHash,        // Always include content hash for cryptographic verification
 	}
 
 	// Process step event immediately

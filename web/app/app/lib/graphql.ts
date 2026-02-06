@@ -316,6 +316,8 @@ class GraphQLClient {
   async getThreadNotifications(
     threadId: string,
     options?: {
+      stepId?: string;
+      stepName?: string;
       source?: string;
       severity?: string[];
       limit?: number;

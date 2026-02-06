@@ -181,9 +181,11 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 		oldHash, _ = resultSlice[0].(string)
 
-		// Calculate new hash
+		// Calculate new hash using contentHash for content integrity verification
+		// Note: event.Timestamp becomes recorded_at in PostgreSQL, so formats must match exactly
+		recordedAt := event.Timestamp.Format(time.RFC3339Nano)
 		h := hmac.New(sha256.New, []byte(secret))
-		hashData := oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.IdempotencyKey + ":" + event.Timestamp.Format(time.RFC3339)
+		hashData := oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.ContentHash + ":" + recordedAt
 		h.Write([]byte(hashData))
 		newHash = "hmac-sha256-" + version + ":" + fmt.Sprintf("%x", h.Sum(nil))
 
@@ -247,6 +249,8 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 // createActivityEvent creates an activity event with all required fields for NATS publishing
 func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
+	timestampStr := event.Timestamp.Format(time.RFC3339Nano)
+
 	activityValues := map[string]interface{}{
 		"type":            "step_recorded",
 		"thread_id":       event.ThreadID,
@@ -254,7 +258,8 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"step_name":       event.StepName,
 		"step_uuid":       event.StepID,
 		"idempotency_key": event.IdempotencyKey,
-		"timestamp":       event.Timestamp.Format(time.RFC3339),
+		"content_hash":    event.ContentHash,
+		"timestamp":       timestampStr,
 		"context":         event.ContextJSON(),
 		"actor":           ownerID,
 		"actor_service":   serviceName,

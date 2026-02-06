@@ -377,10 +377,10 @@ export default function ThreadsPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Search by UUID, contract_name, contract:version, or key:value"
+                  placeholder="Search by thread id, flow name, flow:version, or key:value"
                   value={quickQuery}
                   onChange={(e) => setQuickQuery(e.target.value)}
-                  onKeyPress={handleQuickSearchKeyPress}
+                  onKeyUp={handleQuickSearchKeyPress}
                   className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
                 />
               </div>

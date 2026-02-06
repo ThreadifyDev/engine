@@ -164,7 +164,8 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 			prev_hash, 
 			thread_id,
 			payload->>'step_uuid' as step_uuid,
-			payload->>'idempotency_key' as idempotency_key,
+			payload->>'step_name' as step_name,
+			content_hash,
 			recorded_at
 		FROM thread_activities 
 		WHERE thread_id = $1 
@@ -182,10 +183,10 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 	eventCount := 0
 
 	for rows.Next() {
-		var storedHash, storedPrevHash, tid, stepUUID, idempKey sql.NullString
+		var storedHash, storedPrevHash, tid, stepUUID, stepName, contentHash sql.NullString
 		var recordedAt time.Time
 
-		if err := rows.Scan(&storedHash, &storedPrevHash, &tid, &stepUUID, &idempKey, &recordedAt); err != nil {
+		if err := rows.Scan(&storedHash, &storedPrevHash, &tid, &stepUUID, &stepName, &contentHash, &recordedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -225,12 +226,13 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 
 		// Recalculate HMAC with the secret for this version
 		h := hmac.New(sha256.New, []byte(secret))
-		hashData := fmt.Sprintf("%s:%s:%s:%s:%s",
+		hashData := fmt.Sprintf("%s:%s:%s:%s:%s:%s",
 			prevHash,
 			tid.String,
 			stepUUID.String,
-			idempKey.String,
-			recordedAt.Format(time.RFC3339))
+			stepName.String,
+			contentHash.String,
+			recordedAt.Format(time.RFC3339Nano))
 		h.Write([]byte(hashData))
 		expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
@@ -280,7 +282,8 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 			hash, 
 			prev_hash, 
 			payload->>'step_uuid' as step_uuid,
-			payload->>'idempotency_key' as idempotency_key,
+			payload->>'step_name' as step_name,
+			content_hash,
 			recorded_at
 		FROM thread_activities 
 		WHERE thread_id = $1 
@@ -291,11 +294,11 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 		LIMIT 1
 	`
 
-	var storedHash, storedPrevHash, stepUUID, idempKey sql.NullString
+	var storedHash, storedPrevHash, stepUUID, storedStepName, contentHash sql.NullString
 	var recordedAt time.Time
 
 	err := r.pool.QueryRow(ctx, query, threadID, stepName, idempotencyKey).Scan(
-		&storedHash, &storedPrevHash, &stepUUID, &idempKey, &recordedAt,
+		&storedHash, &storedPrevHash, &stepUUID, &storedStepName, &contentHash, &recordedAt,
 	)
 	if err != nil {
 		// Step not found in activity log - can't verify
@@ -335,12 +338,13 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 
 	// Recalculate HMAC
 	h := hmac.New(sha256.New, []byte(secret))
-	hashData := fmt.Sprintf("%s:%s:%s:%s:%s",
+	hashData := fmt.Sprintf("%s:%s:%s:%s:%s:%s",
 		prevHash,
 		threadID,
 		stepUUID.String,
-		idempKey.String,
-		recordedAt.Format(time.RFC3339))
+		storedStepName.String,
+		contentHash.String,
+		recordedAt.Format(time.RFC3339Nano))
 	h.Write([]byte(hashData))
 	expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
