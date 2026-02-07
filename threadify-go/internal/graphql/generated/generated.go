@@ -44,6 +44,7 @@ type ResolverRoot interface {
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
 	StepStateInfo() StepStateInfoResolver
+	SubStep() SubStepResolver
 	Thread() ThreadResolver
 	ThreadNotification() ThreadNotificationResolver
 	ValidationResultInfo() ValidationResultInfoResolver
@@ -167,9 +168,21 @@ type ComplexityRoot struct {
 		RetryCount        func(childComplexity int) int
 		Status            func(childComplexity int) int
 		StepName          func(childComplexity int) int
+		SubSteps          func(childComplexity int) int
 		ThreadID          func(childComplexity int) int
 		VerificationError func(childComplexity int) int
 		Verified          func(childComplexity int) int
+	}
+
+	SubStep struct {
+		CreatedAt   func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Payload     func(childComplexity int) int
+		RecordedAt  func(childComplexity int) int
+		Status      func(childComplexity int) int
+		StepID      func(childComplexity int) int
+		SubStepName func(childComplexity int) int
+		ThreadID    func(childComplexity int) int
 	}
 
 	Thread struct {
@@ -293,6 +306,12 @@ type StepStateInfoResolver interface {
 	Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error)
 	VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error)
 	History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
+	SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error)
+}
+type SubStepResolver interface {
+	Payload(ctx context.Context, obj *models.SubStep) (*string, error)
+	RecordedAt(ctx context.Context, obj *models.SubStep) (string, error)
+	CreatedAt(ctx context.Context, obj *models.SubStep) (string, error)
 }
 type ThreadResolver interface {
 	Status(ctx context.Context, obj *models.Thread) (string, error)
@@ -904,6 +923,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.StepName(childComplexity), true
+	case "StepStateInfo.subSteps":
+		if e.complexity.StepStateInfo.SubSteps == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.SubSteps(childComplexity), true
 	case "StepStateInfo.threadId":
 		if e.complexity.StepStateInfo.ThreadID == nil {
 			break
@@ -922,6 +947,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.Verified(childComplexity), true
+
+	case "SubStep.createdAt":
+		if e.complexity.SubStep.CreatedAt == nil {
+			break
+		}
+
+		return e.complexity.SubStep.CreatedAt(childComplexity), true
+	case "SubStep.id":
+		if e.complexity.SubStep.ID == nil {
+			break
+		}
+
+		return e.complexity.SubStep.ID(childComplexity), true
+	case "SubStep.payload":
+		if e.complexity.SubStep.Payload == nil {
+			break
+		}
+
+		return e.complexity.SubStep.Payload(childComplexity), true
+	case "SubStep.recordedAt":
+		if e.complexity.SubStep.RecordedAt == nil {
+			break
+		}
+
+		return e.complexity.SubStep.RecordedAt(childComplexity), true
+	case "SubStep.status":
+		if e.complexity.SubStep.Status == nil {
+			break
+		}
+
+		return e.complexity.SubStep.Status(childComplexity), true
+	case "SubStep.stepId":
+		if e.complexity.SubStep.StepID == nil {
+			break
+		}
+
+		return e.complexity.SubStep.StepID(childComplexity), true
+	case "SubStep.substepName":
+		if e.complexity.SubStep.SubStepName == nil {
+			break
+		}
+
+		return e.complexity.SubStep.SubStepName(childComplexity), true
+	case "SubStep.threadId":
+		if e.complexity.SubStep.ThreadID == nil {
+			break
+		}
+
+		return e.complexity.SubStep.ThreadID(childComplexity), true
 
 	case "Thread.companyId":
 		if e.complexity.Thread.CompanyID == nil {
@@ -1451,6 +1525,8 @@ type StepStateInfo {
   verificationError: String
   # Step execution history (max limit: 1000)
   history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
+  # Sub-steps for this step (granular operations within the step)
+  subSteps: [SubStep!]!
 }
 
 type StepHistory {
@@ -1469,6 +1545,17 @@ type StepHistory {
   # Hash chain for cryptographic integrity verification
   hash: String
   prevHash: String
+}
+
+type SubStep {
+  id: ID!
+  threadId: String!
+  stepId: String!
+  substepName: String!
+  status: String!
+  payload: JSON
+  recordedAt: String!
+  createdAt: String!
 }
 
 type Thread {
@@ -5224,6 +5311,285 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 	return fc, nil
 }
 
+func (ec *executionContext) _StepStateInfo_subSteps(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_subSteps,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.StepStateInfo().SubSteps(ctx, obj)
+		},
+		nil,
+		ec.marshalNSubStep2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStepᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_subSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_SubStep_id(ctx, field)
+			case "threadId":
+				return ec.fieldContext_SubStep_threadId(ctx, field)
+			case "stepId":
+				return ec.fieldContext_SubStep_stepId(ctx, field)
+			case "substepName":
+				return ec.fieldContext_SubStep_substepName(ctx, field)
+			case "status":
+				return ec.fieldContext_SubStep_status(ctx, field)
+			case "payload":
+				return ec.fieldContext_SubStep_payload(ctx, field)
+			case "recordedAt":
+				return ec.fieldContext_SubStep_recordedAt(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_SubStep_createdAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type SubStep", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_id(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_threadId(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_threadId,
+		func(ctx context.Context) (any, error) {
+			return obj.ThreadID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_threadId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_stepId(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_stepId,
+		func(ctx context.Context) (any, error) {
+			return obj.StepID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_stepId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_substepName(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_substepName,
+		func(ctx context.Context) (any, error) {
+			return obj.SubStepName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_substepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_status(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_status,
+		func(ctx context.Context) (any, error) {
+			return obj.Status, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_payload,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.SubStep().Payload(ctx, obj)
+		},
+		nil,
+		ec.marshalOJSON2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_payload(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_recordedAt(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_recordedAt,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.SubStep().RecordedAt(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_recordedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SubStep_createdAt(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_SubStep_createdAt,
+		func(ctx context.Context) (any, error) {
+			return ec.resolvers.SubStep().CreatedAt(ctx, obj)
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_SubStep_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SubStep",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_id(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5660,6 +6026,8 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 				return ec.fieldContext_StepStateInfo_verificationError(ctx, field)
 			case "history":
 				return ec.fieldContext_StepStateInfo_history(ctx, field)
+			case "subSteps":
+				return ec.fieldContext_StepStateInfo_subSteps(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type StepStateInfo", field.Name)
 		},
@@ -10180,6 +10548,206 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "subSteps":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepStateInfo_subSteps(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var subStepImplementors = []string{"SubStep"}
+
+func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, obj *models.SubStep) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, subStepImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SubStep")
+		case "id":
+			out.Values[i] = ec._SubStep_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "threadId":
+			out.Values[i] = ec._SubStep_threadId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "stepId":
+			out.Values[i] = ec._SubStep_stepId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "substepName":
+			out.Values[i] = ec._SubStep_substepName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "status":
+			out.Values[i] = ec._SubStep_status(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "payload":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SubStep_payload(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "recordedAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SubStep_recordedAt(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "createdAt":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SubStep_createdAt(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11824,6 +12392,60 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	}
 
 	return ret
+}
+
+func (ec *executionContext) marshalNSubStep2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStepᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.SubStep) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNSubStep2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStep(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSubStep2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStep(ctx context.Context, sel ast.SelectionSet, v *models.SubStep) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SubStep(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.Thread) graphql.Marshaler {

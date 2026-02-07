@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"bytes"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -33,17 +33,18 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	// Read request body (GraphQL query)
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to read request body: %v", err)})
+		log.Printf("[GRAPHQL-PROXY-ERROR] Failed to read request body: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
 	// Create request to ThreadifyEngine GraphQL endpoint
 	// Note: threadifyEngineURL already includes the full GraphQL endpoint path
 	url := h.threadifyEngineURL
-	fmt.Printf("[GRAPHQL-PROXY] Proxying to URL: %s\n", url)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
+		log.Printf("[GRAPHQL-PROXY-ERROR] Failed to create request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -56,7 +57,8 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	// Execute request to ThreadifyEngine
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to connect to ThreadifyEngine: %v", err)})
+		log.Printf("[GRAPHQL-PROXY-ERROR] Failed to connect to engine: %v", err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Service temporarily unavailable"})
 		return
 	}
 	defer resp.Body.Close()
@@ -64,11 +66,15 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	// Read response from ThreadifyEngine
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read response: %v", err)})
+		log.Printf("[GRAPHQL-PROXY-ERROR] Failed to read engine response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	fmt.Printf("[GRAPHQL-PROXY] Status: %d, Response: %s\n", resp.StatusCode, string(respBody))
+	// Log non-2xx responses for debugging but still forward them
+	if resp.StatusCode >= 400 {
+		log.Printf("[GRAPHQL-PROXY-ERROR] Engine returned error status %d: %s", resp.StatusCode, string(respBody))
+	}
 
 	// Forward response to client with same status code and content type
 	contentType := resp.Header.Get("Content-Type")

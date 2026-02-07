@@ -12,6 +12,7 @@ export class ThreadStep {
     this.thread = thread;
     this.serviceName = serviceName;
     this.manualIdempotencyKey = null; // For manual override
+    this.subSteps = []; // Accumulate sub-steps
     
     // Build event locally, send on stop()
     this.event = {
@@ -110,6 +111,36 @@ export class ThreadStep {
     return this;
   }
 
+  /**
+   * Add a sub-step to be sent when this step completes
+   * @param {string} name - Sub-step name
+   * @param {Object} data - Sub-step data (duration, metadata, error, etc.)
+   * @param {string} status - Sub-step status: 'success' or 'failed' (default: 'success')
+   * @returns {ThreadStep} - Returns this for method chaining
+   * @example
+   * step.subStep('validate_inventory', { itemsChecked: 5 });
+   * step.subStep('calculate_tax', { taxAmount: 12.50 }, 'success');
+   * step.subStep('apply_discount', { error: 'Invalid coupon' }, 'failed');
+   */
+  subStep(name, data = {}, status = 'success') {
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw new Error('Sub-step name must be a non-empty string');
+    }
+    
+    if (status !== 'success' && status !== 'failed') {
+      throw new Error('Sub-step status must be either "success" or "failed"');
+    }
+    
+    this.subSteps.push({
+      name,
+      status,
+      payload: data,  // All user data goes in payload
+      recordedAt: new Date().toISOString()
+    });
+    
+    return this;
+  }
+
   
 
   /**
@@ -140,6 +171,11 @@ export class ThreadStep {
         }
         Object.assign(this.event.threadify_metadata, messageOrData);
       }
+    }
+    
+    // Add sub-steps as array if any were recorded
+    if (this.subSteps.length > 0) {
+      this.event.subSteps = this.subSteps;
     }
     
     // Generate and add idempotency key

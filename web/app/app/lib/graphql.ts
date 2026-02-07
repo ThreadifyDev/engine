@@ -74,6 +74,17 @@ export interface ContractGraph {
   };
 }
 
+export interface SubStep {
+  id: string;
+  threadId: string;
+  stepId: string;
+  substepName: string;
+  status: string;
+  payload?: Record<string, any>;
+  recordedAt: string;
+  createdAt: string;
+}
+
 export interface StepStateInfo {
   threadId: string;
   stepName: string;
@@ -92,6 +103,7 @@ export interface StepStateInfo {
   verified?: boolean;
   verificationError?: string;
   history?: StepHistory[];
+  subSteps?: SubStep[];
 }
 
 export interface ValidationIssue {
@@ -269,6 +281,16 @@ class GraphQLClient {
             latestContext
             hash
             prevHash
+            subSteps {
+              id
+              threadId
+              stepId
+              substepName
+              status
+              payload
+              recordedAt
+              createdAt
+            }
           }
           validationResults {
             validationId

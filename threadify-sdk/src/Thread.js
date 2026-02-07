@@ -931,10 +931,83 @@ export class ThreadInstance {
   }
 
   /**
-   * Close this thread instance
-   * @returns {Promise<void>}
+   * Close the thread on the server (marks thread as closed)
+   * Requires appropriate permissions (owner or participant with thread.close permission)
+   * @param {string|Object} reason - Optional reason for closing (string) or data object
+   * @returns {Promise<Object>} - Server response
+   * @example
+   * // With reason string
+   * await thread.close('Order cancelled by customer');
+   * 
+   * // With data object
+   * await thread.close({ reason: 'Order cancelled', cancelledBy: 'customer' });
+   * 
+   * // Without reason
+   * await thread.close();
    */
-  async close() {
+  async close(reason = '') {
+    return this._closeOrComplete('closed', reason);
+  }
+
+  /**
+   * Mark the thread as completed on the server
+   * Useful for threads without contracts
+   * Requires appropriate permissions (owner or participant with thread.close permission)
+   * @param {string|Object} reason - Optional reason for completion (string) or data object
+   * @returns {Promise<Object>} - Server response
+   * @example
+   * await thread.complete('All steps finished');
+   * await thread.complete({ totalSteps: 5, duration: 120 });
+   */
+  async complete(reason = '') {
+    return this._closeOrComplete('completed', reason);
+  }
+
+  /**
+   * Internal method to close or complete a thread
+   * @private
+   */
+  async _closeOrComplete(status, reason = '') {
+    return new Promise((resolve, reject) => {
+      this._onceResponse((message) => {
+        if (message.action === 'closeThread') {
+          if (message.status === 'success') {
+            // Cleanup local state after successful close
+            this._cleanup();
+            
+            resolve({
+              threadId: this.threadId,
+              status: message.threadStatus,
+              closedAt: message.closedAt || message.completedAt,
+              message: message.message
+            });
+          } else {
+            reject(new Error(message.message || 'Failed to close thread'));
+          }
+        }
+      });
+
+      // Prepare close data
+      const closeData = { status };
+      if (typeof reason === 'string' && reason) {
+        closeData.reason = reason;
+      } else if (typeof reason === 'object' && reason !== null) {
+        Object.assign(closeData, reason);
+      }
+
+      this._send({
+        action: 'closeThread',
+        threadId: this.threadId,
+        ...closeData
+      });
+    });
+  }
+
+  /**
+   * Cleanup local thread state (internal use)
+   * @private
+   */
+  _cleanup() {
     // Reject any pending waitFor() promises
     this.pendingWaits.forEach((pending, stepName) => {
       clearTimeout(pending.timeoutId);
@@ -944,7 +1017,5 @@ export class ThreadInstance {
     
     // Remove from connection's thread registry
     this.connection.threads.delete(this.threadId);
-    
-    return Promise.resolve();
   }
 }

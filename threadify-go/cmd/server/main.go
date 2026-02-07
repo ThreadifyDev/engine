@@ -279,9 +279,10 @@ func main() {
 	activityRepo := postgres.NewActivityRepository(db.Pool, cfg)
 	actorRepo := postgres.NewActorRepository(db.Pool)
 	notificationRepo := postgres.NewThreadNotificationRepository(db.Pool)
+	subStepRepo := postgres.NewSubStepRepository(db.Pool)
 
 	// Initialize GraphQL resolver with batch loading repos and access repo for permission checks
-	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, accessRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo, actorRepo, notificationRepo)
+	graphqlResolver := graphql.NewResolver(threadRepo, stepStateRepo, validationRepo, accessRepo, threadAccessService, threadService.GetContractValidator(), contractRepo, refsRepo, postgresStepRepo, activityRepo, actorRepo, notificationRepo, subStepRepo)
 	// GraphQL resolver created
 
 	graphqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
