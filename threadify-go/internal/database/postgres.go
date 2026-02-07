@@ -128,6 +128,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
+		closed_at TIMESTAMP,
 		FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
@@ -136,6 +137,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
 
 	-- Migrate owner_id foreign key from users to service_accounts
 	DO $$ 
@@ -420,6 +422,28 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Composite index for filtered queries (e.g., critical violations for a thread)
 	CREATE INDEX IF NOT EXISTS idx_thread_notifications_thread_severity 
 		ON thread_notifications(thread_id, severity, timestamp DESC) WHERE severity IN ('critical', 'warning');
+
+	-- Step Sub-Steps Table: Stores sub-steps for each parent step
+	-- Sub-steps are granular operations within a step (e.g., validate_inventory, calculate_tax)
+	CREATE TABLE IF NOT EXISTS step_substeps (
+		id VARCHAR(255) PRIMARY KEY,
+		thread_id VARCHAR(255) NOT NULL,
+		step_id VARCHAR(255) NOT NULL,
+		substep_name VARCHAR(255) NOT NULL,
+		status VARCHAR(50) NOT NULL,
+		payload JSONB,
+		started_at TIMESTAMP,
+		recorded_at TIMESTAMP NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW(),
+		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+	);
+
+	-- Migration: Add started_at column if it doesn't exist
+	ALTER TABLE step_substeps ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
+
+	CREATE INDEX IF NOT EXISTS idx_substeps_step_id ON step_substeps(step_id);
+	CREATE INDEX IF NOT EXISTS idx_substeps_thread_id ON step_substeps(thread_id);
+	CREATE INDEX IF NOT EXISTS idx_substeps_recorded_at ON step_substeps(recorded_at DESC);
 
 	-- Step State Table: Archived snapshots of step state from Redis
 	-- This provides fast queries for historical step state without reconstructing from activities

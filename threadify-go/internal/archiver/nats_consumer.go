@@ -221,8 +221,10 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 	start := time.Now()
 	fmt.Printf("📝 Processing %d activity log messages\n", len(msgs))
 
-	// Convert NATS messages to StreamEvent format for existing writer
+	// Separate regular events and sub-steps
 	events := make([]StreamEvent, 0, len(msgs))
+	allSubSteps := make([]map[string]interface{}, 0)
+
 	for _, msg := range msgs {
 		var data map[string]interface{}
 		if err := json.Unmarshal(msg.Data(), &data); err != nil {
@@ -230,18 +232,43 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 			continue
 		}
 
-		events = append(events, StreamEvent{
-			StreamID: msg.Subject(),
-			Data:     convertToStringMap(data),
-		})
+		// Check if this is a substeps_batch event
+		if eventType, ok := data["type"].(string); ok && eventType == "substeps_batch" {
+			// Extract sub-steps array
+			if substeps, ok := data["substeps"].([]interface{}); ok {
+				for _, ss := range substeps {
+					if subStepMap, ok := ss.(map[string]interface{}); ok {
+						allSubSteps = append(allSubSteps, subStepMap)
+					}
+				}
+			}
+		} else {
+			// Regular activity event
+			events = append(events, StreamEvent{
+				StreamID: msg.Subject(),
+				Data:     convertToStringMap(data),
+			})
+		}
 	}
 
-	// Use existing Postgres writer
-	err := c.writer.WriteActivityLog(ctx, events)
+	// Write regular activity events
+	if len(events) > 0 {
+		if err := c.writer.WriteActivityLog(ctx, events); err != nil {
+			return err
+		}
+	}
+
+	// Write sub-steps
+	if len(allSubSteps) > 0 {
+		if err := c.writer.WriteSubSteps(ctx, allSubSteps); err != nil {
+			return err
+		}
+	}
+
 	duration := time.Since(start)
-	fmt.Printf("⏱️  [NATS-PERF] Processed %d activity_log messages in %v (%.2f msg/s)\n",
-		len(msgs), duration, float64(len(msgs))/duration.Seconds())
-	return err
+	fmt.Printf("⏱️  [NATS-PERF] Processed %d activity_log messages (%d events, %d substeps) in %v (%.2f msg/s)\n",
+		len(msgs), len(events), len(allSubSteps), duration, float64(len(msgs))/duration.Seconds())
+	return nil
 }
 
 // processThreadMetadata processes thread metadata messages

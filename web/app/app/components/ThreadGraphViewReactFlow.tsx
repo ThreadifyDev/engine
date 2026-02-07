@@ -16,7 +16,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { type StepStateInfo, graphqlClient } from '~/lib/graphql';
-import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, RefreshCw, AlertTriangle, Search, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ThreadGraphViewProps {
   steps: StepStateInfo[];
@@ -48,8 +48,73 @@ const getServiceColor = (serviceName: string) => {
   return SERVICE_COLORS[Math.abs(hash) % SERVICE_COLORS.length];
 };
 
+// Sub-Step Node Component - Smaller node for sub-steps
+function SubStepNode({ data }: { data: any }) {
+  const [showDetails, setShowDetails] = useState(false);
+
+  const getStatusStyle = (status: string) => {
+    return status === 'success' ? {
+      border: '#22c55e',
+      bg: '#f0fdf4',
+      iconColor: '#16a34a',
+    } : {
+      border: '#ef4444',
+      bg: '#fef2f2',
+      iconColor: '#dc2626',
+    };
+  };
+
+  const style = getStatusStyle(data.status);
+  const StatusIcon = data.status === 'success' ? CheckCircle2 : XCircle;
+
+  return (
+    <div 
+      className="bg-white rounded-lg shadow-sm"
+      style={{
+        border: `2px solid ${style.border}`,
+        width: '180px',
+        minHeight: '80px',
+      }}
+    >
+      <div className="p-2">
+        {/* Header */}
+        <div className="flex items-start gap-2 mb-1">
+          <div className="flex-shrink-0 mt-0.5">
+            <StatusIcon className="w-4 h-4" style={{ color: style.iconColor }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-gray-900 truncate">
+              {data.label}
+            </div>
+            <div className="text-[10px] text-gray-500 mt-0.5">
+              {new Date(data.recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+        </div>
+
+        {/* Payload Details */}
+        {data.payload && (
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="text-[10px] text-blue-600 hover:text-blue-800 mt-1"
+          >
+            {showDetails ? '▼' : '▶'} Details
+          </button>
+        )}
+        {showDetails && data.payload && (
+          <pre className="mt-1 p-1 bg-gray-50 rounded text-[9px] overflow-x-auto max-h-24">
+            {typeof data.payload === 'string' ? data.payload : JSON.stringify(JSON.parse(data.payload), null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Custom node component - Modern card design
-function StepNode({ data }: { data: any }) {
+function StepNode({ data, id }: { data: any; id: string }) {
+  const hasSubSteps = data.subSteps && data.subSteps.length > 0;
+
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'success':
@@ -198,6 +263,16 @@ function StepNode({ data }: { data: any }) {
             {data.actor}
           </div>
         )}
+
+        {/* Sub-Steps Indicator */}
+        {hasSubSteps && (
+          <div className="mt-3 pt-2 border-t border-gray-100">
+            <div className="text-xs text-gray-500 flex items-center gap-1">
+              <ChevronDown className="w-3 h-3" />
+              {data.subSteps.length} sub-step{data.subSteps.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer Stats */}
@@ -256,6 +331,7 @@ function ServiceGroupNode({ data }: { data: any }) {
 
 const nodeTypes = {
   stepNode: StepNode,
+  subStepNode: SubStepNode,
   group: ServiceGroupNode,
 };
 
@@ -404,6 +480,7 @@ function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
           status: step.status,
           retryCount: step.retryCount,
           step: step,
+          subSteps: step.subSteps || [], // Add subSteps for expand button
           actor: step.actor ? (actorMap.get(step.actor) || step.actor) : '',
           actorService: step.actorService || '',
           validationCount: 0, // Deprecated - use status instead
@@ -415,6 +492,40 @@ function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
       
       initialNodes.push(stepNode);
       stepNodeMap.set(nodeId, stepNode);
+
+      // Create sub-step nodes below the parent step
+      if (step.subSteps && step.subSteps.length > 0) {
+        const SUB_STEP_WIDTH = 180;
+        const SUB_STEP_HEIGHT = 80;
+        const SUB_STEP_GAP = 15;
+        const SUB_STEP_Y_OFFSET = 180; // Distance below parent step
+        
+        // Calculate starting X position to center sub-steps under parent
+        const totalSubStepsWidth = (step.subSteps.length * SUB_STEP_WIDTH) + ((step.subSteps.length - 1) * SUB_STEP_GAP);
+        const startX = pos.x + (STEP_WIDTH / 2) - (totalSubStepsWidth / 2);
+        
+        step.subSteps.forEach((subStep: any, subIndex: number) => {
+          const subStepNodeId = `substep-${globalIndex}-${subIndex}`;
+          const subStepX = startX + (subIndex * (SUB_STEP_WIDTH + SUB_STEP_GAP));
+          const subStepY = pos.y + SUB_STEP_Y_OFFSET;
+          
+          const subStepNode: Node = {
+            id: subStepNodeId,
+            type: 'subStepNode',
+            position: { x: subStepX, y: subStepY },
+            zIndex: 10,
+            data: {
+              label: subStep.substepName,
+              status: subStep.status,
+              payload: subStep.payload,
+              recordedAt: subStep.recordedAt,
+              parentStepId: nodeId,
+            },
+          };
+          
+          initialNodes.push(subStepNode);
+        });
+      }
     });
 
     groupStartIndex += groupStepCount;
@@ -455,6 +566,38 @@ function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
       },
     });
   }
+
+  // Add edges from parent steps to sub-steps
+  sortedSteps.forEach((step, globalIndex) => {
+    if (step.subSteps && step.subSteps.length > 0) {
+      const parentNodeId = `step-${globalIndex}`;
+      
+      step.subSteps.forEach((subStep: any, subIndex: number) => {
+        const subStepNodeId = `substep-${globalIndex}-${subIndex}`;
+        
+        // Edge from parent to sub-step
+        initialEdges.push({
+          id: `edge-parent-${globalIndex}-sub-${subIndex}`,
+          source: parentNodeId,
+          target: subStepNodeId,
+          type: 'smoothstep',
+          animated: false,
+          zIndex: 5,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 10,
+            height: 10,
+            color: '#cbd5e1', // gray-300
+          },
+          style: { 
+            strokeWidth: 1.5, 
+            stroke: '#cbd5e1',
+            strokeDasharray: '5,5', // Dashed line to show hierarchy
+          },
+        });
+      });
+    }
+  });
   
   return { initialNodes, initialEdges };
   }, [sortedSteps, actorMap]);

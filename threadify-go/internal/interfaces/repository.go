@@ -79,6 +79,9 @@ type ThreadRepository interface {
 
 	// GetCompletedSteps returns list of completed step names
 	GetCompletedSteps(ctx context.Context, threadID string, writeBack ...bool) ([]string, error)
+
+	// UpdateThreadStatus updates the thread status (closed or completed) with timestamp
+	UpdateThreadStatus(ctx context.Context, threadID string, status string, timestamp time.Time) error
 }
 
 // AccessRepository defines the interface for role and permission management with hot/cold fallback

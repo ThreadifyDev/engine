@@ -23,6 +23,17 @@ export interface ThreadRefs {
 
 export type StepStatus = 'success' | 'failed' | 'error';
 
+export interface SubStepData {
+  /** Execution duration in milliseconds */
+  duration?: number;
+  /** Error message if sub-step failed */
+  error?: string;
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+  /** Any other custom fields */
+  [key: string]: any;
+}
+
 export interface StepResult {
   stepName: string;
   threadId: string;
@@ -183,7 +194,19 @@ export class ThreadStep {
    */
   addContext(contextData: StepContext, isPrivate?: boolean): ThreadStep;
   
-    
+  /**
+   * Add a sub-step to be sent when this step completes
+   * @param name - Sub-step name
+   * @param data - Sub-step data (duration, metadata, error, etc.)
+   * @param status - Sub-step status: 'success' or 'failed' (default: 'success')
+   * @returns This ThreadStep instance for chaining
+   * @example
+   * step.subStep('validate_inventory', { itemsChecked: 5 });
+   * step.subStep('calculate_tax', { taxAmount: 12.50 }, 'success');
+   * step.subStep('apply_discount', { error: 'Invalid coupon' }, 'failed');
+   */
+  subStep(name: string, data?: SubStepData, status?: 'success' | 'failed'): ThreadStep;
+  
   /**
    * Mark step as successful
    * @param messageOrData - Success message (string) or data object
@@ -287,11 +310,37 @@ export class ThreadInstance {
   getMetadata(): Promise<any>;
   
   /**
-   * Complete the thread
-   * @param message - Optional completion message
-   * @returns Promise resolving when thread is completed
+   * Close the thread on the server (marks thread as closed)
+   * Requires appropriate permissions (owner or participant with thread.close permission)
+   * @param reason - Optional reason for closing (string) or data object
+   * @returns Promise resolving to close response
+   * @example
+   * await thread.close('Order cancelled by customer');
+   * await thread.close({ reason: 'Order cancelled', cancelledBy: 'customer' });
    */
-  complete(message?: string): Promise<void>;
+  close(reason?: string | Record<string, any>): Promise<{
+    threadId: string;
+    status: string;
+    closedAt: string;
+    message: string;
+  }>;
+  
+  /**
+   * Mark the thread as completed on the server
+   * Useful for threads without contracts
+   * Requires appropriate permissions (owner or participant with thread.close permission)
+   * @param reason - Optional reason for completion (string) or data object
+   * @returns Promise resolving to completion response
+   * @example
+   * await thread.complete('All steps finished');
+   * await thread.complete({ totalSteps: 5, duration: 120 });
+   */
+  complete(reason?: string | Record<string, any>): Promise<{
+    threadId: string;
+    status: string;
+    closedAt: string;
+    message: string;
+  }>;
   
   /**
    * Add a notification handler

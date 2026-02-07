@@ -515,6 +515,42 @@ func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepSta
 	return historyPtrs, nil
 }
 
+// SubSteps resolver for StepStateInfo.subSteps field
+func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error) {
+	// Get sub-steps from database using latestStepID
+	subSteps, err := r.Resolver.subStepRepo.GetSubStepsByStepID(ctx, obj.LatestStepID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return sub-steps directly
+	return subSteps, nil
+}
+
+// Payload is the resolver for the payload field.
+func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
+	if obj.Payload == nil {
+		return nil, nil
+	}
+	// Convert payload to JSON string
+	payloadJSON, err := json.Marshal(obj.Payload)
+	if err != nil {
+		return nil, err
+	}
+	payloadStr := string(payloadJSON)
+	return &payloadStr, nil
+}
+
+// RecordedAt is the resolver for the recordedAt field.
+func (r *subStepResolver) RecordedAt(ctx context.Context, obj *models.SubStep) (string, error) {
+	return obj.RecordedAt.Format(time.RFC3339), nil
+}
+
+// CreatedAt is the resolver for the createdAt field.
+func (r *subStepResolver) CreatedAt(ctx context.Context, obj *models.SubStep) (string, error) {
+	return obj.CreatedAt.Format(time.RFC3339), nil
+}
+
 // Status is the resolver for the status field.
 func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string, error) {
 	status := string(obj.Status)
@@ -767,6 +803,9 @@ func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 // StepStateInfo returns generated.StepStateInfoResolver implementation.
 func (r *Resolver) StepStateInfo() generated.StepStateInfoResolver { return &stepStateInfoResolver{r} }
 
+// SubStep returns generated.SubStepResolver implementation.
+func (r *Resolver) SubStep() generated.SubStepResolver { return &subStepResolver{r} }
+
 // Thread returns generated.ThreadResolver implementation.
 func (r *Resolver) Thread() generated.ThreadResolver { return &threadResolver{r} }
 
@@ -786,6 +825,7 @@ type hashChainStatusResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
+type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }

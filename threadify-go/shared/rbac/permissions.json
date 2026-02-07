@@ -225,6 +225,11 @@
       "name": "thread.invite",
       "description": "Invite participants to threads",
       "is_wildcard": false
+    },
+    {
+      "name": "thread.close",
+      "description": "Close threads",
+      "is_wildcard": false
     }
   ]
 }

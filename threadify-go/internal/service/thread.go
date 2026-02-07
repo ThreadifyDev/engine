@@ -575,9 +575,9 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		ContentHash:    contentHash,        // Always include content hash for cryptographic verification
 	}
 
-	// Process step event immediately
+	// Process step event immediately (with sub-steps if provided)
 	stepProcessStart := time.Now()
-	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID, serviceName); err != nil {
+	if err := s.stepEventService.RecordStepEventDirect(*stepEvent, ownerID, serviceName, req.SubSteps); err != nil {
 		return &models.RecordEventResponse{
 			Action:  "recordThreadEvent",
 			Status:  "error",
@@ -1192,4 +1192,64 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 			fmt.Printf("❌ ERROR: Failed to publish activity log to NATS: %v\n", err)
 		}
 	}
+}
+
+// CloseThread marks a thread as closed or completed and records activity
+func (s *ThreadService) CloseThread(
+	ctx context.Context,
+	threadID string,
+	actorID string,
+	actorService string,
+	status string,
+	reason string,
+	recordedAt time.Time,
+) error {
+	// Validate status
+	if status != "closed" && status != "completed" {
+		return fmt.Errorf("invalid status: must be 'closed' or 'completed'")
+	}
+
+	// 1. Update thread status in PostgreSQL (via repository)
+	postgresRepo := s.repo.(*valkey.ThreadRepository).GetPostgresRepo()
+	err := postgresRepo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
+	if err != nil {
+		return err
+	}
+
+	// 2. Update Valkey cache (via repository)
+	err = s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
+	if err != nil {
+		log.Printf("[WARN] Failed to update thread status in Valkey: %v", err)
+		// Don't fail the operation
+	}
+
+	// 3. Record close activity in thread_activities
+	activityType := "thread_closed"
+	if status == "completed" {
+		activityType = "thread_completed"
+	}
+
+	// Publish to NATS for archival
+	if s.natsArchivalPublisher != nil {
+		activityEvent := map[string]interface{}{
+			"thread_id":     threadID,
+			"activity_type": activityType,
+			"actor":         actorID,
+			"actor_service": actorService,
+			"recorded_at":   recordedAt.Format(time.RFC3339Nano),
+			"payload": map[string]interface{}{
+				"reason": reason,
+				"status": status,
+			},
+		}
+
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityEvent); err != nil {
+			log.Printf("[WARN] Failed to publish close activity: %v", err)
+			// Don't fail the operation
+		}
+	}
+
+	return nil
 }

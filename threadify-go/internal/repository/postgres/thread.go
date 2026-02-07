@@ -966,6 +966,38 @@ func (r *ThreadRepository) Count(ctx context.Context, ownerID string) (int, erro
 	return count, nil
 }
 
+// UpdateThreadStatus updates the status of a thread (closed or completed)
+// Uses the provided timestamp for closed_at/completed_at
+func (r *ThreadRepository) UpdateThreadStatus(
+	ctx context.Context,
+	threadID string,
+	status string,
+	timestamp time.Time,
+) error {
+	query := `
+		UPDATE threads
+		SET 
+			status = $1,
+			closed_at = CASE WHEN $1 = 'closed' THEN $2 ELSE closed_at END,
+			completed_at = CASE WHEN $1 = 'completed' THEN $2 ELSE completed_at END,
+			updated_at = $2
+		WHERE id = $3
+			AND status NOT IN ('closed', 'completed')
+	`
+
+	result, err := r.pool.Exec(ctx, query, status, timestamp, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to update thread status: %w", err)
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("thread not found or already closed/completed")
+	}
+
+	return nil
+}
+
 // GetThreadRefsRepo returns the thread refs repository
 func (r *ThreadRepository) GetThreadRefsRepo() *ThreadRefsRepository {
 	return r.refsRepo

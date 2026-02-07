@@ -30,6 +30,7 @@ import {
 import { useState } from 'react';
 import SideNav from '~/components/SideNav';
 import ThreadGraphView from '~/components/ThreadGraphViewReactFlow';
+import ThreadTimelineView from '~/components/ThreadTimelineView';
 import RightSidebar from '~/components/RightSidebar';
 import { ThreadHeader } from '~/components/thread/ThreadHeader';
 import { StepDetailContent } from '~/components/thread/StepDetailContent';
@@ -59,7 +60,7 @@ function calculateExecutionTime(startedAt?: string, finishedAt?: string): string
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<TabType>('graph');
+  const [activeTab, setActiveTab] = useState<TabType>('timeline');
   const [sidebarView, setSidebarView] = useState<SidebarView>(null);
   const [selectedStep, setSelectedStep] = useState<StepStateInfo | null>(null);
   const [showContext, setShowContext] = useState(false);
@@ -154,6 +155,16 @@ export default function ThreadDetailPage() {
           <div className="mt-6 flex items-center justify-between">
             <div className="flex gap-2">
               <button
+                onClick={() => setActiveTab('timeline')}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  activeTab === 'timeline'
+                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                Timeline
+              </button>
+              <button
                 onClick={() => setActiveTab('graph')}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                   activeTab === 'graph'
@@ -163,17 +174,6 @@ export default function ThreadDetailPage() {
               >
                 Graph
               </button>
-              {/* Timeline tab temporarily disabled */}
-              {/* <button
-                onClick={() => setActiveTab('timeline')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  activeTab === 'timeline'
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                Timeline
-              </button> */}
             </div>
             
             {/* Action Buttons */}
@@ -229,17 +229,16 @@ export default function ThreadDetailPage() {
           
           {/* Tab Content */}
           <div className="mt-6">
-            {/* {activeTab === 'timeline' ? (
-              <CompactStepTimeline 
+            {activeTab === 'timeline' ? (
+              <ThreadTimelineView 
                 steps={thread.steps || []} 
-                currentCompanyId={thread.companyId}
+                threadStatus={thread.status}
                 onStepClick={(step) => {
                   setSelectedStep(step);
                   setSidebarView('step');
-                  setShowContext(false);
                 }}
               />
-            ) : ( */}
+            ) : (
               <ThreadGraphView 
                 steps={thread.steps || []} 
                 onNodeClick={(step: StepStateInfo) => {
@@ -247,7 +246,7 @@ export default function ThreadDetailPage() {
                   setSidebarView('step');
                 }}
               />
-            {/* )} */}
+            )}
           </div>
         </div>
 

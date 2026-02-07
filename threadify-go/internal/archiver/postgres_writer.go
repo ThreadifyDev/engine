@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
 )
 
@@ -515,6 +516,71 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 	}
 
 	fmt.Printf("[PostgresWriter] Successfully wrote %d activity log events to thread_activities\n", len(events))
+	return nil
+}
+
+// WriteSubSteps writes sub-steps to Postgres (batched)
+func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[string]interface{}) error {
+	if len(subSteps) == 0 {
+		return nil
+	}
+
+	fmt.Printf("📝 [PostgresWriter] Writing %d sub-steps to step_substeps (batched)...\n", len(subSteps))
+
+	query := `
+		INSERT INTO step_substeps (
+			id, thread_id, step_id, substep_name, status, payload, recorded_at
+		) VALUES `
+
+	values := make([]interface{}, 0, len(subSteps)*7)
+	placeholders := ""
+
+	for i, subStep := range subSteps {
+		if i > 0 {
+			placeholders += ", "
+		}
+
+		offset := i * 7
+		placeholders += fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7,
+		)
+
+		// Extract fields
+		threadID, _ := subStep["thread_id"].(string)
+		stepID, _ := subStep["step_id"].(string)
+		substepName, _ := subStep["substep_name"].(string)
+		status, _ := subStep["status"].(string)
+		recordedAt, _ := subStep["recorded_at"].(string)
+
+		// Generate UUID for sub-step
+		subStepID := uuid.New().String()
+
+		// Handle payload
+		var payloadJSON []byte
+		if payload, ok := subStep["payload"].(map[string]interface{}); ok && len(payload) > 0 {
+			payloadJSON, _ = json.Marshal(payload)
+		} else {
+			payloadJSON = []byte("{}")
+		}
+
+		// Handle empty timestamp
+		if recordedAt == "" {
+			recordedAt = time.Now().Format(time.RFC3339Nano)
+		}
+
+		values = append(values, subStepID, threadID, stepID, substepName, status, string(payloadJSON), recordedAt)
+	}
+
+	query += placeholders + " ON CONFLICT (id) DO NOTHING"
+
+	_, err := w.db.Pool.Exec(ctx, query, values...)
+	if err != nil {
+		fmt.Printf("[PostgresWriter] Failed to write sub-steps: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("[PostgresWriter] Successfully wrote %d sub-steps to step_substeps\n", len(subSteps))
 	return nil
 }
 

@@ -152,7 +152,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
         <div className="flex items-center gap-4 ml-auto">
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-gray-900">{steps.length}</span>
-            <span className="text-gray-500">Step[s]</span>
+            <span className="text-gray-500">Step(s)</span>
             
           </div>
           <div className="flex items-center gap-1.5">

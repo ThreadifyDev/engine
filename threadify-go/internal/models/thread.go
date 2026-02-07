@@ -13,6 +13,7 @@ const (
 	ThreadStatusCompleted ThreadStatus = "completed"
 	ThreadStatusFailed    ThreadStatus = "failed"
 	ThreadStatusCancelled ThreadStatus = "cancelled"
+	ThreadStatusClosed    ThreadStatus = "closed"
 )
 
 // StepStatus represents the current state of a step

@@ -29,6 +29,8 @@ type StepStateInfo {
   verificationError: String
   # Step execution history (max limit: 1000)
   history(limit: Int = 100, offset: Int = 0, startAt: String, endAt: String, activityType: String, actor: String): [StepHistory!]!
+  # Sub-steps for this step (granular operations within the step)
+  subSteps: [SubStep!]!
 }
 
 type StepHistory {
@@ -47,6 +49,17 @@ type StepHistory {
   # Hash chain for cryptographic integrity verification
   hash: String
   prevHash: String
+}
+
+type SubStep {
+  id: ID!
+  threadId: String!
+  stepId: String!
+  substepName: String!
+  status: String!
+  payload: JSON
+  recordedAt: String!
+  createdAt: String!
 }
 
 type Thread {

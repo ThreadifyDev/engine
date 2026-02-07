@@ -276,6 +276,27 @@ func (r *ThreadRepository) ExtendTTL(ctx context.Context, threadID string) error
 	return nil
 }
 
+// UpdateThreadStatus updates thread status in Valkey cache
+func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID string, status string, timestamp time.Time) error {
+	key := r.getThreadKey(threadID)
+
+	// Update status field
+	err := r.valkey.HSet(ctx, key, "status", status)
+	if err != nil {
+		return err
+	}
+
+	// Set appropriate timestamp
+	timestampStr := timestamp.Format(time.RFC3339)
+	if status == "closed" {
+		err = r.valkey.HSet(ctx, key, "closed_at", timestampStr)
+	} else if status == "completed" {
+		err = r.valkey.HSet(ctx, key, "completed_at", timestampStr)
+	}
+
+	return err
+}
+
 // getThreadKey generates the Redis key for a thread
 func (r *ThreadRepository) getThreadKey(threadID string) string {
 	return fmt.Sprintf("thread:%s", threadID)

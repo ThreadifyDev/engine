@@ -65,7 +65,8 @@ func loadLuaScript(filename string) (string, error) {
 }
 
 // RecordStepEventDirect records a step event immediately without batching
-func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string) error {
+// Also processes sub-steps if provided
+func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
 	// Track overall step event latency
 	startTime := time.Now()
 	stepEventID := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
@@ -115,7 +116,56 @@ func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, owner
 		log.Printf("[PERF] StepEvent NATS_PUBLISH: %s | SKIPPED (no publisher)", stepEventID)
 	}
 
+	// 4. Process sub-steps if provided
+	if len(subSteps) > 0 && ses.natsPublisher != nil {
+		subStepsStart := time.Now()
+		if err := ses.processSubSteps(event.ThreadID, event.StepID, subSteps); err != nil {
+			log.Printf("[PERF] StepEvent SUBSTEPS_PROCESS FAILED: %s | duration=%v | error=%v", stepEventID, time.Since(subStepsStart), err)
+			// Don't fail the main step if sub-steps fail
+		} else {
+			log.Printf("[PERF] StepEvent SUBSTEPS_PROCESS: %s | count=%d | duration=%v", stepEventID, len(subSteps), time.Since(subStepsStart))
+		}
+	}
+
 	return nil
+}
+
+// processSubSteps publishes sub-steps to NATS for archival
+func (ses *StepEventService) processSubSteps(threadID, stepID string, subSteps []models.SubStepRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create sub-step events for NATS
+	subStepEvents := make([]map[string]interface{}, 0, len(subSteps))
+
+	for _, subStep := range subSteps {
+		// Parse recordedAt timestamp
+		recordedAt, err := time.Parse(time.RFC3339, subStep.RecordedAt)
+		if err != nil {
+			log.Printf("[WARN] Invalid sub-step recordedAt timestamp: %v", err)
+			recordedAt = time.Now()
+		}
+
+		subStepEvent := map[string]interface{}{
+			"thread_id":    threadID,
+			"step_id":      stepID,
+			"substep_name": subStep.Name,
+			"status":       subStep.Status,
+			"payload":      subStep.Payload,
+			"recorded_at":  recordedAt.Format(time.RFC3339Nano),
+		}
+		subStepEvents = append(subStepEvents, subStepEvent)
+	}
+
+	// Publish all sub-steps as a batch
+	batchEvent := map[string]interface{}{
+		"type":      "substeps_batch",
+		"thread_id": threadID,
+		"step_id":   stepID,
+		"substeps":  subStepEvents,
+	}
+
+	return ses.natsPublisher.PublishActivityLog(ctx, batchEvent)
 }
 
 // HashResult contains the result of atomic hash generation

@@ -43,6 +43,7 @@ type RecordEventRequest struct {
 	Status         string            `json:"status"`
 	ServiceName    string            `json:"serviceName,omitempty"`
 	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+	SubSteps       []SubStepRequest  `json:"subSteps,omitempty"`
 }
 
 type RecordEventResponse struct {

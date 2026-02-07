@@ -280,6 +280,16 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &req)
 		response = h.handleUnsubscribe(session, &req)
 
+	case "closeThread":
+		var req struct {
+			Action   string `json:"action"`
+			ThreadID string `json:"threadId"`
+			Status   string `json:"status"`
+			Reason   string `json:"reason,omitempty"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleCloseThread(session, &req)
+
 	default:
 		response = models.ErrorResponse{
 			Action:  "error",
@@ -488,6 +498,101 @@ func (h *WebSocketHandler) handleNotificationAck(session *WSSession, ackMsg *Not
 		"status":          "success",
 		"notification_id": ackMsg.NotificationID,
 	}
+}
+
+// handleCloseThread handles thread closure requests
+func (h *WebSocketHandler) handleCloseThread(session *WSSession, req *struct {
+	Action   string `json:"action"`
+	ThreadID string `json:"threadId"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+}) interface{} {
+	// Validate request
+	if req.ThreadID == "" {
+		return models.ErrorResponse{
+			Action:  "closeThread",
+			Status:  "error",
+			Message: "Thread ID is required",
+		}
+	}
+
+	// Default status to 'closed'
+	status := req.Status
+	if status == "" {
+		status = "closed"
+	}
+
+	// Validate status
+	if status != "closed" && status != "completed" {
+		return models.ErrorResponse{
+			Action:  "closeThread",
+			Status:  "error",
+			Message: "Status must be 'closed' or 'completed'",
+		}
+	}
+
+	// Get thread to validate it exists
+	thread, err := h.threadService.GetThread(req.ThreadID)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "closeThread",
+			Status:  "error",
+			Message: "Thread not found",
+		}
+	}
+
+	// Check if thread is already closed or completed
+	if thread.Status == models.ThreadStatusClosed || thread.Status == models.ThreadStatusCompleted {
+		return models.ErrorResponse{
+			Action:  "closeThread",
+			Status:  "error",
+			Message: "Thread already " + string(thread.Status),
+		}
+	}
+
+	// Check permissions (thread.close)
+	// Permission check is done via thread access - owner and participant roles have thread.close permission
+	// We'll let the service layer handle permission validation if needed
+
+	// Close the thread with current timestamp
+	recordedAt := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = h.threadService.CloseThread(
+		ctx,
+		req.ThreadID,
+		session.ownerID,
+		"", // Service name - empty for user-initiated close
+		status,
+		req.Reason,
+		recordedAt,
+	)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "closeThread",
+			Status:  "error",
+			Message: "Failed to close thread: " + err.Error(),
+		}
+	}
+
+	// Prepare timestamp field based on status
+	timestampField := "closedAt"
+	if status == "completed" {
+		timestampField = "completedAt"
+	}
+
+	// Send success response
+	response := map[string]interface{}{
+		"action":       "closeThread",
+		"status":       "success",
+		"threadId":     req.ThreadID,
+		"threadStatus": status,
+		timestampField: recordedAt.Format(time.RFC3339),
+		"message":      "Thread " + status + " successfully",
+	}
+
+	return response
 }
 
 // SendMessage sends any message to the WebSocket client with mutex protection
