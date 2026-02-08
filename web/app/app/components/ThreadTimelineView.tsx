@@ -54,6 +54,8 @@ const getStatusIcon = (status: string) => {
       return <CheckCircle2 className="w-5 h-5 text-green-600" />;
     case 'failed':
       return <XCircle className="w-5 h-5 text-red-600" />;
+    case 'violated':
+      return <AlertTriangle className="w-5 h-5 text-orange-600" />;
     case 'in_progress':
       return <Clock className="w-5 h-5 text-blue-600 animate-pulse" />;
     default:
@@ -64,13 +66,15 @@ const getStatusIcon = (status: string) => {
 const getStatusBadge = (status: string) => {
   switch (status) {
     case 'success':
-      return 'bg-green-100 text-green-700 border-green-200';
+      return 'bg-green-100 text-green-700 border border-green-200';
     case 'failed':
-      return 'bg-red-100 text-red-700 border-red-200';
+      return 'bg-red-100 text-red-700 border border-red-200';
+    case 'violated':
+      return 'bg-orange-100 text-orange-700 border border-orange-200';
     case 'in_progress':
-      return 'bg-blue-100 text-blue-700 border-blue-200';
+      return 'bg-blue-100 text-blue-700 border border-blue-200';
     default:
-      return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      return 'bg-yellow-100 text-yellow-700 border border-yellow-200';
   }
 };
 
@@ -138,8 +142,8 @@ function StepCard({ step, onClick }: { step: StepStateInfo; onClick: () => void 
         >
           {/* Main row */}
           <div className="flex items-center gap-3">
-            {/* Expand button on the left (like service groups) */}
-            {hasSubSteps ? (
+            {/* Expand button on the left (only for steps with sub-steps) */}
+            {hasSubSteps && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -149,8 +153,6 @@ function StepCard({ step, onClick }: { step: StepStateInfo; onClick: () => void 
               >
                 {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </button>
-            ) : (
-              <div className="w-4" /> // Spacer for alignment
             )}
             
             {getStatusIcon(step.status)}
@@ -296,15 +298,7 @@ export default function ThreadTimelineView({ steps, onStepClick, threadStatus }:
 
   return (
     <div className="w-full h-full overflow-y-auto bg-gray-50 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">Thread Timeline</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            {steps.length} step{steps.length !== 1 ? 's' : ''} across {serviceGroups.length} service{serviceGroups.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-
+      <div className="">
         {/* Timeline */}
         <div className="space-y-6">
           {serviceGroups.map((group) => (

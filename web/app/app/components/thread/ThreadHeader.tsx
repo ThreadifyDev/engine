@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -8,6 +9,7 @@ import {
   ShieldAlert,
   Loader2,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 
@@ -139,13 +141,17 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
           </div>
         )}
         
-        {thread.contractName && (
+        {thread.contractId && thread.contractName && thread.contractVersion && (
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Contract</span>
-            <span className="font-medium text-gray-900">{thread.contractName}</span>
-            {thread.contractVersion && (
+            <Link 
+              to={`/contracts/${thread.contractId}/versions/${thread.contractVersion}`}
+              className="font-medium text-gray-900 hover:text-gray-700 hover:underline flex items-center gap-1.5 transition-colors"
+            >
+              {thread.contractName}
               <span className="text-gray-400">v{thread.contractVersion}</span>
-            )}
+              <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
+            </Link>
           </div>
         )}
 

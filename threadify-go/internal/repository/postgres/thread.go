@@ -974,6 +974,34 @@ func (r *ThreadRepository) UpdateThreadStatus(
 	status string,
 	timestamp time.Time,
 ) error {
+	// For idempotent completion, we need to handle the case where the thread is already completed
+	// First, check if thread exists and get its current status
+	var currentStatus string
+	checkQuery := `SELECT status FROM threads WHERE id = $1`
+	err := r.pool.QueryRow(ctx, checkQuery, threadID).Scan(&currentStatus)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return fmt.Errorf("thread not found")
+		}
+		return fmt.Errorf("failed to check thread status: %w", err)
+	}
+
+	// If already closed, reject
+	if currentStatus == "closed" {
+		return fmt.Errorf("thread already closed")
+	}
+
+	// If already completed and requesting completed again, this is idempotent - return success
+	if currentStatus == "completed" && status == "completed" {
+		return nil
+	}
+
+	// If already completed and requesting a different status, reject
+	if currentStatus == "completed" && status != "completed" {
+		return fmt.Errorf("thread already completed, cannot change to %s", status)
+	}
+
+	// Proceed with update
 	query := `
 		UPDATE threads
 		SET 
@@ -982,17 +1010,11 @@ func (r *ThreadRepository) UpdateThreadStatus(
 			completed_at = CASE WHEN $1 = 'completed' THEN $2 ELSE completed_at END,
 			updated_at = $2
 		WHERE id = $3
-			AND status NOT IN ('closed', 'completed')
 	`
 
-	result, err := r.pool.Exec(ctx, query, status, timestamp, threadID)
+	_, err = r.pool.Exec(ctx, query, status, timestamp, threadID)
 	if err != nil {
 		return fmt.Errorf("failed to update thread status: %w", err)
-	}
-
-	rowsAffected := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("thread not found or already closed/completed")
 	}
 
 	return nil

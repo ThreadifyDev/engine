@@ -492,40 +492,6 @@ function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
       
       initialNodes.push(stepNode);
       stepNodeMap.set(nodeId, stepNode);
-
-      // Create sub-step nodes below the parent step
-      if (step.subSteps && step.subSteps.length > 0) {
-        const SUB_STEP_WIDTH = 180;
-        const SUB_STEP_HEIGHT = 80;
-        const SUB_STEP_GAP = 15;
-        const SUB_STEP_Y_OFFSET = 180; // Distance below parent step
-        
-        // Calculate starting X position to center sub-steps under parent
-        const totalSubStepsWidth = (step.subSteps.length * SUB_STEP_WIDTH) + ((step.subSteps.length - 1) * SUB_STEP_GAP);
-        const startX = pos.x + (STEP_WIDTH / 2) - (totalSubStepsWidth / 2);
-        
-        step.subSteps.forEach((subStep: any, subIndex: number) => {
-          const subStepNodeId = `substep-${globalIndex}-${subIndex}`;
-          const subStepX = startX + (subIndex * (SUB_STEP_WIDTH + SUB_STEP_GAP));
-          const subStepY = pos.y + SUB_STEP_Y_OFFSET;
-          
-          const subStepNode: Node = {
-            id: subStepNodeId,
-            type: 'subStepNode',
-            position: { x: subStepX, y: subStepY },
-            zIndex: 10,
-            data: {
-              label: subStep.substepName,
-              status: subStep.status,
-              payload: subStep.payload,
-              recordedAt: subStep.recordedAt,
-              parentStepId: nodeId,
-            },
-          };
-          
-          initialNodes.push(subStepNode);
-        });
-      }
     });
 
     groupStartIndex += groupStepCount;
@@ -566,38 +532,6 @@ function ThreadGraphViewInner({ steps, onNodeClick }: ThreadGraphViewProps) {
       },
     });
   }
-
-  // Add edges from parent steps to sub-steps
-  sortedSteps.forEach((step, globalIndex) => {
-    if (step.subSteps && step.subSteps.length > 0) {
-      const parentNodeId = `step-${globalIndex}`;
-      
-      step.subSteps.forEach((subStep: any, subIndex: number) => {
-        const subStepNodeId = `substep-${globalIndex}-${subIndex}`;
-        
-        // Edge from parent to sub-step
-        initialEdges.push({
-          id: `edge-parent-${globalIndex}-sub-${subIndex}`,
-          source: parentNodeId,
-          target: subStepNodeId,
-          type: 'smoothstep',
-          animated: false,
-          zIndex: 5,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 10,
-            height: 10,
-            color: '#cbd5e1', // gray-300
-          },
-          style: { 
-            strokeWidth: 1.5, 
-            stroke: '#cbd5e1',
-            strokeDasharray: '5,5', // Dashed line to show hierarchy
-          },
-        });
-      });
-    }
-  });
   
   return { initialNodes, initialEdges };
   }, [sortedSteps, actorMap]);

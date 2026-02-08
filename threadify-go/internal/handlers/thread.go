@@ -531,35 +531,15 @@ func (h *WebSocketHandler) handleCloseThread(session *WSSession, req *struct {
 		}
 	}
 
-	// Get thread to validate it exists
-	thread, err := h.threadService.GetThread(req.ThreadID)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "closeThread",
-			Status:  "error",
-			Message: "Thread not found",
-		}
-	}
-
-	// Check if thread is already closed or completed
-	if thread.Status == models.ThreadStatusClosed || thread.Status == models.ThreadStatusCompleted {
-		return models.ErrorResponse{
-			Action:  "closeThread",
-			Status:  "error",
-			Message: "Thread already " + string(thread.Status),
-		}
-	}
-
-	// Check permissions (thread.close)
-	// Permission check is done via thread access - owner and participant roles have thread.close permission
-	// We'll let the service layer handle permission validation if needed
+	// TODO: Check permissions (thread.close)
+	// Permission check should be done via thread access - owner and participant roles have thread.close permission
 
 	// Close the thread with current timestamp
 	recordedAt := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = h.threadService.CloseThread(
+	err := h.threadService.CloseThread(
 		ctx,
 		req.ThreadID,
 		session.ownerID,

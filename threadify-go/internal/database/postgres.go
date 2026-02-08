@@ -432,14 +432,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		substep_name VARCHAR(255) NOT NULL,
 		status VARCHAR(50) NOT NULL,
 		payload JSONB,
-		started_at TIMESTAMP,
 		recorded_at TIMESTAMP NOT NULL,
 		created_at TIMESTAMP DEFAULT NOW(),
 		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 	);
-
-	-- Migration: Add started_at column if it doesn't exist
-	ALTER TABLE step_substeps ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
 
 	CREATE INDEX IF NOT EXISTS idx_substeps_step_id ON step_substeps(step_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_thread_id ON step_substeps(thread_id);

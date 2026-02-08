@@ -25,6 +25,8 @@ The SDK supports both ES Modules and CommonJS:
    - [Track a Simple Workflow](#track-a-simple-workflow)
    - [Link to External Systems](#link-to-external-systems)
    - [Handle Failures](#handle-failures)
+   - [Mark Thread as Completed](#mark-thread-as-completed)
+   - [Track Sub-steps](#track-sub-steps)
    - [Work with Contracts](#work-with-contracts)
    - [Inviting Others to a Thread](#inviting-others-to-a-thread)
    - [Joining a Thread](#joining-a-thread)
@@ -79,6 +81,7 @@ await thread.step('payment_processed')
 | **Connection** | WebSocket connection to Threadify Engine | Authentication, message routing |
 | **Thread** | Workflow execution instance | Contract-based (with validation) or free-form |
 | **Step** | Atomic unit of work within a thread | Name, context, status (`success`/`failed`), automatic idempotency |
+| **Sub-step** | Granular operation within a step | Track progress, debug failures, audit trail |
 | **Contract** | YAML-defined workflow specification | Entry points, transitions, required fields, RBAC. Use `contractName` (latest) or `contractName:version` (e.g., `order_fulfillment:2`) |
 
 
@@ -141,6 +144,95 @@ try {
 | `.success(message)` | String | `await step.success('Order placed')` |
 | `.success(data)` | Object | `await step.success({ transactionId: 'txn_123' })` |
 | `.failed(data)` | Object | `await step.failed({ message: 'Timeout', code: 'ERR_TIMEOUT' })` |
+
+### Mark Thread as Completed
+
+Explicitly mark a thread as completed when all work is done. This is useful for:
+- Triggering final validations
+- Closing out workflows
+- Signaling completion to observers
+
+```javascript
+const thread = await connection.start();
+
+// Record all your steps
+await thread.step('order_placed').success();
+await thread.step('payment_processed').success();
+await thread.step('order_shipped').success();
+
+// Mark thread as completed
+await thread.completed();
+```
+
+**Alternative: `.close()`**
+
+Use `.close()` as an alias for `.completed()` - both do the same thing:
+
+```javascript
+// These are equivalent
+await thread.completed();
+await thread.close();
+```
+
+### Track Sub-steps
+
+Break down complex steps into granular sub-steps for better debugging and progress tracking.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | string | required | Sub-step name |
+| `data` | object | `{}` | Sub-step data (duration, metadata, error, etc.) |
+| `status` | string | `'success'` | `'success'` or `'failed'` |
+
+**Basic Usage:**
+
+```javascript
+const step = thread.step('process_order');
+
+// Add sub-steps as you execute them
+step.subStep('validate_inventory', { itemsChecked: 5 });
+step.subStep('calculate_tax', { taxAmount: 12.50 }, 'success');
+step.subStep('apply_discount', { error: 'Invalid coupon' }, 'failed');
+
+// All sub-steps sent when step completes
+await step.success({ orderId: 'ORD-456', total: 112.50 });
+```
+
+**Chaining Pattern:**
+
+```javascript
+await thread.step('payment_processing')
+  .subStep('validate_payment', { cardType: 'visa' }, 'success')
+  .subStep('check_fraud', { fraudScore: 0.15 }, 'success')
+  .subStep('authorize_payment', { authCode: 'AUTH-123' }, 'success')
+  .subStep('process_transaction', { txnId: 'TXN-456' }, 'success')
+  .addContext({ amount: 150.00 })
+  .success();
+```
+
+**Error Handling:**
+
+```javascript
+try {
+  step.subStep('validate_payment', { valid: true }, 'success');
+  step.subStep('process_transaction', { txnId: 'TXN-123' }, 'success');
+  await step.success();
+} catch (error) {
+  step.subStep('error_handler', { error: error.message }, 'failed');
+  await step.failed({ message: 'Payment failed' });
+}
+```
+
+**Benefits:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Granular visibility** | See exactly which operation succeeded or failed |
+| **Performance tracking** | Measure duration of each sub-operation |
+| **Better debugging** | Pinpoint failures without extra logging |
+| **Audit compliance** | Detailed trail of all operations |
 
 ### Work with Contracts
 
@@ -342,6 +434,38 @@ data.steps.forEach(step => {
 
 ### ArchivedStep Methods
 
+#### `step.subSteps()`
+
+Get all sub-steps for this step.
+
+```javascript
+const steps = await thread.steps('payment_processing');
+const step = steps[0];
+const subSteps = await step.subSteps();
+
+subSteps.forEach(sub => {
+  console.log(`${sub.substepName}: ${sub.status}`);
+  console.log(`Payload:`, JSON.parse(sub.payload));
+});
+```
+
+**Returns:** `Promise<Array<SubStep>>`
+
+**SubStep Structure:**
+```javascript
+{
+  id: string,              // Sub-step ID
+  threadId: string,        // Parent thread ID
+  stepId: string,          // Parent step ID
+  substepName: string,     // Sub-step name
+  status: string,          // 'success' or 'failed'
+  payload: string,         // JSON string of sub-step data
+  recordedAt: string       // ISO timestamp
+}
+```
+
+---
+
 #### `step.history(options)`
 
 Get execution history for this step.
@@ -435,6 +559,18 @@ console.log(`Failed attempts: ${failures.length}`);
 
 failures.forEach(f => {
   console.log(`  ${f.timestamp}: ${f.error}`);
+});
+
+// Get sub-steps to see granular operations
+const subSteps = await step.subSteps();
+console.log(`\nSub-steps executed: ${subSteps.length}`);
+
+subSteps.forEach(sub => {
+  const data = JSON.parse(sub.payload);
+  console.log(`  ${sub.substepName}: ${sub.status}`);
+  if (sub.status === 'failed') {
+    console.log(`    Error: ${data.error || 'Unknown'}`);
+  }
 });
 ```
 
