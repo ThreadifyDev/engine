@@ -1209,27 +1209,37 @@ func (s *ThreadService) CloseThread(
 		return fmt.Errorf("invalid status: must be 'closed' or 'completed'")
 	}
 
-	// 1. Update thread status in PostgreSQL (via repository)
-	postgresRepo := s.repo.(*valkey.ThreadRepository).GetPostgresRepo()
-	err := postgresRepo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
-	if err != nil {
-		return err
-	}
-
-	// 2. Update Valkey cache (via repository)
-	err = s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
+	// 1. Update Valkey cache (hot path)
+	err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
 	if err != nil {
 		log.Printf("[WARN] Failed to update thread status in Valkey: %v", err)
-		// Don't fail the operation
+		// Don't fail the operation - archiver will handle persistence
 	}
 
-	// 3. Record close activity in thread_activities
+	// 2. Publish thread metadata to NATS for archival
+	if s.natsArchivalPublisher != nil {
+		metadataEvent := map[string]interface{}{
+			"thread_id":   threadID,
+			"owner_id":    actorID,
+			"status":      status,
+			"startedAt":   recordedAt.Format(time.RFC3339Nano),
+			"completedAt": recordedAt.Format(time.RFC3339Nano),
+		}
+
+		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, metadataEvent); err != nil {
+			return fmt.Errorf("failed to publish thread completion: %w", err)
+		}
+	}
+
+	// 3. Record close/complete activity to NATS for archival
 	activityType := "thread_closed"
 	if status == "completed" {
 		activityType = "thread_completed"
 	}
 
-	// Publish to NATS for archival
 	if s.natsArchivalPublisher != nil {
 		activityEvent := map[string]interface{}{
 			"thread_id":     threadID,
@@ -1245,6 +1255,7 @@ func (s *ThreadService) CloseThread(
 
 		pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
 		if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityEvent); err != nil {
 			log.Printf("[WARN] Failed to publish close activity: %v", err)
 			// Don't fail the operation

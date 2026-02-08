@@ -254,7 +254,7 @@ export function StepDetailContent({
       <div className="border-t border-gray-200 pt-6">
         <button
           onClick={onToggleContext}
-          className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50"
+          className="w-full text-left transition-colors group hover:bg-gray-50"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -321,7 +321,7 @@ export function StepDetailContent({
       <div className="border-t border-gray-200 pt-6 space-y-2">
         <button
           onClick={() => onShowHistory(step)}
-          className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50 rounded-lg"
+          className="w-full text-left transition-colors group hover:bg-gray-50 rounded-lg"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

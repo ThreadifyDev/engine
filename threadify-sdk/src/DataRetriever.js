@@ -42,6 +42,16 @@ const STEP_HISTORY_FIELDS = `
   error
 `;
 
+const SUB_STEP_FIELDS = `
+  id
+  threadId
+  stepId
+  substepName
+  status
+  payload
+  recordedAt
+`;
+
 const VALIDATION_RESULT_FIELDS = `
   validationId
   threadId
@@ -252,6 +262,42 @@ export class ArchivedStep {
     this.verificationError = stepData.verificationError;
     this.lastExecution = stepData.history && stepData.history.length > 0 ? stepData.history[0] : null;
     this.graphqlClient = graphqlClient;
+  }
+
+  /**
+   * Get sub-steps for this step
+   * @returns {Promise<Array<SubStep>>}
+   */
+  async subSteps() {
+    const query = `
+      query GetStepSubSteps(
+        $threadId: String!
+        $stepName: String!
+        $idempotencyKey: String
+      ) {
+        thread(id: $threadId) {
+          steps(stepName: $stepName, idempotencyKey: $idempotencyKey) {
+            subSteps {
+              ${SUB_STEP_FIELDS}
+            }
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      threadId: this.threadId,
+      stepName: this.stepName,
+      idempotencyKey: this.idempotencyKey || null
+    };
+
+    const data = await this.graphqlClient.query(query, variables);
+    
+    if (!data.thread || !data.thread.steps || data.thread.steps.length === 0) {
+      return [];
+    }
+
+    return data.thread.steps[0].subSteps || [];
   }
 
   /**

@@ -1,12 +1,18 @@
 import { useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
-import { useNavigate, Link } from '@remix-run/react';
+import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
+import NewHeroSection from '~/components/homepage/NewHeroSection';
+import PillarSections from '~/components/homepage/PillarSections';
+import ContractsSection from '~/components/homepage/ContractsSection';
+import OutcomesSection from '~/components/homepage/OutcomesSection';
+import CTASection from '~/components/homepage/CTASection';
+import FooterSection from '~/components/homepage/FooterSection';
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Threadify - Business Workflow Instrumentation" },
-    { name: "description", content: "Monitor and validate your business workflows in real-time" },
+    { title: "Threadify - Workflow Intelligence for Your Business" },
+    { name: "description", content: "Build systems that understand your business workflow. Observe, Validate, Detect, and React to your business processes in real time." },
   ];
 };
 
@@ -21,29 +27,33 @@ export default function Index() {
   }, [navigate]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white px-4">
-      <div className="text-center max-w-2xl">
-        <h1 className="text-6xl font-bold mb-4 text-black" style={{ fontFamily: 'Block, monospace' }}>
-          Threadify
-        </h1>
-        <p className="text-xl text-gray-600 mb-8">
-          Monitor and validate your business workflows in real-time
-        </p>
-        <div className="flex gap-4 justify-center">
-          <Link
-            to="/auth/login"
-            className="px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors"
-          >
-            Login
-          </Link>
-          <Link
-            to="/auth/signup"
-            className="px-6 py-3 border-2 border-black text-black font-medium hover:bg-gray-100 transition-colors"
-          >
-            Sign Up
-          </Link>
+    <div className="min-h-screen bg-white">
+      <NewHeroSection />
+      
+      {/* Section header */}
+      <section className="py-16 bg-white">
+        <div className="max-w-4xl mx-auto px-6 text-center">
+          <h2 className="text-4xl font-bold mb-4">How Threadify Works</h2>
+          <p className="text-lg text-gray-600">
+            A workflow intelligence system that creates context graphs for your business processes
+          </p>
         </div>
-      </div>
+      </section>
+
+      {/* Four Pillars as individual sections */}
+      <PillarSections />
+
+      {/* Outcomes */}
+      <OutcomesSection />
+
+      {/* Contracts Deep Dive */}
+      <ContractsSection />
+
+      {/* CTA */}
+      <CTASection />
+
+      {/* Footer */}
+      <FooterSection />
     </div>
   );
 }
