@@ -46,7 +46,7 @@ const SUB_STEP_FIELDS = `
   id
   threadId
   stepId
-  substepName
+  name
   status
   payload
   recordedAt

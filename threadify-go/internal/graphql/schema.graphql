@@ -55,7 +55,7 @@ type SubStep {
   id: ID!
   threadId: String!
   stepId: String!
-  substepName: String!
+  name: String!
   status: String!
   payload: JSON
   recordedAt: String!

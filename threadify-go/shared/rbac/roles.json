@@ -42,7 +42,7 @@
         "thread.read.*",
         "thread.write.*",
         "thread.invite",
-        "thread.close",
+        "thread.end",
         "notification.execution.*",
         "notification.validation.*",
         "notification.thread.*"
@@ -54,7 +54,7 @@
       "permissions": [
         "thread.read.*",
         "thread.write.*",
-        "thread.close",
+        "thread.end",
         "notification.execution.failed.own",
         "notification.execution.success.own",
         "notification.validation.violated.own",

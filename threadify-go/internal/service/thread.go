@@ -43,6 +43,7 @@ type ThreadService struct {
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	rbacLoader            *rbac.Loader
+	writeBackPool         *workerpool.Pool
 }
 
 // NewThreadService creates ThreadService with all dependencies using builder pattern
@@ -1194,8 +1195,10 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 	}
 }
 
-// CloseThread marks a thread as closed or completed and records activity
-func (s *ThreadService) CloseThread(
+// EndThread marks a thread as ended (cancelled or completed) and records activity
+// Status defaults to "cancelled" if empty, can be "completed" for successful completion
+// If thread is linked to a contract and status is "completed", validates contract end state
+func (s *ThreadService) EndThread(
 	ctx context.Context,
 	threadID string,
 	actorID string,
@@ -1204,23 +1207,45 @@ func (s *ThreadService) CloseThread(
 	reason string,
 	recordedAt time.Time,
 ) error {
-	// Validate status
-	if status != "closed" && status != "completed" {
-		return fmt.Errorf("invalid status: must be 'closed' or 'completed'")
+	// Default status to cancelled
+	if status == "" {
+		status = "cancelled"
 	}
 
-	// 1. Update Valkey cache (hot path)
-	err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
-	if err != nil {
-		log.Printf("[WARN] Failed to update thread status in Valkey: %v", err)
-		// Don't fail the operation - archiver will handle persistence
+	// Validate status
+	if status != "cancelled" && status != "completed" {
+		return fmt.Errorf("invalid status: must be 'cancelled' or 'completed'")
 	}
+
+	// Get thread to check contract linkage and get company_id for archival
+	thread, err := s.repo.Get(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	// If status is completed and thread has a contract, reject manual completion
+	// Contract-linked threads auto-complete when terminal state is reached
+	if status == "completed" {
+		// Reject manual completion for contract-linked threads
+		if thread.ContractID != nil && *thread.ContractID != "" {
+			return fmt.Errorf("cannot manually complete thread linked to contract: thread will auto-complete when terminal state is reached")
+		}
+	}
+
+	// 1. Update Valkey cache (async via writeback worker pool)
+	s.writeBackPool.Submit(func(ctx context.Context) {
+		err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt)
+		if err != nil {
+			log.Printf("[WARN] Failed to update thread status in Valkey: %v", err)
+		}
+	})
 
 	// 2. Publish thread metadata to NATS for archival
 	if s.natsArchivalPublisher != nil {
 		metadataEvent := map[string]interface{}{
 			"thread_id":   threadID,
 			"owner_id":    actorID,
+			"companyId":   thread.CompanyID, // Include company_id for archival
 			"status":      status,
 			"startedAt":   recordedAt.Format(time.RFC3339Nano),
 			"completedAt": recordedAt.Format(time.RFC3339Nano),
@@ -1234,8 +1259,8 @@ func (s *ThreadService) CloseThread(
 		}
 	}
 
-	// 3. Record close/complete activity to NATS for archival
-	activityType := "thread_closed"
+	// 3. Record end activity to NATS for archival
+	activityType := "thread_cancelled"
 	if status == "completed" {
 		activityType = "thread_completed"
 	}
@@ -1257,9 +1282,29 @@ func (s *ThreadService) CloseThread(
 		defer cancel()
 
 		if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, activityEvent); err != nil {
-			log.Printf("[WARN] Failed to publish close activity: %v", err)
+			log.Printf("[WARN] Failed to publish end activity: %v", err)
 			// Don't fail the operation
 		}
+	}
+
+	// 4. Publish thread end notification (async via notification worker pool)
+	if s.notificationService != nil {
+		notification := models.ValidationNotification{
+			ThreadID:         threadID,
+			StepName:         "", // Thread-level notification
+			StepID:           "",
+			OwnerID:          actorID,
+			Timestamp:        recordedAt,
+			StepStatus:       status,
+			Status:           "none", // Not a contract validation
+			Severity:         "info",
+			Message:          "Thread " + status + ": " + reason,
+			Source:           models.NotificationSourceThread,
+			NotificationType: "thread." + status, // "thread.cancelled" or "thread.completed"
+		}
+
+		// Submit to notification worker pool for bounded concurrency
+		s.notificationService.submitNotificationJob(notification)
 	}
 
 	return nil

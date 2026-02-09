@@ -175,14 +175,14 @@ type ComplexityRoot struct {
 	}
 
 	SubStep struct {
-		CreatedAt   func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Payload     func(childComplexity int) int
-		RecordedAt  func(childComplexity int) int
-		Status      func(childComplexity int) int
-		StepID      func(childComplexity int) int
-		SubStepName func(childComplexity int) int
-		ThreadID    func(childComplexity int) int
+		CreatedAt  func(childComplexity int) int
+		ID         func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Payload    func(childComplexity int) int
+		RecordedAt func(childComplexity int) int
+		Status     func(childComplexity int) int
+		StepID     func(childComplexity int) int
+		ThreadID   func(childComplexity int) int
 	}
 
 	Thread struct {
@@ -960,6 +960,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SubStep.ID(childComplexity), true
+	case "SubStep.name":
+		if e.complexity.SubStep.Name == nil {
+			break
+		}
+
+		return e.complexity.SubStep.Name(childComplexity), true
 	case "SubStep.payload":
 		if e.complexity.SubStep.Payload == nil {
 			break
@@ -984,12 +990,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.SubStep.StepID(childComplexity), true
-	case "SubStep.substepName":
-		if e.complexity.SubStep.SubStepName == nil {
-			break
-		}
-
-		return e.complexity.SubStep.SubStepName(childComplexity), true
 	case "SubStep.threadId":
 		if e.complexity.SubStep.ThreadID == nil {
 			break
@@ -1551,7 +1551,7 @@ type SubStep {
   id: ID!
   threadId: String!
   stepId: String!
-  substepName: String!
+  name: String!
   status: String!
   payload: JSON
   recordedAt: String!
@@ -5341,8 +5341,8 @@ func (ec *executionContext) fieldContext_StepStateInfo_subSteps(_ context.Contex
 				return ec.fieldContext_SubStep_threadId(ctx, field)
 			case "stepId":
 				return ec.fieldContext_SubStep_stepId(ctx, field)
-			case "substepName":
-				return ec.fieldContext_SubStep_substepName(ctx, field)
+			case "name":
+				return ec.fieldContext_SubStep_name(ctx, field)
 			case "status":
 				return ec.fieldContext_SubStep_status(ctx, field)
 			case "payload":
@@ -5445,14 +5445,14 @@ func (ec *executionContext) fieldContext_SubStep_stepId(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_substepName(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_name(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_SubStep_substepName,
+		ec.fieldContext_SubStep_name,
 		func(ctx context.Context) (any, error) {
-			return obj.SubStepName, nil
+			return obj.Name, nil
 		},
 		nil,
 		ec.marshalNString2string,
@@ -5461,7 +5461,7 @@ func (ec *executionContext) _SubStep_substepName(ctx context.Context, field grap
 	)
 }
 
-func (ec *executionContext) fieldContext_SubStep_substepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_SubStep_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "SubStep",
 		Field:      field,
@@ -10633,8 +10633,8 @@ func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, 
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
-		case "substepName":
-			out.Values[i] = ec._SubStep_substepName(ctx, field, obj)
+		case "name":
+			out.Values[i] = ec._SubStep_name(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}

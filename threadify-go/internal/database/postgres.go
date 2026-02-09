@@ -122,7 +122,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		contract_name VARCHAR(255),
 		contract_version INT,
 		owner_id VARCHAR(255),  -- Service account ID (threads are always created by service accounts)
-		company_id VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,  -- Required - every thread must belong to a company
 		status VARCHAR(50) DEFAULT 'active',
 		error TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -425,17 +425,31 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	-- Step Sub-Steps Table: Stores sub-steps for each parent step
 	-- Sub-steps are granular operations within a step (e.g., validate_inventory, calculate_tax)
+	-- Note: No FK constraint on thread_id to allow substeps to arrive before thread metadata
 	CREATE TABLE IF NOT EXISTS step_substeps (
 		id VARCHAR(255) PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
 		step_id VARCHAR(255) NOT NULL,
-		substep_name VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
 		status VARCHAR(50) NOT NULL,
 		payload JSONB,
 		recorded_at TIMESTAMP NOT NULL,
-		created_at TIMESTAMP DEFAULT NOW(),
-		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+		created_at TIMESTAMP DEFAULT NOW()
 	);
+
+	-- Migration: Rename substep_name to name for existing databases
+	DO $$ 
+	BEGIN
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'step_substeps' AND column_name = 'substep_name'
+		) THEN
+			ALTER TABLE step_substeps RENAME COLUMN substep_name TO name;
+		END IF;
+	END $$;
+
+	-- Drop FK constraint if it exists (for existing databases)
+	ALTER TABLE step_substeps DROP CONSTRAINT IF EXISTS step_substeps_thread_id_fkey;
 
 	CREATE INDEX IF NOT EXISTS idx_substeps_step_id ON step_substeps(step_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_thread_id ON step_substeps(thread_id);

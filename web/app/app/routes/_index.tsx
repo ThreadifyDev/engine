@@ -4,15 +4,15 @@ import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
 import NewHeroSection from '~/components/homepage/NewHeroSection';
 import PillarSections from '~/components/homepage/PillarSections';
-import ContractsSection from '~/components/homepage/ContractsSection';
-import OutcomesSection from '~/components/homepage/OutcomesSection';
-import CTASection from '~/components/homepage/CTASection';
+import CommonPatterns from '~/components/homepage/CommonPatterns';
+import PurposeBuilt from '~/components/homepage/PurposeBuilt';
+import FinalCTA from '~/components/homepage/FinalCTA';
 import FooterSection from '~/components/homepage/FooterSection';
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Threadify - Workflow Intelligence for Your Business" },
-    { name: "description", content: "Build systems that understand your business workflow. Observe, Validate, Detect, and React to your business processes in real time." },
+    { title: "Threadify - Real-Time Execution Graph Infrastructure" },
+    { name: "description", content: "See execution as it happens, not hours later. Capture customer requests as connected graphs with full context. Enforce business rules at runtime. Build systems that heal themselves." },
   ];
 };
 
@@ -27,30 +27,20 @@ export default function Index() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-black">
       <NewHeroSection />
       
-      {/* Section header */}
-      <section className="py-16 bg-white">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-4xl font-bold mb-4">How Threadify Works</h2>
-          <p className="text-lg text-gray-600">
-            A workflow intelligence system that creates context graphs for your business processes
-          </p>
-        </div>
-      </section>
-
-      {/* Four Pillars as individual sections */}
+      {/* Four Pillars */}
       <PillarSections />
 
-      {/* Outcomes */}
-      <OutcomesSection />
+      {/* Common Patterns */}
+      <CommonPatterns />
 
-      {/* Contracts Deep Dive */}
-      <ContractsSection />
+      {/* Purpose Built */}
+      <PurposeBuilt />
 
-      {/* CTA */}
-      <CTASection />
+      {/* Final CTA */}
+      <FinalCTA />
 
       {/* Footer */}
       <FooterSection />

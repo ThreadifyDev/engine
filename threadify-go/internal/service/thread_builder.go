@@ -152,18 +152,22 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	// Set RBAC loader on access repository
 	accessRepoWithPostgres.SetRBACLoader(rbacLoader)
 
+	// Get worker pools (use nil-safe access - pools may be nil in tests)
+	var validationPool, notificationPool, writeBackPool *workerpool.Pool
+	if b.workerPools != nil {
+		validationPool = b.workerPools.Validation
+		notificationPool = b.workerPools.Notification
+		writeBackPool = b.workerPools.WriteBack
+
+		// Wire WriteBack pool to repositories for async cache write-backs
+		accessRepoWithPostgres.SetWriteBackPool(writeBackPool)
+	}
+
 	// Create thread access service
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader)
 
 	// Create validation and notification services
 	validationService := NewValidationService(b.valkeyService, b.threadRepo)
-
-	// Get worker pools (use nil-safe access - pools may be nil in tests)
-	var validationPool, notificationPool *workerpool.Pool
-	if b.workerPools != nil {
-		validationPool = b.workerPools.Validation
-		notificationPool = b.workerPools.Notification
-	}
 	notificationService := NewNotificationService(validationService, activityRepo, stepStateRepo, cacheService, b.natsPublisher, b.natsArchivalPublisher, accessService, rbacLoader, validationPool, notificationPool)
 
 	// Construct and return the service
@@ -187,5 +191,6 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		luaScripts:            luaScripts,
 		natsArchivalPublisher: b.natsArchivalPublisher,
 		rbacLoader:            rbacLoader,
+		writeBackPool:         writeBackPool,
 	}, nil
 }

@@ -26,7 +26,7 @@ func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID stri
 			id, 
 			thread_id, 
 			step_id, 
-			substep_name, 
+			name, 
 			status, 
 			payload, 
 			recorded_at, 
@@ -51,7 +51,7 @@ func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID stri
 			&subStep.ID,
 			&subStep.ThreadID,
 			&subStep.StepID,
-			&subStep.SubStepName,
+			&subStep.Name,
 			&subStep.Status,
 			&payloadJSON,
 			&subStep.RecordedAt,
@@ -79,23 +79,23 @@ func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID stri
 }
 
 // GetSubStepsByThreadID retrieves all sub-steps for a given thread
-func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID string) ([]*models.SubStep, error) {
+func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID string, stepID string) ([]*models.SubStep, error) {
 	query := `
 		SELECT 
 			id, 
 			thread_id, 
 			step_id, 
-			substep_name, 
+			name, 
 			status, 
 			payload, 
 			recorded_at, 
 			created_at
 		FROM step_substeps
-		WHERE thread_id = $1
+		WHERE thread_id = $1 AND step_id = $2
 		ORDER BY recorded_at ASC
 	`
 
-	rows, err := r.pool.Query(ctx, query, threadID)
+	rows, err := r.pool.Query(ctx, query, threadID, stepID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sub-steps: %w", err)
 	}
@@ -110,7 +110,7 @@ func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID 
 			&subStep.ID,
 			&subStep.ThreadID,
 			&subStep.StepID,
-			&subStep.SubStepName,
+			&subStep.Name,
 			&subStep.Status,
 			&payloadJSON,
 			&subStep.RecordedAt,

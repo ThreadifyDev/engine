@@ -127,22 +127,38 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		return nil
 	}
 
-	// Upsert thread metadata
-	query := `
-		INSERT INTO threads (
-			id, company_id, contract_id, contract_name, contract_version, owner_id, error, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO UPDATE SET
-			company_id = EXCLUDED.company_id,
-			contract_id = EXCLUDED.contract_id,
-			contract_name = EXCLUDED.contract_name,
-			contract_version = EXCLUDED.contract_version,
-			owner_id = EXCLUDED.owner_id,
-			error = EXCLUDED.error,
-			updated_at = EXCLUDED.updated_at
-	`
-
 	for _, event := range metadataEvents {
+		// Handle thread completion/cancellation events separately
+		if status := event.Data["status"]; status == "completed" || status == "cancelled" {
+			// Update existing thread status and company_id (in case thread was created before company sync)
+			updateQuery := `
+				UPDATE threads 
+				SET status = $1, 
+				    completed_at = $2,
+				    updated_at = $2,
+				    company_id = COALESCE($4, company_id)
+				WHERE id = $3
+			`
+			completedAt := event.Data["completedAt"]
+			if completedAt == "" {
+				completedAt = event.Data["startedAt"] // Fallback
+			}
+
+			// Get company_id if present (may be empty for old events)
+			var companyIDParam interface{} = nil
+			if companyID := event.Data["companyId"]; companyID != "" {
+				companyIDParam = companyID
+			}
+
+			_, err := w.db.Pool.Exec(ctx, updateQuery, status, completedAt, event.Data["thread_id"], companyIDParam)
+			if err != nil {
+				fmt.Printf("[WARN] Failed to update thread status for %s: %v\n", event.Data["thread_id"], err)
+			} else {
+				fmt.Printf("[ARCHIVER-UPDATE] Updated thread %s status to %s\n", event.Data["thread_id"], status)
+			}
+			continue
+		}
+
 		// Handle missing fields with defaults
 		error := ""
 		if event.Data["error"] != "" {
@@ -163,16 +179,57 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			ownerIDParam = nil // Empty string should also be NULL
 		}
 
-		_, err := w.db.Pool.Exec(ctx, query,
-			event.Data["threadId"],  // Use threadId instead of id
-			event.Data["companyId"], // Add company_id from stream data
+		// Validate company_id exists in companies table
+		companyID := event.Data["companyId"]
+		if companyID == "" {
+			fmt.Printf("❌ [ARCHIVER-ERROR] Missing company_id for thread %s. Stream data: %+v\n", event.Data["threadId"], event.Data)
+			return fmt.Errorf("missing company_id for thread %s", event.Data["threadId"])
+		}
+
+		var companyExists bool
+		checkQuery := `SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1)`
+		err := w.db.Pool.QueryRow(ctx, checkQuery, companyID).Scan(&companyExists)
+		if err != nil {
+			fmt.Printf("❌ [ARCHIVER-ERROR] Failed to check company existence: %v\n", err)
+			return fmt.Errorf("failed to validate company_id: %w", err)
+		}
+		if !companyExists {
+			fmt.Printf("❌ [ARCHIVER-ERROR] Company ID '%s' not found in companies table for thread %s\n", companyID, event.Data["threadId"])
+			fmt.Printf("   Thread data: threadId=%s, ownerId=%s, companyId=%s\n", event.Data["threadId"], event.Data["ownerId"], companyID)
+			return fmt.Errorf("company_id '%s' does not exist in companies table", companyID)
+		}
+
+		// Handle contract_version (integer field) - set to NULL if empty
+		var contractVersionParam interface{} = nil
+		if contractVersion := event.Data["contractVersion"]; contractVersion != "" {
+			contractVersionParam = contractVersion
+		}
+
+		// Insert/update thread creation event
+		query := `
+			INSERT INTO threads (
+				id, company_id, contract_id, contract_name, contract_version, owner_id, error, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (id) DO UPDATE SET
+				company_id = EXCLUDED.company_id,
+				contract_id = EXCLUDED.contract_id,
+				contract_name = EXCLUDED.contract_name,
+				contract_version = EXCLUDED.contract_version,
+				owner_id = EXCLUDED.owner_id,
+				error = EXCLUDED.error,
+				updated_at = EXCLUDED.updated_at
+		`
+
+		_, err = w.db.Pool.Exec(ctx, query,
+			event.Data["threadId"], // Use threadId instead of id
+			companyID,              // Required - validated above
 			event.Data["contractId"],
 			event.Data["contractName"], // Add contract_name from stream data
-			event.Data["contractVersion"],
-			ownerIDParam,            // Use validated owner_id (NULL if user doesn't exist)
-			error,                   // Error field (optional)
-			event.Data["startedAt"], // Use startedAt as created_at
-			event.Data["startedAt"], // Use startedAt as updated_at for new records
+			contractVersionParam,       // Use NULL if empty (integer field)
+			ownerIDParam,               // Use validated owner_id (NULL if user doesn't exist)
+			error,                      // Error field (optional)
+			event.Data["startedAt"],    // Use startedAt as created_at
+			event.Data["startedAt"],    // Use startedAt as updated_at for new records
 		)
 		if err != nil {
 			return err
@@ -529,7 +586,7 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 
 	query := `
 		INSERT INTO step_substeps (
-			id, thread_id, step_id, substep_name, status, payload, recorded_at
+			id, thread_id, step_id, name, status, payload, recorded_at
 		) VALUES `
 
 	values := make([]interface{}, 0, len(subSteps)*7)
@@ -549,7 +606,7 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 		// Extract fields
 		threadID, _ := subStep["thread_id"].(string)
 		stepID, _ := subStep["step_id"].(string)
-		substepName, _ := subStep["substep_name"].(string)
+		name, _ := subStep["name"].(string)
 		status, _ := subStep["status"].(string)
 		recordedAt, _ := subStep["recorded_at"].(string)
 
@@ -569,7 +626,7 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 			recordedAt = time.Now().Format(time.RFC3339Nano)
 		}
 
-		values = append(values, subStepID, threadID, stepID, substepName, status, string(payloadJSON), recordedAt)
+		values = append(values, subStepID, threadID, stepID, name, status, string(payloadJSON), recordedAt)
 	}
 
 	query += placeholders + " ON CONFLICT (id) DO NOTHING"

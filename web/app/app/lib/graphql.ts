@@ -78,7 +78,7 @@ export interface SubStep {
   id: string;
   threadId: string;
   stepId: string;
-  substepName: string;
+  name: string;
   status: string;
   payload?: Record<string, any>;
   recordedAt: string;
@@ -285,7 +285,7 @@ class GraphQLClient {
               id
               threadId
               stepId
-              substepName
+              name
               status
               payload
               recordedAt

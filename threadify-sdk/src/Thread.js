@@ -344,27 +344,45 @@ export class Connection {
 
   /**
    * Register a notification handler for specific events (v2.0.0 API)
-   * @param {string} event - Event pattern: 'step.success', 'step.failed', 'rule.violated', 'rule.passed', 'step.*', 'rule.*', '*'
-   * @param {string} stepName - Name of the step (or "contract@stepName")
-   * @param {Function} handler - Handler function (receives Notification)
+   * Supports both 2-param (thread-level) and 3-param (step-level) signatures
+   * @param {string} event - Event pattern: 'thread.cancelled', 'thread.completed', 'step.success', 'rule.violated', etc.
+   * @param {string|Function} stepNameOrHandler - Step name (3-param) or handler function (2-param)
+   * @param {Function} [handler] - Handler function (only for 3-param signature)
    * @returns {Connection} - Returns this for chaining
    * 
    * @example
-   * // Step execution events
+   * // Thread-level events (2 params - no stepName)
+   * thread.on('thread.cancelled', (notif) => { ... });
+   * thread.on('thread.completed', (notif) => { ... });
+   * thread.on('thread.*', (notif) => { ... }); // All thread events
+   * 
+   * // Step-level events (3 params - with stepName)
    * thread.on('step.success', 'order_placed', (notif) => { ... });
    * thread.on('step.failed', 'order_placed', (notif) => { ... });
-   * 
-   * // Contract validation events
    * thread.on('rule.violated', 'order_placed', (notif) => { ... });
    * thread.on('rule.passed', 'order_placed', (notif) => { ... });
    * 
    * // Wildcards
-   * thread.on('step.*', 'order_placed', (notif) => { ... }); // All step events
-   * thread.on('rule.*', 'order_placed', (notif) => { ... }); // All rule events
-   * thread.on('*', 'order_placed', (notif) => { ... });      // All events
+   * thread.on('step.*', 'order_placed', (notif) => { ... }); // All step events for this step
+   * thread.on('*', 'order_placed', (notif) => { ... });      // All events for this step
    */
-  on(event, stepName, handler) {
-    if (typeof handler !== 'function') {
+  on(event, stepNameOrHandler, handler) {
+    // Determine if this is 2-param (thread-level) or 3-param (step-level) signature
+    let stepName;
+    let actualHandler;
+    
+    if (typeof stepNameOrHandler === 'function') {
+      // 2-param signature: on(event, handler)
+      // Thread-level events - use empty string for stepName
+      stepName = '';
+      actualHandler = stepNameOrHandler;
+    } else {
+      // 3-param signature: on(event, stepName, handler)
+      stepName = stepNameOrHandler;
+      actualHandler = handler;
+    }
+    
+    if (typeof actualHandler !== 'function') {
       throw new Error('Handler must be a function');
     }
     
@@ -382,18 +400,27 @@ export class Connection {
     if (!this.notificationHandlers.has(handlerKey)) {
       this.notificationHandlers.set(handlerKey, []);
     }
-    this.notificationHandlers.get(handlerKey).push(handler);
+    this.notificationHandlers.get(handlerKey).push(actualHandler);
     
     return this;
   }
 
   /**
    * Unsubscribe from notification events
+   * Supports both 1-param (thread-level) and 2-param (step-level) signatures
    * @param {string} event - Event pattern
-   * @param {string} stepName - Step name
+   * @param {string} [stepName] - Step name (optional, defaults to empty string for thread-level)
    * @returns {Connection} - Returns this for chaining
+   * 
+   * @example
+   * // Thread-level events (1 param)
+   * thread.off('thread.cancelled');
+   * thread.off('thread.*');
+   * 
+   * // Step-level events (2 params)
+   * thread.off('step.success', 'order_placed');
    */
-  off(event, stepName) {
+  off(event, stepName = '') {
     const handlerKey = `${event}:${stepName}`;
     this.notificationHandlers.delete(handlerKey);
     
@@ -931,74 +958,88 @@ export class ThreadInstance {
   }
 
   /**
-   * Close the thread on the server (marks thread as closed)
-   * Requires appropriate permissions (owner or participant with thread.close permission)
-   * @param {string|Object} reason - Optional reason for closing (string) or data object
+   * End the thread on the server
+   * Defaults to 'cancelled' status, can be marked as 'completed' for successful completion
+   * For contract-linked threads, 'completed' status is only allowed when terminal state is reached
+   * Requires appropriate permissions (owner or participant with thread.end permission)
+   * @param {string} status - Thread end status: 'cancelled' (default) or 'completed'
+   * @param {string|Object} reason - Optional reason for ending (string) or data object
    * @returns {Promise<Object>} - Server response
    * @example
-   * // With reason string
-   * await thread.close('Order cancelled by customer');
+   * // Cancel thread (default)
+   * await thread.end();
+   * await thread.end('cancelled', 'Order cancelled by customer');
+   * 
+   * // Complete thread (only for non-contract threads or when terminal state reached)
+   * await thread.end('completed', 'All steps finished');
    * 
    * // With data object
-   * await thread.close({ reason: 'Order cancelled', cancelledBy: 'customer' });
-   * 
-   * // Without reason
-   * await thread.close();
+   * await thread.end('cancelled', { reason: 'Order cancelled', cancelledBy: 'customer' });
+   */
+  async end(status = 'cancelled', reason = '') {
+    return this._endThread(status, reason);
+  }
+
+  /**
+   * Close the thread on the server
+   * @deprecated Use thread.end('cancelled', reason) instead
+   * Marks the thread as cancelled
+   * @param {string|Object} reason - Optional reason for closure (string) or data object
+   * @returns {Promise<Object>} - Server response
    */
   async close(reason = '') {
-    return this._closeOrComplete('closed', reason);
+    return this._endThread('cancelled', reason);
   }
 
   /**
    * Mark the thread as completed on the server
-   * Useful for threads without contracts
-   * Requires appropriate permissions (owner or participant with thread.close permission)
+   * @deprecated Use thread.end('completed', reason) instead
+   * For contract-linked threads, this will be rejected unless terminal state is reached
    * @param {string|Object} reason - Optional reason for completion (string) or data object
    * @returns {Promise<Object>} - Server response
-   * @example
-   * await thread.complete('All steps finished');
-   * await thread.complete({ totalSteps: 5, duration: 120 });
    */
   async complete(reason = '') {
-    return this._closeOrComplete('completed', reason);
+    return this._endThread('completed', reason);
   }
 
   /**
-   * Internal method to close or complete a thread
+   * Internal method to end a thread (cancel or complete)
    * @private
    */
-  async _closeOrComplete(status, reason = '') {
+  async _endThread(status, reason = '') {
     return new Promise((resolve, reject) => {
       this._onceResponse((message) => {
-        if (message.action === 'closeThread') {
+        // Support both old (closeThread) and new (threadEnd) action names
+        if (message.action === 'closeThread' || message.action === 'threadEnd') {
           if (message.status === 'success') {
-            // Cleanup local state after successful close
+            // Cleanup local state after successful end
             this._cleanup();
             
             resolve({
               threadId: this.threadId,
               status: message.threadStatus,
-              closedAt: message.closedAt || message.completedAt,
+              endedAt: message.closedAt || message.completedAt || message.cancelledAt,
               message: message.message
             });
           } else {
-            reject(new Error(message.message || 'Failed to close thread'));
+            reject(new Error(message.message || 'Failed to end thread'));
           }
         }
       });
 
-      // Prepare close data
-      const closeData = { status };
+      // Prepare end data
+      const endData = { status };
       if (typeof reason === 'string' && reason) {
-        closeData.reason = reason;
+        endData.reason = reason;
       } else if (typeof reason === 'object' && reason !== null) {
-        Object.assign(closeData, reason);
+        Object.assign(endData, reason);
       }
 
+      // Use new action name (server supports both for backward compatibility)
       this._send({
-        action: 'closeThread',
+        action: 'threadEnd',
         threadId: this.threadId,
-        ...closeData
+        ...endData
       });
     });
   }
