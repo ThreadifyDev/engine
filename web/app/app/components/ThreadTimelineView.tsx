@@ -90,7 +90,7 @@ function SubStepItem({ subStep }: { subStep: GraphQLSubStep }) {
         ) : (
           <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
         )}
-        <span className="flex-1 font-medium text-gray-700">{subStep.substepName}</span>
+        <span className="flex-1 font-medium text-gray-700">{subStep.name}</span>
         <div className="flex items-center gap-2 text-xs text-gray-400">
           {duration && <span className="font-mono text-gray-500">{duration}</span>}
           <span>

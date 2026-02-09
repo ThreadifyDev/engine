@@ -131,6 +131,9 @@ func main() {
 		zap.Int32("activity_workers", workerPools.Activity.Stats().TotalWorkers),
 	)
 
+	// Wire WriteBack pool to AuthService for async API key timestamp updates
+	authService.SetWriteBackPool(workerPools.WriteBack)
+
 	contractService := service.NewContractService(db)
 
 	// Initialize NATS connection pool for notifications and archival (graceful degradation if unavailable)
@@ -168,6 +171,9 @@ func main() {
 	cacheManager := service.NewCacheService()
 
 	threadRepo := valkey.NewThreadRepository(valkeyService, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager)
+
+	// Wire WriteBack pool to ThreadRepository for async cache write-backs
+	threadRepo.SetWriteBackPool(workerPools.WriteBack)
 
 	// Initialize step event service with config
 	batchSize := viper.GetInt("thread_activities.batch_size")

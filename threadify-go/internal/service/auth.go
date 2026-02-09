@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/metrics"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // UserInfo represents user information derived from an API key
@@ -27,13 +28,14 @@ type cachedUserInfo struct {
 }
 
 type AuthService struct {
-	secret     []byte
-	issuer     string
-	audience   string
-	expiration time.Duration
-	db         *pgxpool.Pool
-	cache      sync.Map // key: apiKeyHash -> cachedUserInfo
-	cacheTTL   time.Duration
+	secret        []byte
+	issuer        string
+	audience      string
+	expiration    time.Duration
+	db            *pgxpool.Pool
+	cache         sync.Map // key: apiKeyHash -> cachedUserInfo
+	cacheTTL      time.Duration
+	writeBackPool *workerpool.Pool
 }
 
 func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthService {
@@ -48,6 +50,11 @@ func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthS
 // SetDB sets the database connection for API key validation
 func (s *AuthService) SetDB(db *pgxpool.Pool) {
 	s.db = db
+}
+
+// SetWriteBackPool sets the worker pool for async cache updates
+func (s *AuthService) SetWriteBackPool(pool *workerpool.Pool) {
+	s.writeBackPool = pool
 	s.cacheTTL = 1 * time.Hour // Cache API key lookups for 1 hour
 
 	// Start cache cleanup goroutine
@@ -164,14 +171,14 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 		return nil, fmt.Errorf("API key has expired")
 	}
 
-	// Update last_used_at timestamp (async, don't wait)
-	go func() {
-		updateCtx, updateCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// Update last_used_at timestamp (async via writeback worker pool)
+	s.writeBackPool.Submit(func(ctx context.Context) {
+		updateCtx, updateCancel := context.WithTimeout(ctx, 3*time.Second)
 		defer updateCancel()
 
 		updateQuery := `UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1`
 		s.db.Exec(updateCtx, updateQuery, keyHash)
-	}()
+	})
 
 	return &userInfo, nil
 }

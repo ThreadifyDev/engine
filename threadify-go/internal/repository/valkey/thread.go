@@ -11,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // ThreadRepository handles thread storage in Valkey (Redis)
@@ -20,6 +21,7 @@ type ThreadRepository struct {
 	postgresRepo      *postgres.ThreadRepository
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
 	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
+	writeBackPool     *workerpool.Pool              // For async cache write-backs
 }
 
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
@@ -37,6 +39,11 @@ func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *
 // GetPostgresRepo returns the underlying postgres repository for direct queries
 func (r *ThreadRepository) GetPostgresRepo() *postgres.ThreadRepository {
 	return r.postgresRepo
+}
+
+// SetWriteBackPool sets the worker pool for async cache write-backs
+func (r *ThreadRepository) SetWriteBackPool(pool *workerpool.Pool) {
+	r.writeBackPool = pool
 }
 
 // Save stores a thread in Valkey
@@ -110,27 +117,23 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack .
 		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
 	}
 
-	log.Printf("✅ [COLD] Thread %s from PostgreSQL", threadID)
+	log.Printf(" [COLD] Thread %s from PostgreSQL", threadID)
 
-	// Async write-back using Save() for format consistency
+	// Async write-back via worker pool using Save() for format consistency
 	// Don't block the read operation - write-back happens in background
-	if shouldWriteBack {
-		go func(threadID string, thread *models.Thread) {
+	if shouldWriteBack && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
 			// Create new context with timeout for write-back operation
-			writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 
-			log.Printf("🔄 [WRITE-BACK] Async caching thread %s to Valkey", threadID)
+			log.Printf(" [WRITE-BACK] Async caching thread %s to Valkey", threadID)
 			if err := r.Save(writeBackCtx, thread); err != nil {
-				log.Printf("⚠️ Async write-back failed for thread %s: %v", threadID, err)
+				log.Printf(" Async write-back failed for thread %s: %v", threadID, err)
 			} else {
-				log.Printf("✅ [WRITE-BACK] Thread %s cached successfully", threadID)
-				// Extend TTL on all related keys
-				if err := r.extendAllThreadTTLs(writeBackCtx, threadID); err != nil {
-					log.Printf("⚠️ TTL extension failed for thread %s: %v", threadID, err)
-				}
+				log.Printf(" [WRITE-BACK] Thread %s cached successfully", threadID)
 			}
-		}(threadID, thread)
+		})
 	}
 
 	return thread, nil
@@ -341,12 +344,14 @@ func (r *ThreadRepository) GetThreadWithPermissionCheck(
 		return nil, err
 	}
 
-	// Async write-back to Valkey
-	go func(threadID string, thread *models.Thread) {
-		writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		r.Save(writeBackCtx, thread)
-	}(threadID, thread)
+	// Async write-back to Valkey via worker pool
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			r.Save(writeBackCtx, thread)
+		})
+	}
 
 	return thread, nil
 }

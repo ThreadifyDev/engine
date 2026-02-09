@@ -25,7 +25,7 @@ The SDK supports both ES Modules and CommonJS:
    - [Track a Simple Workflow](#track-a-simple-workflow)
    - [Link to External Systems](#link-to-external-systems)
    - [Handle Failures](#handle-failures)
-   - [Mark Thread as Completed](#mark-thread-as-completed)
+   - [End a Thread](#end-a-thread)
    - [Track Sub-steps](#track-sub-steps)
    - [Work with Contracts](#work-with-contracts)
    - [Inviting Others to a Thread](#inviting-others-to-a-thread)
@@ -145,34 +145,53 @@ try {
 | `.success(data)` | Object | `await step.success({ transactionId: 'txn_123' })` |
 | `.failed(data)` | Object | `await step.failed({ message: 'Timeout', code: 'ERR_TIMEOUT' })` |
 
-### Mark Thread as Completed
+### End a Thread
 
-Explicitly mark a thread as completed when all work is done. This is useful for:
-- Triggering final validations
-- Closing out workflows
-- Signaling completion to observers
+Explicitly end a thread when work is done or cancelled using `thread.end(status, reason)`.
+
+**Status Options:**
+
+| Status | Description | Non-Contract | Contract-Linked |
+|--------|-------------|--------------|-----------------|
+| `'cancelled'` (default) | Thread was cancelled or stopped | ✅ Allowed | ✅ Allowed |
+| `'completed'` | Thread finished successfully | ✅ Allowed | ❌ Auto-completes only |
+
+**Basic Usage:**
 
 ```javascript
 const thread = await connection.start();
 
-// Record all your steps
+// Record your steps
 await thread.step('order_placed').success();
 await thread.step('payment_processed').success();
-await thread.step('order_shipped').success();
 
-// Mark thread as completed
-await thread.completed();
+// Cancel the thread (default)
+await thread.end();
+await thread.end('cancelled', 'Customer requested cancellation');
+
+// Complete the thread (non-contract only)
+await thread.end('completed', 'All steps finished');
 ```
 
-**Alternative: `.close()`**
-
-Use `.close()` as an alias for `.completed()` - both do the same thing:
+**Contract-Linked Threads:**
 
 ```javascript
-// These are equivalent
-await thread.completed();
-await thread.close();
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// ✅ Cancel anytime
+await thread.end('cancelled', 'Order cancelled');
+
+// ❌ Manual completion not allowed
+try {
+  await thread.end('completed');
+} catch (error) {
+  console.error(error.message);
+  // "Failed to end thread: cannot manually complete thread linked to contract: 
+  //  thread will auto-complete when terminal state is reached"
+}
 ```
+
+**Why the restriction?** Contract-linked threads have defined terminal states (end nodes in the contract graph). The thread automatically completes when a step reaches one of these terminal nodes. Manual completion would bypass contract validation.
 
 ### Track Sub-steps
 
@@ -444,7 +463,7 @@ const step = steps[0];
 const subSteps = await step.subSteps();
 
 subSteps.forEach(sub => {
-  console.log(`${sub.substepName}: ${sub.status}`);
+  console.log(`${sub.name}: ${sub.status}`);
   console.log(`Payload:`, JSON.parse(sub.payload));
 });
 ```
@@ -457,7 +476,7 @@ subSteps.forEach(sub => {
   id: string,              // Sub-step ID
   threadId: string,        // Parent thread ID
   stepId: string,          // Parent step ID
-  substepName: string,     // Sub-step name
+  name: string,            // Sub-step name
   status: string,          // 'success' or 'failed'
   payload: string,         // JSON string of sub-step data
   recordedAt: string       // ISO timestamp
@@ -567,7 +586,7 @@ console.log(`\nSub-steps executed: ${subSteps.length}`);
 
 subSteps.forEach(sub => {
   const data = JSON.parse(sub.payload);
-  console.log(`  ${sub.substepName}: ${sub.status}`);
+  console.log(`  ${sub.name}: ${sub.status}`);
   if (sub.status === 'failed') {
     console.log(`    Error: ${data.error || 'Unknown'}`);
   }
@@ -609,12 +628,15 @@ Notifications are enabled automatically when you connect. Use the `maxInFlight` 
 
 ### Subscribing to Notifications
 
-Subscribe to events using the `.on()` method:
+Subscribe to events using the `.on()` method. Supports both thread-level (2 params) and step-level (3 params) events:
 
 **Event Patterns:**
 
 | Pattern | Triggers On | Example |
 |---------|-------------|----------|
+| `thread.cancelled` | Thread cancelled | Workflow stopped |
+| `thread.completed` | Thread completed | Workflow finished |
+| `thread.*` | Any thread event | All thread lifecycle |
 | `step.success` | Step succeeded | Order completed |
 | `step.failed` | Step failed | Payment declined |
 | `rule.violated` | Contract violation | Invalid transition |
@@ -623,12 +645,42 @@ Subscribe to events using the `.on()` method:
 | `rule.*` | Any validation | All contract checks |
 | `*` | All events | Everything |
 
+**Thread-Level Events (2 params):**
+
 ```javascript
-connection.on('step.success', 'order_placed', (notification) => {
-  console.log('Order placed successfully');
-  notification.ack(); // Must ACK
+// Listen to thread lifecycle events
+connection.on('thread.cancelled', (notification) => {
+  console.log('Thread was cancelled:', notification.message);
+  notification.ack();
 });
 
+connection.on('thread.completed', (notification) => {
+  console.log('Thread completed:', notification.message);
+  notification.ack();
+});
+
+// Wildcard for all thread events
+connection.on('thread.*', (notification) => {
+  console.log('Thread event:', notification.stepStatus);
+  notification.ack();
+});
+```
+
+**Step-Level Events (3 params):**
+
+```javascript
+// Step execution events
+connection.on('step.success', 'order_placed', (notification) => {
+  console.log('Order placed successfully');
+  notification.ack();
+});
+
+connection.on('step.failed', 'payment_processed', (notification) => {
+  console.error('Payment failed:', notification.message);
+  notification.ack();
+});
+
+// Contract validation events
 connection.on('rule.violated', 'order_placed', (notification) => {
   console.error('Validation violation:', notification.message);
   notification.ack();

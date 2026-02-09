@@ -227,8 +227,8 @@
       "is_wildcard": false
     },
     {
-      "name": "thread.close",
-      "description": "Close threads",
+      "name": "thread.end",
+      "description": "End threads (cancel or complete)",
       "is_wildcard": false
     }
   ]

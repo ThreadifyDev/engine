@@ -11,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // ValidationRepository implements cache-aside pattern for validation results
@@ -32,9 +33,10 @@ import (
 // - Async write-back failures are logged but don't block requests
 // - Context cancellation prevents orphaned goroutines on shutdown
 type ValidationRepository struct {
-	client       interfaces.ValkeyClient
-	postgresRepo *postgres.ValidationRepository
-	ttl          time.Duration
+	client        interfaces.ValkeyClient
+	postgresRepo  *postgres.ValidationRepository
+	ttl           time.Duration
+	writeBackPool *workerpool.Pool
 }
 
 func NewValidationRepository(client interfaces.ValkeyClient) *ValidationRepository {
@@ -55,6 +57,11 @@ func NewValidationRepositoryWithPostgres(client interfaces.ValkeyClient, postgre
 // GetPostgresRepo returns the PostgreSQL repository for direct access when needed
 func (r *ValidationRepository) GetPostgresRepo() *postgres.ValidationRepository {
 	return r.postgresRepo
+}
+
+// SetWriteBackPool sets the worker pool for async cache write-backs
+func (r *ValidationRepository) SetWriteBackPool(pool *workerpool.Pool) {
+	r.writeBackPool = pool
 }
 
 // GetValidationResultsWithCache implements cache-aside pattern
@@ -92,18 +99,20 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 		return nil, nil
 	}
 
-	// Async write-back to Redis with context cancellation
-	go func(ctx context.Context) {
-		// Create timeout context for async operation
-		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+	// Async write-back to Redis via worker pool with context cancellation
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			// Create timeout context for async operation
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 
-		if err := r.cacheValidationResults(writeCtx, validationKey, validationResults); err != nil {
-			log.Printf("❌ Failed to cache validation results: %v", err)
-		} else {
-			log.Printf("💾 Cached validation results to Redis: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
-		}
-	}(ctx)
+			if err := r.cacheValidationResults(writeCtx, validationKey, validationResults); err != nil {
+				log.Printf("❌ Failed to cache validation results: %v", err)
+			} else {
+				log.Printf("💾 Cached validation results to Redis: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+			}
+		})
+	}
 
 	return validationResults, nil
 }

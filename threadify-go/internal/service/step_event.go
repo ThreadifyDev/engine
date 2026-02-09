@@ -147,12 +147,12 @@ func (ses *StepEventService) processSubSteps(threadID, stepID string, subSteps [
 		}
 
 		subStepEvent := map[string]interface{}{
-			"thread_id":    threadID,
-			"step_id":      stepID,
-			"substep_name": subStep.Name,
-			"status":       subStep.Status,
-			"payload":      subStep.Payload,
-			"recorded_at":  recordedAt.Format(time.RFC3339Nano),
+			"thread_id":   threadID,
+			"step_id":     stepID,
+			"name":        subStep.Name,
+			"status":      subStep.Status,
+			"payload":     subStep.Payload,
+			"recorded_at": recordedAt.Format(time.RFC3339Nano),
 		}
 		subStepEvents = append(subStepEvents, subStepEvent)
 	}

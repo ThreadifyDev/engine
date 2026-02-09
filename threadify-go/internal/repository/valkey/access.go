@@ -13,14 +13,16 @@ import (
 	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // AccessRepository handles role and permission management in Valkey
 type AccessRepository struct {
-	valkey       interfaces.ValkeyClient
-	postgresRepo PostgresAccessRepository // For hot/cold fallback
-	rbacLoader   *rbac.Loader             // For dynamic permission-to-role mapping
-	ttl          int                      // TTL in seconds for access keys
+	valkey        interfaces.ValkeyClient
+	postgresRepo  PostgresAccessRepository // For hot/cold fallback
+	rbacLoader    *rbac.Loader             // For dynamic permission-to-role mapping
+	ttl           int                      // TTL in seconds for access keys
+	writeBackPool *workerpool.Pool         // For async cache write-backs
 }
 
 // PostgresAccessRepository defines the interface for PostgreSQL access operations
@@ -51,6 +53,11 @@ func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRep
 // SetRBACLoader sets the RBAC loader for dynamic permission-to-role mapping
 func (r *AccessRepository) SetRBACLoader(loader *rbac.Loader) {
 	r.rbacLoader = loader
+}
+
+// SetWriteBackPool sets the worker pool for async cache write-backs
+func (r *AccessRepository) SetWriteBackPool(pool *workerpool.Pool) {
+	r.writeBackPool = pool
 }
 
 // GrantOrUpdateAccess grants or updates user access using unified Lua script with role_index
@@ -208,19 +215,19 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 
 	log.Printf("✅ [COLD] Access for user %s retrieved from PostgreSQL", userID)
 
-	// Async write-back - don't block the read operation
-	if shouldWriteBack {
-		go func(threadID, userID string, access *interfaces.UserAccess) {
-			writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// Async write-back via worker pool - don't block the read operation
+	if shouldWriteBack && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 
 			log.Printf("🔄 [WRITE-BACK] Async caching access for user %s in thread %s", userID, threadID)
 			if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err != nil {
-				log.Printf("⚠️ Async write-back failed for access: %v", err)
+				log.Printf("❌ [WRITE-BACK] Failed to cache access: %v", err)
 			} else {
-				log.Printf("✅ [WRITE-BACK] Access for user %s cached successfully", userID)
+				log.Printf("✅ [WRITE-BACK] Access cached successfully for user %s", userID)
 			}
-		}(threadID, userID, access)
+		})
 	}
 
 	return access, nil
@@ -263,10 +270,10 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, wr
 
 	log.Printf("✅ [COLD] Access for thread %s retrieved from PostgreSQL", threadID)
 
-	// Async write-back for all users - don't block the read operation
-	if shouldWriteBack && len(result) > 0 {
-		go func(threadID string, result map[string]*interfaces.UserAccess) {
-			writeBackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Async write-back for all users via worker pool - don't block the read operation
+	if shouldWriteBack && len(result) > 0 && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeBackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			log.Printf("🔄 [WRITE-BACK] Async caching access for %d users in thread %s", len(result), threadID)
@@ -278,8 +285,8 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, wr
 					successCount++
 				}
 			}
-			log.Printf("✅ [WRITE-BACK] Cached %d/%d user access records successfully", successCount, len(result))
-		}(threadID, result)
+			log.Printf("✅ [WRITE-BACK] Cached %d/%d users successfully", successCount, len(result))
+		})
 	}
 
 	return result, nil
@@ -371,28 +378,30 @@ func (r *AccessRepository) GetUserIDsByRuntimeRoles(ctx context.Context, threadI
 		roleToUsers[user.RuntimeRole] = append(roleToUsers[user.RuntimeRole], user.UserID)
 	}
 
-	// Write back to Valkey SETs (async, don't block on this)
-	go func() {
-		// Use timeout context for async write (5s should be plenty for Redis operations)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	// Write back to Valkey SETs via worker pool (async, don't block on this)
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			// Use timeout context for async write (5s should be plenty for Redis operations)
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 
-		for runtimeRole, ids := range roleToUsers {
-			key := r.getUsersByRoleKey(threadID, runtimeRole)
-			// SAdd accepts variadic interface{}, convert slice
-			members := make([]interface{}, len(ids))
-			for i, id := range ids {
-				members[i] = id
+			for runtimeRole, ids := range roleToUsers {
+				key := r.getUsersByRoleKey(threadID, runtimeRole)
+				// SAdd accepts variadic interface{}, convert slice
+				members := make([]interface{}, len(ids))
+				for i, id := range ids {
+					members[i] = id
+				}
+				// Add members to SET
+				if err := r.valkey.SAdd(writeCtx, key, members...); err != nil {
+					// Log error but don't fail (async write)
+					continue
+				}
+				// Set TTL
+				r.valkey.Expire(writeCtx, key, time.Duration(r.ttl)*time.Second)
 			}
-			// Add members to SET
-			if err := r.valkey.SAdd(ctx, key, members...); err != nil {
-				// Log error but don't fail (async write)
-				continue
-			}
-			// Set TTL
-			r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
-		}
-	}()
+		})
+	}
 
 	return userIDs, nil
 }
@@ -451,28 +460,30 @@ func (r *AccessRepository) PopulateRoleSetsFromPostgres(
 		roleToUsers[user.RuntimeRole] = append(roleToUsers[user.RuntimeRole], user.UserID)
 	}
 
-	// Write to Redis SETs (async, don't block on this)
-	go func() {
-		// Use timeout context for async write (5s should be plenty for Redis operations)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	// Write to Redis SETs via worker pool (async, don't block on this)
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			// Use timeout context for async write (5s should be plenty for Redis operations)
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 
-		for runtimeRole, ids := range roleToUsers {
-			key := r.getUsersByRoleKey(threadID, runtimeRole)
-			// SAdd accepts variadic interface{}, convert slice
-			members := make([]interface{}, len(ids))
-			for i, id := range ids {
-				members[i] = id
+			for runtimeRole, ids := range roleToUsers {
+				key := r.getUsersByRoleKey(threadID, runtimeRole)
+				// SAdd accepts variadic interface{}, convert slice
+				members := make([]interface{}, len(ids))
+				for i, id := range ids {
+					members[i] = id
+				}
+				// Add members to SET
+				if err := r.valkey.SAdd(writeCtx, key, members...); err != nil {
+					// Log error but don't fail (async write)
+					continue
+				}
+				// Set TTL
+				r.valkey.Expire(writeCtx, key, time.Duration(r.ttl)*time.Second)
 			}
-			// Add members to SET
-			if err := r.valkey.SAdd(ctx, key, members...); err != nil {
-				// Log error but don't fail (async write)
-				continue
-			}
-			// Set TTL
-			r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
-		}
-	}()
+		})
+	}
 
 	return userIDs, nil
 }
@@ -651,12 +662,14 @@ func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID
 		return &PermissionCheckResult{HasAccess: false}, nil
 	}
 
-	// Async write-back
-	go func(threadID, userID string, access *interfaces.UserAccess) {
-		writeBackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		r.writeAccessToValkey(writeBackCtx, threadID, userID, access)
-	}(threadID, userID, access)
+	// Async write-back via worker pool
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			r.writeAccessToValkey(writeBackCtx, threadID, userID, access)
+		})
+	}
 
 	return r.evaluateReadPermissions(access), nil
 }

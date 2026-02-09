@@ -101,10 +101,10 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 
 	count = int64(len(pgSteps))
 
-	// Optionally write back to Valkey for future hot reads
-	if shouldWriteBack && count > 0 {
-		go func() {
-			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Optionally write back to Valkey for future hot reads via worker pool
+	if shouldWriteBack && count > 0 && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			// Rebuild the current_steps sorted set in batch
@@ -120,12 +120,11 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 			// Set TTL
 			ttl := time.Duration(r.ttl) * time.Second
 			if err := r.valkey.Expire(writeCtx, currentStepsKey, ttl); err != nil {
-				log.Printf("[WARN] Failed to set TTL: %v", err)
-				return
+				log.Printf("[WARN] Failed to set TTL on current_steps: %v", err)
 			}
 
 			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", count, threadID)
-		}()
+		})
 	}
 
 	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", count, threadID)
@@ -169,10 +168,10 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 		stepNames = append(stepNames, stepKey)
 	}
 
-	// Optionally write back to Valkey for future hot reads
-	if shouldWriteBack && len(stepNames) > 0 {
-		go func() {
-			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Optionally write back to Valkey for future hot reads via worker pool
+	if shouldWriteBack && len(stepNames) > 0 && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
 			// Rebuild the current_steps sorted set in batch
@@ -193,7 +192,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 			}
 
 			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", len(stepNames), threadID)
-		}()
+		})
 	}
 
 	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", len(stepNames), threadID)

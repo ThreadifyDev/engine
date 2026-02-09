@@ -280,7 +280,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &req)
 		response = h.handleUnsubscribe(session, &req)
 
-	case "closeThread":
+	case "closeThread", "threadEnd":
 		var req struct {
 			Action   string `json:"action"`
 			ThreadID string `json:"threadId"`
@@ -288,7 +288,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			Reason   string `json:"reason,omitempty"`
 		}
 		json.Unmarshal(msgBytes, &req)
-		response = h.handleCloseThread(session, &req)
+		response = h.handleThreadEnd(session, &req)
 
 	default:
 		response = models.ErrorResponse{
@@ -500,8 +500,8 @@ func (h *WebSocketHandler) handleNotificationAck(session *WSSession, ackMsg *Not
 	}
 }
 
-// handleCloseThread handles thread closure requests
-func (h *WebSocketHandler) handleCloseThread(session *WSSession, req *struct {
+// handleThreadEnd handles thread end requests (cancel or complete)
+func (h *WebSocketHandler) handleThreadEnd(session *WSSession, req *struct {
 	Action   string `json:"action"`
 	ThreadID string `json:"threadId"`
 	Status   string `json:"status"`
@@ -510,66 +510,69 @@ func (h *WebSocketHandler) handleCloseThread(session *WSSession, req *struct {
 	// Validate request
 	if req.ThreadID == "" {
 		return models.ErrorResponse{
-			Action:  "closeThread",
+			Action:  "threadEnd",
 			Status:  "error",
 			Message: "Thread ID is required",
 		}
 	}
 
-	// Default status to 'closed'
+	// Status defaults to 'cancelled' in service layer if empty
 	status := req.Status
-	if status == "" {
-		status = "closed"
-	}
 
-	// Validate status
-	if status != "closed" && status != "completed" {
+	// Validate status if provided
+	if status != "" && status != "cancelled" && status != "completed" {
 		return models.ErrorResponse{
-			Action:  "closeThread",
+			Action:  "threadEnd",
 			Status:  "error",
-			Message: "Status must be 'closed' or 'completed'",
+			Message: "Status must be 'cancelled' or 'completed'",
 		}
 	}
 
-	// TODO: Check permissions (thread.close)
-	// Permission check should be done via thread access - owner and participant roles have thread.close permission
+	// TODO: Check permissions (thread.end or thread.*)
+	// Permission check should be done via thread access - owner and participant roles have thread.end permission
 
-	// Close the thread with current timestamp
+	// End the thread with current timestamp
 	recordedAt := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := h.threadService.CloseThread(
+	err := h.threadService.EndThread(
 		ctx,
 		req.ThreadID,
 		session.ownerID,
-		"", // Service name - empty for user-initiated close
+		"", // Service name - empty for user-initiated end
 		status,
 		req.Reason,
 		recordedAt,
 	)
 	if err != nil {
 		return models.ErrorResponse{
-			Action:  "closeThread",
+			Action:  "threadEnd",
 			Status:  "error",
-			Message: "Failed to close thread: " + err.Error(),
+			Message: "Failed to end thread: " + err.Error(),
 		}
 	}
 
+	// Determine final status (defaults to cancelled if empty)
+	finalStatus := status
+	if finalStatus == "" {
+		finalStatus = "cancelled"
+	}
+
 	// Prepare timestamp field based on status
-	timestampField := "closedAt"
-	if status == "completed" {
+	timestampField := "cancelledAt"
+	if finalStatus == "completed" {
 		timestampField = "completedAt"
 	}
 
 	// Send success response
 	response := map[string]interface{}{
-		"action":       "closeThread",
+		"action":       "threadEnd",
 		"status":       "success",
 		"threadId":     req.ThreadID,
-		"threadStatus": status,
+		"threadStatus": finalStatus,
 		timestampField: recordedAt.Format(time.RFC3339),
-		"message":      "Thread " + status + " successfully",
+		"message":      "Thread " + finalStatus + " successfully",
 	}
 
 	return response
