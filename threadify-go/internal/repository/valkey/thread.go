@@ -282,21 +282,43 @@ func (r *ThreadRepository) ExtendTTL(ctx context.Context, threadID string) error
 // UpdateThreadStatus updates thread status in Valkey cache
 func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID string, status string, timestamp time.Time) error {
 	key := r.getThreadKey(threadID)
+	metaKey := r.getThreadMetaKey(threadID)
 
-	// Update status field
-	err := r.valkey.HSet(ctx, key, "status", status)
+	// First, get the current thread JSON to update it
+	thread, err := r.getFromValkey(ctx, threadID)
+	if err != nil || thread == nil {
+		// Thread not in cache, skip update (will be updated via archiver)
+		return nil
+	}
+
+	// Update thread object
+	thread.Status = models.ThreadStatus(status)
+	if status == "completed" || status == "cancelled" {
+		thread.CompletedAt = &timestamp
+	}
+
+	// Serialize updated thread to JSON
+	data, err := thread.ToJSON()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to serialize thread: %w", err)
 	}
 
-	// Set appropriate timestamp
-	timestampStr := timestamp.Format(time.RFC3339)
-	if status == "closed" {
-		err = r.valkey.HSet(ctx, key, "closed_at", timestampStr)
-	} else if status == "completed" {
-		err = r.valkey.HSet(ctx, key, "completed_at", timestampStr)
-	}
+	// Use pipeline for atomic write
+	pipe := r.valkey.Pipeline()
 
+	// Update base data as JSON
+	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+
+	// Update metadata hash
+	metadata := map[string]interface{}{
+		"status": status,
+	}
+	if status == "completed" || status == "cancelled" {
+		metadata["completedAt"] = timestamp.Format(time.RFC3339)
+	}
+	pipe.HSet(ctx, metaKey, metadata)
+
+	_, err = pipe.Exec(ctx)
 	return err
 }
 

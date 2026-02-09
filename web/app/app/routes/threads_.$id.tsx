@@ -74,6 +74,8 @@ export default function ThreadDetailPage() {
     queryKey: ['thread', id],
     queryFn: () => graphqlClient.getThread(id!),
     enabled: !!id,
+    staleTime: 0, // Always fetch fresh data for thread details
+    refetchOnMount: true, // Refetch when component mounts
   });
 
 
