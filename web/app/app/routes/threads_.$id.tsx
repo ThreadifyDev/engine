@@ -231,7 +231,7 @@ export default function ThreadDetailPage() {
           
           {/* Tab Content */}
           <div className="mt-6">
-            {activeTab === 'timeline' ? (
+            {activeTab === 'timeline' && (
               <ThreadTimelineView 
                 steps={thread.steps || []} 
                 threadStatus={thread.status}
@@ -240,7 +240,9 @@ export default function ThreadDetailPage() {
                   setSidebarView('step');
                 }}
               />
-            ) : (
+            )}
+            
+            {activeTab === 'graph' && (
               <ThreadGraphView 
                 steps={thread.steps || []} 
                 onNodeClick={(step: StepStateInfo) => {

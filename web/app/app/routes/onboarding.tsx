@@ -22,7 +22,7 @@ export default function Onboarding() {
   useEffect(() => {
     // Redirect if not authenticated
     if (!api.isAuthenticated()) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

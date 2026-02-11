@@ -28,7 +28,7 @@ export default function Settings() {
     // Check authentication
     const token = api.getStoredToken();
     if (!token) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

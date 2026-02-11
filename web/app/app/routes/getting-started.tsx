@@ -18,7 +18,7 @@ export default function GettingStarted() {
     // Check if user is authenticated
     const token = api.getStoredToken();
     if (!token) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

@@ -16,7 +16,7 @@ export default function Team() {
     // Check authentication
     const token = api.getStoredToken();
     if (!token) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

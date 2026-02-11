@@ -25,7 +25,7 @@ export default function ContractVersionDetail() {
     // Check authentication
     const token = api.getStoredToken();
     if (!token) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

@@ -13,7 +13,7 @@ export default function VerifyOTP() {
 
   useEffect(() => {
     if (!email) {
-      navigate('/auth/login');
+      navigate('/login');
     }
   }, [email, navigate]);
 
@@ -106,7 +106,7 @@ export default function VerifyOTP() {
 
           {/* Back Link */}
           <div className="text-center text-sm">
-            <Link to="/auth/login" className="text-gray-600 hover:text-black">
+            <Link to="/login" className="text-gray-600 hover:text-black">
               ← Back to login
             </Link>
           </div>
