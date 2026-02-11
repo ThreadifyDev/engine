@@ -28,7 +28,7 @@ export default function Onboarding() {
 
     // Redirect if already onboarded
     if (user?.onboarding_completed) {
-      navigate('/dashboard');
+      navigate('/u/dashboard');
     }
   }, [navigate, user]);
 
@@ -64,7 +64,7 @@ export default function Onboarding() {
       api.setUser(updatedUser);
       
       // Navigate to getting-started (mandatory, non-skippable)
-      navigate('/getting-started');
+      navigate('/u/getting-started');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to complete onboarding');
     } finally {
@@ -77,7 +77,7 @@ export default function Onboarding() {
   };
 
   const handleSkip = () => {
-    navigate('/dashboard');
+    navigate('/u/dashboard');
   };
 
   return (

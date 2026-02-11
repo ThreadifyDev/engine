@@ -1,0 +1,100 @@
+---
+title: References
+description: Linking threads to external system identifiers
+---
+
+**References** link threads to external system identifiers like order IDs, customer IDs, or support tickets. They enable you to query threads using identifiers from your existing systems.
+
+### Reference Types
+
+- **Order IDs** - E-commerce order numbers
+- **Customer IDs** - Customer account identifiers  
+- **Support Tickets** - Zendesk, Jira, Salesforce ticket numbers
+- **Transaction IDs** - Payment processor transaction IDs
+- **Application IDs** - Loan applications, insurance claims
+- **Custom IDs** - Any business-relevant identifier
+
+### Reference Properties
+
+- **Key** - The reference type (e.g., "order_id")
+- **Value** - The actual identifier (e.g., "ORD-789")
+- **Thread association** - Links to a specific thread
+- **Queryable** - Can be used to find threads
+
+### Adding References
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'order-service');
+
+// Start thread with external references
+const thread = await connection.start('order_fulfillment', 'merchant', {
+  external_refs: {
+    order_id: 'ORD-789',
+    customer_id: 'CUST-456',
+    stripe_session_id: 'sess_123'
+  }
+});
+
+// Or add references to existing thread
+const existingThread = await connection.getThread('thread-uuid');
+// Note: References are typically set at thread creation
+```
+</Tab>
+</Tabs>
+
+### Querying by References
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// Find thread by order ID
+const threads = await connection.getThreadsByRef({
+  refKey: 'order_id',
+  refValue: 'ORD-789'
+});
+
+console.log(`Found ${threads.length} threads for order ORD-789`);
+
+// Get complete data for each thread
+for (const thread of threads) {
+  const completeData = await thread.getCompleteData();
+  console.log(`Thread ${thread.id}: ${thread.status}`);
+  console.log(`Started: ${thread.startedAt}`);
+  console.log(`Steps: ${completeData.steps.length}`);
+}
+
+// Find by customer ID
+const customerThreads = await connection.getThreadsByRef({
+  refKey: 'customer_id', 
+  refValue: 'CUST-456'
+});
+```
+</Tab>
+</Tabs>
+
+### Use Cases
+
+#### Customer Support
+- Support agent gets ticket: "Where's my order?"
+- Query by order ID → Find thread → Show complete execution
+
+#### Operations
+- Monitor specific high-value orders
+- Track problematic customer accounts
+- Investigate transaction failures
+
+#### Analytics
+- Correlate thread data with business metrics
+- Link execution patterns to customer behavior
+
+### Best Practices
+
+- **Add early** - Add references as soon as they're available
+- **Use consistent keys** - Standardize reference names across services
+- **Multiple references** - Add all relevant identifiers
+- **Business context** - Use IDs that teams already recognize
+

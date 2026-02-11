@@ -80,7 +80,7 @@ export default function ContractDetail() {
               {error instanceof Error ? error.message : 'Failed to load contract'}
             </p>
             <button
-              onClick={() => navigate('/contracts')}
+              onClick={() => navigate('/u/contracts')}
               className="px-4 py-2 bg-black text-white hover:bg-gray-800"
             >
               Back to Contracts
@@ -99,7 +99,7 @@ export default function ContractDetail() {
           {/* Header */}
           <div className="mb-12">
             <button
-              onClick={() => navigate('/contracts')}
+              onClick={() => navigate('/u/contracts')}
               className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
             >
               ← Back to Contracts

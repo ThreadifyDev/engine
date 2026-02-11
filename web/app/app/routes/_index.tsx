@@ -21,7 +21,7 @@ export default function Index() {
   useEffect(() => {
     // Redirect to dashboard if already authenticated
     if (api.isAuthenticated()) {
-      navigate('/dashboard');
+      navigate('/u/dashboard');
     }
   }, [navigate]);
 

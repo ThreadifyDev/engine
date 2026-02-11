@@ -24,7 +24,7 @@ export default function Dashboard() {
     // Check if user has completed first instrumentation
     if (!storedUser.first_instrumentation_done) {
       // Redirect to getting-started (non-skippable)
-      navigate('/getting-started');
+      navigate('/u/getting-started');
       return;
     }
 

@@ -1,0 +1,95 @@
+---
+title: Access Levels
+description: Controlling who can view and interact with threads
+---
+
+**Access Levels** control who can view, modify, or interact with threads and their data. Threadify uses a role-based permission system that provides fine-grained control over thread access.
+
+### Runtime Roles
+
+#### Owner
+- **Full access** to all thread data
+- Can **modify** thread and steps
+- **All notifications** including violations and completions
+- Can **manage access** for other users
+
+#### Participant
+- **Read/write** access to thread data
+- Can **record steps** and modify thread
+- **Violations and completions** notifications
+- Cannot manage access
+
+#### Observer
+- **Read-only** access to thread data
+- Cannot **modify** thread or record steps
+- **Completions only** notifications
+- Cannot manage access
+
+#### External
+- **Limited access** to specific data
+- Can only see **own steps** and completions
+- **Own failures** and completions notifications
+- No management permissions
+
+### Permission Categories
+
+#### Thread Permissions
+- **View thread** - Read thread metadata and steps
+- **Modify thread** - Add references, change metadata
+- **Manage access** - Grant/revoke access to others
+
+#### Step Permissions
+- **View steps** - Read all step data and context
+- **Record steps** - Add new steps to thread
+- **Own steps** - Access only steps you created
+
+#### Notification Permissions
+- **Violations** - Receive rule violation events
+- **Completions** - Receive step completion events
+- **Failures** - Receive step failure events
+
+### Example Usage
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'merchant-service');
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// Thread owner invites logistics partner
+const invitation = await thread.inviteParty({
+  role: 'logistics',
+  expiresIn: '48h'
+});
+
+// Share invitation token with logistics partner
+console.log('Invitation token:', invitation.token);
+
+// Logistics partner joins using token
+const logisticsConnection = await Threadify.connect('api-key', 'logistics-service');
+const logisticsThread = await logisticsConnection.join(invitation.token);
+
+// Logistics partner can now record steps
+await logisticsThread.step('shipment_created')
+  .addContext({ 
+    trackingNumber: '1Z999AA10123456784',
+    carrier: 'UPS',
+    warehouse: 'US-EAST'
+  })
+  .success();
+
+// Internal service joins directly (no token needed)
+const warehouseThread = await connection.join('thread-uuid', 'warehouse_manager');
+```
+</Tab>
+</Tabs>
+
+### Best Practices
+
+- **Principle of least privilege** - Grant minimum necessary access
+- **Role-based access** - Use roles instead of individual permissions
+- **Regular audits** - Review and remove unnecessary access
+- **Temporary access** - Grant time-limited access when needed
+

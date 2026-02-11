@@ -1,0 +1,117 @@
+---
+title: Sub-steps
+description: Breaking down complex steps into smaller operations
+---
+
+**Sub-steps** allow you to break down complex steps into smaller, trackable operations within a parent step. They provide fine-grained visibility into complex operations while maintaining the overall step context.
+
+### When to Use Sub-steps
+
+- **Complex operations** - Multiple distinct actions within one step
+- **Parallel execution** - Running multiple operations concurrently
+- **Debugging visibility** - Need to see intermediate progress
+- **Performance analysis** - Identify bottlenecks within steps
+
+### Sub-step Properties
+
+- **Parent step** - Associated with a main step
+- **Unique name** - Within the parent step context
+- **Independent status** - Can succeed or fail independently
+- **Timestamps** - Track execution timing
+- **Context data** - Specific to the sub-step operation
+
+### Sub-step vs Step
+
+<table className="w-full">
+  <thead>
+    <tr className="border-b border-gray-300">
+      <th className="text-left font-semibold py-2 pr-4">Feature</th>
+      <th className="text-left font-semibold py-2 pr-4">Step</th>
+      <th className="text-left font-semibold py-2">Sub-step</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Scope</td>
+      <td className="py-2 pr-4">Thread-level</td>
+      <td className="py-2">Within a step</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Validation</td>
+      <td className="py-2 pr-4">Contract rules</td>
+      <td className="py-2">No validation</td>
+    </tr>
+    <tr>
+      <td className="py-2 pr-4">Notifications</td>
+      <td className="py-2 pr-4">Can trigger events</td>
+      <td className="py-2">No events</td>
+    </tr>
+  </tbody>
+</table>
+
+### Example
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'payment-service');
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// Main step with sub-steps for complex payment flow
+const paymentStep = thread.step('payment_processed');
+
+try {
+  // Add sub-steps as you execute them
+  paymentStep.subStep('validate_card', { 
+    cardType: 'visa', 
+    last4: '1234' 
+  }, 'success');
+  
+  paymentStep.subStep('check_fraud', { 
+    fraudScore: 0.15,
+    riskLevel: 'low'
+  }, 'success');
+  
+  paymentStep.subStep('authorize_payment', { 
+    authCode: 'AUTH-123',
+    amount: 299.99
+  }, 'success');
+  
+  paymentStep.subStep('process_transaction', { 
+    transactionId: 'TXN-456',
+    processor: 'stripe'
+  }, 'success');
+  
+  // Complete main step with context
+  await paymentStep
+    .addContext({ 
+      totalAmount: 299.99,
+      currency: 'USD',
+      paymentMethod: 'credit_card'
+    })
+    .success();
+    
+} catch (error) {
+  paymentStep.subStep('error_handler', { 
+    error: error.message,
+    step: 'authorize_payment'
+  }, 'failed');
+  
+  await paymentStep.failed({ 
+    message: 'Payment processing failed',
+    errorCode: 'PAYMENT_ERROR'
+  });
+}
+```
+</Tab>
+</Tabs>
+
+## Best Practices
+
+- **Logical grouping** - Sub-steps should be related to parent step
+- **Don't overuse** - Not every operation needs a sub-step
+- **Clear naming** - Describe the specific sub-operation
+- **Consistent patterns** - Use similar sub-step structures across steps
+

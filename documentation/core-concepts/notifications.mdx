@@ -1,0 +1,86 @@
+---
+title: Notifications
+description: Real-time WebSocket events for reacting to execution changes
+---
+
+**Notifications** are real-time WebSocket events that allow your application to react to execution graph changes. Think of it as a pub/sub model where you subscribe to specific steps and event types, and your application receives events when those conditions occur.
+
+### Event Types
+
+#### Execution Events
+- **step.success** - Step completed successfully
+- **step.failed** - Step failed with error
+- **step.error** - Step encountered system error
+
+#### Validation Events
+- **rule.violated** - Contract rule was violated
+- **rule.passed** - Contract rule validation passed
+- **rule.timeout** - Step exceeded time limit
+- **rule.retry_limit** - Step exceeded retry limit
+
+#### Thread Lifecycle
+- **thread.completed** - Thread reached terminal state
+- **thread.cancelled** - Thread was cancelled
+
+### Subscription Model
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// Subscribe to step execution events
+connection.on('step.success', 'order_placed', async (notification) => {
+  console.log('Order placed:', notification.context);
+  
+  // Get full thread context for decision making
+  const thread = await connection.getThread(notification.threadId);
+  console.log('Customer tier:', thread.refs.customerTier);
+  
+  notification.ack();
+});
+
+// Subscribe to validation violations
+connection.on('rule.violated', 'inventory_check', (notification) => {
+  console.error('Inventory violation:', notification.message);
+  notification.ack();
+});
+
+// Contract-specific notifications
+connection.on('rule.violated', 'product_delivery@order_placed', (notification) => {
+  console.log('Contract violation detected');
+  notification.ack();
+});
+```
+</Tab>
+</Tabs>
+
+### Event Processing
+
+1. **Subscribe** - Register interest in specific events
+2. **Receive** - Get real-time events via WebSocket
+3. **Process** - Handle the event in your application
+4. **Acknowledge** - Confirm receipt to prevent duplicates
+
+### Use Cases
+
+#### Real-time Monitoring
+- **Operations dashboard** - Live view of process execution
+- **Alert systems** - Notify teams of issues immediately
+- **SLA monitoring** - Track performance in real-time
+
+#### Automated Responses
+- **Retry logic** - Automatically retry failed steps
+- **Escalation** - Route critical issues to appropriate teams
+- **Compensation** - Trigger rollback or recovery actions
+
+#### Customer Experience
+- **Status updates** - Provide real-time order status
+- **Proactive support** - Contact customers about issues
+- **Personalized notifications** - Custom alerts based on execution
+
+### Best Practices
+
+- **Acknowledge promptly** - Always call `event.ack()`
+- **Handle gracefully** - Don't let notification failures break your app
+- **Filter appropriately** - Subscribe only to relevant events
+- **Error handling** - Catch and log notification processing errors
+

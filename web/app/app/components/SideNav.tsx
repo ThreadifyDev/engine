@@ -39,13 +39,13 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
   };
 
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/threads', label: 'Threads', icon: GitBranch },
-    { path: '/contracts', label: 'Contracts', icon: FileText },
-    { path: '/api-keys', label: 'API Keys', icon: Key },
-    { path: '/service-accounts', label: 'Service Accounts', icon: Bot },
-    { path: '/team', label: 'Team', icon: Users },
-    { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/u/threads', label: 'Threads', icon: GitBranch },
+    { path: '/u/contracts', label: 'Contracts', icon: FileText },
+    { path: '/u/api-keys', label: 'API Keys', icon: Key },
+    { path: '/u/service-accounts', label: 'Service Accounts', icon: Bot },
+    { path: '/u/team', label: 'Team', icon: Users },
+    { path: '/u/settings', label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -60,7 +60,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
           <h1 
             className="text-xl font-bold cursor-pointer text-white" 
             style={{ fontFamily: 'Block, sans-serif' }}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/u/dashboard')}
           >
             Threadify
           </h1>
