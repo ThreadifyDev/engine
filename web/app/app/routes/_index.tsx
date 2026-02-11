@@ -48,7 +48,7 @@ export default function Index() {
 
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
                 Every order placed, claim filed, or application submitted 
-flows through systems, APIs, approvals, and LLM agents. Threadify builds real-time execution graphs that power better decisions for your teams, applications, and AI agents.
+flows through systems, APIs, approvals, and LLM agents. Threadify captures these flows and builds real-time execution graphs that enable better decisions for your teams, applications, and AI agents.
               </p>
 
               <div className="flex gap-4">
@@ -92,13 +92,10 @@ flows through systems, APIs, approvals, and LLM agents. Threadify builds real-ti
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-20">
               <h2 className="text-4xl font-light text-black mb-4">
-                How it works
+                Here's exactly what you do
               </h2>
-              <p className="text-xl text-gray-700 mb-2">
-                Build realtime execution graphs in 4 steps
-              </p>
-              <p className="text-lg text-gray-600">
-                Start capturing execution data and visualize your business processes in realtime.
+              <p className="text-xl text-gray-700">
+                From "what happened?" to answers in seconds - here's how in 4 simple steps
               </p>
             </div>
 
@@ -118,7 +115,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify builds real-ti
                   Drop our lightweight SDK into your applications, agents, etc. Create threads to capture execution flows with minimal overhead (&lt;30ms).
                 </p>
                 {/* Line with arrow to next step */}
-                <div className="hidden md:block absolute top-1/2 right-0 translate-x-full">
+                <div className="hidden md:block absolute top-1/2 right-0" style={{ transform: 'translate(calc(100% + 8px), -50%)' }}>
                   <div className="flex items-center">
                     <div className="w-4 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600"></div>
                     <div className="w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-pink-600"></div>
@@ -140,7 +137,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify builds real-ti
                   Add business context to each step: customer data, reasoning, decisions, and timing. Capture what matters to validate against your business rules.
                 </p>
                 {/* Line with arrow down to next step */}
-                <div className="hidden md:block absolute bottom-0 right-1/2 translate-y-full">
+                <div className="hidden md:block absolute bottom-0 right-1/2" style={{ transform: 'translateX(50%) translateY(calc(100% + 8px))' }}>
                   <div className="flex flex-col items-center">
                     <div className="w-0.5 h-4 bg-gradient-to-b from-pink-600 to-orange-500"></div>
                     <div className="w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-orange-500"></div>
@@ -162,7 +159,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify builds real-ti
                   Connect threads to external systems using references like paymentId, ticketId, etc. Enforce rules across your entire ecosystem with full context.
                 </p>
                 {/* Line with arrow to next step */}
-                <div className="hidden md:block absolute top-1/2 right-0 translate-x-full">
+                <div className="hidden md:block absolute top-1/2 right-0" style={{ transform: 'translate(calc(100% + 8px), -50%)' }}>
                   <div className="flex items-center">
                     <div className="w-4 h-0.5 bg-gradient-to-r from-orange-500 to-yellow-500"></div>
                     <div className="w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-yellow-500"></div>
