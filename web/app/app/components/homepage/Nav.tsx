@@ -19,12 +19,6 @@ export default function Nav() {
           
           <div className="flex gap-3">
             <button
-              onClick={() => navigate('/login')}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-black transition"
-            >
-              Login
-            </button>
-            <button
               onClick={() => navigate('/signup')}
               className="px-4 py-2 text-sm bg-black text-white font-medium rounded hover:bg-gray-800 transition"
             >
