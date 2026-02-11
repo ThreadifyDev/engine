@@ -1,0 +1,194 @@
+---
+title: Idempotency
+description: Ensuring consistent step recordings in Threadify
+---
+
+**Idempotency** ensures that recording the same step multiple times has the same effect as recording it once. This prevents duplicate operations and ensures consistent execution when retries or network issues occur.
+
+### Idempotency Keys
+
+#### Auto-generated Keys
+- Threadify automatically generates unique keys for each step
+
+#### Custom Keys
+- You can provide your own idempotency keys for business-level deduplication
+- Example: Use order ID for payment step
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'payment-service');
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// Auto-generated idempotency key (default)
+const paymentStep = thread.step('payment_processed');
+// Threadify generates unique key automatically
+
+// Custom idempotency key for business-level deduplication
+const orderPaymentStep = thread.step('payment_processed')
+  .idempotencyKey(`order_${orderId}_payment`);
+// Ensures one payment per order regardless of retries
+```
+</Tab>
+</Tabs>
+
+### When Idempotency Matters
+
+#### Network Retries
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+// Client retries due to network timeout - Threadify handles deduplication
+const connection = await Threadify.connect('api-key', 'payment-service');
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+await processPaymentWithRetry('order_123'); // First attempt - success
+await processPaymentWithRetry('order_123'); // Retry - ignored as duplicate
+
+async function processPaymentWithRetry(orderId) {
+  const paymentStep = thread.step('payment_processed')
+    .idempotencyKey(`payment_${orderId}`);
+  
+  try {
+    const payment = await paymentGateway.charge(orderId);
+    await paymentStep.success({ transactionId: payment.id });
+    return payment;
+  } catch (error) {
+    await paymentStep.failed({ message: error.message });
+    throw error;
+  }
+}
+```
+</Tab>
+</Tabs>
+
+### Service Restarts
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// Service crashes after processing but before acknowledging
+const paymentStep = thread.step('payment_processed')
+  .idempotencyKey(`payment_${orderId}`);
+
+try {
+  const payment = await paymentGateway.charge(orderId);
+  await paymentStep.success({ transactionId: payment.id });
+  // Service crashes here
+} catch (error) {
+  await paymentStep.failed({ message: error.message });
+}
+
+// Service restarts - same idempotency key prevents duplicate
+const restartedPaymentStep = thread.step('payment_processed')
+  .idempotencyKey(`payment_${orderId}`); // Same key!
+// Threadify recognizes this as duplicate and returns existing result
+```
+</Tab>
+</Tabs>
+
+### Race Conditions
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// Multiple services process same event simultaneously
+const orderId = 'order_123';
+
+// Service A processes order
+const serviceA = await Threadify.connect('api-key', 'service-a');
+const threadA = await serviceA.getThread('thread-uuid');
+const stepA = threadA.step('order_processed')
+  .idempotencyKey(`order_${orderId}`);
+
+// Service B tries to process same order (race condition)
+const serviceB = await Threadify.connect('api-key', 'service-b');
+const threadB = await serviceB.getThread('thread-uuid');
+const stepB = threadB.step('order_processed')
+  .idempotencyKey(`order_${orderId}`); // Same key!
+
+// Only one succeeds - Threadify prevents duplicate processing
+```
+</Tab>
+</Tabs>
+
+### Idempotency in Action
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+class PaymentService {
+  constructor() {
+    this.connection = null;
+  }
+
+  async initialize() {
+    this.connection = await Threadify.connect('api-key', 'payment-service');
+  }
+
+  async processPayment(orderId, amount) {
+    const thread = await this.connection.start('order_fulfillment', 'merchant');
+    
+    // Use order ID as idempotency key - prevents duplicate charges
+    const paymentStep = thread.step('payment_processed')
+      .idempotencyKey(`payment_${orderId}`);
+    
+    try {
+      const payment = await paymentGateway.charge({
+        orderId,
+        amount,
+        currency: 'USD'
+      });
+      
+      await paymentStep
+        .addContext({ 
+          transactionId: payment.id,
+          amount: payment.amount,
+          currency: payment.currency,
+          paymentMethod: payment.method
+        })
+        .success();
+        
+      console.log(`Payment processed: ${payment.id}`);
+      return payment;
+      
+    } catch (error) {
+      await paymentStep.failed({ 
+        message: error.message,
+        errorCode: error.code,
+        retryable: error.retryable || false
+      });
+      throw error;
+    }
+  }
+}
+
+// Usage - can be called multiple times safely
+const paymentService = new PaymentService();
+await paymentService.initialize();
+
+await paymentService.processPayment('order_123', 99.99); // Success
+await paymentService.processPayment('order_123', 99.99); // Ignored as duplicate
+await paymentService.processPayment('order_123', 99.99); // Ignored as duplicate
+```
+</Tab>
+</Tabs>
+
+### Best Practices
+
+- **Business keys** - Use business identifiers when possible
+- **Consistent naming** - Follow patterns for key generation
+- **Scope appropriately** - Keys should be unique within scope
+- **Don't reuse** - Never reuse idempotency keys for different operations
+
+### Benefits
+
+- **Retry safety** - Services can retry without side effects
+- **Consistency** - Thread state remains consistent
+- **Recovery** - Systems can recover from failures safely
+- **Exactly-once processing** - Prevents duplicate operations
+

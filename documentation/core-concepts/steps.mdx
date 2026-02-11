@@ -1,0 +1,56 @@
+---
+title: Steps
+description: Individual actions within Threadify threads
+---
+
+**Steps** are the individual actions or operations within a thread, representing specific parts of your business process. Each step captures the execution of a single operation with timing, context, and validation.
+
+### Step Properties
+
+- **Unique identifier** (step name + idempotency key)
+- **Execution status** (success, failed, error)
+- **Context data** (payload, metadata)
+
+### Step Types
+
+#### Terminal Steps
+- Mark thread as complete when they succeed
+- Example: "order_delivered", "loan_approved"
+
+#### Regular Steps
+- Part of normal execution flow
+- Example: "payment_processed", "inventory_checked"
+
+#### Retryable Steps
+- Can be retried on failure
+- Track retry count and attempt history
+
+### Example
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// Create step first, then execute business logic
+const paymentStep = thread.step('payment_processed');
+try {
+  const payment = await processPayment(orderId);
+  await paymentStep
+    .addContext({ amount: payment.amount, transactionId: payment.id })
+    .success();
+} catch (error) {
+  await paymentStep.failed({ 
+    message: error.message,
+    errorCode: 'PAYMENT_FAILED'
+  });
+}
+```
+</Tab>
+</Tabs>
+
+## Best Practices
+
+- **Create step first** - Before executing business logic
+- **Add context** - Include relevant data for debugging
+- **Handle failures** - Always record failures with useful context
+- **Use descriptive names** - Clear, action-oriented step names
+

@@ -1,0 +1,72 @@
+---
+title: Threads
+description: Complete business process executions in Threadify
+---
+
+A **thread** is a live execution graph that generates auditable logs alongside it. It's a live system of records that creates websocket events when things happen, either as a result of state changes or contract violations.
+
+### Key Properties
+
+- **Unique ID** for tracking and querying
+- **Contract Governance** - Optional but tells Threadify what contract to use as actions are recorded into the graph
+- **External references** (order IDs, customer IDs, etc.)
+- **Complete execution history** with all steps and context
+- **Cryptographic hash chain** for integrity verification
+
+### Contract Governance
+
+Threads can operate in two modes:
+
+**1. Contract-Based Threads** (Recommended for critical workflows)
+- Enforced by YAML contracts with validation rules
+- Validates step transitions, required fields, and business rules
+- Prevents race conditions and ensures compliance
+- Identifies violations and sends WebSocket events for reactive handling
+
+**2. Free-Form Threads** (For simple or exploratory workflows)
+- No contract validation
+- Full flexibility in step naming and sequence
+- Useful for prototyping or non-critical processes
+
+### Thread Content
+
+Threads contain:
+- **Steps** - Individual operations and their outcomes
+- **Context data** - Payloads, metadata, and business information
+- **Actors** - Services, users, or systems that perform actions
+- **Timestamps** - When each action occurred
+- **References** - Links to external system identifiers
+
+### Thread-to-Thread Relationships
+
+Threads can reference other threads to create complex execution graphs:
+- **Parent threads** - Link to child threads for sub-processes
+- **Child threads** - Reference parent threads for context
+- **Related threads** - Connect parallel or dependent processes
+- **Follow-up threads** - Link to original threads for continuations
+
+### Contributors & Actors
+
+Threads are built by various contributors:
+- **Services** - Systems that record steps (web, backend, AI services)
+
+### Use Cases
+
+- **Order Fulfillment** - Track from order placement to delivery
+- **Loan Applications** - Monitor from submission to approval/rejection
+- **Insurance Claims** - Follow from claim filing to settlement
+- **Customer Onboarding** - Track from signup to activation
+
+### Example
+
+<Tabs>
+<Tab title="Node.js">
+```javascript
+// With contract validation
+const thread = await connection.start('order_fulfillment', 'merchant');
+
+// Without contract (free-form)
+const freeThread = await connection.start(null, 'merchant');
+```
+</Tab>
+</Tabs>

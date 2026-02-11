@@ -1,0 +1,75 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Threadify Documentation",
+  "logo": {
+    "dark": "/logo-dark.svg",
+    "light": "/logo-light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#000000",
+    "light": "#FFFFFF",
+    "dark": "#000000",
+    "anchors": {
+      "from": "#000000",
+      "to": "#666666"
+    }
+  },
+  "topbarCtaButton": {
+    "type": "github",
+    "url": "https://github.com/yourusername/threadify"
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart"
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        "core-concepts/contracts",
+        "core-concepts/threads",
+        "core-concepts/steps",
+        "core-concepts/references",
+        "core-concepts/hash-chain",
+        "core-concepts/access-levels",
+        "core-concepts/notifications",
+        "core-concepts/idempotency",
+        "core-concepts/sub-steps"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api/overview",
+        "api/authentication",
+        "api/threads",
+        "api/steps",
+        "api/contracts"
+      ]
+    },
+    {
+      "group": "SDK",
+      "pages": [
+        "sdk/overview",
+        "sdk/javascript",
+        "sdk/data-retrieval",
+        "sdk/notifications"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/creating-contracts",
+        "guides/monitoring",
+        "guides/troubleshooting"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/yourusername/threadify"
+  }
+}

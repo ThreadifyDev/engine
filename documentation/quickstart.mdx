@@ -1,0 +1,298 @@
+---
+title: Quick Start
+description: Get Threadify running in 5 minutes
+---
+
+## 1. Install the SDK
+
+<Tabs>
+<Tab title="JavaScript">
+```bash
+npm install @threadify/sdk
+```
+</Tab>
+{/* <Tab title="Go">
+```bash
+go get github.com/threadify/threadify-go
+```
+</Tab>
+<Tab title="Python">
+```bash
+pip install threadify-sdk
+```
+</Tab> */}
+</Tabs>
+
+## 2. Connect to Threadify
+
+<Note>
+  Need an API key? [Generate one here](https://threadify.dev/u/api-keys) to get started.
+</Note>
+
+<Tabs>
+<Tab title="JavaScript">
+```javascript
+import { Threadify } from '@threadify/sdk';
+
+// Connect with your API key and service name
+const connection = await Threadify.connect('your-api-key', 'my-service');
+```
+</Tab>
+{/* <Tab title="Go">
+```go
+package main
+
+import (
+    "github.com/threadify/threadify-go/pkg/threadify"
+)
+
+func main() {
+    // Connect with your API key and service name
+    connection, err := threadify.Connect("your-api-key", "my-service")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer connection.Close()
+}
+```
+</Tab>
+<Tab title="Python">
+```python
+import threadify
+
+# Connect with your API key and service name
+connection = await threadify.connect('your-api-key', 'my-service')
+```
+</Tab> */}
+</Tabs>
+
+## 3. Create Your First Thread
+
+<Tabs>
+<Tab title="JavaScript">
+```javascript
+// Start tracking a workflow
+const thread = await connection.start();
+
+// Or start with a contract
+const thread = await connection.start('order_fulfillment', 'merchant');
+```
+</Tab>
+{/* <Tab title="Go">
+```go
+// Start tracking a workflow
+thread, err := connection.Start()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Or start with a contract
+thread, err := connection.Start("order_fulfillment", "merchant")
+```
+</Tab>
+<Tab title="Python">
+```python
+# Start tracking a workflow
+thread = await connection.start()
+
+# Or start with a contract
+thread = await connection.start("order_fulfillment", "merchant")
+```
+</Tab> */}
+</Tabs>
+
+## 4. Add Steps to Your Process
+
+<Tabs>
+<Tab title="JavaScript">
+```javascript
+// Create step first, then execute business logic
+const orderStep = thread.step('order_received');
+const order = await receiveOrder();
+await orderStep.addContext({ orderId: 'ORD-123', total: 299.99 }).success();
+
+const inventoryStep = thread.step('inventory_checked');
+const inventory = await checkInventory(order.items);
+await inventoryStep.addContext({ inStock: true, warehouse: 'US-EAST' }).success();
+
+// Or chain them together
+await thread.step('payment_processed')
+  .addContext({ amount: 299.99, currency: 'USD' })
+  .success();
+```
+</Tab>
+{/* <Tab title="Go">
+```go
+// Create step first, then execute business logic
+orderStep := thread.Step("order_received")
+order, err := receiveOrder()
+if err != nil {
+    orderStep.Failed(err.Error())
+    continue
+}
+orderStep.AddContext(map[string]interface{}{
+    "orderId": "ORD-123",
+    "total":   299.99,
+}).Success()
+
+inventoryStep := thread.Step("inventory_checked")
+inventory, err := checkInventory(order.Items)
+if err != nil {
+    inventoryStep.Failed(err.Error())
+    continue
+}
+inventoryStep.AddContext(map[string]interface{}{
+    "inStock":  true,
+    "warehouse": "US-EAST",
+}).Success()
+```
+</Tab>
+<Tab title="Python">
+```python
+# Create step first, then execute business logic
+order_step = thread.step('order_received')
+order = await receive_order()
+await order_step.add_context({'order_id': 'ORD-123', 'total': 299.99}).success()
+
+inventory_step = thread.step('inventory_checked')
+inventory = await check_inventory(order.items)
+await inventory_step.add_context({'in_stock': True, 'warehouse': 'US-EAST'}).success()
+
+# Or chain them together
+await thread.step('payment_processed').add_context({
+    'amount': 299.99, 
+    'currency': 'USD'
+}).success()
+```
+</Tab> */}
+</Tabs>
+
+## 5. Handle Failures
+
+<Tabs>
+<Tab title="JavaScript">
+```javascript
+// Create step first to track execution time
+const paymentStep = thread.step('payment_processed');
+try {
+  const payment = await processPayment(orderId);
+  await paymentStep.addContext(payment).success();
+} catch (error) {
+  await paymentStep.failed({ 
+    message: 'Payment gateway timeout',
+    errorCode: 'TIMEOUT'
+  });
+}
+```
+</Tab>
+{/* <Tab title="Go">
+```go
+// Create step first to track execution time
+paymentStep := thread.Step("payment_processed")
+payment, err := processPayment(orderId)
+if err != nil {
+    paymentStep.Failed(map[string]interface{}{
+        "message":   "Payment gateway timeout",
+        "errorCode": "TIMEOUT",
+    })
+    continue
+}
+paymentStep.AddContext(payment).Success()
+```
+</Tab>
+<Tab title="Python">
+```python
+# Create step first to track execution time
+payment_step = thread.step('payment_processed')
+try:
+    payment = await process_payment(order_id)
+    await payment_step.add_context(payment).success()
+except Exception as error:
+    await payment_step.failed({
+        'message': 'Payment gateway timeout',
+        'error_code': 'TIMEOUT'
+    })
+```
+</Tab> */}
+</Tabs>
+
+## 6. Set Up Real-time Event Listeners (Optional)
+
+Subscribe to WebSocket events to react to execution graph changes in real-time.
+
+<Tabs>
+<Tab title="JavaScript">
+```javascript
+// Listen for execution events
+connection.on('step.success', 'payment_processed', (event) => {
+  console.log('Payment processed - update UI, send confirmation email');
+  event.ack();
+});
+
+// Listen for validation violations
+connection.on('rule.violated', 'inventory_check', (event) => {
+  console.error('Inventory violation detected - escalate to ops');
+  event.ack();
+});
+
+// Contract-specific events
+connection.on('rule.violated', 'product_delivery@order_placed', (event) => {
+  console.log('Product delivery rule violated - notify logistics');
+  event.ack();
+});
+```
+</Tab>
+{/* <Tab title="Go">
+```go
+// Listen for real-time events
+connection.OnStepSuccess("payment_processed", func(notification *threadify.Notification) {
+    fmt.Println("Payment processed successfully")
+    notification.Ack()
+})
+
+connection.OnRuleViolated("inventory_check", func(notification *threadify.Notification) {
+    fmt.Printf("Inventory violation: %s\n", notification.Message)
+    notification.Ack()
+})
+
+// Contract-specific
+connection.OnRuleViolated("product_delivery@order_placed", func(notification *threadify.Notification) {
+    fmt.Printf("Product delivery violation: %s\n", notification.Message)
+    notification.Ack()
+})
+```
+</Tab>
+<Tab title="Python">
+```python
+# Listen for real-time events
+@connection.on_step_success('payment_processed')
+async def payment_completed(notification):
+    print('Payment processed successfully')
+    await notification.ack()
+
+@connection.on_rule_violated('inventory_check')
+async def inventory_violation(notification):
+    print(f'Inventory violation: {notification.message}')
+    await notification.ack()
+
+# Contract-specific
+@connection.on_rule_violated('product_delivery@order_placed')
+async def product_delivery_violation(notification):
+    print(f'Product delivery violation: {notification.message}')
+    await notification.ack()
+```
+</Tab> */}
+</Tabs>
+
+## What's Next?
+
+- [Installation Guide](/installation) - Detailed setup for production
+- [API Reference](/api/overview) - Complete API documentation  
+- [SDK Guide](/sdk/overview) - Advanced SDK features
+- [Creating Contracts](/guides/creating-contracts) - Define business rules
+
+## Need Help?
+
+- Check our [troubleshooting guide](/guides/troubleshooting)
+- Visit our [GitHub discussions](https://github.com/yourusername/threadify/discussions)
+- Contact support at support@threadify.com

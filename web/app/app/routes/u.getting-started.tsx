@@ -25,7 +25,7 @@ export default function GettingStarted() {
     // Check if user has completed onboarding
     const user = api.getStoredUser();
     if (!user?.onboarding_completed) {
-      navigate('/onboarding');
+      navigate('/u/onboarding');
       return;
     }
 
@@ -80,7 +80,7 @@ export default function GettingStarted() {
       api.setUser(response.user);
       
       // Navigate to dashboard
-      navigate('/dashboard');
+      navigate('/u/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark instrumentation as complete');
     } finally {

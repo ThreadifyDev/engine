@@ -31,11 +31,11 @@ export default function VerifyOTP() {
 
       // Redirect based on user status
       if (!response.user.onboarding_completed) {
-        navigate('/onboarding');
+        navigate('/u/onboarding');
       } else if (!response.user.first_instrumentation_done) {
-        navigate('/getting-started');
+        navigate('/u/getting-started');
       } else {
-        navigate('/dashboard');
+        navigate('/u/dashboard');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed');
