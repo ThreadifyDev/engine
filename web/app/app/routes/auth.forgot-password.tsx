@@ -44,7 +44,7 @@ export default function ForgotPassword() {
                 The link will expire in 1 hour. If you don't see the email, check your spam folder.
               </p>
               <Link
-                to="/auth/login"
+                to="/login"
                 className="inline-block w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 transition-colors text-center"
               >
                 Back to Sign In
@@ -105,7 +105,7 @@ export default function ForgotPassword() {
 
           {/* Back to Login */}
           <div className="text-center text-sm">
-            <Link to="/auth/login" className="text-black font-medium hover:underline">
+            <Link to="/login" className="text-black font-medium hover:underline">
               ← Back to Sign In
             </Link>
           </div>

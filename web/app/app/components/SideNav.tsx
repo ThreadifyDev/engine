@@ -30,7 +30,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
 
   const handleLogout = () => {
     api.logout();
-    navigate('/auth/login');
+    navigate('/login');
   };
 
   const isActive = (path: string) => {

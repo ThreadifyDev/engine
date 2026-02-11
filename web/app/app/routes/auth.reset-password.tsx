@@ -51,7 +51,7 @@ export default function ResetPassword() {
       setSuccess(true);
       // Redirect to login after 3 seconds
       setTimeout(() => {
-        navigate('/auth/login');
+        navigate('/login');
       }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset password');
@@ -87,7 +87,7 @@ export default function ResetPassword() {
                 Request New Link
               </Link>
               <Link
-                to="/auth/login"
+                to="/login"
                 className="inline-block w-full border-2 border-black text-black py-3 px-4 font-medium hover:bg-gray-50 transition-colors text-center"
               >
                 Back to Sign In
@@ -119,7 +119,7 @@ export default function ResetPassword() {
                 Redirecting to sign in...
               </p>
               <Link
-                to="/auth/login"
+                to="/login"
                 className="inline-block w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 transition-colors text-center"
               >
                 Sign In Now
@@ -205,7 +205,7 @@ export default function ResetPassword() {
 
           {/* Back to Login */}
           <div className="text-center text-sm">
-            <Link to="/auth/login" className="text-black font-medium hover:underline">
+            <Link to="/login" className="text-black font-medium hover:underline">
               ← Back to Sign In
             </Link>
           </div>

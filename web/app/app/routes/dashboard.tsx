@@ -10,14 +10,14 @@ export default function Dashboard() {
   useEffect(() => {
     // Check if user is authenticated
     if (!api.isAuthenticated()) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 
     // Get stored user
     const storedUser = api.getStoredUser();
     if (!storedUser) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
 

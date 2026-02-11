@@ -34,7 +34,7 @@ export default function ServiceAccounts() {
   useEffect(() => {
     const token = api.getStoredToken();
     if (!token) {
-      navigate('/auth/login');
+      navigate('/login');
       return;
     }
   }, [navigate]);
