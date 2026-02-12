@@ -104,42 +104,18 @@ terminal_steps:
 <Tabs>
 <Tab title="Node.js">
 ```javascript
-import { Threadify } from '@threadify/sdk';
-
-const connection = await Threadify.connect('api-key', 'order-service');
-
-// Start thread with contract (uses latest version)
+// Use latest contract version
 const thread = await connection.start('order_fulfillment', 'merchant');
 
-// Or use specific contract version
+// Or specific version
 const threadV2 = await connection.start('order_fulfillment:2', 'merchant');
 
-// Steps are automatically validated against contract rules
-const orderStep = thread.step('order_placed');
-const order = await createOrder();
-await orderStep
-  .addContext({ 
-    order_id: order.id,
-    product_id: order.productId,
-    quantity: order.quantity
-  })
+// Contract validates entry points, required fields, and transitions
+await thread.step('order_placed')
+  .addContext({ order_id: 'ORD-123', product_id: 'PROD-456', quantity: 2 })
   .success();
 
-// Contract validates:
-// - Entry points (is 'order_placed' a valid first step?)
-// - Required fields (order_id, product_id, quantity present?)
-// - Transitions (can we go from order_placed to next step?)
-
-const paymentStep = thread.step('payment_processed');
-const payment = await processPayment(order.id);
-await paymentStep
-  .addContext({ 
-    amount: payment.amount,
-    transactionId: payment.id
-  })
-  .success();
-
-// If any validation fails, notifications are sent to authorized members
+// Violations trigger WebSocket notifications to authorized members
 ```
 </Tab>
 </Tabs>

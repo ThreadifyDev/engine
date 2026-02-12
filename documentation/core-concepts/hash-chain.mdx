@@ -20,36 +20,16 @@ Each step contains:
 <Tabs>
 <Tab title="Node.js">
 ```javascript
-import { Threadify } from '@threadify/sdk';
-
-const connection = await Threadify.connect('api-key', 'audit-service');
-
-// Get archived thread with hash chain data (for audit/analysis)
+// Verify hash chain integrity
 const archivedThread = await connection.getThread('thread-uuid');
 const steps = await archivedThread.steps();
 
-// Check hash chain integrity
 for (const step of steps) {
   if (step.verified) {
-    console.log(`Step ${step.stepName}: Hash chain verified ✓`);
+    console.log(`${step.stepName}: Verified ✓`);
   } else {
-    console.error(`Step ${step.stepName}: Chain broken - ${step.verificationError}`);
+    console.error(`${step.stepName}: Chain broken`);
   }
-}
-
-// Get detailed step history with hash information
-const paymentSteps = await archivedThread.steps('payment_processed');
-if (paymentSteps.length > 0) {
-  const step = paymentSteps[0];
-  const history = await step.history();
-  
-  history.forEach(attempt => {
-    console.log(`Attempt ${attempt.attempt}: ${attempt.status}`);
-    if (attempt.hash) {
-      console.log(`  Hash: ${attempt.hash}`);
-      console.log(`  PrevHash: ${attempt.prevHash}`);
-    }
-  });
 }
 ```
 </Tab>

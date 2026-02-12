@@ -26,22 +26,14 @@ description: Linking threads to external system identifiers
 <Tabs>
 <Tab title="Node.js">
 ```javascript
-import { Threadify } from '@threadify/sdk';
-
-const connection = await Threadify.connect('api-key', 'order-service');
-
-// Start thread with external references
+// Add references at thread creation
 const thread = await connection.start('order_fulfillment', 'merchant', {
   external_refs: {
-    order_id: 'ORD-789',
-    customer_id: 'CUST-456',
-    stripe_session_id: 'sess_123'
+    orderId: 'ORDER-12345',
+    customerId: 'CUST-789',
+    stripePaymentId: 'pi_abc123'
   }
 });
-
-// Or add references to existing thread
-const existingThread = await connection.getThread('thread-uuid');
-// Note: References are typically set at thread creation
 ```
 </Tab>
 </Tabs>
@@ -51,25 +43,15 @@ const existingThread = await connection.getThread('thread-uuid');
 <Tabs>
 <Tab title="Node.js">
 ```javascript
-// Find thread by order ID
+// Query threads by reference
 const threads = await connection.getThreadsByRef({
-  refKey: 'order_id',
-  refValue: 'ORD-789'
+  refKey: 'orderId',
+  refValue: 'ORDER-12345'
 });
-
-console.log(`Found ${threads.length} threads for order ORD-789`);
-
-// Get complete data for each thread
-for (const thread of threads) {
-  const completeData = await thread.getCompleteData();
-  console.log(`Thread ${thread.id}: ${thread.status}`);
-  console.log(`Started: ${thread.startedAt}`);
-  console.log(`Steps: ${completeData.steps.length}`);
-}
 
 // Find by customer ID
 const customerThreads = await connection.getThreadsByRef({
-  refKey: 'customer_id', 
+  refKey: 'customerId',
   refValue: 'CUST-456'
 });
 ```

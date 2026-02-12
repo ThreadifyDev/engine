@@ -41,14 +41,13 @@ export default function Index() {
               </div>
               
               <h1 className="text-6xl font-bold mb-8 leading-tight">
-                Every customer request tells a story.
+                Every customer's request tells a story.
                 <br />
                 Threadify captures it
               </h1>
 
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Every order placed, claim filed, or application submitted 
-flows through systems, APIs, approvals, and LLM agents. Threadify captures these flows and builds real-time execution graphs that enable better decisions for your teams, applications, and AI agents.
+                When a user clicks a button, a chain of reactions occur, from APIs, Humans-in-loop, to LLM agents. Threadify captures these flows and builds real-time execution graphs that enable better decisions for your teams, applications, and AI agents.
               </p>
 
               <div className="flex gap-4">
@@ -104,7 +103,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify captures these
               {/* Step 1 */}
               <div className="border border-gray-300 rounded-lg p-6 relative m-4">
                 <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
                     1
                   </div>
                   <h3 className="text-lg font-semibold text-black pt-2">
@@ -126,7 +125,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify captures these
               {/* Step 2 */}
               <div className="border border-gray-300 rounded-lg p-6 relative m-4">
                 <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
                     2
                   </div>
                   <h3 className="text-lg font-semibold text-black pt-2">
@@ -148,7 +147,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify captures these
               {/* Step 3 */}
               <div className="border border-gray-300 rounded-lg p-6 relative m-4 md:col-start-1">
                 <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-600 to-orange-500 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
                     3
                   </div>
                   <h3 className="text-lg font-semibold text-black pt-2">
@@ -170,7 +169,7 @@ flows through systems, APIs, approvals, and LLM agents. Threadify captures these
               {/* Step 4 */}
               <div className="border border-gray-300 rounded-lg p-6 m-4">
                 <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 flex items-center justify-center text-white font-semibold flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
                     4
                   </div>
                   <h3 className="text-lg font-semibold text-black pt-2">
