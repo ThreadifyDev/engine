@@ -54,55 +54,21 @@ description: Breaking down complex steps into smaller operations
 <Tabs>
 <Tab title="Node.js">
 ```javascript
-import { Threadify } from '@threadify/sdk';
-
-const connection = await Threadify.connect('api-key', 'payment-service');
-const thread = await connection.start('order_fulfillment', 'merchant');
-
-// Main step with sub-steps for complex payment flow
+// Track granular operations within a step
 const paymentStep = thread.step('payment_processed');
 
 try {
-  // Add sub-steps as you execute them
-  paymentStep.subStep('validate_card', { 
-    cardType: 'visa', 
-    last4: '1234' 
-  }, 'success');
+  paymentStep.subStep('validate_card', { cardType: 'visa' }, 'success');
+  paymentStep.subStep('check_fraud', { fraudScore: 0.15 }, 'success');
+  paymentStep.subStep('authorize_payment', { authCode: 'AUTH-123' }, 'success');
   
-  paymentStep.subStep('check_fraud', { 
-    fraudScore: 0.15,
-    riskLevel: 'low'
-  }, 'success');
-  
-  paymentStep.subStep('authorize_payment', { 
-    authCode: 'AUTH-123',
-    amount: 299.99
-  }, 'success');
-  
-  paymentStep.subStep('process_transaction', { 
-    transactionId: 'TXN-456',
-    processor: 'stripe'
-  }, 'success');
-  
-  // Complete main step with context
   await paymentStep
-    .addContext({ 
-      totalAmount: 299.99,
-      currency: 'USD',
-      paymentMethod: 'credit_card'
-    })
+    .addContext({ totalAmount: 299.99 })
     .success();
     
 } catch (error) {
-  paymentStep.subStep('error_handler', { 
-    error: error.message,
-    step: 'authorize_payment'
-  }, 'failed');
-  
-  await paymentStep.failed({ 
-    message: 'Payment processing failed',
-    errorCode: 'PAYMENT_ERROR'
-  });
+  paymentStep.subStep('error_handler', { error: error.message }, 'failed');
+  await paymentStep.failed({ message: 'Payment failed' });
 }
 ```
 </Tab>
