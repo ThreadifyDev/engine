@@ -84,146 +84,143 @@ services:
       retries: 5
 
   # Threadify Main Engine (Go Backend)
-  th-engine:
-    build:
-      context: ./threadify-go
-      dockerfile: Dockerfile
-    image: intelligence/th-engine:latest
-    container_name: th-engine
-    ports:
-      - '8082:8081'  # GraphQL/WebSocket (host:container)
-      - '6060:6060'  # pprof
-    volumes:
-      - './threadify-go/config:/app/config:ro'
-    environment:
-      # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
-      # Only override if needed
-      JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
-    depends_on:
-      threadify_storage:
-        condition: service_healthy
-      threadify-queue:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-    networks:
-      - threadify-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8081/health"]
-      interval: 30s
-      timeout: 3s
-      start_period: 10s
-      retries: 3
-  # threadify-archiver:
-  #   image: 'intelijence/th-archiver:0.0.2'
+  # th-engine:
+  #   build:
+  #     context: ./threadify-go
+  #     dockerfile: Dockerfile
+  #   image: intelligence/th-engine:latest
+  #   container_name: th-engine
+  #   ports:
+  #     - '8082:8081'  # GraphQL/WebSocket (host:container)
+  #     - '6060:6060'  # pprof
   #   volumes:
-  #     - './config/:/root/config:ro'
+  #     - './threadify-go/config:/app/config:ro'
   #   environment:
-  #     # PostgreSQL configuration (optional - will use default URL if not set)
-  #     - POSTGRES_URL=postgres://${PS_STORAGE_USER:-td_engine}:${PS_STORAGE_PASSWORD:-tdtdtd}@threadify_storage:5432/threadify?sslmode=disable
-  #     
-  #     # Redis configuration (optional - will use defaults if not set)
-  #     - REDIS_HOST=threadify-queue
-  #     - REDIS_PORT=6379
-  #     - REDIS_PASSWORD=${FAST_STORAGE_PASSWORD:-thread0fy_server}
-  #     - REDIS_DB=0
-  #     - REDIS_POOL_SIZE=8
+  #     # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
+  #     # Only override if needed
+  #     JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
   #   depends_on:
   #     threadify_storage:
   #       condition: service_healthy
   #     threadify-queue:
   #       condition: service_healthy
+  #     nats:
+  #       condition: service_healthy
   #   networks:
   #     - threadify-network
   #   restart: unless-stopped
   #   healthcheck:
-  #     test:
-  #       - CMD
-  #       - pgrep
-  #       - '-x'
-  #       - archiver
+  #     test: ["CMD", "curl", "--fail", "http://localhost:8081/health"]
+  #     interval: 30s
+  #     timeout: 3s
+  #     start_period: 10s
+  #     retries: 3
+
+  # Threadify Archiver (Archives events from NATS to PostgreSQL)
+  # th-archiver:
+  #   build:
+  #     context: ./threadify-go
+  #     dockerfile: Dockerfile.archiver
+  #   image: intelligence/th-archiver:latest
+  #   container_name: th-archiver
+  #   volumes:
+  #     - './threadify-go/config:/app/config:ro'
+  #   environment:
+  #     # Config defaults to Docker service names
+  #     # Only override if needed
+  #     POSTGRES_URL: "postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
+  #     NATS_URL: "nats://nats:4222"
+  #   depends_on:
+  #     threadify_storage:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_healthy
+  #   networks:
+  #     - threadify-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "pgrep", "-x", "archiver"]
   #     interval: 30s
   #     timeout: 3s
   #     start_period: 10s
   #     retries: 3
   
-  # Threadify Web API (Go Backend)
-  th_web_api:
-    build:
-      context: ./threadify-go
-      dockerfile: Dockerfile.api
-    image: intelligence/th_web_api:latest
-    container_name: th_web_api
-    ports:
-      - "8081:8081"
-      - "3001:3001"
-    volumes:
-      - './threadify-go/config:/app/config:ro'
-    environment:
-      # Override config.yaml defaults with environment variables if needed
-      # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
-      # Only set these if you need to override the defaults:
-      # POSTGRES_URL: "postgres://user:pass@host:port/db?sslmode=disable"
-      # POSTGRES_HOST: "custom-postgres-host"
-      # POSTGRES_USER: "custom-user"
-      # POSTGRES_PASSWORD: "custom-password"
-      # REDIS_HOST: "custom-redis-host"
-      # REDIS_PASSWORD: "custom-password"
-      # NATS_URL: "nats://custom-nats:4222"
+  # # Threadify Web API (Go Backend)
+  # th_web_api:
+  #   build:
+  #     context: ./threadify-go
+  #     dockerfile: Dockerfile.api
+  #   image: intelligence/th_web_api:latest
+  #   container_name: th_web_api
+  #   ports:
+  #     - "8081:8081"
+  #     - "3001:3001"
+  #   volumes:
+  #     - './threadify-go/config:/app/config:ro'
+  #   environment:
+  #     # Override config.yaml defaults with environment variables if needed
+  #     # Config defaults to Docker service names (threadify_storage, threadify-queue, nats)
+  #     # Only set these if you need to override the defaults:
+  #     # POSTGRES_URL: "postgres://user:pass@host:port/db?sslmode=disable"
+  #     # POSTGRES_HOST: "custom-postgres-host"
+  #     # POSTGRES_USER: "custom-user"
+  #     # POSTGRES_PASSWORD: "custom-password"
+  #     # REDIS_HOST: "custom-redis-host"
+  #     # REDIS_PASSWORD: "custom-password"
+  #     # NATS_URL: "nats://custom-nats:4222"
       
-      # Secrets (no defaults in config.yaml, must be provided)
-      JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
-      PLUNK_API_KEY: "${PLUNK_API_KEY}"
-      PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
-    depends_on:
-      threadify_storage:
-        condition: service_healthy
-      threadify-queue:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-      th-engine:
-        condition: service_healthy
-    networks:
-      - threadify-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["/app/server", "-healthcheck"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+  #     # Secrets (no defaults in config.yaml, must be provided)
+  #     JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
+  #     PLUNK_API_KEY: "${PLUNK_API_KEY}"
+  #     PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
+  #   depends_on:
+  #     threadify_storage:
+  #       condition: service_healthy
+  #     threadify-queue:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_healthy
+  #     th-engine:
+  #       condition: service_healthy
+  #   networks:
+  #     - threadify-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["/app/server", "-healthcheck"]
+  #     interval: 30s
+  #     timeout: 3s
+  #     retries: 3
+  #     start_period: 10s
 
-  # Threadify Web UI (Remix Frontend)
-  th_web_ui:
-    build:
-      context: .
-      dockerfile: threadify-go/Dockerfile.web_ui
-    image: intelligence/th_web_ui:latest
-    container_name: th_web_ui
-    ports:
-      - "3000:3000"
-    environment:
-      # Backend API URL
-      API_URL: "https://web.threadify.dev"
+  # # Threadify Web UI (Remix Frontend)
+  # th_web_ui:
+  #   build:
+  #     context: .
+  #     dockerfile: threadify-go/Dockerfile.web_ui
+  #   image: intelligence/th_web_ui:latest
+  #   container_name: th_web_ui
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     # Backend API URL - Set this to your production backend URL
+  #     API_URL: "${API_URL:-http://localhost:8081}"
       
-      # Session Secret
-      SESSION_SECRET: "${SESSION_SECRET:-your-session-secret-change-in-production}"
+  #     # Session Secret
+  #     SESSION_SECRET: "${SESSION_SECRET:-your-session-secret-change-in-production}"
       
-      # Node Environment
-      NODE_ENV: "production"
-    depends_on:
-      - th_web_api
-    networks:
-      - threadify-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+  #     # Node Environment
+  #     NODE_ENV: "production"
+  #   depends_on:
+  #     - th_web_api
+  #   networks:
+  #     - threadify-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+  #     interval: 30s
+  #     timeout: 3s
+  #     retries: 3
+  #     start_period: 10s
 volumes:
   threadify-pg16:
     driver: local

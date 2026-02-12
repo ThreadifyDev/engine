@@ -51,3 +51,4 @@ node_modules/
 web/.gitt/**
 web/web/.gitt/**
 # web/**
+.env
