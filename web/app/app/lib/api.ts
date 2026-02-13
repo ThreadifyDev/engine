@@ -1,14 +1,6 @@
 // API client for backend communication
-import { getConfig } from '../config.client';
 
-const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    return getConfig().apiUrl + '/api';
-  }
-  return 'http://localhost:3001/api'; // SSR fallback
-};
-
-const API_BASE_URL = getApiBaseUrl();
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export interface SignupData {
   company_name: string;
@@ -126,7 +118,7 @@ class ApiClient {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('user');
-          window.location.href = '/auth/login';
+          window.location.href = '/login';
         }
       }
       

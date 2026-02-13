@@ -217,7 +217,7 @@ class GraphQLClient {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('auth_token');
         localStorage.removeItem('user');
-        window.location.href = '/auth/login';
+        window.location.href = '/login';
       }
       throw new Error('Token expired. Please log in again.');
     }
@@ -235,7 +235,7 @@ class GraphQLClient {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('user');
-          window.location.href = '/auth/login';
+          window.location.href = '/login';
         }
         throw new Error('Token expired. Please log in again.');
       }
