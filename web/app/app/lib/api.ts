@@ -1,6 +1,15 @@
 // API client for backend communication
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// Get API URL from window.__ENV__ (injected by Remix root loader)
+// Falls back to localhost for development
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.API_URL) {
+    return `${(window as any).__ENV__.API_URL}/api`;
+  }
+  return 'http://localhost:3001/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export interface SignupData {
   company_name: string;

@@ -9,15 +9,17 @@ import (
 )
 
 type EmailService struct {
-	apiKey     string
-	apiURL     string
-	httpClient *http.Client
+	apiKey      string
+	apiURL      string
+	frontendURL string
+	httpClient  *http.Client
 }
 
-func NewEmailService(apiKey string) *EmailService {
+func NewEmailService(apiKey, frontendURL string) *EmailService {
 	return &EmailService{
-		apiKey: apiKey,
-		apiURL: "https://api.useplunk.com/v1/send",
+		apiKey:      apiKey,
+		apiURL:      "https://api.useplunk.com/v1/send",
+		frontendURL: frontendURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -76,20 +78,21 @@ func (s *EmailService) SendOTP(email, code string) error {
 }
 
 func (s *EmailService) SendWelcomeEmail(email, fullName string) error {
+	dashboardLink := fmt.Sprintf("%s/u/dashboard", s.frontendURL)
 	emailBody := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
 			<h2 style="color: #000;">Welcome to Threadify!</h2>
 			<p>Hi %s,</p>
 			<p>Your account has been successfully verified. You can now start using Threadify to monitor and validate your business workflows.</p>
 			<div style="margin: 30px 0;">
-				<a href="http://localhost:3000/dashboard" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; display: inline-block;">
+				<a href="%s" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; display: inline-block;">
 					Go to Dashboard
 				</a>
 			</div>
 			<p>If you have any questions, feel free to reach out to our support team.</p>
 			<p style="color: #666; font-size: 12px;">© 2026 Threadify. All rights reserved.</p>
 		</div>
-	`, fullName)
+	`, fullName, dashboardLink)
 
 	payload := PlunkEmailRequest{
 		To:      email,
@@ -124,8 +127,8 @@ func (s *EmailService) SendWelcomeEmail(email, fullName string) error {
 }
 
 func (s *EmailService) SendPasswordResetEmail(email, resetToken string) error {
-	// Construct reset link (adjust domain as needed)
-	resetLink := fmt.Sprintf("http://localhost:3000/auth/reset-password?token=%s", resetToken)
+	// Construct reset link using configured frontend URL
+	resetLink := fmt.Sprintf("%s/auth/reset-password?token=%s", s.frontendURL, resetToken)
 
 	emailBody := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">

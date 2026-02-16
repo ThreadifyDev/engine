@@ -728,7 +728,7 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
         return (
           <div
             key={thread.id}
-            onClick={() => navigate(`/threads/${thread.id}`)}
+            onClick={() => navigate(`/u/threads/${thread.id}`)}
             className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
           >
             <div className="flex justify-between items-start">

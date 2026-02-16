@@ -32,6 +32,7 @@ type Config struct {
 	// Server
 	Port        string
 	CORSOrigins string
+	FrontendURL string
 
 	// Rate Limiting
 	RateLimitRequests int
@@ -57,6 +58,7 @@ func Load() *Config {
 		ThreadifyEngineUserID:     getEnv("THREADIFY_ENGINE_USER_ID", "123456"),
 		Port:                      getEnv("PORT", "3001"),
 		CORSOrigins:               getEnv("CORS_ORIGINS", "http://localhost:3000"),
+		FrontendURL:               getEnv("FRONTEND_URL", "http://localhost:3000"),
 		RateLimitRequests:         100,
 		RateLimitWindow:           time.Minute,
 	}

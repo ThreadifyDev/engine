@@ -124,7 +124,7 @@ func main() {
 	userRoleRepo := repository.NewUserRoleRepository(db)
 
 	// Initialize services
-	emailService := service.NewEmailService(cfg.WebAPI.Email.PlunkAPIKey)
+	emailService := service.NewEmailService(cfg.WebAPI.Email.PlunkAPIKey, cfg.WebAPI.FrontendURL)
 	authService := service.NewAuthService(db, emailService, jwtValidator, time.Duration(cfg.JWT.ExpirationHours)*time.Hour)
 	serviceAccountService := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)

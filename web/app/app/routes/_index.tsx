@@ -37,17 +37,17 @@ export default function Index() {
             {/* Left: Hero Content */}
             <div>
               <div className="text-sm font-semibold tracking-wider mb-8">
-                Intro to Threadify
+                Realtime Execution Graph
               </div>
               
               <h1 className="text-6xl font-bold mb-8 leading-tight">
-                Every customer request tells a business story.
+                Every customer request tells a story.
                 <br />
-                Threadify captures it
+                Turn it into intelligence.
               </h1>
 
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Customer requests execute complex business processes across distributed systems. Threadify translates this journey into a live execution graph you can query, enforce, and react to in real-time.
+                Threadify builds live execution graphs from customer requests. See what happened. Validate and react to what should happen. Discover patterns that drive revenue, reduce cost, and manage risk.
               </p>
 
               <div className="flex gap-4">
