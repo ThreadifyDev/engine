@@ -1,0 +1,83 @@
+---
+title: 'GraphQL API Overview'
+description: 'Query thread execution data, validation results, and contract structures'
+---
+
+The Threadify GraphQL API provides powerful querying capabilities for thread execution data, validation results, and contract structures. Use it to build dashboards, analytics, and monitoring tools.
+
+## API Endpoint
+
+```
+POST https://eng.threadify.dev/graphql
+```
+
+## Authentication
+
+Include your API key in the Authorization header:
+
+```bash
+Authorization: Bearer YOUR_API_KEY
+```
+
+## Query Complexity Limit
+
+- **Maximum complexity:** 1000 points
+- Each field costs 1 point
+- List items multiply by their count
+- Nested fields multiply by parent list size
+- Use pagination to stay within limits
+
+## Example Query
+
+<CodeGroup>
+
+```graphql GraphQL
+query {
+  thread(id: "thread-123") {
+    id
+    status
+    contractName
+    steps {
+      stepName
+      status
+      latestContext
+    }
+  }
+}
+```
+
+```bash cURL
+curl -X POST https://eng.threadify.dev/graphql \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query { thread(id: \"thread-123\") { id status contractName } }"
+  }'
+```
+
+</CodeGroup>
+
+## Available Queries
+
+| Query | Description |
+|-------|-------------|
+| `thread(id)` | Get a single thread by ID |
+| `threads(...)` | Search threads with filters |
+| `threadsByContract(...)` | Find threads by contract |
+| `threadsByRef(...)` | Find threads by external reference |
+| `threadChain(rootId)` | Get thread relationship chain |
+| `stepHistory(...)` | Get step execution history |
+| `validationResults(...)` | Get contract validation results |
+| `contractGraph(name, version)` | Get contract structure |
+| `verifyThreadIntegrity(threadId)` | Verify hash chain integrity |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Thread Queries" icon="database" href="/api-reference/thread-queries">
+    Query thread execution data
+  </Card>
+  <Card title="Step Queries" icon="list" href="/api-reference/step-queries">
+    Query step history and validation
+  </Card>
+</CardGroup>

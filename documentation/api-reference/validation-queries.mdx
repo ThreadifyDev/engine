@@ -1,0 +1,102 @@
+---
+title: 'Validation Queries'
+description: 'Query contract validation results and violation details'
+---
+
+## Query Validation Results
+
+<CodeGroup>
+
+```graphql GraphQL
+# Get validation results for thread
+query {
+  thread(id: "thread-123") {
+    validationResults {
+      stepName
+      overallStatus
+      hasCriticalViolation
+      criticalCount
+      validations {
+        type
+        message
+        field
+      }
+    }
+  }
+}
+
+# Get notification summary
+query {
+  thread(id: "thread-123") {
+    notificationSummary {
+      totalNotifications
+      criticalCount
+      hasCritical
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Validation Result Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `validationId` | String! | Unique validation ID |
+| `threadId` | String! | Thread ID |
+| `stepId` | String! | Step ID |
+| `stepName` | String! | Step name |
+| `idempotencyKey` | String! | Step idempotency key |
+| `timestamp` | String! | Validation timestamp |
+| `overallStatus` | String! | Overall validation status |
+| `hasCriticalViolation` | Boolean! | Has critical violations |
+| `criticalCount` | Int! | Number of critical violations |
+| `warningCount` | Int! | Number of warnings |
+| `minorCount` | Int! | Number of minor issues |
+| `infoCount` | Int! | Number of info messages |
+| `totalValidations` | Int! | Total validation count |
+
+## Validation Issue Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | String! | Violation type |
+| `message` | String! | Violation message |
+| `field` | String | Field that failed validation |
+| `expected` | String | Expected value |
+| `actual` | String | Actual value |
+| `rule` | String | Rule that was violated |
+
+## Validation Types
+
+| Type | Description |
+|------|-------------|
+| `required_field` | Required field missing |
+| `invalid_transition` | Invalid step transition |
+| `timeout` | Step exceeded timeout |
+| `retry_limit` | Exceeded retry limit |
+| `invalid_entry_point` | Invalid contract entry point |
+| `terminal_state` | Terminal state violation |
+
+## Notification Summary Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalNotifications` | Int! | Total notification count |
+| `criticalCount` | Int! | Critical notifications |
+| `warningCount` | Int! | Warning notifications |
+| `executionCount` | Int! | Execution notifications |
+| `validationCount` | Int! | Validation notifications |
+| `hasCritical` | Boolean! | Has critical violations |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Contract Queries" icon="file-contract" href="/api-reference/contract-queries">
+    Query contract structure and rules
+  </Card>
+  <Card title="Integrity Verification" icon="link" href="/api-reference/integrity-verification">
+    Verify hash chain integrity
+  </Card>
+</CardGroup>

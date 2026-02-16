@@ -15,10 +15,6 @@
       "to": "#666666"
     }
   },
-  "topbarCtaButton": {
-    "type": "github",
-    "url": "https://github.com/yourusername/threadify"
-  },
   "navigation": [
     {
       "group": "Getting Started",
@@ -30,46 +26,71 @@
     {
       "group": "Core Concepts",
       "pages": [
-        "core-concepts/contracts",
-        "core-concepts/threads",
-        "core-concepts/steps",
-        "core-concepts/references",
-        "core-concepts/hash-chain",
-        "core-concepts/access-levels",
-        "core-concepts/notifications",
-        "core-concepts/idempotency",
-        "core-concepts/sub-steps"
+        {
+          "group": "Installation",
+          "pages": [
+            "core-concepts/installation/javascript"
+          ]
+        },
+        "core-concepts/connecting",
+        "core-concepts/tracking-workflows",
+        "core-concepts/creating-contracts",
+        "core-concepts/working-with-contracts",
+        "core-concepts/using-sub-steps",
+        {
+          "group": "Thread Collaboration",
+          "pages": [
+            "core-concepts/thread-collaboration/inviting-parties",
+            "core-concepts/thread-collaboration/joining-threads",
+            "core-concepts/thread-collaboration/managing-access"
+          ]
+        },
+        "core-concepts/external-references",
+        {
+          "group": "Data Retrieval",
+          "pages": [
+            "core-concepts/data-retrieval/getting-threads",
+            "core-concepts/data-retrieval/querying-steps",
+            "core-concepts/data-retrieval/validation-results"
+          ]
+        },
+        "core-concepts/handling-failures",
+        {
+          "group": "Notifications",
+          "pages": [
+            "core-concepts/notifications/subscribing",
+            "core-concepts/notifications/handling"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Things to Know",
+      "pages": [
+        "things-to-know/overview",
+        "things-to-know/hash-chain",
+        "things-to-know/access-levels"
       ]
     },
     {
       "group": "API Reference",
       "pages": [
-        "api/overview",
-        "api/authentication",
-        "api/threads",
-        "api/steps",
-        "api/contracts"
-      ]
-    },
-    {
-      "group": "SDK",
-      "pages": [
-        "sdk/overview",
-        "sdk/javascript",
-        "sdk/data-retrieval",
-        "sdk/notifications"
-      ]
-    },
-    {
-      "group": "Guides",
-      "pages": [
-        "guides/creating-contracts",
-        "guides/monitoring",
-        "guides/troubleshooting"
+        "api-reference/overview",
+        "api-reference/thread-queries",
+        "api-reference/step-queries",
+        "api-reference/validation-queries",
+        "api-reference/contract-queries",
+        "api-reference/integrity-verification"
       ]
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/yourusername/threadify"
+    "website": "https://threadify.dev"
+  },
+  "search": {
+    "prompt": "Ask me anything about Threadify..."
+  },
+  "api": {
+    "maintainOrder": true
   }
 }

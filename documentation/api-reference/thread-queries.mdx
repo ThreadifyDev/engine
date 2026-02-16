@@ -1,0 +1,109 @@
+---
+title: 'Thread Queries'
+description: 'Query thread execution data with flexible filtering and pagination'
+---
+
+## Query Threads
+
+<CodeGroup>
+
+```graphql GraphQL
+# Get single thread by ID
+query {
+  thread(id: "thread-123") {
+    id
+    contractName
+    status
+    steps {
+      stepName
+      status
+    }
+  }
+}
+
+# Search threads with filters
+query {
+  threads(
+    contractName: "order_fulfillment"
+    status: "completed"
+    limit: 50
+  ) {
+    totalCount
+    threads {
+      id
+      status
+      startedAt
+    }
+  }
+}
+
+# Find by external reference
+query {
+  threadsByRef(
+    refKey: "order_id"
+    refValue: "ORD-12345"
+  ) {
+    totalCount
+    threads {
+      id
+      refs
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `actor` | String | Filter by actor (user or service) |
+| `contractName` | String | Filter by contract name |
+| `contractVersion` | Int | Filter by contract version |
+| `status` | String | Filter by thread status |
+| `startedAfter` | String | ISO timestamp - threads started after |
+| `startedBefore` | String | ISO timestamp - threads started before |
+| `completedAfter` | String | ISO timestamp - threads completed after |
+| `completedBefore` | String | ISO timestamp - threads completed before |
+| `limit` | Int | Max results (default: 50, max: 100) |
+| `offset` | Int | Pagination offset |
+
+## Thread Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ID! | Unique thread identifier |
+| `contractId` | String | Contract ID (if contract-based) |
+| `contractName` | String | Contract name |
+| `contractVersion` | Int | Contract version |
+| `ownerId` | String! | Thread owner ID |
+| `companyId` | String! | Company ID |
+| `status` | String! | Thread status |
+| `createdBy` | String | Creator ID |
+| `lastHash` | String | Last hash in chain |
+| `refs` | JSON | External references |
+| `startedAt` | String | Start timestamp |
+| `completedAt` | String | Completion timestamp |
+| `error` | String | Error message (if failed) |
+
+## Available Queries
+
+| Query | Description |
+|-------|-------------|
+| `thread(id)` | Get single thread by ID |
+| `threads(...)` | Search with filters and pagination |
+| `threadsByContract(...)` | Contract-specific search |
+| `threadsByRef(...)` | Find by external reference |
+| `threadChain(rootId)` | Get thread relationships |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Step Queries" icon="list" href="/api-reference/step-queries">
+    Query step history and sub-steps
+  </Card>
+  <Card title="Validation Queries" icon="shield-check" href="/api-reference/validation-queries">
+    Query contract validation results
+  </Card>
+</CardGroup>

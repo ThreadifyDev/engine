@@ -1,0 +1,41 @@
+---
+title: Core Concepts
+description: Essential concepts for understanding Threadify's execution tracking system
+---
+
+Understanding these core concepts will help you effectively use Threadify to build and validate real-time execution graphs.
+
+## Core Building Blocks
+
+### [Threads](./threads)
+A thread represents a complete business process execution—like a customer checkout, loan application, or insurance claim.
+
+### [Steps](./steps)  
+Steps are the individual actions or operations within a thread, representing specific parts of your business process.
+
+### [Contracts](./contracts)
+Contracts define business rules and validation logic that enforce how steps should execute and relate to each other.
+
+### [Sub-steps](./sub-steps)
+Sub-steps allow you to break down complex steps into smaller, trackable operations within a parent step.
+
+## Advanced Features
+
+### [References](./references)
+References link threads to external system identifiers like order IDs, customer IDs, or support tickets.
+
+### [Hash Chain](./hash-chain)
+The hash chain provides cryptographically verified ordering and integrity for all steps in a thread.
+
+### [Access Levels](./access-levels)
+Access levels control who can view, modify, or interact with threads and their data.
+
+### [Notifications](./notifications)
+Notifications are real-time WebSocket events that allow your application to react to execution graph changes.
+
+### [Idempotency](./idempotency)
+Idempotency ensures that recording the same step multiple times has the same effect as recording it once.
+
+---
+
+Ready to start? [Begin with the Quick Start guide](../quickstart) to see these concepts in action.
