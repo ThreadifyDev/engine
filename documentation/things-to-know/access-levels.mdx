@@ -1,0 +1,106 @@
+---
+title: Access Levels
+description: Controlling who can view and interact with threads
+---
+
+**Access Levels** control who can view, modify, or interact with threads and their data. Threadify uses a role-based permission system that provides fine-grained control over thread access.
+
+### Runtime Roles
+
+<table className="w-full">
+  <thead>
+    <tr className="border-b border-gray-300">
+      <th className="text-left font-semibold py-2 pr-4">Role</th>
+      <th className="text-left font-semibold py-2 pr-4">Access Level</th>
+      <th className="text-left font-semibold py-2 pr-4">Can Record Steps</th>
+      <th className="text-left font-semibold py-2">Notifications</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium">Owner</td>
+      <td className="py-2 pr-4">Full access</td>
+      <td className="py-2 pr-4">✓ Yes</td>
+      <td className="py-2">All events</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium">Participant</td>
+      <td className="py-2 pr-4">Read/write</td>
+      <td className="py-2 pr-4">✓ Yes</td>
+      <td className="py-2">Violations, completions</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium">Observer</td>
+      <td className="py-2 pr-4">Read-only</td>
+      <td className="py-2 pr-4">✗ No</td>
+      <td className="py-2">Completions only</td>
+    </tr>
+    <tr>
+      <td className="py-2 pr-4 font-medium">External</td>
+      <td className="py-2 pr-4">Own data only</td>
+      <td className="py-2 pr-4">✓ Yes (own)</td>
+      <td className="py-2">Own events only</td>
+    </tr>
+  </tbody>
+</table>
+
+### Permission Categories
+
+<table className="w-full">
+  <thead>
+    <tr className="border-b border-gray-300">
+      <th className="text-left font-semibold py-2 pr-4">Category</th>
+      <th className="text-left font-semibold py-2 pr-4">Permission</th>
+      <th className="text-left font-semibold py-2">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium" rowSpan="3">Thread</td>
+      <td className="py-2 pr-4">View thread</td>
+      <td className="py-2">Read thread metadata and steps</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Modify thread</td>
+      <td className="py-2">Add references, change metadata</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Manage access</td>
+      <td className="py-2">Grant/revoke access to others</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium" rowSpan="3">Step</td>
+      <td className="py-2 pr-4">View steps</td>
+      <td className="py-2">Read all step data and context</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Record steps</td>
+      <td className="py-2">Add new steps to thread</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Own steps</td>
+      <td className="py-2">Access only steps you created</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4 font-medium" rowSpan="3">Notification</td>
+      <td className="py-2 pr-4">Violations</td>
+      <td className="py-2">Receive rule violation events</td>
+    </tr>
+    <tr className="border-b border-gray-200">
+      <td className="py-2 pr-4">Completions</td>
+      <td className="py-2">Receive step completion events</td>
+    </tr>
+    <tr>
+      <td className="py-2 pr-4">Failures</td>
+      <td className="py-2">Receive step failure events</td>
+    </tr>
+  </tbody>
+</table>
+
+### Best Practices
+
+- **Principle of least privilege** - Grant minimum necessary access
+- **Role-based access** - Use roles instead of individual permissions
+- **Regular audits** - Review and remove unnecessary access
+- **Temporary access** - Grant time-limited access when needed
+

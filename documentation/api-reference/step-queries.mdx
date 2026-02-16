@@ -1,0 +1,114 @@
+---
+title: 'Step Queries'
+description: 'Query step execution history, sub-steps, and performance data'
+---
+
+## Query Step History
+
+<CodeGroup>
+
+```graphql GraphQL
+# Get step execution history
+query {
+  stepHistory(
+    threadId: "thread-123"
+    stepName: "payment_processed"
+    limit: 100
+  ) {
+    attempt
+    timestamp
+    status
+    duration
+    actor
+  }
+}
+
+# Get step with sub-steps
+query {
+  thread(id: "thread-123") {
+    steps(stepName: "payment_processing") {
+      stepName
+      status
+      subSteps {
+        name
+        status
+        payload
+      }
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `threadId` | String! | Thread ID (required) |
+| `stepName` | String! | Step name (required) |
+| `idempotencyKey` | String | Filter by idempotency key |
+| `limit` | Int | Max results (default: 100, max: 1000) |
+| `offset` | Int | Pagination offset |
+| `startAt` | String | ISO timestamp - history after |
+| `endAt` | String | ISO timestamp - history before |
+| `activityType` | String | Filter by activity type |
+| `actor` | String | Filter by actor ID |
+
+## Step Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `threadId` | String! | Thread ID |
+| `stepName` | String! | Step name |
+| `idempotencyKey` | String! | Unique step identifier |
+| `status` | String! | Current status |
+| `retryCount` | Int! | Number of retry attempts |
+| `firstSeenAt` | String! | First execution timestamp |
+| `lastUpdatedAt` | String! | Last update timestamp |
+| `latestStepID` | String! | Latest step ID |
+| `previousStep` | String | Previous step name |
+| `actor` | String | Actor who executed step |
+| `actorService` | String | Service that executed step |
+| `latestContext` | String | Latest context data (JSON) |
+| `hash` | String | Cryptographic hash |
+| `prevHash` | String | Previous step hash |
+| `verified` | Boolean | Hash chain verification status |
+
+## History Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `attempt` | Int! | Attempt number |
+| `timestamp` | String! | Execution timestamp |
+| `status` | String! | Step status |
+| `context` | String! | Context data (JSON) |
+| `duration` | Int! | Execution duration (ms) |
+| `startedAt` | String | Start timestamp |
+| `finishedAt` | String | Finish timestamp |
+| `error` | String | Error message (if failed) |
+| `actor` | String! | Actor ID |
+| `actorService` | String! | Service name |
+| `hash` | String | Cryptographic hash |
+| `prevHash` | String | Previous hash |
+
+## Sub-step Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | ID! | Unique sub-step ID |
+| `name` | String! | Sub-step name |
+| `status` | String! | Sub-step status |
+| `payload` | JSON | Sub-step data |
+| `recordedAt` | String! | Recording timestamp |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Validation Queries" icon="shield-check" href="/api-reference/validation-queries">
+    Query contract validation results
+  </Card>
+  <Card title="Integrity Verification" icon="link" href="/api-reference/integrity-verification">
+    Verify hash chain integrity
+  </Card>
+</CardGroup>

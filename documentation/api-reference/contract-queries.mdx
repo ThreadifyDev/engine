@@ -1,0 +1,94 @@
+---
+title: 'Contract Queries'
+description: 'Query contract structure, validation rules, and graph topology'
+---
+
+## Query Contract Graph
+
+<CodeGroup>
+
+```graphql GraphQL
+query {
+  contractGraph(
+    name: "order_fulfillment"
+    version: 2  # Optional - defaults to latest
+  ) {
+    graph {
+      nodes {
+        id
+        owner
+        required
+        next
+      }
+      entryPoints
+      terminalSteps
+    }
+    transitions {
+      from
+      to
+      canRetry
+    }
+    parties
+  }
+}
+```
+
+</CodeGroup>
+
+## Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | String! | Contract name (required) |
+| `version` | Int | Contract version (defaults to latest) |
+
+## Contract Graph Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `graph` | Graph! | Contract topology |
+| `transitions` | [Transition!] | Valid step transitions |
+| `validation` | Validation | Validation rules |
+| `parties` | [String!] | Involved parties/roles |
+| `notificationConfig` | NotificationConfig | Notification settings |
+
+## Graph Node Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | String! | Step ID |
+| `owner` | String | Step owner/role |
+| `type` | String! | Node type |
+| `mode` | String | Execution mode |
+| `required` | Boolean! | Is required step |
+| `next` | [String!] | Next possible steps |
+| `timeout` | String | Step timeout duration |
+| `businessContext` | JSON | Required/optional fields |
+
+## Transition Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `from` | String! | Source step |
+| `to` | [String!]! | Allowed next steps |
+| `canRetry` | Boolean! | Retry allowed |
+| `maxRetries` | Int! | Max retry attempts |
+
+## Validation Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `maxDuration` | String | Max thread duration |
+| `allowMultipleTerminals` | Boolean! | Allow multiple terminal steps |
+| `multipleTerminalsSeverity` | String | Severity if multiple terminals |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Thread Queries" icon="database" href="/api-reference/thread-queries">
+    Query thread execution data
+  </Card>
+  <Card title="Validation Queries" icon="shield-check" href="/api-reference/validation-queries">
+    Query validation results
+  </Card>
+</CardGroup>

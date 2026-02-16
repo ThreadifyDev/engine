@@ -1,0 +1,94 @@
+---
+title: 'Integrity Verification'
+description: 'Verify cryptographic hash chain integrity for threads and steps'
+---
+
+## Verify Hash Chain Integrity
+
+<CodeGroup>
+
+```graphql GraphQL
+# Verify complete thread hash chain
+query {
+  verifyThreadIntegrity(threadId: "thread-123") {
+    verified
+    totalEvents
+    brokenAt
+    error
+  }
+}
+
+# Verify specific step
+query {
+  verifyStepIntegrity(
+    threadId: "thread-123"
+    stepName: "order_placed"
+    idempotencyKey: "order_456"
+  ) {
+    verified
+    hash
+    prevHash
+  }
+}
+
+# Get hash chain data
+query {
+  thread(id: "thread-123") {
+    lastHash
+    steps {
+      stepName
+      hash
+      prevHash
+      verified
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Hash Chain Status Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `verified` | Boolean! | Chain integrity verified |
+| `lastVerifiedAt` | String! | Last verification timestamp |
+| `totalEvents` | Int! | Total events in chain |
+| `brokenAt` | String | Timestamp where chain broke |
+| `error` | String | Error message (if broken) |
+
+## Step Integrity Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `verified` | Boolean! | Step integrity verified |
+| `hash` | String | Step hash |
+| `prevHash` | String | Previous step hash |
+| `error` | String | Error message (if invalid) |
+
+## How Hash Chains Work
+
+1. **First Step**: Hash = HMAC-SHA256(prevHash:threadID:stepID:stepName:idempotencyKey:timestamp)
+2. **Subsequent Steps**: Each step's hash includes the previous step's hash
+3. **Verification**: Recalculate hashes and compare with stored values
+4. **Tamper Detection**: Any modification breaks the chain
+
+## Use Cases
+
+| Use Case | Description |
+|----------|-------------|
+| **Audit Trail** | Verify execution history hasn't been tampered with |
+| **Detect Tampering** | Identify where integrity was compromised |
+| **Step Verification** | Verify individual step integrity |
+| **Compliance** | Prove execution order for regulatory requirements |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Step Queries" icon="list" href="/api-reference/step-queries">
+    Query step execution history
+  </Card>
+  <Card title="Thread Queries" icon="database" href="/api-reference/thread-queries">
+    Query thread data
+  </Card>
+</CardGroup>
