@@ -117,7 +117,7 @@ export default function Contracts() {
             {contracts.map((contract) => (
               <div
                 key={contract.id}
-                onClick={() => navigate(`/contracts/${contract.id}`)}
+                onClick={() => navigate(`/u/contracts/${contract.id}`)}
                 className="bg-white border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors cursor-pointer"
               >
                 <div className="flex justify-between items-start">

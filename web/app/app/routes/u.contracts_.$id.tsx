@@ -155,7 +155,7 @@ export default function ContractDetail() {
                 {contract.versions.map((version: any) => (
                   <div
                     key={version.version}
-                    onClick={() => navigate(`/contracts/${id}/versions/${version.version}`)}
+                    onClick={() => navigate(`/u/contracts/${id}/versions/${version.version}`)}
                     className="flex items-center justify-between py-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors px-2 -mx-2"
                   >
                     <div className="flex items-center gap-6">

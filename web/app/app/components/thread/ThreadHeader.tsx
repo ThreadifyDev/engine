@@ -145,7 +145,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Contract</span>
             <Link 
-              to={`/contracts/${thread.contractId}/versions/${thread.contractVersion}`}
+              to={`/u/contracts/${thread.contractId}/versions/${thread.contractVersion}`}
               className="font-medium text-gray-900 hover:text-gray-700 hover:underline flex items-center gap-1.5 transition-colors"
             >
               {thread.contractName}

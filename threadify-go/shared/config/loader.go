@@ -49,6 +49,7 @@ type Config struct {
 		Port        int    `yaml:"port"`
 		Host        string `yaml:"host"`
 		CORSOrigins string `yaml:"cors_origins"`
+		FrontendURL string `yaml:"frontend_url"`
 		Email       struct {
 			PlunkAPIKey    string `yaml:"plunk_api_key"`
 			PlunkFromEmail string `yaml:"plunk_from_email"`
@@ -94,6 +95,7 @@ func Load(path string) (*Config, error) {
 	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
 
 	// WebAPI config
+	cfg.WebAPI.FrontendURL = expandEnv(cfg.WebAPI.FrontendURL)
 	cfg.WebAPI.Email.PlunkAPIKey = expandEnv(cfg.WebAPI.Email.PlunkAPIKey)
 	cfg.WebAPI.Email.PlunkFromEmail = expandEnv(cfg.WebAPI.Email.PlunkFromEmail)
 	cfg.WebAPI.ThreadifyEngine.URL = expandEnv(cfg.WebAPI.ThreadifyEngine.URL)

@@ -70,7 +70,7 @@ export default function ContractVersionDetail() {
           <div className="text-center">
             <p className="text-red-600 mb-4">{error}</p>
             <button
-              onClick={() => navigate(`/contracts/${id}`)}
+              onClick={() => navigate(`/u/contracts/${id}`)}
               className="px-4 py-2 bg-black text-white hover:bg-gray-800"
             >
               Back to Contract
@@ -89,7 +89,7 @@ export default function ContractVersionDetail() {
           {/* Header */}
           <div className="mb-8">
             <button
-              onClick={() => navigate(`/contracts/${id}`)}
+              onClick={() => navigate(`/u/contracts/${id}`)}
               className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
             >
               ← Back to Contract

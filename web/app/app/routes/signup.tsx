@@ -47,7 +47,7 @@ export default function Signup() {
           </h1>
           <h2 className="mt-6 text-3xl font-bold text-black">Create your account</h2>
           <p className="mt-2 text-sm text-gray-600">
-            Start monitoring your business workflows
+            Turn customer requests into intelligence
           </p>
         </div>
 
