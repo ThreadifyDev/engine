@@ -11,7 +11,9 @@ For implementation syntax in your language, see:
 
 ## What is Threadify?
 
-Threadify is a real-time execution graph platform that tracks how distributed systems execute customer requests. Unlike logs (unstructured) or events (disconnected), Threadify creates connected execution graphs with full context.
+**Every customer request tells a story. Turn it into intelligence.**
+
+Threadify turns customer requests into live execution graphs. Support answers "what happened?" in seconds. Operations validates business logic in real-time. AI agents act with complete context.
 
 **Core Components:**
 - **Thread** - One customer request flowing through your system
