@@ -224,6 +224,7 @@ Ask Threadify questions—"Show me all failed payments in the last hour" or "Whi
             AI agents make decisions without understanding what led here. A refund gets approved without seeing payment history. A support ticket gets routed without knowing this is the customer's fifth escalation.
           Threadify gives agents complete execution context. When handling a request, agents see what already happened—which steps succeeded, what failed, what decisions were made. Refund agents check transaction history before approving. Routing agents see escalation patterns. Orchestration triggers the next step only when conditions are actually met, not guessed.
           `}
+          footerTagline="Enabling LLM Agents make better decisions"
           visual="left"
         />
       </div>
