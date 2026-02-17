@@ -47,7 +47,7 @@ export default function Index() {
               </h1>
 
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Threadify builds live execution graphs from customer requests. See what happened. Validate and react to what should happen. Discover patterns that drive revenue, reduce cost, and manage risk.
+                Threadify turns customer requests into live execution graphs. Support answers "what happened?" in seconds. Operations validates business logic in real-time. AI agents act with complete context.
               </p>
 
               <div className="flex gap-4">
@@ -60,7 +60,7 @@ export default function Index() {
               </div>
 
               <p className="text-xs text-gray-500 mt-8">
-                Real-time • Cryptographically verified • For teams and AI
+                Real-time • Cryptographically verified • Drives revenue, reduces cost, manages risk
               </p>
             </div>
 
