@@ -13,7 +13,7 @@ export default function Nav() {
 
         {/* Links */}
         <div className="flex items-center gap-8">
-          <a href="#" className="text-gray-600 hover:text-black transition text-sm">
+          <a href="https://docs.threadify.dev" className="text-gray-600 hover:text-black transition text-sm">
             Docs
           </a>
           
