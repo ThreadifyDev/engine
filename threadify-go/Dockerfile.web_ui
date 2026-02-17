@@ -4,14 +4,14 @@ FROM node:20-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files from web/app
-COPY ../web/app/package*.json ./
+# Copy package files from web
+COPY ../web/package*.json ./
 
 # Install dependencies
 RUN npm ci --only=production=false
 
-# Copy source code from web/app
-COPY ../web/app/ .
+# Copy source code from web
+COPY ../web/ .
 
 # Build the Remix application (no build-time API URL needed - uses runtime config)
 RUN npm run build
@@ -29,7 +29,7 @@ RUN addgroup -g 1001 -S nodejs && \
 WORKDIR /app
 
 # Copy package files and install production dependencies only
-COPY ../web/app/package*.json ./
+COPY ../web/package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
 # Copy built application from builder
@@ -43,7 +43,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/healthz', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
