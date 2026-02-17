@@ -4,9 +4,11 @@ interface FeatureSectionProps {
   visual: 'left' | 'right';
   children?: React.ReactNode;
   gradient?: string;
+  tagline?: string;
+  footerTagline?: string;
 }
 
-export default function FeatureSection({ title, description, visual, children, gradient }: FeatureSectionProps) {
+export default function FeatureSection({ title, description, visual, children, gradient, tagline, footerTagline }: FeatureSectionProps) {
   // Split description by line breaks to support multi-paragraph content
   const paragraphs = description.split('\n').filter(p => p.trim());
   
@@ -18,6 +20,11 @@ export default function FeatureSection({ title, description, visual, children, g
         }`}>
           {/* Text Content */}
           <div className={visual === 'right' ? '' : 'lg:col-start-2'}>
+            {tagline && (
+              <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                {tagline}
+              </p>
+            )}
             <h2 className={`text-5xl font-light mb-6 ${
               gradient 
                 ? `bg-gradient-to-r ${gradient} bg-clip-text text-transparent` 
@@ -32,6 +39,11 @@ export default function FeatureSection({ title, description, visual, children, g
                 </p>
               ))}
             </div>
+            {footerTagline && (
+              <p className="text-xs text-gray-500 mt-8">
+                {footerTagline}
+              </p>
+            )}
           </div>
 
           {/* Visual Content */}

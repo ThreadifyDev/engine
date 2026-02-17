@@ -6,7 +6,7 @@ import Nav from '~/components/homepage/Nav';
 import LiveThreadDemo from '~/components/homepage/LiveThreadDemo';
 import FeatureSection from '~/components/homepage/FeatureSection';
 import Footer from '~/components/homepage/Footer';
-import { Zap, Link2, Lock, Radio, MessageSquare, Clock } from 'lucide-react';
+import { Zap, Link2, Lock, Radio, MessageSquare, Clock, Database, ShieldCheck, Webhook, Brain } from 'lucide-react';
 
 export const meta: MetaFunction = () => {
   return [
@@ -54,8 +54,8 @@ export default function Index() {
                 <button onClick={() => navigate('/signup')} className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition">
                   Get Started
                 </button>
-                <button className="px-6 py-3 border border-gray-300 text-black font-semibold rounded-lg hover:border-gray-500 transition">
-                  See demo
+                <button onClick={() => navigate('https://docs.threadify.dev')} className="px-6 py-3 border border-gray-300 text-black font-semibold rounded-lg hover:border-gray-500 transition">
+                  View Docs
                 </button>
               </div>
 
@@ -72,266 +72,252 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Feature Sections */}
-      <div className="bg-white">
-        <FeatureSection
-          title={`Answer "what happened?" in seconds, not hours.`}
-          description={`
-            Support gets a ticket: "Where's my order?" They dig through logs, contact engineering, wait 45 minutes.
+      {/* How It Works Section - Scribe Style */}
+      <section className="bg-gradient-to-br from-purple-50 via-blue-50 to-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-black mb-4">
+              Here's how Threadify works
+            </h2>
+            <p className="text-lg text-gray-600">
+              Hint: It's incredibly easy!
+            </p>
+          </div>
 
-            Threadify captures every customer request as a complete execution graph. Query by customer ID, order number, or support ticket from Zendesk, Jira, Salesforce—get answers instantly.
-
-            Support answers in 30 seconds. Engineering stops context-switching. Everyone understands execution.
-          `}
-          visual="right"
-        />
-
-        {/* How It Works Section */}
-        <section className="bg-white py-24 px-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="text-center mb-20">
-              <h2 className="text-4xl font-light text-black mb-4">
-                Here's exactly what you do
-              </h2>
-              <p className="text-xl text-gray-700">
-                From "what happened?" to answers in seconds - here's how in 4 simple steps
-              </p>
-            </div>
-
-            {/* Steps with Cards and Connecting Lines */}
-            <div className="grid md:grid-cols-2 gap-0 relative">
+          <div className="grid lg:grid-cols-2 gap-16 items-start">
+            {/* Left: Steps */}
+            <div className="space-y-12">
               {/* Step 1 */}
-              <div className="border border-gray-300 rounded-lg p-6 relative m-4">
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
-                    1
+              <div className="flex gap-6 items-start group cursor-pointer">
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center relative">
+                    <div className="absolute inset-0 rounded-full bg-black animate-pulse opacity-75"></div>
+                    <div className="relative w-3 h-3 rounded-full bg-white"></div>
                   </div>
-                  <h3 className="text-lg font-semibold text-black pt-2">
-                    Add SDK (create thread)
-                  </h3>
+                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
                 </div>
-                <p className="text-gray-600 text-sm leading-relaxed">
-                  Drop our lightweight SDK into your applications, agents, etc. Create threads to capture execution flows with minimal overhead (&lt;30ms).
-                </p>
-                {/* Line with arrow to next step */}
-                <div className="hidden md:block absolute top-1/2 right-0" style={{ transform: 'translate(calc(100% + 8px), -50%)' }}>
-                  <div className="flex items-center">
-                    <div className="w-4 h-0.5 bg-gradient-to-r from-purple-600 to-pink-600"></div>
-                    <div className="w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-pink-600"></div>
-                  </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-black mb-2">
+                    Step 1: Capture execution
+                  </h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    Install our SDK and instrument your services. Every customer request becomes a live execution graph with complete business context.
+                  </p>
                 </div>
               </div>
 
               {/* Step 2 */}
-              <div className="border border-gray-300 rounded-lg p-6 relative m-4">
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
-                    2
+              <div className="flex gap-6 items-start group cursor-pointer">
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
                   </div>
-                  <h3 className="text-lg font-semibold text-black pt-2">
-                    Instrument your business process with context
-                  </h3>
+                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
                 </div>
-                <p className="text-gray-600 text-sm leading-relaxed">
-                  Add business context to each step: customer data, reasoning, decisions, and timing. Capture what matters to validate against your business rules.
-                </p>
-                {/* Line with arrow down to next step */}
-                <div className="hidden md:block absolute bottom-0 right-1/2" style={{ transform: 'translateX(50%) translateY(calc(100% + 8px))' }}>
-                  <div className="flex flex-col items-center">
-                    <div className="w-0.5 h-4 bg-gradient-to-b from-pink-600 to-orange-500"></div>
-                    <div className="w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-orange-500"></div>
-                  </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-black mb-2">
+                    Step 2: Validate business logic
+                  </h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    Define contracts that ensure workflows follow the right process. Get notified when execution violates what should happen.
+                  </p>
                 </div>
               </div>
 
               {/* Step 3 */}
-              <div className="border border-gray-300 rounded-lg p-6 relative m-4 md:col-start-1">
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
-                    3
+              <div className="flex gap-6 items-start group cursor-pointer">
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
                   </div>
-                  <h3 className="text-lg font-semibold text-black pt-2">
-                    Link to external system
-                  </h3>
+                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
                 </div>
-                <p className="text-gray-600 text-sm leading-relaxed">
-                  Connect threads to external systems using references like paymentId, ticketId, etc. Enforce rules across your entire ecosystem with full context.
-                </p>
-                {/* Line with arrow to next step */}
-                <div className="hidden md:block absolute top-1/2 right-0" style={{ transform: 'translate(calc(100% + 8px), -50%)' }}>
-                  <div className="flex items-center">
-                    <div className="w-4 h-0.5 bg-gradient-to-r from-orange-500 to-yellow-500"></div>
-                    <div className="w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-4 border-l-yellow-500"></div>
-                  </div>
+                <div>
+                  <h3 className="text-xl font-semibold text-black mb-2">
+                    Step 3: Query and analyze
+                  </h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    Ask questions about execution in natural language. Surface insights like "which request types are most expensive" or "where are workflows getting stuck"—without writing queries.
+                  </p>
                 </div>
               </div>
 
               {/* Step 4 */}
-              <div className="border border-gray-300 rounded-lg p-6 m-4">
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-semibold flex-shrink-0">
-                    4
+              <div className="flex gap-6 items-start group cursor-pointer">
+                <div className="relative flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
                   </div>
-                  <h3 className="text-lg font-semibold text-black pt-2">
-                    Realtime execution graph
-                  </h3>
                 </div>
-                <p className="text-gray-600 text-sm leading-relaxed">
-                  Query execution graph as data comes in. Get live notifications for state changes and contract violations. Build intelligent automation with full execution memory.
-                </p>
+                <div>
+                  <h3 className="text-xl font-semibold text-black mb-2">
+                    Step 4: React in real-time
+                  </h3>
+                  <p className="text-gray-600 leading-relaxed">
+                    Get notified when execution changes—violations, completions, state transitions. Your systems query the full thread before acting, turning blind automation into intelligent decisions.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Video Placeholder */}
+            <div className="sticky top-24">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-200">
+                <div className="h-[600px] bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/10 flex items-center justify-center">
+                      <svg className="w-10 h-10 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-500 font-medium">Video Placeholder</p>
+                    <p className="text-sm text-gray-400 mt-1">Step 1: Capture execution</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
+      {/* Use Case Sections */}
+      <div className="bg-white">
         <FeatureSection
-          title="Detect patterns before they become problems."
+          tagline="For Support & Operations Teams"
+          title={`Answer "what happened?" instantly`}
           description={`
-            Payments are slow today. Are they all slow? Is it systemic or isolated? You dig through dashboards, losing hours.
-
-            Threadify's AI analyzes execution patterns across thousands of threads. Spot systemic issues: "80% of payments timing out since 2 PM." Find inefficiencies: "Loan apps with missing docs take 3x longer." Discover impacts: "When inventory check >2s, 40% abandon checkout."
-
-            Operations detects issues before customers complain. Business finds optimization opportunities. Engineering fixes root causes.
+            A customer tickets you: "Where's my order?" A workflow is stuck: "Why hasn't this loan been approved?" You dig through logs, ping engineering, wait for answers.
+Ask Threadify-"Where's Sarah's order stuck?" or "Why hasn't loan #4729 been approved?"—and get instant answers with full execution context. See which step failed, why it failed, what happened before.
+Support answers customers in seconds. Operations debugs without engineering. Everyone understands what actually happened.
           `}
+          footerTagline="Ask questions in plain English • Get instant answers"
           visual="right"
         />
 
-
         <FeatureSection
-          title="Enforce business rules in real-time, not after the fact."
+          tagline="For Intelligent Systems"
+          title="Validate and react with context"
           description={`
-            Your services are "up" but your business logic is broken. Payment processes before inventory is checked. Funds disburse before identity is verified. You discover violations after customers complain.
-
-            Threadify validates execution against your business rules. Define contracts: "inventory must succeed before payment," "identity verified before disbursement." Violations trigger WebSocket events to your application—while you can still intervene.
-
-            Prevent bad state before customers see it. Prove compliance with cryptographic audit trails. Start enforcing what should happen.
+            Services stay up while business logic silently breaks—payment before inventory check, disbursement before identity verification. Automation retries blindly.
+            Threadify validates execution against business rules and sends events when things deviate. Systems react with full context: failed payments check if inventory is reserved before retrying, fraud systems see complete transaction history, AI agents know what led to this moment.
+            Prevention replaces reaction. Context replaces guessing.
           `}
+          footerTagline="Real-time validation • Context-aware automation"
           visual="left"
         />
 
-        {/* Workflow Discovery Section */}
-        <section className="relative bg-gray-100 py-24 px-6 overflow-hidden">
-          {/* Hexagon Background Pattern */}
-          <svg className="absolute inset-0 w-full h-full opacity-10 pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="hexagons" x="0" y="0" width="60" height="52" patternUnits="userSpaceOnUse">
-                <path d="M30 0 L60 15 L60 37 L30 52 L0 37 L0 15 Z" fill="none" stroke="currentColor" strokeWidth="1"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#hexagons)" className="text-gray-400"/>
-          </svg>
-          
-          <div className="max-w-6xl mx-auto relative z-10">
-            <div className="text-center mb-8">
-              <h2 className="text-4xl font-semibold text-black mb-6">
-                Don't know your process yet? Start here.
-              </h2>
-              <p className="text-xl text-black/95 max-w-4xl mx-auto leading-relaxed mb-8">
-                No contract required. Start capturing execution data, let Threadify detect your patterns, formalize them into contracts, and enforce rules automatically.
-              </p>
-              <div className="flex gap-3 justify-center flex-wrap">
-                <button className="px-5 py-2.5 bg-white text-black text-sm font-medium rounded hover:bg-white transition">
-                  Code Samples
-                </button>
-                <button onClick={() => navigate('/signup')} className="px-5 py-2.5 bg-black text-white text-sm font-medium rounded hover:bg-gray-800 transition">
-                  Get Started
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <FeatureSection
-          title="React in real-time with complete context."
+          tagline="For Execs"
+          title="Turn execution into business intelligence"
           description={`
-            A payment fails. Your system retries blindly. A customer abandons checkout. Your system doesn't know why. An LLM agent approves a refund without knowing the customer's history. Automation without context causes more problems.
-
-            Threadify sends real-time events to your application when execution changes. Your systems query the complete thread before reacting: "Payment failed, but inventory is still reserved—don't retry yet, escalate to ops." LLM agents query history: "This customer's last refund was denied for fraud. Escalate instead of approving." Non-LLM systems make context-aware decisions too.
-
-            Automation becomes intelligent. Retries become strategic. Escalations become informed. Your systems react with perfect execution memory.
+            Payments feel slow today but you don't know if it's isolated or systemic. Workflows stall and you can't pinpoint bottlenecks. Questions like "which request types take longest?" require engineering to write queries.
+Ask Threadify questions—"Show me all failed payments in the last hour" or "Which workflows are stuck at manual review?"—and surface patterns across execution. Find where processes bottleneck, identify what's blocking customer journeys, understand execution behavior without digging through logs. Product finds friction points. Operations spots issues early. Finance sees operational patterns.
           `}
+          footerTagline="Execution becomes intelligence. Questions get answers."
           visual="right"
         />
 
-        {/* <FeatureSection
-          title="React."
-          description="Build intelligent systems that respond to execution events with full context. Automate responses and enable self-healing workflows."
-          visual="right"
-        /> */}
+        <FeatureSection
+          tagline='For LLM Agents'
+          title="Build execution context"
+          description={`
+            AI agents make decisions without understanding what led here. A refund gets approved without seeing payment history. A support ticket gets routed without knowing this is the customer's fifth escalation.
+          Threadify gives agents complete execution context. When handling a request, agents see what already happened—which steps succeeded, what failed, what decisions were made. Refund agents check transaction history before approving. Routing agents see escalation patterns. Orchestration triggers the next step only when conditions are actually met, not guessed.
+          `}
+          visual="left"
+        />
       </div>
 
       {/* Features Grid */}
-      <section className="bg-white py-24 px-6">
+      <section className="bg-gradient-to-b from-white to-gray-50 py-24 px-6">
         <div className="max-w-7xl mx-auto">
           <h2 className="text-4xl font-light text-black mb-16">
             Built for scale and intelligence
           </h2>
           
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-8">
             {/* Feature 1 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <Zap className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Ultra-low latency instrumentation
-              </h3>
-              <p className="text-gray-600">
-                Instrument agents, microservices, and UI in &lt;30ms. Capture execution without slowing down your systems.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <Zap className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    Ultra-low latency instrumentation
+                  </h3>
+                </div>
+              </div>
             </div>
 
             {/* Feature 2 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <Link2 className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Unified execution graphs
-              </h3>
-              <p className="text-gray-600">
-                Capture processes across agents, microservices, databases, and UI. One connected graph per customer request.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <Link2 className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    Unified execution graphs
+                  </h3>
+                </div>
+              </div>
             </div>
 
             {/* Feature 3 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <Lock className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Cryptographically verified chains
-              </h3>
-              <p className="text-gray-600">
-                Tamper-proof execution graphs. Every step is hashed and linked. Legally defensible audit trails.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <Lock className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    Immutable audit trails
+                  </h3>
+                </div>
+              </div>
             </div>
 
             {/* Feature 4 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <Radio className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Real-time event reactions
-              </h3>
-              <p className="text-gray-600">
-                React to state changes, business rule violations, and thread lifecycle events. Build intelligent automation with complete execution context.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <Radio className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    Event-driven automation
+                  </h3>
+                </div>
+              </div>
             </div>
 
             {/* Feature 5 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <MessageSquare className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                LLM-powered support
-              </h3>
-              <p className="text-gray-600">
-                Support teams ask natural language questions about customer journeys. Get instant answers with full execution context. No log diving required.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <MessageSquare className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    AI-powered queries
+                  </h3>
+                </div>
+              </div>
             </div>
 
             {/* Feature 6 */}
-            <div className="border border-zinc-200 rounded-lg p-8 hover:border-zinc-300 transition">
-              <Clock className="w-6 h-6 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-semibold text-black mb-3">
-                Built for long-running workflows
-              </h3>
-              <p className="text-gray-600">
-                Track processes that span days, weeks, or months. No progress loss. No added complexity.
-              </p>
+            <div className="group cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
+                  <Clock className="w-4 h-4 text-black" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
+                    Persistent workflow tracking
+                  </h3>
+                </div>
+              </div>
             </div>
           </div>
         </div>
