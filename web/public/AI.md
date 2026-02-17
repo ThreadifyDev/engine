@@ -100,14 +100,19 @@ Every step must have one of three statuses:
 **What it does:** Prevents duplicate step execution
 
 **How it works:**
-- SDK auto-generates hash from `stepName + context`
-- Or manually set with `idempotencyKey()`
-- Server rejects duplicates
+- **Auto-generated (default)**: SDK creates hash from `stepName + context`
+- **Manual**: Call `.idempotencyKey(key)` to set custom key
+- Server rejects duplicates with same key
 
-**When to use:**
-- Retryable operations
-- Network-sensitive calls
-- Payment processing
+**When to use manual keys:**
+- External system IDs (e.g., payment transaction ID)
+- User-initiated retries (e.g., "Retry Payment" button)
+- Cross-service deduplication
+
+**When auto-generated works:**
+- Context uniquely identifies the operation
+- No external identifier available
+- Simple retry scenarios
 
 ---
 

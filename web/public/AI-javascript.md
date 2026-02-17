@@ -58,8 +58,29 @@ await thread.step('order_placed')
 ```
 
 ### Set Idempotency Key
+
+**Manual idempotency key** (use external system IDs):
 ```javascript
-.idempotencyKey('payment-123')
+// Using payment provider transaction ID
+await thread.step('charge_payment')
+  .idempotencyKey(stripePayment.id)  // e.g., 'pi_3ABC123'
+  .addContext({ amount: '99.99' })
+  .success();
+
+// Using user-initiated retry with request ID
+await thread.step('retry_payment')
+  .idempotencyKey(req.headers['x-request-id'])
+  .addContext({ attempt: '2' })
+  .success();
+```
+
+**Auto-generated** (default - no `.idempotencyKey()` call):
+```javascript
+// SDK generates hash from stepName + context
+await thread.step('validate_cart')
+  .addContext({ items: '3', total: '99.99' })
+  .success();
+// Idempotency key auto-generated from: 'validate_cart' + '{items:3,total:99.99}'
 ```
 
 ### Add Sub-Steps
