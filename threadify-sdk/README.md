@@ -1,6 +1,8 @@
 # Threadify SDK
 
-Build business process graphs with context—track what happened, validate every step, and trigger context-aware actions.
+**Every customer request tells a story. Turn it into intelligence.**
+
+Threadify turns customer requests into live execution graphs. Support answers "what happened?" in seconds. Operations validates business logic in real-time. AI agents act with complete context.
 
 ## 📚 Documentation
 
