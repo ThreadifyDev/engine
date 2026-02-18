@@ -15,6 +15,7 @@ type Connection struct {
 	serviceName string
 	graphqlURL  string
 	debug       bool
+	logger      Logger
 	maxInFlight int
 
 	mu          sync.Mutex
@@ -44,6 +45,7 @@ func newConnection(transport Transport, apiKey, serviceName string, opts Connect
 		serviceName: serviceName,
 		graphqlURL:  opts.GraphQLURL,
 		debug:       opts.Debug,
+		logger:      opts.Logger,
 		maxInFlight: opts.MaxInFlight,
 		isConnected: true,
 		recvCh:      make(chan map[string]any, 256),
@@ -69,7 +71,7 @@ func (c *Connection) readLoop() {
 
 		msg, err := c.transport.Recv()
 		if err != nil {
-			debugLog(c.debug, "readLoop recv error: %v", err)
+			c.logger.Error("readLoop recv error", "error", err)
 			return
 		}
 
@@ -90,7 +92,7 @@ func (c *Connection) readLoop() {
 			select {
 			case c.recvCh <- msg:
 			default:
-				debugLog(c.debug, "recvCh full, dropping message: %s", action)
+				c.logger.Debug("recvCh full, dropping message", "action", action)
 			}
 		}
 	}
@@ -181,7 +183,7 @@ func (c *Connection) Start(ctx context.Context, opts ...StartOption) (*ThreadIns
 	threadID := asString(resp[FieldThreadID])
 	thread := newThreadInstance(c, threadID, cfg.contractName, "", nil)
 	c.threads.Store(threadID, thread)
-	debugLog(c.debug, "Thread started: %s", threadID)
+	c.logger.Debug("Thread started", "threadID", threadID)
 	return thread, nil
 }
 
@@ -246,14 +248,14 @@ func (c *Connection) Join(ctx context.Context, opts ...JoinOption) (*ThreadInsta
 
 	if cfg.token != "" {
 		msg[FieldThreadToken] = cfg.token
-		debugLog(c.debug, "Joining thread with token: %s...", cfg.token[:min(20, len(cfg.token))])
+		c.logger.Debug("Joining thread with token", "token_preview", cfg.token[:min(20, len(cfg.token))])
 	} else if cfg.threadID != "" {
 		if cfg.role == "" {
 			return nil, fmt.Errorf("role is required when joining by thread ID")
 		}
 		msg[FieldThreadID] = cfg.threadID
 		msg[FieldRole] = cfg.role
-		debugLog(c.debug, "Joining thread directly: %s as %s", cfg.threadID, cfg.role)
+		c.logger.Debug("Joining thread directly", "threadID", cfg.threadID, "role", cfg.role)
 	} else {
 		return nil, fmt.Errorf("either WithJoinToken or WithJoinThreadID+WithJoinRole must be provided")
 	}
@@ -277,7 +279,7 @@ func (c *Connection) Join(ctx context.Context, opts ...JoinOption) (*ThreadInsta
 	threadRole := asString(resp[FieldRole])
 	thread := newThreadInstance(c, threadID, asString(resp[FieldContractID]), threadRole, nil)
 	c.threads.Store(threadID, thread)
-	debugLog(c.debug, "Joined thread: %s, Role: %s", threadID, threadRole)
+	c.logger.Debug("Joined thread", "threadID", threadID, "role", threadRole)
 	return thread, nil
 }
 
@@ -397,7 +399,7 @@ func (c *Connection) handleNotification(data map[string]any, ackToken string) {
 
 	// Deduplicate.
 	if _, loaded := c.processedNotifications.LoadOrStore(notifID, struct{}{}); loaded {
-		debugLog(c.debug, "Duplicate notification ignored: %s", notifID)
+		c.logger.Debug("Duplicate notification ignored", "notificationID", notifID)
 		c.sendAck(notifID, asString(data[FieldThreadID]), ackToken)
 		return
 	}
@@ -479,7 +481,7 @@ func (c *Connection) triggerHandlers(eventPattern string, notif *Notification) {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						debugLog(c.debug, "Notification handler panic: %v", r)
+						c.logger.Error("Notification handler panic", "recover", r)
 					}
 				}()
 				h(notif)
@@ -491,7 +493,7 @@ func (c *Connection) triggerHandlers(eventPattern string, notif *Notification) {
 // sendAck acknowledges a notification on the server.
 func (c *Connection) sendAck(notificationID, threadID, ackToken string) {
 	if ackToken == "" {
-		debugLog(c.debug, "Cannot ACK: ackToken is required")
+		c.logger.Warn("Cannot ACK: ackToken is required")
 		return
 	}
 
@@ -503,7 +505,7 @@ func (c *Connection) sendAck(notificationID, threadID, ackToken string) {
 		FieldProcessed:       true,
 	})
 
-	debugLog(c.debug, "ACK sent: %s", notificationID)
+	c.logger.Debug("ACK sent", "notificationID", notificationID)
 }
 
 // --- Data retrieval ---

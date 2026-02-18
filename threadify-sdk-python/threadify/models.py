@@ -1,7 +1,4 @@
-"""Data models and type definitions for the Threadify SDK."""
-
-from __future__ import annotations
-
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -120,6 +117,7 @@ class ConnectOptions:
     debug: bool = False
     max_in_flight: int = DEFAULT_MAX_IN_FLIGHT
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
+    logger: logging.Logger | None = None
 
     def with_defaults(self) -> "ConnectOptions":
         if not self.graphql_url and self.ws_url:

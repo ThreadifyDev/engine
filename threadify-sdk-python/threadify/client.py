@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import fields
 from typing import Any
 
@@ -36,6 +37,7 @@ def _build_connect_options(
     debug: bool | None,
     max_in_flight: int | None,
     connect_timeout: float | None,
+    logger: logging.Logger | None = None,
 ) -> ConnectOptions:
     cfg = _copy_connect_options(base) if base else ConnectOptions()
 
@@ -51,6 +53,8 @@ def _build_connect_options(
         cfg.max_in_flight = max_in_flight
     if connect_timeout is not None:
         cfg.connect_timeout = connect_timeout
+    if logger is not None:
+        cfg.logger = logger
 
     cfg.with_defaults()
     cfg.validate()
@@ -70,6 +74,7 @@ class Threadify:
         debug: bool | None = None,
         max_in_flight: int | None = None,
         connect_timeout: float | None = None,
+        logger: logging.Logger | None = None,
         options: ConnectOptions | None = None,
     ) -> Connection:
         require_non_empty("api_key", api_key)
@@ -93,6 +98,7 @@ class Threadify:
             debug=debug,
             max_in_flight=max_in_flight,
             connect_timeout=connect_timeout,
+            logger=logger,
         )
 
         ws = await asyncio.wait_for(
@@ -123,6 +129,7 @@ class Threadify:
             graphql_url=cfg.graphql_url,
             debug=cfg.debug,
             max_in_flight=cfg.max_in_flight,
+            logger=cfg.logger,
         )
 
         return conn
@@ -137,6 +144,7 @@ class Threadify:
         debug: bool | None = None,
         max_in_flight: int | None = None,
         connect_timeout: float | None = None,
+        logger: logging.Logger | None = None,
         options: ConnectOptions | None = None,
     ) -> "ThreadifyFactory":
         legacy_service_name: str | None = None
@@ -158,6 +166,7 @@ class Threadify:
             debug=debug,
             max_in_flight=max_in_flight,
             connect_timeout=connect_timeout,
+            logger=logger,
         )
         return ThreadifyFactory(
             api_key=api_key,

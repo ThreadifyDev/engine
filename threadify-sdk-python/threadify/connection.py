@@ -51,6 +51,7 @@ class Connection:
         graphql_url: str,
         debug: bool = False,
         max_in_flight: int = 10,
+        logger: logging.Logger | None = None,
     ):
         self._ws = ws
         self._api_key = api_key
@@ -58,6 +59,7 @@ class Connection:
         self._graphql_url = graphql_url
         self._debug = debug
         self._max_in_flight = max_in_flight
+        self._logger = logger or logging.getLogger("threadify")
         self._connected = True
 
         self._threads: dict[str, Any] = {}
@@ -102,7 +104,7 @@ class Connection:
                 else:
                     await self._recv_queue.put(msg)
         except Exception as exc:
-            self._debug_log(f"readLoop error: {exc}")
+            self._logger.error(f"readLoop error: {exc}")
         finally:
             self._connected = False
 
@@ -166,7 +168,7 @@ class Connection:
         thread_id = resp[FIELD_THREAD_ID]
         thread = ThreadInstance(self, thread_id, contract_name, "", None)
         self._threads[thread_id] = thread
-        self._debug_log(f"Thread started: {thread_id}")
+        self._logger.debug(f"Thread started: {thread_id}")
         return thread
 
     async def join(
@@ -219,7 +221,7 @@ class Connection:
             self, thread_id, resp.get("contractId", ""), thread_role, None
         )
         self._threads[thread_id] = thread
-        self._debug_log(f"Joined thread: {thread_id}, Role: {thread_role}")
+        self._logger.debug(f"Joined thread: {thread_id}, Role: {thread_role}")
         return thread
 
     async def close(self) -> None:
@@ -298,7 +300,7 @@ class Connection:
         notif_id = data.get(FIELD_NOTIFICATION_ID, "")
 
         if notif_id in self._processed_notifications:
-            self._debug_log(f"Duplicate notification ignored: {notif_id}")
+            self._logger.debug(f"Duplicate notification ignored: {notif_id}")
             self._send_ack(notif_id, data.get(FIELD_THREAD_ID, ""), ack_token)
             return
 
@@ -347,7 +349,7 @@ class Connection:
                 try:
                     handler(notif)
                 except Exception as exc:
-                    self._debug_log(f"Notification handler error: {exc}")
+                    self._logger.error(f"Notification handler error: {exc}")
 
     def _send_ack(self, notification_id: str, thread_id: str, ack_token: str) -> None:
         if not ack_token:
@@ -380,10 +382,6 @@ class Connection:
 
     async def get_thread_chain(self, root_id: str, max_depth: int = 3) -> list["ArchivedThread"]:
         return await self._get_data_retriever().get_thread_chain(root_id, max_depth)
-
-    def _debug_log(self, message: str) -> None:
-        if self._debug:
-            logger.debug(f"[threadify] {message}")
 
     def _remove_thread(self, thread_id: str) -> None:
         self._threads.pop(thread_id, None)

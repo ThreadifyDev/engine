@@ -111,6 +111,7 @@ type ConnectOptions struct {
 	WSURL          string
 	GraphQLURL     string
 	Debug          bool
+	Logger         Logger
 	MaxInFlight    int
 	ConnectTimeout time.Duration
 	Dialer         Dialer
@@ -142,8 +143,25 @@ func (o *ConnectOptions) validate() error {
 	if o.MaxInFlight < minMaxInFlight || o.MaxInFlight > maxMaxInFlight {
 		return fmt.Errorf("maxInFlight must be between %d and %d", minMaxInFlight, maxMaxInFlight)
 	}
+	if o.Logger == nil {
+		o.Logger = &nopLogger{}
+	}
 	return nil
 }
+
+type Logger interface {
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
+type nopLogger struct{}
+
+func (l *nopLogger) Debug(msg string, args ...any) {}
+func (l *nopLogger) Info(msg string, args ...any)  {}
+func (l *nopLogger) Warn(msg string, args ...any)  {}
+func (l *nopLogger) Error(msg string, args ...any) {}
 
 type StepResult struct {
 	StepName       string `json:"stepName"`
