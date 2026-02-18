@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -31,6 +32,15 @@ func WithGraphQLURL(url string) Option {
 func WithDebug(debug bool) Option {
 	return func(o *ConnectOptions) {
 		o.Debug = debug
+		if debug && o.Logger == nil {
+			o.Logger = slog.Default()
+		}
+	}
+}
+
+func WithLogger(logger Logger) Option {
+	return func(o *ConnectOptions) {
+		o.Logger = logger
 	}
 }
 
@@ -150,11 +160,7 @@ func (f *Factory) Connect(ctx context.Context) (*Connection, error) {
 	return Connect(ctx, f.config.APIKey, opts...)
 }
 
-func debugLog(debug bool, format string, args ...any) {
-	if debug {
-		fmt.Printf("[DEBUG] "+format+"\n", args...)
-	}
-}
+//
 
 func asFloat(v any) float64 {
 	f, _ := v.(float64)

@@ -58,7 +58,7 @@ func NewNotification(data map[string]any, conn *Connection, ackToken string) *No
 
 func (n *Notification) Ack() error {
 	if n.acknowledged {
-		debugLog(n.conn.debug, "Notification already acknowledged: %s", n.NotificationID)
+		n.conn.logger.Debug("Notification already acknowledged", "notificationID", n.NotificationID)
 		return nil
 	}
 
