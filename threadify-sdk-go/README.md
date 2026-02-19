@@ -5,7 +5,7 @@ The official Go SDK for connecting to the Threadify Engine.
 ## Installation
 
 ```bash
-go get github.com/threadify/threadify-sdk-go
+go get github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go
 ```
 
 ## Quick Start
@@ -22,7 +22,7 @@ import (
     "log"
     "time"
 
-    "github.com/threadify/threadify-sdk-go"
+    "github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go"
 )
 
 func main() {
@@ -135,3 +135,34 @@ The SDK uses the Functional Option pattern for configuration.
 -   `WithJoinThreadID(string)`: Join by Thread ID.
 -   `WithJoinRole(string)`: Set the role when joining by ID.
 -   `WithJoinToken(string)`: Join using a secure invitation token.
+
+## Versioning & Releases
+
+This SDK follows [Semantic Versioning](https://semver.org/) and [Conventional Commits](https://www.conventionalcommits.org/). Releases are automated via GitHub Actions.
+
+### Automated Increments
+Whenever changes are merged to the `main` branch, the release system analyzes commit messages to determine the next version:
+- `fix: ...` -> Patch bump (e.g., v0.1.0 -> v0.1.1)
+- `feat: ...` -> Minor bump (e.g., v0.1.0 -> v0.2.0)
+- `feat!: ...` or `BREAKING CHANGE: ...` -> Major bump (e.g., v0.1.0 -> v1.0.0)
+
+### Manual Version Access
+The current version of the SDK is available via the `threadify.Version` constant.
+
+```go
+fmt.Println("Threadify Go SDK Version:", threadify.Version)
+```
+
+## Testing
+
+To run the SDK tests, execute:
+
+```bash
+make test
+```
+
+Alternatively, use the Go command:
+
+```bash
+go test -v ./...
+```
