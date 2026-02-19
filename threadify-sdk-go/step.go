@@ -16,7 +16,7 @@ type ThreadStep struct {
 	manualIdempotencyKey string
 	subSteps             []SubStepData
 	event                map[string]any
-	context_             map[string]string
+	context              map[string]string
 	refs                 map[string]string
 	metadata             map[string]any
 	err                  error
@@ -27,7 +27,7 @@ func newThreadStep(stepName string, thread *ThreadInstance, serviceName string) 
 		stepName:    stepName,
 		thread:      thread,
 		serviceName: serviceName,
-		context_:    make(map[string]string),
+		context:     make(map[string]string),
 		refs:        make(map[string]string),
 		event: map[string]any{
 			FieldAction:     ActionRecordThreadEvent,
@@ -41,7 +41,6 @@ func newThreadStep(stepName string, thread *ThreadInstance, serviceName string) 
 	}
 }
 
-// IdempotencyKey sets a manual idempotency key for deduplication.
 func (s *ThreadStep) IdempotencyKey(key string) *ThreadStep {
 	if s.err != nil {
 		return s
@@ -54,32 +53,28 @@ func (s *ThreadStep) IdempotencyKey(key string) *ThreadStep {
 	return s
 }
 
-// AddContext adds business context data to this step.
-// All values are converted to strings to match the server schema.
 func (s *ThreadStep) AddContext(data map[string]any) *ThreadStep {
 	if data == nil {
 		return s
 	}
 	for k, v := range data {
-		s.context_[k] = fmt.Sprintf("%v", v)
+		s.context[k] = fmt.Sprintf("%v", v)
 	}
 	return s
 }
 
-// AddPrivateContext adds private context data (prefixed with "private_").
 func (s *ThreadStep) AddPrivateContext(data map[string]any) *ThreadStep {
 	if data == nil {
 		return s
 	}
 	for k, v := range data {
 		str := fmt.Sprintf("%v", v)
-		s.context_[k] = str
-		s.context_["private_"+k] = str
+		s.context[k] = str
+		s.context["private_"+k] = str
 	}
 	return s
 }
 
-// AddRefs adds external system references.
 func (s *ThreadStep) AddRefs(refs map[string]string) *ThreadStep {
 	if refs == nil {
 		return s
@@ -90,7 +85,6 @@ func (s *ThreadStep) AddRefs(refs map[string]string) *ThreadStep {
 	return s
 }
 
-// SubStep records a sub-step to be sent when this step completes.
 func (s *ThreadStep) SubStep(name string, data map[string]any, status ...string) *ThreadStep {
 	if s.err != nil {
 		return s
@@ -137,29 +131,11 @@ func (s *ThreadStep) stop(ctx context.Context, status string, messageOrData ...a
 
 	s.event[FieldFinishedAt] = nowISO()
 	s.event[FieldStatus] = status
-	s.event[FieldContext] = s.context_
+	s.event[FieldContext] = s.context
 	s.event[FieldRefs] = s.refs
 
-	if len(messageOrData) > 0 && messageOrData[0] != nil {
-		v := messageOrData[0]
-		switch val := v.(type) {
-		case string:
-			if val != "" {
-				if s.metadata == nil {
-					s.metadata = make(map[string]any)
-				}
-				s.metadata[FieldMessage] = val
-			}
-		case map[string]any:
-			if len(val) > 0 {
-				if s.metadata == nil {
-					s.metadata = make(map[string]any)
-				}
-				for k, v := range val {
-					s.metadata[k] = v
-				}
-			}
-		}
+	if len(messageOrData) > 0 {
+		s.handleStopMetadata(messageOrData[0])
 	}
 
 	if s.metadata != nil {
@@ -250,8 +226,8 @@ func (s *ThreadStep) generateIdempotencyKey() string {
 		return s.manualIdempotencyKey
 	}
 
-	keys := make([]string, 0, len(s.context_))
-	for k := range s.context_ {
+	keys := make([]string, 0, len(s.context))
+	for k := range s.context {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
@@ -265,7 +241,7 @@ func (s *ThreadStep) generateIdempotencyKey() string {
 		sb.WriteString(`"`)
 		sb.WriteString(k)
 		sb.WriteString(`":"`)
-		sb.WriteString(s.context_[k])
+		sb.WriteString(s.context[k])
 		sb.WriteString(`"`)
 	}
 	sb.WriteString("}")
@@ -273,7 +249,7 @@ func (s *ThreadStep) generateIdempotencyKey() string {
 	input := s.stepName + sb.String()
 
 	h := fnv.New32a()
-	h.Write([]byte(input))
+	_, _ = h.Write([]byte(input))
 	return fmt.Sprintf("%08x", h.Sum32())
 }
 
@@ -288,14 +264,39 @@ func (s *ThreadStep) GetEventData() map[string]any {
 func (s *ThreadStep) GetStepName() string {
 	return s.stepName
 }
+
 func (s *ThreadStep) GetStatus() string {
 	return asString(s.event[FieldStatus])
 }
 
 func (s *ThreadStep) GetContext() map[string]string {
-	out := make(map[string]string, len(s.context_))
-	for k, v := range s.context_ {
+	out := make(map[string]string, len(s.context))
+	for k, v := range s.context {
 		out[k] = v
 	}
 	return out
+}
+
+func (s *ThreadStep) handleStopMetadata(v any) {
+	if v == nil {
+		return
+	}
+	switch val := v.(type) {
+	case string:
+		if val != "" {
+			if s.metadata == nil {
+				s.metadata = make(map[string]any)
+			}
+			s.metadata[FieldMessage] = val
+		}
+	case map[string]any:
+		if len(val) > 0 {
+			if s.metadata == nil {
+				s.metadata = make(map[string]any)
+			}
+			for k, v := range val {
+				s.metadata[k] = v
+			}
+		}
+	}
 }

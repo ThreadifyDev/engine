@@ -28,7 +28,6 @@ type Connection struct {
 	activeSubscriptions sync.Map
 
 	processedNotifications sync.Map
-	processedCount         int64
 
 	dataRetriever     *DataRetriever
 	dataRetrieverOnce sync.Once
@@ -38,7 +37,7 @@ type Connection struct {
 	stopCh   chan struct{}
 }
 
-func newConnection(transport Transport, apiKey, serviceName string, opts ConnectOptions) *Connection {
+func newConnection(transport Transport, apiKey, serviceName string, opts *ConnectOptions) *Connection {
 	c := &Connection{
 		transport:   transport,
 		apiKey:      apiKey,
@@ -156,12 +155,13 @@ func (c *Connection) Start(ctx context.Context, opts ...StartOption) (*ThreadIns
 	if cfg.contractName != "" {
 		msg[FieldContractName] = cfg.contractName
 		effectiveService := firstNonEmpty(cfg.serviceName, c.serviceName)
-		if cfg.role != "" {
+		switch {
+		case cfg.role != "":
 			msg[FieldRole] = cfg.role
-		} else if effectiveService != "" {
+		case effectiveService != "":
 			msg[FieldRole] = strings.TrimSuffix(effectiveService, "-service")
-		} else {
-			msg[FieldRole] = "participant"
+		default:
+			msg[FieldRole] = FieldRoleParticipant
 		}
 	}
 
@@ -246,17 +246,18 @@ func (c *Connection) Join(ctx context.Context, opts ...JoinOption) (*ThreadInsta
 		FieldAction: ActionJoinThread,
 	}
 
-	if cfg.token != "" {
+	switch {
+	case cfg.token != "":
 		msg[FieldThreadToken] = cfg.token
 		c.logger.Debug("Joining thread with token", "token_preview", cfg.token[:min(20, len(cfg.token))])
-	} else if cfg.threadID != "" {
+	case cfg.threadID != "":
 		if cfg.role == "" {
 			return nil, fmt.Errorf("role is required when joining by thread ID")
 		}
 		msg[FieldThreadID] = cfg.threadID
 		msg[FieldRole] = cfg.role
 		c.logger.Debug("Joining thread directly", "threadID", cfg.threadID, "role", cfg.role)
-	} else {
+	default:
 		return nil, fmt.Errorf("either WithJoinToken or WithJoinThreadID+WithJoinRole must be provided")
 	}
 
@@ -283,7 +284,6 @@ func (c *Connection) Join(ctx context.Context, opts ...JoinOption) (*ThreadInsta
 	return thread, nil
 }
 
-// Close closes the WebSocket connection.
 func (c *Connection) Close() error {
 	c.stopOnce.Do(func() {
 		close(c.stopCh)
@@ -296,7 +296,6 @@ func (c *Connection) Close() error {
 	return c.transport.Close()
 }
 
-// Subscribe registers a notification handler for a specific event and step.
 func (c *Connection) Subscribe(ctx context.Context, event, stepName string, handler NotificationHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
@@ -452,19 +451,20 @@ func (c *Connection) triggerHandlers(eventPattern string, notif *Notification) {
 
 	keysToCheck := []string{}
 
-	// 1. Exact match: "event:contract@stepName"
 	if contractName != "" {
-		keysToCheck = append(keysToCheck, fmt.Sprintf("%s:%s@%s", eventPattern, contractName, stepName))
+		keysToCheck = append(keysToCheck,
+			fmt.Sprintf("%s:%s@%s", eventPattern, contractName, stepName),
+			fmt.Sprintf("%s:%s", eventPattern, stepName),
+			fmt.Sprintf("%s.*:%s", source, stepName),
+			fmt.Sprintf("*:%s", stepName),
+		)
+	} else {
+		keysToCheck = append(keysToCheck,
+			fmt.Sprintf("%s:%s", eventPattern, stepName),
+			fmt.Sprintf("%s.*:%s", source, stepName),
+			fmt.Sprintf("*:%s", stepName),
+		)
 	}
-
-	// 2. Wildcard contract: "event:stepName"
-	keysToCheck = append(keysToCheck, fmt.Sprintf("%s:%s", eventPattern, stepName))
-
-	// 3. Wildcard type: "source.*:stepName"
-	keysToCheck = append(keysToCheck, fmt.Sprintf("%s.*:%s", source, stepName))
-
-	// 4. Full wildcard: "*:stepName"
-	keysToCheck = append(keysToCheck, fmt.Sprintf("*:%s", stepName))
 
 	for _, key := range keysToCheck {
 		val, ok := c.notificationHandlers.Load(key)
@@ -490,7 +490,6 @@ func (c *Connection) triggerHandlers(eventPattern string, notif *Notification) {
 	}
 }
 
-// sendAck acknowledges a notification on the server.
 func (c *Connection) sendAck(notificationID, threadID, ackToken string) {
 	if ackToken == "" {
 		c.logger.Warn("Cannot ACK: ackToken is required")
@@ -498,19 +497,16 @@ func (c *Connection) sendAck(notificationID, threadID, ackToken string) {
 	}
 
 	_ = c.send(map[string]any{
-		FieldAction:          ActionAckNotification,
-		FieldNotification_ID: notificationID,
-		FieldThread_ID:       threadID,
-		FieldAckToken:        ackToken,
-		FieldProcessed:       true,
+		FieldAction:            ActionAckNotification,
+		FieldNotificationAckID: notificationID,
+		FieldThreadAckID:       threadID,
+		FieldAckToken:          ackToken,
+		FieldProcessed:         true,
 	})
 
 	c.logger.Debug("ACK sent", "notificationID", notificationID)
 }
 
-// --- Data retrieval ---
-
-// getDataRetriever returns the lazily-initialised DataRetriever.
 func (c *Connection) getDataRetriever() (*DataRetriever, error) {
 	var initErr error
 	c.dataRetrieverOnce.Do(func() {
@@ -534,7 +530,7 @@ func (c *Connection) GetThread(ctx context.Context, threadID string) (*ArchivedT
 	return dr.GetThread(ctx, threadID)
 }
 
-func (c *Connection) GetThreadsByRef(ctx context.Context, query RefQuery) ([]*ArchivedThread, error) {
+func (c *Connection) GetThreadsByRef(ctx context.Context, query *RefQuery) ([]*ArchivedThread, error) {
 	dr, err := c.getDataRetriever()
 	if err != nil {
 		return nil, err
@@ -550,16 +546,13 @@ func (c *Connection) GetThreadChain(ctx context.Context, rootID string, maxDepth
 	return dr.GetThreadChain(ctx, rootID, maxDepth)
 }
 
-// --- Helpers ---
-
-// parseEvent splits an event string into source and type.
-func parseEvent(event string) (string, string) {
+func parseEvent(event string) (source, eventType string) {
 	normalized := strings.Replace(event, "step", "execution", 1)
 	normalized = strings.Replace(normalized, "rule", "validation", 1)
 
 	parts := strings.SplitN(normalized, ".", 2)
-	source := "*"
-	eventType := "*"
+	source = "*"
+	eventType = "*"
 	if len(parts) >= 1 && parts[0] != "" {
 		source = parts[0]
 	}
@@ -569,7 +562,6 @@ func parseEvent(event string) (string, string) {
 	return source, eventType
 }
 
-// buildEventTypes returns the subscription event types for a source+type pair.
 func buildEventTypes(source, eventType string) []string {
 	if source == "*" && eventType == "*" {
 		return []string{"execution.success", "execution.failed", "validation.passed", "validation.violated"}
@@ -583,7 +575,6 @@ func buildEventTypes(source, eventType string) []string {
 	return []string{source + "." + eventType}
 }
 
-// mergeUnique merges two slices, removing duplicates.
 func mergeUnique(a, b []string) []string {
 	seen := make(map[string]struct{}, len(a)+len(b))
 	for _, s := range a {
@@ -599,7 +590,6 @@ func mergeUnique(a, b []string) []string {
 	return result
 }
 
-// sameElements checks if two unsorted slices contain the same elements.
 func sameElements(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

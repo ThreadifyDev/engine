@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
+const testOrderID = "ORD-123"
+
 func TestThreadStep_FluentChaining(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Start a thread.
 	mt.enqueueResponse(map[string]any{
@@ -40,12 +42,12 @@ func TestThreadStep_FluentChaining(t *testing.T) {
 	}
 
 	// Verify context.
-	ctx_ := step.GetContext()
-	if ctx_["orderId"] != "ORD-123" {
-		t.Errorf("expected orderId 'ORD-123', got %q", ctx_["orderId"])
+	stepCtx := step.GetContext()
+	if stepCtx["orderId"] != testOrderID {
+		t.Errorf("expected orderId %q, got %q", testOrderID, stepCtx["orderId"])
 	}
-	if ctx_["amount"] != "99.99" {
-		t.Errorf("expected amount '99.99', got %q", ctx_["amount"])
+	if stepCtx["amount"] != "99.99" {
+		t.Errorf("expected amount '99.99', got %q", stepCtx["amount"])
 	}
 
 	// Verify refs.
@@ -60,14 +62,14 @@ func TestThreadStep_FluentChaining(t *testing.T) {
 	if step.subSteps[0].Name != "validate_inventory" {
 		t.Errorf("expected sub-step name 'validate_inventory', got %q", step.subSteps[0].Name)
 	}
-	if step.subSteps[0].Status != "success" {
+	if step.subSteps[0].Status != StatusSuccess {
 		t.Errorf("expected sub-step status 'success', got %q", step.subSteps[0].Status)
 	}
 }
 
 func TestThreadStep_ManualIdempotencyKey(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -92,7 +94,7 @@ func TestThreadStep_ManualIdempotencyKey(t *testing.T) {
 
 func TestThreadStep_AutoIdempotencyKey(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -108,11 +110,11 @@ func TestThreadStep_AutoIdempotencyKey(t *testing.T) {
 
 	// Same step name + same context should produce same key.
 	step1, _ := thread.Step("order_placed")
-	step1.AddContext(map[string]any{"orderId": "ORD-123"})
+	step1.AddContext(map[string]any{"orderId": testOrderID})
 	key1 := step1.generateIdempotencyKey()
 
 	step2, _ := thread.Step("order_placed")
-	step2.AddContext(map[string]any{"orderId": "ORD-123"})
+	step2.AddContext(map[string]any{"orderId": testOrderID})
 	key2 := step2.generateIdempotencyKey()
 
 	if key1 != key2 {
@@ -136,7 +138,7 @@ func TestThreadStep_AutoIdempotencyKey(t *testing.T) {
 
 func TestThreadStep_Success(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -151,7 +153,7 @@ func TestThreadStep_Success(t *testing.T) {
 	}
 
 	step, _ := thread.Step("order_placed")
-	step.AddContext(map[string]any{"orderId": "ORD-123"})
+	step.AddContext(map[string]any{"orderId": testOrderID})
 
 	// Enqueue recordThreadEvent response.
 	mt.enqueueResponse(map[string]any{
@@ -170,7 +172,7 @@ func TestThreadStep_Success(t *testing.T) {
 	if result.ThreadID != "thread-success-001" {
 		t.Errorf("expected threadId 'thread-success-001', got %q", result.ThreadID)
 	}
-	if result.Status != "success" {
+	if result.Status != StatusSuccess {
 		t.Errorf("expected status 'success', got %q", result.Status)
 	}
 	if result.Duplicate {
@@ -180,7 +182,7 @@ func TestThreadStep_Success(t *testing.T) {
 
 func TestThreadStep_Failed(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -206,14 +208,14 @@ func TestThreadStep_Failed(t *testing.T) {
 		t.Fatalf("Failed() error: %v", err)
 	}
 
-	if result.Status != "failed" {
+	if result.Status != StatusFailed {
 		t.Errorf("expected status 'failed', got %q", result.Status)
 	}
 }
 
 func TestThreadStep_Error(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -239,14 +241,14 @@ func TestThreadStep_Error(t *testing.T) {
 		t.Fatalf("Error() error: %v", err)
 	}
 
-	if result.Status != "error" {
+	if result.Status != StatusError {
 		t.Errorf("expected status 'error', got %q", result.Status)
 	}
 }
 
 func TestThreadStep_DuplicateDetection(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -289,7 +291,7 @@ func TestThreadStep_DuplicateDetection(t *testing.T) {
 
 func TestThreadStep_EmptyStepName(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -311,7 +313,7 @@ func TestThreadStep_EmptyStepName(t *testing.T) {
 
 func TestThreadStep_SubStepStatuses(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -334,17 +336,17 @@ func TestThreadStep_SubStepStatuses(t *testing.T) {
 		t.Fatalf("expected 3 sub-steps, got %d", len(step.subSteps))
 	}
 
-	if step.subSteps[0].Status != "success" {
+	if step.subSteps[0].Status != StatusSuccess {
 		t.Errorf("expected default sub-step status 'success', got %q", step.subSteps[0].Status)
 	}
-	if step.subSteps[2].Status != "failed" {
+	if step.subSteps[2].Status != StatusFailed {
 		t.Errorf("expected sub-step status 'failed', got %q", step.subSteps[2].Status)
 	}
 }
 
 func TestThreadStep_SubStepInvalidStatus(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -371,7 +373,7 @@ func TestThreadStep_SubStepInvalidStatus(t *testing.T) {
 
 func TestThreadStep_IdempotencyKeyErrorOnEmpty(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -397,7 +399,7 @@ func TestThreadStep_IdempotencyKeyErrorOnEmpty(t *testing.T) {
 
 func TestThreadStep_PrivateContext(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -411,18 +413,18 @@ func TestThreadStep_PrivateContext(t *testing.T) {
 
 	step.AddPrivateContext(map[string]any{"cardNumber": "4111111111111111"})
 
-	ctx_ := step.GetContext()
-	if ctx_["cardNumber"] != "4111111111111111" {
+	stepCtx := step.GetContext()
+	if stepCtx["cardNumber"] != "4111111111111111" {
 		t.Errorf("expected cardNumber in context")
 	}
-	if ctx_["private_cardNumber"] != "4111111111111111" {
+	if stepCtx["private_cardNumber"] != "4111111111111111" {
 		t.Errorf("expected private_cardNumber in context")
 	}
 }
 
 func TestThreadStep_MessageAsMapData(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -447,14 +449,14 @@ func TestThreadStep_MessageAsMapData(t *testing.T) {
 		t.Fatalf("Success() error: %v", err)
 	}
 
-	if result.Status != "success" {
+	if result.Status != StatusSuccess {
 		t.Errorf("expected status 'success', got %q", result.Status)
 	}
 }
 
 func TestThreadInstance_InviteParty(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -489,7 +491,7 @@ func TestThreadInstance_InviteParty(t *testing.T) {
 
 func TestThreadInstance_InviteParty_MissingRole(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -508,7 +510,7 @@ func TestThreadInstance_InviteParty_MissingRole(t *testing.T) {
 
 func TestThreadInstance_AddRefs(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -539,7 +541,7 @@ func TestThreadInstance_AddRefs(t *testing.T) {
 
 func TestThreadInstance_AddRefs_Empty(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -558,7 +560,7 @@ func TestThreadInstance_AddRefs_Empty(t *testing.T) {
 
 func TestThreadInstance_LinkThread(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -587,7 +589,7 @@ func TestThreadInstance_LinkThread(t *testing.T) {
 
 func TestThreadInstance_LinkThread_InvalidUUID(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -606,7 +608,7 @@ func TestThreadInstance_LinkThread_InvalidUUID(t *testing.T) {
 
 func TestThreadInstance_End(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -640,7 +642,7 @@ func TestThreadInstance_End(t *testing.T) {
 
 func TestThreadInstance_Complete(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -671,7 +673,7 @@ func TestThreadInstance_Complete(t *testing.T) {
 
 func TestThreadInstance_WaitFor_Timeout(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -692,7 +694,7 @@ func TestThreadInstance_WaitFor_Timeout(t *testing.T) {
 
 func TestThreadInstance_WaitFor_EmptyStepName(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",

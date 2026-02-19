@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from threadify.notification import Notification
+    from threadify.step import ThreadStep
 
 from threadify.models import (
     ACTION_ADD_REFS,
     ACTION_CLOSE_THREAD,
     ACTION_INVITE_PARTY,
     ACTION_THREAD_END,
+    DEFAULT_WAIT_TIMEOUT,
     FIELD_ACCESS_LEVEL,
     FIELD_ACTION,
     FIELD_CANCELLED_AT,
@@ -33,7 +38,6 @@ from threadify.models import (
     WaitOptions,
     first_non_empty,
     require_non_empty,
-    DEFAULT_WAIT_TIMEOUT,
 )
 
 UUID_REGEX = re.compile(
@@ -69,7 +73,7 @@ class ThreadInstance:
         self._steps: dict[str, Any] = {}
         self._pending_waits: dict[str, _PendingWait] = {}
 
-    def step(self, step_name: str) -> "ThreadStep":
+    def step(self, step_name: str) -> ThreadStep:
         """Create a new step builder for this thread.
 
         Args:
@@ -106,14 +110,10 @@ class ThreadInstance:
 
         await self._send(msg)
 
-        resp = await self._conn._wait_response(
-            lambda m: m.get(FIELD_ACTION) == ACTION_INVITE_PARTY
-        )
+        resp = await self._conn._wait_response(lambda m: m.get(FIELD_ACTION) == ACTION_INVITE_PARTY)
 
         if resp.get(FIELD_STATUS) != STATUS_SUCCESS:
-            raise RuntimeError(
-                resp.get(FIELD_MESSAGE, "failed to create invitation token")
-            )
+            raise RuntimeError(resp.get(FIELD_MESSAGE, "failed to create invitation token"))
 
         return InviteResponse(
             token=resp.get(FIELD_THREAD_TOKEN, ""),
@@ -127,7 +127,7 @@ class ThreadInstance:
         self,
         step_name: str,
         options: WaitOptions | None = None,
-    ) -> "Notification":
+    ) -> Notification:
         """Block until a notification arrives for the given step.
 
         Args:
@@ -149,16 +149,16 @@ class ThreadInstance:
                 timeout = options.timeout
             statuses = options.statuses
 
-        fut: asyncio.Future["Notification"] = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future[Notification] = asyncio.get_event_loop().create_future()
         pw = _PendingWait(future=fut, statuses=statuses)
         self._pending_waits[step_name] = pw
 
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as err:
             raise asyncio.TimeoutError(
                 f"Timeout waiting for step: {step_name} ({timeout}s)"
-            )
+            ) from err
         finally:
             self._pending_waits.pop(step_name, None)
 
@@ -179,18 +179,14 @@ class ThreadInstance:
 
         await self._send(msg)
 
-        resp = await self._conn._wait_response(
-            lambda m: m.get(FIELD_ACTION) == ACTION_ADD_REFS
-        )
+        resp = await self._conn._wait_response(lambda m: m.get(FIELD_ACTION) == ACTION_ADD_REFS)
 
         if resp.get(FIELD_STATUS) != STATUS_SUCCESS:
             raise RuntimeError(resp.get(FIELD_MESSAGE, "failed to add refs"))
 
         self.refs.update(refs)
 
-    async def link_thread(
-        self, thread_id: str, relationship: str = "parent"
-    ) -> None:
+    async def link_thread(self, thread_id: str, relationship: str = "parent") -> None:
         """Link this thread to another thread via a reference.
 
         Args:
@@ -260,7 +256,7 @@ class ThreadInstance:
     async def _send(self, msg: dict[str, Any]) -> None:
         await self._conn._send(msg)
 
-    def _handle_notification(self, notif: "Notification") -> None:
+    def _handle_notification(self, notif: Notification) -> None:
         """Route notification to pending wait_for calls."""
         pw = self._pending_waits.get(notif.step_name)
         if pw is None:

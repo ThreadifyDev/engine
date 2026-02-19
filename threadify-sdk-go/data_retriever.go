@@ -10,6 +10,32 @@ import (
 )
 
 const (
+	queryKey     = "query"
+	variablesKey = "variables"
+	refkey       = "refKey"
+	statusKey    = "status"
+	refValue     = "refValue"
+	rootIdKey    = "rootId"
+	maxDepthKey  = "maxDepth"
+
+	idempotency   = "idempotencyKey"
+	startedAfter  = "startedAfter"
+	startAt       = "startAt"
+	endAt         = "endAt"
+	threadID      = "threadId"
+	stepName      = "stepName"
+	activityType  = "activityType"
+	actor         = "actor"
+	startedBefore = "startedBefore"
+	limit         = "limit"
+	offset        = "offset"
+
+	contentType  = "Content-Type"
+	apiKeyHeader = "X-API-Key" //nolint:gosec // false positive: header name is not a credential
+	jsonType     = "application/json"
+)
+
+const (
 	threadFields = `
 		id
 		contractId
@@ -97,8 +123,8 @@ func NewGraphQLClient(url, apiKey string) *GraphQLClient {
 
 func (g *GraphQLClient) query(ctx context.Context, gqlQuery string, variables map[string]any) (map[string]any, error) {
 	body := map[string]any{
-		"query":     gqlQuery,
-		"variables": variables,
+		queryKey:     gqlQuery,
+		variablesKey: variables,
 	}
 
 	bodyBytes, err := json.Marshal(body)
@@ -110,14 +136,14 @@ func (g *GraphQLClient) query(ctx context.Context, gqlQuery string, variables ma
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", g.apiKey)
+	req.Header.Set(contentType, jsonType)
+	req.Header.Set(apiKeyHeader, g.apiKey)
 
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GraphQL request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -178,7 +204,7 @@ func (d *DataRetriever) GetThread(ctx context.Context, threadID string) (*Archiv
 	return newArchivedThread(threadData, d.client), nil
 }
 
-func (d *DataRetriever) GetThreadsByRef(ctx context.Context, q RefQuery) ([]*ArchivedThread, error) {
+func (d *DataRetriever) GetThreadsByRef(ctx context.Context, q *RefQuery) ([]*ArchivedThread, error) {
 	query := fmt.Sprintf(`
 		query GetThreadsByRef(
 			$refKey: String!
@@ -204,27 +230,27 @@ func (d *DataRetriever) GetThreadsByRef(ctx context.Context, q RefQuery) ([]*Arc
 	`, threadFields)
 
 	variables := map[string]any{
-		"refKey":   q.RefKey,
-		"refValue": q.RefValue,
+		refkey:   q.RefKey,
+		refValue: q.RefValue,
 	}
 	if q.Status != "" {
-		variables["status"] = q.Status
+		variables[statusKey] = q.Status
 	}
 	if q.StartedAfter != "" {
-		variables["startedAfter"] = q.StartedAfter
+		variables[startedAfter] = q.StartedAfter
 	}
 	if q.StartedBefore != "" {
-		variables["startedBefore"] = q.StartedBefore
+		variables[startedBefore] = q.StartedBefore
 	}
 	if q.Limit > 0 {
-		variables["limit"] = q.Limit
+		variables[limit] = q.Limit
 	} else {
-		variables["limit"] = 50
+		variables[limit] = 50
 	}
 	if q.Offset > 0 {
-		variables["offset"] = q.Offset
+		variables[offset] = q.Offset
 	} else {
-		variables["offset"] = 0
+		variables[offset] = 0
 	}
 
 	data, err := d.client.query(ctx, query, variables)
@@ -265,8 +291,8 @@ func (d *DataRetriever) GetThreadChain(ctx context.Context, rootID string, maxDe
 	`, threadFields)
 
 	data, err := d.client.query(ctx, query, map[string]any{
-		"rootId":   rootID,
-		"maxDepth": maxDepth,
+		rootIdKey:   rootID,
+		maxDepthKey: maxDepth,
 	})
 	if err != nil {
 		return nil, err
@@ -350,10 +376,10 @@ func (at *ArchivedThread) Steps(ctx context.Context, stepName, idempotencyKey, s
 		variables["stepName"] = stepName
 	}
 	if idempotencyKey != "" {
-		variables["idempotencyKey"] = idempotencyKey
+		variables[idempotency] = idempotencyKey
 	}
 	if status != "" {
-		variables["status"] = status
+		variables[statusKey] = status
 	}
 
 	data, err := at.client.query(ctx, query, variables)
@@ -468,10 +494,10 @@ func (at *ArchivedThread) GetCompleteData(ctx context.Context, opts *CompleteDat
 		variables["stepName"] = opts.StepName
 	}
 	if opts.IdempotencyKey != "" {
-		variables["idempotencyKey"] = opts.IdempotencyKey
+		variables[idempotency] = opts.IdempotencyKey
 	}
 	if opts.Status != "" {
-		variables["status"] = opts.Status
+		variables[statusKey] = opts.Status
 	}
 
 	data, err := at.client.query(ctx, query, variables)
@@ -577,19 +603,19 @@ func (as *ArchivedStep) History(ctx context.Context, opts *HistoryQueryOptions) 
 		variables["idempotencyKey"] = as.IdempotencyKey
 	}
 	if opts.Offset > 0 {
-		variables["offset"] = opts.Offset
+		variables[offset] = opts.Offset
 	}
 	if opts.StartAt != "" {
-		variables["startAt"] = opts.StartAt
+		variables[startAt] = opts.StartAt
 	}
 	if opts.EndAt != "" {
-		variables["endAt"] = opts.EndAt
+		variables[endAt] = opts.EndAt
 	}
 	if opts.ActivityType != "" {
-		variables["activityType"] = opts.ActivityType
+		variables[activityType] = opts.ActivityType
 	}
 	if opts.Actor != "" {
-		variables["actor"] = opts.Actor
+		variables[actor] = opts.Actor
 	}
 
 	data, err := as.client.query(ctx, query, variables)
@@ -631,11 +657,11 @@ func (as *ArchivedStep) SubSteps(ctx context.Context) ([]map[string]any, error) 
 	`, subStepFields)
 
 	variables := map[string]any{
-		"threadId": as.ThreadID,
-		"stepName": as.StepName,
+		threadID: as.ThreadID,
+		stepName: as.StepName,
 	}
 	if as.IdempotencyKey != "" {
-		variables["idempotencyKey"] = as.IdempotencyKey
+		variables[idempotency] = as.IdempotencyKey
 	}
 
 	data, err := as.client.query(ctx, query, variables)

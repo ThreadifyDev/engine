@@ -1,23 +1,26 @@
 """Tests for models.py — dataclasses, enums, and utility functions."""
 
 import pytest
+
 from threadify.models import (
+    DEFAULT_CONNECT_TIMEOUT,
+    DEFAULT_MAX_IN_FLIGHT,
     ConnectOptions,
     StepResult,
     StepStatus,
     ValidationSeverity,
     derive_graphql_url,
-    require_non_empty,
     first_non_empty,
     now_iso,
-    DEFAULT_CONNECT_TIMEOUT,
-    DEFAULT_MAX_IN_FLIGHT,
+    require_non_empty,
 )
 
 
 class TestDeriveGraphQLURL:
     def test_wss_to_https(self):
-        assert derive_graphql_url("wss://api.example.com/threads") == "https://api.example.com/graphql"
+        assert (
+            derive_graphql_url("wss://api.example.com/threads") == "https://api.example.com/graphql"
+        )
 
     def test_ws_to_http(self):
         assert derive_graphql_url("ws://localhost:8080/threads") == "http://localhost:8080/graphql"

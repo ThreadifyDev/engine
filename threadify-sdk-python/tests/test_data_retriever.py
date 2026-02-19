@@ -1,15 +1,15 @@
 """Tests for data_retriever.py — GraphQL client and archived data access."""
 
 import json
-import pytest
-import httpx
 from unittest.mock import AsyncMock
 
+import pytest
+
 from threadify.data_retriever import (
-    GraphQLClient,
-    DataRetriever,
-    ArchivedThread,
     ArchivedStep,
+    ArchivedThread,
+    DataRetriever,
+    GraphQLClient,
 )
 from threadify.models import RefQuery
 
@@ -32,28 +32,30 @@ def _mock_client(response_data: dict, status_code: int = 200) -> GraphQLClient:
     client._url = "https://example.com/graphql"
     client._api_key = "test-key"
     client._client = AsyncMock()
-    client._client.post = AsyncMock(
-        return_value=FakeResponse(status_code, response_data)
-    )
+    client._client.post = AsyncMock(return_value=FakeResponse(status_code, response_data))
     return client
 
 
 class TestGraphQLClient:
     @pytest.mark.asyncio
     async def test_success(self):
-        client = _mock_client({
-            "data": {"thread": {"id": "t-1", "status": "completed"}},
-        })
+        client = _mock_client(
+            {
+                "data": {"thread": {"id": "t-1", "status": "completed"}},
+            }
+        )
 
         data = await client.query("query { thread { id } }")
         assert data["thread"]["id"] == "t-1"
 
     @pytest.mark.asyncio
     async def test_graphql_errors(self):
-        client = _mock_client({
-            "data": None,
-            "errors": [{"message": "Thread not found"}],
-        })
+        client = _mock_client(
+            {
+                "data": None,
+                "errors": [{"message": "Thread not found"}],
+            }
+        )
 
         with pytest.raises(RuntimeError, match="Thread not found"):
             await client.query("query { thread { id } }")
@@ -72,16 +74,18 @@ class TestGraphQLClient:
 class TestDataRetriever:
     @pytest.mark.asyncio
     async def test_get_thread(self):
-        client = _mock_client({
-            "data": {
-                "thread": {
-                    "id": "t-dr-001",
-                    "contractName": "order_flow",
-                    "status": "completed",
-                    "refs": '{"orderId":"ORD-123"}',
+        client = _mock_client(
+            {
+                "data": {
+                    "thread": {
+                        "id": "t-dr-001",
+                        "contractName": "order_flow",
+                        "status": "completed",
+                        "refs": '{"orderId":"ORD-123"}',
+                    },
                 },
-            },
-        })
+            }
+        )
 
         dr = DataRetriever.__new__(DataRetriever)
         dr._client = client
@@ -94,9 +98,11 @@ class TestDataRetriever:
 
     @pytest.mark.asyncio
     async def test_get_thread_not_found(self):
-        client = _mock_client({
-            "data": {"thread": None},
-        })
+        client = _mock_client(
+            {
+                "data": {"thread": None},
+            }
+        )
 
         dr = DataRetriever.__new__(DataRetriever)
         dr._client = client
@@ -106,14 +112,16 @@ class TestDataRetriever:
 
     @pytest.mark.asyncio
     async def test_get_threads_by_ref(self):
-        client = _mock_client({
-            "data": {
-                "threadsByRef": [
-                    {"id": "t-ref-1", "status": "completed"},
-                    {"id": "t-ref-2", "status": "in_progress"},
-                ],
-            },
-        })
+        client = _mock_client(
+            {
+                "data": {
+                    "threadsByRef": [
+                        {"id": "t-ref-1", "status": "completed"},
+                        {"id": "t-ref-2", "status": "in_progress"},
+                    ],
+                },
+            }
+        )
 
         dr = DataRetriever.__new__(DataRetriever)
         dr._client = client
@@ -125,9 +133,11 @@ class TestDataRetriever:
 
     @pytest.mark.asyncio
     async def test_get_threads_by_ref_empty(self):
-        client = _mock_client({
-            "data": {"threadsByRef": None},
-        })
+        client = _mock_client(
+            {
+                "data": {"threadsByRef": None},
+            }
+        )
 
         dr = DataRetriever.__new__(DataRetriever)
         dr._client = client
@@ -137,14 +147,16 @@ class TestDataRetriever:
 
     @pytest.mark.asyncio
     async def test_get_thread_chain(self):
-        client = _mock_client({
-            "data": {
-                "threadChain": [
-                    {"id": "root-1", "status": "completed"},
-                    {"id": "child-1", "status": "completed"},
-                ],
-            },
-        })
+        client = _mock_client(
+            {
+                "data": {
+                    "threadChain": [
+                        {"id": "root-1", "status": "completed"},
+                        {"id": "child-1", "status": "completed"},
+                    ],
+                },
+            }
+        )
 
         dr = DataRetriever.__new__(DataRetriever)
         dr._client = client
@@ -178,22 +190,28 @@ class TestDataRetriever:
 class TestArchivedThread:
     @pytest.mark.asyncio
     async def test_steps(self):
-        client = _mock_client({
-            "data": {
-                "thread": {
-                    "steps": [
-                        {
-                            "stepName": "order_placed",
-                            "status": "success",
-                            "idempotencyKey": "abc",
-                            "history": [
-                                {"attempt": 1, "status": "success", "timestamp": "2026-01-01T00:00:00Z"},
-                            ],
-                        },
-                    ],
+        client = _mock_client(
+            {
+                "data": {
+                    "thread": {
+                        "steps": [
+                            {
+                                "stepName": "order_placed",
+                                "status": "success",
+                                "idempotencyKey": "abc",
+                                "history": [
+                                    {
+                                        "attempt": 1,
+                                        "status": "success",
+                                        "timestamp": "2026-01-01T00:00:00Z",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
                 },
-            },
-        })
+            }
+        )
 
         thread = ArchivedThread({"id": "t-steps"}, client)
         steps = await thread.steps()
@@ -211,15 +229,17 @@ class TestArchivedThread:
 
     @pytest.mark.asyncio
     async def test_validation_results(self):
-        client = _mock_client({
-            "data": {
-                "thread": {
-                    "validationResults": [
-                        {"overallStatus": "violated", "criticalCount": 1},
-                    ],
+        client = _mock_client(
+            {
+                "data": {
+                    "thread": {
+                        "validationResults": [
+                            {"overallStatus": "violated", "criticalCount": 1},
+                        ],
+                    },
                 },
-            },
-        })
+            }
+        )
 
         thread = ArchivedThread({"id": "t-val"}, client)
         results = await thread.validation_results()
@@ -229,16 +249,18 @@ class TestArchivedThread:
 
     @pytest.mark.asyncio
     async def test_get_complete_data(self):
-        client = _mock_client({
-            "data": {
-                "thread": {
-                    "id": "t-complete",
-                    "status": "completed",
-                    "steps": [{"stepName": "s1"}],
-                    "validationResults": [{"overallStatus": "passed"}],
+        client = _mock_client(
+            {
+                "data": {
+                    "thread": {
+                        "id": "t-complete",
+                        "status": "completed",
+                        "steps": [{"stepName": "s1"}],
+                        "validationResults": [{"overallStatus": "passed"}],
+                    },
                 },
-            },
-        })
+            }
+        )
 
         thread = ArchivedThread({"id": "t-complete"}, client)
         data = await thread.get_complete_data()
@@ -249,39 +271,36 @@ class TestArchivedThread:
     @pytest.mark.asyncio
     async def test_refs_from_json_string(self):
         thread = ArchivedThread(
-            {"id": "t-refs", "refs": '{"key":"value"}'},
-            _mock_client({"data": {}})
+            {"id": "t-refs", "refs": '{"key":"value"}'}, _mock_client({"data": {}})
         )
         assert thread.refs == {"key": "value"}
 
     @pytest.mark.asyncio
     async def test_refs_from_dict(self):
         thread = ArchivedThread(
-            {"id": "t-refs", "refs": {"key": "value"}},
-            _mock_client({"data": {}})
+            {"id": "t-refs", "refs": {"key": "value"}}, _mock_client({"data": {}})
         )
         assert thread.refs == {"key": "value"}
 
     @pytest.mark.asyncio
     async def test_refs_invalid_json(self):
-        thread = ArchivedThread(
-            {"id": "t-refs", "refs": "not-json"},
-            _mock_client({"data": {}})
-        )
+        thread = ArchivedThread({"id": "t-refs", "refs": "not-json"}, _mock_client({"data": {}}))
         assert thread.refs == {}
 
 
 class TestArchivedStep:
     @pytest.mark.asyncio
     async def test_history(self):
-        client = _mock_client({
-            "data": {
-                "stepHistory": [
-                    {"attempt": 1, "status": "failed"},
-                    {"attempt": 2, "status": "success"},
-                ],
-            },
-        })
+        client = _mock_client(
+            {
+                "data": {
+                    "stepHistory": [
+                        {"attempt": 1, "status": "failed"},
+                        {"attempt": 2, "status": "success"},
+                    ],
+                },
+            }
+        )
 
         step = ArchivedStep(
             {"threadId": "t-1", "stepName": "payment", "idempotencyKey": "k"},
@@ -295,19 +314,21 @@ class TestArchivedStep:
 
     @pytest.mark.asyncio
     async def test_sub_steps(self):
-        client = _mock_client({
-            "data": {
-                "thread": {
-                    "steps": [
-                        {
-                            "subSteps": [
-                                {"name": "sub1", "status": "success"},
-                            ],
-                        },
-                    ],
+        client = _mock_client(
+            {
+                "data": {
+                    "thread": {
+                        "steps": [
+                            {
+                                "subSteps": [
+                                    {"name": "sub1", "status": "success"},
+                                ],
+                            },
+                        ],
+                    },
                 },
-            },
-        })
+            }
+        )
 
         step = ArchivedStep(
             {"threadId": "t-1", "stepName": "main"},

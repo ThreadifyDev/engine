@@ -29,7 +29,7 @@ type Notification struct {
 
 func NewNotification(data map[string]any, conn *Connection, ackToken string) *Notification {
 	ts := time.Now().UTC()
-	if tsStr := asString(data["timestamp"]); tsStr != "" {
+	if tsStr := asString(data[FieldTimestamp]); tsStr != "" {
 		if parsed, err := time.Parse(time.RFC3339Nano, tsStr); err == nil {
 			ts = parsed
 		}
@@ -38,19 +38,19 @@ func NewNotification(data map[string]any, conn *Connection, ackToken string) *No
 	return &Notification{
 		NotificationID:   asString(data[FieldNotificationID]),
 		ThreadID:         asString(data[FieldThreadID]),
-		StepID:           asString(data["stepId"]),
+		StepID:           asString(data[FieldStepID]),
 		StepName:         asString(data[FieldStepName]),
 		ContractName:     asString(data[FieldContractName]),
 		Status:           asString(data[FieldStatus]),
 		StepStatus:       asString(data[FieldStepStatus]),
-		Severity:         asString(data["severity"]),
+		Severity:         asString(data[FieldSeverity]),
 		Message:          asString(data[FieldMessage]),
-		Details:          asMap(data["details"]),
+		Details:          asMap(data[FieldDetails]),
 		Timestamp:        ts,
-		ViolationType:    asString(data["violationType"]),
-		OwnerID:          asString(data["ownerId"]),
-		Source:           asString(data["source"]),
-		NotificationType: asString(data["notificationType"]),
+		ViolationType:    asString(data[FieldViolationType]),
+		OwnerID:          asString(data[FieldOwnerID]),
+		Source:           asString(data[FieldSource]),
+		NotificationType: asString(data[FieldNotificationType]),
 		ackToken:         ackToken,
 		conn:             conn,
 	}
@@ -86,7 +86,6 @@ func (n *Notification) IsPassed() bool {
 func (n *Notification) IsCritical() bool {
 	return n.Severity == string(SeverityCritical)
 }
-
 func (n *Notification) IsWarning() bool {
 	return n.Severity == string(SeverityWarning)
 }
@@ -94,7 +93,6 @@ func (n *Notification) IsWarning() bool {
 func (n *Notification) IsInfo() bool {
 	return n.Severity == string(SeverityInfo)
 }
-
 func (n *Notification) IsSuccess() bool {
 	return n.StepStatus == StatusSuccess
 }
@@ -102,7 +100,6 @@ func (n *Notification) IsSuccess() bool {
 func (n *Notification) IsFailed() bool {
 	return n.StepStatus == StatusFailed
 }
-
 func (n *Notification) IsError() bool {
 	return n.StepStatus == StatusError
 }
@@ -110,9 +107,9 @@ func (n *Notification) IsError() bool {
 func (n *Notification) String() string {
 	sev := n.Severity
 	if sev == "" {
-		sev = "unknown"
+		sev = FieldUnknown
 	}
-	return fmt.Sprintf("[%s] %s: %s", fmt.Sprintf("%s", sev), n.StepName, n.Message)
+	return fmt.Sprintf("[%s] %s: %s", sev, n.StepName, n.Message)
 }
 
 func (n *Notification) ToMap() map[string]any {

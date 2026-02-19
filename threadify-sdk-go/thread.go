@@ -172,8 +172,7 @@ func (t *ThreadInstance) AddRefs(ctx context.Context, refs map[string]string) er
 
 var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// LinkThread links this thread to another thread via a ref.
-func (t *ThreadInstance) LinkThread(ctx context.Context, threadID string, relationship string) error {
+func (t *ThreadInstance) LinkThread(ctx context.Context, threadID, relationship string) error {
 	if err := requireNonEmpty("threadID", threadID); err != nil {
 		return err
 	}

@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-
 # --- Constants ---
 
 DEFAULT_CONNECT_TIMEOUT = 10.0  # seconds
@@ -91,8 +90,8 @@ SEVERITY_WARNING = "warning"
 SEVERITY_CRITICAL = "critical"
 
 
-
 # --- Enums ---
+
 
 class StepStatus(str, Enum):
     IN_PROGRESS = "in_progress"
@@ -111,6 +110,7 @@ class ValidationSeverity(str, Enum):
 @dataclass
 class ConnectOptions:
     """Configuration for connecting to the Threadify Engine."""
+
     service_name: str = ""
     ws_url: str = ""
     graphql_url: str = ""
@@ -140,6 +140,7 @@ class ConnectOptions:
 @dataclass
 class StepResult:
     """Result of recording a step event."""
+
     step_name: str
     thread_id: str
     status: str
@@ -151,6 +152,7 @@ class StepResult:
 @dataclass
 class SubStepData:
     """Data for a sub-step within a parent step."""
+
     name: str
     status: str = "success"
     payload: dict[str, Any] | None = None
@@ -164,6 +166,7 @@ class SubStepData:
 @dataclass
 class InviteOptions:
     """Options for inviting a party to join a thread."""
+
     role: str = ""
     access_level: str = "external"
     expires_in: str = "24h"
@@ -172,6 +175,7 @@ class InviteOptions:
 @dataclass
 class InviteResponse:
     """Response from creating a party invitation."""
+
     token: str
     thread_id: str
     role: str
@@ -182,6 +186,7 @@ class InviteResponse:
 @dataclass
 class ThreadEndResponse:
     """Response from ending a thread."""
+
     thread_id: str
     status: str
     ended_at: str
@@ -191,6 +196,7 @@ class ThreadEndResponse:
 @dataclass
 class WaitOptions:
     """Options for waiting on a specific step notification."""
+
     timeout: float = DEFAULT_WAIT_TIMEOUT
     statuses: list[str] = field(default_factory=list)
 
@@ -198,6 +204,7 @@ class WaitOptions:
 @dataclass
 class NotificationData:
     """Raw notification data from the server."""
+
     notification_id: str = ""
     thread_id: str = ""
     step_id: str = ""
@@ -218,6 +225,7 @@ class NotificationData:
 @dataclass
 class RefQuery:
     """Query parameters for fetching threads by reference."""
+
     ref_key: str = ""
     ref_value: str = ""
     status: str = ""
@@ -230,6 +238,7 @@ class RefQuery:
 @dataclass
 class CompleteDataOptions:
     """Options for ArchivedThread.get_complete_data."""
+
     step_history_limit: int = 50
     validation_limit: int = 10
     step_name: str = ""
@@ -240,6 +249,7 @@ class CompleteDataOptions:
 @dataclass
 class HistoryQueryOptions:
     """Filter options for step history queries."""
+
     limit: int = 100
     offset: int = 0
     start_at: str = ""
