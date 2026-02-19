@@ -1,5 +1,3 @@
-"""Tests for models.py — dataclasses, enums, and utility functions."""
-
 import pytest
 
 from threadify.models import (

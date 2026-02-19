@@ -1,5 +1,3 @@
-"""Tests for connection.py — event parsing, handler routing, deduplication."""
-
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
