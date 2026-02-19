@@ -113,5 +113,28 @@ def handle_notification(notification):
         print(notification.message)
 
 
+
 conn.subscribe("rule.violated", "payment_step", handle_notification)
+```
+
+## Versioning & Releases
+
+This SDK follows [Semantic Versioning](https://semver.org/) and [Conventional Commits](https://www.conventionalcommits.org/). Releases are automated via GitHub Actions.
+
+- `fix: ...` -> Patch bump
+- `feat: ...` -> Minor bump
+- `feat!: ...` or `BREAKING CHANGE: ...` -> Major bump
+
+## Testing
+
+To run the SDK tests, execute:
+
+```bash
+make test
+```
+
+Alternatively, use `pytest`:
+
+```bash
+python3 -m pytest
 ```
