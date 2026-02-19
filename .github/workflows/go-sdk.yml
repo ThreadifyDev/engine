@@ -22,7 +22,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: 2.1.5
+          version: v1.64.5
           working-directory: threadify-sdk-go
 
   test:
