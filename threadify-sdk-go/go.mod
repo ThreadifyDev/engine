@@ -1,4 +1,4 @@
-module github.com/threadify/threadify-sdk-go
+module github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go
 
 go 1.22
 
