@@ -248,6 +248,7 @@ class TestStepStatusMethods:
         real_conn = MagicMock()
         real_conn.service_name = "svc"
         from threadify.thread import ThreadInstance
+
         real_thread = ThreadInstance(real_conn, "t1")
 
         step = real_thread.step("")

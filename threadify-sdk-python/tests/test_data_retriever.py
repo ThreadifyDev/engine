@@ -13,7 +13,6 @@ from threadify.models import RefQuery
 
 
 class FakeResponse:
-
     def __init__(self, status_code: int, data: dict):
         self.status_code = status_code
         self._data = data
