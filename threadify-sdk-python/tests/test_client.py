@@ -1,5 +1,3 @@
-"""Tests for client.py — connect validation and handshake behavior."""
-
 import json
 from unittest.mock import AsyncMock
 

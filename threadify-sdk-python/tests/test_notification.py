@@ -1,5 +1,3 @@
-"""Tests for notification.py — construction, helpers, ACK, serialisation."""
-
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 

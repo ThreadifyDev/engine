@@ -1,5 +1,3 @@
-"""Tests for data_retriever.py — GraphQL client and archived data access."""
-
 import json
 from unittest.mock import AsyncMock
 
@@ -15,7 +13,6 @@ from threadify.models import RefQuery
 
 
 class FakeResponse:
-    """Minimal fake httpx Response."""
 
     def __init__(self, status_code: int, data: dict):
         self.status_code = status_code
@@ -27,7 +24,6 @@ class FakeResponse:
 
 
 def _mock_client(response_data: dict, status_code: int = 200) -> GraphQLClient:
-    """Create a GraphQLClient with a mocked httpx client."""
     client = GraphQLClient.__new__(GraphQLClient)
     client._url = "https://example.com/graphql"
     client._api_key = "test-key"

@@ -1,5 +1,3 @@
-"""Tests for step.py — fluent builder, idempotency, and status methods."""
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
