@@ -3,7 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from threadify.data_retriever import ArchivedThread, DataRetriever
+    from threadify.notification import Notification
+    from threadify.thread import ThreadInstance
 
 from threadify.models import (
     ACTION_ACK_NOTIFICATION,
@@ -70,7 +76,7 @@ class Connection:
 
         self._recv_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
-        self._data_retriever: "DataRetriever | None" = None
+        self._data_retriever: DataRetriever | None = None
 
         self._listener_task = asyncio.ensure_future(self._read_loop())
 
@@ -134,7 +140,7 @@ class Connection:
         contract_name: str = "",
         service_name: str = "",
         role: str = "",
-    ) -> "ThreadInstance":
+    ) -> ThreadInstance:
         from threadify.thread import ThreadInstance
 
         if not self._connected:
@@ -158,9 +164,7 @@ class Connection:
 
         await self._send(msg)
 
-        resp = await self._wait_response(
-            lambda m: m.get(FIELD_ACTION) == ACTION_START_THREAD
-        )
+        resp = await self._wait_response(lambda m: m.get(FIELD_ACTION) == ACTION_START_THREAD)
 
         if resp.get(FIELD_STATUS) != STATUS_SUCCESS:
             raise RuntimeError(resp.get(FIELD_MESSAGE, "failed to start thread"))
@@ -178,7 +182,7 @@ class Connection:
         *,
         token: str | None = None,
         thread_id: str | None = None,
-    ) -> "ThreadInstance":
+    ) -> ThreadInstance:
         from threadify.thread import ThreadInstance
 
         if not self._connected:
@@ -208,18 +212,14 @@ class Connection:
 
         await self._send(msg)
 
-        resp = await self._wait_response(
-            lambda m: m.get(FIELD_ACTION) == ACTION_JOIN_THREAD
-        )
+        resp = await self._wait_response(lambda m: m.get(FIELD_ACTION) == ACTION_JOIN_THREAD)
 
         if resp.get(FIELD_STATUS) != STATUS_SUCCESS:
             raise RuntimeError(resp.get(FIELD_MESSAGE, "failed to join thread"))
 
         thread_id = resp[FIELD_THREAD_ID]
         thread_role = resp.get(FIELD_ROLE, "")
-        thread = ThreadInstance(
-            self, thread_id, resp.get("contractId", ""), thread_role, None
-        )
+        thread = ThreadInstance(self, thread_id, resp.get("contractId", ""), thread_role, None)
         self._threads[thread_id] = thread
         self._logger.debug(f"Joined thread: {thread_id}, Role: {thread_role}")
         return thread
@@ -253,9 +253,7 @@ class Connection:
         key = f"{event}:{step_name}"
         self._notification_handlers.pop(key, None)
 
-        has_handlers = any(
-            k.endswith(f":{step_name}") for k in self._notification_handlers
-        )
+        has_handlers = any(k.endswith(f":{step_name}") for k in self._notification_handlers)
         if not has_handlers:
             asyncio.ensure_future(self._send_unsubscription(step_name))
 
@@ -269,11 +267,13 @@ class Connection:
             return
 
         try:
-            await self._send({
-                FIELD_ACTION: ACTION_SUBSCRIBE,
-                FIELD_STEP_NAME: step_name,
-                FIELD_EVENT_TYPES: merged,
-            })
+            await self._send(
+                {
+                    FIELD_ACTION: ACTION_SUBSCRIBE,
+                    FIELD_STEP_NAME: step_name,
+                    FIELD_EVENT_TYPES: merged,
+                }
+            )
         except Exception:
             pass
 
@@ -283,10 +283,12 @@ class Connection:
         if not self._connected:
             return
         try:
-            await self._send({
-                FIELD_ACTION: ACTION_UNSUBSCRIBE,
-                FIELD_STEP_NAME: step_name,
-            })
+            await self._send(
+                {
+                    FIELD_ACTION: ACTION_UNSUBSCRIBE,
+                    FIELD_STEP_NAME: step_name,
+                }
+            )
         except Exception:
             pass
         self._active_subscriptions.pop(step_name, None)
@@ -315,7 +317,7 @@ class Connection:
         if thread:
             thread._handle_notification(notif)
 
-    def _get_event_pattern(self, notif: "Notification") -> str:
+    def _get_event_pattern(self, notif: Notification) -> str:
         source = notif.source or "execution"
         event_type = STATUS_SUCCESS
         if notif.notification_type:
@@ -331,7 +333,7 @@ class Connection:
         sdk_source = source_map.get(source, source)
         return f"{sdk_source}.{event_type}"
 
-    def _trigger_handlers(self, event_pattern: str, notif: "Notification") -> None:
+    def _trigger_handlers(self, event_pattern: str, notif: Notification) -> None:
         step_name = notif.step_name
         contract_name = notif.contract_name
         source = event_pattern.split(".", 1)[0]
@@ -355,17 +357,21 @@ class Connection:
         if not ack_token:
             return
         try:
-            asyncio.ensure_future(self._send({
-                FIELD_ACTION: ACTION_ACK_NOTIFICATION,
-                FIELD_NOTIFICATION_ID_ACK: notification_id,
-                FIELD_THREAD_ID_ACK: thread_id,
-                FIELD_ACK_TOKEN: ack_token,
-                FIELD_PROCESSED: True,
-            }))
+            asyncio.ensure_future(
+                self._send(
+                    {
+                        FIELD_ACTION: ACTION_ACK_NOTIFICATION,
+                        FIELD_NOTIFICATION_ID_ACK: notification_id,
+                        FIELD_THREAD_ID_ACK: thread_id,
+                        FIELD_ACK_TOKEN: ack_token,
+                        FIELD_PROCESSED: True,
+                    }
+                )
+            )
         except Exception:
             pass
 
-    def _get_data_retriever(self) -> "DataRetriever":
+    def _get_data_retriever(self) -> DataRetriever:
         from threadify.data_retriever import DataRetriever
 
         if self._data_retriever is None:
@@ -374,13 +380,13 @@ class Connection:
             self._data_retriever = DataRetriever(self._graphql_url, self._api_key)
         return self._data_retriever
 
-    async def get_thread(self, thread_id: str) -> "ArchivedThread":
+    async def get_thread(self, thread_id: str) -> ArchivedThread:
         return await self._get_data_retriever().get_thread(thread_id)
 
-    async def get_threads_by_ref(self, query: RefQuery) -> list["ArchivedThread"]:
+    async def get_threads_by_ref(self, query: RefQuery) -> list[ArchivedThread]:
         return await self._get_data_retriever().get_threads_by_ref(query)
 
-    async def get_thread_chain(self, root_id: str, max_depth: int = 3) -> list["ArchivedThread"]:
+    async def get_thread_chain(self, root_id: str, max_depth: int = 3) -> list[ArchivedThread]:
         return await self._get_data_retriever().get_thread_chain(root_id, max_depth)
 
     def _remove_thread(self, thread_id: str) -> None:

@@ -12,7 +12,9 @@ from threadify.models import ConnectOptions
 class TestThreadifyConnect:
     @pytest.mark.asyncio
     async def test_requires_ws_url(self, monkeypatch):
-        ws_connect = AsyncMock(side_effect=AssertionError("websockets.connect should not be called"))
+        ws_connect = AsyncMock(
+            side_effect=AssertionError("websockets.connect should not be called")
+        )
         monkeypatch.setattr("threadify.client.websockets.connect", ws_connect)
 
         with pytest.raises(ValueError, match="ws_url is required"):
@@ -22,11 +24,7 @@ class TestThreadifyConnect:
     async def test_connect_with_explicit_ws_url(self, monkeypatch):
         ws = AsyncMock()
         ws.send = AsyncMock()
-        ws.recv = AsyncMock(
-            return_value=json.dumps(
-                {"action": "connect", "status": "success"}
-            )
-        )
+        ws.recv = AsyncMock(return_value=json.dumps({"action": "connect", "status": "success"}))
         ws.close = AsyncMock()
 
         ws_connect = AsyncMock(return_value=ws)

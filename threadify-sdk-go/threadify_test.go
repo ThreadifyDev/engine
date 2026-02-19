@@ -8,7 +8,7 @@ import (
 
 func TestConnect_Success(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if !conn.IsConnected() {
 		t.Error("expected IsConnected to be true")
@@ -108,7 +108,7 @@ func TestCreate(t *testing.T) {
 
 func TestConnection_Start_NonContract(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Enqueue startThread response.
 	mt.enqueueResponse(map[string]any{
@@ -130,7 +130,7 @@ func TestConnection_Start_NonContract(t *testing.T) {
 
 func TestConnection_Start_WithContract(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":   "startThread",
@@ -163,7 +163,7 @@ func TestConnection_Start_WithContract(t *testing.T) {
 
 func TestConnection_Start_NotConnected(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	conn.Close()
+	_ = conn.Close()
 
 	ctx := context.Background()
 	_, err := conn.Start(ctx)
@@ -174,7 +174,7 @@ func TestConnection_Start_NotConnected(t *testing.T) {
 
 func TestConnection_Join_DirectJoin(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	mt.enqueueResponse(map[string]any{
 		"action":     "joinThread",
@@ -200,10 +200,11 @@ func TestConnection_Join_DirectJoin(t *testing.T) {
 
 func TestConnection_Join_TokenJoin(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Token must be >50 chars to trigger token-based join.
-	longToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aHJlYWRJZCI6InRocmVhZC0xMjMiLCJyb2xlIjoibG9naXN0aWNzIn0.abcdef"
+	// dummyJWTToken is used to trigger token-based join.
+	dummyJWTToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0aHJlYWRJZCI6InRocmVhZC0xMjMiLCJyb2xlIjoibG9naXN0aWNzIn0.abcdef" // #nosec G101
 	mt.enqueueResponse(map[string]any{
 		"action":   "joinThread",
 		"status":   "success",
@@ -212,7 +213,7 @@ func TestConnection_Join_TokenJoin(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	thread, err := conn.Join(ctx, WithJoinToken(longToken))
+	thread, err := conn.Join(ctx, WithJoinToken(dummyJWTToken))
 	if err != nil {
 		t.Fatalf("Join() error: %v", err)
 	}
@@ -224,14 +225,14 @@ func TestConnection_Join_TokenJoin(t *testing.T) {
 	// Verify threadToken was sent.
 	sent := mt.getSent()
 	joinMsg := sent[len(sent)-1]
-	if joinMsg["threadToken"] != longToken {
+	if joinMsg["threadToken"] != dummyJWTToken {
 		t.Error("expected threadToken in sent message")
 	}
 }
 
 func TestConnection_Join_EmptyTokenOrID(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
 	_, err := conn.Join(ctx)
@@ -242,7 +243,7 @@ func TestConnection_Join_EmptyTokenOrID(t *testing.T) {
 
 func TestConnection_Join_InvalidParams(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
 	// Short string without role — ambiguous.
@@ -362,7 +363,7 @@ func TestSameElements(t *testing.T) {
 
 func TestConnection_Subscribe_Unsubscribe(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx := context.Background()
 	err := conn.Subscribe(ctx, "step.success", "order_placed", func(n *Notification) {
@@ -398,12 +399,12 @@ func TestConnection_Subscribe_Unsubscribe(t *testing.T) {
 
 func TestConnection_HandleNotification_Deduplication(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	callCount := 0
 
 	ctx := context.Background()
-	err := conn.Subscribe(ctx, "step.success", "order_placed", func(n *Notification) {
+	err := conn.Subscribe(ctx, "step.success", "order_placed", func(_ *Notification) {
 		callCount++
 	})
 	if err != nil {

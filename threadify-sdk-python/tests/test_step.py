@@ -1,7 +1,8 @@
 """Tests for step.py — fluent builder, idempotency, and status methods."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from threadify.step import ThreadStep, _fnv1a_32
 
@@ -25,10 +26,8 @@ class TestThreadStepFluent:
     def test_chaining(self):
         thread = _make_thread()
         step = ThreadStep("order_placed", thread, "test-svc")
-        result = (
-            step
-            .add_context({"orderId": "ORD-1", "amount": "99.99"})
-            .add_refs({"stripe": "pi_abc"})
+        result = step.add_context({"orderId": "ORD-1", "amount": "99.99"}).add_refs(
+            {"stripe": "pi_abc"}
         )
         assert result is step  # Fluent returns self.
         assert step.context == {"orderId": "ORD-1", "amount": "99.99"}
@@ -145,7 +144,10 @@ class TestStepStatusMethods:
     @pytest.mark.asyncio
     async def test_success(self):
         thread = _make_thread()
-        thread._conn._wait_response.return_value = {"action": "recordThreadEvent", "status": "success"}
+        thread._conn._wait_response.return_value = {
+            "action": "recordThreadEvent",
+            "status": "success",
+        }
 
         step = ThreadStep("order_placed", thread, "svc")
         step.add_context({"orderId": "ORD-1"})
@@ -160,7 +162,10 @@ class TestStepStatusMethods:
     @pytest.mark.asyncio
     async def test_failed(self):
         thread = _make_thread()
-        thread._conn._wait_response.return_value = {"action": "recordThreadEvent", "status": "success"}
+        thread._conn._wait_response.return_value = {
+            "action": "recordThreadEvent",
+            "status": "success",
+        }
 
         step = ThreadStep("payment", thread, "svc")
         result = await step.failed("Insufficient funds")
@@ -170,7 +175,10 @@ class TestStepStatusMethods:
     @pytest.mark.asyncio
     async def test_error(self):
         thread = _make_thread()
-        thread._conn._wait_response.return_value = {"action": "recordThreadEvent", "status": "success"}
+        thread._conn._wait_response.return_value = {
+            "action": "recordThreadEvent",
+            "status": "success",
+        }
 
         step = ThreadStep("api_call", thread, "svc")
         result = await step.error("Timeout")
@@ -180,7 +188,10 @@ class TestStepStatusMethods:
     @pytest.mark.asyncio
     async def test_success_with_map_data(self):
         thread = _make_thread()
-        thread._conn._wait_response.return_value = {"action": "recordThreadEvent", "status": "success"}
+        thread._conn._wait_response.return_value = {
+            "action": "recordThreadEvent",
+            "status": "success",
+        }
 
         step = ThreadStep("step1", thread, "svc")
         result = await step.success({"key": "value", "count": 42})
@@ -235,11 +246,11 @@ class TestStepStatusMethods:
 
     @pytest.mark.asyncio
     async def test_empty_step_name(self):
-        thread = _make_thread()
         with pytest.raises(ValueError):
             thread2 = MagicMock()
             thread2.thread_id = "t1"
             from threadify.thread import ThreadInstance
+
             # Use the real thread.step() which validates.
             real_conn = MagicMock()
             real_conn.service_name = "svc"

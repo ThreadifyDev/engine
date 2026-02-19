@@ -35,7 +35,6 @@ const (
 )
 
 const (
-	// Actions
 	ActionConnect           = "connect"
 	ActionStartThread       = "startThread"
 	ActionJoinThread        = "joinThread"
@@ -52,51 +51,54 @@ const (
 	ActionAckNotification   = "ack_notification"
 
 	// Fields
-	FieldAction          = "action"
-	FieldStatus          = "status"
-	FieldMessage         = "message"
-	FieldThreadID        = "threadId"
-	FieldStepName        = "stepName"
-	FieldStepID          = "stepId"
-	FieldContractName    = "contractName"
-	FieldRole            = "role"
-	FieldRefs            = "refs"
-	FieldEvent           = "event"
-	FieldEventTypes      = "eventTypes"
-	FieldAckToken        = "ackToken"
-	FieldNotificationID  = "notificationId"
-	FieldNotification_ID = "notification_id" // used in ack
-	FieldThread_ID       = "thread_id"       // used in ack
-	FieldProcessed       = "processed"
-	FieldService         = "serviceName"
-	FieldDetails         = "details"
-	FieldTimestamp       = "timestamp"
-	FieldViolationType   = "violationType"
-	FieldOwnerID         = "ownerId"
-	FieldAcknowledged    = "acknowledged"
-	FieldMaxInFlight     = "maxInFlight"
-	FieldAPIKey          = "apiKey"
-	FieldSeverity        = "severity"
-	FieldThreadToken     = "threadToken"
-	FieldStepStatus      = "stepStatus"
-	FieldStartedAt       = "startedAt"
-	FieldFinishedAt      = "finishedAt"
-	FieldContext         = "context"
-	FieldSubSteps        = "subSteps"
-	FieldIdempotencyKey  = "idempotencyKey"
-	FieldIsDuplicate     = "isDuplicate"
-	FieldMetadata        = "threadify_metadata"
-	FieldReason          = "reason"
-	FieldContractID      = "contractId"
-	FieldAccessLevel     = "accessLevel"
-	FieldExpiresIn       = "expiresIn"
-	FieldExpiresAt       = "expiresAt"
-	FieldClosedAt        = "closedAt"
-	FieldCompletedAt     = "completedAt"
-	FieldCancelledAt     = "cancelledAt"
-	FieldThreadStatus    = "threadStatus"
+	FieldAction            = "action"
+	FieldStatus            = "status"
+	FieldMessage           = "message"
+	FieldThreadID          = "threadId"
+	FieldStepName          = "stepName"
+	FieldSource            = "source"
+	FieldUnknown           = "unknown"
+	FieldNotificationType  = "notificationType"
+	FieldRoleParticipant   = "participant"
+	FieldStepID            = "stepId"
+	FieldContractName      = "contractName"
+	FieldRole              = "role"
+	FieldRefs              = "refs"
+	FieldEvent             = "event"
+	FieldEventTypes        = "eventTypes"
+	FieldAckToken          = "ackToken"
+	FieldNotificationID    = "notificationId"
+	FieldNotificationAckID = "notification_id" // used in ack
+	FieldThreadAckID       = "thread_id"       // used in ack
+	FieldProcessed         = "processed"
+	FieldService           = "serviceName"
+	FieldDetails           = "details"
+	FieldTimestamp         = "timestamp"
+	FieldViolationType     = "violationType"
+	FieldOwnerID           = "ownerId"
+	FieldAcknowledged      = "acknowledged"
+	FieldMaxInFlight       = "maxInFlight"
+	FieldAPIKey            = "apiKey"
+	FieldSeverity          = "severity"
+	FieldThreadToken       = "threadToken"
+	FieldStepStatus        = "stepStatus"
+	FieldStartedAt         = "startedAt"
+	FieldFinishedAt        = "finishedAt"
+	FieldContext           = "context"
+	FieldSubSteps          = "subSteps"
+	FieldIdempotencyKey    = "idempotencyKey"
+	FieldIsDuplicate       = "isDuplicate"
+	FieldMetadata          = "threadify_metadata"
+	FieldReason            = "reason"
+	FieldContractID        = "contractId"
+	FieldAccessLevel       = "accessLevel"
+	FieldExpiresIn         = "expiresIn"
+	FieldExpiresAt         = "expiresAt"
+	FieldClosedAt          = "closedAt"
+	FieldCompletedAt       = "completedAt"
+	FieldCancelledAt       = "cancelledAt"
+	FieldThreadStatus      = "threadStatus"
 
-	// Values
 	StatusSuccess    = "success"
 	StatusFailed     = "failed"
 	StatusError      = "error"
@@ -158,10 +160,10 @@ type Logger interface {
 
 type nopLogger struct{}
 
-func (l *nopLogger) Debug(msg string, args ...any) {}
-func (l *nopLogger) Info(msg string, args ...any)  {}
-func (l *nopLogger) Warn(msg string, args ...any)  {}
-func (l *nopLogger) Error(msg string, args ...any) {}
+func (l *nopLogger) Debug(_ string, _ ...any) {}
+func (l *nopLogger) Info(_ string, _ ...any)  {}
+func (l *nopLogger) Warn(_ string, _ ...any)  {}
+func (l *nopLogger) Error(_ string, _ ...any) {}
 
 type StepResult struct {
 	StepName       string `json:"stepName"`
@@ -204,6 +206,7 @@ type WaitOptions struct {
 	Timeout  time.Duration
 	Statuses []string
 }
+
 type NotificationData struct {
 	NotificationID   string         `json:"notificationId"`
 	ThreadID         string         `json:"threadId"`
@@ -312,16 +315,12 @@ type CompleteDataOptions struct {
 	Status           string `json:"status,omitempty"`
 }
 
-// --- Utility helpers ---
-
-// deriveGraphQLURL converts a WebSocket URL into the corresponding GraphQL URL.
 func deriveGraphQLURL(wsURL string) string {
 	out := strings.Replace(wsURL, "ws://", "http://", 1)
 	out = strings.Replace(out, "wss://", "https://", 1)
 	return strings.Replace(out, "/threads", "/graphql", 1)
 }
 
-// requireNonEmpty returns an error if the value is empty or whitespace.
 func requireNonEmpty(name, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s must be a non-empty string", name)
@@ -329,7 +328,6 @@ func requireNonEmpty(name, value string) error {
 	return nil
 }
 
-// mapStringValues converts all values to strings.
 func mapStringValues(m map[string]any) map[string]string {
 	out := make(map[string]string, len(m))
 	for k, v := range m {
@@ -338,7 +336,6 @@ func mapStringValues(m map[string]any) map[string]string {
 	return out
 }
 
-// firstNonEmpty returns the first non-empty string.
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -347,8 +344,6 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-// Safe type assertion helpers.
 
 func asString(v any) string {
 	if s, ok := v.(string); ok {
@@ -378,7 +373,6 @@ func asSlice(v any) []any {
 	return nil
 }
 
-// nowISO returns the current time in ISO 8601 format.
 func nowISO() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }

@@ -2,13 +2,11 @@ package threadify
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 )
 
-// Option configures the connection.
 type Option func(*ConnectOptions)
 
 func WithServiceName(name string) Option {
@@ -44,9 +42,9 @@ func WithLogger(logger Logger) Option {
 	}
 }
 
-func WithMaxInFlight(max int) Option {
+func WithMaxInFlight(n int) Option {
 	return func(o *ConnectOptions) {
-		o.MaxInFlight = max
+		o.MaxInFlight = n
 	}
 }
 
@@ -92,7 +90,7 @@ func Connect(ctx context.Context, apiKey string, opts ...Option) (*Connection, e
 	}
 
 	if err := transport.Send(connectMsg); err != nil {
-		transport.Close()
+		_ = transport.Close()
 		return nil, fmt.Errorf("send connect: %w", err)
 	}
 
@@ -109,11 +107,11 @@ func Connect(ctx context.Context, apiKey string, opts ...Option) (*Connection, e
 
 	select {
 	case <-dialCtx.Done():
-		transport.Close()
+		_ = transport.Close()
 		return nil, fmt.Errorf("connection timeout")
 	case r := <-ch:
 		if r.err != nil {
-			transport.Close()
+			_ = transport.Close()
 			return nil, fmt.Errorf("recv connect response: %w", r.err)
 		}
 
@@ -121,7 +119,7 @@ func Connect(ctx context.Context, apiKey string, opts ...Option) (*Connection, e
 		status, _ := r.msg[FieldStatus].(string)
 
 		if action != ActionConnect || status != StatusSuccess {
-			transport.Close()
+			_ = transport.Close()
 			msg, _ := r.msg[FieldMessage].(string)
 			if msg == "" {
 				msg = "connection failed"
@@ -129,7 +127,7 @@ func Connect(ctx context.Context, apiKey string, opts ...Option) (*Connection, e
 			return nil, fmt.Errorf("%s", msg)
 		}
 
-		conn := newConnection(transport, apiKey, o.ServiceName, o)
+		conn := newConnection(transport, apiKey, o.ServiceName, &o)
 		return conn, nil
 	}
 }
@@ -138,6 +136,7 @@ func Create(config Config) *Factory {
 	return &Factory{config: config}
 }
 
+// Config holds static configuration for the Connection Factory.
 type Config struct {
 	APIKey      string
 	ServiceName string
@@ -146,6 +145,7 @@ type Config struct {
 	Debug       bool
 }
 
+// Factory creates connections based on a static configuration.
 type Factory struct {
 	config Config
 }
@@ -158,23 +158,4 @@ func (f *Factory) Connect(ctx context.Context) (*Connection, error) {
 		WithDebug(f.config.Debug),
 	}
 	return Connect(ctx, f.config.APIKey, opts...)
-}
-
-//
-
-func asFloat(v any) float64 {
-	f, _ := v.(float64)
-	return f
-}
-func toJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-func parseTimestamp(s string) time.Time {
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Now().UTC()
-	}
-	return t
 }

@@ -30,7 +30,7 @@ func TestGraphQLClient_Query_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(responseData)
+		_ = json.NewEncoder(w).Encode(responseData)
 	}))
 	defer server.Close()
 
@@ -52,7 +52,7 @@ func TestGraphQLClient_Query_Success(t *testing.T) {
 }
 
 func TestGraphQLClient_Query_GraphQLErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": nil,
 			"errors": []map[string]any{
@@ -60,7 +60,7 @@ func TestGraphQLClient_Query_GraphQLErrors(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -74,9 +74,9 @@ func TestGraphQLClient_Query_GraphQLErrors(t *testing.T) {
 }
 
 func TestGraphQLClient_Query_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Internal Server Error"))
+		_, _ = w.Write([]byte("Internal Server Error"))
 	}))
 	defer server.Close()
 
@@ -90,7 +90,7 @@ func TestGraphQLClient_Query_HTTPError(t *testing.T) {
 }
 
 func TestDataRetriever_GetThread(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"thread": map[string]any{
@@ -110,7 +110,7 @@ func TestDataRetriever_GetThread(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -142,14 +142,14 @@ func TestDataRetriever_GetThread(t *testing.T) {
 }
 
 func TestDataRetriever_GetThread_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"thread": nil,
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -163,7 +163,7 @@ func TestDataRetriever_GetThread_NotFound(t *testing.T) {
 }
 
 func TestDataRetriever_GetThreadsByRef(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"threadsByRef": []any{
@@ -181,14 +181,14 @@ func TestDataRetriever_GetThreadsByRef(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
 	dr := NewDataRetriever(server.URL, "test-key")
 	ctx := context.Background()
 
-	threads, err := dr.GetThreadsByRef(ctx, RefQuery{
+	threads, err := dr.GetThreadsByRef(ctx, &RefQuery{
 		RefKey:   "orderId",
 		RefValue: "ORD-123",
 	})
@@ -205,21 +205,21 @@ func TestDataRetriever_GetThreadsByRef(t *testing.T) {
 }
 
 func TestDataRetriever_GetThreadsByRef_Empty(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"threadsByRef": nil,
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
 	dr := NewDataRetriever(server.URL, "test-key")
 	ctx := context.Background()
 
-	threads, err := dr.GetThreadsByRef(ctx, RefQuery{
+	threads, err := dr.GetThreadsByRef(ctx, &RefQuery{
 		RefKey:   "orderId",
 		RefValue: "NONEXISTENT",
 	})
@@ -233,7 +233,7 @@ func TestDataRetriever_GetThreadsByRef_Empty(t *testing.T) {
 }
 
 func TestDataRetriever_GetThreadChain(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"threadChain": []any{
@@ -249,7 +249,7 @@ func TestDataRetriever_GetThreadChain(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -267,7 +267,7 @@ func TestDataRetriever_GetThreadChain(t *testing.T) {
 }
 
 func TestArchivedThread_Steps(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"thread": map[string]any{
@@ -293,7 +293,7 @@ func TestArchivedThread_Steps(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -315,7 +315,7 @@ func TestArchivedThread_Steps(t *testing.T) {
 	if steps[0].StepName != "order_placed" {
 		t.Errorf("expected stepName 'order_placed', got %q", steps[0].StepName)
 	}
-	if steps[0].Status != "success" {
+	if steps[0].Status != StatusSuccess {
 		t.Errorf("expected status 'success', got %q", steps[0].Status)
 	}
 	if steps[0].LastExecution == nil {
@@ -324,7 +324,7 @@ func TestArchivedThread_Steps(t *testing.T) {
 }
 
 func TestArchivedStep_History(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"stepHistory": []any{
@@ -346,7 +346,7 @@ func TestArchivedStep_History(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -376,7 +376,7 @@ func TestArchivedStep_History(t *testing.T) {
 }
 
 func TestArchivedThread_ValidationResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"thread": map[string]any{
@@ -394,7 +394,7 @@ func TestArchivedThread_ValidationResults(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -419,7 +419,7 @@ func TestArchivedThread_ValidationResults(t *testing.T) {
 }
 
 func TestArchivedThread_GetCompleteData(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"data": map[string]any{
 				"thread": map[string]any{
@@ -441,7 +441,7 @@ func TestArchivedThread_GetCompleteData(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

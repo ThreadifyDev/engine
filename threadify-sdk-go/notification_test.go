@@ -5,16 +5,21 @@ import (
 	"time"
 )
 
+const (
+	testOrderPlaced = "order_placed"
+	testOrderFlow   = "order_flow"
+)
+
 func TestNotification_NewNotification(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	data := map[string]any{
 		"notificationId":   "notif-001",
 		"threadId":         "thread-123",
 		"stepId":           "step-456",
-		"stepName":         "order_placed",
-		"contractName":     "order_flow",
+		"stepName":         testOrderPlaced,
+		"contractName":     testOrderFlow,
 		"status":           "violated",
 		"stepStatus":       "success",
 		"severity":         "critical",
@@ -35,11 +40,11 @@ func TestNotification_NewNotification(t *testing.T) {
 	if notif.ThreadID != "thread-123" {
 		t.Errorf("expected ThreadID 'thread-123', got %q", notif.ThreadID)
 	}
-	if notif.StepName != "order_placed" {
-		t.Errorf("expected StepName 'order_placed', got %q", notif.StepName)
+	if notif.StepName != testOrderPlaced {
+		t.Errorf("expected StepName %q, got %q", testOrderPlaced, notif.StepName)
 	}
-	if notif.ContractName != "order_flow" {
-		t.Errorf("expected ContractName 'order_flow', got %q", notif.ContractName)
+	if notif.ContractName != testOrderFlow {
+		t.Errorf("expected ContractName %q, got %q", testOrderFlow, notif.ContractName)
 	}
 	if notif.Severity != "critical" {
 		t.Errorf("expected severity 'critical', got %q", notif.Severity)
@@ -51,7 +56,7 @@ func TestNotification_NewNotification(t *testing.T) {
 
 func TestNotification_TimestampParsing(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	t.Run("valid timestamp", func(t *testing.T) {
 		notif := NewNotification(map[string]any{
@@ -93,7 +98,7 @@ func TestNotification_TimestampParsing(t *testing.T) {
 
 func TestNotification_Ack(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	notif := NewNotification(map[string]any{
 		"notificationId": "notif-ack-001",
@@ -133,7 +138,7 @@ func TestNotification_Ack(t *testing.T) {
 
 func TestNotification_Ack_Idempotent(t *testing.T) {
 	conn, mt := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	notif := NewNotification(map[string]any{
 		"notificationId": "notif-ack-002",
@@ -160,7 +165,7 @@ func TestNotification_Ack_Idempotent(t *testing.T) {
 
 func TestNotification_Ack_MissingToken(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	notif := NewNotification(map[string]any{
 		"notificationId": "notif-no-token",
@@ -175,7 +180,7 @@ func TestNotification_Ack_MissingToken(t *testing.T) {
 
 func TestNotification_StatusHelpers(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tests := []struct {
 		name     string
@@ -203,7 +208,7 @@ func TestNotification_StatusHelpers(t *testing.T) {
 
 func TestNotification_SeverityHelpers(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tests := []struct {
 		name     string
@@ -240,7 +245,7 @@ func TestNotification_SeverityHelpers(t *testing.T) {
 
 func TestNotification_StepStatusHelpers(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tests := []struct {
 		name    string
@@ -276,7 +281,7 @@ func TestNotification_StepStatusHelpers(t *testing.T) {
 
 func TestNotification_String(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	notif := NewNotification(map[string]any{
 		"notificationId": "n-str",
@@ -293,7 +298,7 @@ func TestNotification_String(t *testing.T) {
 
 func TestNotification_ToMap(t *testing.T) {
 	conn, _ := newTestConnection(t)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	notif := NewNotification(map[string]any{
 		"notificationId": "n-map",
@@ -314,7 +319,7 @@ func TestNotification_ToMap(t *testing.T) {
 		t.Errorf("expected acknowledged false, got %v", m["acknowledged"])
 	}
 
-	notif.Ack()
+	_ = notif.Ack()
 	m = notif.ToMap()
 	if m["acknowledged"] != true {
 		t.Errorf("expected acknowledged true after Ack(), got %v", m["acknowledged"])

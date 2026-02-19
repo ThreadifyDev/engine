@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from threadify.thread import ThreadInstance
 
 from threadify.models import (
     ACTION_RECORD_THREAD_EVENT,
@@ -46,7 +49,7 @@ class ThreadStep:
     def __init__(
         self,
         step_name: str,
-        thread: Any,  # ThreadInstance
+        thread: ThreadInstance,
         service_name: str,
     ):
         self._step_name = step_name
@@ -72,7 +75,7 @@ class ThreadStep:
 
     # --- Fluent builder methods ---
 
-    def idempotency_key(self, key: str) -> "ThreadStep":
+    def idempotency_key(self, key: str) -> ThreadStep:
         """Set a manual idempotency key for deduplication."""
         if self._error is not None:
             return self
@@ -82,7 +85,7 @@ class ThreadStep:
         self._manual_idempotency_key = key
         return self
 
-    def add_context(self, data: dict[str, Any] | None) -> "ThreadStep":
+    def add_context(self, data: dict[str, Any] | None) -> ThreadStep:
         """Add business context data to this step.
 
         All values are converted to strings to match the server schema.
@@ -92,7 +95,7 @@ class ThreadStep:
                 self._context[k] = str(v)
         return self
 
-    def add_private_context(self, data: dict[str, Any] | None) -> "ThreadStep":
+    def add_private_context(self, data: dict[str, Any] | None) -> ThreadStep:
         """Add private context data (prefixed with 'private_')."""
         if data:
             for k, v in data.items():
@@ -101,7 +104,7 @@ class ThreadStep:
                 self._context[f"private_{k}"] = s
         return self
 
-    def add_refs(self, refs: dict[str, str] | None) -> "ThreadStep":
+    def add_refs(self, refs: dict[str, str] | None) -> ThreadStep:
         """Add external system references."""
         if refs:
             self._refs.update(refs)
@@ -112,7 +115,7 @@ class ThreadStep:
         name: str,
         data: dict[str, Any] | None = None,
         status: str = "success",
-    ) -> "ThreadStep":
+    ) -> ThreadStep:
         """Record a sub-step within this step.
 
         Args:
@@ -126,14 +129,18 @@ class ThreadStep:
             self._error = ValueError("sub-step name must be a non-empty string")
             return self
         if status not in (STATUS_SUCCESS, STATUS_FAILED):
-            self._error = ValueError(f'sub-step status must be either "{STATUS_SUCCESS}" or "{STATUS_FAILED}"')
+            self._error = ValueError(
+                f'sub-step status must be either "{STATUS_SUCCESS}" or "{STATUS_FAILED}"'
+            )
             return self
 
-        self._sub_steps.append(SubStepData(
-            name=name,
-            status=status,
-            payload=data,
-        ))
+        self._sub_steps.append(
+            SubStepData(
+                name=name,
+                status=status,
+                payload=data,
+            )
+        )
         return self
 
     # --- Status methods ---
@@ -150,9 +157,7 @@ class ThreadStep:
         """Mark the step as error and send it."""
         return await self._stop(STATUS_ERROR, message_or_data)
 
-    async def _stop(
-        self, status: str, message_or_data: str | dict | None = None
-    ) -> StepResult:
+    async def _stop(self, status: str, message_or_data: str | dict | None = None) -> StepResult:
         """Finalise the step and send the event."""
         if self._error is not None:
             raise self._error
@@ -192,7 +197,7 @@ class ThreadStep:
         # Send event.
         try:
             await self._send_event()
-        except DuplicateStepError as exc:
+        except DuplicateStepError:
             return StepResult(
                 step_name=self._step_name,
                 thread_id=self._thread.thread_id,
@@ -242,9 +247,7 @@ class ThreadStep:
 
         # Build sorted JSON string of context.
         sorted_items = sorted(self._context.items())
-        context_json = "{" + ",".join(
-            f'"{k}":"{v}"' for k, v in sorted_items
-        ) + "}"
+        context_json = "{" + ",".join(f'"{k}":"{v}"' for k, v in sorted_items) + "}"
 
         input_str = self._step_name + context_json
         h = _fnv1a_32(input_str.encode("utf-8"))
@@ -271,6 +274,7 @@ class ThreadStep:
 
 class DuplicateStepError(Exception):
     """Raised when a duplicate step is detected."""
+
     pass
 
 

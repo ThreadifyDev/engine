@@ -1,5 +1,3 @@
-"""Notification — wraps server notifications with helpers and ACK support."""
-
 from __future__ import annotations
 
 import json
@@ -11,6 +9,7 @@ from threadify.models import (
     FIELD_DETAILS,
     FIELD_MESSAGE,
     FIELD_NOTIFICATION_ID,
+    FIELD_NOTIFICATION_TYPE,
     FIELD_OWNER_ID,
     FIELD_SEVERITY,
     FIELD_SOURCE,
@@ -19,8 +18,10 @@ from threadify.models import (
     FIELD_STEP_STATUS,
     FIELD_THREAD_ID,
     FIELD_TIMESTAMP,
-    FIELD_NOTIFICATION_TYPE,
     FIELD_VIOLATION_TYPE,
+    SEVERITY_CRITICAL,
+    SEVERITY_INFO,
+    SEVERITY_WARNING,
     STATUS_ERROR,
     STATUS_FAILED,
     STATUS_PASSED,
@@ -66,7 +67,9 @@ class Notification:
 
         ts_str = data.get(FIELD_TIMESTAMP, "")
         try:
-            self.timestamp = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
+            self.timestamp = (
+                datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
+            )
         except (ValueError, TypeError):
             self.timestamp = datetime.now(timezone.utc)
 
@@ -91,9 +94,7 @@ class Notification:
             )
 
         self._acknowledged = True
-        self._connection._send_ack(
-            self.notification_id, self.thread_id, self._ack_token
-        )
+        self._connection._send_ack(self.notification_id, self.thread_id, self._ack_token)
 
     # --- Status helpers ---
 

@@ -88,7 +88,9 @@ class Threadify:
             if isinstance(arg, ConnectOptions) and legacy_config is None:
                 legacy_config = arg
                 continue
-            raise TypeError("invalid connect argument; expected service_name (str) or ConnectOptions")
+            raise TypeError(
+                "invalid connect argument; expected service_name (str) or ConnectOptions"
+            )
 
         cfg = _build_connect_options(
             base=options or legacy_config,
@@ -146,7 +148,7 @@ class Threadify:
         connect_timeout: float | None = None,
         logger: logging.Logger | None = None,
         options: ConnectOptions | None = None,
-    ) -> "ThreadifyFactory":
+    ) -> ThreadifyFactory:
         legacy_service_name: str | None = None
         legacy_config: ConnectOptions | None = None
         for arg in args:
@@ -156,7 +158,9 @@ class Threadify:
             if isinstance(arg, ConnectOptions) and legacy_config is None:
                 legacy_config = arg
                 continue
-            raise TypeError("invalid create argument; expected service_name (str) or ConnectOptions")
+            raise TypeError(
+                "invalid create argument; expected service_name (str) or ConnectOptions"
+            )
 
         cfg = _build_connect_options(
             base=options or legacy_config,

@@ -1,17 +1,16 @@
 """Tests for connection.py — event parsing, handler routing, deduplication."""
 
 import asyncio
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from threadify.connection import (
     Connection,
-    _parse_event,
     _build_event_types,
     _merge_unique,
+    _parse_event,
 )
-from threadify.notification import Notification
 
 
 def _make_mock_ws():
@@ -41,6 +40,9 @@ def _make_connection():
     conn._processed_notifications = set()
     conn._recv_queue = asyncio.Queue()
     conn._data_retriever = None
+    import logging
+
+    conn._logger = logging.getLogger("threadify-test")
     # Create a completed listener task.
     loop = asyncio.get_event_loop()
     conn._listener_task = loop.create_future()
@@ -49,15 +51,18 @@ def _make_connection():
 
 
 class TestParseEvent:
-    @pytest.mark.parametrize("event,expected_source,expected_type", [
-        ("step.success", "execution", "success"),
-        ("step.failed", "execution", "failed"),
-        ("rule.violated", "validation", "violated"),
-        ("rule.passed", "validation", "passed"),
-        ("step.*", "execution", "*"),
-        ("rule.*", "validation", "*"),
-        ("*", "*", "*"),
-    ])
+    @pytest.mark.parametrize(
+        "event,expected_source,expected_type",
+        [
+            ("step.success", "execution", "success"),
+            ("step.failed", "execution", "failed"),
+            ("rule.violated", "validation", "violated"),
+            ("rule.passed", "validation", "passed"),
+            ("step.*", "execution", "*"),
+            ("rule.*", "validation", "*"),
+            ("*", "*", "*"),
+        ],
+    )
     def test_parse(self, event, expected_source, expected_type):
         source, etype = _parse_event(event)
         assert source == expected_source
@@ -68,8 +73,10 @@ class TestBuildEventTypes:
     def test_wildcard_all(self):
         result = _build_event_types("*", "*")
         assert set(result) == {
-            "execution.success", "execution.failed",
-            "validation.passed", "validation.violated",
+            "execution.success",
+            "execution.failed",
+            "validation.passed",
+            "validation.violated",
         }
 
     def test_execution_wildcard(self):

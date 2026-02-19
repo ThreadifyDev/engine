@@ -106,9 +106,7 @@ class GraphQLClient:
         )
 
         if resp.status_code != 200:
-            raise RuntimeError(
-                f"GraphQL request failed: {resp.status_code} {resp.text}"
-            )
+            raise RuntimeError(f"GraphQL request failed: {resp.status_code} {resp.text}")
 
         result = resp.json()
 
@@ -129,7 +127,7 @@ class DataRetriever:
     def __init__(self, graphql_url: str, api_key: str):
         self._client = GraphQLClient(graphql_url, api_key)
 
-    async def get_thread(self, thread_id: str) -> "ArchivedThread":
+    async def get_thread(self, thread_id: str) -> ArchivedThread:
         """Retrieve an archived thread by ID."""
         query = f"""
             query GetThread($id: ID!) {{
@@ -144,7 +142,7 @@ class DataRetriever:
             raise RuntimeError(f"Thread not found: {thread_id}")
         return ArchivedThread(thread_data, self._client)
 
-    async def get_threads_by_ref(self, q: RefQuery) -> list["ArchivedThread"]:
+    async def get_threads_by_ref(self, q: RefQuery) -> list[ArchivedThread]:
         """Retrieve threads by reference key-value pair."""
         query = f"""
             query GetThreadsByRef(
@@ -185,9 +183,7 @@ class DataRetriever:
         threads_list = data.get("threadsByRef") or []
         return [ArchivedThread(t, self._client) for t in threads_list if isinstance(t, dict)]
 
-    async def get_thread_chain(
-        self, root_id: str, max_depth: int = 3
-    ) -> list["ArchivedThread"]:
+    async def get_thread_chain(self, root_id: str, max_depth: int = 3) -> list[ArchivedThread]:
         """Retrieve a thread chain from the root."""
         if not root_id:
             raise RuntimeError("root_id is required")
@@ -201,10 +197,13 @@ class DataRetriever:
                 }}
             }}
         """
-        data = await self._client.query(query, {
-            "rootId": root_id,
-            "maxDepth": max_depth,
-        })
+        data = await self._client.query(
+            query,
+            {
+                "rootId": root_id,
+                "maxDepth": max_depth,
+            },
+        )
         chain_list = data.get("threadChain") or []
         return [ArchivedThread(t, self._client) for t in chain_list if isinstance(t, dict)]
 
@@ -244,7 +243,7 @@ class ArchivedThread:
         step_name: str = "",
         idempotency_key: str = "",
         status: str = "",
-    ) -> list["ArchivedStep"]:
+    ) -> list[ArchivedStep]:
         """Retrieve steps for this thread, optionally filtered."""
         if not self.id:
             raise RuntimeError("thread ID is required")
@@ -293,16 +292,17 @@ class ArchivedThread:
                 }}
             }}
         """
-        data = await self._client.query(query, {
-            "threadId": self.id,
-            "options": {"limit": limit},
-        })
+        data = await self._client.query(
+            query,
+            {
+                "threadId": self.id,
+                "options": {"limit": limit},
+            },
+        )
         thread_data = data.get("thread") or {}
         return thread_data.get("validationResults") or []
 
-    async def get_complete_data(
-        self, options: CompleteDataOptions | None = None
-    ) -> dict[str, Any]:
+    async def get_complete_data(self, options: CompleteDataOptions | None = None) -> dict[str, Any]:
         """Retrieve complete thread data (steps + history + validations) in one query."""
         opts = options or CompleteDataOptions()
         step_history_limit = opts.step_history_limit if opts.step_history_limit > 0 else 50
@@ -372,9 +372,7 @@ class ArchivedStep:
 
         self._client = client
 
-    async def history(
-        self, options: HistoryQueryOptions | None = None
-    ) -> list[dict[str, Any]]:
+    async def history(self, options: HistoryQueryOptions | None = None) -> list[dict[str, Any]]:
         """Retrieve execution history for this step."""
         opts = options or HistoryQueryOptions()
         limit = opts.limit if opts.limit > 0 else 100
