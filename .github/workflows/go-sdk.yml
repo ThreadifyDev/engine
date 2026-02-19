@@ -20,9 +20,9 @@ jobs:
           cache: true
           cache-dependency-path: threadify-sdk-go/go.sum
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64.5
+          version: 2.1.5
           working-directory: threadify-sdk-go
 
   test:
