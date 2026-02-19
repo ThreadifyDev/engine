@@ -84,8 +84,10 @@ class ThreadInstance:
         """
         from threadify.step import ThreadStep
 
-        require_non_empty("step_name", step_name)
         s = ThreadStep(step_name, self, first_non_empty(self._conn.service_name))
+        if not step_name or not step_name.strip():
+            s._error = ValueError("step_name must be a non-empty string")
+
         self._steps[step_name] = s
         return s
 

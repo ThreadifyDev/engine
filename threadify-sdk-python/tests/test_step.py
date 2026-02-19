@@ -244,16 +244,18 @@ class TestStepStatusMethods:
 
     @pytest.mark.asyncio
     async def test_empty_step_name(self):
-        with pytest.raises(ValueError):
-            thread2 = MagicMock()
-            thread2.thread_id = "t1"
-            from threadify.thread import ThreadInstance
+        # Use the real thread.step() which now defers validation.
+        real_conn = MagicMock()
+        real_conn.service_name = "svc"
+        from threadify.thread import ThreadInstance
+        real_thread = ThreadInstance(real_conn, "t1")
 
-            # Use the real thread.step() which validates.
-            real_conn = MagicMock()
-            real_conn.service_name = "svc"
-            real_thread = ThreadInstance(real_conn, "t1")
-            real_thread.step("")
+        step = real_thread.step("")
+        assert step is not None
+        assert step._error is not None
+
+        with pytest.raises(ValueError, match="step_name"):
+            await step.success()
 
 
 class TestStepProperties:

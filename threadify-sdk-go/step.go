@@ -54,7 +54,7 @@ func (s *ThreadStep) IdempotencyKey(key string) *ThreadStep {
 }
 
 func (s *ThreadStep) AddContext(data map[string]any) *ThreadStep {
-	if data == nil {
+	if s.err != nil || data == nil {
 		return s
 	}
 	for k, v := range data {
@@ -64,7 +64,7 @@ func (s *ThreadStep) AddContext(data map[string]any) *ThreadStep {
 }
 
 func (s *ThreadStep) AddPrivateContext(data map[string]any) *ThreadStep {
-	if data == nil {
+	if s.err != nil || data == nil {
 		return s
 	}
 	for k, v := range data {
@@ -76,7 +76,7 @@ func (s *ThreadStep) AddPrivateContext(data map[string]any) *ThreadStep {
 }
 
 func (s *ThreadStep) AddRefs(refs map[string]string) *ThreadStep {
-	if refs == nil {
+	if s.err != nil || refs == nil {
 		return s
 	}
 	for k, v := range refs {
