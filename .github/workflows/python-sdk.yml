@@ -39,7 +39,8 @@ jobs:
         working-directory: threadify-sdk-python
         run: |
           python -m pip install --upgrade pip setuptools wheel
+          pip install pytest-cov
           make install
       - name: Run Tests
         working-directory: threadify-sdk-python
-        run: make test
+        run: make coverage
