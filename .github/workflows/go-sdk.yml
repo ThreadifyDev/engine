@@ -37,4 +37,4 @@ jobs:
           cache-dependency-path: threadify-sdk-go/go.sum
       - name: Run Tests
         working-directory: threadify-sdk-go
-        run: make test
+        run: make coverage

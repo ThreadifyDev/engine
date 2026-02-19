@@ -466,3 +466,50 @@ func TestArchivedThread_GetCompleteData(t *testing.T) {
 		t.Errorf("expected 1 step in complete data, got %d", len(steps))
 	}
 }
+
+func TestArchivedStep_SubSteps(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		response := map[string]any{
+			"data": map[string]any{
+				"thread": map[string]any{
+					"steps": []any{
+						map[string]any{
+							"subSteps": []any{
+								map[string]any{
+									"name":       "inner-1",
+									"status":     "success",
+									"payload":    "done",
+									"recordedAt": "2026-02-18T10:00:10Z",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	client := NewGraphQLClient(server.URL, "test-key")
+	step := &ArchivedStep{
+		ThreadID:       "thread-sub-001",
+		StepName:       "outer-1",
+		IdempotencyKey: "idem-sub-001",
+		client:         client,
+	}
+
+	ctx := context.Background()
+	subSteps, err := step.SubSteps(ctx)
+	if err != nil {
+		t.Fatalf("SubSteps() error: %v", err)
+	}
+
+	if len(subSteps) != 1 {
+		t.Fatalf("expected 1 sub-step, got %d", len(subSteps))
+	}
+	if asString(subSteps[0]["name"]) != "inner-1" {
+		t.Errorf("expected sub-step name 'inner-1', got %q", asString(subSteps[0]["name"]))
+	}
+}

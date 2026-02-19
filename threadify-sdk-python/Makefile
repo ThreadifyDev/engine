@@ -8,6 +8,9 @@ install:
 test:
 	python3 -m pytest
 
+coverage:
+	python3 -m pytest --cov=threadify --cov-report=term-missing --cov-report=html
+
 lint:
 	ruff check .
 
