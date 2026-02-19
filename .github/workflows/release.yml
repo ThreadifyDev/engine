@@ -19,6 +19,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: migrate-stream-to-nats
 
   publish-pypi:
     runs-on: ubuntu-latest
