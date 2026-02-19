@@ -18,24 +18,38 @@ pip install -e ".[dev]"
 
 ```python
 import asyncio
+import logging
 from threadify import Threadify
 
 
 async def main():
-    conn = await Threadify.connect(
-        "your-api-key",
-        service_name="orders-service",
-        ws_url="wss://eng.threadify.dev/threads",
-    )
+    try:
+        conn = await Threadify.connect(
+            "your-api-key",
+            service_name="orders-service",
+            ws_url="wss://eng.threadify.dev/threads",
+        )
+    except Exception as e:
+        logging.error(f"Failed to connect: {e}")
+        return
 
-    thread = await conn.start()
-    step = thread.step("order_received")
-    await step.add_context({"orderId": "ORD-123"}).success("Order accepted")
+    try:
+        thread = await conn.start(contract_name="order_flow")
+        
+        # Easy chaining!
+        await (
+            thread.step("order_received")
+            .add_context({"orderId": "ORD-123"})
+            .success("Order accepted")
+        )
+    except Exception as e:
+        logging.error(f"Error in thread: {e}")
+    finally:
+        await conn.close()
 
-    await conn.close()
 
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 `ws_url` is required. The SDK no longer uses a hardcoded default URL.

@@ -36,17 +36,24 @@ func newThreadInstance(conn *Connection, threadID, contractID, role string, refs
 	}
 }
 
-func (t *ThreadInstance) Step(stepName string) (*ThreadStep, error) {
-	if err := requireNonEmpty("stepName", stepName); err != nil {
-		return nil, err
+func (t *ThreadInstance) Step(stepName string) *ThreadStep {
+	if t == nil {
+		return &ThreadStep{err: fmt.Errorf("ThreadInstance is nil")}
 	}
 
 	step := newThreadStep(stepName, t, firstNonEmpty(t.conn.serviceName))
+	if stepName == "" {
+		step.err = fmt.Errorf("stepName cannot be empty")
+	}
+
 	t.steps.Store(stepName, step)
-	return step, nil
+	return step
 }
 
 func (t *ThreadInstance) InviteParty(ctx context.Context, opts InviteOptions) (*InviteResponse, error) {
+	if t == nil {
+		return nil, fmt.Errorf("ThreadInstance is nil")
+	}
 	if err := requireNonEmpty("role", opts.Role); err != nil {
 		return nil, fmt.Errorf("role is required for InviteParty")
 	}
@@ -93,6 +100,9 @@ func (t *ThreadInstance) InviteParty(ctx context.Context, opts InviteOptions) (*
 }
 
 func (t *ThreadInstance) WaitFor(ctx context.Context, stepName string, opts *WaitOptions) (*Notification, error) {
+	if t == nil {
+		return nil, fmt.Errorf("ThreadInstance is nil")
+	}
 	if err := requireNonEmpty("stepName", stepName); err != nil {
 		return nil, err
 	}
@@ -129,6 +139,9 @@ func (t *ThreadInstance) WaitFor(ctx context.Context, stepName string, opts *Wai
 }
 
 func (t *ThreadInstance) AddRefs(ctx context.Context, refs map[string]string) error {
+	if t == nil {
+		return fmt.Errorf("ThreadInstance is nil")
+	}
 	if len(refs) == 0 {
 		return fmt.Errorf("refs must be a non-empty map")
 	}
@@ -173,6 +186,9 @@ func (t *ThreadInstance) AddRefs(ctx context.Context, refs map[string]string) er
 var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func (t *ThreadInstance) LinkThread(ctx context.Context, threadID, relationship string) error {
+	if t == nil {
+		return fmt.Errorf("ThreadInstance is nil")
+	}
 	if err := requireNonEmpty("threadID", threadID); err != nil {
 		return err
 	}
@@ -188,6 +204,9 @@ func (t *ThreadInstance) LinkThread(ctx context.Context, threadID, relationship 
 }
 
 func (t *ThreadInstance) End(ctx context.Context, status string, reason ...string) (*ThreadEndResponse, error) {
+	if t == nil {
+		return nil, fmt.Errorf("ThreadInstance is nil")
+	}
 	if status == "" {
 		status = StatusCancelled
 	}

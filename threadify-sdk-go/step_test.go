@@ -25,9 +25,9 @@ func TestThreadStep_FluentChaining(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, err := thread.Step("order_placed")
-	if err != nil {
-		t.Fatalf("Step() error: %v", err)
+	step := thread.Step("order_placed")
+	if step.err != nil {
+		t.Fatalf("Step() error: %v", step.err)
 	}
 
 	// Chain methods.
@@ -83,7 +83,7 @@ func TestThreadStep_ManualIdempotencyKey(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("payment_processed")
+	step := thread.Step("payment_processed")
 	step.IdempotencyKey("custom-key-123")
 
 	key := step.generateIdempotencyKey()
@@ -109,11 +109,11 @@ func TestThreadStep_AutoIdempotencyKey(t *testing.T) {
 	}
 
 	// Same step name + same context should produce same key.
-	step1, _ := thread.Step("order_placed")
+	step1 := thread.Step("order_placed")
 	step1.AddContext(map[string]any{"orderId": testOrderID})
 	key1 := step1.generateIdempotencyKey()
 
-	step2, _ := thread.Step("order_placed")
+	step2 := thread.Step("order_placed")
 	step2.AddContext(map[string]any{"orderId": testOrderID})
 	key2 := step2.generateIdempotencyKey()
 
@@ -122,7 +122,7 @@ func TestThreadStep_AutoIdempotencyKey(t *testing.T) {
 	}
 
 	// Different context should produce different key.
-	step3, _ := thread.Step("order_placed")
+	step3 := thread.Step("order_placed")
 	step3.AddContext(map[string]any{"orderId": "ORD-456"})
 	key3 := step3.generateIdempotencyKey()
 
@@ -152,7 +152,7 @@ func TestThreadStep_Success(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("order_placed")
+	step := thread.Step("order_placed")
 	step.AddContext(map[string]any{"orderId": testOrderID})
 
 	// Enqueue recordThreadEvent response.
@@ -196,7 +196,7 @@ func TestThreadStep_Failed(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("payment_processed")
+	step := thread.Step("payment_processed")
 
 	mt.enqueueResponse(map[string]any{
 		"action": "recordThreadEvent",
@@ -229,7 +229,7 @@ func TestThreadStep_Error(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("service_call")
+	step := thread.Step("service_call")
 
 	mt.enqueueResponse(map[string]any{
 		"action": "recordThreadEvent",
@@ -262,7 +262,7 @@ func TestThreadStep_DuplicateDetection(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("order_placed")
+	step := thread.Step("order_placed")
 
 	mt.enqueueResponse(map[string]any{
 		"action":      "recordThreadEvent",
@@ -305,8 +305,8 @@ func TestThreadStep_EmptyStepName(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	_, err = thread.Step("")
-	if err == nil {
+	step := thread.Step("")
+	if step.err == nil {
 		t.Error("expected error for empty step name")
 	}
 }
@@ -327,7 +327,7 @@ func TestThreadStep_SubStepStatuses(t *testing.T) {
 		t.Fatalf("Start() error: %v", err)
 	}
 
-	step, _ := thread.Step("process_order")
+	step := thread.Step("process_order")
 	step.SubStep("validate", nil) // default success
 	step.SubStep("calculate_tax", map[string]any{"amount": 12.50}, "success")
 	step.SubStep("apply_discount", map[string]any{"error": "Invalid coupon"}, "failed")
@@ -356,7 +356,7 @@ func TestThreadStep_SubStepInvalidStatus(t *testing.T) {
 
 	ctx := context.Background()
 	thread, _ := conn.Start(ctx)
-	step, _ := thread.Step("process")
+	step := thread.Step("process")
 
 	// Should not panic, but store error.
 	step.SubStep("bad", nil, "invalid_status")
@@ -383,7 +383,7 @@ func TestThreadStep_IdempotencyKeyErrorOnEmpty(t *testing.T) {
 
 	ctx := context.Background()
 	thread, _ := conn.Start(ctx)
-	step, _ := thread.Step("test")
+	step := thread.Step("test")
 
 	// Should not panic, but store error.
 	step.IdempotencyKey("")
@@ -409,7 +409,7 @@ func TestThreadStep_PrivateContext(t *testing.T) {
 
 	ctx := context.Background()
 	thread, _ := conn.Start(ctx)
-	step, _ := thread.Step("payment")
+	step := thread.Step("payment")
 
 	step.AddPrivateContext(map[string]any{"cardNumber": "4111111111111111"})
 
@@ -434,7 +434,7 @@ func TestThreadStep_MessageAsMapData(t *testing.T) {
 
 	ctx := context.Background()
 	thread, _ := conn.Start(ctx)
-	step, _ := thread.Step("order_placed")
+	step := thread.Step("order_placed")
 
 	mt.enqueueResponse(map[string]any{
 		"action": "recordThreadEvent",

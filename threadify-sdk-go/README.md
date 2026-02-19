@@ -18,26 +18,30 @@ Use `threadify.Connect` to establish a connection. You can configure the connect
 package main
 
 import (
-    "context"
-    "log"
-    "time"
-
-    "github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go"
+	"context"
+	"log"
+	"github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go"
 )
 
 func main() {
-    ctx := context.Background()
+	ctx := context.Background()
+	conn, _ := threadify.Connect(ctx, "your-api-key")
+	defer conn.Close()
 
-    // Connect with options
-    conn, err := threadify.Connect(ctx, "your-api-key",
-        threadify.WithServiceName("my-service"),
-        threadify.WithDebug(true),
-        threadify.WithConnectTimeout(5*time.Second),
-    )
+	thread, err := conn.Start(ctx, threadify.WithContract("order_flow"))
+
     if err != nil {
-        log.Fatalf("Failed to connect: %v", err)
+        log.Fatal(err)
     }
-    defer conn.Close()
+
+	// Easy chaining!
+	err := thread.Step("payment_processed").
+		AddContext(map[string]any{"amount": 99.99}).
+		Success(ctx)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
@@ -49,10 +53,18 @@ Start a thread, optionally associating it with a contract.
 // Start a generic thread
 thread, err := conn.Start(ctx)
 
+if err != nil {
+    log.Fatal(err)
+}
+
 // Start a thread for a specific contract
 thread, err := conn.Start(ctx, 
     threadify.WithContract("order_processing"),
 )
+
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### 3. Join an Existing Thread
@@ -66,10 +78,18 @@ thread, err := conn.Join(ctx,
     threadify.WithJoinRole("logistics"),
 )
 
+if err != nil {
+    log.Fatal(err)
+}
+
 // Join by Token
 thread, err := conn.Join(ctx, 
     threadify.WithJoinToken("ey..."),
 )
+
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### 4. Record Steps
@@ -77,7 +97,7 @@ thread, err := conn.Join(ctx,
 Record steps in a thread's lifecycle. You can add context, references, and sub-steps.
 
 ```go
-step, _ := thread.Step("order_shipped")
+step := thread.Step("order_shipped")
 
 _, err = step.
     AddContext(map[string]any{
@@ -88,6 +108,10 @@ _, err = step.
         "orderId": "ORD-999",
     }).
     Success(ctx, "Order has been shipped successfully")
+
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## Event Subscriptions

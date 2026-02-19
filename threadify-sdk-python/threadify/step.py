@@ -90,6 +90,8 @@ class ThreadStep:
 
         All values are converted to strings to match the server schema.
         """
+        if self._error is not None:
+            return self
         if data:
             for k, v in data.items():
                 self._context[k] = str(v)
@@ -97,6 +99,8 @@ class ThreadStep:
 
     def add_private_context(self, data: dict[str, Any] | None) -> ThreadStep:
         """Add private context data (prefixed with 'private_')."""
+        if self._error is not None:
+            return self
         if data:
             for k, v in data.items():
                 s = str(v)
@@ -106,6 +110,8 @@ class ThreadStep:
 
     def add_refs(self, refs: dict[str, str] | None) -> ThreadStep:
         """Add external system references."""
+        if self._error is not None:
+            return self
         if refs:
             self._refs.update(refs)
         return self
