@@ -409,6 +409,14 @@ export class Connection {
   getThreadsByRef(refQuery: { refKey: string; refValue: string }): Promise<ArchivedThread[]>;
   
   /**
+   * Get thread chain starting from any thread
+   * @param startThreadId - Starting thread ID (can be any thread in the chain)
+   * @param maxDepth - Maximum depth to traverse downward (default: 3)
+   * @returns Promise resolving to array of threads from starting thread to descendants
+   */
+  getThreadChain(startThreadId: string, maxDepth?: number): Promise<ArchivedThread[]>;
+  
+  /**
    * Subscribe to notification events for a specific step
    * @param event - Event pattern:
    *   - 'step.success' - Step executed successfully
