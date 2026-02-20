@@ -16,6 +16,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/utils"
@@ -116,8 +117,8 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 }
 
 func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerID string, companyID string) *models.StartThreadResponse {
-	start := time.Now()
-	log.Printf("[PERF] HandleStartThread BEGIN: owner=%s, contract=%s", ownerID, req.ContractName)
+	start := perf.Now()
+	perf.Log("[PERF] HandleStartThread BEGIN: owner=%s, contract=%s", ownerID, req.ContractName)
 
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.StartThreadResponse{
@@ -283,8 +284,8 @@ func (s *ThreadService) HandleStartThread(req *models.StartThreadRequest, ownerI
 	// Write thread metadata to stream for archival (async, don't fail if it fails)
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
-	totalDuration := time.Since(start)
-	log.Printf("[PERF] HandleStartThread COMPLETE: duration=%v | success=true", totalDuration)
+	totalDuration := perf.Since(start)
+	perf.Log("[PERF] HandleStartThread COMPLETE: duration=%v | success=true", totalDuration)
 
 	return &models.StartThreadResponse{
 		Action:   "startThread",
@@ -306,8 +307,8 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 }
 
 func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerID string, companyID string) *models.RecordEventResponse {
-	start := time.Now()
-	log.Printf("[PERF] HandleRecordEvent BEGIN: owner=%s, thread=%s, step=%s", ownerID, req.ThreadID[:8], req.StepName)
+	start := perf.Now()
+	perf.Log("[PERF] HandleRecordEvent BEGIN: owner=%s, thread=%s, step=%s", ownerID, req.ThreadID[:8], req.StepName)
 
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
 		return &models.RecordEventResponse{
@@ -605,8 +606,8 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		s.notificationService.PerformAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
 	}
 
-	totalDuration := time.Since(start)
-	log.Printf("[PERF] HandleRecordEvent COMPLETE: duration=%v | success=true", totalDuration)
+	totalDuration := perf.Since(start)
+	perf.Log("[PERF] HandleRecordEvent COMPLETE: duration=%v | success=true", totalDuration)
 
 	return &models.RecordEventResponse{
 		Action:   "recordThreadEvent",

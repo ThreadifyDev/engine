@@ -15,6 +15,7 @@ import (
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 )
 
@@ -75,9 +76,9 @@ func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *mode
 
 // Thread is the resolver for the thread field.
 func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, error) {
-	start := time.Now()
+	start := perf.Now()
 	defer func() {
-		metrics.RequestDuration.WithLabelValues("graphql_thread").Observe(time.Since(start).Seconds())
+		metrics.RequestDuration.WithLabelValues("graphql_thread").Observe(perf.Since(start).Seconds())
 	}()
 
 	// Get user info from context
@@ -110,17 +111,17 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 
 // Threads is the resolver for the threads field.
 func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
-	resolverStart := time.Now()
-	fmt.Printf("\n[PERF] ========== Threads() Resolver START ==========\n")
+	resolverStart := perf.Now()
+	perf.Log("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
-		fmt.Printf("[PERF] ========== Threads() Resolver TOTAL: %v ==========\n\n", time.Since(resolverStart))
-		metrics.RequestDuration.WithLabelValues("graphql_threads").Observe(time.Since(resolverStart).Seconds())
+		perf.Log("[PERF] ========== Threads() Resolver TOTAL: %v ==========\n\n", perf.Since(resolverStart))
+		metrics.RequestDuration.WithLabelValues("graphql_threads").Observe(perf.Since(resolverStart).Seconds())
 	}()
 
 	// Get user info from context (companyID for security)
-	authStart := time.Now()
+	authStart := perf.Now()
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
-	fmt.Printf("[PERF] Threads.getUserInfo: %v\n", time.Since(authStart))
+	perf.Log("[PERF] Threads.getUserInfo: %v\n", perf.Since(authStart))
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -135,9 +136,9 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	}
 
 	// Query threads with SQL-based access filtering (includes archived data)
-	queryStart := time.Now()
+	queryStart := perf.Now()
 	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
-	fmt.Printf("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", time.Since(queryStart), len(threads), totalCount)
+	perf.Log("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", perf.Since(queryStart), len(threads), totalCount)
 	if err != nil {
 		return nil, apperrors.NewInternalError("Failed to query threads with access", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 )
 
 // ThreadRepository handles thread persistence in PostgreSQL
@@ -307,10 +308,10 @@ func (r *ThreadRepository) QueryThreads(
 	limit int,
 	offset int,
 ) ([]*models.Thread, error) {
-	repoStart := time.Now()
-	fmt.Printf("[PERF] QueryThreads: START\\n")
+	repoStart := perf.Now()
+	perf.Log("[PERF] QueryThreads: START\n")
 	defer func() {
-		fmt.Printf("[PERF] QueryThreads: TOTAL %v\\n", time.Since(repoStart))
+		perf.Log("[PERF] QueryThreads: TOTAL %v\n", perf.Since(repoStart))
 	}()
 
 	// Build query with dynamic filters
@@ -387,12 +388,12 @@ func (r *ThreadRepository) QueryThreads(
 	// Add ordering and pagination
 	query += fmt.Sprintf(" ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, limit, offset)
-	fmt.Printf("[PERF] QueryThreads.buildQuery: %v\n", time.Since(buildStart))
+	perf.Log("[PERF] QueryThreads.buildQuery: %v\n", perf.Since(buildStart))
 
 	// Execute query
-	execStart := time.Now()
+	execStart := perf.Now()
 	rows, err := r.pool.Query(ctx, query, args...)
-	fmt.Printf("[PERF] QueryThreads.executeQuery: %v\n", time.Since(execStart))
+	perf.Log("[PERF] QueryThreads.executeQuery: %v\n", perf.Since(execStart))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query threads: %w", err)
 	}
@@ -456,7 +457,7 @@ func (r *ThreadRepository) QueryThreads(
 
 		threads = append(threads, &thread)
 	}
-	fmt.Printf("[PERF] QueryThreads.scanRows: %v (scanned %d rows)\n", time.Since(scanStart), rowCount)
+	perf.Log("[PERF] QueryThreads.scanRows: %v (scanned %d rows)\n", perf.Since(scanStart), rowCount)
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating threads: %w", err)
@@ -483,14 +484,14 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	limit int,
 	offset int,
 ) ([]*models.Thread, int, error) {
-	repoStart := time.Now()
-	fmt.Printf("[PERF] QueryThreadsWithAccess: START\n")
+	repoStart := perf.Now()
+	perf.Log("[PERF] QueryThreadsWithAccess: START\n")
 	defer func() {
-		fmt.Printf("[PERF] QueryThreadsWithAccess: TOTAL %v\n", time.Since(repoStart))
+		perf.Log("[PERF] QueryThreadsWithAccess: TOTAL %v\n", perf.Since(repoStart))
 	}()
 
 	// Build query with access filtering in SQL
-	buildStart := time.Now()
+	buildStart := perf.Now()
 	query := `
 		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version,
 		       t.owner_id, t.company_id, t.status, t.error,
@@ -559,10 +560,10 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 		argIdx++
 	}
 
-	fmt.Printf("[PERF] QueryThreadsWithAccess.buildQuery: %v\n", time.Since(buildStart))
+	perf.Log("[PERF] QueryThreadsWithAccess.buildQuery: %v\n", perf.Since(buildStart))
 
 	// Execute COUNT query first (without LIMIT/OFFSET)
-	countStart := time.Now()
+	countStart := perf.Now()
 	countQuery := "SELECT COUNT(DISTINCT t.id) FROM threads t"
 
 	// Add LEFT JOIN if actor filter is provided
@@ -613,7 +614,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 
 	var totalCount int
 	err := r.pool.QueryRow(ctx, countQuery, countArgs...).Scan(&totalCount)
-	fmt.Printf("[PERF] QueryThreadsWithAccess.countQuery: %v (total: %d)\n", time.Since(countStart), totalCount)
+	perf.Log("[PERF] QueryThreadsWithAccess.countQuery: %v (total: %d)\n", perf.Since(countStart), totalCount)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count threads: %w", err)
 	}
@@ -623,9 +624,9 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	args = append(args, limit, offset)
 
 	// Execute main query
-	execStart := time.Now()
+	execStart := perf.Now()
 	rows, err := r.pool.Query(ctx, query, args...)
-	fmt.Printf("[PERF] QueryThreadsWithAccess.executeQuery: %v\n", time.Since(execStart))
+	perf.Log("[PERF] QueryThreadsWithAccess.executeQuery: %v\n", perf.Since(execStart))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query threads with access: %w", err)
 	}
@@ -633,7 +634,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 
 	// Scan results
 	var threads []*models.Thread
-	scanStart := time.Now()
+	scanStart := perf.Now()
 	rowCount := 0
 	for rows.Next() {
 		rowCount++
@@ -690,7 +691,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 
 		threads = append(threads, &thread)
 	}
-	fmt.Printf("[PERF] QueryThreadsWithAccess.scanRows: %v (scanned %d rows)\n", time.Since(scanStart), rowCount)
+	perf.Log("[PERF] QueryThreadsWithAccess.scanRows: %v (scanned %d rows)\n", perf.Since(scanStart), rowCount)
 
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("error iterating threads: %w", err)

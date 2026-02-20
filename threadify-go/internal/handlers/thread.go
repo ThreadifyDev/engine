@@ -17,6 +17,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/utils"
 )
@@ -134,16 +135,16 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
 func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
 	// Track WebSocket message handling latency
-	wsStart := time.Now()
+	wsStart := perf.Now()
 	sessionID := session.sessionID
 	if sessionID == "" {
 		sessionID = "unknown"
 	}
-	log.Printf("[PERF] WebSocket START: action=%s | session=%s", action, sessionID)
+	perf.Log("[PERF] WebSocket START: action=%s | session=%s", action, sessionID)
 
 	defer func() {
-		duration := time.Since(wsStart)
-		log.Printf("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
+		duration := perf.Since(wsStart)
+		perf.Log("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
 
 		// Record metrics
 		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
@@ -153,18 +154,18 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 	// Rate limit authenticated WebSocket messages (skip "connect" action)
 	if action != "connect" && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		rateLimitStart := time.Now()
+		rateLimitStart := perf.Now()
 		allowed, err := h.luaScriptManager.CheckUserRateLimit(
 			context.Background(),
 			session.ownerID,
 			h.rateLimitConfig.PerUser.RequestsPerMinute,
 			h.rateLimitConfig.PerUser.WindowSeconds,
 		)
-		rateLimitDuration := time.Since(rateLimitStart)
-		log.Printf("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | duration=%v | allowed=%t", action, sessionID, rateLimitDuration, allowed)
+		rateLimitDuration := perf.Since(rateLimitStart)
+		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | duration=%v | allowed=%t", action, sessionID, rateLimitDuration, allowed)
 
 		if err == nil && !allowed {
-			log.Printf("[PERF] WebSocket RATE_LIMIT_EXCEEDED: action=%s | session=%s", action, sessionID)
+			perf.Log("[PERF] WebSocket RATE_LIMIT_EXCEEDED: action=%s | session=%s", action, sessionID)
 			return models.ErrorResponse{
 				Action:  action,
 				Status:  "error",
@@ -172,18 +173,18 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			}
 		}
 	} else {
-		log.Printf("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | SKIPPED", action, sessionID)
+		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | SKIPPED", action, sessionID)
 	}
 
 	var response interface{}
 	switch action {
 	case "connect":
-		connectStart := time.Now()
+		connectStart := perf.Now()
 		var req models.ConnectRequest
 		json.Unmarshal(msgBytes, &req)
 		resp := h.threadService.HandleConnect(&req)
-		connectDuration := time.Since(connectStart)
-		log.Printf("[PERF] WebSocket CONNECT: session=%s | duration=%v | success=%t", sessionID, connectDuration, resp.Status == "success")
+		connectDuration := perf.Since(connectStart)
+		perf.Log("[PERF] WebSocket CONNECT: session=%s | duration=%v | success=%t", sessionID, connectDuration, resp.Status == "success")
 
 		if resp.Status == "success" {
 			session.mu.Lock()
@@ -201,9 +202,9 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 				}
 				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn, &session.sendMu); err != nil {
 					// Failed to create session consumer (non-fatal)
-					log.Printf("[PERF] WebSocket NATS_SETUP_FAILED: session=%s | error=%v", sessionID, err)
+					perf.Log("[PERF] WebSocket NATS_SETUP_FAILED: session=%s | error=%v", sessionID, err)
 				} else {
-					log.Printf("[PERF] WebSocket NATS_SETUP: session=%s | success", sessionID)
+					perf.Log("[PERF] WebSocket NATS_SETUP: session=%s | success", sessionID)
 				}
 			}
 		}

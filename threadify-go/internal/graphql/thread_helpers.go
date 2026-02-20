@@ -3,9 +3,9 @@ package graphql
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 )
 
 // ThreadQueryOptions contains common options for thread queries
@@ -45,9 +45,9 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 	}
 
 	// Extract GraphQL field selections
-	selectionStart := time.Now()
+	selectionStart := perf.Now()
 	selections := ExtractFieldSelections(ctx)
-	fmt.Printf("[PERF] batchLoad.extractSelections: %v\n", time.Since(selectionStart))
+	perf.Log("[PERF] batchLoad.extractSelections: %v\n", perf.Since(selectionStart))
 
 	// Collect thread IDs for batch loading
 	threadIDs := make([]string, len(threads))
@@ -55,13 +55,13 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 		threadIDs[i] = thread.ID
 	}
 
-	batchLoadStart := time.Now()
+	batchLoadStart := perf.Now()
 
 	// Conditionally batch load refs (only if requested in GraphQL query)
 	if selections.Has("refs") {
-		refsStart := time.Now()
+		refsStart := perf.Now()
 		refsMap, err := r.refsRepo.GetRefsBatch(ctx, threadIDs)
-		fmt.Printf("[PERF] batchLoad.refs: %v (loaded for %d threads)\n", time.Since(refsStart), len(threadIDs))
+		perf.Log("[PERF] batchLoad.refs: %v (loaded for %d threads)\n", perf.Since(refsStart), len(threadIDs))
 		if err != nil {
 			fmt.Printf("Warning: failed to batch load refs: %v\n", err)
 		} else {
@@ -73,14 +73,14 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 			}
 		}
 	} else {
-		fmt.Printf("[PERF] batchLoad.refs: SKIPPED (not requested)\n")
+		perf.Log("[PERF] batchLoad.refs: SKIPPED (not requested)\n")
 	}
 
 	// Conditionally batch load steps (only if requested in GraphQL query)
 	if selections.Has("steps") {
-		stepsStart := time.Now()
+		stepsStart := perf.Now()
 		stepsMap, err := r.stepStatePostgres.GetStepsBatch(ctx, threadIDs)
-		fmt.Printf("[PERF] batchLoad.steps: %v (loaded for %d threads)\n", time.Since(stepsStart), len(threadIDs))
+		perf.Log("[PERF] batchLoad.steps: %v (loaded for %d threads)\n", perf.Since(stepsStart), len(threadIDs))
 		if err != nil {
 			fmt.Printf("Warning: failed to batch load steps: %v\n", err)
 		} else {
@@ -93,10 +93,10 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 			ctx = cacheSteps(ctx, stepsCache)
 		}
 	} else {
-		fmt.Printf("[PERF] batchLoad.steps: SKIPPED (not requested)\n")
+		perf.Log("[PERF] batchLoad.steps: SKIPPED (not requested)\n")
 	}
 
-	fmt.Printf("[PERF] batchLoad.total: %v\n", time.Since(batchLoadStart))
+	perf.Log("[PERF] batchLoad.total: %v\n", perf.Since(batchLoadStart))
 	return nil
 }
 
@@ -107,8 +107,8 @@ func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*mo
 		return []*models.Thread{}, nil
 	}
 
-	accessCheckStart := time.Now()
-	fmt.Printf("[PERF] accessCheck: Starting batch check for %d threads\n", len(threads))
+	accessCheckStart := perf.Now()
+	perf.Log("[PERF] accessCheck: Starting batch check for %d threads\n", len(threads))
 
 	// Batch check access for all threads at once
 	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(threads, ownerID, "read")
@@ -126,8 +126,8 @@ func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*mo
 		}
 	}
 
-	fmt.Printf("[PERF] accessCheck.total: %v (checked %d, accessible %d)\n",
-		time.Since(accessCheckStart), len(threads), len(accessibleThreads))
+	perf.Log("[PERF] accessCheck.total: %v (checked %d, accessible %d)\n",
+		perf.Since(accessCheckStart), len(threads), len(accessibleThreads))
 
 	return accessibleThreads, nil
 }
