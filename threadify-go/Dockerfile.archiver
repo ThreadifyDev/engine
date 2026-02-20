@@ -7,8 +7,9 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files and shared directory (required by replace directive)
 COPY go.mod go.sum ./
+COPY shared/ ./shared/
 
 # Download dependencies
 RUN go mod download
@@ -20,19 +21,31 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/archiver cmd/archiver/main.go
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.21
 
 # Install ca-certificates for HTTPS
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+# Create non-root user
+RUN addgroup -g 1001 -S archiver && \
+    adduser -S archiver -u 1001
+
+WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /app/bin/archiver .
 
-# Copy config files
-COPY --from=builder /app/config/config.docker.yaml ./config/config.yaml
-COPY --from=builder /app/config/valkey.conf ./config/valkey.conf
+# Copy shared RBAC files (required by shared config package)
+COPY --from=builder /app/shared/rbac ./shared/rbac
+
+# Note: config.yaml is NOT copied - it must be mounted as a volume in production
+# This ensures the archiver always uses the production config from the host
+
+# Set proper ownership
+RUN chown -R archiver:archiver /app
+
+# Switch to non-root user
+USER archiver
 
 # Health check - archiver doesn't expose HTTP, so check if process is running
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

@@ -1,0 +1,238 @@
+server:
+  port: 8081
+  host: 0.0.0.0
+
+postgres:
+  url: "${POSTGRES_URL}"
+  host: "${POSTGRES_HOST}"
+  port: ${POSTGRES_PORT}
+  user: "${POSTGRES_USER}"
+  password: "${POSTGRES_PASSWORD}"
+  name: "${POSTGRES_DB}"
+  max_connections: 25
+  max_idle_connections: 5
+
+redis:
+  host: "${REDIS_HOST}"
+  port: ${REDIS_PORT}
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  pool_size: 200
+  min_idle_conns: 10
+  max_idle_conns: 100
+  max_retries: 1
+  dial_timeout_ms: 2000
+  read_timeout_ms: 500
+  write_timeout_ms: 500
+  pool_timeout_ms: 5000
+  conn_max_idle_time_ms: 300000
+
+jwt:
+  secret: "${JWT_SECRET}"
+  issuer: threadify-engine
+  audience: threadify-users
+  realm: Threadify API
+  expiration_hours: 24
+
+queue:
+  ttl_seconds: 7776000
+
+thread_activities:
+  batch_size: 100
+  batch_timeout_ms: 1000
+
+rate_limit:
+  enabled: true
+  cleanup_interval: "1h"
+  per_ip:
+    enabled: false
+    requests_per_minute: 60
+    burst: 10
+  per_user:
+    enabled: true
+    requests_per_minute: 1000
+    burst: 50
+    window_seconds: 60
+    cache_size: 50000
+    cache_ttl_seconds: 2
+    redis_timeout_ms: 3
+
+websocket:
+  handshake_timeout_seconds: 10
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  max_in_flight_max: 100
+  max_in_flight_default: 10
+
+bot_scanner:
+  enabled: true
+  block_known_bots: true
+  log_suspicious: false
+  cleanup_interval_minutes: 30
+
+cache:
+  contract_ttl_ms: 18000000
+  thread_ttl_ms: 18000000
+  step_event_ttl_ms: 18000000
+  session_ttl_ms: 1800000
+  lru:
+    contract_cache_size: 1000
+    thread_cache_size: 10000
+    role_cache_size: 50000
+    step_status_cache_size: 100000
+
+invitations:
+  default_permissions: "read,write"
+  default_expiry: "24h"
+  max_expiry: "7d"
+
+thread_access:
+  batch_size: 25
+  batch_timeout_ms: 50
+  buffer_size: 100
+
+logging:
+  level: "${LOG_LEVEL:-info}"
+
+security:
+  hash_chain_secrets:
+    v1: "${HASH_CHAIN_SECRET}"
+  hash_chain_current_version: "v1"
+
+timeouts:
+  default_operation_seconds: 30
+  validation_seconds: 60
+  database_query_seconds: 10
+  redis_operation_seconds: 5
+  nats_publish_seconds: 5
+  archival_operation_seconds: 30
+
+nats:
+  url: "${NATS_URL}"
+  cluster_id: "threadify-cluster"
+  client_id: "threadify-server"
+  stream_name: "NOTIFICATIONS"
+  retention_hours: 48
+  max_age_hours: 168
+  ack_wait_seconds: 30
+  consumer_ack_wait_seconds: 30
+  consumer_max_deliver: 3
+  archiver_max_deliver: -1
+  archiver_ack_wait_seconds: 30
+  notifications_retention_days: 3
+  dlq_retention_days: 7
+
+notification_system:
+  scopes:
+    owner:
+      description: "Full access to all notifications"
+      permissions:
+        - all_violations
+        - all_completions
+        - thread_lifecycle
+    participant:
+      description: "Normal access for active parties"
+      permissions:
+        - own_step_violations
+        - critical_violations
+        - completions
+        - thread_lifecycle
+    observer:
+      description: "Read-only access for monitoring"
+      permissions:
+        - completions
+        - thread_lifecycle
+  default_scope: participant
+
+archiver:
+  enabled: true
+  buffers:
+    thread_step_state:
+      size: 100
+      flush_interval_ms: 10000
+    thread_metadata:
+      size: 50
+      flush_interval_ms: 5000
+    thread_access:
+      size: 50
+      flush_interval_ms: 5000
+    thread_validations:
+      size: 100
+      flush_interval_ms: 5000
+  activity_streams:
+    enabled: true
+    num_partitions: 10
+    workers_per_instance: 3
+    buffer_size: 200
+    flush_interval_ms: 5000
+    max_buffer_size: 1000
+    trim_enabled: true
+    trim_maxlen: 10000
+  retry:
+    max_attempts: 6
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
+  streams:
+    consumer_group: "archiver-group"
+    block_timeout_ms: 5000
+    batch_size: 100
+    step_state_flush_interval_ms: 5000
+
+# Web API service configuration with CORS support
+web_api:
+  enabled: true
+  port: 3001
+  host: 0.0.0.0
+  cors_origins: "${CORS_ORIGINS:-http://localhost:3000}"
+  email:
+    plunk_api_key: "${PLUNK_API_KEY}"
+    plunk_from_email: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
+  threadify_engine:
+    url: "${THREADIFY_ENGINE_URL:-http://localhost:8081}"
+    graphql_url: "${THREADIFY_GRAPHQL_URL:-http://localhost:8081/graphql}"
+  api_key_ttl_hours: 8760
+  rate_limit:
+    requests: 100
+    window_minutes: 1
+
+worker_pools:
+  validation:
+    min_workers: 10
+    max_workers: 40
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 30000
+    job_timeout_ms: 60000
+    submit_retry_wait_ms: 10
+  notification:
+    min_workers: 20
+    max_workers: 80
+    queue_size: 10000
+    scale_up_threshold: 1000
+    scale_down_after_ms: 60000
+    job_timeout_ms: 30000
+    submit_retry_wait_ms: 0
+  writeback:
+    min_workers: 2
+    max_workers: 10
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 120000
+    job_timeout_ms: 10000
+    submit_retry_wait_ms: 10
+  archival:
+    min_workers: 10
+    max_workers: 40
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 60000
+    job_timeout_ms: 15000
+    submit_retry_wait_ms: 10
+  activity:
+    min_workers: 5
+    max_workers: 20
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 60000
+    job_timeout_ms: 30000
+    submit_retry_wait_ms: 10

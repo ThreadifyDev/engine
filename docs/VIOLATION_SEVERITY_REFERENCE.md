@@ -2,6 +2,70 @@
 
 Quick reference guide for all Threadify contract violations organized by severity level.
 
+---
+
+## Validation Layers
+
+Threadify uses a two-layer validation approach:
+
+### Layer 1: Blocking Validations (HTTP 400)
+
+**Step NOT written to thread**
+
+These validations prevent obviously invalid requests from being persisted:
+
+- ❌ Step not defined in contract
+- ❌ Unauthorized owner
+- ❌ Missing required fields
+- ❌ Thread already completed
+- ❌ Contract not found or inactive
+
+**API Response:** HTTP 400 Bad Request with `blocking_errors` array
+
+**Example:**
+```json
+{
+  "error": "validation_failed",
+  "blocking_errors": [
+    {
+      "type": "unauthorized_owner",
+      "message": "Step 'package_shipped' must be owned by 'logistics_carrier'",
+      "expected": "logistics_carrier",
+      "provided": "merchant"
+    }
+  ]
+}
+```
+
+---
+
+### Layer 2: Non-Blocking Validations (HTTP 201 + WebSocket)
+
+**Step IS written to thread, violations emitted**
+
+These validations track workflow issues without blocking writes:
+
+- ⚠️ Invalid transition
+- ⚠️ Step timeout exceeded
+- ⚠️ Max duration exceeded
+- ⚠️ Multiple terminal states
+- ⚠️ Retry limit exceeded
+
+**API Response:** HTTP 201 Created + WebSocket `thread_violation` event
+
+**Example:**
+```json
+{
+  "event": "thread_violation",
+  "thread_id": "thread_123",
+  "violation_type": "invalid_transition",
+  "severity": "major",
+  "message": "Invalid transition from 'order_placed' to 'package_shipped'"
+}
+```
+
+---
+
 ## Severity Levels
 
 | Level | Description | Action |

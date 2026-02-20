@@ -14,20 +14,49 @@ type ValkeyService struct {
 	Client *redis.Client
 }
 
-func NewValkeyService(host string, port int, password string, db int) (*ValkeyService, error) {
+func NewValkeyService(host string, port int, password string, db int, poolSize int, minIdleConns int, maxIdleConns int, maxRetries int, dialTimeoutMs int, readTimeoutMs int, writeTimeoutMs int, poolTimeoutMs int, connMaxIdleTimeMs int) (*ValkeyService, error) {
+	// Apply defaults if values are 0
+	if poolSize == 0 {
+		poolSize = 50
+	}
+	if minIdleConns == 0 {
+		minIdleConns = 10
+	}
+	if maxIdleConns == 0 {
+		maxIdleConns = 100
+	}
+	if maxRetries == 0 {
+		maxRetries = 1
+	}
+	if dialTimeoutMs == 0 {
+		dialTimeoutMs = 2000
+	}
+	if readTimeoutMs == 0 {
+		readTimeoutMs = 500
+	}
+	if writeTimeoutMs == 0 {
+		writeTimeoutMs = 500
+	}
+	if poolTimeoutMs == 0 {
+		poolTimeoutMs = 5000
+	}
+	if connMaxIdleTimeMs == 0 {
+		connMaxIdleTimeMs = 300000
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            fmt.Sprintf("%s:%d", host, port),
 		Password:        password,
 		DB:              db,
-		PoolSize:        50,                     // Increased from 50 for high concurrency
-		MinIdleConns:    50,                     // Increased from 5
-		MaxRetries:      1,                      // Reduced from 2 - fail fast
-		DialTimeout:     1 * time.Second,        // Reduced from 2s
-		ReadTimeout:     200 * time.Millisecond, // Reduced from 500ms
-		WriteTimeout:    200 * time.Millisecond, // Reduced from 500ms
-		PoolTimeout:     200 * time.Millisecond, // Reduced from 1s
-		MaxIdleConns:    100,                    // Increased from 15
-		ConnMaxIdleTime: 1 * time.Minute,        // Reduced from 2min
+		PoolSize:        poolSize,
+		MinIdleConns:    minIdleConns,
+		MaxRetries:      maxRetries,
+		DialTimeout:     time.Duration(dialTimeoutMs) * time.Millisecond,
+		ReadTimeout:     time.Duration(readTimeoutMs) * time.Millisecond,
+		WriteTimeout:    time.Duration(writeTimeoutMs) * time.Millisecond,
+		PoolTimeout:     time.Duration(poolTimeoutMs) * time.Millisecond,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxIdleTime: time.Duration(connMaxIdleTimeMs) * time.Millisecond,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -83,6 +112,11 @@ func (v *ValkeyService) Keys(ctx context.Context, pattern string) ([]string, err
 	return v.Client.Keys(ctx, pattern).Result()
 }
 
+func (v *ValkeyService) Scan(ctx context.Context, cursor uint64, match string, count int64) ([]string, uint64, error) {
+	keys, nextCursor, err := v.Client.Scan(ctx, cursor, match, count).Result()
+	return keys, nextCursor, err
+}
+
 func (v *ValkeyService) HSet(ctx context.Context, key string, values ...interface{}) error {
 	return v.Client.HSet(ctx, key, values...).Err()
 }
@@ -125,77 +159,46 @@ func (v *ValkeyService) LRange(ctx context.Context, key string, start, stop int6
 	return v.Client.LRange(ctx, key, start, stop).Result()
 }
 
-// XAdd adds an entry to a stream
-func (v *ValkeyService) XAdd(ctx context.Context, stream string, values map[string]interface{}) (string, error) {
-	args := &redis.XAddArgs{
-		Stream: stream,
-		Values: values,
-	}
-
-	// Check for MAXLEN in values
-	if maxlen, ok := values["maxlen"]; ok {
-		if limit, ok := values["limit"]; ok {
-			args.MaxLen = int64(limit.(int))
-			args.Approx = maxlen.(string) == "~"
-		}
-		delete(values, "maxlen")
-		delete(values, "limit")
-	}
-
-	return v.Client.XAdd(ctx, args).Result()
+// ZAdd adds a member with score to a sorted set
+func (v *ValkeyService) ZAdd(ctx context.Context, key string, score float64, member string) error {
+	return v.Client.ZAdd(ctx, key, redis.Z{Score: score, Member: member}).Err()
 }
 
-// XReadGroup reads from a stream using consumer groups
-func (v *ValkeyService) XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]map[string]interface{}, error) {
-	args := &redis.XReadGroupArgs{
-		Group:    group,
-		Consumer: consumer,
-		Streams:  []string{stream, ">"},
-		Count:    int64(count),
-		Block:    block,
+// ZRem removes members from a sorted set
+func (v *ValkeyService) ZRem(ctx context.Context, key string, members ...string) error {
+	// Convert []string to []interface{} for variadic parameter
+	args := make([]interface{}, len(members))
+	for i, m := range members {
+		args[i] = m
 	}
-
-	results, err := v.Client.XReadGroup(ctx, args).Result()
-	if err != nil {
-		if err == redis.Nil {
-			return []map[string]interface{}{}, nil // No messages
-		}
-		return nil, err
-	}
-
-	events := make([]map[string]interface{}, 0)
-	for _, stream := range results {
-		for _, message := range stream.Messages {
-			event := make(map[string]interface{})
-			event["id"] = message.ID
-			for k, v := range message.Values {
-				event[k] = v
-			}
-			events = append(events, event)
-		}
-	}
-
-	return events, nil
+	return v.Client.ZRem(ctx, key, args...).Err()
 }
 
-// XAck acknowledges stream messages
-func (v *ValkeyService) XAck(ctx context.Context, stream, group string, ids []string) error {
-	return v.Client.XAck(ctx, stream, group, ids...).Err()
+// ZCard returns the number of members in a sorted set
+func (v *ValkeyService) ZCard(ctx context.Context, key string) (int64, error) {
+	return v.Client.ZCard(ctx, key).Result()
 }
 
-// XGroupCreate creates a consumer group for a stream
-func (v *ValkeyService) XGroupCreate(ctx context.Context, stream, group, start string) error {
-	return v.Client.XGroupCreate(ctx, stream, group, start).Err()
-}
-
-// XGroupCreateMkStream creates a consumer group and stream if it doesn't exist
-func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
-	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+// ZRange returns members in a sorted set by index range
+func (v *ValkeyService) ZRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return v.Client.ZRange(ctx, key, start, stop).Result()
 }
 
 // Pipeline creates a new Redis pipeline
 func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
+}
+
+// ScriptLoad loads a Lua script into Redis and returns its SHA1 hash
+func (v *ValkeyService) ScriptLoad(ctx context.Context, script string) (string, error) {
+	cmd := v.Client.ScriptLoad(ctx, script)
+	return cmd.Result()
+}
+
+// EvalSHA executes a Lua script by its SHA1 hash
+func (v *ValkeyService) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	cmd := v.Client.EvalSha(ctx, sha, keys, args...)
+	return cmd.Result()
 }
 
 // ExecuteWithBackoff executes a Redis operation with exponential backoff
@@ -206,6 +209,21 @@ func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func()
 	backoffStrategy.MaxElapsedTime = 500 * time.Millisecond
 
 	return backoffv4.Retry(operation, backoffStrategy)
+}
+
+// SAdd adds members to a SET
+func (v *ValkeyService) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	return v.Client.SAdd(ctx, key, members...).Err()
+}
+
+// SMembers returns all members of a SET
+func (v *ValkeyService) SMembers(ctx context.Context, key string) ([]string, error) {
+	return v.Client.SMembers(ctx, key).Result()
+}
+
+// SRem removes members from a SET
+func (v *ValkeyService) SRem(ctx context.Context, key string, members ...interface{}) error {
+	return v.Client.SRem(ctx, key, members...).Err()
 }
 
 // RedisPipeline implements the ValkeyPipeline interface
@@ -225,26 +243,6 @@ func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) 
 
 func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
 	p.pipe.LPush(ctx, key, values...)
-	return p
-}
-
-func (p *RedisPipeline) XAdd(ctx context.Context, stream string, values map[string]interface{}) interfaces.ValkeyPipeline {
-	args := &redis.XAddArgs{
-		Stream: stream,
-		Values: values,
-	}
-
-	// Check for MAXLEN in values
-	if maxlen, ok := values["maxlen"]; ok {
-		if limit, ok := values["limit"]; ok {
-			args.MaxLen = int64(limit.(int))
-			args.Approx = maxlen.(string) == "~"
-		}
-		delete(values, "maxlen")
-		delete(values, "limit")
-	}
-
-	p.pipe.XAdd(ctx, args)
 	return p
 }
 

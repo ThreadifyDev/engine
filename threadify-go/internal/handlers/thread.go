@@ -11,55 +11,76 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/utils"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin:      func(r *http.Request) bool { return true },
-	HandshakeTimeout: 10 * time.Second,
-	ReadBufferSize:   1024,
-	WriteBufferSize:  1024,
-}
+// upgrader will be initialized with config values
+var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
-	threadService     *service.ThreadService
-	stepEventService  *service.StepEventService
-	invitationService *service.InvitationTokenService
-	auditService      *service.AuditEventService
-	valkeyClient      interfaces.ValkeyClient
-	sessions          sync.Map
+	threadService        *service.ThreadService
+	stepEventService     *service.StepEventService
+	invitationService    *service.InvitationTokenService
+	notificationConsumer *service.NotificationConsumer
+	notificationRouter   *NotificationRouter
+	valkeyClient         interfaces.ValkeyClient
+	sessions             sync.Map
+	luaScriptManager     interfaces.LuaScriptManager
+	rateLimitConfig      *config.RateLimitConfig
+	websocketConfig      *config.WebSocketConfig
 }
 
-type Session struct {
+type WSSession struct {
 	conn      *websocket.Conn
+	sessionID string
 	ownerID   string
 	companyID string
 	threadIDs []string
 	mu        sync.Mutex
+	sendMu    sync.Mutex // Protects WebSocket writes
 }
 
-func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, auditService *service.AuditEventService, valkeyClient interfaces.ValkeyClient) *WebSocketHandler {
+// NotificationACKMessage represents a client ACK message
+type NotificationACKMessage struct {
+	Action         string `json:"action"`
+	NotificationID string `json:"notification_id"`
+	ThreadID       string `json:"thread_id"`
+	Processed      bool   `json:"processed"`
+	AckToken       string `json:"ackToken"` // Opaque token for stateless ACK (base64 encoded)
+}
+
+func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient, luaScriptManager interfaces.LuaScriptManager, rateLimitConfig *config.RateLimitConfig, websocketConfig *config.WebSocketConfig) *WebSocketHandler {
+	// Initialize upgrader with config values
+	upgrader = websocket.Upgrader{
+		CheckOrigin:       func(r *http.Request) bool { return true },
+		HandshakeTimeout:  time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
+		ReadBufferSize:    websocketConfig.ReadBufferSize,
+		WriteBufferSize:   websocketConfig.WriteBufferSize,
+		EnableCompression: true, // Enable per-message compression (reduces bandwidth by 60-80%)
+	}
+
 	return &WebSocketHandler{
-		threadService:     threadService,
-		stepEventService:  stepEventService,
-		invitationService: invitationService,
-		auditService:      auditService,
-		valkeyClient:      valkeyClient,
+		threadService:        threadService,
+		stepEventService:     stepEventService,
+		invitationService:    invitationService,
+		notificationConsumer: notificationConsumer,
+		notificationRouter:   notificationRouter,
+		valkeyClient:         valkeyClient,
+		luaScriptManager:     luaScriptManager,
+		rateLimitConfig:      rateLimitConfig,
+		websocketConfig:      websocketConfig,
 	}
 }
 
 // Helper function to check if threadID exists in slice
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -69,7 +90,12 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	session := &Session{conn: conn}
+	// Generate unique session ID
+	sessionID := uuid.New().String()
+	session := &WSSession{
+		conn:      conn,
+		sessionID: sessionID,
+	}
 
 	for {
 		var msg map[string]interface{}
@@ -80,7 +106,8 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		action, _ := msg["action"].(string)
 		response := h.handleMessage(action, msg, session)
 
-		if err := conn.WriteJSON(response); err != nil {
+		// Use session.SendMessage for thread-safe writes
+		if err := session.SendMessage(response); err != nil {
 			break
 		}
 
@@ -93,25 +120,93 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)
 		h.threadService.HandleClose(session.ownerID)
+
+		// Unsubscribe from all notifications (old consumer)
+		h.unsubscribeFromNotifications(session)
+
+		// Disconnect from notification router (delete consumer)
+		if h.notificationRouter != nil {
+			if err := h.notificationRouter.HandleDisconnect(session.sessionID); err != nil {
+				log.Printf("Failed to disconnect session %s: %v", session.sessionID, err)
+			}
+		}
 	}
 }
 
-func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *Session) interface{} {
-	startTime := time.Now()
+func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
+	// Track WebSocket message handling latency
+	wsStart := perf.Now()
+	sessionID := session.sessionID
+	if sessionID == "" {
+		sessionID = "unknown"
+	}
+	perf.Log("[PERF] WebSocket START: action=%s | session=%s", action, sessionID)
+
+	defer func() {
+		duration := perf.Since(wsStart)
+		perf.Log("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
+
+		// Record metrics
+		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
+	}()
+
 	msgBytes, _ := json.Marshal(msg)
+
+	// Rate limit authenticated WebSocket messages (skip "connect" action)
+	if action != "connect" && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
+		rateLimitStart := perf.Now()
+		allowed, err := h.luaScriptManager.CheckUserRateLimit(
+			context.Background(),
+			session.ownerID,
+			h.rateLimitConfig.PerUser.RequestsPerMinute,
+			h.rateLimitConfig.PerUser.WindowSeconds,
+		)
+		rateLimitDuration := perf.Since(rateLimitStart)
+		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | duration=%v | allowed=%t", action, sessionID, rateLimitDuration, allowed)
+
+		if err == nil && !allowed {
+			perf.Log("[PERF] WebSocket RATE_LIMIT_EXCEEDED: action=%s | session=%s", action, sessionID)
+			return models.ErrorResponse{
+				Action:  action,
+				Status:  "error",
+				Message: "Rate limit exceeded. Please slow down.",
+			}
+		}
+	} else {
+		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | SKIPPED", action, sessionID)
+	}
 
 	var response interface{}
 	switch action {
 	case "connect":
+		connectStart := perf.Now()
 		var req models.ConnectRequest
 		json.Unmarshal(msgBytes, &req)
 		resp := h.threadService.HandleConnect(&req)
+		connectDuration := perf.Since(connectStart)
+		perf.Log("[PERF] WebSocket CONNECT: session=%s | duration=%v | success=%t", sessionID, connectDuration, resp.Status == "success")
+
 		if resp.Status == "success" {
 			session.mu.Lock()
-			session.ownerID = resp.OwnerID     // Use ownerID from response, not request
-			session.companyID = resp.CompanyID // Set companyID from response
+			session.ownerID = resp.OwnerID
+			session.companyID = resp.CompanyID
 			session.mu.Unlock()
-			h.sessions.Store(resp.OwnerID, session) // Use ownerID from response
+			h.sessions.Store(resp.OwnerID, session)
+
+			// Create NATS consumer and start push for this session
+			if h.notificationRouter != nil {
+				// Use client-specified maxInFlight with validation from config
+				maxInFlight := req.MaxInFlight
+				if maxInFlight < 1 || maxInFlight > h.websocketConfig.MaxInFlightMax {
+					maxInFlight = h.websocketConfig.MaxInFlightDefault
+				}
+				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn, &session.sendMu); err != nil {
+					// Failed to create session consumer (non-fatal)
+					perf.Log("[PERF] WebSocket NATS_SETUP_FAILED: session=%s | error=%v", sessionID, err)
+				} else {
+					perf.Log("[PERF] WebSocket NATS_SETUP: session=%s | success", sessionID)
+				}
+			}
 		}
 		response = resp
 
@@ -123,10 +218,16 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		// Add created thread to session's threadIDs
 		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
 			session.mu.Lock()
-			if !contains(session.threadIDs, startResp.ThreadID) {
+			if !utils.Contains(session.threadIDs, startResp.ThreadID) {
 				session.threadIDs = append(session.threadIDs, startResp.ThreadID)
 			}
 			session.mu.Unlock()
+
+			// Record metrics
+			metrics.ThreadsCreated.Inc()
+			metrics.RequestsTotal.WithLabelValues("startThread", "success").Inc()
+		} else {
+			metrics.RequestsTotal.WithLabelValues("startThread", "error").Inc()
 		}
 
 	case "recordThreadEvent":
@@ -134,15 +235,19 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &req)
 		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
 
-	case "stepEvent":
-		var req models.StepEvent
+	case "addRefs":
+		var req models.AddRefsRequest
 		json.Unmarshal(msgBytes, &req)
-		response = h.handleStepEvent(&req, session.ownerID)
+		response = h.threadService.HandleAddRefs(&req, session.ownerID)
 
 	case "closeConnection":
-		resp := h.threadService.HandleClose(session.ownerID)
-		// Response will be sent, then connection will close gracefully in main loop
-		response = resp
+		// Don't call HandleClose here - it will be called after loop exits
+		// Just return success response and let the loop break
+		response = &models.CloseConnectionResponse{
+			Action:  "closeConnection",
+			Status:  "success",
+			Message: "Connection will be closed",
+		}
 
 	case "inviteParty":
 		var req models.InvitePartyRequest
@@ -154,6 +259,38 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		json.Unmarshal(msgBytes, &req)
 		response = h.handleJoinThread(session, &req)
 
+	case "ack_notification":
+		var ackMsg NotificationACKMessage
+		json.Unmarshal(msgBytes, &ackMsg)
+		response = h.handleNotificationAck(session, &ackMsg)
+
+	case "subscribe":
+		var req struct {
+			Action     string   `json:"action"`
+			StepName   string   `json:"stepName"`
+			EventTypes []string `json:"eventTypes"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleSubscribe(session, &req)
+
+	case "unsubscribe":
+		var req struct {
+			Action   string `json:"action"`
+			StepName string `json:"stepName"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleUnsubscribe(session, &req)
+
+	case "closeThread", "threadEnd":
+		var req struct {
+			Action   string `json:"action"`
+			ThreadID string `json:"threadId"`
+			Status   string `json:"status"`
+			Reason   string `json:"reason,omitempty"`
+		}
+		json.Unmarshal(msgBytes, &req)
+		response = h.handleThreadEnd(session, &req)
+
 	default:
 		response = models.ErrorResponse{
 			Action:  "error",
@@ -162,42 +299,13 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		}
 	}
 
-	// Log timing metrics
-	duration := time.Since(startTime)
-	log.Printf("[%s] Request processed in %v", action, duration)
+	// Request processed
 
 	return response
 }
 
-func (h *WebSocketHandler) handleStepEvent(req *models.StepEvent, ownerID string) interface{} {
-	// Validate ownership
-	if req.ThreadID == "" {
-		return models.ErrorResponse{
-			Action:  "stepEvent",
-			Status:  "error",
-			Message: "thread_id is required",
-		}
-	}
-
-	// Queue for async processing
-	if err := h.stepEventService.ProcessStepEvent(*req); err != nil {
-		return models.ErrorResponse{
-			Action:  "stepEvent",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to process step event: %v", err),
-		}
-	}
-
-	return models.StepEventResponse{
-		Action:  "stepEvent",
-		Status:  "success",
-		Message: "Step event queued for processing",
-		StepID:  req.StepID,
-	}
-}
-
-func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.InvitePartyRequest) interface{} {
-	// Validate request
+func (h *WebSocketHandler) handleInviteParty(session *WSSession, req *models.InvitePartyRequest) interface{} {
+	// Validate request action
 	if req.Action != "inviteParty" {
 		return models.ErrorResponse{
 			Action:  "inviteParty",
@@ -206,112 +314,27 @@ func (h *WebSocketHandler) handleInviteParty(session *Session, req *models.Invit
 		}
 	}
 
-	// Set default permissions if not provided
-	permissions := req.Permissions
-	if permissions == "" {
-		permissions = "read,write"
-	}
-
-	// Validate role
-	if err := h.invitationService.ValidateRole(req.Role, nil); err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: err.Error(),
-		}
-	}
-
-	// Validate permissions
-	if err := h.invitationService.ValidatePermissions(permissions); err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: err.Error(),
-		}
-	}
-
-	// Parse expiry
-	expiry, err := h.invitationService.ParseExpiry(req.ExpiresIn)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: fmt.Sprintf("Invalid expiry format: %v", err),
-		}
-	}
-
-	// Get thread context from session's threads
-	// For now, we'll use the first thread in the session's threadIDs
-	// In a real implementation, this might be passed in the request or be the "active" thread
-	var threadID string
+	// Get thread IDs from session
 	session.mu.Lock()
-	if len(session.threadIDs) > 0 {
-		threadID = session.threadIDs[0] // Use first available thread
-	}
+	threadIDs := make([]string, len(session.threadIDs))
+	copy(threadIDs, session.threadIDs)
 	session.mu.Unlock()
 
-	if threadID == "" {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: "No active thread found. Please start a thread first.",
-		}
-	}
-
-	contractID := "contract-123" // This would come from thread data
-
-	// Create JWT token
-	threadToken, err := h.invitationService.CreateToken(threadID, contractID, session.ownerID, req.Role, permissions, expiry)
+	// Call service layer
+	response, err := h.threadService.HandleInviteParty(req, session.ownerID, session.companyID, threadIDs)
 	if err != nil {
 		return models.ErrorResponse{
 			Action:  "inviteParty",
 			Status:  "error",
-			Message: fmt.Sprintf("Failed to create invitation token: %v", err),
+			Message: err.Error(),
 		}
 	}
 
-	// Log audit event and write to invitation stream (async, don't fail if they fail)
-	go func() {
-		ctx := context.Background()
-
-		// Log audit event
-		if h.auditService != nil {
-			h.auditService.LogTokenCreated(ctx, threadID, contractID, session.ownerID, req.Role, permissions)
-		}
-
-		// Write to invitation stream for archival
-		if h.valkeyClient != nil {
-			invitationID := fmt.Sprintf("inv_%d", time.Now().UnixNano())
-			streamValues := map[string]interface{}{
-				"invitationId": invitationID,
-				"threadId":     threadID,
-				"contractId":   contractID,
-				"inviterId":    session.ownerID,
-				"role":         req.Role,
-				"permissions":  permissions,
-				"status":       "created",
-				"createdAt":    time.Now().Format(time.RFC3339),
-				"expiresAt":    time.Now().Add(expiry).Format(time.RFC3339),
-				"maxlen":       "~",
-				"limit":        100000,
-			}
-			h.valkeyClient.XAdd(ctx, "streams:invitations", streamValues)
-		}
-	}()
-
-	return models.InvitePartyResponse{
-		Action:      "inviteParty",
-		Status:      "success",
-		ThreadToken: threadToken,
-		Role:        req.Role,
-		Permissions: permissions,
-		ExpiresAt:   time.Now().Add(expiry).Unix(),
-		Message:     "Invitation token created successfully",
-	}
+	return response
 }
 
-func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinThreadRequest) interface{} {
-	// Validate request
+func (h *WebSocketHandler) handleJoinThread(session *WSSession, req *models.JoinThreadRequest) interface{} {
+	// Validate request action
 	if req.Action != "joinThread" {
 		return models.ErrorResponse{
 			Action:  "joinThread",
@@ -320,88 +343,246 @@ func (h *WebSocketHandler) handleJoinThread(session *Session, req *models.JoinTh
 		}
 	}
 
-	if req.ThreadToken == "" {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: "Thread token is required",
-		}
-	}
-
-	// Validate JWT token and extract claims
-	claims, err := h.invitationService.ValidateToken(req.ThreadToken)
+	// Call service layer
+	response, err := h.threadService.HandleJoinThread(req, session.ownerID, session.companyID)
 	if err != nil {
 		return models.ErrorResponse{
 			Action:  "joinThread",
 			Status:  "error",
-			Message: fmt.Sprintf("Invalid thread token: %v", err),
+			Message: err.Error(),
 		}
 	}
 
-	// Store role in Valkey (with in-memory cache)
-	err = h.threadService.AssignThreadRole(claims.ThreadID, claims.Role, session.ownerID)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to assign role: %v", err),
-		}
+	// Update session with thread context (handler layer responsibility)
+	if response.Status == "success" {
+		session.mu.Lock()
+		session.threadIDs = append(session.threadIDs, response.ThreadID)
+		session.mu.Unlock()
 	}
 
-	// Store permissions in Valkey (with in-memory cache)
-	permissions := strings.Split(claims.Permissions, ",") // "read,write" -> ["read", "write"]
-	err = h.threadService.SetThreadPermissions(claims.ThreadID, session.ownerID, permissions)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to set permissions: %v", err),
-		}
+	return response
+}
+
+// unsubscribeFromNotifications unsubscribes a session from all thread notifications
+func (h *WebSocketHandler) unsubscribeFromNotifications(session *WSSession) {
+	if h.notificationConsumer == nil {
+		return
 	}
 
-	// Update session with thread context
 	session.mu.Lock()
-	if !contains(session.threadIDs, claims.ThreadID) {
-		session.threadIDs = append(session.threadIDs, claims.ThreadID)
-	}
+	threadIDs := session.threadIDs
+	ownerID := session.ownerID
 	session.mu.Unlock()
 
-	// Log audit events and write to thread_access stream (async, don't fail if they fail)
-	go func() {
-		ctx := context.Background()
-
-		// Log audit events
-		if h.auditService != nil {
-			// Log token usage
-			h.auditService.LogTokenUsed(ctx, claims.ExpiresAt.Time, claims.ThreadID, session.ownerID)
-			// Log thread joined with role and permissions
-			h.auditService.LogThreadJoined(ctx, claims.ThreadID, claims.ContractID, session.ownerID, claims.Role, claims.Permissions)
+	// Unsubscribe from all threads
+	for _, threadID := range threadIDs {
+		if err := h.notificationConsumer.Unsubscribe(threadID, ownerID); err != nil {
+			// Failed to unsubscribe (non-fatal)
 		}
-
-		// Write to thread_access stream for archival
-		if h.valkeyClient != nil {
-			streamValues := map[string]interface{}{
-				"threadId":    claims.ThreadID,
-				"userId":      session.ownerID,
-				"role":        claims.Role,
-				"permissions": claims.Permissions,
-				"grantedBy":   claims.InvitedBy,
-				"grantedAt":   time.Now().Format(time.RFC3339),
-				"status":      "active",
-				"maxlen":      "~",
-				"limit":       100000,
-			}
-			h.valkeyClient.XAdd(ctx, "streams:thread_access", streamValues)
-		}
-	}()
-
-	return models.JoinThreadResponse{
-		Action:      "joinThread",
-		Status:      "success",
-		ThreadID:    claims.ThreadID,
-		ContractID:  claims.ContractID,
-		Role:        claims.Role,
-		Permissions: claims.Permissions,
-		Message:     "Successfully joined thread",
 	}
+
+	// Notification cleanup handled by NotificationRouter.HandleDisconnect
+}
+
+// handleSubscribe handles subscription requests from clients
+// Accepts stepName in format "stepName" or "contract@stepName"
+// Accepts eventTypes array: ["violation", "completed", "failed"] or empty for all
+func (h *WebSocketHandler) handleSubscribe(session *WSSession, req *struct {
+	Action     string   `json:"action"`
+	StepName   string   `json:"stepName"`
+	EventTypes []string `json:"eventTypes"`
+}) interface{} {
+	if req.StepName == "" {
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: "Step name is required",
+		}
+	}
+
+	if h.notificationRouter == nil {
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: "Notification router not available",
+		}
+	}
+
+	// Parse "contract@stepName" format
+	var contractName, stepName string
+	if strings.Contains(req.StepName, "@") {
+		parts := strings.SplitN(req.StepName, "@", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return models.ErrorResponse{
+				Action:  "subscribe",
+				Status:  "error",
+				Message: "Invalid format. Use 'stepName' or 'contract@stepName'",
+			}
+		}
+		contractName = parts[0]
+		stepName = parts[1]
+	} else {
+		stepName = req.StepName
+		contractName = ""
+	}
+
+	// Call notification router to update FilterSubjects
+	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName); err != nil {
+		// Failed to subscribe session
+		return models.ErrorResponse{
+			Action:  "subscribe",
+			Status:  "error",
+			Message: fmt.Sprintf("Failed to subscribe: %v", err),
+		}
+	}
+
+	// Session subscribed to notifications
+
+	return map[string]interface{}{
+		"action":  "subscribe",
+		"status":  "success",
+		"message": fmt.Sprintf("Subscribed to %s", req.StepName),
+	}
+}
+
+// handleUnsubscribe handles unsubscribe requests from clients (internal cleanup)
+func (h *WebSocketHandler) handleUnsubscribe(session *WSSession, req *struct {
+	Action   string `json:"action"`
+	StepName string `json:"stepName"`
+}) interface{} {
+	if req.StepName == "" {
+		return models.ErrorResponse{
+			Action:  "unsubscribe",
+			Status:  "error",
+			Message: "Step name is required",
+		}
+	}
+
+	// Unsubscribe not implemented in MVP
+
+	return map[string]interface{}{
+		"action":  "unsubscribe",
+		"status":  "success",
+		"message": fmt.Sprintf("Unsubscribed from %s", req.StepName),
+	}
+}
+
+// handleNotificationAck handles ACK messages from clients
+func (h *WebSocketHandler) handleNotificationAck(session *WSSession, ackMsg *NotificationACKMessage) interface{} {
+	if h.notificationRouter == nil {
+		return models.ErrorResponse{
+			Action:  "ack_notification",
+			Status:  "error",
+			Message: "Notification router not available",
+		}
+	}
+
+	// Check if ackToken is provided (stateless ACK with opaque token)
+	if ackMsg.AckToken != "" {
+		// Stateless ACK using opaque token
+		if err := h.notificationRouter.HandleAck(ackMsg.AckToken); err != nil {
+			// Error handling ACK
+			return models.ErrorResponse{
+				Action:  "ack_notification",
+				Status:  "error",
+				Message: err.Error(),
+			}
+		}
+		// ACKed notification
+	} else {
+		// Old ACK format (no ackToken)
+	}
+
+	// Return success response
+	return map[string]interface{}{
+		"action":          "ack_notification",
+		"status":          "success",
+		"notification_id": ackMsg.NotificationID,
+	}
+}
+
+// handleThreadEnd handles thread end requests (cancel or complete)
+func (h *WebSocketHandler) handleThreadEnd(session *WSSession, req *struct {
+	Action   string `json:"action"`
+	ThreadID string `json:"threadId"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+}) interface{} {
+	// Validate request
+	if req.ThreadID == "" {
+		return models.ErrorResponse{
+			Action:  "threadEnd",
+			Status:  "error",
+			Message: "Thread ID is required",
+		}
+	}
+
+	// Status defaults to 'cancelled' in service layer if empty
+	status := req.Status
+
+	// Validate status if provided
+	if status != "" && status != "cancelled" && status != "completed" {
+		return models.ErrorResponse{
+			Action:  "threadEnd",
+			Status:  "error",
+			Message: "Status must be 'cancelled' or 'completed'",
+		}
+	}
+
+	// TODO: Check permissions (thread.end or thread.*)
+	// Permission check should be done via thread access - owner and participant roles have thread.end permission
+
+	// End the thread with current timestamp
+	recordedAt := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := h.threadService.EndThread(
+		ctx,
+		req.ThreadID,
+		session.ownerID,
+		"", // Service name - empty for user-initiated end
+		status,
+		req.Reason,
+		recordedAt,
+	)
+	if err != nil {
+		return models.ErrorResponse{
+			Action:  "threadEnd",
+			Status:  "error",
+			Message: "Failed to end thread: " + err.Error(),
+		}
+	}
+
+	// Determine final status (defaults to cancelled if empty)
+	finalStatus := status
+	if finalStatus == "" {
+		finalStatus = "cancelled"
+	}
+
+	// Prepare timestamp field based on status
+	timestampField := "cancelledAt"
+	if finalStatus == "completed" {
+		timestampField = "completedAt"
+	}
+
+	// Send success response
+	response := map[string]interface{}{
+		"action":       "threadEnd",
+		"status":       "success",
+		"threadId":     req.ThreadID,
+		"threadStatus": finalStatus,
+		timestampField: recordedAt.Format(time.RFC3339),
+		"message":      "Thread " + finalStatus + " successfully",
+	}
+
+	return response
+}
+
+// SendMessage sends any message to the WebSocket client with mutex protection
+// This prevents concurrent write panics when multiple goroutines write to the same connection
+func (s *WSSession) SendMessage(message interface{}) error {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	return s.conn.WriteJSON(message)
 }

@@ -3,12 +3,12 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@postgres:5432/threadify?sslmode=disable"
+  url: "postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
   max_connections: 25
   max_idle_connections: 5
 
 redis:
-  host: valkey
+  host: threadify-queue
   port: 6379
   password: threadify_secure_password
   db: 0
@@ -24,7 +24,7 @@ jwt:
 queue:
   ttl_seconds: 7776000
 
-step_events:
+thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
 
@@ -40,55 +40,46 @@ cache:
   step_event_ttl_hours: 168
   session_ttl_minutes: 30
 
-# Audit queue configuration
-audit_queue:
-  name: "audit_events"
-  retention_hours: 12
-  batch_size: 50
-  batch_timeout_ms: 5000
-  max_retries: 3
-
-# Invitation configuration
-invitations:
-  default_permissions: "read,write"
-  default_expiry: "24h"
-  max_expiry: "7d"
-  allowed_roles:
-    - "external_partner"
-    - "contractor" 
-    - "auditor"
-    - "support"
-
 logging:
   level: info
+
+# NATS configuration for notification delivery
+nats:
+  url: "nats://threadify-nats:4222"
+  cluster_id: "threadify-cluster"
+  client_id: "threadify-server"
+  stream_name: "NOTIFICATIONS"
+  retention_hours: 48
+  max_age_hours: 168  # 7 days
+  ack_wait_seconds: 30
 
 # Archiver service configuration
 archiver:
   enabled: true
   
   buffers:
-    step_events:
+    thread_step_state:
       size: 100
-      flush_interval_seconds: 5
+      flush_interval_ms: 10000
     thread_metadata:
       size: 50
-      flush_interval_seconds: 5
-    audit_logs:
-      size: 200
-      flush_interval_seconds: 30
-    invitations:
-      size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
     thread_access:
       size: 50
-      flush_interval_seconds: 5
+      flush_interval_ms: 5000
+    thread_validations:
+      size: 100
+      flush_interval_ms: 51000
+    thread_activities:
+      size: 100
+      flush_interval_ms: 5000
   
   retry:
     max_attempts: 6
-    initial_backoff_seconds: 1
-    max_backoff_seconds: 16
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
   
   streams:
     consumer_group: "archiver-group"
-    block_timeout_seconds: 5
+    block_timeout_ms: 5000
     batch_size: 100

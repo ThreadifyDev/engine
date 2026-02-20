@@ -1,0 +1,405 @@
+// API client for backend communication
+
+// Get API URL from window.__ENV__ (injected by Remix root loader)
+// Falls back to localhost for development
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined' && (window as any).__ENV__?.API_URL) {
+    return `${(window as any).__ENV__.API_URL}/api`;
+  }
+  return 'http://localhost:3001/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+export interface SignupData {
+  company_name: string;
+  email: string;
+  password: string;
+  full_name: string;
+  job_role: string;
+  industry?: string;
+  company_size?: string;
+  use_case?: string;
+}
+
+export interface LoginData {
+  email: string;
+  password: string;
+}
+
+export interface VerifyOTPData {
+  email: string;
+  code: string;
+}
+
+export interface ForgotPasswordData {
+  email: string;
+}
+
+export interface ResetPasswordData {
+  token: string;
+  password: string;
+}
+
+export interface User {
+  id: string;
+  company_id: string;
+  email: string;
+  full_name?: string;
+  job_role?: string;
+  email_verified: boolean;
+  onboarding_completed: boolean;
+  first_instrumentation_done: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+  message?: string;
+}
+
+export interface ApiError {
+  error: string;
+}
+
+class ApiClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  private async request<T = any>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string>),
+    };
+
+    // Only set default Content-Type if not already specified
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    const isJson = contentType && contentType.includes('application/json');
+
+    let data;
+    try {
+      if (isJson) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        // Try to parse as JSON anyway (some servers don't set content-type correctly)
+        try {
+          data = JSON.parse(text);
+        } catch {
+          // If not JSON, wrap the text in an error object
+          data = { error: text || 'An error occurred' };
+        }
+      }
+    } catch (error) {
+      throw new Error('Failed to parse server response');
+    }
+
+    if (!response.ok) {
+      const errorMessage = data.error || data.message || 'An error occurred';
+      
+      // Handle invalid token by logging out
+      if (errorMessage === 'Invalid token' || response.status === 401) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+        }
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    return data;
+  }
+
+  async signup(data: SignupData): Promise<{ message: string }> {
+    return this.request('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async login(data: LoginData): Promise<{ message: string }> {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifyOTP(data: VerifyOTPData): Promise<AuthResponse> {
+    const response = await this.request<AuthResponse>('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+
+    // Store token in localStorage
+    if (typeof window !== 'undefined' && response.token) {
+      localStorage.setItem('auth_token', response.token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+    }
+
+    return response;
+  }
+
+  async forgotPassword(data: ForgotPasswordData): Promise<{ message: string }> {
+    return this.request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resetPassword(data: ResetPasswordData): Promise<{ message: string }> {
+    return this.request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  logout() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user');
+    }
+  }
+
+  getStoredUser(): User | null {
+    if (typeof window === 'undefined') return null;
+    const userStr = localStorage.getItem('user');
+    return userStr ? JSON.parse(userStr) : null;
+  }
+
+  getStoredToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('auth_token');
+  }
+
+  isAuthenticated(): boolean {
+    return !!this.getStoredToken();
+  }
+
+  setUser(user: User) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user', JSON.stringify(user));
+    }
+  }
+
+  setToken(token: string) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('auth_token', token);
+    }
+  }
+
+  async updateProfile(data: {
+    full_name: string;
+    job_role: string;
+    industry: string;
+    company_size: string;
+    use_case: string;
+  }): Promise<{ message: string; user: User }> {
+    return this.request('/user/profile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async markInstrumentationDone(): Promise<{ message: string; user: User }> {
+    return this.request('/user/mark-instrumentation-done', {
+      method: 'POST',
+    });
+  }
+
+  // Contract Management (proxy to ThreadifyEngine)
+  async getAllContracts(): Promise<any> {
+    return this.request('/contracts');
+  }
+
+  async createContract(data: { name: string; yaml: string }): Promise<any> {
+    // Engine expects raw YAML in body, not JSON
+    const token = this.getStoredToken();
+    const response = await fetch(`${this.baseUrl}/contracts`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/x-yaml',
+      },
+      body: data.yaml, // Send raw YAML
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to create contract');
+    }
+
+    return response.json();
+  }
+
+  async previewContract(data: { yaml: string }): Promise<any> {
+    return this.request('/contracts/preview', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getContract(id: string): Promise<any> {
+    return this.request(`/contracts/${id}`);
+  }
+
+  async updateContract(id: string, data: { yaml: string }): Promise<any> {
+    return this.request(`/contracts/${id}`, {
+      method: 'PUT',
+      body: data.yaml,
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+    });
+  }
+
+  async deleteContract(id: string): Promise<any> {
+    return this.request(`/contracts/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getContractVersions(id: string): Promise<any> {
+    return this.request(`/contracts/${id}/versions`);
+  }
+
+  async getContractVersion(id: string, version: string): Promise<any> {
+    return this.request(`/contracts/${id}/versions/${version}`);
+  }
+
+  async deleteContractVersion(id: string, version: string): Promise<any> {
+    return this.request(`/contracts/${id}/versions/${version}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Service Account Management
+  async createServiceAccount(data: { name: string; description?: string; role: string }): Promise<any> {
+    return this.request('/service-accounts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listServiceAccounts(): Promise<any> {
+    return this.request('/service-accounts');
+  }
+
+  async getServiceAccount(id: string): Promise<any> {
+    return this.request(`/service-accounts/${id}`);
+  }
+
+  async updateServiceAccount(id: string, data: { name?: string; description?: string; is_active?: boolean }): Promise<any> {
+    return this.request(`/service-accounts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteServiceAccount(id: string): Promise<any> {
+    return this.request(`/service-accounts/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Deprecated: Use role-based permissions from roles.json instead
+  async getRolePermissions(role: string): Promise<any> {
+    console.warn('getRolePermissions is deprecated - permissions are now managed via roles.json');
+    return this.request(`/service-accounts/scopes/${role}/permissions`);
+  }
+
+  // Fetch all roles from backend
+  async getRoles(): Promise<any> {
+    return this.request('/roles');
+  }
+
+  // Fetch roles by level (app_level or runtime_level)
+  async getRolesByLevel(level: string): Promise<any> {
+    return this.request(`/roles/${level}`);
+  }
+
+  private async post<T>(endpoint: string, data: unknown): Promise<T> {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  private async delete<T>(endpoint: string): Promise<T> {
+    return this.request(endpoint, {
+      method: 'DELETE',
+    });
+  }
+
+  // API Key Management
+  async createAPIKey(data: { 
+    name: string; 
+    expires_in?: number;
+    create_service_account?: boolean;
+    service_account_role?: string;
+  }): Promise<{
+    key: string;
+    key_prefix: string;
+    api_key: {
+      id: string;
+      name: string;
+      key_prefix: string;
+      created_at: string;
+      expires_at?: string;
+    };
+  }> {
+    return this.post('/api-keys', data);
+  }
+
+  async listAPIKeys(): Promise<{
+    api_keys: Array<{
+      id: string;
+      name: string;
+      key_prefix: string;
+      last_used_at?: string;
+      expires_at?: string;
+      created_at: string;
+    }>;
+  }> {
+    return this.request('/api-keys');
+  }
+
+  async revokeAPIKey(keyId: string): Promise<{ message: string }> {
+    return this.delete(`/api-keys/${keyId}`);
+  }
+
+  async getCodeSamples(codeType: string = 'basic_instrumentation'): Promise<{
+    code_type: string;
+    samples: Record<string, string>;
+  }> {
+    return this.request(`/code-samples?codeType=${codeType}`);
+  }
+}
+
+export const api = new ApiClient(API_BASE_URL);

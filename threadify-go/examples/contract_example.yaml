@@ -1,6 +1,6 @@
 contract_name: product_delivery
 version: 1
-description: Complete product delivery workflow
+description: Complete product delivery workflow with retry limits
 
 # Entry points - where threads can start
 entry_points:
@@ -90,12 +90,13 @@ transitions:
   - from: order_placed
     to:
       - payment_validation
+    max_retries: 3
 
   - from: payment_validation
     to:
       - payment_validated
       - order_cancelled
-    can_retry: true
+    max_retries: 3
 
   - from: payment_validated
     to:
@@ -113,7 +114,7 @@ transitions:
   - from: delivery_failed
     to:
       - shipped
-    can_retry: true
+    max_retries: 2
 
 # Terminal steps - where threads can end
 terminal_steps:
@@ -129,3 +130,13 @@ validation:
 # Versioning rules
 versioning:
   threads_lock_to_version: true
+
+# Notification configuration
+notification_config:
+  # Default scope for parties (uses system default if not specified)
+  default_scope: participant
+  
+  # Role-specific scope overrides
+  role_defaults:
+    merchant: owner              # Thread creator gets full access
+    analytics_service: observer  # Analytics gets read-only access

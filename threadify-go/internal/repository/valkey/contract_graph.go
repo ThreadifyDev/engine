@@ -25,9 +25,9 @@ func NewContractGraphRepository(valkey interfaces.ValkeyClient, ttl int) *Contra
 }
 
 // Save stores a contract graph in Valkey cache
-// contractID and version are passed separately since they're stored in the DB, not in the graph
-func (r *ContractGraphRepository) Save(ctx context.Context, contractID string, version int, graph *models.ContractGraph) error {
-	key := r.getGraphKey(contractID, version)
+// contractName and version are passed separately since they're stored in the DB, not in the graph
+func (r *ContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *models.ContractGraph) error {
+	key := r.getGraphKey(contractName, version, companyID)
 
 	// Serialize graph to JSON
 	data, err := json.Marshal(graph)
@@ -45,8 +45,8 @@ func (r *ContractGraphRepository) Save(ctx context.Context, contractID string, v
 }
 
 // Get retrieves a contract graph from Valkey cache
-func (r *ContractGraphRepository) Get(ctx context.Context, contractID string, version int) (*models.ContractGraph, error) {
-	key := r.getGraphKey(contractID, version)
+func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, version int, companyID string) (*models.ContractGraph, error) {
+	key := r.getGraphKey(contractName, version, companyID)
 
 	// Get from Valkey
 	data, err := r.valkey.Get(ctx, key)
@@ -55,7 +55,7 @@ func (r *ContractGraphRepository) Get(ctx context.Context, contractID string, ve
 	}
 
 	if data == "" {
-		return nil, fmt.Errorf("contract graph not found: %s v%d", contractID, version)
+		return nil, fmt.Errorf("contract graph not found: %s v%d", contractName, version)
 	}
 
 	// Deserialize graph
@@ -69,8 +69,8 @@ func (r *ContractGraphRepository) Get(ctx context.Context, contractID string, ve
 }
 
 // Delete removes a contract graph from Valkey cache
-func (r *ContractGraphRepository) Delete(ctx context.Context, contractID string, version int) error {
-	key := r.getGraphKey(contractID, version)
+func (r *ContractGraphRepository) Delete(ctx context.Context, contractName string, version int, companyID string) error {
+	key := r.getGraphKey(contractName, version, companyID)
 
 	err := r.valkey.Delete(ctx, key)
 	if err != nil {
@@ -81,8 +81,8 @@ func (r *ContractGraphRepository) Delete(ctx context.Context, contractID string,
 }
 
 // Exists checks if a contract graph exists in Valkey cache
-func (r *ContractGraphRepository) Exists(ctx context.Context, contractID string, version int) (bool, error) {
-	key := r.getGraphKey(contractID, version)
+func (r *ContractGraphRepository) Exists(ctx context.Context, contractName string, version int, companyID string) (bool, error) {
+	key := r.getGraphKey(contractName, version, companyID)
 
 	exists, err := r.valkey.Exists(ctx, key)
 	if err != nil {
@@ -93,8 +93,8 @@ func (r *ContractGraphRepository) Exists(ctx context.Context, contractID string,
 }
 
 // ExtendTTL extends the TTL of a contract graph
-func (r *ContractGraphRepository) ExtendTTL(ctx context.Context, contractID string, version int) error {
-	key := r.getGraphKey(contractID, version)
+func (r *ContractGraphRepository) ExtendTTL(ctx context.Context, contractName string, version int, companyID string) error {
+	key := r.getGraphKey(contractName, version, companyID)
 
 	err := r.valkey.Expire(ctx, key, time.Duration(r.ttl)*time.Second)
 	if err != nil {
@@ -105,8 +105,8 @@ func (r *ContractGraphRepository) ExtendTTL(ctx context.Context, contractID stri
 }
 
 // DeleteByContract removes all versions of a contract graph from cache
-func (r *ContractGraphRepository) DeleteByContract(ctx context.Context, contractID string) error {
-	pattern := r.getContractPattern(contractID)
+func (r *ContractGraphRepository) DeleteByContract(ctx context.Context, contractName string, companyID string) error {
+	pattern := r.getContractPattern(contractName, companyID)
 
 	keys, err := r.valkey.Keys(ctx, pattern)
 	if err != nil {
@@ -124,11 +124,11 @@ func (r *ContractGraphRepository) DeleteByContract(ctx context.Context, contract
 }
 
 // getGraphKey generates the Redis key for a contract graph
-func (r *ContractGraphRepository) getGraphKey(contractID string, version int) string {
-	return fmt.Sprintf("contract_graph:%s:v%d", contractID, version)
+func (r *ContractGraphRepository) getGraphKey(contractName string, version int, companyID string) string {
+	return fmt.Sprintf("contract_graph:%s:%s:v%d", companyID, contractName, version)
 }
 
 // getContractPattern generates the Redis key pattern for all versions of a contract
-func (r *ContractGraphRepository) getContractPattern(contractID string) string {
-	return fmt.Sprintf("contract_graph:%s:v*", contractID)
+func (r *ContractGraphRepository) getContractPattern(contractName string, companyID string) string {
+	return fmt.Sprintf("contract_graph:%s:%s:v*", companyID, contractName)
 }

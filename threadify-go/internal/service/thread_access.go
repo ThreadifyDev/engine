@@ -3,9 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"threadify-go/shared/rbac"
 
 	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
 
@@ -13,54 +18,158 @@ import (
 // This centralizes all permission/role operations with in-memory caching (mutex-protected)
 // before hitting Valkey, following the same pattern as contract graph caching.
 //
-// TODO: Add batching support for permission/role writes to Valkey (similar to step event batching)
-// This would reduce Valkey write operations by buffering multiple permission changes
-// and flushing them in batches (e.g., every 100ms or 50 operations).
+// Permissions are resolved from runtime_role using RBAC loader (no storage needed)
 type ThreadAccessService struct {
-	threadRepo   *valkey.ThreadRepository
+	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
+	luaScripts   *valkey.LuaScriptManager
+	rbacLoader   *rbac.Loader
 }
 
 // NewThreadAccessService creates a new thread access service
-func NewThreadAccessService(threadRepo *valkey.ThreadRepository, cacheManager interfaces.CacheManager) *ThreadAccessService {
+func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager interfaces.CacheManager, luaScripts *valkey.LuaScriptManager, rbacLoader *rbac.Loader) *ThreadAccessService {
 	return &ThreadAccessService{
-		threadRepo:   threadRepo,
+		accessRepo:   accessRepo,
 		cacheManager: cacheManager,
+		luaScripts:   luaScripts,
+		rbacLoader:   rbacLoader,
 	}
 }
 
-// GetUserPermissions retrieves permissions with three-tier caching
-// Tier 1: In-memory cache (mutex-protected, ~0.1ms)
-// Tier 2: Valkey (Redis, ~2-5ms)
+// GetUserPermissions retrieves user permissions by resolving from runtime_role:
+// 1. Get user's runtime_role from Valkey/PostgreSQL
+// 2. Check global runtime_role permission cache
+// 3. If cache miss, resolve from RBAC loader and cache by runtime_role
 func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]string, error) {
-	// Tier 1: Check in-memory cache
-	if perms, exists := s.cacheManager.GetUserPermissions(threadID, userID); exists {
-		return perms, nil
-	}
+	start := perf.Now()
 
-	// Tier 2: Check Valkey
-	perms, err := s.threadRepo.GetUserPermissions(context.Background(), threadID, userID)
+	// Tier 1: Get user access (runtime_role) from Valkey/PostgreSQL
+	valkeyStart := perf.Now()
+	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
+	perf.Log("[PERF] GetUserPermissions.valkeyLookup: %v\n", perf.Since(valkeyStart))
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache in memory for future use
-	s.cacheManager.SetUserPermissions(threadID, userID, perms)
+	// Tier 2: Check global runtime_role permission cache
+	cacheCheckStart := perf.Now()
+	if perms, exists := s.cacheManager.GetRuntimeRolePermissions(access.RuntimeRole); exists {
+		perf.Log("[PERF] GetUserPermissions.cacheHit: %v (runtime_role=%s)\n", perf.Since(cacheCheckStart), access.RuntimeRole)
+		perf.Log("[PERF] GetUserPermissions total: %v (cache hit)\n", perf.Since(start))
+		return perms, nil
+	}
+	perf.Log("[PERF] GetUserPermissions.cacheMiss: %v\n", perf.Since(cacheCheckStart))
+
+	// Tier 3: Resolve permissions from RBAC loader
+	if s.rbacLoader == nil {
+		return nil, fmt.Errorf("RBAC loader not initialized - cannot resolve permissions for runtime_role: %s", access.RuntimeRole)
+	}
+	rbacStart := perf.Now()
+	perms := s.rbacLoader.GetPermissionsForRoles([]string{access.RuntimeRole}, "runtime_level")
+	perf.Log("[PERF] GetUserPermissions.rbacResolve: %v (runtime_role=%s)\n", perf.Since(rbacStart), access.RuntimeRole)
+
+	// Cache by runtime_role (global, not per-user)
+	cacheSetStart := perf.Now()
+	s.cacheManager.SetRuntimeRolePermissions(access.RuntimeRole, perms)
+	perf.Log("[PERF] GetUserPermissions.cacheSet: %v\n", perf.Since(cacheSetStart))
+	perf.Log("[PERF] GetUserPermissions total: %v (rbac resolution)\n", perf.Since(start))
 	return perms, nil
 }
 
-// SetUserPermissions stores permissions with write-through caching
-// Writes to Valkey first (durability), then updates in-memory cache (performance)
-func (s *ThreadAccessService) SetUserPermissions(threadID, userID string, permissions []string) error {
-	// Write to Valkey first (durability)
-	err := s.threadRepo.SetUserPermissions(context.Background(), threadID, userID, permissions)
-	if err != nil {
-		return fmt.Errorf("failed to store permissions in Valkey: %w", err)
+// GrantOrUpdateAccess grants or updates user access to a thread
+// Note: runtime_role is resolved from roles and stored for permission checks
+func (s *ThreadAccessService) GrantOrUpdateAccess(
+	threadID, userID string,
+	roles []string,
+	runtimeRole string,
+	invitedBy string,
+) error {
+	// For now, use first role as the primary role
+	// Multi-role support will be added in future iterations
+	role := roles[0]
+
+	// Resolve permissions from runtime_role using RBAC loader
+	var permissions []string
+	if s.rbacLoader != nil {
+		permissions = s.rbacLoader.GetPermissionsForRoles([]string{runtimeRole}, "runtime_level")
+		// Cache permissions globally (for permission checks)
+		s.cacheManager.SetRuntimeRolePermissions(runtimeRole, permissions)
+	} else {
+		// If RBAC loader not available, use empty permissions
+		permissions = []string{}
 	}
 
-	// Update in-memory cache (performance)
-	s.cacheManager.SetUserPermissions(threadID, userID, permissions)
+	// Direct write to Valkey
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.accessRepo.GrantOrUpdateAccess(
+		ctx,
+		threadID, userID,
+		role,
+		runtimeRole,
+		permissions,
+		invitedBy,
+		s.luaScripts,
+		nil, // threadData
+		nil, // threadTTL
+	)
+	if err != nil {
+		return fmt.Errorf("failed to grant/update access: %w", err)
+	}
+
+	// Update in-memory cache
+	s.cacheManager.SetUserRole(threadID, userID, role)
 	return nil
+}
+
+// GrantAccessWithThreadCreation atomically creates a thread and grants creator access
+// This is used during thread creation to ensure thread and access are created together
+// Resolves permissions from runtime_role before storing
+func (s *ThreadAccessService) GrantAccessWithThreadCreation(
+	ctx context.Context,
+	threadID, userID string,
+	role string,
+	runtimeRole string,
+	threadData *string,
+	threadTTL *int,
+) (*interfaces.UserAccess, error) {
+	// Resolve permissions from runtime_role using RBAC loader
+	rbacStart := perf.Now()
+	var permissions []string
+	if s.rbacLoader != nil {
+		permissions = s.rbacLoader.GetPermissionsForRoles([]string{runtimeRole}, "runtime_level")
+		// Cache permissions globally (for permission checks)
+		s.cacheManager.SetRuntimeRolePermissions(runtimeRole, permissions)
+	} else {
+		// If RBAC loader not available, use empty permissions
+		permissions = []string{}
+	}
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(perf.Since(rbacStart).Seconds())
+
+	// Call repository with resolved permissions
+	repoStart := perf.Now()
+	access, err := s.accessRepo.GrantOrUpdateAccess(
+		ctx,
+		threadID, userID,
+		role,
+		runtimeRole,
+		permissions,
+		"self", // invitedBy for creator
+		s.luaScripts,
+		threadData,
+		threadTTL,
+	)
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "lua_script_exec").Observe(perf.Since(repoStart).Seconds())
+	if err != nil {
+		return nil, fmt.Errorf("failed to grant access with thread creation: %w", err)
+	}
+
+	// Update in-memory cache
+	cacheStart := perf.Now()
+	s.cacheManager.SetUserRole(threadID, userID, role)
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "cache_update").Observe(perf.Since(cacheStart).Seconds())
+
+	return access, nil
 }
 
 // GetUserRole retrieves role with three-tier caching
@@ -73,9 +182,13 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 	}
 
 	// Tier 2: Check Valkey
-	role, err := s.threadRepo.GetUserRole(context.Background(), threadID, userID)
+	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
 	if err != nil {
 		return "", err
+	}
+	role := ""
+	if len(access.Roles) > 0 {
+		role = access.Roles[0] // Return first role for backward compatibility
 	}
 
 	// Cache in memory for future use (only if role exists)
@@ -83,20 +196,6 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 		s.cacheManager.SetUserRole(threadID, userID, role)
 	}
 	return role, nil
-}
-
-// AssignRole assigns role with write-through caching
-// Writes to Valkey first (durability), then updates in-memory cache (performance)
-func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
-	// Write to Valkey first (durability)
-	err := s.threadRepo.AssignRole(context.Background(), threadID, role, userID)
-	if err != nil {
-		return fmt.Errorf("failed to assign role in Valkey: %w", err)
-	}
-
-	// Update in-memory cache (performance)
-	s.cacheManager.SetUserRole(threadID, userID, role)
-	return nil
 }
 
 // CheckThreadAccess checks if user has required permission for a thread
@@ -107,27 +206,87 @@ func (s *ThreadAccessService) AssignRole(threadID, role, userID string) error {
 //
 // Uses three-tier caching for permission lookup
 func (s *ThreadAccessService) CheckThreadAccess(threadID, userID, requiredPermission string, thread *models.Thread) (bool, error) {
+	start := perf.Now()
+	defer func() {
+		perf.Log("[PERF] CheckThreadAccess total: %v (thread=%s, user=%s)\n", perf.Since(start), threadID[:8], userID)
+	}()
+
 	// Check if user is thread owner (implicit full access)
-	// Note: ownerID is derived from API key, so all services with same API key are owners
+	ownerCheckStart := perf.Now()
 	if thread.OwnerID == userID {
+		perf.Log("[PERF] CheckThreadAccess.ownerCheck: %v (OWNER - fast path)\n", perf.Since(ownerCheckStart))
 		return true, nil
 	}
+	perf.Log("[PERF] CheckThreadAccess.ownerCheck: %v (not owner)\n", perf.Since(ownerCheckStart))
 
 	// Get user permissions (with three-tier caching)
+	permCheckStart := perf.Now()
 	permissions, err := s.GetUserPermissions(threadID, userID)
+	perf.Log("[PERF] CheckThreadAccess.GetUserPermissions: %v\n", perf.Since(permCheckStart))
 	if err != nil {
 		// No permissions found - access denied
 		return false, nil
 	}
 
-	// Check if required permission exists
+	// Check if user has required permission
+	loopStart := perf.Now()
 	for _, perm := range permissions {
 		if perm == requiredPermission {
+			perf.Log("[PERF] CheckThreadAccess.permissionLoop: %v (found)\n", perf.Since(loopStart))
 			return true, nil
 		}
 	}
+	perf.Log("[PERF] CheckThreadAccess.permissionLoop: %v (not found)\n", perf.Since(loopStart))
 
 	return false, nil
+}
+
+// BatchCheckThreadAccess checks access for multiple threads at once
+// Returns a map of threadID -> hasAccess
+// This is more efficient than calling CheckThreadAccess in a loop
+func (s *ThreadAccessService) BatchCheckThreadAccess(threads []*models.Thread, userID, requiredPermission string) (map[string]bool, error) {
+	if len(threads) == 0 {
+		return make(map[string]bool), nil
+	}
+
+	result := make(map[string]bool, len(threads))
+
+	// First pass: Check ownership (no DB query needed)
+	threadsNeedingPermCheck := make([]*models.Thread, 0)
+	for _, thread := range threads {
+		if thread.OwnerID == userID {
+			result[thread.ID] = true // Owner has implicit full access
+		} else {
+			threadsNeedingPermCheck = append(threadsNeedingPermCheck, thread)
+		}
+	}
+
+	// If all threads are owned by user, we're done
+	if len(threadsNeedingPermCheck) == 0 {
+		return result, nil
+	}
+
+	// Second pass: Batch check permissions for non-owned threads
+	// For now, check individually (can be optimized with batch DB query later)
+	for _, thread := range threadsNeedingPermCheck {
+		permissions, err := s.GetUserPermissions(thread.ID, userID)
+		if err != nil {
+			result[thread.ID] = false
+			continue
+		}
+
+		// Check if required permission exists
+		hasPermission := false
+		for _, perm := range permissions {
+			if perm == requiredPermission {
+				hasPermission = true
+				break
+			}
+		}
+		result[thread.ID] = hasPermission
+	}
+
+	return result, nil
 }
 
 // ValidateUserRoleForStep validates if user has required role for a contract step
@@ -145,8 +304,57 @@ func (s *ThreadAccessService) ValidateUserRoleForStep(threadID, userID, required
 	return userRole == requiredRole, nil
 }
 
-// ClearThreadCache clears all cached permissions and roles for a thread
+// ClearThreadCache clears all cached roles for a thread
 // This should be called when a thread is completed or deleted
+// Note: Permissions are cached globally by runtime_role, not per-thread
 func (s *ThreadAccessService) ClearThreadCache(threadID string) {
-	s.cacheManager.ClearThreadPermissions(threadID)
+	s.cacheManager.ClearThreadRoles(threadID)
+}
+
+// GetUserIDsByRuntimeRoles retrieves user IDs for specified runtime_roles
+// Uses Redis SETs (hot) with PostgreSQL fallback (cold) for efficient notification routing
+func (s *ThreadAccessService) GetUserIDsByRuntimeRoles(
+	ctx context.Context,
+	threadID string,
+	runtimeRoles []string,
+) ([]string, error) {
+	// Try Redis first (single pipelined call)
+	userIDs, err := s.accessRepo.GetUserIDsByRuntimeRoles(ctx, threadID, runtimeRoles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users from redis: %w", err)
+	}
+
+	// If no users found (complete cache miss), get from PostgreSQL
+	if len(userIDs) == 0 {
+		return s.accessRepo.PopulateRoleSetsFromPostgres(ctx, threadID, runtimeRoles)
+	}
+
+	return userIDs, nil
+}
+
+// GetUsersByPermissions retrieves users who have ANY of the required permissions
+// Returns user info with permissions array for .own filtering in notification service
+// Follows proper architecture: Redis → PostgreSQL → write-back to Redis
+func (s *ThreadAccessService) GetUsersByPermissions(
+	ctx context.Context,
+	threadID string,
+	requiredPermissions []string,
+) ([]models.UserPermissionInfo, error) {
+	// For now, we query PostgreSQL directly since we don't cache by permissions in Redis
+	// The permissions are stored in PostgreSQL and queried via GIN index (efficient)
+	// Future optimization: Could cache permission → userIDs mapping in Redis
+
+	// This still respects separation of concerns:
+	// - ThreadAccessService orchestrates the data access
+	// - Repository handles the actual PostgreSQL query
+	// - No direct PostgreSQL calls from NotificationService
+
+	// Get users with permissions from repository
+	valkeyUsers, err := s.accessRepo.GetUsersByPermissions(ctx, threadID, requiredPermissions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return directly - already models.UserPermissionInfo from repository
+	return valkeyUsers, nil
 }

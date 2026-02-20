@@ -9,6 +9,7 @@ import (
 
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/service"
 )
 
 func main() {
@@ -32,7 +33,8 @@ func main() {
 	defer valkeyService.Close()
 
 	// Create repository
-	threadRepo := valkey.NewThreadRepository(valkeyService, 3600)
+	cacheManager := service.NewCacheService()
+	threadRepo := valkey.NewThreadRepository(valkeyService, 3600, nil, nil, cacheManager)
 
 	// Get the thread
 	threadID := "d46e195f-8c31-43ac-8ca3-91ab03acf1a1"

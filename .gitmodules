@@ -1,0 +1,12 @@
+[submodule "documentation"]
+	path = documentation
+	url = https://github.com/ThreadifyDev/docs.git
+[submodule "threadify-sdk-go"]
+	path = threadify-sdk-go
+	url = https://github.com/ThreadifyDev/go-sdk.git
+[submodule "threadify-sdk"]
+	path = threadify-sdk
+	url = https://github.com/ThreadifyDev/node-sdk.git
+[submodule "threadify-sdk-python"]
+	path = threadify-sdk-python
+	url = https://github.com/ThreadifyDev/python-sdk.git

@@ -2,19 +2,22 @@
 
 ## Overview
 
-The **Archiver Service** is a background service that reads events from Valkey streams and writes them to Postgres in batches. It ensures durable persistence of all thread activity while keeping the main API service fast and responsive.
+The **Archiver Service** is a background service that reads events from NATS JetStream and writes them to Postgres in batches. It ensures durable persistence of all thread activity while keeping the main API service fast and responsive.
+
+**Migration Status (2026-01-06):** ✅ Fully migrated from Redis Streams to NATS JetStream
 
 ## Architecture
 
 ### Core Principle
 
 ```
-Valkey Streams (Fast, In-Memory) → Archiver → Postgres (Durable, Permanent)
+NATS JetStream (Fast, Distributed) → Archiver → Postgres (Durable, Permanent)
 ```
 
-- **API Service**: Writes events to Valkey streams (fast, non-blocking)
-- **Archiver Service**: Reads from streams, batches, writes to Postgres
+- **API Service**: Publishes events to NATS JetStream (fast, non-blocking, async)
+- **Archiver Service**: Consumes from NATS streams, batches, writes to Postgres
 - **Separation**: API doesn't wait for Postgres, archiver handles persistence
+- **Reliability**: NATS WorkQueue policy with ACK/NACK for guaranteed delivery
 
 ### Components
 
@@ -23,23 +26,23 @@ Valkey Streams (Fast, In-Memory) → Archiver → Postgres (Durable, Permanent)
 │                    Archiver Service                          │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  Stream Consumers (goroutines)                              │
-│  ├── Step Events Consumer                                   │
-│  ├── Thread Metadata Consumer                               │
-│  ├── Audit Logs Consumer                                    │
-│  └── Invitations Consumer                                   │
+│  NATS JetStream Consumers (goroutines)                      │
+│  ├── Activity Log Consumer (activity.log)                   │
+│  ├── Thread Metadata Consumer (metadata.thread)             │
+│  ├── Thread Access Consumer (access.thread)                 │
+│  └── Validations Consumer (validations.thread)              │
 │                                                              │
-│  Event Buffers (in-memory)                                  │
-│  ├── Step Events Buffer (100 events, 5s flush)             │
-│  ├── Thread Metadata Buffer (50 events, 10s flush)         │
-│  ├── Audit Logs Buffer (200 events, 30s flush)             │
-│  └── Invitations Buffer (50 events, 10s flush)             │
+│  Batch Processing (NATS native)                             │
+│  ├── Batch size: 10 messages                                │
+│  ├── Timeout: 5 seconds                                     │
+│  ├── Consumer group: archiver-nats-1                        │
+│  └── WorkQueue policy (at-least-once delivery)              │
 │                                                              │
-│  Batch Writer                                                │
-│  ├── Monitors buffers for flush triggers                    │
-│  ├── Writes batches to Postgres                             │
-│  ├── Retries with exponential backoff                       │
-│  └── ACKs stream entries on success                         │
+│  Postgres Writer                                             │
+│  ├── Multi-row INSERT for efficiency                        │
+│  ├── Batch writes to Postgres                               │
+│  ├── ACK on success, NACK on failure                        │
+│  └── Performance metrics tracking                            │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -50,41 +53,47 @@ Valkey Streams (Fast, In-Memory) → Archiver → Postgres (Durable, Permanent)
 
 ```
 API Service:
-  ↓ (XADD)
-Valkey Stream: streams:step_events
-  ↓ (XREADGROUP)
-Consumer: Reads batch of 100 events
-  ↓
-Local Buffer: Accumulates events
-  ↓ (Flush trigger: size OR time)
-Batch Writer: Writes to Postgres
+  ↓ (NATS Publish - Async)
+NATS JetStream: activity.log, metadata.thread, etc.
+  ↓ (Consumer.Messages() iterator)
+NATS Consumer: Reads batch of messages
+  ↓ (Batch size: 10, Timeout: 5s)
+Batch Processing: Accumulates messages
+  ↓ (Unmarshal JSON, type conversion)
+Postgres Writer: Multi-row INSERT
   ↓ (On success)
-ACK: XACK stream entries
-  ↓
-Buffer: Cleared, ready for next batch
+ACK: msg.Ack() for each message
+  ↓ (On failure)
+NACK: msg.Nak() - message redelivered
 ```
 
-### 2. Flush Triggers
+### 2. NATS Batch Processing
 
-Events are flushed when **either** condition is met:
+NATS consumer batches messages using **either** trigger:
 
 **Size Trigger:**
-- Step events: 100 events
-- Thread metadata: 50 events
-- Audit logs: 200 events
-- Invitations: 50 events
+- Batch size: 10 messages (configurable)
 
 **Time Trigger:**
-- Step events: 5 seconds
-- Thread metadata: 10 seconds
-- Audit logs: 30 seconds
-- Invitations: 10 seconds
+- Timeout: 5 seconds (configurable)
 
 **Example:**
 ```
-Low traffic: 10 events in 5 seconds → Flush (time trigger)
-High traffic: 100 events in 2 seconds → Flush (size trigger)
+Low traffic: 3 messages in 5 seconds → Flush (time trigger)
+High traffic: 10 messages in 2 seconds → Flush (size trigger)
 ```
+
+### 3. NATS Streams & Subjects
+
+| Stream Name | Subject | Purpose | Retention |
+|-------------|---------|---------|-----------|
+| activity_log | activity.log | Step events, state changes | 24 hours |
+| thread_metadata | metadata.thread | Thread creation, completion | 24 hours |
+| thread_access | access.thread | Access grants, permissions | 24 hours |
+| thread_validations | validations.thread | Validation results | 24 hours |
+
+**Stream Policy:** WorkQueue (at-least-once delivery)  
+**Consumer Group:** archiver-nats-1
 
 ### 3. Retry Logic
 
@@ -440,3 +449,81 @@ The Archiver Service is a critical component that:
 5. **Recovers** from crashes without data loss
 
 It maintains Threadify's core principle: **an immutable, append-only event stream that represents the universal truth of business service execution**, while ensuring that truth is durably persisted to Postgres.
+
+---
+
+## NATS Migration (2026-01-06)
+
+### Migration Summary
+
+Successfully migrated from Redis Streams to NATS JetStream for all archival operations.
+
+### What Changed
+
+**Before (Redis Streams):**
+- Partitioned streams: `streams:activity_log:0-9`
+- Manual partition logic using FNV hash
+- Redis consumer groups with XREADGROUP
+- Complex worker pool management
+
+**After (NATS JetStream):**
+- Unified streams: `activity.log`, `metadata.thread`, etc.
+- NATS handles distribution automatically
+- JetStream consumer with WorkQueue policy
+- Simplified consumer code
+
+### Benefits
+
+✅ **Better Delivery Guarantees** - WorkQueue policy with explicit ACK/NACK  
+✅ **Unified Message Bus** - Single system for all async messaging  
+✅ **No Partitioning Complexity** - NATS handles distribution  
+✅ **Built-in Monitoring** - JetStream provides metrics  
+✅ **Simpler Code** - Removed 200+ lines of partition logic  
+
+### Performance Metrics
+
+Current measured throughput:
+
+| Stream | Batch Size | Processing Time | Throughput |
+|--------|-----------|----------------|------------|
+| activity.log | 1-3 | 16-85 ms | 15-62 msg/s |
+| metadata.thread | 1 | 100 ms | 10 msg/s |
+| access.thread | 1 | 96 ms | 10 msg/s |
+| validations.thread | 1 | 46 ms | 22 msg/s |
+
+**End-to-end latency:** 50-110ms (event → database)  
+**Bottleneck:** Postgres writes (~80% of time)  
+**NATS overhead:** Negligible (~5ms)  
+
+### Code Changes
+
+**Files Modified:**
+- `internal/archiver/nats_consumer.go` (NEW - 296 lines)
+- `internal/repository/valkey/activity.go` (9 XAdd → NATS PublishAsync)
+- `internal/repository/nats/archival_publisher.go` (Added success logging)
+- `cmd/archiver/main.go` (Removed Redis stream consumers)
+- `internal/repository/valkey/lua/validate_and_update_step_state.lua` (Removed XADD)
+
+**Files Removed/Deprecated:**
+- Redis stream consumer loops (archiver main.go)
+- Partition logic (activity repository)
+- Activity worker pool (no longer used)
+
+### Monitoring
+
+**Success Logs:**
+```
+✅ [NATS-ARCHIVAL] Published to activity.log (size: 296 bytes)
+⏱️  [NATS-PERF] Processed 3 activity_log messages in 85ms (35.23 msg/s)
+```
+
+**Key Metrics:**
+- NATS publish success rate (should be 100%)
+- Archiver processing time (should be < 500ms)
+- Postgres write success rate (should be 100%)
+- NATS queue depth (should be < 100)
+
+### Related Documentation
+
+- [NATS Performance Metrics](./NATS_PERFORMANCE_METRICS.md)
+- [Architecture Corrections](./ARCHITECTURE_CORRECTIONS.md)

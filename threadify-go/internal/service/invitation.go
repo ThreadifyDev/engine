@@ -43,9 +43,8 @@ func (c *InvitationConfig) IsRoleAllowed(role string) bool {
 // ThreadInvitationClaims represents JWT claims for thread invitations
 type ThreadInvitationClaims struct {
 	ThreadID    string `json:"threadId"`
-	ContractID  string `json:"contractId"`
-	Role        string `json:"role"`
-	Permissions string `json:"permissions"`
+	Role        string `json:"role"`        // Business/contract role
+	AccessLevel string `json:"accessLevel"` // Access level (owner/participant/observer/external)
 	InvitedBy   string `json:"invitedBy"`
 	jwt.RegisteredClaims
 }
@@ -57,21 +56,20 @@ type InvitationTokenService struct {
 }
 
 // NewInvitationTokenService creates a new invitation token service
-func NewInvitationTokenService(secretKey string) *InvitationTokenService {
+func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService {
 	return &InvitationTokenService{
 		secretKey: secretKey,
-		issuer:    "threadify-engine",
+		issuer:    issuer,
 	}
 }
 
 // CreateToken creates a JWT token for thread invitation
-func (s *InvitationTokenService) CreateToken(threadID, contractID, userID, role, permissions string, expiry time.Duration) (string, error) {
+func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := &ThreadInvitationClaims{
 		ThreadID:    threadID,
-		ContractID:  contractID,
 		Role:        role,
-		Permissions: permissions,
+		AccessLevel: accessLevel,
 		InvitedBy:   userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),
@@ -91,13 +89,13 @@ func (s *InvitationTokenService) CreateToken(threadID, contractID, userID, role,
 func (s *InvitationTokenService) ValidateToken(tokenString string) (*ThreadInvitationClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &ThreadInvitationClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("invalid token")
 		}
 		return []byte(s.secretKey), nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	if claims, ok := token.Claims.(*ThreadInvitationClaims); ok && token.Valid {
@@ -141,45 +139,21 @@ func (s *InvitationTokenService) ValidateRole(role string, config *InvitationCon
 		return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(config.AllowedRoles, ", "))
 	}
 
-	// Fallback to hardcoded list if no config provided
-	allowedRoles := []string{
-		"external_partner",
-		"contractor",
-		"auditor",
-		"support",
+	return nil
+}
+
+// ValidateAccessLevel checks if access level is valid
+func (s *InvitationTokenService) ValidateAccessLevel(accessLevel string) error {
+	if accessLevel == "" {
+		return nil // Empty is allowed (will default to "external")
 	}
 
-	for _, allowed := range allowedRoles {
-		if role == allowed {
+	allowedLevels := []string{"owner", "participant", "observer", "external"}
+	for _, allowed := range allowedLevels {
+		if accessLevel == allowed {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(allowedRoles, ", "))
-}
-
-// ValidatePermissions checks if permissions are valid
-func (s *InvitationTokenService) ValidatePermissions(permissions string) error {
-	if permissions == "" {
-		return nil // Empty permissions are allowed (will use default)
-	}
-
-	allowedPerms := []string{"read", "write", "execute"}
-	permList := strings.Split(permissions, ",")
-
-	for _, perm := range permList {
-		perm = strings.TrimSpace(perm)
-		valid := false
-		for _, allowed := range allowedPerms {
-			if perm == allowed {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("invalid permission: %s. Allowed permissions: %s", perm, strings.Join(allowedPerms, ", "))
-		}
-	}
-
-	return nil
+	return fmt.Errorf("invalid access level: %s. Allowed levels: %s", accessLevel, strings.Join(allowedLevels, ", "))
 }

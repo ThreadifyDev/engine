@@ -2,213 +2,327 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"sync"
+	"log"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
 
 // StepEventService handles step event processing with cryptographic hashing
+// Hash generation is now handled atomically via Lua scripts rather than in-memory cache
 type StepEventService struct {
-	valkeyRepo interfaces.ValkeyClient
-	threadRepo *valkey.ThreadRepository
-
-	// Async processing
-	eventQueue chan models.StepEvent
-	workers    int
-	wg         sync.WaitGroup
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex // For thread-safe shutdown
-
-	// Thread-specific sequential processing
-	threadQueues map[string]chan models.StepEvent // threadID -> queue
-	threadMu     sync.RWMutex
-
-	// Global batching for performance
-	batch        []models.HashedStepEvent // Global batch (max 20)
-	batchMu      sync.RWMutex
-	batchSize    int
-	batchTimeout time.Duration
-	lastHashes   map[string]string // threadID -> lastHash (in memory cache)
-	batchTimer   *time.Timer
+	valkeyRepo    interfaces.ValkeyClient
+	threadRepo    *valkey.ThreadRepository
+	natsPublisher *natsrepo.ArchivalPublisher
+	config        *config.Config
 }
 
 // NewStepEventService creates a new step event service
-func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
-	ctx, cancel := context.WithCancel(context.Background())
-
+func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, natsPublisher *natsrepo.ArchivalPublisher, cfg *config.Config, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
 	return &StepEventService{
-		valkeyRepo: valkeyRepo,
-		threadRepo: threadRepo,
-		eventQueue: make(chan models.StepEvent, 1000), // Buffer for events
-		workers:    workers,
-		wg:         sync.WaitGroup{},
-		ctx:        ctx,
-		cancel:     cancel,
-		mu:         sync.Mutex{},
-
-		// Initialize thread-specific queues
-		threadQueues: make(map[string]chan models.StepEvent),
-		threadMu:     sync.RWMutex{},
-
-		// Initialize batching from config
-		batch:        make([]models.HashedStepEvent, 0, batchSize),
-		batchMu:      sync.RWMutex{},
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		lastHashes:   make(map[string]string),
+		valkeyRepo:    valkeyRepo,
+		threadRepo:    threadRepo,
+		natsPublisher: natsPublisher,
+		config:        cfg,
 	}
 }
 
-// Start begins the step event processing workers
+// Start begins the step event service (no-op for direct write mode)
 func (ses *StepEventService) Start() error {
-	for i := 0; i < ses.workers; i++ {
-		ses.wg.Add(1)
-		go ses.processStepQueue()
-	}
 	return nil
 }
 
-// Stop gracefully shuts down the step event service and flushes remaining batch
+// Stop stops the step event service (no-op for direct write mode)
 func (ses *StepEventService) Stop() error {
-	// Use a mutex to prevent race conditions if Stop() is called multiple times
-	ses.mu.Lock()
-	defer ses.mu.Unlock()
-
-	// Check if already stopped
-	select {
-	case <-ses.ctx.Done():
-		// Already stopped
-		return nil
-	default:
-		// Not stopped yet, proceed with shutdown
-	}
-
-	// Flush any remaining batch before shutdown
-	ses.writeBatch()
-
-	// Close all thread-specific queues
-	ses.threadMu.Lock()
-	for threadID, queue := range ses.threadQueues {
-		close(queue)
-		delete(ses.threadQueues, threadID)
-	}
-	ses.threadMu.Unlock()
-
-	close(ses.eventQueue)
-	ses.cancel()
-	ses.wg.Wait()
 	return nil
 }
 
-// ProcessStepEvent queues a step event for thread-specific sequential processing
-func (ses *StepEventService) ProcessStepEvent(event models.StepEvent) error {
-	ses.threadMu.Lock()
-
-	// Get or create thread-specific queue
-	threadQueue, exists := ses.threadQueues[event.ThreadID]
-	if !exists {
-		// Create new queue for this thread
-		threadQueue = make(chan models.StepEvent, 100)
-		ses.threadQueues[event.ThreadID] = threadQueue
-
-		// Start sequential processor for this thread
-		ses.wg.Add(1)
-		go ses.processThreadQueue(event.ThreadID, threadQueue)
+// loadLuaScript loads a Lua script from the lua/ directory
+func loadLuaScript(filename string) (string, error) {
+	// Try multiple possible paths (handles different working directories)
+	possiblePaths := []string{
+		filepath.Join("internal", "repository", "valkey", "lua", filename),
+		filepath.Join("threadify-go", "internal", "repository", "valkey", "lua", filename),
+		filepath.Join("/Users/martins2/Downloads/ThreadifyEngine/threadify-go", "internal", "repository", "valkey", "lua", filename),
 	}
-	ses.threadMu.Unlock()
 
-	// Add event to thread-specific queue
-	select {
-	case threadQueue <- event:
-		return nil
-	case <-ses.ctx.Done():
-		return fmt.Errorf("service is shutting down")
-	default:
-		return fmt.Errorf("thread queue is full for thread %s", event.ThreadID)
-	}
-}
-
-// processThreadQueue processes events sequentially for a specific thread
-func (ses *StepEventService) processThreadQueue(threadID string, threadQueue chan models.StepEvent) {
-	defer ses.wg.Done()
-
-	for {
-		select {
-		case event, ok := <-threadQueue:
-			if !ok {
-				return // Queue closed
-			}
-
-			// Process event sequentially for this thread
-			if err := ses.processStepEvent(event); err != nil {
-				fmt.Printf("Error processing step event for thread %s: %v\n", threadID, err)
-			}
-
-		case <-ses.ctx.Done():
-			return
+	for _, path := range possiblePaths {
+		if data, err := os.ReadFile(path); err == nil {
+			return string(data), nil
 		}
 	}
+
+	return "", fmt.Errorf("failed to load Lua script: %s", filename)
 }
 
-// processStepQueue processes events from the global queue (legacy, not used anymore)
-func (ses *StepEventService) processStepQueue() {
-	defer ses.wg.Done()
+// RecordStepEventDirect records a step event immediately without batching
+// Also processes sub-steps if provided
+func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
+	// Track overall step event latency
+	startTime := perf.Now()
+	stepEventID := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
+	perf.Log("[PERF] StepEvent START: %s | thread=%s | step=%s", stepEventID, event.ThreadID, event.StepName)
 
-	for {
-		select {
-		case event, ok := <-ses.eventQueue:
-			if !ok {
-				return // Queue closed
-			}
+	defer func() {
+		duration := perf.Since(startTime)
+		perf.Log("[PERF] StepEvent COMPLETE: %s | duration=%v", stepEventID, duration)
+	}()
 
-			// Redirect to thread-specific queue
-			ses.ProcessStepEvent(event)
-
-		case <-ses.ctx.Done():
-			return
-		}
-	}
-}
-
-// processStepEvent handles a single step event with batching
-func (ses *StepEventService) processStepEvent(event models.StepEvent) error {
 	// 1. Validate the step event
+	validationStart := perf.Now()
 	if err := ses.validateStepEvent(event); err != nil {
-		return fmt.Errorf("invalid step event: %w", err)
+		// User input validation errors are safe to expose with context
+		perf.Log("[PERF] StepEvent VALIDATION FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(validationStart), err)
+		return fmt.Errorf("invalid step data: %w", err)
 	}
+	perf.Log("[PERF] StepEvent VALIDATION: %s | duration=%v", stepEventID, perf.Since(validationStart))
 
-	// 2. Get the last hash for this thread (from memory or Valkey)
-	previousHash, err := ses.getLastStepHash(event.ThreadID)
+	// 2. Execute atomic hash generation via Lua script
+	hashStart := perf.Now()
+	hashResult, err := ses.executeAtomicHashScript(event, ownerID, serviceName)
+	hashDuration := perf.Since(hashStart)
+	perf.Log("[PERF] StepEvent HASH_GENERATION: %s | duration=%v | success=%t", stepEventID, hashDuration, err == nil)
+
 	if err != nil {
-		return fmt.Errorf("failed to get last step hash: %w", err)
+		return err // Already sanitized by executeAtomicHashScript
 	}
 
-	// 3. Calculate the new hash
-	newHash := ses.calculateStepHash(previousHash, event)
+	// 3. Send activity event to NATS for archival (SYNCHRONOUS - critical for audit trail)
+	// Skip if NATS publisher is not available (graceful degradation)
+	if ses.natsPublisher != nil {
+		natsStart := perf.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	// 4. Create the hashed step event
-	hashedEvent := event.ToHashedStepEvent(newHash, previousHash)
+		activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
 
-	// 5. Add to batch for bulk processing
-	ses.addToBatch(*hashedEvent)
+		if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
+			natsDuration := perf.Since(natsStart)
+			perf.Log("[PERF] StepEvent NATS_PUBLISH FAILED: %s | duration=%v | error=%v", stepEventID, natsDuration, err)
+			logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
+		} else {
+			perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | duration=%v", stepEventID, perf.Since(natsStart))
+		}
+	} else {
+		perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | SKIPPED (no publisher)", stepEventID)
+	}
 
-	// 6. Update memory cache immediately (prevents race condition)
-	ses.batchMu.Lock()
-	ses.lastHashes[event.ThreadID] = newHash
-	ses.batchMu.Unlock()
+	// 4. Process sub-steps if provided
+	if len(subSteps) > 0 && ses.natsPublisher != nil {
+		subStepsStart := perf.Now()
+		if err := ses.processSubSteps(event.ThreadID, event.StepID, subSteps); err != nil {
+			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(subStepsStart), err)
+			// Don't fail the main step if sub-steps fail
+		} else {
+			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS: %s | count=%d | duration=%v", stepEventID, len(subSteps), perf.Since(subStepsStart))
+		}
+	}
 
 	return nil
 }
 
-// validateStepEvent ensures the step event has required fields
+// processSubSteps publishes sub-steps to NATS for archival
+func (ses *StepEventService) processSubSteps(threadID, stepID string, subSteps []models.SubStepRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Create sub-step events for NATS
+	subStepEvents := make([]map[string]interface{}, 0, len(subSteps))
+
+	for _, subStep := range subSteps {
+		// Parse recordedAt timestamp
+		recordedAt, err := time.Parse(time.RFC3339, subStep.RecordedAt)
+		if err != nil {
+			log.Printf("[WARN] Invalid sub-step recordedAt timestamp: %v", err)
+			recordedAt = time.Now()
+		}
+
+		subStepEvent := map[string]interface{}{
+			"thread_id":   threadID,
+			"step_id":     stepID,
+			"name":        subStep.Name,
+			"status":      subStep.Status,
+			"payload":     subStep.Payload,
+			"recorded_at": recordedAt.Format(time.RFC3339Nano),
+		}
+		subStepEvents = append(subStepEvents, subStepEvent)
+	}
+
+	// Publish all sub-steps as a batch
+	batchEvent := map[string]interface{}{
+		"type":      "substeps_batch",
+		"thread_id": threadID,
+		"step_id":   stepID,
+		"substeps":  subStepEvents,
+	}
+
+	return ses.natsPublisher.PublishActivityLog(ctx, batchEvent)
+}
+
+// HashResult contains the result of atomic hash generation
+type HashResult struct {
+	OldHash  string
+	NewHash  string
+	ThreadID string
+}
+
+// executeAtomicHashScript performs atomic hash generation and thread metadata update via Lua script
+// This MUST be atomic to prevent race conditions in the hash chain
+func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
+	stepEventID := event.ThreadID + ":" + event.StepName + ":" + event.IdempotencyKey
+
+	// Get hash configuration
+	version := ses.config.Security.HashChainCurrentVersion
+	if version == "" {
+		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | version not configured", stepEventID)
+		logInternalError("executeAtomicHashScript", fmt.Errorf("hash_chain_current_version not configured"))
+		return nil, fmt.Errorf("failed to process step event")
+	}
+
+	secret := ses.config.Security.HashChainSecrets[version]
+	if secret == "" {
+		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | secret version %s not configured", stepEventID, version)
+		logInternalError("executeAtomicHashScript", fmt.Errorf("hash secret version %s not configured", version))
+		return nil, fmt.Errorf("failed to process step event")
+	}
+
+	// Get old hash, calculate new hash, and update - with retry on race condition
+	var oldHash, newHash string
+	maxRetries := 3
+	atomicStart := perf.Now()
+	threadKey := "thread:" + event.ThreadID
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Load and execute get hash script
+		getScript, err := loadLuaScript("get_thread_hash.lua")
+		if err != nil {
+			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		result, err := ses.valkeyRepo.Eval(context.Background(), getScript, []string{threadKey})
+		if err != nil {
+			perf.Log("[PERF] StepEvent GET_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		resultSlice, ok := result.([]interface{})
+		if !ok || len(resultSlice) < 1 {
+			perf.Log("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
+			return nil, fmt.Errorf("failed to process step event")
+		}
+
+		oldHash, _ = resultSlice[0].(string)
+
+		// Calculate new hash using contentHash for content integrity verification
+		// Note: event.Timestamp becomes recorded_at in PostgreSQL, so formats must match exactly
+		recordedAt := event.Timestamp.Format(time.RFC3339Nano)
+		h := hmac.New(sha256.New, []byte(secret))
+		hashData := oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.ContentHash + ":" + recordedAt
+		h.Write([]byte(hashData))
+		newHash = "hmac-sha256-" + version + ":" + fmt.Sprintf("%x", h.Sum(nil))
+
+		// Load and execute update hash script with optimistic locking
+		updateScript, err := loadLuaScript("update_thread_hash.lua")
+		if err != nil {
+			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		result, err = ses.valkeyRepo.Eval(
+			context.Background(),
+			updateScript,
+			[]string{threadKey},
+			oldHash,
+			newHash,
+			version,
+		)
+
+		if err != nil {
+			perf.Log("[PERF] StepEvent UPDATE_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			if attempt == maxRetries-1 {
+				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				return nil, sanitizeError(err)
+			}
+			continue
+		}
+
+		// Check if update succeeded
+		updateResult, ok := result.([]interface{})
+		if !ok || len(updateResult) < 1 {
+			perf.Log("[PERF] StepEvent UPDATE_PARSE_FAILED: %s | unexpected result: %v", stepEventID, result)
+			return nil, fmt.Errorf("failed to process step event")
+		}
+
+		success, _ := updateResult[0].(int64)
+		if success == 1 {
+			// Success!
+			atomicDuration := perf.Since(atomicStart)
+			perf.Log("[PERF] StepEvent ATOMIC_HASH: %s | duration=%v | attempts=%d", stepEventID, atomicDuration, attempt+1)
+			break
+		}
+
+		// Race condition detected, retry
+		perf.Log("[PERF] StepEvent HASH_RACE_DETECTED: %s | attempt=%d | retrying...", stepEventID, attempt+1)
+		if attempt == maxRetries-1 {
+			return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
+		}
+	}
+
+	return &HashResult{
+		OldHash:  oldHash,
+		NewHash:  newHash,
+		ThreadID: event.ThreadID,
+	}, nil
+}
+
+// createActivityEvent creates an activity event with all required fields for NATS publishing
+func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
+	timestampStr := event.Timestamp.Format(time.RFC3339Nano)
+
+	activityValues := map[string]interface{}{
+		"type":            "step_recorded",
+		"thread_id":       event.ThreadID,
+		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
+		"step_name":       event.StepName,
+		"step_uuid":       event.StepID,
+		"idempotency_key": event.IdempotencyKey,
+		"content_hash":    event.ContentHash,
+		"timestamp":       timestampStr,
+		"context":         event.ContextJSON(),
+		"actor":           ownerID,
+		"actor_service":   serviceName,
+		"status":          event.Status,
+		"hash":            hashResult.NewHash,
+		"prev_hash":       hashResult.OldHash,
+		"started_at":      event.StartedAt,
+	}
+
+	return activityValues
+}
+
 func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 	if event.StepID == "" {
 		return fmt.Errorf("step_id is required")
@@ -220,188 +334,4 @@ func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 		return fmt.Errorf("context is required")
 	}
 	return nil
-}
-
-// getLastStepHash retrieves the last hash for a thread using memory cache with Valkey fallback
-func (ses *StepEventService) getLastStepHash(threadID string) (string, error) {
-	ses.batchMu.RLock()
-
-	// 1. Check memory cache first (instant)
-	if hash, exists := ses.lastHashes[threadID]; exists {
-		ses.batchMu.RUnlock()
-		return hash, nil
-	}
-	ses.batchMu.RUnlock()
-
-	// 2. Fallback to Valkey if not in memory
-	threadData, err := ses.threadRepo.Get(ses.ctx, threadID)
-	if err != nil {
-		// If thread doesn't exist, return empty string for genesis hash
-		return "", nil
-	}
-
-	// 3. Store in memory cache for next time
-	ses.batchMu.Lock()
-	ses.lastHashes[threadID] = threadData.LastHash
-	ses.batchMu.Unlock()
-
-	return threadData.LastHash, nil
-}
-
-// calculateStepHash computes SHA256 hash of previousHash + stepID + stepName + startedAt + finishedAt + status + context
-func (ses *StepEventService) calculateStepHash(previousHash string, event models.StepEvent) string {
-	hasher := sha256.New()
-
-	// Add previous hash (empty for genesis)
-	hasher.Write([]byte(previousHash))
-
-	// Add step ID
-	hasher.Write([]byte(event.StepID))
-
-	// Add step name
-	hasher.Write([]byte(event.StepName))
-
-	// Add step lifecycle data
-	hasher.Write([]byte(event.StartedAt))
-	hasher.Write([]byte(event.FinishedAt))
-	hasher.Write([]byte(event.Status))
-
-	// Add context as JSON
-	hasher.Write([]byte(event.ContextJSON()))
-
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-// addToBatch adds an event to the global batch and triggers write if needed
-func (ses *StepEventService) addToBatch(event models.HashedStepEvent) {
-	ses.batchMu.Lock()
-	defer ses.batchMu.Unlock()
-
-	// Add event to batch
-	ses.batch = append(ses.batch, event)
-
-	// Check if we should write the batch
-	if len(ses.batch) >= ses.batchSize {
-		// Batch size reached - write immediately
-		go ses.writeBatch()
-	} else if len(ses.batch) == 1 {
-		// First event in batch - start timer
-		ses.batchTimer = time.AfterFunc(ses.batchTimeout, func() {
-			ses.writeBatch()
-		})
-	}
-}
-
-// writeBatch performs bulk write of all events in the batch
-func (ses *StepEventService) writeBatch() {
-	ses.batchMu.Lock()
-	if len(ses.batch) == 0 {
-		ses.batchMu.Unlock()
-		return
-	}
-
-	// Copy batch and clear it
-	eventsToWrite := make([]models.HashedStepEvent, len(ses.batch))
-	copy(eventsToWrite, ses.batch)
-	ses.batch = ses.batch[:0] // Clear but keep capacity
-
-	// Stop timer if running
-	if ses.batchTimer != nil {
-		ses.batchTimer.Stop()
-		ses.batchTimer = nil
-	}
-	ses.batchMu.Unlock()
-
-	// Perform bulk write
-	if err := ses.bulkWriteToRedis(eventsToWrite); err != nil {
-		fmt.Printf("Error writing batch to Redis: %v\n", err)
-	}
-}
-
-// bulkWriteToRedis writes multiple events to Redis in a single operation
-func (ses *StepEventService) bulkWriteToRedis(events []models.HashedStepEvent) error {
-	for _, event := range events {
-		// Store individual event
-		if err := ses.storeStepEvent(event); err != nil {
-			return fmt.Errorf("failed to store event %s: %w", event.StepID, err)
-		}
-
-		// Update thread last hash
-		if err := ses.updateThreadLastHash(event.ThreadID, event.Hash); err != nil {
-			return fmt.Errorf("failed to update thread hash for %s: %w", event.ThreadID, err)
-		}
-	}
-	return nil
-}
-
-// storeStepEvent persists the hashed step event to Redis and streams
-func (ses *StepEventService) storeStepEvent(event models.HashedStepEvent) error {
-	startTime := time.Now()
-
-	// Serialize the event
-	eventData, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("failed to serialize step event: %w", err)
-	}
-
-	// Use pipeline for atomic write to both List and Stream
-	pipe := ses.valkeyRepo.Pipeline()
-
-	// 1. Add to activity list for thread (for immediate access and validation)
-	activityKey := fmt.Sprintf("thread:%s:activity", event.ThreadID)
-	pipe.LPush(ses.ctx, activityKey, string(eventData))
-	pipe.Expire(ses.ctx, activityKey, 7*24*time.Hour) // 7 day TTL
-
-	// 2. Add to stream for archival
-	streamValues := map[string]interface{}{
-		"stepId":      event.StepID,
-		"threadId":    event.ThreadID,
-		"stepName":    event.StepName,
-		"serviceName": event.ServiceName,
-		"type":        event.Type,
-		"status":      event.Status,
-		"context":     event.ContextJSON(),
-		"startedAt":   event.StartedAt,
-		"finishedAt":  event.FinishedAt,
-		"timestamp":   event.Timestamp.Format(time.RFC3339),
-		"hash":        event.Hash,
-		"prevHash":    event.PreviousHash,
-		"maxlen":      "~",
-		"limit":       100000,
-	}
-	pipe.XAdd(ses.ctx, "streams:step_events", streamValues)
-
-	// Execute pipeline
-	_, err = pipe.Exec(ses.ctx)
-
-	duration := time.Since(startTime)
-	fmt.Printf("⏱️  [StepEventService] Valkey write (List+Stream) took %v for stepId=%s\n", duration, event.StepID)
-
-	return err
-}
-
-// updateThreadLastHash updates the thread's last hash and refreshes TTL
-func (ses *StepEventService) updateThreadLastHash(threadID, newHash string) error {
-	// Get current thread data using the same key pattern as ThreadRepository
-	threadKey := fmt.Sprintf("thread:%s", threadID)
-	threadData, err := ses.valkeyRepo.Get(ses.ctx, threadKey)
-	if err != nil {
-		return fmt.Errorf("failed to get thread data: %w", err)
-	}
-
-	// Parse and update thread
-	var thread models.Thread
-	if err := json.Unmarshal([]byte(threadData), &thread); err != nil {
-		return fmt.Errorf("failed to parse thread data: %w", err)
-	}
-
-	thread.LastHash = newHash
-
-	// Serialize and store back with refreshed TTL
-	updatedData, err := json.Marshal(thread)
-	if err != nil {
-		return fmt.Errorf("failed to serialize thread: %w", err)
-	}
-
-	return ses.valkeyRepo.Set(ses.ctx, threadKey, string(updatedData), 24*time.Hour)
 }

@@ -1,14 +1,18 @@
 /**
  * ThreadStep - Represents a step in a thread execution with fluent API
+ * @example
+ * const step = thread.step('order_placed');
+ * await step
+ *   .addContext({ orderId: 'ORD-12345' })
+ *   .success();
  */
 export class ThreadStep {
-  constructor(stepName, thread, serviceName = null, options = {}) {
+  constructor(stepName, thread, serviceName = null) {
     this.stepName = stepName;
     this.thread = thread;
     this.serviceName = serviceName;
     this.manualIdempotencyKey = null; // For manual override
-    
-    const { external_refs = {} } = options;
+    this.subSteps = []; // Accumulate sub-steps
     
     // Build event locally, send on stop()
     this.event = {
@@ -18,7 +22,7 @@ export class ThreadStep {
       startedAt: new Date().toISOString(),
       finishedAt: null,
       context: {},
-      refs: external_refs, // Store external refs
+      refs: {}, // Use addRefs() to populate
       status: 'in_progress',
       serviceName: serviceName
     };
@@ -107,27 +111,71 @@ export class ThreadStep {
     return this;
   }
 
+  /**
+   * Add a sub-step to be sent when this step completes
+   * @param {string} name - Sub-step name
+   * @param {Object} data - Sub-step data (duration, metadata, error, etc.)
+   * @param {string} status - Sub-step status: 'success' or 'failed' (default: 'success')
+   * @returns {ThreadStep} - Returns this for method chaining
+   * @example
+   * step.subStep('validate_inventory', { itemsChecked: 5 });
+   * step.subStep('calculate_tax', { taxAmount: 12.50 }, 'success');
+   * step.subStep('apply_discount', { error: 'Invalid coupon' }, 'failed');
+   */
+  subStep(name, data = {}, status = 'success') {
+    if (typeof name !== 'string' || name.trim() === '') {
+      throw new Error('Sub-step name must be a non-empty string');
+    }
+    
+    if (status !== 'success' && status !== 'failed') {
+      throw new Error('Sub-step status must be either "success" or "failed"');
+    }
+    
+    this.subSteps.push({
+      name,
+      status,
+      payload: data,  // All user data goes in payload
+      recordedAt: new Date().toISOString()
+    });
+    
+    return this;
+  }
+
+  
 
   /**
    * Stop the step and send the event to server
    * @param {string} status - Final status ('success', 'failed', 'skipped')
-   * @param {string} message - Optional message for the step completion
-   * @param {Object} finalContext - Optional final context data
+   * @param {string|Object} messageOrData - Optional message (string) or data object
    * @returns {Promise<ThreadStep>} - Returns this for method chaining
    */
-  async stop(status = 'success', message = '', finalContext = {}) {
+  async stop(status = 'success', messageOrData = '') {
     // Set final state
     this.event.finishedAt = new Date().toISOString();
     this.event.status = status;
     
-    // Add final context if provided
-    if (Object.keys(finalContext).length > 0) {
-      this.addContext(finalContext);
+    // Handle messageOrData - can be string or object
+    if (typeof messageOrData === 'string') {
+      // If string, add as message field in threadify_metadata
+      if (messageOrData) {
+        if (!this.event.threadify_metadata) {
+          this.event.threadify_metadata = {};
+        }
+        this.event.threadify_metadata.message = messageOrData;
+      }
+    } else if (typeof messageOrData === 'object' && messageOrData !== null) {
+      // If object, add to threadify_metadata (keep separate from context)
+      if (Object.keys(messageOrData).length > 0) {
+        if (!this.event.threadify_metadata) {
+          this.event.threadify_metadata = {};
+        }
+        Object.assign(this.event.threadify_metadata, messageOrData);
+      }
     }
     
-    // Add message to context if provided
-    if (message) {
-      this.event.context.message = String(message);
+    // Add sub-steps as array if any were recorded
+    if (this.subSteps.length > 0) {
+      this.event.subSteps = this.subSteps;
     }
     
     // Generate and add idempotency key
@@ -141,13 +189,27 @@ export class ThreadStep {
       if (error.isDuplicate) {
         console.warn('⚠️ Duplicate step detected:', error.message);
         // Don't throw - this is expected behavior
-        return this;
+        return {
+          stepName: this.stepName,
+          threadId: this.thread.threadId,
+          status: this.event.status,
+          idempotencyKey: this.event.idempotencyKey,
+          timestamp: this.event.finishedAt || this.event.startedAt,
+          duplicate: true
+        };
       }
       console.error('Failed to send step event:', error);
       throw error;
     }
     
-    return this;
+    // Return a clean response object without internal details
+    return {
+      stepName: this.stepName,
+      threadId: this.thread.threadId,
+      status: this.event.status,
+      idempotencyKey: this.event.idempotencyKey,
+      timestamp: this.event.finishedAt || this.event.startedAt
+    };
   }
 
   /**
@@ -224,31 +286,55 @@ export class ThreadStep {
 
   /**
    * Complete step with success status (convenience method)
-   * @param {string} message - Success message (optional)
-   * @param {Object} result - Result data (optional)
+   * @param {string|Object} messageOrData - Success message (string) or data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.success('Order placed successfully');
+   * 
+   * // With data object
+   * await step.success({ message: 'Order placed', orderId: 'ORD-123', total: 99.99 });
+   * 
+   * // Without data
+   * await step.success();
    */
-  async success(message = 'Step completed successfully', result = {}) {
-    return this.stop('success', message, result);
+  async success(messageOrData = '') {
+    return this.stop('success', messageOrData);
   }
 
   /**
    * Complete step with error status (convenience method)
-   * @param {string} message - Error message (optional)
-   * @param {Object} error - Error data (optional)
+   * @param {string|Object} messageOrData - Error message (string) or error data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.error('Service unavailable');
+   * 
+   * // With error object
+   * await step.error({ message: 'Service unavailable', service: 'inventory-api', statusCode: 503 });
+   * 
+   * // Without data
+   * await step.error();
    */
-  async error(message = 'Step failed with error', error = {}) {
-    return this.stop('error', message, error);
+  async error(messageOrData = '') {
+    return this.stop('error', messageOrData);
   }
 
   /**
    * Complete step with failed status (convenience method)
-   * @param {string} message - Failure message (optional)
-   * @param {Object} error - Error data (optional)
+   * @param {string|Object} messageOrData - Failure message (string) or error data object
    * @returns {Promise<Object>} - Server response
+   * @example
+   * // With string message
+   * await step.failed('Payment processing failed');
+   * 
+   * // With error object
+   * await step.failed({ message: 'Payment processing failed', errorCode: 'TIMEOUT', retries: 2 });
+   * 
+   * // Without data
+   * await step.failed();
    */
-  async failed(message = 'Step failed', error = {}) {
-    return this.stop('failed', message, error);
+  async failed(messageOrData = '') {
+    return this.stop('failed', messageOrData);
   }
 }

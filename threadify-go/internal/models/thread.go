@@ -13,6 +13,7 @@ const (
 	ThreadStatusCompleted ThreadStatus = "completed"
 	ThreadStatusFailed    ThreadStatus = "failed"
 	ThreadStatusCancelled ThreadStatus = "cancelled"
+	ThreadStatusClosed    ThreadStatus = "closed"
 )
 
 // StepStatus represents the current state of a step
@@ -28,20 +29,29 @@ const (
 
 // Thread represents a contract execution instance
 type Thread struct {
-	ID              string                `json:"id"`
-	ContractID      *string               `json:"contractId,omitempty"`
-	ContractVersion *int                  `json:"contractVersion,omitempty"`
-	ContractName    string                `json:"contractName,omitempty"` // New field for contract name
-	Refs            map[string]string     `json:"refs,omitempty"`         // New field for external references
-	OwnerID         string                `json:"ownerId"`
-	CompanyID       string                `json:"companyId"` // Company ID for multi-tenancy
-	Status          ThreadStatus          `json:"status"`
-	CurrentStep     string                `json:"currentStep"`
-	LastHash        string                `json:"lastHash"`
-	Steps           map[string]*StepState `json:"steps,omitempty"` // Key: stepName:idempKey
-	StartedAt       time.Time             `json:"startedAt"`
-	CompletedAt     *time.Time            `json:"completedAt,omitempty"`
-	Error           string                `json:"error,omitempty"`
+	ID              string            `json:"id"`
+	ContractID      *string           `json:"contractId,omitempty"`
+	ContractVersion *int              `json:"contractVersion,omitempty"`
+	ContractName    string            `json:"contractName,omitempty"` // New field for contract name
+	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
+	OwnerID         string            `json:"ownerId"`
+	CompanyID       string            `json:"companyId"`           // Company ID for multi-tenancy
+	CreatedBy       string            `json:"createdBy,omitempty"` // User or service account that created the thread
+	Status          ThreadStatus      `json:"-"`                   // Status comes from meta hash, not JSON
+	LastHash        string            `json:"lastHash"`
+	Violated        *ThreadViolation  `json:"violated,omitempty"` // Tracks failed steps and violations
+	StartedAt       time.Time         `json:"startedAt"`
+	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	// Step data is stored separately in Valkey:
+	// - Current steps: thread:ID:current_steps (sorted set)
+	// - Step state: thread:ID:steps:{stepName}:{idempKey} (hashes)
+}
+
+// ThreadConnection wraps thread results with pagination metadata
+type ThreadConnection struct {
+	Threads    []*Thread `json:"threads"`
+	TotalCount int       `json:"totalCount"`
 }
 
 // StepState represents the state of a step in a thread
@@ -69,7 +79,6 @@ func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, c
 		OwnerID:   ownerID,
 		CompanyID: companyID,
 		Status:    ThreadStatusActive,
-		Steps:     make(map[string]*StepState), // Initialize steps map
 		StartedAt: time.Now(),
 	}
 
@@ -77,7 +86,7 @@ func NewThreadWithCompany(id, contractID string, contractVersion int, ownerID, c
 	if contractID != "" {
 		thread.ContractID = &contractID
 	}
-	if contractVersion > 0 {
+	if contractVersion >= 0 {
 		thread.ContractVersion = &contractVersion
 	}
 
@@ -106,9 +115,23 @@ func (t *Thread) Cancel() {
 	t.CompletedAt = &now
 }
 
-// ToJSON serializes the thread to JSON
+// ToJSON serializes the thread to JSON (status excluded from struct JSON)
 func (t *Thread) ToJSON() ([]byte, error) {
 	return json.Marshal(t)
+}
+
+// MarshalJSON implements custom JSON marshaling to include status
+func (t *Thread) MarshalJSON() ([]byte, error) {
+	// Create a copy for JSON marshaling
+	type ThreadAlias Thread
+	alias := struct {
+		ThreadAlias
+		Status ThreadStatus `json:"status"`
+	}{
+		ThreadAlias: ThreadAlias(*t),
+		Status:      t.Status,
+	}
+	return json.Marshal(alias)
 }
 
 // FromJSON deserializes a thread from JSON
