@@ -138,15 +138,24 @@ console.log('Chain:', chain.map(t => t.id));
 
 ### Subscribe to Events
 ```javascript
-connection.on('step.success', 'order_placed', (notification) => {
+connection.subscribe('step.success', 'order_placed', (notification) => {
   console.log('Order placed:', notification.context);
   notification.ack();
 });
 
-connection.on('rule.violated', 'payment_processed', (notification) => {
+connection.subscribe('rule.violated', 'payment_processed', (notification) => {
   console.log('Violation:', notification.severity);
   notification.ack();
 });
+```
+
+### Unsubscribe from Events
+```javascript
+// Unsubscribe from specific step event
+connection.unsubscribe('step.success', 'order_placed');
+
+// Unsubscribe from thread-level event
+connection.unsubscribe('thread.completed');
 ```
 
 ### Join Thread
