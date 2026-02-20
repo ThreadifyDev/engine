@@ -1,0 +1,17 @@
+{
+    "packages": {
+        "threadify-sdk-go": {
+            "release-type": "go",
+            "package-name": "github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go",
+            "component": "threadify-sdk-go",
+            "tag-prefix": "threadify-sdk-go/v"
+        },
+        "threadify-sdk-python": {
+            "release-type": "python",
+            "package-name": "threadify-sdk",
+            "component": "threadify-sdk-python",
+            "tag-prefix": "threadify-sdk-python/v"
+        }
+    },
+    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+}
