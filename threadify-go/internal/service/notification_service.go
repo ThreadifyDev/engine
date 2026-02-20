@@ -134,7 +134,7 @@ func (s *NotificationService) PerformAsyncValidation(
 				idempKey = stepID
 			}
 
-			now := time.Now().Format(time.RFC3339)
+			now := time.Now().Format(time.RFC3339Nano)
 
 			// Serialize context to JSON string
 			contextJSON := ""
@@ -380,7 +380,7 @@ func (s *NotificationService) processValidationNotifications(
 		Status:                 originalStatus,
 		ExistingViolations:     existingViolations,
 		IsTerminalStep:         isTerminal,
-		Timestamp:              time.Now().Format(time.RFC3339),
+		Timestamp:              time.Now().Format(time.RFC3339Nano),
 		MaxRetries:             maxRetries,
 		TransitionsMap:         transitionsMap,
 		TerminalSteps:          terminalSteps,
@@ -550,7 +550,7 @@ func (s *NotificationService) processValidationNotifications(
 		fmt.Printf("[ARCHIVE-SUCCESS] Validation results archived for step=%s\n", stepName)
 	}
 
-	now := time.Now().Format(time.RFC3339)
+	now := time.Now().Format(time.RFC3339Nano)
 
 	// Use firstSeenAt from Redis if available, otherwise use current time
 	firstSeenAt := result.FirstSeenAt

@@ -67,7 +67,7 @@ websocket:
 
 # Bot scanner configuration
 bot_scanner:
-  enabled: true
+  enabled: false
   block_known_bots: true       # Block requests from known bot user-agents
   log_suspicious: false        # Log suspicious activity (set false to reduce log clutter)
   cleanup_interval_minutes: 30 # How often to clean up old tracking data

@@ -397,16 +397,16 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		// Format timestamps
 		startedAtStr := ""
 		if startedAtVal.Valid {
-			startedAtStr = startedAtVal.Time.Format(time.RFC3339)
+			startedAtStr = startedAtVal.Time.Format(time.RFC3339Nano)
 		}
 		finishedAtStr := ""
 		if finishedAtVal.Valid {
-			finishedAtStr = finishedAtVal.Time.Format(time.RFC3339)
+			finishedAtStr = finishedAtVal.Time.Format(time.RFC3339Nano)
 		}
 
 		stepHistory := models.StepHistory{
 			Attempt:      attemptNumber,
-			Timestamp:    recordedAt.Format(time.RFC3339),
+			Timestamp:    recordedAt.Format(time.RFC3339Nano),
 			Status:       statusValue,
 			Context:      contextStr,
 			Duration:     duration,

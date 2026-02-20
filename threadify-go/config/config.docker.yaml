@@ -52,6 +52,19 @@ nats:
   retention_hours: 48
   max_age_hours: 168  # 7 days
   ack_wait_seconds: 30
+  
+  # Consumer configuration
+  consumer_ack_wait_seconds: 30
+  consumer_max_deliver: 3
+  consumer_max_ack_pending: 100
+  
+  # Archiver configuration (unlimited retries to prevent data loss)
+  archiver_max_deliver: -1  # -1 = unlimited retries
+  archiver_ack_wait_seconds: 30
+  
+  # Stream retention
+  notifications_retention_days: 3
+  dlq_retention_days: 7
 
 # Archiver service configuration
 archiver:
@@ -83,3 +96,4 @@ archiver:
     consumer_group: "archiver-group"
     block_timeout_ms: 5000
     batch_size: 100
+    step_state_flush_interval_ms: 5000  # Flush interval for step state archival

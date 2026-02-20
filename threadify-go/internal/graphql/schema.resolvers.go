@@ -382,12 +382,12 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 
 // FirstSeenAt is the resolver for the firstSeenAt field.
 func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
-	return obj.FirstSeenAt.Format(time.RFC3339), nil
+	return obj.FirstSeenAt.Format(time.RFC3339Nano), nil
 }
 
 // LastUpdatedAt is the resolver for the lastUpdatedAt field.
 func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
-	return obj.LastUpdatedAt.Format(time.RFC3339), nil
+	return obj.LastUpdatedAt.Format(time.RFC3339Nano), nil
 }
 
 // Hash is the resolver for the hash field in StepStateInfo

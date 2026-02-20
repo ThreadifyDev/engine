@@ -140,13 +140,23 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 		expiresAt = &expiry
 	}
 
-	// Create API key record
+	// Create API key record.
+	// The DB constraint chk_api_key_owner requires exactly one of user_id /
+	// service_account_id to be non-null. When the key is owned by a service
+	// account, omit user_id (the creator is already tracked via the service
+	// account's own created_by column). Only set user_id when the key is
+	// owned directly by a human user (no service account).
+	var ownerUserID *string
+	if serviceAccountID == nil {
+		ownerUserID = &userID
+	}
+
 	apiKey := &models.APIKey{
 		ID:               utils.GenerateID(),
 		KeyHash:          keyHash,
 		KeyPrefix:        keyPrefix,
 		Name:             req.Name,
-		UserID:           &userID, // Track which user created the API key
+		UserID:           ownerUserID,
 		ServiceAccountID: serviceAccountID,
 		CompanyID:        companyID,
 		ExpiresAt:        expiresAt,

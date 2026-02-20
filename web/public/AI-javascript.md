@@ -126,6 +126,32 @@ await thread.step('process_payment')
 await childThread.linkThread(parentThread.id, 'parent');
 ```
 
+### Retrieve Thread Data
+
+**Recommended:** Use `getCompleteData()` for efficiency (single query):
+
+```javascript
+// Wait for archival (1-2 seconds)
+await new Promise(resolve => setTimeout(resolve, 2000));
+
+const thread = await connection.getThread(threadId);
+
+// Get everything in one query (recommended)
+const data = await thread.getCompleteData({
+  stepHistoryLimit: 50,    // History per step
+  validationLimit: 10      // Validation results
+});
+
+// Access: data.steps, data.validationResults, data.status, etc.
+```
+
+**Alternative:** Separate queries (use only if you need partial data):
+```javascript
+const thread = await connection.getThread(threadId);
+const steps = await thread.steps();                    // All steps
+const validations = await thread.validationResults();  // All validations
+```
+
 ### Query Thread Chain
 ```javascript
 // Wait for archival (1-2 seconds)

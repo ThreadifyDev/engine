@@ -63,8 +63,8 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
   };
 
   const statusConfig = {
-    active: { label: 'Active', color: 'bg-green-50 text-green-700 border-green-200' },
-    completed: { label: 'Completed', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    active: { label: 'Active', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    completed: { label: 'Completed', color: 'bg-green-50 text-green-700 border-green-200' },
     failed: { label: 'Failed', color: 'bg-red-50 text-red-700 border-red-200' },
     pending: { label: 'Pending', color: 'bg-gray-50 text-gray-700 border-gray-200' },
   };

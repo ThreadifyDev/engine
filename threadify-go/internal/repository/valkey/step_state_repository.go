@@ -16,6 +16,16 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 )
 
+// parseTimestamp parses a timestamp string written by the engine.
+// It accepts RFC3339Nano (ms/µs precision, the new format) and falls back to
+// plain RFC3339 (second precision) for values already stored before this change.
+func parseTimestamp(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
+}
+
 // Embed Lua script at compile time
 //
 //go:embed lua/validate_and_update_step_state.lua
@@ -215,12 +225,12 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 			}
 		}
 		if firstSeenAt, exists := result["firstSeenAt"]; exists {
-			if timestamp, err := time.Parse(time.RFC3339, firstSeenAt); err == nil {
+			if timestamp, err := parseTimestamp(firstSeenAt); err == nil {
 				stepState.FirstSeenAt = timestamp
 			}
 		}
 		if lastUpdatedAt, exists := result["lastUpdatedAt"]; exists {
-			if timestamp, err := time.Parse(time.RFC3339, lastUpdatedAt); err == nil {
+			if timestamp, err := parseTimestamp(lastUpdatedAt); err == nil {
 				stepState.LastUpdatedAt = timestamp
 			}
 		}
@@ -306,13 +316,13 @@ func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepNa
 
 	// Parse timestamps
 	if firstSeenAt, exists := result["firstSeenAt"]; exists {
-		if timestamp, err := time.Parse(time.RFC3339, firstSeenAt); err == nil {
+		if timestamp, err := parseTimestamp(firstSeenAt); err == nil {
 			stepState.FirstSeenAt = timestamp
 		}
 	}
 
 	if lastUpdatedAt, exists := result["lastUpdatedAt"]; exists {
-		if timestamp, err := time.Parse(time.RFC3339, lastUpdatedAt); err == nil {
+		if timestamp, err := parseTimestamp(lastUpdatedAt); err == nil {
 			stepState.LastUpdatedAt = timestamp
 		}
 	}
@@ -388,11 +398,11 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 				step.RetryCount = retryCount
 			}
 
-			if firstSeenAt, err := time.Parse(time.RFC3339, hashData["firstSeenAt"]); err == nil {
+			if firstSeenAt, err := parseTimestamp(hashData["firstSeenAt"]); err == nil {
 				step.FirstSeenAt = firstSeenAt
 			}
 
-			if lastUpdatedAt, err := time.Parse(time.RFC3339, hashData["lastUpdatedAt"]); err == nil {
+			if lastUpdatedAt, err := parseTimestamp(hashData["lastUpdatedAt"]); err == nil {
 				step.LastUpdatedAt = lastUpdatedAt
 			}
 
@@ -530,11 +540,11 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 				step.RetryCount = retryCount
 			}
 
-			if firstSeenAt, err := time.Parse(time.RFC3339, hashData["firstSeenAt"]); err == nil {
+			if firstSeenAt, err := parseTimestamp(hashData["firstSeenAt"]); err == nil {
 				step.FirstSeenAt = firstSeenAt
 			}
 
-			if lastUpdatedAt, err := time.Parse(time.RFC3339, hashData["lastUpdatedAt"]); err == nil {
+			if lastUpdatedAt, err := parseTimestamp(hashData["lastUpdatedAt"]); err == nil {
 				step.LastUpdatedAt = lastUpdatedAt
 			}
 
