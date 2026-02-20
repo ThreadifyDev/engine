@@ -19,6 +19,17 @@ import {
 } from 'lucide-react';
 import { graphqlClient, type StepStateInfo, type ValidationResultInfo } from '~/lib/graphql';
 
+// Format a timestamp string with millisecond precision.
+// Accepts ISO 8601 with or without sub-second component.
+function formatTimestampMs(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  return (
+    `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+  );
+}
+
 // Actor Section Component - Resolves actor ID to name
 function ActorSection({ actorId, actorService }: { actorId: string; actorService?: string }) {
   const { data: actors, isLoading } = useQuery({
@@ -171,14 +182,14 @@ export function StepDetailContent({
             <span className="text-gray-600">First Seen:</span>
             <div className="text-right">
               <div className="font-medium">{formatDistanceToNow(new Date(step.firstSeenAt), { addSuffix: true })}</div>
-              <div className="text-xs text-gray-500">{new Date(step.firstSeenAt).toLocaleString()}</div>
+              <div className="text-xs text-gray-500">{formatTimestampMs(step.firstSeenAt)}</div>
             </div>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Last Updated:</span>
             <div className="text-right">
               <div className="font-medium">{formatDistanceToNow(new Date(step.lastUpdatedAt), { addSuffix: true })}</div>
-              <div className="text-xs text-gray-500">{new Date(step.lastUpdatedAt).toLocaleString()}</div>
+              <div className="text-xs text-gray-500">{formatTimestampMs(step.lastUpdatedAt)}</div>
             </div>
           </div>
         </div>
