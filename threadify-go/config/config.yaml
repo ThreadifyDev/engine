@@ -101,6 +101,13 @@ thread_access:
 logging:
   level: info
 
+# Performance monitoring configuration
+performance:
+  # Enable performance monitoring (time.Now() calls and [PERF] logs)
+  # Set to false in production to eliminate GC pressure from timing operations
+  # Recommended: true for dev/staging, false for production
+  monitoring_enabled: false
+
 # Security configuration
 security:
   # Hash chain secrets for HMAC-based activity log integrity verification
@@ -132,6 +139,7 @@ nats:
   # Consumer configuration
   consumer_ack_wait_seconds: 30
   consumer_max_deliver: 3
+  consumer_max_ack_pending: 100
   
   # Archiver configuration (unlimited retries to prevent data loss)
   archiver_max_deliver: -1  # -1 = unlimited retries

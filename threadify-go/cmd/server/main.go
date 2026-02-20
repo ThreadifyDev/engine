@@ -27,6 +27,7 @@ import (
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/middleware"
+	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -56,6 +57,14 @@ func main() {
 	cfg, err := config.LoadFromViper()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Initialize performance monitoring (must be done early, before any perf calls)
+	perf.Initialize(cfg.Performance.MonitoringEnabled)
+	if cfg.Performance.MonitoringEnabled {
+		log.Println("✅ Performance monitoring ENABLED - time.Now() calls and [PERF] logs active")
+	} else {
+		log.Println("⚡ Performance monitoring DISABLED - zero overhead mode for production")
 	}
 
 	// Setup logger

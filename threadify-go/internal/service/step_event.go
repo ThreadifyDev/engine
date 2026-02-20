@@ -13,6 +13,7 @@ import (
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
@@ -68,29 +69,29 @@ func loadLuaScript(filename string) (string, error) {
 // Also processes sub-steps if provided
 func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
 	// Track overall step event latency
-	startTime := time.Now()
+	startTime := perf.Now()
 	stepEventID := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
-	log.Printf("[PERF] StepEvent START: %s | thread=%s | step=%s", stepEventID, event.ThreadID, event.StepName)
+	perf.Log("[PERF] StepEvent START: %s | thread=%s | step=%s", stepEventID, event.ThreadID, event.StepName)
 
 	defer func() {
-		duration := time.Since(startTime)
-		log.Printf("[PERF] StepEvent COMPLETE: %s | duration=%v", stepEventID, duration)
+		duration := perf.Since(startTime)
+		perf.Log("[PERF] StepEvent COMPLETE: %s | duration=%v", stepEventID, duration)
 	}()
 
 	// 1. Validate the step event
-	validationStart := time.Now()
+	validationStart := perf.Now()
 	if err := ses.validateStepEvent(event); err != nil {
 		// User input validation errors are safe to expose with context
-		log.Printf("[PERF] StepEvent VALIDATION FAILED: %s | duration=%v | error=%v", stepEventID, time.Since(validationStart), err)
+		perf.Log("[PERF] StepEvent VALIDATION FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(validationStart), err)
 		return fmt.Errorf("invalid step data: %w", err)
 	}
-	log.Printf("[PERF] StepEvent VALIDATION: %s | duration=%v", stepEventID, time.Since(validationStart))
+	perf.Log("[PERF] StepEvent VALIDATION: %s | duration=%v", stepEventID, perf.Since(validationStart))
 
 	// 2. Execute atomic hash generation via Lua script
-	hashStart := time.Now()
+	hashStart := perf.Now()
 	hashResult, err := ses.executeAtomicHashScript(event, ownerID, serviceName)
-	hashDuration := time.Since(hashStart)
-	log.Printf("[PERF] StepEvent HASH_GENERATION: %s | duration=%v | success=%t", stepEventID, hashDuration, err == nil)
+	hashDuration := perf.Since(hashStart)
+	perf.Log("[PERF] StepEvent HASH_GENERATION: %s | duration=%v | success=%t", stepEventID, hashDuration, err == nil)
 
 	if err != nil {
 		return err // Already sanitized by executeAtomicHashScript
@@ -99,31 +100,31 @@ func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, owner
 	// 3. Send activity event to NATS for archival (SYNCHRONOUS - critical for audit trail)
 	// Skip if NATS publisher is not available (graceful degradation)
 	if ses.natsPublisher != nil {
-		natsStart := time.Now()
+		natsStart := perf.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
 
 		if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-			natsDuration := time.Since(natsStart)
-			log.Printf("[PERF] StepEvent NATS_PUBLISH FAILED: %s | duration=%v | error=%v", stepEventID, natsDuration, err)
+			natsDuration := perf.Since(natsStart)
+			perf.Log("[PERF] StepEvent NATS_PUBLISH FAILED: %s | duration=%v | error=%v", stepEventID, natsDuration, err)
 			logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
 		} else {
-			log.Printf("[PERF] StepEvent NATS_PUBLISH: %s | duration=%v", stepEventID, time.Since(natsStart))
+			perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | duration=%v", stepEventID, perf.Since(natsStart))
 		}
 	} else {
-		log.Printf("[PERF] StepEvent NATS_PUBLISH: %s | SKIPPED (no publisher)", stepEventID)
+		perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | SKIPPED (no publisher)", stepEventID)
 	}
 
 	// 4. Process sub-steps if provided
 	if len(subSteps) > 0 && ses.natsPublisher != nil {
-		subStepsStart := time.Now()
+		subStepsStart := perf.Now()
 		if err := ses.processSubSteps(event.ThreadID, event.StepID, subSteps); err != nil {
-			log.Printf("[PERF] StepEvent SUBSTEPS_PROCESS FAILED: %s | duration=%v | error=%v", stepEventID, time.Since(subStepsStart), err)
+			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(subStepsStart), err)
 			// Don't fail the main step if sub-steps fail
 		} else {
-			log.Printf("[PERF] StepEvent SUBSTEPS_PROCESS: %s | count=%d | duration=%v", stepEventID, len(subSteps), time.Since(subStepsStart))
+			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS: %s | count=%d | duration=%v", stepEventID, len(subSteps), perf.Since(subStepsStart))
 		}
 	}
 
@@ -183,14 +184,14 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 	// Get hash configuration
 	version := ses.config.Security.HashChainCurrentVersion
 	if version == "" {
-		log.Printf("[PERF] StepEvent HASH_CALC_FAILED: %s | version not configured", stepEventID)
+		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | version not configured", stepEventID)
 		logInternalError("executeAtomicHashScript", fmt.Errorf("hash_chain_current_version not configured"))
 		return nil, fmt.Errorf("failed to process step event")
 	}
 
 	secret := ses.config.Security.HashChainSecrets[version]
 	if secret == "" {
-		log.Printf("[PERF] StepEvent HASH_CALC_FAILED: %s | secret version %s not configured", stepEventID, version)
+		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | secret version %s not configured", stepEventID, version)
 		logInternalError("executeAtomicHashScript", fmt.Errorf("hash secret version %s not configured", version))
 		return nil, fmt.Errorf("failed to process step event")
 	}
@@ -198,14 +199,14 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 	// Get old hash, calculate new hash, and update - with retry on race condition
 	var oldHash, newHash string
 	maxRetries := 3
-	atomicStart := time.Now()
+	atomicStart := perf.Now()
 	threadKey := "thread:" + event.ThreadID
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Load and execute get hash script
 		getScript, err := loadLuaScript("get_thread_hash.lua")
 		if err != nil {
-			log.Printf("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
 			if attempt == maxRetries-1 {
 				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
 				return nil, sanitizeError(err)
@@ -215,7 +216,7 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 		result, err := ses.valkeyRepo.Eval(context.Background(), getScript, []string{threadKey})
 		if err != nil {
-			log.Printf("[PERF] StepEvent GET_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.Log("[PERF] StepEvent GET_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
 			if attempt == maxRetries-1 {
 				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
 				return nil, sanitizeError(err)
@@ -225,7 +226,7 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 		resultSlice, ok := result.([]interface{})
 		if !ok || len(resultSlice) < 1 {
-			log.Printf("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
+			perf.Log("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
 			return nil, fmt.Errorf("failed to process step event")
 		}
 
@@ -242,7 +243,7 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 		// Load and execute update hash script with optimistic locking
 		updateScript, err := loadLuaScript("update_thread_hash.lua")
 		if err != nil {
-			log.Printf("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
 			if attempt == maxRetries-1 {
 				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
 				return nil, sanitizeError(err)
@@ -260,7 +261,7 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 		)
 
 		if err != nil {
-			log.Printf("[PERF] StepEvent UPDATE_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.Log("[PERF] StepEvent UPDATE_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
 			if attempt == maxRetries-1 {
 				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
 				return nil, sanitizeError(err)
@@ -271,20 +272,20 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 		// Check if update succeeded
 		updateResult, ok := result.([]interface{})
 		if !ok || len(updateResult) < 1 {
-			log.Printf("[PERF] StepEvent UPDATE_PARSE_FAILED: %s | unexpected result: %v", stepEventID, result)
+			perf.Log("[PERF] StepEvent UPDATE_PARSE_FAILED: %s | unexpected result: %v", stepEventID, result)
 			return nil, fmt.Errorf("failed to process step event")
 		}
 
 		success, _ := updateResult[0].(int64)
 		if success == 1 {
 			// Success!
-			atomicDuration := time.Since(atomicStart)
-			log.Printf("[PERF] StepEvent ATOMIC_HASH: %s | duration=%v | attempts=%d", stepEventID, atomicDuration, attempt+1)
+			atomicDuration := perf.Since(atomicStart)
+			perf.Log("[PERF] StepEvent ATOMIC_HASH: %s | duration=%v | attempts=%d", stepEventID, atomicDuration, attempt+1)
 			break
 		}
 
 		// Race condition detected, retry
-		log.Printf("[PERF] StepEvent HASH_RACE_DETECTED: %s | attempt=%d | retrying...", stepEventID, attempt+1)
+		perf.Log("[PERF] StepEvent HASH_RACE_DETECTED: %s | attempt=%d | retrying...", stepEventID, attempt+1)
 		if attempt == maxRetries-1 {
 			return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
 		}

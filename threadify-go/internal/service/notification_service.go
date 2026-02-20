@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/workerpool"
 )
@@ -370,7 +371,7 @@ func (s *NotificationService) processValidationNotifications(
 	}
 
 	// Call repository to validate and update atomically with timing
-	luaStart := time.Now()
+	luaStart := perf.Now()
 	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, interfaces.ValidateStepParams{
 		ThreadID:               threadID,
 		StepID:                 stepID,
@@ -387,9 +388,9 @@ func (s *NotificationService) processValidationNotifications(
 		Actor:                  ownerID, // User who recorded this step (for .own permission filtering)
 	})
 
-	luaDuration := time.Since(luaStart)
-	stepEventID := fmt.Sprintf("%s:%s:%s", threadID, stepName, idempotencyKey)
-	log.Printf("[PERF] Validation LUA_SCRIPT: %s | duration=%v | success=%t", stepEventID, luaDuration, err == nil)
+	luaDuration := perf.Since(luaStart)
+	stepEventID := threadID + ":" + stepName + ":" + idempotencyKey
+	perf.Log("[PERF] Validation LUA_SCRIPT: %s | duration=%v | success=%t", stepEventID, luaDuration, err == nil)
 
 	if err != nil {
 		fmt.Printf("[REPO-ERROR] Error validating and updating step state: %v\n", err)

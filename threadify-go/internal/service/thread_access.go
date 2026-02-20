@@ -10,6 +10,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/repository/valkey"
 )
 
@@ -40,38 +41,38 @@ func NewThreadAccessService(accessRepo *valkey.AccessRepository, cacheManager in
 // 2. Check global runtime_role permission cache
 // 3. If cache miss, resolve from RBAC loader and cache by runtime_role
 func (s *ThreadAccessService) GetUserPermissions(threadID, userID string) ([]string, error) {
-	start := time.Now()
+	start := perf.Now()
 
 	// Tier 1: Get user access (runtime_role) from Valkey/PostgreSQL
-	valkeyStart := time.Now()
+	valkeyStart := perf.Now()
 	access, err := s.accessRepo.GetUserAccess(context.Background(), threadID, userID)
-	fmt.Printf("[PERF] GetUserPermissions.valkeyLookup: %v\n", time.Since(valkeyStart))
+	perf.Log("[PERF] GetUserPermissions.valkeyLookup: %v\n", perf.Since(valkeyStart))
 	if err != nil {
 		return nil, err
 	}
 
 	// Tier 2: Check global runtime_role permission cache
-	cacheCheckStart := time.Now()
+	cacheCheckStart := perf.Now()
 	if perms, exists := s.cacheManager.GetRuntimeRolePermissions(access.RuntimeRole); exists {
-		fmt.Printf("[PERF] GetUserPermissions.cacheHit: %v (runtime_role=%s)\n", time.Since(cacheCheckStart), access.RuntimeRole)
-		fmt.Printf("[PERF] GetUserPermissions total: %v (cache hit)\n", time.Since(start))
+		perf.Log("[PERF] GetUserPermissions.cacheHit: %v (runtime_role=%s)\n", perf.Since(cacheCheckStart), access.RuntimeRole)
+		perf.Log("[PERF] GetUserPermissions total: %v (cache hit)\n", perf.Since(start))
 		return perms, nil
 	}
-	fmt.Printf("[PERF] GetUserPermissions.cacheMiss: %v\n", time.Since(cacheCheckStart))
+	perf.Log("[PERF] GetUserPermissions.cacheMiss: %v\n", perf.Since(cacheCheckStart))
 
 	// Tier 3: Resolve permissions from RBAC loader
 	if s.rbacLoader == nil {
 		return nil, fmt.Errorf("RBAC loader not initialized - cannot resolve permissions for runtime_role: %s", access.RuntimeRole)
 	}
-	rbacStart := time.Now()
+	rbacStart := perf.Now()
 	perms := s.rbacLoader.GetPermissionsForRoles([]string{access.RuntimeRole}, "runtime_level")
-	fmt.Printf("[PERF] GetUserPermissions.rbacResolve: %v (runtime_role=%s)\n", time.Since(rbacStart), access.RuntimeRole)
+	perf.Log("[PERF] GetUserPermissions.rbacResolve: %v (runtime_role=%s)\n", perf.Since(rbacStart), access.RuntimeRole)
 
 	// Cache by runtime_role (global, not per-user)
-	cacheSetStart := time.Now()
+	cacheSetStart := perf.Now()
 	s.cacheManager.SetRuntimeRolePermissions(access.RuntimeRole, perms)
-	fmt.Printf("[PERF] GetUserPermissions.cacheSet: %v\n", time.Since(cacheSetStart))
-	fmt.Printf("[PERF] GetUserPermissions total: %v (rbac resolution)\n", time.Since(start))
+	perf.Log("[PERF] GetUserPermissions.cacheSet: %v\n", perf.Since(cacheSetStart))
+	perf.Log("[PERF] GetUserPermissions total: %v (rbac resolution)\n", perf.Since(start))
 	return perms, nil
 }
 
@@ -133,7 +134,7 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 	threadTTL *int,
 ) (*interfaces.UserAccess, error) {
 	// Resolve permissions from runtime_role using RBAC loader
-	rbacStart := time.Now()
+	rbacStart := perf.Now()
 	var permissions []string
 	if s.rbacLoader != nil {
 		permissions = s.rbacLoader.GetPermissionsForRoles([]string{runtimeRole}, "runtime_level")
@@ -143,10 +144,10 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 		// If RBAC loader not available, use empty permissions
 		permissions = []string{}
 	}
-	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(time.Since(rbacStart).Seconds())
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(perf.Since(rbacStart).Seconds())
 
 	// Call repository with resolved permissions
-	repoStart := time.Now()
+	repoStart := perf.Now()
 	access, err := s.accessRepo.GrantOrUpdateAccess(
 		ctx,
 		threadID, userID,
@@ -158,15 +159,15 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 		threadData,
 		threadTTL,
 	)
-	metrics.OperationDuration.WithLabelValues("redis_thread_create", "lua_script_exec").Observe(time.Since(repoStart).Seconds())
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "lua_script_exec").Observe(perf.Since(repoStart).Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant access with thread creation: %w", err)
 	}
 
 	// Update in-memory cache
-	cacheStart := time.Now()
+	cacheStart := perf.Now()
 	s.cacheManager.SetUserRole(threadID, userID, role)
-	metrics.OperationDuration.WithLabelValues("redis_thread_create", "cache_update").Observe(time.Since(cacheStart).Seconds())
+	metrics.OperationDuration.WithLabelValues("redis_thread_create", "cache_update").Observe(perf.Since(cacheStart).Seconds())
 
 	return access, nil
 }
@@ -205,37 +206,37 @@ func (s *ThreadAccessService) GetUserRole(threadID, userID string) (string, erro
 //
 // Uses three-tier caching for permission lookup
 func (s *ThreadAccessService) CheckThreadAccess(threadID, userID, requiredPermission string, thread *models.Thread) (bool, error) {
-	start := time.Now()
+	start := perf.Now()
 	defer func() {
-		fmt.Printf("[PERF] CheckThreadAccess total: %v (thread=%s, user=%s)\n", time.Since(start), threadID[:8], userID)
+		perf.Log("[PERF] CheckThreadAccess total: %v (thread=%s, user=%s)\n", perf.Since(start), threadID[:8], userID)
 	}()
 
 	// Check if user is thread owner (implicit full access)
-	ownerCheckStart := time.Now()
+	ownerCheckStart := perf.Now()
 	if thread.OwnerID == userID {
-		fmt.Printf("[PERF] CheckThreadAccess.ownerCheck: %v (OWNER - fast path)\n", time.Since(ownerCheckStart))
+		perf.Log("[PERF] CheckThreadAccess.ownerCheck: %v (OWNER - fast path)\n", perf.Since(ownerCheckStart))
 		return true, nil
 	}
-	fmt.Printf("[PERF] CheckThreadAccess.ownerCheck: %v (not owner)\n", time.Since(ownerCheckStart))
+	perf.Log("[PERF] CheckThreadAccess.ownerCheck: %v (not owner)\n", perf.Since(ownerCheckStart))
 
 	// Get user permissions (with three-tier caching)
-	permCheckStart := time.Now()
+	permCheckStart := perf.Now()
 	permissions, err := s.GetUserPermissions(threadID, userID)
-	fmt.Printf("[PERF] CheckThreadAccess.GetUserPermissions: %v\n", time.Since(permCheckStart))
+	perf.Log("[PERF] CheckThreadAccess.GetUserPermissions: %v\n", perf.Since(permCheckStart))
 	if err != nil {
 		// No permissions found - access denied
 		return false, nil
 	}
 
-	// Check if required permission exists
-	loopStart := time.Now()
+	// Check if user has required permission
+	loopStart := perf.Now()
 	for _, perm := range permissions {
 		if perm == requiredPermission {
-			fmt.Printf("[PERF] CheckThreadAccess.permissionLoop: %v (found)\n", time.Since(loopStart))
+			perf.Log("[PERF] CheckThreadAccess.permissionLoop: %v (found)\n", perf.Since(loopStart))
 			return true, nil
 		}
 	}
-	fmt.Printf("[PERF] CheckThreadAccess.permissionLoop: %v (not found)\n", time.Since(loopStart))
+	perf.Log("[PERF] CheckThreadAccess.permissionLoop: %v (not found)\n", perf.Since(loopStart))
 
 	return false, nil
 }

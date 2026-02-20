@@ -22,6 +22,7 @@ type Config struct {
 	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
 	BotScanner         BotScannerConfig         `yaml:"bot_scanner" mapstructure:"bot_scanner"`
 	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
+	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
 }
 
 // ServerConfig holds server configuration
@@ -250,4 +251,9 @@ type PoolConfig struct {
 	ScaleDownAfterMs  int `yaml:"scale_down_after_ms" mapstructure:"scale_down_after_ms"`
 	JobTimeoutMs      int `yaml:"job_timeout_ms" mapstructure:"job_timeout_ms"`
 	SubmitRetryWaitMs int `yaml:"submit_retry_wait_ms" mapstructure:"submit_retry_wait_ms"`
+}
+
+// PerformanceConfig holds performance monitoring configuration
+type PerformanceConfig struct {
+	MonitoringEnabled bool `yaml:"monitoring_enabled" mapstructure:"monitoring_enabled"`
 }
