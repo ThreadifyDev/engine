@@ -46,9 +46,10 @@ type BusinessContext struct {
 }
 
 type Transition struct {
-	From     string   `yaml:"from"`
-	To       []string `yaml:"to"`
-	CanRetry bool     `yaml:"can_retry,omitempty"`
+	From       string   `yaml:"from"`
+	To         []string `yaml:"to"`
+	CanRetry   bool     `yaml:"can_retry,omitempty"`
+	MaxRetries int      `yaml:"max_retries,omitempty"`
 }
 
 type VersioningRules struct {

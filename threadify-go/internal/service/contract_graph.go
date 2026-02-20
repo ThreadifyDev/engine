@@ -86,13 +86,38 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 		}
 	}
 
-	// 5. Build graph with entry points and terminal steps
+	// 5. Build graph with entry points, terminal steps, and transitions
+	fmt.Printf("[BUILD-GRAPH] Building graph with %d transitions\n", len(contract.Transitions))
+	if len(contract.Transitions) > 0 {
+		fmt.Printf("[BUILD-GRAPH] First transition: from=%s, to=%v, canRetry=%v, maxRetries=%d\n",
+			contract.Transitions[0].From, contract.Transitions[0].To, contract.Transitions[0].CanRetry, contract.Transitions[0].MaxRetries)
+	}
+
+	// Validate that all step owners exist in the parties array (if parties are defined)
+	if len(contract.Parties) > 0 {
+		for _, step := range contract.Steps {
+			stepOwnerInParties := false
+			for _, party := range contract.Parties {
+				if party == step.Owner {
+					stepOwnerInParties = true
+					break
+				}
+			}
+			if !stepOwnerInParties {
+				return nil, fmt.Errorf("step owner '%s' is not defined in contract parties: %v", step.Owner, contract.Parties)
+			}
+		}
+	}
+
 	return &models.ContractGraph{
 		Graph: models.Graph{
 			Nodes:         nodes,
 			EntryPoints:   contract.EntryPoints,
 			TerminalSteps: contract.TerminalSteps,
 		},
+		Transitions: contract.Transitions,
+		Validation:  contract.Validation,
+		Parties:     contract.Parties,
 	}, nil
 }
 

@@ -1,0 +1,222 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/models"
+)
+
+// AccessRepository handles access control retrieval from PostgreSQL
+type AccessRepository struct {
+	pool *pgxpool.Pool
+}
+
+// NewAccessRepository creates a new PostgreSQL access repository
+func NewAccessRepository(pool *pgxpool.Pool) *AccessRepository {
+	return &AccessRepository{
+		pool: pool,
+	}
+}
+
+// GetUserAccess retrieves user access from thread_access table
+func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error) {
+	query := `
+		SELECT roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
+		FROM thread_access
+		WHERE thread_id = $1 AND user_id = $2
+	`
+
+	var rolesJSON []byte
+	var runtimeRole string
+	var permissions []string
+	var grantedBy, grantedAt, status string
+	var updatedAt sql.NullString
+
+	err := r.pool.QueryRow(ctx, query, threadID, userID).Scan(
+		&rolesJSON,
+		&runtimeRole,
+		&permissions,
+		&grantedBy,
+		&grantedAt,
+		&updatedAt,
+		&status,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("user does not have access")
+		}
+		return nil, fmt.Errorf("failed to get user access: %w", err)
+	}
+
+	// Parse JSON array for roles
+	var roles []string
+	if err := json.Unmarshal(rolesJSON, &roles); err != nil {
+		return nil, fmt.Errorf("failed to parse roles: %w", err)
+	}
+
+	access := &interfaces.UserAccess{
+		Roles:       roles,
+		RuntimeRole: runtimeRole,
+		Permissions: permissions,
+		GrantedBy:   grantedBy,
+		GrantedAt:   grantedAt,
+		Status:      status,
+	}
+
+	if updatedAt.Valid {
+		access.UpdatedAt = updatedAt.String
+	}
+
+	return access, nil
+}
+
+// GetAllAccess retrieves all user access for a thread from thread_access table
+func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error) {
+	query := `
+		SELECT user_id, roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
+		FROM thread_access
+		WHERE thread_id = $1
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query thread access: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*interfaces.UserAccess)
+
+	for rows.Next() {
+		var userID string
+		var rolesJSON []byte
+		var runtimeRole string
+		var permissions []string
+		var grantedBy, grantedAt, status string
+		var updatedAt sql.NullString
+
+		err := rows.Scan(
+			&userID,
+			&rolesJSON,
+			&runtimeRole,
+			&permissions,
+			&grantedBy,
+			&grantedAt,
+			&updatedAt,
+			&status,
+		)
+
+		if err != nil {
+			continue // Skip invalid entries
+		}
+
+		// Parse JSON array for roles
+		var roles []string
+		if err := json.Unmarshal(rolesJSON, &roles); err != nil {
+			continue
+		}
+
+		result[userID] = &interfaces.UserAccess{
+			Roles:       roles,
+			RuntimeRole: runtimeRole,
+			Permissions: permissions,
+			GrantedBy:   grantedBy,
+			GrantedAt:   grantedAt,
+			Status:      status,
+		}
+
+		if updatedAt.Valid {
+			result[userID].UpdatedAt = updatedAt.String
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetUsersByRuntimeRoles retrieves users filtered by runtime_role for a thread
+// Returns minimal data (user_id, runtime_role) for efficient notification routing
+func (r *AccessRepository) GetUsersByRuntimeRoles(
+	ctx context.Context,
+	threadID string,
+	runtimeRoles []string,
+) ([]models.UserRoleInfo, error) {
+	query := `
+		SELECT user_id, runtime_role
+		FROM thread_access
+		WHERE thread_id = $1
+		  AND status = 'active'
+		  AND runtime_role = ANY($2)
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID, runtimeRoles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users by runtime roles: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.UserRoleInfo
+
+	for rows.Next() {
+		var user models.UserRoleInfo
+		if err := rows.Scan(&user.UserID, &user.RuntimeRole); err != nil {
+			continue // Skip invalid entries
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return users, nil
+}
+
+// GetUsersByPermissions retrieves users who have ANY of the required permissions
+// Uses GIN index on permissions column for efficient array overlap queries
+// Returns user_id AND permissions array for .own filtering in application layer
+func (r *AccessRepository) GetUsersByPermissions(
+	ctx context.Context,
+	threadID string,
+	requiredPermissions []string,
+) ([]models.UserPermissionInfo, error) {
+	// Use && operator for array overlap - returns true if arrays have any common elements
+	// GIN index on permissions column makes this O(log N) instead of O(N)
+	query := `
+		SELECT user_id, permissions
+		FROM thread_access
+		WHERE thread_id = $1
+		  AND status = 'active'
+		  AND permissions && $2
+	`
+
+	rows, err := r.pool.Query(ctx, query, threadID, requiredPermissions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users by permissions: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.UserPermissionInfo
+
+	for rows.Next() {
+		var user models.UserPermissionInfo
+		if err := rows.Scan(&user.UserID, &user.Permissions); err != nil {
+			continue // Skip invalid entries
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return users, nil
+}

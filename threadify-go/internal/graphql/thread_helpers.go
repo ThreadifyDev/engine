@@ -1,0 +1,151 @@
+package graphql
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/perf"
+)
+
+// ThreadQueryOptions contains common options for thread queries
+type ThreadQueryOptions struct {
+	Limit  *int
+	Offset *int
+}
+
+// NormalizePagination normalizes and validates pagination parameters
+func NormalizePagination(opts *ThreadQueryOptions) (limit, offset int) {
+	limit = 50 // default
+	offset = 0 // default
+
+	if opts.Limit != nil {
+		limit = *opts.Limit
+		// Cap at 100 to prevent abuse (hard limit for all thread queries)
+		if limit > MaxThreadsPerQuery {
+			limit = MaxThreadsPerQuery
+		}
+		if limit <= 0 {
+			limit = 50 // reset to default if invalid
+		}
+	}
+
+	if opts.Offset != nil {
+		offset = *opts.Offset
+	}
+
+	return limit, offset
+}
+
+// BatchLoadThreadData loads refs and steps for threads based on GraphQL selections
+// This is the core reusable batch loading logic
+func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*models.Thread) error {
+	if len(threads) == 0 {
+		return nil
+	}
+
+	// Extract GraphQL field selections
+	selectionStart := perf.Now()
+	selections := ExtractFieldSelections(ctx)
+	perf.Log("[PERF] batchLoad.extractSelections: %v\n", perf.Since(selectionStart))
+
+	// Collect thread IDs for batch loading
+	threadIDs := make([]string, len(threads))
+	for i, thread := range threads {
+		threadIDs[i] = thread.ID
+	}
+
+	batchLoadStart := perf.Now()
+
+	// Conditionally batch load refs (only if requested in GraphQL query)
+	if selections.Has("refs") {
+		refsStart := perf.Now()
+		refsMap, err := r.refsRepo.GetRefsBatch(ctx, threadIDs)
+		perf.Log("[PERF] batchLoad.refs: %v (loaded for %d threads)\n", perf.Since(refsStart), len(threadIDs))
+		if err != nil {
+			fmt.Printf("Warning: failed to batch load refs: %v\n", err)
+		} else {
+			// Assign refs to threads
+			for _, thread := range threads {
+				if refs, ok := refsMap[thread.ID]; ok {
+					thread.Refs = refs
+				}
+			}
+		}
+	} else {
+		perf.Log("[PERF] batchLoad.refs: SKIPPED (not requested)\n")
+	}
+
+	// Conditionally batch load steps (only if requested in GraphQL query)
+	if selections.Has("steps") {
+		stepsStart := perf.Now()
+		stepsMap, err := r.stepStatePostgres.GetStepsBatch(ctx, threadIDs)
+		perf.Log("[PERF] batchLoad.steps: %v (loaded for %d threads)\n", perf.Since(stepsStart), len(threadIDs))
+		if err != nil {
+			fmt.Printf("Warning: failed to batch load steps: %v\n", err)
+		} else {
+			// Convert to map[string]interface{} for context caching
+			stepsCache := make(map[string]interface{}, len(stepsMap))
+			for threadID, steps := range stepsMap {
+				stepsCache[threadID] = steps
+			}
+			// Cache steps in context for Steps resolver to use
+			ctx = cacheSteps(ctx, stepsCache)
+		}
+	} else {
+		perf.Log("[PERF] batchLoad.steps: SKIPPED (not requested)\n")
+	}
+
+	perf.Log("[PERF] batchLoad.total: %v\n", perf.Since(batchLoadStart))
+	return nil
+}
+
+// FilterThreadsByAccess filters threads based on user access permissions
+// This is the core reusable access control logic
+func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*models.Thread, ownerID string) ([]*models.Thread, error) {
+	if len(threads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	accessCheckStart := perf.Now()
+	perf.Log("[PERF] accessCheck: Starting batch check for %d threads\n", len(threads))
+
+	// Batch check access for all threads at once
+	accessMap, err := r.threadAccessService.BatchCheckThreadAccess(threads, ownerID, "read")
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch check thread access: %w", err)
+	}
+
+	// Filter threads based on access results
+	accessibleThreads := make([]*models.Thread, 0, len(threads))
+	for _, thread := range threads {
+		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
+			accessibleThreads = append(accessibleThreads, thread)
+			// Cache the access check result for child resolvers
+			ctx = cacheAccessCheck(ctx, thread.ID, true)
+		}
+	}
+
+	perf.Log("[PERF] accessCheck.total: %v (checked %d, accessible %d)\n",
+		perf.Since(accessCheckStart), len(threads), len(accessibleThreads))
+
+	return accessibleThreads, nil
+}
+
+// ProcessThreadQuery is a high-level helper that combines all common thread query logic:
+// 1. Batch load related data (refs, etc.)
+// 2. Filter by access permissions
+// This eliminates duplication across all thread query resolvers
+func (r *queryResolver) ProcessThreadQuery(ctx context.Context, threads []*models.Thread, ownerID string) ([]*models.Thread, error) {
+	if len(threads) == 0 {
+		return []*models.Thread{}, nil
+	}
+
+	// Step 1: Batch load related data based on GraphQL selections
+	if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+		return nil, err
+	}
+
+	// Step 2: Filter by access permissions
+	return r.FilterThreadsByAccess(ctx, threads, ownerID)
+}

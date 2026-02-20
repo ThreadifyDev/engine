@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Test files
+tests/
+*.test.js
+**/*.test.js
+
+# Examples
+examples/
+
+# Documentation (keep README.md)
+*.md
+!README.md
+
+# Configuration files
+jest.config.js
+.nycrc
+.babelrc
+.eslintrc.*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Build artifacts
+dist/
+build/
+
+# Temporary files
+.tmp/
+.temp/
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.travis.yml
+.circleci/
+
+# Package manager files
+package-lock.json
+yarn.lock

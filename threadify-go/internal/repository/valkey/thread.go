@@ -2,31 +2,54 @@ package valkey
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/repository/postgres"
+	apperrors "github.com/threadify/engine/internal/utils/errors"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey interfaces.ValkeyClient
-	ttl    int // TTL in seconds
+	valkey            interfaces.ValkeyClient
+	ttl               int // TTL in seconds
+	postgresRepo      *postgres.ThreadRepository
+	stepStatePostgres *postgres.StepStateRepository // For step state queries
+	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
+	writeBackPool     *workerpool.Pool              // For async cache write-backs
 }
 
-// NewThreadRepository creates a new thread repository
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int) *ThreadRepository {
+// NewThreadRepository creates a new thread repository with PostgreSQL fallback
+// PostgreSQL fallback is always required for production hot/cold architecture
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager) *ThreadRepository {
 	return &ThreadRepository{
-		valkey: valkey,
-		ttl:    ttl,
+		valkey:            valkey,
+		ttl:               ttl,
+		postgresRepo:      postgresRepo,
+		stepStatePostgres: stepStatePostgres,
+		cacheManager:      cacheManager,
 	}
+}
+
+// GetPostgresRepo returns the underlying postgres repository for direct queries
+func (r *ThreadRepository) GetPostgresRepo() *postgres.ThreadRepository {
+	return r.postgresRepo
+}
+
+// SetWriteBackPool sets the worker pool for async cache write-backs
+func (r *ThreadRepository) SetWriteBackPool(pool *workerpool.Pool) {
+	r.writeBackPool = pool
 }
 
 // Save stores a thread in Valkey
 func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
 	key := r.getThreadKey(thread.ID)
+	metaKey := r.getThreadMetaKey(thread.ID)
 
 	// Serialize thread to JSON
 	data, err := thread.ToJSON()
@@ -34,8 +57,23 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 		return fmt.Errorf("failed to serialize thread: %w", err)
 	}
 
-	// Store in Valkey with TTL
-	err = r.valkey.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+	// Use pipeline for atomic write
+	pipe := r.valkey.Pipeline()
+
+	// Store base data as JSON
+	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+
+	// Store metadata in hash for atomic Lua updates
+	metadata := map[string]interface{}{
+		"status": string(thread.Status),
+	}
+	if thread.CompletedAt != nil {
+		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339)
+	}
+	pipe.HSet(ctx, metaKey, metadata)
+	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
+
+	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to save thread: %w", err)
 	}
@@ -43,11 +81,70 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 	return nil
 }
 
-// Get retrieves a thread from Valkey
-func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
-	key := r.getThreadKey(threadID)
+// Get retrieves a thread from Valkey (hot) or PostgreSQL (cold) with optional write-back
+// writeBack: if true, caches PostgreSQL data back to Valkey (defaults to false)
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+	log.Printf("🔍 [REPO-DEBUG] Get called for thread: %s", threadID)
 
-	// Get from Valkey
+	// Default writeBack to false
+	shouldWriteBack := false
+	if len(writeBack) > 0 {
+		shouldWriteBack = writeBack[0]
+	}
+
+	// Try Valkey first (hot data)
+	log.Printf("🔄 [REPO-DEBUG] Trying Valkey first...")
+	thread, err := r.getFromValkey(ctx, threadID)
+	log.Printf("📊 [REPO-DEBUG] getFromValkey result: thread=%v, err=%v", thread != nil, err)
+
+	if err == nil && thread != nil {
+		log.Printf("✅ [HOT] Thread %s from Valkey", threadID)
+		return thread, nil
+	}
+
+	// Fallback to PostgreSQL (cold data)
+	log.Printf("🔄 [REPO-DEBUG] Checking if postgresRepo is nil: %v", r.postgresRepo == nil)
+	if r.postgresRepo == nil {
+		log.Printf("❌ [REPO-DEBUG] postgresRepo is nil, cannot fallback!")
+		return nil, fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	log.Printf("⚠️ [COLD] Thread %s not in Valkey, checking PostgreSQL", threadID)
+
+	// REUSE: GetWithRefs already exists from GraphQL implementation
+	thread, err = r.postgresRepo.GetWithRefs(ctx, threadID)
+	if err != nil {
+		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
+	}
+
+	log.Printf(" [COLD] Thread %s from PostgreSQL", threadID)
+
+	// Async write-back via worker pool using Save() for format consistency
+	// Don't block the read operation - write-back happens in background
+	if shouldWriteBack && r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			// Create new context with timeout for write-back operation
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+
+			log.Printf(" [WRITE-BACK] Async caching thread %s to Valkey", threadID)
+			if err := r.Save(writeBackCtx, thread); err != nil {
+				log.Printf(" Async write-back failed for thread %s: %v", threadID, err)
+			} else {
+				log.Printf(" [WRITE-BACK] Thread %s cached successfully", threadID)
+			}
+		})
+	}
+
+	return thread, nil
+}
+
+// getFromValkey retrieves thread from Valkey only (internal helper)
+func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (*models.Thread, error) {
+	key := r.getThreadKey(threadID)
+	metaKey := r.getThreadMetaKey(threadID)
+
+	// Get base data from JSON
 	data, err := r.valkey.Get(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get thread: %w", err)
@@ -63,7 +160,42 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 		return nil, fmt.Errorf("failed to deserialize thread: %w", err)
 	}
 
+	// Get metadata from hash and overlay it (hash is source of truth)
+	meta, err := r.valkey.HGetAll(ctx, metaKey)
+	if err == nil && len(meta) > 0 {
+		// Initialize refs map if needed
+		if thread.Refs == nil {
+			thread.Refs = make(map[string]string)
+		}
+
+		// Extract and overlay metadata fields
+		for key, value := range meta {
+			switch key {
+			case "status":
+				thread.Status = models.ThreadStatus(value)
+			case "completedAt":
+				if value != "" {
+					if completedAt, err := time.Parse(time.RFC3339, value); err == nil {
+						thread.CompletedAt = &completedAt
+					}
+				}
+			default:
+				// Extract refs (keys prefixed with "refs:")
+				if strings.HasPrefix(key, "refs:") {
+					refKey := strings.TrimPrefix(key, "refs:")
+					thread.Refs[refKey] = value
+				}
+			}
+		}
+	}
+
 	return thread, nil
+}
+
+// GetThreadWithCache is deprecated - use Get(ctx, threadID, false) instead
+// Kept for backward compatibility with GraphQL resolvers
+func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID string) (*models.Thread, error) {
+	return r.Get(ctx, threadID, false)
 }
 
 // Delete removes a thread from Valkey
@@ -112,6 +244,29 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string) ([]st
 	return threadIDs, nil
 }
 
+// AddRefs adds references to thread metadata atomically
+func (r *ThreadRepository) AddRefs(ctx context.Context, threadID string, refs map[string]string) error {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	metaKey := r.getThreadMetaKey(threadID)
+	pipe := r.valkey.Pipeline()
+
+	// Atomic ref updates - each HSET is atomic per field
+	for key, value := range refs {
+		pipe.HSet(ctx, metaKey, "refs:"+key, value)
+	}
+	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to add refs: %w", err)
+	}
+
+	return nil
+}
+
 // ExtendTTL extends the TTL of a thread
 func (r *ThreadRepository) ExtendTTL(ctx context.Context, threadID string) error {
 	key := r.getThreadKey(threadID)
@@ -124,6 +279,49 @@ func (r *ThreadRepository) ExtendTTL(ctx context.Context, threadID string) error
 	return nil
 }
 
+// UpdateThreadStatus updates thread status in Valkey cache
+func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID string, status string, timestamp time.Time) error {
+	key := r.getThreadKey(threadID)
+	metaKey := r.getThreadMetaKey(threadID)
+
+	// First, get the current thread JSON to update it
+	thread, err := r.getFromValkey(ctx, threadID)
+	if err != nil || thread == nil {
+		// Thread not in cache, skip update (will be updated via archiver)
+		return nil
+	}
+
+	// Update thread object
+	thread.Status = models.ThreadStatus(status)
+	if status == "completed" || status == "cancelled" {
+		thread.CompletedAt = &timestamp
+	}
+
+	// Serialize updated thread to JSON
+	data, err := thread.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to serialize thread: %w", err)
+	}
+
+	// Use pipeline for atomic write
+	pipe := r.valkey.Pipeline()
+
+	// Update base data as JSON
+	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
+
+	// Update metadata hash
+	metadata := map[string]interface{}{
+		"status": status,
+	}
+	if status == "completed" || status == "cancelled" {
+		metadata["completedAt"] = timestamp.Format(time.RFC3339)
+	}
+	pipe.HSet(ctx, metaKey, metadata)
+
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
 // getThreadKey generates the Redis key for a thread
 func (r *ThreadRepository) getThreadKey(threadID string) string {
 	return fmt.Sprintf("thread:%s", threadID)
@@ -131,192 +329,51 @@ func (r *ThreadRepository) getThreadKey(threadID string) string {
 
 // getOwnerThreadPattern generates the Redis key pattern for owner's threads
 func (r *ThreadRepository) getOwnerThreadPattern(ownerID string) string {
-	return fmt.Sprintf("thread:*")
+	return fmt.Sprintf("thread:*:owner:%s", ownerID)
 }
 
-// Role management methods
-
-// AssignRole assigns a role to a user in a thread
-func (r *ThreadRepository) AssignRole(ctx context.Context, threadID, role, userID string) error {
-	key := r.getThreadRolesKey(threadID)
-	return r.valkey.HSet(ctx, key, role, userID)
+func (r *ThreadRepository) getThreadMetaKey(threadID string) string {
+	return fmt.Sprintf("thread:%s:meta", threadID)
 }
 
-// GetUserRole gets the role assigned to a user in a thread
-func (r *ThreadRepository) GetUserRole(ctx context.Context, threadID, userID string) (string, error) {
-	key := r.getThreadRolesKey(threadID)
-	roles, err := r.valkey.HGetAll(ctx, key)
-	if err != nil {
-		return "", err
-	}
-
-	// Find the role assigned to this user
-	for role, assignedUser := range roles {
-		if assignedUser == userID {
-			return role, nil
+// GetThreadWithPermissionCheck retrieves a thread with company-wide access verification
+// MVP: Company-wide access - users can view all threads from their company
+// Hot path: Valkey first, then verify company_id matches
+// Cold path: PostgreSQL with SQL-level company filtering
+func (r *ThreadRepository) GetThreadWithPermissionCheck(
+	ctx context.Context,
+	threadID string,
+	companyID string,
+) (*models.Thread, error) {
+	// Try Valkey first (hot path)
+	thread, err := r.getFromValkey(ctx, threadID)
+	if err == nil && thread != nil {
+		// Verify company-wide access
+		if thread.CompanyID != companyID {
+			return nil, fmt.Errorf("access denied: thread belongs to a different company")
 		}
+		return thread, nil
 	}
 
-	return "", nil
-}
-
-// GetAllRoles gets all role assignments for a thread
-func (r *ThreadRepository) GetAllRoles(ctx context.Context, threadID string) (map[string]string, error) {
-	key := r.getThreadRolesKey(threadID)
-	return r.valkey.HGetAll(ctx, key)
-}
-
-// RemoveRole removes a role assignment in a thread
-func (r *ThreadRepository) RemoveRole(ctx context.Context, threadID, role string) error {
-	key := r.getThreadRolesKey(threadID)
-	return r.valkey.HDel(ctx, key, role)
-}
-
-// Permission management methods
-
-// SetUserPermissions sets permissions for a user in a thread
-func (r *ThreadRepository) SetUserPermissions(ctx context.Context, threadID, userID string, permissions []string) error {
-	key := r.getThreadPermissionsKey(threadID)
-	permissionsJSON, err := json.Marshal(permissions)
-	if err != nil {
-		return fmt.Errorf("failed to marshal permissions: %w", err)
+	// Fallback to PostgreSQL (cold path)
+	if r.postgresRepo == nil {
+		return nil, fmt.Errorf("thread not found: %s", threadID)
 	}
-	return r.valkey.HSet(ctx, key, userID, string(permissionsJSON))
-}
 
-// GetUserPermissions gets permissions for a user in a thread
-func (r *ThreadRepository) GetUserPermissions(ctx context.Context, threadID, userID string) ([]string, error) {
-	key := r.getThreadPermissionsKey(threadID)
-	permissionsJSON, err := r.valkey.HGet(ctx, key, userID)
+	// PostgreSQL query with company-level filtering
+	thread, err = r.postgresRepo.GetThreadWithPermissionCheck(ctx, threadID, companyID)
 	if err != nil {
 		return nil, err
 	}
 
-	var permissions []string
-	err = json.Unmarshal([]byte(permissionsJSON), &permissions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal permissions: %w", err)
+	// Async write-back to Valkey via worker pool
+	if r.writeBackPool != nil {
+		r.writeBackPool.Submit(func(ctx context.Context) {
+			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			r.Save(writeBackCtx, thread)
+		})
 	}
 
-	return permissions, nil
-}
-
-// Event queue methods
-
-// AddThreadEvent adds an event to the thread's activity queue
-func (r *ThreadRepository) AddThreadEvent(ctx context.Context, threadID string, event models.ThreadEvent) error {
-	key := r.getThreadEventsKey(threadID)
-	eventJSON, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
-	return r.valkey.LPush(ctx, key, string(eventJSON))
-}
-
-// GetThreadEvents gets events from the thread's activity queue
-func (r *ThreadRepository) GetThreadEvents(ctx context.Context, threadID string, start, stop int64) ([]models.ThreadEvent, error) {
-	key := r.getThreadEventsKey(threadID)
-	eventJSONs, err := r.valkey.LRange(ctx, key, start, stop)
-	if err != nil {
-		return nil, err
-	}
-
-	events := make([]models.ThreadEvent, 0, len(eventJSONs))
-	for _, eventJSON := range eventJSONs {
-		var event models.ThreadEvent
-		err := json.Unmarshal([]byte(eventJSON), &event)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal event: %w", err)
-		}
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-// Pipeline operations
-
-// CreateThreadWithSetup creates a thread with initial role and permissions using pipeline
-func (r *ThreadRepository) CreateThreadWithSetup(ctx context.Context, thread *models.Thread, creatorID string, creatorRole string, creatorPerms []string) error {
-	pipe := r.valkey.Pipeline()
-
-	// 1. Save thread metadata
-	threadKey := r.getThreadKey(thread.ID)
-	threadJSON, err := thread.ToJSON()
-	if err != nil {
-		return fmt.Errorf("failed to marshal thread: %w", err)
-	}
-	pipe.Set(ctx, threadKey, string(threadJSON), time.Duration(r.ttl)*time.Second)
-
-	// 2. Set initial role
-	rolesKey := r.getThreadRolesKey(thread.ID)
-	pipe.HSet(ctx, rolesKey, creatorRole, creatorID)
-	pipe.Expire(ctx, rolesKey, time.Duration(r.ttl)*time.Second)
-
-	// 3. Set initial permissions
-	permsKey := r.getThreadPermissionsKey(thread.ID)
-	permsJSON, _ := json.Marshal(creatorPerms)
-	pipe.HSet(ctx, permsKey, creatorID, string(permsJSON))
-	pipe.Expire(ctx, permsKey, time.Duration(r.ttl)*time.Second)
-
-	// 4. Add creation event
-	eventKey := r.getThreadEventsKey(thread.ID)
-	eventJSON, _ := json.Marshal(models.ThreadEvent{
-		Action:    "thread_created",
-		ThreadID:  thread.ID,
-		UserID:    creatorID,
-		Role:      creatorRole,
-		Timestamp: time.Now().UTC(),
-	})
-	pipe.LPush(ctx, eventKey, string(eventJSON))
-	pipe.Expire(ctx, eventKey, time.Duration(r.ttl)*time.Second)
-
-	_, err = pipe.Exec(ctx)
-	return err
-}
-
-// CompleteThread marks a thread as completed with optional immediate cleanup
-func (r *ThreadRepository) CompleteThread(ctx context.Context, threadID string, immediateCleanup bool) error {
-	// Get and update thread
-	thread, err := r.Get(ctx, threadID)
-	if err != nil {
-		return err
-	}
-
-	thread.Complete()
-
-	if immediateCleanup {
-		// Immediate cleanup using pipeline
-		pipe := r.valkey.Pipeline()
-
-		// Mark thread as completed
-		threadKey := r.getThreadKey(threadID)
-		threadJSON, _ := thread.ToJSON()
-		pipe.Set(ctx, threadKey, string(threadJSON), time.Duration(r.ttl)*time.Second)
-
-		// Clean up everything immediately
-		pipe.Del(ctx, r.getThreadRolesKey(threadID))
-		pipe.Del(ctx, r.getThreadPermissionsKey(threadID))
-		pipe.Del(ctx, r.getThreadEventsKey(threadID))
-
-		_, err = pipe.Exec(ctx)
-		return err
-	} else {
-		// Just mark as completed, let TTLs handle cleanup
-		return r.Save(ctx, thread)
-	}
-}
-
-// Helper methods for key generation
-
-func (r *ThreadRepository) getThreadRolesKey(threadID string) string {
-	return fmt.Sprintf("thread:%s:roles", threadID)
-}
-
-func (r *ThreadRepository) getThreadPermissionsKey(threadID string) string {
-	return fmt.Sprintf("thread:%s:permissions", threadID)
-}
-
-func (r *ThreadRepository) getThreadEventsKey(threadID string) string {
-	return fmt.Sprintf("thread:%s:queue", threadID)
+	return thread, nil
 }

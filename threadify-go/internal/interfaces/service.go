@@ -4,7 +4,7 @@ import "github.com/threadify/engine/internal/models"
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
-	ProcessStepEvent(event models.StepEvent) error
+	RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error
 	Start() error
 	Stop() error
 }
@@ -26,26 +26,32 @@ type CacheManager interface {
 	ClearThreadCache(threadID string)
 
 	// Contract graph caching
-	GetContractGraph(contractID string, version int) (*models.ContractGraph, bool)
-	SetContractGraph(contractID string, version int, graph *models.ContractGraph)
-	ClearContractCache(contractID string, version int)
+	GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, bool)
+	SetContractGraph(contractName string, version int, companyID string, graph *models.ContractGraph)
+	ClearContractCache(contractName string, version int, companyID string)
 
-	// Permission caching
-	GetUserPermissions(threadID, userID string) ([]string, bool)
-	SetUserPermissions(threadID, userID string, permissions []string)
+	// Runtime role permission caching (global, not per-user)
+	GetRuntimeRolePermissions(runtimeRole string) ([]string, bool)
+	SetRuntimeRolePermissions(runtimeRole string, permissions []string)
 
-	// Role caching
+	// Role caching (per-user per-thread)
 	GetUserRole(threadID, userID string) (string, bool)
 	SetUserRole(threadID, userID, role string)
 
-	// Clear all permissions and roles for a thread
-	ClearThreadPermissions(threadID string)
+	// Clear all roles for a thread
+	ClearThreadRoles(threadID string)
+
+	// Step status caching (for duplicate detection)
+	GetStepStatus(stepHashKey string) (string, bool)
+	SetStepStatus(stepHashKey, status string)
+	ClearStepStatus(stepHashKey string)
 }
 
 // ContractValidator defines the interface for contract validation operations
 type ContractValidator interface {
-	ValidateStepInContract(contractID string, version int, stepName string, context map[string]string) error
+	ValidateStepInContract(contractName string, version int, stepName string, context map[string]string, companyID string) error
 	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
-	GetContractGraph(contractID string, version int) (*models.ContractGraph, error)
-	LoadContractGraphIntoCache(contractID string, version int) error
+	GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error)
+	LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error)
+	GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error)
 }

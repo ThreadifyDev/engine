@@ -5,6 +5,7 @@ type ConnectRequest struct {
 	ApiKey           string   `json:"apiKey"`
 	ServiceName      string   `json:"serviceName,omitempty"`
 	SubscribedEvents []string `json:"subscribedEvents"`
+	MaxInFlight      int      `json:"maxInFlight,omitempty"` // Client-specified max unACKed notifications
 }
 
 type ConnectResponse struct {
@@ -42,6 +43,7 @@ type RecordEventRequest struct {
 	Status         string            `json:"status"`
 	ServiceName    string            `json:"serviceName,omitempty"`
 	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
+	SubSteps       []SubStepRequest  `json:"subSteps,omitempty"`
 }
 
 type RecordEventResponse struct {
@@ -51,6 +53,19 @@ type RecordEventResponse struct {
 	ThreadID    string `json:"threadId,omitempty"`
 	StepID      string `json:"stepId,omitempty"`
 	IsDuplicate bool   `json:"isDuplicate,omitempty"`
+}
+
+type AddRefsRequest struct {
+	Action   string            `json:"action"`
+	ThreadID string            `json:"threadId"`
+	Refs     map[string]string `json:"refs"`
+}
+
+type AddRefsResponse struct {
+	Action   string `json:"action"`
+	Status   string `json:"status"`
+	Message  string `json:"message"`
+	ThreadID string `json:"threadId,omitempty"`
 }
 
 type CloseConnectionResponse struct {

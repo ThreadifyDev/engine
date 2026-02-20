@@ -1,17 +1,45 @@
 import WebSocket from 'ws';
 import { Connection, ThreadInstance } from './Thread.js';
+import { Notification } from './Notification.js';
+import { DataRetriever } from './DataRetriever.js';
 
 /**
- * Threadify SDK - Main entry point
+ * @typedef {Object} ThreadifyConnectOptions
+ * @property {string} [url] - WebSocket URL (default: ws://localhost:8081/threads)
+ * @property {string} [wsUrl] - WebSocket URL (alias for url)
+ * @property {string} [graphqlUrl] - GraphQL URL (default: derived from wsUrl)
+ * @property {boolean} [debug=false] - Enable debug logging
+ * @property {number} [maxInFlight=10] - Maximum number of unACKed notifications (1-100)
+ */
+
+/**
+ * Threadify SDK - Main entry point for connecting to Threadify Engine
+ * @example
+ * import { Threadify } from '@threadify/sdk';
+ * 
+ * // Basic connection
+ * const connection = await Threadify.connect('api-key', 'my-service');
+ * 
+ * // Custom endpoints with debug
+ * const connection = await Threadify.connect('api-key', 'my-service', {
+ *   wsUrl: 'wss://api.example.com/threads',
+ *   graphqlUrl: 'https://api.example.com/graphql',
+ *   debug: true
+ * });
  */
 export class Threadify {
   /**
    * Connect to Threadify Engine
    * @param {string} apiKey - Your API key
-   * @param {string} serviceName - Optional service name for identification
-   * @param {Object} options - Connection options
-   * @param {string} options.url - WebSocket URL (default: ws://localhost:8081/threads)
-   * @returns {Promise<Connection>} - Connected Connection instance
+   * @param {string} [serviceName] - Optional service name for identification
+   * @param {ThreadifyConnectOptions} [options={}] - Connection options
+   * @returns {Promise<import('./Thread.js').Connection>} Connected Connection instance
+   * @throws {Error} When API key is invalid or missing
+   * @example
+   * const connection = await Threadify.connect('your-api-key', 'payment-service', {
+   *   debug: true,
+   *   wsUrl: 'wss://your-domain.com/threads'
+   * });
    */
   static async connect(apiKey, serviceName = null, options = {}) {
     if (!apiKey || typeof apiKey !== 'string') {
@@ -19,62 +47,69 @@ export class Threadify {
     }
 
     const {
-      url = 'ws://localhost:8081/threads'
+      url,
+      wsUrl = url || 'wss://eng.threadify.dev/threads',
+      graphqlUrl,
+      debug = false,
+      maxInFlight = 10
     } = options;
-    console.log('[DEBUG] Connecting to Threadify Engine at:', url);
+
+    // Validate maxInFlight
+    if (maxInFlight < 1 || maxInFlight > 100) {
+      throw new Error('maxInFlight must be between 1 and 100');
+    }
+
+    // Derive GraphQL URL from WebSocket URL if not provided
+    const derivedGraphqlUrl = graphqlUrl || wsUrl
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace('/threads', '/graphql');
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
-      // Initialize Connection
-      const connection = new Connection(ws, apiKey, serviceName);
+      const ws = new WebSocket(wsUrl);
+      // Initialize Connection with GraphQL URL, debug flag, and maxInFlight
+      const connection = new Connection(ws, apiKey, serviceName, derivedGraphqlUrl, debug, maxInFlight);
 
       ws.on('open', () => {
-        console.log('[DEBUG] WebSocket opened');
-        // Send connect message
+        // Send connect message with maxInFlight
         const connectMessage = {
           action: 'connect',
           apiKey,
-          serviceName
+          serviceName,
+          maxInFlight
         };
 
-        console.log('[DEBUG] Sending connect message:', JSON.stringify(connectMessage));
+        connection._debugLog('WebSocket opened, sending connect message with maxInFlight:', maxInFlight);
         ws.send(JSON.stringify(connectMessage));
       });
 
-      ws.on('message', (data) => {
-        console.log('[DEBUG] Received message:', data.toString());
+      // Set up one-time handler for connect response only
+      const connectHandler = (data) => {
         try {
           const message = JSON.parse(data.toString());
-          console.log('[DEBUG] Parsed message:', message);
+          connection._debugLog('Received message:', message.action);
 
           // Handle connect response
           if (message.action === 'connect') {
-            console.log('[DEBUG] Connect response received, status:', message.status);
+            ws.off('message', connectHandler); // Remove this handler after connect
             if (message.status === 'success') {
               connection.isConnected = true;
-              console.log('[DEBUG] Connection successful');
+              connection._debugLog('Connection successful');
               resolve(connection);
             } else {
               reject(new Error(message.message || 'Connection failed'));
               ws.close();
             }
-          }  // Don't process further for connect messages
-
-          // Handle event notifications
-          if (connection.eventHandlers && message.action in connection.eventHandlers) {
-            connection.eventHandlers[message.action].forEach(handler => {
-              try {
-                handler(message);
-              } catch (e) {
-                console.error('Error in event handler:', e);
-              }
-            });
           }
         } catch (e) {
-          console.error('[DEBUG] Failed to parse WebSocket message:', e);
-          console.error('[DEBUG] Raw data:', data.toString());
+          connection._debugLog('Failed to parse WebSocket message:', e.message);
+          if (debug) {
+            console.error('[DEBUG] Raw data:', data.toString());
+          }
         }
-      });
+      };
+      
+      ws.on('message', connectHandler);
 
       ws.on('error', (error) => {
         reject(new Error(`WebSocket error: ${error.message}`));
@@ -99,6 +134,8 @@ export class Threadify {
    * @param {Object} config - Configuration object
    * @param {string} config.apiKey - Your API key
    * @param {string} config.url - WebSocket URL
+   * @param {string} config.wsUrl - WebSocket URL (alias for url)
+   * @param {string} config.graphqlUrl - GraphQL URL
    * @param {string} config.serviceName - Service name
    * @returns {Object} - Threadify instance with connect method
    */
@@ -106,7 +143,9 @@ export class Threadify {
     return {
       connect: (serviceName = config.serviceName) => {
         return Threadify.connect(config.apiKey, serviceName, {
-          url: config.url
+          url: config.url,
+          wsUrl: config.wsUrl,
+          graphqlUrl: config.graphqlUrl
         });
       }
     };
@@ -116,5 +155,5 @@ export class Threadify {
 // Export for CommonJS compatibility
 export default Threadify;
 
-// Export Connection class for direct usage
-export { Connection, ThreadInstance };
+// Export classes for direct usage (DataRetriever is now internal)
+export { Connection, ThreadInstance, Notification };
