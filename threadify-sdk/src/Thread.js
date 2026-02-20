@@ -96,13 +96,13 @@ export class Connection {
   }
 
   /**
-   * Get thread chain starting from root thread
-   * @param {string} rootId - Root thread ID
-   * @param {number} maxDepth - Maximum depth to traverse (default: 3)
-   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from root to descendants
+   * Get thread chain starting from any thread
+   * @param {string} startThreadId - Starting thread ID (can be any thread in the chain)
+   * @param {number} maxDepth - Maximum depth to traverse downward (default: 3)
+   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from starting thread to descendants
    */
-  async getThreadChain(rootId, maxDepth = 3) {
-    return this._getDataRetriever().getThreadChain(rootId, maxDepth);
+  async getThreadChain(startThreadId, maxDepth = 3) {
+    return this._getDataRetriever().getThreadChain(startThreadId, maxDepth);
   }
 
 

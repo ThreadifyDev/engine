@@ -180,54 +180,88 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Use Case Sections */}
-      <div className="bg-white">
-        <FeatureSection
-          tagline="For Support & Operations Teams"
-          title={`Answer "what happened?" instantly`}
-          description={`
-            A customer tickets you: "Where's my order?" A workflow is stuck: "Why hasn't this loan been approved?" You dig through logs, ping engineering, wait for answers.
-Ask Threadify-"Where's Sarah's order stuck?" or "Why hasn't loan #4729 been approved?"—and get instant answers with full execution context. See which step failed, why it failed, what happened before.
-Support answers customers in seconds. Operations debugs without engineering. Everyone understands what actually happened.
-          `}
-          footerTagline="Ask questions in plain English • Get instant answers"
-          visual="right"
-        />
+      {/* Use Cases Section */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-12">
+            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">USE CASES</p>
+            <h2 className="text-4xl font-light text-black mb-4">
+              Built for every team.<br />For any workflow.
+            </h2>
+            <p className="text-lg text-gray-600 max-w-2xl">
+              Turn processes into playbooks to train colleagues, assist customers, and drive software adoption.
+            </p>
+          </div>
 
-        <FeatureSection
-          tagline="For Intelligent Systems"
-          title="Validate and react with context"
-          description={`
-            Services stay up while business logic silently breaks—payment before inventory check, disbursement before identity verification. Automation retries blindly.
-            Threadify validates execution against business rules and sends events when things deviate. Systems react with full context: failed payments check if inventory is reserved before retrying, fraud systems see complete transaction history, AI agents know what led to this moment.
-            Prevention replaces reaction. Context replaces guessing.
-          `}
-          footerTagline="Real-time validation • Context-aware automation"
-          visual="left"
-        />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Top Row - 2 larger cards */}
+            {/* Card 1: Resolve support tickets */}
+            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
+              <img 
+                src="https://images.unsplash.com/photo-1556761175-b413da4baf72?w=800&q=80" 
+                alt="Support team"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+              <div className="relative h-full p-5 flex flex-col justify-end">
+                <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center mb-2">
+                  <MessageSquare className="w-3.5 h-3.5 text-white" />
+                </div>
+                <h3 className="text-base font-semibold text-white">Resolve support tickets</h3>
+              </div>
+            </div>
 
-        <FeatureSection
-          tagline="For Execs"
-          title="Turn execution into business intelligence"
-          description={`
-            Payments feel slow today but you don't know if it's isolated or systemic. Workflows stall and you can't pinpoint bottlenecks. Questions like "which request types take longest?" require engineering to write queries.
-Ask Threadify questions—"Show me all failed payments in the last hour" or "Which workflows are stuck at manual review?"—and surface patterns across execution. Find where processes bottleneck, identify what's blocking customer journeys, understand execution behavior without digging through logs. Product finds friction points. Operations spots issues early. Finance sees operational patterns.
-          `}
-          footerTagline="Execution becomes intelligence. Questions get answers."
-          visual="right"
-        />
+            {/* Card 2: Prevent business logic failures */}
+            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
+              <img 
+                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&q=80" 
+                alt="Team collaboration"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+              <div className="relative h-full p-5 flex flex-col justify-end">
+                <div className="w-7 h-7 rounded-md bg-purple-600 flex items-center justify-center mb-2">
+                  <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                </div>
+                <h3 className="text-base font-semibold text-white">Prevent business logic failures</h3>
+              </div>
+            </div>
 
-        <FeatureSection
-          tagline='For LLM Agents'
-          title="Build execution context"
-          description={`
-            AI agents make decisions without understanding what led here. A refund gets approved without seeing payment history. A support ticket gets routed without knowing this is the customer's fifth escalation.
-          Threadify gives agents complete execution context. When handling a request, agents see what already happened—which steps succeeded, what failed, what decisions were made. Refund agents check transaction history before approving. Routing agents see escalation patterns. Orchestration triggers the next step only when conditions are actually met, not guessed.
-          `}
-          footerTagline="Enabling LLM Agents make better decisions"
-          visual="left"
-        />
-      </div>
+            {/* Bottom Row - 2 cards */}
+            {/* Card 3: Optimize operational costs */}
+            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
+              <img 
+                src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=800&q=80" 
+                alt="Team working"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+              <div className="relative h-full p-5 flex flex-col justify-end">
+                <div className="w-7 h-7 rounded-md bg-green-600 flex items-center justify-center mb-2">
+                  <Zap className="w-3.5 h-3.5 text-white" />
+                </div>
+                <h3 className="text-base font-semibold text-white">Optimize operational costs</h3>
+              </div>
+            </div>
+
+            {/* Card 4: Build smarter AI agents */}
+            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
+              <img 
+                src="https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800&q=80" 
+                alt="Team meeting"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+              <div className="relative h-full p-5 flex flex-col justify-end">
+                <div className="w-7 h-7 rounded-md bg-purple-600 flex items-center justify-center mb-2">
+                  <Brain className="w-3.5 h-3.5 text-white" />
+                </div>
+                <h3 className="text-base font-semibold text-white">Build smarter AI agents</h3>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Features Grid */}
       <section className="bg-gradient-to-b from-white to-gray-50 py-24 px-6">

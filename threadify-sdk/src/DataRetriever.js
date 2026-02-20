@@ -525,12 +525,12 @@ export class DataRetriever {
   }
 
   /**
-   * Get thread chain starting from root thread
-   * @param {string} rootId - Root thread ID
-   * @param {number} maxDepth - Maximum depth to traverse (default: 3)
-   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from root to descendants
+   * Get thread chain starting from any thread
+   * @param {string} startThreadId - Starting thread ID (can be any thread in the chain)
+   * @param {number} maxDepth - Maximum depth to traverse downward (default: 3)
+   * @returns {Promise<Array<ArchivedThread>>} - Thread chain from starting thread to descendants
    */
-  async getThreadChain(rootId, maxDepth = 3) {
+  async getThreadChain(startThreadId, maxDepth = 3) {
     const query = `
       query GetThreadChain($rootId: ID!, $maxDepth: Int) {
         threadChain(rootId: $rootId, maxDepth: $maxDepth) {
@@ -539,7 +539,7 @@ export class DataRetriever {
       }
     `;
 
-    const data = await this.graphqlClient.query(query, { rootId, maxDepth });
+    const data = await this.graphqlClient.query(query, { rootId: startThreadId, maxDepth });
     
     if (!data.threadChain) {
       return [];

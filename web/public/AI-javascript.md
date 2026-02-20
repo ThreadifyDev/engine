@@ -126,6 +126,16 @@ await thread.step('process_payment')
 await childThread.linkThread(parentThread.id, 'parent');
 ```
 
+### Query Thread Chain
+```javascript
+// Wait for archival (1-2 seconds)
+await new Promise(resolve => setTimeout(resolve, 2000));
+
+// Query from any thread in chain
+const chain = await connection.getThreadChain(startThreadId, 3);
+console.log('Chain:', chain.map(t => t.id));
+```
+
 ### Subscribe to Events
 ```javascript
 connection.on('step.success', 'order_placed', (notification) => {

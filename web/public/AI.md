@@ -169,7 +169,7 @@ Every step must have one of three statuses:
 
 ---
 
-### 9. Joining Threads
+### 10. Joining Threads
 
 **What it does:** Join an existing thread
 
@@ -185,7 +185,7 @@ Every step must have one of three statuses:
 
 ---
 
-### 10. Contracts (YAML)
+### 11. Contracts (YAML)
 
 **What it does:** Defines business rules enforced at runtime
 
