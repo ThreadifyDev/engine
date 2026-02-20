@@ -2,7 +2,7 @@
     "packages": {
         "threadify-sdk-go": {
             "release-type": "go",
-            "package-name": "github.com/creativeJoe007/ThreadifyEngine/threadify-sdk-go",
+            "package-name": "https://github.com/ThreadifyDev/go-sdk.git",
             "component": "threadify-sdk-go",
             "tag-prefix": "threadify-sdk-go/v"
         },
