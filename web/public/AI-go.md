@@ -1,0 +1,556 @@
+# Threadify Go SDK - Syntax Guide
+
+> **Prerequisites:** Read [AI.md](https://threadify.dev/AI.md) for core concepts.
+
+This file contains **Go-specific syntax only**. For concepts, see AI.md.
+
+---
+
+## Installation
+
+```bash
+go get github.com/ThreadifyDev/go-sdk
+```
+
+## Import
+
+```go
+import (
+    "context"
+    "github.com/ThreadifyDev/go-sdk"
+)
+```
+
+---
+
+## Syntax Reference
+
+### Connect
+```go
+ctx := context.Background()
+conn, err := threadify.Connect(ctx, "api-key", threadify.WithServiceName("my-service"))
+if err != nil {
+    log.Fatal(err)
+}
+defer conn.Close()
+
+// With options
+conn, err := threadify.Connect(ctx, "api-key",
+    threadify.WithServiceName("my-service"),
+    threadify.WithWSURL("wss://eng.threadify.dev/threads"),
+    threadify.WithDebug(true),
+)
+```
+
+### Start Thread
+```go
+// No contract
+thread, err := conn.Start(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+// With service name
+thread, err := conn.Start(ctx, threadify.WithService("payment-service"))
+if err != nil {
+    log.Fatal(err)
+}
+
+// With contract
+thread, err := conn.Start(ctx, 
+    threadify.WithContract("order_fulfillment"),
+    threadify.WithService("merchant-service"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// With contract and specific role
+thread, err := conn.Start(ctx, 
+    threadify.WithContract("order_fulfillment"),
+    threadify.WithRole("merchant"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Record Step
+```go
+result, err := thread.Step("order_placed").
+    AddContext(map[string]any{"order_id": "123", "amount": 99.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Add Context
+```go
+.AddContext(map[string]any{
+    "key": "value",
+    "another_key": "another_value",
+})
+```
+
+### Set Idempotency Key
+
+**Manual idempotency key** (use external system IDs):
+```go
+// Using payment provider transaction ID
+result, err := thread.Step("charge_payment").
+    IdempotencyKey(stripePayment.ID).  // e.g., "pi_3ABC123"
+    AddContext(map[string]any{"amount": 99.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Using user-initiated retry with request ID
+result, err := thread.Step("retry_payment").
+    IdempotencyKey(requestID).
+    AddContext(map[string]any{"attempt": 2}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+**Auto-generated** (default - no `.IdempotencyKey()` call):
+```go
+// SDK generates hash from stepName + context
+result, err := thread.Step("validate_cart").
+    AddContext(map[string]any{"items": 3, "total": 99.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+// Idempotency key auto-generated from: 'validate_cart' + '{"items":"3","total":"99.99"}'
+```
+
+### Add Sub-Steps
+```go
+// Add sub-steps to track granular operations within a step
+result, err := thread.Step("payment_processed").
+    SubStep("validate_card", map[string]any{"cardType": "visa"}, "success").
+    SubStep("check_fraud", map[string]any{"fraudScore": 0.15}, "success").
+    SubStep("authorize_payment", map[string]any{"authCode": "AUTH-123"}, "success").
+    AddContext(map[string]any{"totalAmount": 299.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Sub-step status can be "success" or "failed" (optional, defaults to "success")
+.SubStep("error_handler", map[string]any{"error": "timeout"}, "failed")
+```
+
+### Step Status
+```go
+.Success(ctx)
+.Success(ctx, "Order placed successfully")
+.Success(ctx, map[string]any{"message": "Order placed", "order_id": "ORD-123"})
+
+.Failed(ctx)
+.Failed(ctx, "Payment declined")
+.Failed(ctx, map[string]any{"error": "Payment declined", "code": "DECLINED"})
+
+.Error(ctx)
+.Error(ctx, "Service unavailable")
+.Error(ctx, map[string]any{"error": "Timeout", "service": "payment-api"})
+```
+
+### Add External References
+
+**Thread-level references** (called on thread object):
+
+```go
+// Add references to the thread
+err := thread.AddRefs(ctx, map[string]string{
+    "stripe_payment_id": "pi_123",
+    "order_id": "ORD-456",
+})
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+**Step-level references** (called on step):
+
+```go
+// Add references specific to this step
+result, err := thread.Step("process_payment").
+    AddRefs(map[string]string{
+        "transaction_id": "txn_789",
+        "receipt_id": "rcpt_456",
+    }).
+    AddContext(map[string]any{"amount": 99.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Link Threads
+```go
+err := childThread.LinkThread(ctx, parentThread.ThreadID, "parent")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Default relationship is "parent" if not specified
+err := childThread.LinkThread(ctx, parentThread.ThreadID, "")
+```
+
+### Add Private Context
+```go
+// Private context is prefixed with "private_" and excluded from certain queries
+result, err := thread.Step("process_payment").
+    AddPrivateContext(map[string]any{
+        "card_number": "4111111111111111",
+        "cvv": "123",
+    }).
+    AddContext(map[string]any{"amount": 99.99}).
+    Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Query Thread Chain
+```go
+// Wait for archival (1-2 seconds)
+time.Sleep(2 * time.Second)
+
+// Query from any thread in chain
+chain, err := conn.GetThreadChain(ctx, startThreadID, 3)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, t := range chain {
+    fmt.Println("Thread ID:", t.ID)
+}
+```
+
+### Query Threads by Reference
+```go
+// Find threads by external reference
+threads, err := conn.GetThreadsByRef(ctx, &threadify.RefQuery{
+    RefKey:   "order_id",
+    RefValue: "ORD-12345",
+    Status:   "completed", // Optional filter
+    Limit:    10,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, thread := range threads {
+    fmt.Println("Thread:", thread.ID, "Status:", thread.Status)
+}
+```
+
+### Get Archived Thread Data
+```go
+// Get thread from archive
+thread, err := conn.GetThread(ctx, threadID)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Get steps for the thread
+steps, err := thread.Steps(ctx, "order_placed", "", "success")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Get validation results
+validations, err := thread.ValidationResults(ctx, 10)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Get complete thread data with steps and validations
+completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
+    StepHistoryLimit: 50,
+    ValidationLimit:  10,
+    StepName:         "order_placed", // Optional filter
+})
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Subscribe to Events
+```go
+err := conn.Subscribe(ctx, "step.success", "order_placed", func(n *threadify.Notification) {
+    fmt.Println("Order placed:", n.StepName)
+    
+    // Check notification properties
+    if n.IsSuccess() {
+        fmt.Println("Step succeeded")
+    }
+    if n.IsCritical() {
+        fmt.Println("Critical notification!")
+    }
+    
+    // Always acknowledge
+    n.Ack()
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+err = conn.Subscribe(ctx, "rule.violated", "payment_processed", func(n *threadify.Notification) {
+    fmt.Println("Violation:", n.Severity)
+    
+    // Check violation status
+    if n.IsViolated() && n.IsCritical() {
+        // Handle critical violation
+    }
+    
+    n.Ack()
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Unsubscribe when done
+defer conn.Unsubscribe(ctx, "step.success", "order_placed")
+```
+
+### Notification Helper Methods
+```go
+// Check notification status
+if n.IsViolated() { /* rule violated */ }
+if n.IsPassed() { /* rule passed */ }
+
+// Check severity
+if n.IsCritical() { /* critical severity */ }
+if n.IsWarning() { /* warning severity */ }
+if n.IsInfo() { /* info severity */ }
+
+// Check step status
+if n.IsSuccess() { /* step succeeded */ }
+if n.IsFailed() { /* step failed */ }
+if n.IsError() { /* step errored */ }
+
+// Check if already acknowledged
+if !n.IsAcknowledged() {
+    n.Ack()
+}
+
+// Convert to string
+fmt.Println(n.String()) // "[critical] order_placed: Payment validation failed"
+```
+
+### Join Thread
+```go
+// With token
+thread, err := conn.Join(ctx, threadify.WithJoinToken(invitationToken))
+if err != nil {
+    log.Fatal(err)
+}
+
+// Direct join
+thread, err := conn.Join(ctx, 
+    threadify.WithJoinThreadID(threadID),
+    threadify.WithJoinRole("participant"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Invite Parties
+```go
+// Create invitation for external party
+invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
+    Role:        "logistics",
+    AccessLevel: "external",  // Optional, defaults to "external"
+    ExpiresIn:   "48h",        // Optional, defaults to "24h"
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Share invitation token
+fmt.Println("Token:", invitation.Token)
+fmt.Println("Expires at:", invitation.ExpiresAt)
+```
+
+### Thread Lifecycle Management
+```go
+// Complete thread successfully
+resp, err := thread.Complete(ctx, "Order fulfilled")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Thread completed at:", resp.EndedAt)
+
+// Close/cancel thread
+resp, err := thread.Close(ctx, "User cancelled order")
+if err != nil {
+    log.Fatal(err)
+}
+
+// End thread with custom status
+resp, err := thread.End(ctx, "custom_status", "Custom reason")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Error Handling
+```go
+err := processPayment()
+if err != nil {
+    _, stepErr := thread.Step("process_payment").
+        AddContext(map[string]any{"error": err.Error()}).
+        Failed(ctx)
+    if stepErr != nil {
+        log.Fatal(stepErr)
+    }
+} else {
+    _, stepErr := thread.Step("process_payment").Success(ctx)
+    if stepErr != nil {
+        log.Fatal(stepErr)
+    }
+}
+```
+
+---
+
+## Common Mistakes
+
+### ❌ Wrong: `.Context()`
+```go
+.Context(map[string]any{"data": "value"})  // Method doesn't exist!
+```
+
+### ✅ Correct: `.AddContext()`
+```go
+.AddContext(map[string]any{"data": "value"})
+```
+
+### ❌ Wrong: Nested objects
+```go
+.AddContext(map[string]any{
+    "user": map[string]any{"id": 1, "name": "John"},
+})
+```
+
+### ✅ Correct: Flat structure
+```go
+.AddContext(map[string]any{
+    "user_id": 1,
+    "user_name": "John",
+})
+```
+
+### ❌ Wrong: Forgetting context.Context
+```go
+thread.Step("order_placed").Success()  // Missing ctx parameter!
+```
+
+### ✅ Correct: Always pass context
+```go
+thread.Step("order_placed").Success(ctx)
+```
+
+### ❌ Wrong: Ignoring errors
+```go
+thread.Step("order_placed").Success(ctx)  // Error not checked!
+```
+
+### ✅ Correct: Check errors
+```go
+_, err := thread.Step("order_placed").Success(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+---
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+    "https://github.com/ThreadifyDev/go-sdk.git"
+)
+
+func main() {
+    ctx := context.Background()
+    
+    conn, err := threadify.Connect(ctx, "api-key", 
+        threadify.WithServiceName("checkout-service"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer conn.Close()
+    
+    thread, err := conn.Start(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Add external references to the thread
+    err = thread.AddRefs(ctx, map[string]string{
+        "customer_id": "123",
+        "order_id": "ORD-789",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    _, err = thread.Step("validate_cart").
+        AddContext(map[string]any{"items": 3, "total": 99.99}).
+        Success(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    payment, err := processPayment()
+    if err != nil {
+        _, stepErr := thread.Step("charge_payment").
+            AddContext(map[string]any{"error": err.Error()}).
+            Failed(ctx)
+        if stepErr != nil {
+            log.Fatal(stepErr)
+        }
+        return
+    }
+    
+    // Add payment provider reference
+    err = thread.AddRefs(ctx, map[string]string{
+        "stripe_payment_id": payment.ID,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    _, err = thread.Step("charge_payment").
+        AddContext(map[string]any{"amount": 99.99, "method": "card"}).
+        Success(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func processPayment() (*Payment, error) {
+    // Payment processing logic
+    return &Payment{ID: "pi_123"}, nil
+}
+
+type Payment struct {
+    ID string
+}
+```
