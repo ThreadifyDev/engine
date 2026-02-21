@@ -468,6 +468,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		latest_context JSONB,      												-- latest context from step activities
 		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
 		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
+		started_at TIMESTAMP,                  -- When step execution started
+		finished_at TIMESTAMP,                 -- When step execution finished
 		previous_step VARCHAR(255),            -- Previous step name for transition tracking
 		actor VARCHAR(255),                    -- User who recorded this step (for .own permission filtering)
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -480,6 +482,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Add actor_service and latest_context columns (migration for step state archival)
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS actor_service VARCHAR(255);
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS latest_context JSONB;
+	
+	-- Add started_at and finished_at columns (migration for timing data)
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP;
 
 	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
 	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 

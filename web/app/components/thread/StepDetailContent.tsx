@@ -16,18 +16,42 @@ import {
   AlertTriangle,
   Info,
   User,
+  Layers,
 } from 'lucide-react';
 import { graphqlClient, type StepStateInfo, type ValidationResultInfo } from '~/lib/graphql';
 
-// Format a timestamp string with millisecond precision.
+// Calculate duration between two timestamps
+function calculateDuration(startTime?: string, endTime?: string): string | null {
+  if (!startTime || !endTime) return null;
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  const durationMs = end - start;
+  
+  if (durationMs < 0) return null;
+  if (durationMs === 0) return '< 1ms';
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60000) return `${(durationMs / 1000).toFixed(2)}s`;
+  if (durationMs < 3600000) return `${(durationMs / 60000).toFixed(2)}m`;
+  return `${(durationMs / 3600000).toFixed(2)}h`;
+}
+
+// Format a timestamp string in a human-readable format with milliseconds.
 // Accepts ISO 8601 with or without sub-second component.
 function formatTimestampMs(iso: string): string {
   const d = new Date(iso);
-  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
-  return (
-    `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}, ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
-  );
+  const ms = d.getMilliseconds().toString().padStart(3, '0');
+  // Format: "Feb 20, 2026 at 5:48:09.732 PM"
+  const baseFormat = d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+  // Insert milliseconds before AM/PM
+  return baseFormat.replace(/(\d{2})\s+(AM|PM)/, `$1.${ms} $2`);
 }
 
 // Actor Section Component - Resolves actor ID to name
@@ -77,7 +101,8 @@ export function StepDetailContent({
   onToggleContext,
   validations,
   onShowHistory,
-  onShowViolations
+  onShowViolations,
+  onShowSubState,
 }: { 
   step: StepStateInfo; 
   threadId: string; 
@@ -86,6 +111,7 @@ export function StepDetailContent({
   validations: ValidationResultInfo[];
   onShowHistory: (step: StepStateInfo) => void;
   onShowViolations?: (step: StepStateInfo) => void;
+  onShowSubState?: (subThreadId: string) => void;
 }) {
   const [showValidations, setShowValidations] = useState(false);
   const [validationFilter, setValidationFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
@@ -159,6 +185,11 @@ export function StepDetailContent({
             'bg-gray-100 text-gray-800'
           }`}>
             {step.status}
+          </span>
+
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-800`}>
+            <Clock className="w-3 h-3" />
+            {calculateDuration(step.startedAt, step.finishedAt)}
           </span>
           
           {/* Retry Count */}
@@ -344,6 +375,27 @@ export function StepDetailContent({
             <ChevronRight className="w-4 h-4 text-gray-400" />
           </div>
         </button>
+
+        {/* View Sub State — only when the step has sub-steps */}
+        {step.subSteps && step.subSteps.length > 0 && onShowSubState && (
+          <button
+            onClick={() => onShowSubState(step.subSteps![0].threadId)}
+            className="w-full text-left transition-colors group hover:bg-gray-50 rounded-lg"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-indigo-500" />
+                <span className="text-sm font-medium text-grey-900">
+                  View Sub State
+                  {step.subSteps.length > 1 && (
+                    <span className="ml-1.5 text-xs text-gray-400">({step.subSteps.length})</span>
+                  )}
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </div>
+          </button>
+        )}
 
         {/* View Violation History - Only show for violated steps */}
         {step.status === 'violated' && onShowViolations && (

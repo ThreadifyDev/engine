@@ -156,6 +156,7 @@ type ComplexityRoot struct {
 	StepStateInfo struct {
 		Actor             func(childComplexity int) int
 		ActorService      func(childComplexity int) int
+		FinishedAt        func(childComplexity int) int
 		FirstSeenAt       func(childComplexity int) int
 		Hash              func(childComplexity int) int
 		History           func(childComplexity int, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
@@ -166,6 +167,7 @@ type ComplexityRoot struct {
 		PrevHash          func(childComplexity int) int
 		PreviousStep      func(childComplexity int) int
 		RetryCount        func(childComplexity int) int
+		StartedAt         func(childComplexity int) int
 		Status            func(childComplexity int) int
 		StepName          func(childComplexity int) int
 		SubSteps          func(childComplexity int) int
@@ -846,6 +848,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.ActorService(childComplexity), true
+	case "StepStateInfo.finishedAt":
+		if e.complexity.StepStateInfo.FinishedAt == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.FinishedAt(childComplexity), true
 	case "StepStateInfo.firstSeenAt":
 		if e.complexity.StepStateInfo.FirstSeenAt == nil {
 			break
@@ -911,6 +919,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.StepStateInfo.RetryCount(childComplexity), true
+	case "StepStateInfo.startedAt":
+		if e.complexity.StepStateInfo.StartedAt == nil {
+			break
+		}
+
+		return e.complexity.StepStateInfo.StartedAt(childComplexity), true
 	case "StepStateInfo.status":
 		if e.complexity.StepStateInfo.Status == nil {
 			break
@@ -1511,6 +1525,8 @@ type StepStateInfo {
   retryCount: Int!
   firstSeenAt: String!
   lastUpdatedAt: String!
+  startedAt: String
+  finishedAt: String
   latestStepID: String!
   previousStep: String
   # Latest data from most recent history entry
@@ -4979,6 +4995,64 @@ func (ec *executionContext) fieldContext_StepStateInfo_lastUpdatedAt(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _StepStateInfo_startedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_startedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.StartedAt, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_startedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepStateInfo_finishedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepStateInfo_finishedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.FinishedAt, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepStateInfo_finishedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepStateInfo",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepStateInfo_latestStepID(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6006,6 +6080,10 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 				return ec.fieldContext_StepStateInfo_firstSeenAt(ctx, field)
 			case "lastUpdatedAt":
 				return ec.fieldContext_StepStateInfo_lastUpdatedAt(ctx, field)
+			case "startedAt":
+				return ec.fieldContext_StepStateInfo_startedAt(ctx, field)
+			case "finishedAt":
+				return ec.fieldContext_StepStateInfo_finishedAt(ctx, field)
 			case "latestStepID":
 				return ec.fieldContext_StepStateInfo_latestStepID(ctx, field)
 			case "previousStep":
@@ -10367,6 +10445,10 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "startedAt":
+			out.Values[i] = ec._StepStateInfo_startedAt(ctx, field, obj)
+		case "finishedAt":
+			out.Values[i] = ec._StepStateInfo_finishedAt(ctx, field, obj)
 		case "latestStepID":
 			out.Values[i] = ec._StepStateInfo_latestStepID(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

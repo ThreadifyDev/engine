@@ -153,6 +153,8 @@ func (s *NotificationService) PerformAsyncValidation(
 				RetryCount:     0, // No retry tracking without contract
 				FirstSeenAt:    now,
 				LastUpdatedAt:  now,
+				StartedAt:      req.StartedAt,
+				FinishedAt:     req.FinishedAt,
 				PreviousStep:   "",
 				Actor:          ownerID,
 				ActorService:   req.ServiceName,
@@ -584,6 +586,8 @@ func (s *NotificationService) processValidationNotifications(
 		RetryCount:     result.RetryCount,
 		FirstSeenAt:    firstSeenAt,
 		LastUpdatedAt:  now,
+		StartedAt:      req.StartedAt,
+		FinishedAt:     req.FinishedAt,
 		PreviousStep:   previousStepName,
 		Actor:          ownerID,
 		ActorService:   req.ServiceName,

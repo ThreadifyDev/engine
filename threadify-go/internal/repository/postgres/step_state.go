@@ -45,6 +45,8 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			retry_count,
 			first_seen_at,
 			last_updated_at,
+			started_at,
+			finished_at,
 			previous_step,
 			actor,
 			actor_service,
@@ -63,7 +65,7 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 	stepsMap := make(map[string][]*models.StepStateInfo)
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor, actorService, latestContext sql.NullString
+		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -74,6 +76,8 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			&step.RetryCount,
 			&step.FirstSeenAt,
 			&step.LastUpdatedAt,
+			&startedAt,
+			&finishedAt,
 			&previousStep,
 			&actor,
 			&actorService,
@@ -94,6 +98,12 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 		}
 		if latestContext.Valid {
 			step.LatestContext = latestContext.String
+		}
+		if startedAt.Valid {
+			step.StartedAt = &startedAt.String
+		}
+		if finishedAt.Valid {
+			step.FinishedAt = &finishedAt.String
 		}
 
 		stepsMap[step.ThreadID] = append(stepsMap[step.ThreadID], step)
@@ -129,6 +139,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			s.retry_count,
 			s.first_seen_at,
 			s.last_updated_at,
+			s.started_at,
+			s.finished_at,
 			s.previous_step,
 			s.actor,
 			s.actor_service,
@@ -172,7 +184,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	var steps []*models.StepStateInfo
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor, actorService, latestContext sql.NullString
+		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -183,6 +195,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			&step.RetryCount,
 			&step.FirstSeenAt,
 			&step.LastUpdatedAt,
+			&startedAt,
+			&finishedAt,
 			&previousStep,
 			&actor,
 			&actorService,
@@ -203,6 +217,12 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		}
 		if latestContext.Valid {
 			step.LatestContext = latestContext.String
+		}
+		if startedAt.Valid {
+			step.StartedAt = &startedAt.String
+		}
+		if finishedAt.Valid {
+			step.FinishedAt = &finishedAt.String
 		}
 
 		steps = append(steps, step)

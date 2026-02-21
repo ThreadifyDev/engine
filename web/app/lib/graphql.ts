@@ -93,6 +93,8 @@ export interface StepStateInfo {
   retryCount: number;
   firstSeenAt: string;
   lastUpdatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
   latestStepID: string;
   previousStep?: string;
   actor?: string;
@@ -274,6 +276,8 @@ class GraphQLClient {
             retryCount
             firstSeenAt
             lastUpdatedAt
+            startedAt
+            finishedAt
             latestStepID
             previousStep
             actor
