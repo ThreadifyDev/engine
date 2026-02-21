@@ -31,6 +31,8 @@ type StepStateEvent struct {
 	RetryCount     int    `json:"retry_count"`
 	FirstSeenAt    string `json:"first_seen_at"`
 	LastUpdatedAt  string `json:"last_updated_at"`
+	StartedAt      string `json:"started_at"`
+	FinishedAt     string `json:"finished_at"`
 	PreviousStep   string `json:"previous_step"`
 	Actor          string `json:"actor"`
 	ActorService   string `json:"actor_service"`
@@ -163,11 +165,11 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 	query := `
 		INSERT INTO thread_step_states (
 			id, thread_id, step_name, idempotency_key, status,
-			retry_count, first_seen_at, last_updated_at, previous_step,
-			actor, actor_service, latest_context, created_at
+			retry_count, first_seen_at, last_updated_at, started_at, finished_at,
+			previous_step, actor, actor_service, latest_context, created_at
 		) VALUES `
 
-	values := make([]interface{}, 0, len(deduplicatedEvents)*12)
+	values := make([]interface{}, 0, len(deduplicatedEvents)*14)
 	placeholders := ""
 
 	for i, event := range deduplicatedEvents {
@@ -175,12 +177,23 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			placeholders += ", "
 		}
 
-		offset := i * 12
+		offset := i * 14
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
 			offset+1, offset+2, offset+3, offset+4, offset+5,
-			offset+6, offset+7, offset+8, offset+9, offset+10, offset+11, offset+12,
+			offset+6, offset+7, offset+8, offset+9, offset+10,
+			offset+11, offset+12, offset+13, offset+14,
 		)
+
+		// Handle NULL values for optional timestamps
+		var startedAtVal interface{} = nil
+		if event.StartedAt != "" {
+			startedAtVal = event.StartedAt
+		}
+		var finishedAtVal interface{} = nil
+		if event.FinishedAt != "" {
+			finishedAtVal = event.FinishedAt
+		}
 
 		values = append(values,
 			event.StepID,
@@ -191,6 +204,8 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			event.RetryCount,
 			event.FirstSeenAt,
 			event.LastUpdatedAt,
+			startedAtVal,
+			finishedAtVal,
 			event.PreviousStep,
 			event.Actor,
 			event.ActorService,
@@ -203,6 +218,8 @@ func (c *StepStateConsumer) flush(ctx context.Context) error {
 			status = EXCLUDED.status,
 			retry_count = EXCLUDED.retry_count,
 			last_updated_at = EXCLUDED.last_updated_at,
+			started_at = EXCLUDED.started_at,
+			finished_at = EXCLUDED.finished_at,
 			previous_step = EXCLUDED.previous_step,
 			actor = EXCLUDED.actor,
 			actor_service = EXCLUDED.actor_service,

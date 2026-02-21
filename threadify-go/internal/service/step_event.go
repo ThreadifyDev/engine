@@ -318,6 +318,7 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"hash":            hashResult.NewHash,
 		"prev_hash":       hashResult.OldHash,
 		"started_at":      event.StartedAt,
+		"finished_at":     event.FinishedAt,
 	}
 
 	return activityValues

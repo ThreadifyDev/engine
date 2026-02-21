@@ -14,6 +14,8 @@ type StepStateInfo struct {
 	RetryCount     int       `json:"retryCount"`
 	FirstSeenAt    time.Time `json:"firstSeenAt"`
 	LastUpdatedAt  time.Time `json:"lastUpdatedAt"`
+	StartedAt      *string   `json:"startedAt,omitempty"`  // When step execution started (pointer for optional field)
+	FinishedAt     *string   `json:"finishedAt,omitempty"` // When step execution finished (pointer for optional field)
 	LatestStepID   string    `json:"latestStepID"`
 	PreviousStep   string    `json:"previousStep"`  // "stepName:idempKey" or empty
 	Actor          string    `json:"actor"`         // User who recorded this step (for .own permission filtering)

@@ -273,6 +273,8 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *in
 		"retry_count":     stepState.RetryCount,
 		"first_seen_at":   stepState.FirstSeenAt,
 		"last_updated_at": stepState.LastUpdatedAt,
+		"started_at":      stepState.StartedAt,
+		"finished_at":     stepState.FinishedAt,
 		"previous_step":   stepState.PreviousStep,
 		"actor":           stepState.Actor,
 		"actor_service":   stepState.ActorService,

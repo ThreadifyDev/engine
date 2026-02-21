@@ -21,6 +21,7 @@ const calculateDuration = (startTime?: string, endTime?: string): string | null 
   const durationMs = end - start;
   
   if (durationMs < 0) return null;
+  if (durationMs === 0) return '< 1ms'; // Very fast execution
   if (durationMs < 1000) return `${durationMs}ms`;
   if (durationMs < 60000) return `${(durationMs / 1000).toFixed(2)}s`;
   if (durationMs < 3600000) return `${(durationMs / 60000).toFixed(2)}m`;
@@ -126,7 +127,8 @@ function SubStepItem({ subStep }: { subStep: GraphQLSubStep }) {
 function StepCard({ step, onClick }: { step: StepStateInfo; onClick: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const hasSubSteps = step.subSteps && step.subSteps.length > 0;
-  const duration = calculateDuration(step.firstSeenAt, step.lastUpdatedAt);
+  // Use actual execution timestamps (startedAt -> finishedAt) for accurate duration
+  const duration = calculateDuration(step.startedAt, step.finishedAt);
 
   return (
     <div className="relative mb-3">

@@ -1,4 +1,4 @@
-import { useParams } from '@remix-run/react';
+import { useParams, useNavigate } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
 import { formatDistanceToNow } from 'date-fns';
@@ -31,6 +31,7 @@ import { useState } from 'react';
 import SideNav from '~/components/SideNav';
 import ThreadGraphView from '~/components/ThreadGraphViewReactFlow';
 import ThreadTimelineView from '~/components/ThreadTimelineView';
+import GanttTimelineView from '~/components/GanttTimelineView';
 import RightSidebar from '~/components/RightSidebar';
 import { ThreadHeader } from '~/components/thread/ThreadHeader';
 import { StepDetailContent } from '~/components/thread/StepDetailContent';
@@ -41,7 +42,7 @@ import { CompactStepTimeline } from '~/components/thread/StepTimeline';
 import { StepValidationResultsView } from '~/components/thread/StepValidationResultsView';
 import { NotificationDetailView } from '~/components/thread/NotificationDetailView';
 
-type TabType = 'timeline' | 'graph';
+type TabType = 'timeline' | 'graph' | 'gantt';
 type SidebarView = 'step' | 'participants' | 'validations' | 'stepValidations' | 'step-violations' | null;
 
 // Helper function to calculate execution time from startedAt and finishedAt
@@ -60,6 +61,7 @@ function calculateExecutionTime(startedAt?: string, finishedAt?: string): string
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('timeline');
   const [sidebarView, setSidebarView] = useState<SidebarView>(null);
   const [selectedStep, setSelectedStep] = useState<StepStateInfo | null>(null);
@@ -232,8 +234,16 @@ export default function ThreadDetailPage() {
           {/* Tab Content */}
           <div className="mt-6">
             {activeTab === 'timeline' && (
-              <ThreadTimelineView 
-                steps={thread.steps || []} 
+              // <ThreadTimelineView 
+              //   steps={thread.steps || []} 
+              //   threadStatus={thread.status}
+              //   onStepClick={(step) => {
+              //     setSelectedStep(step);
+              //     setSidebarView('step');
+              //   }}
+              // />
+              <GanttTimelineView
+                steps={thread.steps || []}
                 threadStatus={thread.status}
                 onStepClick={(step) => {
                   setSelectedStep(step);
@@ -273,6 +283,7 @@ export default function ThreadDetailPage() {
               onToggleContext={() => setShowContext(!showContext)}
               validations={thread.validationResults || []}
               onShowHistory={(step) => setSelectedStepForHistory(step)}
+              onShowSubState={(subThreadId) => navigate(`/u/threads/${subThreadId}`)}
               onShowViolations={(step) => {
                 setSelectedStepForViolations(step);
                 setPreviousView('step');
