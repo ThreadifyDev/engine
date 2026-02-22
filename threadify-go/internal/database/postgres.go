@@ -669,6 +669,32 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
 	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	CREATE TABLE IF NOT EXISTS agent_conversations (
+		id VARCHAR(255) PRIMARY KEY,
+		user_id VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
+		title VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id, updated_at DESC);
+
+	CREATE TABLE IF NOT EXISTS agent_messages (
+		id VARCHAR(255) PRIMARY KEY,
+		conversation_id VARCHAR(255) NOT NULL,
+		role VARCHAR(50) NOT NULL,
+		content TEXT NOT NULL,
+		tool_calls JSONB,
+		tool_call_id VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id, created_at ASC);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

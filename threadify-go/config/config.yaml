@@ -238,6 +238,9 @@ web_api:
     url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
     graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
   
+  # Agent LLM configuration 
+  openai_api_key: "sk-a8cfd2b415d240669861772414b3e2c8"
+  
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days
   

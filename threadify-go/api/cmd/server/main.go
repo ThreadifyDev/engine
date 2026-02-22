@@ -142,6 +142,8 @@ func main() {
 	log.Printf("🔗 ThreadifyEngine GraphQL URL: %s", cfg.WebAPI.ThreadifyEngine.GraphQLURL)
 	contractProxyHandler := handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL)
 	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
+	agentRepo := repository.NewAgentRepository(db)
+	agentHandler := handlers.NewAgentHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, cfg.WebAPI.OpenAIAPIKey, agentRepo)
 
 	// JWT middleware
 	jwtMiddleware := jwtValidator.AuthMiddleware()
@@ -215,6 +217,12 @@ func main() {
 
 		// GraphQL proxy route (proxy to Engine - Engine handles JWT auth + RBAC)
 		api.POST("/graphql", graphqlProxyHandler.ProxyGraphQL)
+
+		// Agent AI Chat route
+		api.POST("/chat/ask", agentHandler.Chat)
+		api.GET("/chat/conversations", agentHandler.GetConversations)
+		api.GET("/chat/conversations/:id", agentHandler.GetConversation)
+		api.DELETE("/chat/conversations/:id", agentHandler.DeleteConversation)
 	}
 
 	// Add Prometheus metrics endpoint

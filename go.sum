@@ -1,0 +1,4 @@
+github.com/ThreadifyDev/go-sdk v0.0.0-20260220140112-86bbce784c8d h1:f2zAu+CuIrys4rWBGjA0uSB+6QGHjOenX7g+Kzm18EM=
+github.com/ThreadifyDev/go-sdk v0.0.0-20260220140112-86bbce784c8d/go.mod h1:9D+ait2KV4zT6IqpYFmidXH5RA1U7H6UhvH8qzmoZ84=
+github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
+github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=

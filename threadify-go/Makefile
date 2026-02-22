@@ -1,6 +1,7 @@
 .PHONY: help build run test clean docker-up docker-down install lint fmt generate-graphql build-web-api build-web-ui build-docs push-web-api push-web-ui push-docs
 
-VERSION := $(shell git describe --tags --always)
+# Only match tags starting with 'v' to exclude SDK tags
+VERSION := $(shell git describe --tags --always --match "v*" 2>/dev/null || git rev-parse --short HEAD)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
