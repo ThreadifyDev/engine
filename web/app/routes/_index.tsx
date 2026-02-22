@@ -183,80 +183,145 @@ export default function Index() {
       {/* Use Cases Section */}
       <section className="bg-white py-24 px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="mb-12">
-            <p className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">USE CASES</p>
-            <h2 className="text-4xl font-light text-black mb-4">
-              Built for every team.<br />For any workflow.
-            </h2>
-            <p className="text-lg text-gray-600 max-w-2xl">
-              Turn processes into playbooks to train colleagues, assist customers, and drive software adoption.
-            </p>
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            
+            {/* Text Block (Inside Grid) */}
+            <div className="flex flex-col items-start pr-6 pt-0 h-full">
+              <div className="mb-6">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2.5 py-1.5 border border-gray-100 rounded inline-block">
+                  USE CASES
+                </span>
+              </div>
+              <h2 className="text-[2.5rem] font-bold text-black mb-4 leading-[1.15] tracking-tight">
+                Built for intelligent systems.
+              </h2>
+              <p className="text-gray-600 mb-6 leading-relaxed pr-4">
+                Turn execution into intelligence to answer questions instantly, prevent failures, and build smarter systems.
+              </p>
+              <button
+                onClick={() => navigate('/signup')} 
+                className="mt-auto w-max px-5 py-2.5 bg-[#4F46E5] text-white text-sm font-semibold rounded-lg hover:bg-[#4338CA] transition"
+              >
+                Try Threadify free
+              </button>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Top Row - 2 larger cards */}
-            {/* Card 1: Resolve support tickets */}
-            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
-              <img 
-                src="https://images.unsplash.com/photo-1556761175-b413da4baf72?w=800&q=80" 
-                alt="Support team"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-              <div className="relative h-full p-5 flex flex-col justify-end">
-                <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center mb-2">
-                  <MessageSquare className="w-3.5 h-3.5 text-white" />
+            {/* Card 1: Create documentation and SOPs */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              {/* Sleek Pattern Background */}
+              {/* Sleek Pattern Background */}
+              <div className="absolute inset-0 bg-indigo-950 group-hover:scale-105 transition duration-700 shadow-inner">
+                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }}></div>
+                <div className="absolute -top-20 -right-20 w-80 h-80 bg-fuchsia-600 rounded-full mix-blend-screen filter blur-[80px] opacity-70 group-hover:opacity-90 transition duration-700"></div>
+                <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-blue-600 rounded-full mix-blend-screen filter blur-[80px] opacity-70 group-hover:opacity-90 transition duration-700"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-indigo-950/90 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <Zap className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Create documentation and SOPs</h3>
                 </div>
-                <h3 className="text-base font-semibold text-white">Resolve support tickets</h3>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
               </div>
             </div>
 
-            {/* Card 2: Prevent business logic failures */}
-            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
-              <img 
-                src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&q=80" 
-                alt="Team collaboration"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-              <div className="relative h-full p-5 flex flex-col justify-end">
-                <div className="w-7 h-7 rounded-md bg-purple-600 flex items-center justify-center mb-2">
-                  <ShieldCheck className="w-3.5 h-3.5 text-white" />
+            {/* Card 2: Train teammates */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              {/* Blueprint Pattern Background */}
+              {/* Blueprint Pattern Background */}
+              <div className="absolute inset-0 bg-slate-950 group-hover:scale-105 transition duration-700">
+                <div className="absolute inset-0 opacity-20 top-2" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #94a3b8 0, #94a3b8 1px, transparent 0, transparent 50%)', backgroundSize: '16px 16px' }}></div>
+                <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-60"></div>
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60"></div>
+                <div className="absolute inset-0 bg-cyan-900/40 mix-blend-multiply"></div>
+                <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-cyan-500 rounded-full filter blur-[80px] opacity-40 group-hover:opacity-60 transition duration-700"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-slate-950/80"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <Database className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Train teammates</h3>
                 </div>
-                <h3 className="text-base font-semibold text-white">Prevent business logic failures</h3>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
               </div>
             </div>
 
-            {/* Bottom Row - 2 cards */}
-            {/* Card 3: Optimize operational costs */}
-            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
-              <img 
-                src="https://images.unsplash.com/photo-1551434678-e076c223a692?w=800&q=80" 
-                alt="Team working"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-              <div className="relative h-full p-5 flex flex-col justify-end">
-                <div className="w-7 h-7 rounded-md bg-green-600 flex items-center justify-center mb-2">
-                  <Zap className="w-3.5 h-3.5 text-white" />
+            {/* Card 3: Implement software */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              {/* Server Striped Tech Pattern Background */}
+              {/* Server Striped Tech Pattern Background */}
+              <div className="absolute inset-0 bg-emerald-950 group-hover:scale-105 transition duration-700">
+                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, #10b981 19px, #10b981 20px)' }}></div>
+                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(90deg, transparent 49%, #34d399 49%, #34d399 51%, transparent 51%)', backgroundSize: '60px 100%' }}></div>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-48 bg-emerald-400/30 filter blur-[60px] group-hover:bg-emerald-400/50 transition duration-700 transform rotate-12"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/80 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <MessageSquare className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Implement software</h3>
                 </div>
-                <h3 className="text-base font-semibold text-white">Optimize operational costs</h3>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
               </div>
             </div>
 
-            {/* Card 4: Build smarter AI agents */}
-            <div className="group relative overflow-hidden rounded-lg aspect-[4/3] cursor-pointer">
-              <img 
-                src="https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800&q=80" 
-                alt="Team meeting"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-              <div className="relative h-full p-5 flex flex-col justify-end">
-                <div className="w-7 h-7 rounded-md bg-purple-600 flex items-center justify-center mb-2">
-                  <Brain className="w-3.5 h-3.5 text-white" />
+            {/* Card 4: Assist customers */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              {/* Vibrant Ambient Mesh Background */}
+              {/* Vibrant Ambient Mesh Background */}
+              <div className="absolute inset-0 bg-fuchsia-950 overflow-hidden group-hover:scale-105 transition duration-700">
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-pink-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform translate-x-1/4 -translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
+                <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform -translate-x-1/4 translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxwYXRoIGQ9Ik0wIDBMMCA4TDggOEw4IDBaIiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTAgMEw0IDRMOCAwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')] opacity-80"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-fuchsia-950 via-fuchsia-950/50 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <ShieldCheck className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Assist customers</h3>
                 </div>
-                <h3 className="text-base font-semibold text-white">Build smarter AI agents</h3>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 5: Onboard new hires */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              {/* Nodes / Matrix Background */}
+              {/* Nodes / Matrix Background */}
+              <div className="absolute inset-0 bg-blue-950 overflow-hidden group-hover:scale-105 transition duration-700">
+                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at center, #60a5fa 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
+                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(to right, #60a5fa 1px, transparent 1px), linear-gradient(to bottom, #60a5fa 1px, transparent 1px)', backgroundSize: '96px 96px' }}></div>
+                <div className="absolute top-0 right-0 w-64 h-64 border-[2px] border-blue-400/30 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
+                <div className="absolute top-0 right-0 w-96 h-96 border-[2px] border-blue-400/20 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
+                <div className="absolute bottom-[-10%] right-[10%] w-64 h-64 bg-teal-400 rounded-full filter blur-[80px] opacity-50 group-hover:opacity-70 transition duration-700"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-blue-950 via-blue-950/60 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <Brain className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Onboard new hires</h3>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
               </div>
             </div>
           </div>

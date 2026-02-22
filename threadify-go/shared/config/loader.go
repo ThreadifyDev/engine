@@ -58,7 +58,8 @@ type Config struct {
 			URL        string `yaml:"url"`
 			GraphQLURL string `yaml:"graphql_url"`
 		} `yaml:"threadify_engine"`
-		APIKeyTTLHours int `yaml:"api_key_ttl_hours"`
+		OpenAIAPIKey   string `yaml:"openai_api_key"`
+		APIKeyTTLHours int    `yaml:"api_key_ttl_hours"`
 		RateLimit      struct {
 			Requests      int `yaml:"requests"`
 			WindowMinutes int `yaml:"window_minutes"`
@@ -100,6 +101,7 @@ func Load(path string) (*Config, error) {
 	cfg.WebAPI.Email.PlunkFromEmail = expandEnv(cfg.WebAPI.Email.PlunkFromEmail)
 	cfg.WebAPI.ThreadifyEngine.URL = expandEnv(cfg.WebAPI.ThreadifyEngine.URL)
 	cfg.WebAPI.ThreadifyEngine.GraphQLURL = expandEnv(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
+	cfg.WebAPI.OpenAIAPIKey = expandEnv(cfg.WebAPI.OpenAIAPIKey)
 
 	return &cfg, nil
 }

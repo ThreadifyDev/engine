@@ -121,7 +121,7 @@ class ApiClient {
 
     if (!response.ok) {
       const errorMessage = data.error || data.message || 'An error occurred';
-      
+
       // Handle invalid token by logging out
       if (errorMessage === 'Invalid token' || response.status === 401) {
         if (typeof window !== 'undefined') {
@@ -130,7 +130,7 @@ class ApiClient {
           window.location.href = '/login';
         }
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -358,8 +358,8 @@ class ApiClient {
   }
 
   // API Key Management
-  async createAPIKey(data: { 
-    name: string; 
+  async createAPIKey(data: {
+    name: string;
     expires_in?: number;
     create_service_account?: boolean;
     service_account_role?: string;
@@ -394,11 +394,20 @@ class ApiClient {
     return this.delete(`/api-keys/${keyId}`);
   }
 
-  async getCodeSamples(codeType: string = 'basic_instrumentation'): Promise<{
-    code_type: string;
-    samples: Record<string, string>;
-  }> {
-    return this.request(`/code-samples?codeType=${codeType}`);
+  async chatAsk(message: string, conversationId?: string): Promise<{ answer: string }> {
+    return this.post('/chat/ask', { message, conversation_id: conversationId });
+  }
+
+  async getChatConversations(): Promise<{ conversations: any[] }> {
+    return this.request('/chat/conversations');
+  }
+
+  async getChatMessageHistory(conversationId: string) {
+    return this.request<{ messages: any[] }>(`/chat/conversations/${conversationId}`);
+  }
+
+  async deleteChatConversation(conversationId: string) {
+    return this.delete<{ message: string }>(`/chat/conversations/${conversationId}`);
   }
 }
 
