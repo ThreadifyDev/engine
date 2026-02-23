@@ -433,8 +433,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		name VARCHAR(255) NOT NULL,
 		status VARCHAR(50) NOT NULL,
 		payload JSONB,
-		recorded_at TIMESTAMP NOT NULL,
-		created_at TIMESTAMP DEFAULT NOW()
+		recorded_at TIMESTAMP(6) NOT NULL,
+		created_at TIMESTAMP(6) DEFAULT NOW()
 	);
 
 	-- Migration: Rename substep_name to name for existing databases
@@ -451,6 +451,32 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Drop FK constraint if it exists (for existing databases)
 	ALTER TABLE step_substeps DROP CONSTRAINT IF EXISTS step_substeps_thread_id_fkey;
 
+	-- Migration: Update timestamp columns to use microsecond precision
+	DO $$ 
+	BEGIN
+		-- Update recorded_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'step_substeps' 
+			AND column_name = 'recorded_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE step_substeps ALTER COLUMN recorded_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update created_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'step_substeps' 
+			AND column_name = 'created_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE step_substeps ALTER COLUMN created_at TYPE TIMESTAMP(6);
+		END IF;
+	END $$;
+
 	CREATE INDEX IF NOT EXISTS idx_substeps_step_id ON step_substeps(step_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_thread_id ON step_substeps(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_recorded_at ON step_substeps(recorded_at DESC);
@@ -466,13 +492,13 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		retry_count INT NOT NULL DEFAULT 0,    -- Number of retries
 		actor_service VARCHAR(255),      						-- actor service from step activities
 		latest_context JSONB,      												-- latest context from step activities
-		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
-		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
-		started_at TIMESTAMP,                  -- When step execution started
-		finished_at TIMESTAMP,                 -- When step execution finished
+		first_seen_at TIMESTAMP(6) NOT NULL,      -- First time step was seen
+		last_updated_at TIMESTAMP(6) NOT NULL,    -- Last update timestamp
+		started_at TIMESTAMP(6),                  -- When step execution started
+		finished_at TIMESTAMP(6),                 -- When step execution finished
 		previous_step VARCHAR(255),            -- Previous step name for transition tracking
 		actor VARCHAR(255),                    -- User who recorded this step (for .own permission filtering)
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
 		UNIQUE(thread_id, step_name, idempotency_key)
 	);
 
@@ -484,8 +510,67 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS latest_context JSONB;
 	
 	-- Add started_at and finished_at columns (migration for timing data)
-	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS started_at TIMESTAMP;
-	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP;
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS started_at TIMESTAMP(6);
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP(6);
+
+	-- Migration: Update existing timestamp columns to use microsecond precision
+	DO $$ 
+	BEGIN
+		-- Update first_seen_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'first_seen_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN first_seen_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update last_updated_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'last_updated_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN last_updated_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update started_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'started_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN started_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update finished_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'finished_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN finished_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update created_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'created_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN created_at TYPE TIMESTAMP(6);
+		END IF;
+	END $$;
 
 	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
 	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 

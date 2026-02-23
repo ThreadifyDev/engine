@@ -47,7 +47,7 @@ func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.Gra
 // LastVerifiedAt is the resolver for the lastVerifiedAt field.
 func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error) {
 	// Return current timestamp as verification happens on-demand
-	return time.Now().UTC().Format(time.RFC3339), nil
+	return time.Now().UTC().Format(time.RFC3339Nano), nil
 }
 
 // BrokenAt is the resolver for the brokenAt field.
@@ -57,7 +57,7 @@ func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.Hash
 		return nil, nil
 	}
 	// If verification failed, return current timestamp
-	brokenAt := time.Now().UTC().Format(time.RFC3339)
+	brokenAt := time.Now().UTC().Format(time.RFC3339Nano)
 	return &brokenAt, nil
 }
 
@@ -550,12 +550,12 @@ func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*st
 
 // RecordedAt is the resolver for the recordedAt field.
 func (r *subStepResolver) RecordedAt(ctx context.Context, obj *models.SubStep) (string, error) {
-	return obj.RecordedAt.Format(time.RFC3339), nil
+	return obj.RecordedAt.Format(time.RFC3339Nano), nil
 }
 
 // CreatedAt is the resolver for the createdAt field.
 func (r *subStepResolver) CreatedAt(ctx context.Context, obj *models.SubStep) (string, error) {
-	return obj.CreatedAt.Format(time.RFC3339), nil
+	return obj.CreatedAt.Format(time.RFC3339Nano), nil
 }
 
 // Status is the resolver for the status field.
@@ -579,7 +579,7 @@ func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string,
 
 // StartedAt is the resolver for the startedAt field.
 func (r *threadResolver) StartedAt(ctx context.Context, obj *models.Thread) (*string, error) {
-	startedAt := obj.StartedAt.Format(time.RFC3339)
+	startedAt := obj.StartedAt.Format(time.RFC3339Nano)
 	return &startedAt, nil
 }
 
@@ -588,7 +588,7 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 	if obj.CompletedAt == nil {
 		return nil, nil
 	}
-	completedAt := obj.CompletedAt.Format(time.RFC3339)
+	completedAt := obj.CompletedAt.Format(time.RFC3339Nano)
 	return &completedAt, nil
 }
 
@@ -780,12 +780,12 @@ func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.Th
 // Timestamp is the resolver for the timestamp field.
 func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error) {
 	// Format timestamp as RFC3339 string
-	return obj.Timestamp.Format(time.RFC3339), nil
+	return obj.Timestamp.Format(time.RFC3339Nano), nil
 }
 
 // Timestamp is the resolver for the timestamp field.
 func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
-	return obj.Timestamp.Format(time.RFC3339), nil
+	return obj.Timestamp.Format(time.RFC3339Nano), nil
 }
 
 // Graph returns generated.GraphResolver implementation.

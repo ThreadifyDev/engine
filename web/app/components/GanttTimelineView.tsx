@@ -1,5 +1,5 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
-import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut, Search, X } from 'lucide-react';
 import type { StepStateInfo } from '~/lib/graphql';
 
 interface GanttTimelineViewProps {
@@ -140,9 +140,13 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
   const chartScrollRef = useRef<HTMLDivElement>(null);
   const leftColRef     = useRef<HTMLDivElement>(null);
   const stepBarRefs    = useRef<Map<string, HTMLDivElement>>(new Map());
+  const leftLabelRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
   const [containerWidth, setContainerWidth] = useState(900);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set(['success', 'failed', 'violated', 'in_progress']));
 
   useEffect(() => {
     const el = chartScrollRef.current;
@@ -153,18 +157,36 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     return () => ro.disconnect();
   }, []);
 
-  const { sortedSteps, timelineStart, totalMs } = useMemo(() => {
-    if (steps.length === 0) return { sortedSteps: [], timelineStart: 0, totalMs: 1 };
+  const { sortedSteps, timelineStart, totalMs, searchResults } = useMemo(() => {
+    if (steps.length === 0) return { sortedSteps: [], timelineStart: 0, totalMs: 1, searchResults: [] };
+    
+    // Sort all steps by time
     const sorted = [...steps].sort((a, b) =>
       new Date(a.startedAt ?? a.firstSeenAt).getTime() -
       new Date(b.startedAt ?? b.firstSeenAt).getTime()
     );
-    const starts = sorted.map(s => new Date(s.startedAt ?? s.firstSeenAt).getTime());
-    const ends   = sorted.map(s => new Date(s.finishedAt ?? s.lastUpdatedAt).getTime());
+    
+    // Apply status filters
+    const filtered = sorted.filter(s => statusFilters.has(s.status));
+    
+    // Filter for search results dropdown (from filtered steps)
+    let results: typeof steps = [];
+    if (searchTerm) {
+      results = filtered.filter(s => 
+        s.stepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.actorService?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Calculate timeline range from filtered steps
+    if (filtered.length === 0) return { sortedSteps: [], timelineStart: 0, totalMs: 1, searchResults: [] };
+    
+    const starts = filtered.map(s => new Date(s.startedAt ?? s.firstSeenAt).getTime());
+    const ends   = filtered.map(s => new Date(s.finishedAt ?? s.lastUpdatedAt).getTime());
     const start  = Math.min(...starts);
     const end    = Math.max(...ends, start + 1);
-    return { sortedSteps: sorted, timelineStart: start, totalMs: end - start };
-  }, [steps]);
+    return { sortedSteps: filtered, timelineStart: start, totalMs: end - start, searchResults: results };
+  }, [steps, searchTerm, statusFilters]);
 
   if (steps.length === 0) {
     return (
@@ -177,50 +199,56 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     );
   }
 
-  const usableBase    = Math.max(200, containerWidth - CHART_PADDING_LEFT - CHART_PADDING_RIGHT);
-  const pxPerMs       = (usableBase / totalMs) * zoom;
-  const chartMinWidth = Math.ceil(totalMs * pxPerMs) + CHART_PADDING_RIGHT;
+  const { usableBase, pxPerMs, chartMinWidth, majorTicks, minorTicks, intervalPx, finishedAtMarkers, gridBackground } = useMemo(() => {
+    const usableBase    = Math.max(200, containerWidth - CHART_PADDING_LEFT - CHART_PADDING_RIGHT);
+    const pxPerMs       = (usableBase / totalMs) * zoom;
+    const chartMinWidth = Math.ceil(totalMs * pxPerMs) + CHART_PADDING_RIGHT;
 
-  const TARGET_MAJOR_TICKS = 8;
-  const rawInterval   = totalMs / TARGET_MAJOR_TICKS;
-  const mag           = Math.pow(10, Math.floor(Math.log10(Math.max(rawInterval, 1))));
-  const majorInterval = Math.ceil(rawInterval / mag) * mag;
-  const minorInterval = majorInterval / 5;
+    const TARGET_MAJOR_TICKS = 8;
+    const rawInterval   = totalMs / TARGET_MAJOR_TICKS;
+    const mag           = Math.pow(10, Math.floor(Math.log10(Math.max(rawInterval, 1))));
+    const majorInterval = Math.ceil(rawInterval / mag) * mag;
+    const minorInterval = majorInterval / 5;
 
-  const majorTicks: number[] = [];
-  const minorTicks: number[] = [];
-  for (let t = 0; t <= totalMs + majorInterval; t += minorInterval) {
-    if (t > totalMs * 1.02) break;
-    if (Math.round(t / majorInterval) * majorInterval === Math.round(t)) {
-      majorTicks.push(Math.round(t));
-    } else {
-      minorTicks.push(t);
+    const majorTicks: number[] = [];
+    const minorTicks: number[] = [];
+    for (let t = 0; t <= totalMs + majorInterval; t += minorInterval) {
+      if (t > totalMs * 1.02) break;
+      if (Math.round(t / majorInterval) * majorInterval === Math.round(t)) {
+        majorTicks.push(Math.round(t));
+      } else {
+        minorTicks.push(t);
+      }
     }
-  }
 
-  const intervalPx = Math.max(1, majorInterval * pxPerMs);
+    const intervalPx = Math.max(1, majorInterval * pxPerMs);
 
-  const finishedAtMarkers = sortedSteps
-    .filter(s => s.finishedAt)
-    .map(s => ({
-      ms:    new Date(s.finishedAt!).getTime() - timelineStart,
-      label: formatAxisTime(new Date(s.finishedAt!).getTime() - timelineStart),
-    }));
+    const finishedAtMarkers = sortedSteps
+      .filter(s => s.finishedAt)
+      .map(s => ({
+        ms:    new Date(s.finishedAt!).getTime() - timelineStart,
+        label: formatAxisTime(new Date(s.finishedAt!).getTime() - timelineStart),
+      }));
 
-  const handleChartScroll = () => {
+    const gridBackground = `repeating-linear-gradient(to right, transparent, transparent ${intervalPx - 1}px, #d1d5db ${intervalPx - 1}px, #d1d5db ${intervalPx}px)`;
+
+    return { usableBase, pxPerMs, chartMinWidth, majorTicks, minorTicks, intervalPx, finishedAtMarkers, gridBackground };
+  }, [containerWidth, totalMs, zoom, sortedSteps, timelineStart]);
+
+  const handleChartScroll = useCallback(() => {
     if (leftColRef.current && chartScrollRef.current) {
       leftColRef.current.scrollTop = chartScrollRef.current.scrollTop;
     }
-  };
+  }, []);
 
-  const handleLeftScroll = () => {
+  const handleLeftScroll = useCallback(() => {
     if (leftColRef.current && chartScrollRef.current) {
       chartScrollRef.current.scrollTop = leftColRef.current.scrollTop;
     }
-  };
+  }, []);
 
-  const scrollToStep = (step: StepStateInfo) => {
-    if (!chartScrollRef.current) return;
+  const scrollToStep = useCallback((step: StepStateInfo, scrollVertically: boolean = false) => {
+    if (!chartScrollRef.current || !leftColRef.current) return;
     
     // Find the step's index in the sorted list
     const stepIndex = sortedSteps.findIndex(
@@ -234,14 +262,57 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     const barLeft = CHART_PADDING_LEFT + (startMs * pxPerMs);
     const targetScrollLeft = barLeft - 50;
     
-    // Smooth scroll horizontally only
-    chartScrollRef.current.scrollTo({
-      left: Math.max(0, targetScrollLeft),
-      behavior: 'smooth'
-    });
-  };
+    if (scrollVertically) {
+      // Calculate vertical position to center the row
+      const RULER_HEIGHT = 48;
+      const rowTop = stepIndex * ROW_HEIGHT + RULER_HEIGHT;
+      const viewportHeight = chartScrollRef.current.clientHeight;
+      const targetScrollTop = rowTop - (viewportHeight / 2) + (ROW_HEIGHT / 2);
+      
+      // Smooth scroll both horizontally and vertically
+      chartScrollRef.current.scrollTo({
+        left: Math.max(0, targetScrollLeft),
+        top: Math.max(0, targetScrollTop),
+        behavior: 'smooth'
+      });
+      
+      // Also scroll the left column
+      leftColRef.current.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: 'smooth'
+      });
+    } else {
+      // Smooth scroll horizontally only
+      chartScrollRef.current.scrollTo({
+        left: Math.max(0, targetScrollLeft),
+        behavior: 'smooth'
+      });
+    }
+  }, [sortedSteps, timelineStart, pxPerMs]);
 
-  const gridBackground = `repeating-linear-gradient(to right, transparent, transparent ${intervalPx - 1}px, #d1d5db ${intervalPx - 1}px, #d1d5db ${intervalPx}px)`;
+  // Memoize search close handler
+  const handleCloseSearch = useCallback(() => {
+    setShowSearch(false);
+    setSearchTerm('');
+  }, []);
+
+  // Memoize search result click handler - use existing scrollToStep with vertical scroll
+  const handleSearchResultClick = useCallback((result: StepStateInfo) => {
+    // Use the existing scrollToStep function with vertical scrolling enabled
+    scrollToStep(result, true);
+    
+    setShowSearch(false);
+    setSearchTerm('');
+  }, [scrollToStep]);
+
+  // Memoize zoom handlers
+  const handleZoomOut = useCallback(() => {
+    setZoom(z => Math.max(1, +(z / 1.5).toFixed(1)));
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    setZoom(z => Math.min(50, +(z * 1.5).toFixed(1)));
+  }, []);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
@@ -253,10 +324,63 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
             {sortedSteps.length} step{sortedSteps.length !== 1 ? 's' : ''} · {formatDuration(totalMs)} total
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
+          {showSearch ? (
+            <div className="relative">
+              <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+                <Search className="w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search steps..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  autoFocus
+                  className="px-2 py-1 text-sm focus:outline-none bg-transparent w-48"
+                />
+                <button
+                  onClick={handleCloseSearch}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              
+              {/* Search Results Dropdown */}
+              {searchTerm && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[100] max-h-64 overflow-y-auto min-w-[300px]">
+                  {searchResults.length > 0 ? (
+                    searchResults.map((result, idx) => (
+                      <button
+                        key={`${result.stepName}:${result.idempotencyKey}`}
+                        onClick={() => handleSearchResultClick(result)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                      >
+                        <div className="text-sm font-medium text-gray-900">{result.stepName}</div>
+                        {result.actorService && (
+                          <div className="text-xs text-gray-500">{result.actorService}</div>
+                        )}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-gray-500 text-center">
+                      No steps found matching "{searchTerm}"
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowSearch(true)}
+              className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600"
+              title="Search steps"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          )}
           <span className="text-xs text-gray-400 font-mono">{zoom}×</span>
           <button
-            onClick={() => setZoom(z => Math.max(1, +(z / 1.5).toFixed(1)))}
+            onClick={handleZoomOut}
             className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600 disabled:opacity-30"
             disabled={zoom <= 1}
             title="Zoom out"
@@ -264,7 +388,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setZoom(z => Math.min(50, +(z * 1.5).toFixed(1)))}
+            onClick={handleZoomIn}
             className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600"
             title="Zoom in"
           >
@@ -288,14 +412,34 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
           {/* Labels */}
           {sortedSteps.map(step => {
             const svc = getServiceColor(step.actorService);
+            const stepKey = `lbl-${step.stepName}:${step.idempotencyKey}`;
             return (
               <div
-                key={`lbl-${step.stepName}:${step.idempotencyKey}`}
-                className="flex-shrink-0 flex items-center px-3 border-b border-gray-300 overflow-hidden cursor-pointer hover:bg-opacity-80 transition-colors"
+                key={stepKey}
+                ref={el => {
+                  if (el) leftLabelRefs.current.set(stepKey, el);
+                }}
+                className="flex-shrink-0 flex flex-col items-start justify-center px-3 border-b border-gray-300 overflow-hidden cursor-pointer hover:bg-opacity-80 transition-colors relative"
                 style={{ height: ROW_HEIGHT, backgroundColor: svc.bg }}
                 onClick={() => scrollToStep(step)}
                 title="Click to scroll to step"
               >
+                {/* Status icons - positioned at top */}
+                {(step.status === 'violated' || step.retryCount > 1) && (
+                  <div className="absolute top-1 right-1 flex items-center gap-1">
+                    {step.status === 'violated' && (
+                      <div className="flex items-center justify-center bg-orange-500 text-white rounded-full p-1 shadow-sm">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    {step.retryCount > 1 && (
+                      <div className="flex items-center gap-0.5 bg-orange-500 text-white rounded-full px-1.5 py-1 text-[9px] font-bold leading-none shadow-sm">
+                        <RefreshCw className="w-3 h-3" />{step.retryCount}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <span
                   className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
                   style={{ color: '#374151' }}
@@ -406,11 +550,6 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                         {formatDuration(durationMs)}
                       </span>
                     </div>
-                    {step.retryCount > 1 && (
-                      <div className="absolute -top-1.5 -right-1.5 flex items-center gap-0.5 bg-orange-500 text-white rounded-full px-1 py-0.5 text-[9px] font-bold leading-none shadow">
-                        <RefreshCw className="w-2.5 h-2.5" />{step.retryCount}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -420,16 +559,37 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend with Filters */}
       <div className="px-5 py-2 border-t border-gray-100 bg-gray-50 flex items-center gap-5 flex-wrap flex-shrink-0">
         {Object.entries({ success: 'Success', failed: 'Failed', violated: 'Violated', in_progress: 'In Progress' }).map(
           ([status, label]) => {
             const c = getStatusColors(status);
+            const isChecked = statusFilters.has(status);
             return (
-              <div key={status} className="flex items-center gap-1.5 text-xs text-gray-500">
-                <div className="w-4 h-3 rounded-sm border" style={{ backgroundColor: c.bar, borderColor: c.border }} />
-                {label}
-              </div>
+              <label 
+                key={status} 
+                className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer hover:text-gray-900 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={(e) => {
+                    const newFilters = new Set(statusFilters);
+                    if (e.target.checked) {
+                      newFilters.add(status);
+                    } else {
+                      newFilters.delete(status);
+                    }
+                    setStatusFilters(newFilters);
+                  }}
+                  className="w-3.5 h-3.5 rounded border-gray-300 focus:ring-offset-0 focus:ring-1 cursor-pointer"
+                  style={{
+                    accentColor: c.border,
+                  }}
+                />
+                {/* <div className="w-4 h-3 rounded-sm border" style={{ backgroundColor: c.bar, borderColor: c.border }} /> */}
+                <span className={!isChecked ? 'opacity-50' : ''}>{label}</span>
+              </label>
             );
           }
         )}
