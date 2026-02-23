@@ -714,3 +714,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_context_conversation ON agent_context(conversation_id);
+	`
+
+	_, err := db.Pool.Exec(ctx, schema)
+	return err
+}

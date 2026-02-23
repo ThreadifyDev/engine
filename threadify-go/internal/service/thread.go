@@ -597,6 +597,25 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 			// Don't fail the request - refs are optional
 		} else {
 			fmt.Printf("✅ [REFS] Stored %d refs for thread %s\n", len(req.Refs), req.ThreadID)
+
+			// Publish refs to NATS for archiving to PostgreSQL
+			go func() {
+				pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				for key, value := range req.Refs {
+					refEvent := map[string]interface{}{
+						"threadId": req.ThreadID,
+						"refKey":   key,
+						"refValue": value,
+						"action":   "ref_added",
+					}
+					if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, refEvent); err != nil {
+						fmt.Printf("❌ ERROR: Failed to publish ref %s to NATS: %v\n", key, err)
+					} else {
+						fmt.Printf("✅ [NATS-ARCHIVAL] Published ref %s for thread %s\n", key, req.ThreadID)
+					}
+				}
+			}()
 		}
 	}
 
