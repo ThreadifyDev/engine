@@ -260,7 +260,7 @@ export default function ThreadsPage() {
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            AI Analyze
+            AI Assistant
           </button>
         </div>
 

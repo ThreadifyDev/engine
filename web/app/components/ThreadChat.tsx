@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search } from 'lucide-react';
 import { api } from '~/lib/api';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -18,6 +19,8 @@ interface Conversation {
   updated_at: string;
 }
 
+type Skill = 'support' | 'operations' | 'business';
+
 export default function ThreadChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -26,6 +29,9 @@ export default function ThreadChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSkill, setSelectedSkill] = useState<Skill>('support');
+  const [tokenCount, setTokenCount] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +82,8 @@ export default function ThreadChat() {
   const startNewConversation = () => {
     setMessages([]);
     setConversationId(null);
+    setTokenCount(0);
+    setMessageCount(0);
   };
 
   const deleteConversation = async (convId: string, e: React.MouseEvent) => {
@@ -109,6 +117,13 @@ export default function ThreadChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,6 +214,12 @@ export default function ThreadChat() {
                   setConversationId(data);
                   loadConversations();
                 }
+              } else if (currentEvent === 'tokens') {
+                // Token count
+                setTokenCount(parseInt(data) || 0);
+              } else if (currentEvent === 'message_count') {
+                // Message count
+                setMessageCount(parseInt(data) || 0);
               } else if (currentEvent === 'system') {
                 // System messages (like "Querying Threadify Engine...")
                 // Optionally show system message in UI
@@ -239,8 +260,8 @@ export default function ThreadChat() {
       <div className="border-b border-gray-200 px-4 py-3 bg-white">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-gray-900" />
-            <h2 className="text-sm font-semibold text-gray-900">AI Thread Analyzer</h2>
+            {/* <Bot className="w-5 h-5 text-gray-900" /> */}
+            <h2 className="text-sm font-semibold text-gray-900">Threadify AI</h2>
           </div>
           <div className="flex-1 relative" ref={dropdownRef}>
             {/* Dropdown Trigger */}
@@ -338,7 +359,7 @@ export default function ThreadChat() {
         {messages.length === 0 && (
           <div className="text-center py-12">
             <Bot className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">Start a conversation to analyze your threads</p>
+            <p className="text-sm text-gray-500">Ask Threadify AI any question about your threads</p>
             <p className="text-xs text-gray-400 mt-1">
               Example: "Show me failed threads from the last 24 hours"
             </p>
@@ -362,8 +383,12 @@ export default function ThreadChat() {
                   : 'bg-gray-100 text-gray-900'
               }`}
             >
-              <div className="text-sm whitespace-pre-wrap break-words">
-                {message.content}
+              <div className="text-sm break-words prose prose-sm max-w-none prose-p:my-1 prose-strong:font-semibold prose-strong:text-gray-900">
+                {message.role === 'assistant' ? (
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                ) : (
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                )}
               </div>
               <p className="text-xs opacity-60 mt-1">
                 {message.timestamp.toLocaleTimeString()}
@@ -392,25 +417,70 @@ export default function ThreadChat() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-gray-200 p-4">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about your threads..."
-            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isLoading}
-            className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-      </form>
+      <div className="border-t border-gray-200 p-4 bg-white">
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about your threads..."
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm resize-none min-h-[44px] max-h-[200px] overflow-y-auto"
+              disabled={isLoading}
+              rows={1}
+              style={{
+                height: 'auto',
+                minHeight: '44px',
+              }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="px-4 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedSkill}
+                onChange={(e) => setSelectedSkill(e.target.value as Skill)}
+                className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white text-gray-700"
+              >
+                <option value="support">Support</option>
+                <option value="operations">Operations</option>
+                <option value="business">Business</option>
+              </select>
+              <span className="text-xs text-gray-500">
+                {selectedSkill === 'support' && 'Customer troubleshooting'}
+                {selectedSkill === 'operations' && 'Workflow monitoring & reliability'}
+                {selectedSkill === 'business' && 'Analytics & insights'}
+              </span>
+            </div>
+            {conversationId && (tokenCount > 0 || messageCount > 0) && (
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-24 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all ${tokenCount > 180000 ? 'bg-red-500' : tokenCount > 150000 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                      style={{ width: `${Math.min((tokenCount / 200000) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span>{tokenCount.toLocaleString()}/200k tokens</span>
+                </div>
+                <span>•</span>
+                <span>{messageCount}/50 msgs</span>
+              </div>
+            )}
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

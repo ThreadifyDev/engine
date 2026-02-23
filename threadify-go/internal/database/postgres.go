@@ -670,37 +670,47 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+	-- Agent AI Chat tables
 	CREATE TABLE IF NOT EXISTS agent_conversations (
 		id VARCHAR(255) PRIMARY KEY,
 		user_id VARCHAR(255) NOT NULL,
 		company_id VARCHAR(255) NOT NULL,
-		title VARCHAR(255),
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+		title TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id, updated_at DESC);
+	-- Add message_count and token_count columns if they don't exist
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='message_count') THEN
+			ALTER TABLE agent_conversations ADD COLUMN message_count INT DEFAULT 0;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='token_count') THEN
+			ALTER TABLE agent_conversations ADD COLUMN token_count INT DEFAULT 0;
+		END IF;
+	END $$;
 
 	CREATE TABLE IF NOT EXISTS agent_messages (
 		id VARCHAR(255) PRIMARY KEY,
 		conversation_id VARCHAR(255) NOT NULL,
 		role VARCHAR(50) NOT NULL,
-		content TEXT NOT NULL,
-		tool_calls JSONB,
+		content TEXT,
+		tool_calls TEXT,
 		tool_call_id VARCHAR(255),
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		created_at TIMESTAMP NOT NULL,
 		FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id, created_at ASC);
-	`
+	CREATE TABLE IF NOT EXISTS agent_context (
+		id VARCHAR(255) PRIMARY KEY,
+		conversation_id VARCHAR(255) NOT NULL,
+		context_key VARCHAR(255) NOT NULL,
+		context_value TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+	);
 
-	_, err := db.Pool.Exec(ctx, schema)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_context_conversation ON agent_context(conversation_id);
