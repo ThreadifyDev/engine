@@ -689,6 +689,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='token_count') THEN
 			ALTER TABLE agent_conversations ADD COLUMN token_count INT DEFAULT 0;
 		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='parent_conversation_id') THEN
+			ALTER TABLE agent_conversations ADD COLUMN parent_conversation_id VARCHAR(255);
+		END IF;
 	END $$;
 
 	CREATE TABLE IF NOT EXISTS agent_messages (

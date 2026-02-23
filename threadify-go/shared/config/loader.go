@@ -64,6 +64,11 @@ type Config struct {
 			Requests      int `yaml:"requests"`
 			WindowMinutes int `yaml:"window_minutes"`
 		} `yaml:"rate_limit"`
+		Agent struct {
+			MaxMessages      int `yaml:"max_messages"`
+			MaxTokens        int `yaml:"max_tokens"`
+			SummaryMaxTokens int `yaml:"summary_max_tokens"`
+		} `yaml:"agent"`
 	} `yaml:"web_api"`
 }
 

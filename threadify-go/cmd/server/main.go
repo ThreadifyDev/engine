@@ -365,9 +365,6 @@ func main() {
 		})
 	})
 
-	// Public routes
-	r.POST("/v1/contracts/login", contractHandler.Login)
-
 	// WebSocket route (no auth at connection level)
 	r.GET("/threads", wsHandler.HandleWebSocket)
 

@@ -409,6 +409,10 @@ class ApiClient {
   async deleteChatConversation(conversationId: string) {
     return this.delete<{ message: string }>(`/chat/conversations/${conversationId}`);
   }
+
+  async continueConversation(conversationId: string): Promise<{ conversation_id: string; title: string; parent_id: string }> {
+    return this.post(`/chat/conversations/${conversationId}/continue`, {});
+  }
 }
 
 export const api = new ApiClient(API_BASE_URL);

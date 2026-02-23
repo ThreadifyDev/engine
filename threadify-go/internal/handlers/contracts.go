@@ -51,41 +51,6 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 	c.JSON(statusCode, response)
 }
 
-func (h *ContractHandler) Login(c *gin.Context) {
-	// Get API key from header
-	apiKey := c.GetHeader("X-API-Key")
-	if apiKey == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "X-API-Key header required"})
-		return
-	}
-
-	// Validate API key and get user info
-	userInfo, err := h.authService.ValidateApiKey(apiKey)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
-		return
-	}
-
-	// Create token with validated user info
-	token, err := h.authService.CreateToken(userInfo.OwnerID, map[string]interface{}{
-		"role":      userInfo.Role,
-		"ownerId":   userInfo.OwnerID,
-		"companyId": userInfo.CompanyID,
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create token"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"token":     token,
-		"userId":    userInfo.OwnerID,
-		"companyId": userInfo.CompanyID,
-		"role":      userInfo.Role,
-		"message":   "Use this token in Authorization header as: Bearer <token>",
-	})
-}
-
 func (h *ContractHandler) CreateContract(c *gin.Context) {
 	userID := c.GetString("userID")
 	claimsInterface := c.MustGet("claims")
