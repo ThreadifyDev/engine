@@ -30,9 +30,12 @@ type AgentHandler struct {
 	httpClient         *http.Client
 	openaiClient       *openai.Client
 	agentRepo          *repository.AgentRepository
+	maxMessages        int
+	maxTokens          int
+	summaryMaxTokens   int
 }
 
-func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *repository.AgentRepository) *AgentHandler {
+func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *repository.AgentRepository, maxMessages, maxTokens, summaryMaxTokens int) *AgentHandler {
 	client := openai.NewClient(apiKey)
 
 	return &AgentHandler{
@@ -40,6 +43,9 @@ func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *reposi
 		httpClient:         &http.Client{},
 		openaiClient:       client,
 		agentRepo:          agentRepo,
+		maxMessages:        maxMessages,
+		maxTokens:          maxTokens,
+		summaryMaxTokens:   summaryMaxTokens,
 	}
 }
 
@@ -107,19 +113,16 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	// Check conversation limits
-	const maxMessages = 50
-	const maxTokens = 200000
-
+	// Check conversation limits (from config)
 	if chatReq.ConversationID != "" {
 		msgCount, tokenCount, err := h.agentRepo.GetConversationStats(chatReq.ConversationID)
 		if err == nil {
-			if msgCount >= maxMessages {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation has reached the maximum of 50 messages. Please start a new conversation."})
+			if msgCount >= h.maxMessages {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Conversation has reached the maximum of %d messages. Please start a new conversation.", h.maxMessages)})
 				return
 			}
-			if tokenCount >= maxTokens {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation has reached the token limit. Please start a new conversation."})
+			if tokenCount >= h.maxTokens {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Conversation has reached the token limit of %d. Please start a new conversation.", h.maxTokens)})
 				return
 			}
 		}
@@ -710,6 +713,7 @@ IMPORTANT:
 		// Send stats to frontend
 		c.SSEvent("tokens", fmt.Sprintf("%d", tokenCount))
 		c.SSEvent("message_count", fmt.Sprintf("%d", messageCount))
+		c.Writer.Flush() // CRITICAL: Flush immediately for real-time updates
 	}
 
 	// Send final payload with conversation info
@@ -771,6 +775,123 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"messages": msgs})
+}
+
+// ContinueConversation creates a new conversation with context from a parent conversation
+func (h *AgentHandler) ContinueConversation(c *gin.Context) {
+	parentConvID := c.Param("id")
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	companyID, exists := c.Get("companyID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Verify user owns the parent conversation
+	convs, err := h.agentRepo.GetConversations(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
+		return
+	}
+
+	owns := false
+	var parentTitle string
+	for _, conv := range convs {
+		if conv.ID == parentConvID {
+			owns = true
+			parentTitle = conv.Title
+			break
+		}
+	}
+
+	if !owns {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to continue this conversation"})
+		return
+	}
+
+	// Get messages from parent conversation to generate summary
+	messages, err := h.agentRepo.GetMessages(parentConvID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load parent messages"})
+		return
+	}
+
+	// Build conversation history for summarization
+	var conversationHistory []openai.ChatCompletionMessage
+	for _, msg := range messages {
+		if msg.Role == "user" || (msg.Role == "assistant" && msg.Content != "") {
+			conversationHistory = append(conversationHistory, openai.ChatCompletionMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	// Generate summary using LLM
+	var summary string
+	if len(conversationHistory) > 0 {
+		summaryReq := openai.ChatCompletionRequest{
+			Model: "gpt-4o-mini",
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    "system",
+					Content: "You are a helpful assistant that creates concise summaries of conversations. Preserve all important facts, decisions, code snippets, thread IDs, technical details, and context. Be comprehensive but concise.",
+				},
+				{
+					Role:    "user",
+					Content: "Summarize the following conversation, preserving all important context and details:",
+				},
+			},
+			MaxTokens: h.summaryMaxTokens,
+		}
+		summaryReq.Messages = append(summaryReq.Messages, conversationHistory...)
+
+		summaryResp, err := h.openaiClient.CreateChatCompletion(context.Background(), summaryReq)
+		if err != nil {
+			log.Printf("Failed to generate summary: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate conversation summary"})
+			return
+		}
+		summary = summaryResp.Choices[0].Message.Content
+	}
+
+	// Create new conversation with parent reference
+	newConvID := uuid.New().String()
+	newConv := &models.AgentConversation{
+		ID:        newConvID,
+		UserID:    userID.(string),
+		CompanyID: companyID.(string),
+		Title:     parentTitle + " (continued)",
+	}
+
+	err = h.agentRepo.CreateConversationWithParent(newConv, parentConvID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
+		return
+	}
+
+	// Store summary as context
+	if summary != "" {
+		summaryCtx := &models.AgentContext{
+			ID:             uuid.New().String(),
+			ConversationID: newConvID,
+			ContextKey:     "conversation_summary",
+			ContextValue:   summary,
+		}
+		if err := h.agentRepo.SaveContext(summaryCtx); err != nil {
+			log.Printf("Failed to save summary context: %v", err)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"conversation_id": newConvID,
+		"title":           newConv.Title,
+		"parent_id":       parentConvID,
+	})
 }
 
 // DeleteConversation deletes a conversation and all its messages

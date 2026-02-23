@@ -23,6 +23,15 @@ func (r *AgentRepository) CreateConversation(conv *models.AgentConversation) err
 	return err
 }
 
+func (r *AgentRepository) CreateConversationWithParent(conv *models.AgentConversation, parentConvID string) error {
+	query := `
+		INSERT INTO agent_conversations (id, user_id, company_id, title, parent_conversation_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+	`
+	_, err := r.db.Exec(query, conv.ID, conv.UserID, conv.CompanyID, conv.Title, parentConvID)
+	return err
+}
+
 func (r *AgentRepository) GetConversations(userID string) ([]models.AgentConversation, error) {
 	query := `SELECT id, user_id, company_id, title, message_count, token_count, created_at, updated_at 
 	          FROM agent_conversations 

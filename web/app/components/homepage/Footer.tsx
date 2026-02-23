@@ -25,6 +25,7 @@ export default function Footer() {
             <a 
               href="/AI.md" 
               target="_blank"
+              rel="noopener noreferrer"
               className="text-sm text-gray-600 hover:text-black transition-colors"
             >
               AI Assistant Guide

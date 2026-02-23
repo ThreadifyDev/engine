@@ -38,6 +38,7 @@ import { StepDetailContent } from '~/components/thread/StepDetailContent';
 import { ValidationResultsView } from '~/components/thread/ValidationResultsView';
 import { ParticipantsView } from '~/components/thread/ParticipantsView';
 import { StepHistoryContent } from '~/components/thread/StepHistoryContent';
+import { SubStateSidebar } from '~/components/thread/SubStateSidebar';
 import { CompactStepTimeline } from '~/components/thread/StepTimeline';
 import { StepValidationResultsView } from '~/components/thread/StepValidationResultsView';
 import { NotificationDetailView } from '~/components/thread/NotificationDetailView';
@@ -71,6 +72,7 @@ export default function ThreadDetailPage() {
   const [selectedNotification, setSelectedNotification] = useState<ThreadNotification | null>(null);
   const [selectedStepForHistory, setSelectedStepForHistory] = useState<StepStateInfo | null>(null);
   const [selectedStepForViolations, setSelectedStepForViolations] = useState<StepStateInfo | null>(null);
+  const [selectedSubSteps, setSelectedSubSteps] = useState<{subSteps: any[], stepName: string, stepStartedAt?: string} | null>(null);
   
   const { data: thread, isLoading, error } = useQuery({
     queryKey: ['thread', id],
@@ -283,7 +285,7 @@ export default function ThreadDetailPage() {
               onToggleContext={() => setShowContext(!showContext)}
               validations={thread.validationResults || []}
               onShowHistory={(step) => setSelectedStepForHistory(step)}
-              onShowSubState={(subThreadId) => navigate(`/u/threads/${subThreadId}`)}
+              onShowSubState={(subSteps, stepName, stepStartedAt) => setSelectedSubSteps({subSteps, stepName, stepStartedAt})}
               onShowViolations={(step) => {
                 setSelectedStepForViolations(step);
                 setPreviousView('step');
@@ -470,6 +472,17 @@ export default function ThreadDetailPage() {
           >
             <ParticipantsView threadId={id!} steps={thread.steps || []} stepHistory={allStepHistory} />
           </RightSidebar>
+        )}
+
+        {/* Sub State Sidebar - Nested overlay */}
+        {selectedSubSteps && (
+          <SubStateSidebar
+            subSteps={selectedSubSteps.subSteps}
+            stepName={selectedSubSteps.stepName}
+            stepStartedAt={selectedSubSteps.stepStartedAt}
+            onClose={() => setSelectedSubSteps(null)}
+            onBack={() => setSelectedSubSteps(null)}
+          />
         )}
       </main>
     </div>

@@ -38,12 +38,20 @@ export default function ThreadChat() {
   const [tokenCount, setTokenCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
   const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
+  const [limitError, setLimitError] = useState<string | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load conversations on mount
+  // Load conversations on mount and restore last conversation
   useEffect(() => {
     loadConversations();
+    
+    // Restore last conversation from localStorage
+    const lastConversationId = localStorage.getItem('lastConversationId');
+    if (lastConversationId) {
+      loadConversation(lastConversationId);
+    }
   }, []);
 
   // Close dropdown when clicking outside
@@ -63,7 +71,7 @@ export default function ThreadChat() {
       const response = await api.getChatConversations();
       setConversations(response.conversations || []);
     } catch (error) {
-      console.error('Failed to load conversations:', error);
+      // Silent fail - user will see empty conversation list
     }
   };
 
@@ -118,8 +126,11 @@ export default function ThreadChat() {
       setConversationId(convId);
       setIsDropdownOpen(false);
       setSearchQuery('');
+      
+      // Save to localStorage for auto-restore on next visit
+      localStorage.setItem('lastConversationId', convId);
     } catch (error) {
-      console.error('Failed to load conversation:', error);
+      // Silent fail - conversation won't load
     }
   };
 
@@ -128,6 +139,37 @@ export default function ThreadChat() {
     setConversationId(null);
     setTokenCount(0);
     setMessageCount(0);
+    setLimitError(null);
+    
+    // Clear last conversation from localStorage
+    localStorage.removeItem('lastConversationId');
+  };
+
+  const continueWithContext = async () => {
+    if (!conversationId) return;
+    
+    setIsGeneratingSummary(true);
+    
+    try {
+      const response = await api.continueConversation(conversationId);
+      
+      // Switch to new conversation
+      setConversationId(response.conversation_id);
+      setMessages([]);
+      setTokenCount(0);
+      setMessageCount(0);
+      setLimitError(null);
+      
+      // Save new conversation to localStorage
+      localStorage.setItem('lastConversationId', response.conversation_id);
+      
+      // Reload conversations list
+      loadConversations();
+    } catch (error) {
+      alert('Failed to continue conversation with context');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   };
 
   const deleteConversation = async (convId: string, e: React.MouseEvent) => {
@@ -149,7 +191,6 @@ export default function ThreadChat() {
       // Refresh conversation list
       loadConversations();
     } catch (error) {
-      console.error('Failed to delete conversation:', error);
       alert('Failed to delete conversation');
     }
   };
@@ -228,7 +269,16 @@ export default function ThreadChat() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to get response' }));
+        
+        // Check if it's a limit error
+        if (errorData.error && (errorData.error.includes('maximum') || errorData.error.includes('limit'))) {
+          setLimitError(errorData.error);
+          setIsLoading(false);
+          return;
+        }
+        
+        throw new Error(errorData.error || 'Failed to get response');
       }
 
       const reader = response.body?.getReader();
@@ -283,6 +333,8 @@ export default function ThreadChat() {
                 if (!conversationId) {
                   setConversationId(data);
                   loadConversations();
+                  // Save new conversation to localStorage
+                  localStorage.setItem('lastConversationId', data);
                 }
               } else if (currentEvent === 'tokens') {
                 // Token count
@@ -311,7 +363,6 @@ export default function ThreadChat() {
         }
       }
     } catch (error) {
-      console.error('Chat error:', error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -587,6 +638,35 @@ export default function ThreadChat() {
 
       {/* Input */}
       <div className="border-t border-gray-200 p-4 bg-white">
+        {/* Limit Error Message */}
+        {limitError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800 font-medium mb-3">{limitError}</p>
+            
+            {isGeneratingSummary ? (
+              <div className="flex items-center justify-center gap-2 py-2">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-900" />
+                <span className="text-sm text-gray-600 font-medium">Preparing context summary...</span>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={continueWithContext}
+                  className="flex-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors"
+                >
+                  New chat (keep context)
+                </button>
+                <button
+                  onClick={startNewConversation}
+                  className="flex-1 px-4 py-2 bg-gray-50 text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  New chat (fresh start)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        
         <form onSubmit={handleSubmit} className="space-y-2">
           <div className="flex gap-2 items-end">
             <textarea
@@ -595,7 +675,7 @@ export default function ThreadChat() {
               onKeyDown={handleKeyDown}
               placeholder="Ask about your threads..."
               className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm resize-none min-h-[44px] max-h-[200px] overflow-y-auto"
-              disabled={isLoading}
+              disabled={isLoading || !!limitError}
               rows={1}
               style={{
                 height: 'auto',

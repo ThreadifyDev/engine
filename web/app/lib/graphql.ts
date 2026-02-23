@@ -80,7 +80,7 @@ export interface SubStep {
   stepId: string;
   name: string;
   status: string;
-  payload?: Record<string, any>;
+  payload?: string;
   recordedAt: string;
   createdAt: string;
 }

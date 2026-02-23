@@ -111,7 +111,7 @@ export function StepDetailContent({
   validations: ValidationResultInfo[];
   onShowHistory: (step: StepStateInfo) => void;
   onShowViolations?: (step: StepStateInfo) => void;
-  onShowSubState?: (subThreadId: string) => void;
+  onShowSubState?: (subSteps: any[], stepName: string, stepStartedAt?: string) => void;
 }) {
   const [showValidations, setShowValidations] = useState(false);
   const [validationFilter, setValidationFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
@@ -292,11 +292,12 @@ export function StepDetailContent({
         </div>
       )}
 
-      {/* Context Data Toggle - Stripe style */}
-      <div className="border-t border-gray-200 pt-6">
+      {/* Action Buttons Section */}
+      <div className="border-t border-gray-200 pt-6 space-y-0">
+        {/* Show Context Data */}
         <button
           onClick={onToggleContext}
-          className="w-full text-left transition-colors group hover:bg-gray-50"
+          className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -312,7 +313,7 @@ export function StepDetailContent({
         </button>
 
         {showContext && step.latestContext && (
-          <div className="mt-3 space-y-3">
+          <div className="py-3 space-y-3">
             <div className="border border-gray-200 rounded-md p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-gray-600">Latest Context</span>
@@ -353,66 +354,70 @@ export function StepDetailContent({
         )}
 
         {showContext && !step.latestContext && (
-          <div className="mt-3 text-sm text-gray-500 italic">
+          <div className="py-3 text-sm text-gray-500 italic">
             No context data available
           </div>
         )}
-      </div>
 
-      {/* View History - Separate section */}
-      <div className="border-t border-gray-200 pt-6 space-y-2">
-        <button
-          onClick={() => onShowHistory(step)}
-          className="w-full text-left transition-colors group hover:bg-gray-50 rounded-lg"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-grey-900">
-                View Step History
-              </span>
-            </div>
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          </div>
-        </button>
-
-        {/* View Sub State — only when the step has sub-steps */}
-        {step.subSteps && step.subSteps.length > 0 && onShowSubState && (
+        {/* View Step History */}
+        <div className="border-t border-gray-200">
           <button
-            onClick={() => onShowSubState(step.subSteps![0].threadId)}
-            className="w-full text-left transition-colors group hover:bg-gray-50 rounded-lg"
+            onClick={() => onShowHistory(step)}
+            className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-500" />
+                <Clock className="w-4 h-4 text-gray-600" />
                 <span className="text-sm font-medium text-grey-900">
-                  View Sub State
-                  {step.subSteps.length > 1 && (
-                    <span className="ml-1.5 text-xs text-gray-400">({step.subSteps.length})</span>
-                  )}
+                  View Step History
                 </span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </div>
           </button>
+        </div>
+
+        {/* View Sub State */}
+        {step.subSteps && step.subSteps.length > 0 && onShowSubState && (
+          <div className="border-t border-gray-200">
+            <button
+              onClick={() => onShowSubState(step.subSteps!, step.stepName, step.startedAt)}
+              className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-gray-600" />
+                  <span className="text-sm font-medium text-grey-900">
+                    View Sub State
+                    {step.subSteps.length > 1 && (
+                      <span className="ml-1.5 text-xs text-gray-400">({step.subSteps.length})</span>
+                    )}
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </div>
+            </button>
+          </div>
         )}
 
-        {/* View Violation History - Only show for violated steps */}
+        {/* View Violation History */}
         {step.status === 'violated' && onShowViolations && (
-          <button
-            onClick={() => onShowViolations(step)}
-            className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50 rounded-lg"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-orange-600" />
-                <span className="text-sm font-medium text-grey-900">
-                  View Violation History
-                </span>
+          <div className="border-t border-gray-200">
+            <button
+              onClick={() => onShowViolations(step)}
+              className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-orange-600" />
+                  <span className="text-sm font-medium text-grey-900">
+                    View Violation History
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
               </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </div>
-          </button>
+            </button>
+          </div>
         )}
       </div>
 

@@ -143,7 +143,14 @@ func main() {
 	contractProxyHandler := handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL)
 	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
 	agentRepo := repository.NewAgentRepository(db)
-	agentHandler := handlers.NewAgentHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, cfg.WebAPI.OpenAIAPIKey, agentRepo)
+	agentHandler := handlers.NewAgentHandler(
+		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+		cfg.WebAPI.OpenAIAPIKey,
+		agentRepo,
+		cfg.WebAPI.Agent.MaxMessages,
+		cfg.WebAPI.Agent.MaxTokens,
+		cfg.WebAPI.Agent.SummaryMaxTokens,
+	)
 
 	// JWT middleware
 	jwtMiddleware := jwtValidator.AuthMiddleware()
@@ -222,6 +229,7 @@ func main() {
 		api.POST("/chat/ask", agentHandler.Chat)
 		api.GET("/chat/conversations", agentHandler.GetConversations)
 		api.GET("/chat/conversations/:id", agentHandler.GetConversation)
+		api.POST("/chat/conversations/:id/continue", agentHandler.ContinueConversation)
 		api.DELETE("/chat/conversations/:id", agentHandler.DeleteConversation)
 	}
 
