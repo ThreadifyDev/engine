@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"time"
+
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 
@@ -19,6 +22,7 @@ import (
 type ChatRequest struct {
 	Message        string `json:"message"`
 	ConversationID string `json:"conversation_id"`
+	Skill          string `json:"skill"` // support, operations, business
 }
 
 type AgentHandler struct {
@@ -29,9 +33,7 @@ type AgentHandler struct {
 }
 
 func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *repository.AgentRepository) *AgentHandler {
-	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = "https://api.deepseek.com/v1"
-	client := openai.NewClientWithConfig(config)
+	client := openai.NewClient(apiKey)
 
 	return &AgentHandler{
 		threadifyEngineURL: threadifyEngineURL,
@@ -105,6 +107,24 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		return
 	}
 
+	// Check conversation limits
+	const maxMessages = 50
+	const maxTokens = 200000
+
+	if chatReq.ConversationID != "" {
+		msgCount, tokenCount, err := h.agentRepo.GetConversationStats(chatReq.ConversationID)
+		if err == nil {
+			if msgCount >= maxMessages {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation has reached the maximum of 50 messages. Please start a new conversation."})
+				return
+			}
+			if tokenCount >= maxTokens {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Conversation has reached the token limit. Please start a new conversation."})
+				return
+			}
+		}
+	}
+
 	convID := chatReq.ConversationID
 	isNewConversation := false
 
@@ -141,49 +161,99 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	}
 
 	// 1. Initial State (LangGraph pattern) -> Loading History vs Fresh
+	// Build skill-specific system prompt
+	var roleDescription string
+	switch chatReq.Skill {
+	case "support":
+		roleDescription = `You are a Customer Support AI for Threadify. Your goal is to help support teams quickly diagnose and resolve customer issues.
+
+FOCUS:
+- Find the root cause of customer-reported problems
+- Identify failed steps and error messages
+- Provide clear explanations for support agents
+- Suggest next steps for resolution
+
+RESPONSE STYLE:
+- Customer-friendly language
+- Clear problem identification
+- Actionable troubleshooting steps`
+	case "operations":
+		roleDescription = `You are an Operations AI for Threadify. Your goal is to monitor workflow execution and identify operational issues.
+
+FOCUS:
+- Workflow reliability and completion rates
+- Error patterns and failure points
+- Process bottlenecks and delays
+- Retry patterns and recovery success
+
+RESPONSE STYLE:
+- Process-oriented and actionable
+- Highlight anomalies and trends
+- Include metrics and counts`
+	case "business":
+		roleDescription = `You are a Business Intelligence AI for Threadify. Your goal is to provide insights and analytics on workflow performance.
+
+FOCUS:
+- Success rates and conversion metrics
+- Workflow completion times
+- Business process efficiency
+- Trends and patterns over time
+
+RESPONSE STYLE:
+- Business-oriented language
+- Quantitative insights
+- Strategic recommendations`
+	default:
+		roleDescription = `You are Threadify's thread analyzer. Analyze execution threads using GraphQL queries.`
+	}
+
 	systemPrompt := openai.ChatCompletionMessage{
 		Role: openai.ChatMessageRoleSystem,
-		Content: `You are Threadify's systems analyst AI. Be EXTREMELY CONCISE.
+		Content: roleDescription + `
 
-CRITICAL RULES:
-1. **Brevity First** - Give SHORT, direct answers. No fluff.
-2. **Minimal GraphQL** - ONLY fetch fields needed. Examples:
-   - Need thread count? Query: threads(limit: 1) { totalCount }
-   - Need thread IDs? Query: threads { id }
-   - Need step names? Query: thread(id: "x") { steps { stepName } }
-   - DON'T fetch: full step history, context, or nested data unless explicitly asked
-3. **No Pre-loaded Data** - Always use 'execute_graphql' tool first
-4. **One Query** - Combine filters instead of multiple queries when possible
+WORKFLOW:
+1. User asks about threads → call execute_graphql tool
+2. Tool returns JSON data → analyze it and respond with a summary
+3. User asks follow-up → use the data already in context (don't re-query)
 
-Available GraphQL Queries outline (use this schema for reference):
+RESPONSE RULES:
+- After getting tool data, ALWAYS provide a summary (never say you can't fetch data)
+- Be concise - 2-3 sentences max
+- Only query fields you need
+- Save important findings with save_context tool
 
-Type: Query {
-  # Get threads with filtering (company-scoped automatically via JWT)
-  threads(
-    actor: String, contractName: String, contractVersion: Int, status: String,
-    startedAfter: String, startedBefore: String, limit: Int = 50, offset: Int = 0
-  ): ThreadConnection!
-  
-  # Get a single thread by ID
+GraphQL Schema (EXACT - follow this precisely):
+
+type Query {
   thread(id: ID!): Thread
+  threads(
+    actor: String
+    contractName: String
+    contractVersion: Int
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int
+    offset: Int
+  ): ThreadConnection!
 }
 
-Type: ThreadConnection {
-  threads: [Thread!]!
-  totalCount: Int!
-}
-
-Type: Thread {
+type Thread {
   id: ID!
   contractName: String
   contractVersion: Int
   status: String!
-  startedAt: String!
+  startedAt: String
   completedAt: String
-  steps: [StepStateInfo!]!
+  steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
 }
 
-Type: StepStateInfo {
+type ThreadConnection {
+  threads: [Thread!]!
+  totalCount: Int!
+}
+
+type StepStateInfo {
   stepName: String!
   idempotencyKey: String!
   status: String!
@@ -193,41 +263,84 @@ Type: StepStateInfo {
   lastUpdatedAt: String
   actor: String
   actorService: String
+  history: [StepHistory!]!
 }
 
-IMPORTANT QUERY EXAMPLES:
-- Get thread count: threads(limit: 1) { totalCount }
-- Get recent threads: threads(limit: 10) { threads { id contractName status } }
-- Get specific thread: thread(id: "abc") { id status steps { stepName status } }
-- Filter by contract: threads(contractName: "order-processing") { threads { id status } }
-- Filter by status: threads(status: "failed") { threads { id contractName } }
-- Get step details: thread(id: "abc") { steps { stepName status retryCount actor } }
+type StepHistory {
+  attempt: Int!
+  status: String!
+  context: String!
+  error: String
+  timestamp: String!
+}
 
-Remember: ONLY fetch fields you need. Don't fetch error fields - they don't exist on steps.
+THREADIFY BUSINESS CONTEXT:
+Threadify turns customer requests into live execution graphs. Every customer request is a Thread flowing through your system.
 
-Core Concepts regarding Threadify you must know:
-1. Thread - One customer request flowing through the system
-2. Step - One action in the workflow
-3. Contract - YAML validation rules enforced at runtime
-4. Step Statuses:
+Core Concepts:
+1. **Thread** - One customer request/workflow (e.g., order processing, payment flow)
+   - Has unique ID, status (running/completed/failed), contract, and steps
+   - Can be linked to other threads (parent-child relationships)
+   - Can have external refs (e.g., stripe_payment_id, order_id)
+
+2. **Step** - One action in the workflow (e.g., validate_cart, charge_payment)
+   - Has stepName, status, context, actor, and execution history
+   - Idempotency prevents duplicate execution (stepName + idempotencyKey)
+   - Can have sub-steps for granular operations
+
+3. **Contract** - YAML validation rules enforced at runtime
+   - Defines valid state transitions (e.g., validate_cart → check_inventory)
+   - Prevents race conditions and invalid flows
+   - Has entry_points and terminal_steps
+
+4. **Step Statuses:**
    - success: Step completed as expected (e.g., Payment processed)
    - failed: Business logic failure (e.g., Payment declined)
    - error: System/technical error (e.g., Payment gateway timeout)
-5. Idempotency prevents duplicate step execution.
-6. Context values are flat string key-value pairs representing business input/outputs for each step execution history.
 
-Follow this exact process when responding:
-1. Identify the user's intent. Do they want to find generic failed threads? Search by contract? Or analyze a specific thread ID?
-2. Call 'execute_graphql'. You MUST provide precise syntactically valid GraphQL strings.
-3. Review the returned JSON result.
-4. Synthesize the final answer using the fetched raw data.
+5. **Context** - Flat key-value pairs for business data (e.g., customer_id, amount, payment_method)
+   - Stored in step history for audit trail
+   - Used for querying and analysis
 
-Never refuse to try to look up data unless the user's query is completely unrelated to technical systems/execution tracing. Give concrete details based on the payloads.`,
+6. **Actors** - Users or services that execute steps (tracked for audit/compliance)
+
+QUERY FORMAT (CRITICAL):
+All GraphQL queries MUST be wrapped in "query { }" syntax:
+✅ CORRECT: query { thread(id: "abc") { status } }
+❌ WRONG: thread(id: "abc") { status }
+
+EXAMPLES:
+Q: "Analyze thread 5d724fa5"
+1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { status steps { stepName status } } }')
+2. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
+
+Q: "Show failed threads"
+1. Call: execute_graphql(query: 'query { threads(status: "failed", limit: 10) { threads { id contractName } } }')
+2. Respond: "Found 3 failed threads: order-123, payment-456, shipping-789."
+
+IMPORTANT:
+- ALWAYS wrap queries in "query { }"
+- Tool results contain the data you need - analyze them
+- Never output raw JSON - always summarize
+- Use save_context to remember important findings`,
 	}
 
 	messages := []openai.ChatCompletionMessage{systemPrompt}
 
+	// Load saved context for this conversation
 	if !isNewConversation {
+		contexts, err := h.agentRepo.GetContext(convID)
+		if err == nil && len(contexts) > 0 {
+			contextSummary := "Previously saved context:\n"
+			for _, ctx := range contexts {
+				contextSummary += fmt.Sprintf("- %s: %s\n", ctx.ContextKey, ctx.ContextValue)
+			}
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: contextSummary,
+			})
+		}
+
 		history, err := h.agentRepo.GetMessages(convID)
 		if err == nil {
 			for _, m := range history {
@@ -261,14 +374,41 @@ Never refuse to try to look up data unless the user's query is completely unrela
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "execute_graphql",
-				Description: "Execute a GraphQL query against the Threadify engine to retrieve thread data, execution history, and contract state. You can pass 'query' as a string and 'variables' as a JSON map.",
+				Description: "Execute a GraphQL query against the Threadify Engine to retrieve thread execution data",
 				Parameters: json.RawMessage(`{
 					"type": "object",
 					"properties": {
-						"query": { "type": "string", "description": "The GraphQL query to execute." },
-						"variables": { "type": "object", "description": "JSON object of variables for the query." }
+						"query": {
+							"type": "string",
+							"description": "The GraphQL query string"
+						},
+						"variables": {
+							"type": "object",
+							"description": "Optional variables for the GraphQL query"
+						}
 					},
 					"required": ["query"]
+				}`),
+			},
+		},
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        "save_context",
+				Description: "Save important context/summary for future reference in this conversation. Use this to remember key findings, thread IDs, or analysis results.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"key": {
+							"type": "string",
+							"description": "A short key describing what this context is (e.g., 'analyzed_thread', 'failed_threads_summary')"
+						},
+						"value": {
+							"type": "string",
+							"description": "The context value to save (e.g., thread ID, summary of findings)"
+						}
+					},
+					"required": ["key", "value"]
 				}`),
 			},
 		},
@@ -279,10 +419,13 @@ Never refuse to try to look up data unless the user's query is completely unrela
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 
+	// Token tracking
+	totalTokens := 0
+
 	// 2. The loop (LangGraph edge condition loop)
-	for i := 0; i < 5; i++ { // limit recursion depth
+	for i := 0; i < 3; i++ { // limit recursion depth
 		req := openai.ChatCompletionRequest{
-			Model:    "deepseek-chat",
+			Model:    "gpt-4o-mini",
 			Messages: messages,
 			Tools:    tools,
 			Stream:   true,
@@ -300,12 +443,17 @@ Never refuse to try to look up data unless the user's query is completely unrela
 		// Stream Processor
 		for {
 			response, err := stream.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
-				log.Printf("[STREAM ERROR] %v", err)
-				return
+				log.Printf("[AGENT ERROR] Stream error: %v", err)
+				break
+			}
+
+			// Track token usage
+			if response.Usage != nil {
+				totalTokens += response.Usage.TotalTokens
 			}
 
 			if len(response.Choices) == 0 {
@@ -420,6 +568,65 @@ Never refuse to try to look up data unless the user's query is completely unrela
 
 				// Loop continues! (jump to next llm call with data)
 				continue
+			} else if currentToolName == "save_context" {
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
+					log.Printf("Tool args parsing error: %v", err)
+					break
+				}
+
+				key, _ := args["key"].(string)
+				value, _ := args["value"].(string)
+
+				log.Printf("[AGENT] Saving context: %s = %s", key, value)
+
+				// Save context to DB
+				_ = h.agentRepo.SaveContext(&models.AgentContext{
+					ID:             uuid.New().String(),
+					ConversationID: convID,
+					ContextKey:     key,
+					ContextValue:   value,
+				})
+
+				// Add tool result to messages
+				toolResultMsg := openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					Content:    "Context saved successfully",
+					ToolCallID: currentToolId,
+				}
+				messages = append(messages, toolResultMsg)
+
+				// Save tool call to DB
+				toolCallJSON, _ := json.Marshal([]openai.ToolCall{
+					{
+						ID:   currentToolId,
+						Type: openai.ToolTypeFunction,
+						Function: openai.FunctionCall{
+							Name:      currentToolName,
+							Arguments: currentToolArgs,
+						},
+					},
+				})
+				tcStr := string(toolCallJSON)
+
+				_ = h.agentRepo.AddMessage(&models.AgentMessage{
+					ID:             uuid.New().String(),
+					ConversationID: convID,
+					Role:           "assistant",
+					Content:        "",
+					ToolCalls:      &tcStr,
+				})
+
+				_ = h.agentRepo.AddMessage(&models.AgentMessage{
+					ID:             uuid.New().String(),
+					ConversationID: convID,
+					Role:           "tool",
+					Content:        "Context saved successfully",
+					ToolCallID:     &currentToolId,
+				})
+
+				// Loop continues
+				continue
 			}
 		}
 
@@ -435,17 +642,19 @@ Never refuse to try to look up data unless the user's query is completely unrela
 				ConversationID: convID,
 				Role:           "assistant",
 				Content:        currentContent,
+				CreatedAt:      time.Now(),
 			})
 		}
 
-		// Send final payload with conversation info
-		c.SSEvent("conversation", convID)
-		c.SSEvent("done", true)
-		c.Writer.Flush()
-		return
+		// If no tool calls, we're done
+		if !hasToolCalls {
+			break
+		}
 	}
 
-	c.SSEvent("error", "Agent recursion limits exceeded")
+	// Send final payload with conversation info
+	c.SSEvent("conversation", convID)
+	c.SSEvent("done", true)
 	c.Writer.Flush()
 }
 

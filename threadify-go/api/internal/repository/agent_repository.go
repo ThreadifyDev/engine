@@ -23,28 +23,44 @@ func (r *AgentRepository) CreateConversation(conv *models.AgentConversation) err
 	return err
 }
 
-func (r *AgentRepository) GetConversations(userID string) ([]*models.AgentConversation, error) {
-	query := `
-		SELECT id, user_id, company_id, title, created_at, updated_at
-		FROM agent_conversations
-		WHERE user_id = $1
-		ORDER BY updated_at DESC
-	`
+func (r *AgentRepository) GetConversations(userID string) ([]models.AgentConversation, error) {
+	query := `SELECT id, user_id, company_id, title, message_count, token_count, created_at, updated_at 
+	          FROM agent_conversations 
+	          WHERE user_id = $1 
+	          ORDER BY updated_at DESC 
+	          LIMIT 50`
+
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var convs []*models.AgentConversation
+	var conversations []models.AgentConversation
 	for rows.Next() {
-		var c models.AgentConversation
-		if err := rows.Scan(&c.ID, &c.UserID, &c.CompanyID, &c.Title, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var conv models.AgentConversation
+		err := rows.Scan(&conv.ID, &conv.UserID, &conv.CompanyID, &conv.Title, &conv.MessageCount, &conv.TokenCount, &conv.CreatedAt, &conv.UpdatedAt)
+		if err != nil {
 			return nil, err
 		}
-		convs = append(convs, &c)
+		conversations = append(conversations, conv)
 	}
-	return convs, nil
+
+	return conversations, nil
+}
+
+func (r *AgentRepository) UpdateConversationStats(convID string, messageCount, tokenCount int) error {
+	query := `UPDATE agent_conversations 
+	          SET message_count = $1, token_count = $2, updated_at = NOW() 
+	          WHERE id = $3`
+	_, err := r.db.Exec(query, messageCount, tokenCount, convID)
+	return err
+}
+
+func (r *AgentRepository) GetConversationStats(convID string) (messageCount, tokenCount int, err error) {
+	query := `SELECT message_count, token_count FROM agent_conversations WHERE id = $1`
+	err = r.db.QueryRow(query, convID).Scan(&messageCount, &tokenCount)
+	return
 }
 
 func (r *AgentRepository) AddMessage(msg *models.AgentMessage) error {
@@ -107,4 +123,38 @@ func (r *AgentRepository) DeleteConversation(convID string, userID string) error
 	}
 
 	return nil
+}
+
+func (r *AgentRepository) SaveContext(ctx *models.AgentContext) error {
+	query := `
+		INSERT INTO agent_context (id, conversation_id, context_key, context_value, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (id) DO UPDATE SET context_value = $4
+	`
+	_, err := r.db.Exec(query, ctx.ID, ctx.ConversationID, ctx.ContextKey, ctx.ContextValue)
+	return err
+}
+
+func (r *AgentRepository) GetContext(convID string) ([]*models.AgentContext, error) {
+	query := `
+		SELECT id, conversation_id, context_key, context_value, created_at
+		FROM agent_context
+		WHERE conversation_id = $1
+		ORDER BY created_at ASC
+	`
+	rows, err := r.db.Query(query, convID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var contexts []*models.AgentContext
+	for rows.Next() {
+		var c models.AgentContext
+		if err := rows.Scan(&c.ID, &c.ConversationID, &c.ContextKey, &c.ContextValue, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		contexts = append(contexts, &c)
+	}
+	return contexts, nil
 }
