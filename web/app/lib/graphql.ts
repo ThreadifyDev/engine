@@ -621,10 +621,10 @@ class GraphQLClient {
             terminalSteps
           }
           transitions {
-            From
-            To
-            CanRetry
-            MaxRetries
+            from
+            to
+            canRetry
+            maxRetries
           }
           parties
         }
@@ -638,14 +638,18 @@ class GraphQLClient {
 
     const response = await this.request<{ contractGraph: any }>(query, variables);
     
-    // Convert nodes array back to map for our component
+    // Nodes might come as array or object depending on GraphQL schema
+    // If array, convert to map. If already object, leave as is.
     const contractGraph = response.contractGraph;
-    if (contractGraph?.graph?.nodes && Array.isArray(contractGraph.graph.nodes)) {
-      const nodesMap: Record<string, any> = {};
-      contractGraph.graph.nodes.forEach((node: any) => {
-        nodesMap[node.id] = node;
-      });
-      contractGraph.graph.nodes = nodesMap;
+    if (contractGraph?.graph?.nodes) {
+      if (Array.isArray(contractGraph.graph.nodes)) {
+        const nodesMap: Record<string, any> = {};
+        contractGraph.graph.nodes.forEach((node: any) => {
+          nodesMap[node.id] = node;
+        });
+        contractGraph.graph.nodes = nodesMap;
+      }
+      // If it's already an object/map, no conversion needed
     }
     
     return contractGraph;

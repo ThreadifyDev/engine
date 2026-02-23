@@ -520,7 +520,7 @@ export default function ThreadChat() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 underline font-mono text-xs bg-gray-200 px-1 rounded"
                             >
-                              {text}
+                              {`View Thread ${text.substring(text.length - 8, text.length - 1)}`}
                             </a>
                           );
                         }

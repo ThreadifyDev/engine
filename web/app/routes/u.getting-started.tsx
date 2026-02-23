@@ -195,6 +195,32 @@ export default function GettingStarted() {
           </div>
         </div>
 
+        {/* LLM IDE Helper */}
+        <div className="mb-8 p-6 border-2 border-blue-600 bg-blue-50">
+          <div className="flex items-start gap-3 mb-3">
+            <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <div>
+              <h3 className="text-lg font-bold text-blue-900 mb-2">Building with an AI-Powered IDE?</h3>
+              <p className="text-sm text-blue-800 mb-3">
+                Give your AI assistant context about Threadify's SDK to accelerate development.
+              </p>
+              <a
+                href="/AI.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium text-sm"
+              >
+                View AI Context Guide →
+              </a>
+              <p className="text-xs text-blue-700 mt-3">
+                Copy the guide and share it with Cursor, Windsurf, or any LLM-powered IDE for better code suggestions.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Check Instrumentation Button */}
         <div className="text-center">
           <button

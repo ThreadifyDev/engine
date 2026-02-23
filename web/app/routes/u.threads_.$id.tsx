@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import SideNav from '~/components/SideNav';
-import ThreadGraphView from '~/components/ThreadGraphViewReactFlow';
+import ThreadGraphView from '~/components/ThreadGraphView';
 import ThreadTimelineView from '~/components/ThreadTimelineView';
 import GanttTimelineView from '~/components/GanttTimelineView';
 import RightSidebar from '~/components/RightSidebar';
@@ -170,16 +170,20 @@ export default function ThreadDetailPage() {
               >
                 Timeline
               </button>
-              <button
-                onClick={() => setActiveTab('graph')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  activeTab === 'graph'
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                Graph
-              </button>
+              
+              {/* Only show Graph tab if thread has a contract */}
+              {/* {thread.contractName && (
+                <button
+                  onClick={() => setActiveTab('graph')}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'graph'
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  Graph
+                </button>
+              )} */}
             </div>
             
             {/* Action Buttons */}
@@ -254,14 +258,27 @@ export default function ThreadDetailPage() {
               />
             )}
             
-            {activeTab === 'graph' && (
+            {activeTab === 'graph' && thread.contractName && (
               <ThreadGraphView 
-                steps={thread.steps || []} 
+                steps={thread.steps || []}
+                contractName={thread.contractName}
+                contractVersion={thread.contractVersion}
                 onNodeClick={(step: StepStateInfo) => {
                   setSelectedStep(step);
                   setSidebarView('step');
                 }}
               />
+            )}
+            
+            {activeTab === 'graph' && !thread.contractName && (
+              <div className="flex items-center justify-center h-96 text-gray-500 border-2 border-gray-200 rounded-lg bg-gray-50">
+                <div className="text-center max-w-md">
+                  <p className="text-lg font-medium mb-2">Graph view is only available for threads with contracts</p>
+                  <p className="text-sm text-gray-400">
+                    Contracts define the flow structure that powers the graph visualization.
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -285,7 +302,9 @@ export default function ThreadDetailPage() {
               onToggleContext={() => setShowContext(!showContext)}
               validations={thread.validationResults || []}
               onShowHistory={(step) => setSelectedStepForHistory(step)}
-              onShowSubState={(subSteps, stepName, stepStartedAt) => setSelectedSubSteps({subSteps, stepName, stepStartedAt})}
+              onShowSubState={(subSteps, stepName, stepStartedAt) => {
+                setSelectedSubSteps({subSteps, stepName, stepStartedAt});
+              }}
               onShowViolations={(step) => {
                 setSelectedStepForViolations(step);
                 setPreviousView('step');
