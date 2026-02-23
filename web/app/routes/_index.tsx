@@ -6,7 +6,7 @@ import Nav from '~/components/homepage/Nav';
 import LiveThreadDemo from '~/components/homepage/LiveThreadDemo';
 import FeatureSection from '~/components/homepage/FeatureSection';
 import Footer from '~/components/homepage/Footer';
-import { Zap, Link2, Lock, Radio, MessageSquare, Clock, Database, ShieldCheck, Webhook, Brain } from 'lucide-react';
+import { Zap, Link2, Lock, Radio, MessageSquare, Clock, Database, ShieldCheck, Webhook, Brain, Route } from 'lucide-react';
 
 export const meta: MetaFunction = () => {
   return [
@@ -206,7 +206,74 @@ export default function Index() {
               </button>
             </div>
 
-            {/* Card 1: Resolve support tickets */}
+            {/* Card 1: Capture customer journeys */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              <div className="absolute inset-0 bg-blue-950 overflow-hidden group-hover:scale-105 transition duration-700">
+                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at center, #60a5fa 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
+                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(to right, #60a5fa 1px, transparent 1px), linear-gradient(to bottom, #60a5fa 1px, transparent 1px)', backgroundSize: '96px 96px' }}></div>
+                <div className="absolute top-0 right-0 w-64 h-64 border-[2px] border-blue-400/30 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
+                <div className="absolute top-0 right-0 w-96 h-96 border-[2px] border-blue-400/20 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
+                <div className="absolute bottom-[-10%] right-[10%] w-64 h-64 bg-teal-400 rounded-full filter blur-[80px] opacity-50 group-hover:opacity-70 transition duration-700"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-blue-950 via-blue-950/60 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <Route className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Capture customer journeys</h3>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Identify business logic violations */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              <div className="absolute inset-0 bg-slate-950 group-hover:scale-105 transition duration-700">
+                <div className="absolute inset-0 opacity-20 top-2" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #94a3b8 0, #94a3b8 1px, transparent 0, transparent 50%)', backgroundSize: '16px 16px' }}></div>
+                <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-60"></div>
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60"></div>
+                <div className="absolute inset-0 bg-cyan-900/40 mix-blend-multiply"></div>
+                <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-cyan-500 rounded-full filter blur-[80px] opacity-40 group-hover:opacity-60 transition duration-700"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-slate-950/80"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <ShieldCheck className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Catch business logic violations</h3>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Build context-aware systems */}
+            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
+              <div className="absolute inset-0 bg-fuchsia-950 overflow-hidden group-hover:scale-105 transition duration-700">
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-pink-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform translate-x-1/4 -translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
+                <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform -translate-x-1/4 translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxwYXRoIGQ9Ik0wIDBMMCA4TDggOEw4IDBaIiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTAgMEw0IDRMOCAwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')] opacity-80"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-fuchsia-950 via-fuchsia-950/50 to-transparent"></div>
+              </div>
+              <div className="relative h-full p-6 flex justify-between items-end">
+                <div>
+                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
+                    <Brain className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-medium text-white">Build context-aware systems</h3>
+                </div>
+                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Resolve support tickets */}
             <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
               <div className="absolute inset-0 bg-indigo-950 group-hover:scale-105 transition duration-700 shadow-inner">
                 <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }}></div>
@@ -227,30 +294,7 @@ export default function Index() {
               </div>
             </div>
 
-            {/* Card 2: Prevent business logic failures */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-slate-950 group-hover:scale-105 transition duration-700">
-                <div className="absolute inset-0 opacity-20 top-2" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #94a3b8 0, #94a3b8 1px, transparent 0, transparent 50%)', backgroundSize: '16px 16px' }}></div>
-                <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-60"></div>
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60"></div>
-                <div className="absolute inset-0 bg-cyan-900/40 mix-blend-multiply"></div>
-                <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-cyan-500 rounded-full filter blur-[80px] opacity-40 group-hover:opacity-60 transition duration-700"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-slate-950/80"></div>
-              </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <ShieldCheck className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Prevent business logic failures</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 3: Analyze execution patterns */}
+            {/* Card 5: Analyze execution patterns */}
             <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
               <div className="absolute inset-0 bg-emerald-950 group-hover:scale-105 transition duration-700">
                 <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, #10b981 19px, #10b981 20px)' }}></div>
@@ -264,50 +308,6 @@ export default function Index() {
                     <Database className="w-4 h-4 text-white" />
                   </div>
                   <h3 className="text-lg font-medium text-white">Analyze execution patterns</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 4: Build smarter AI agents */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-fuchsia-950 overflow-hidden group-hover:scale-105 transition duration-700">
-                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-pink-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform translate-x-1/4 -translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
-                <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform -translate-x-1/4 translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxwYXRoIGQ9Ik0wIDBMMCA4TDggOEw4IDBaIiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTAgMEw0IDRMOCAwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')] opacity-80"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-fuchsia-950 via-fuchsia-950/50 to-transparent"></div>
-              </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <Brain className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Build smarter AI agents</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 5: Prove compliance */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-blue-950 overflow-hidden group-hover:scale-105 transition duration-700">
-                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at center, #60a5fa 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(to right, #60a5fa 1px, transparent 1px), linear-gradient(to bottom, #60a5fa 1px, transparent 1px)', backgroundSize: '96px 96px' }}></div>
-                <div className="absolute top-0 right-0 w-64 h-64 border-[2px] border-blue-400/30 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
-                <div className="absolute top-0 right-0 w-96 h-96 border-[2px] border-blue-400/20 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
-                <div className="absolute bottom-[-10%] right-[10%] w-64 h-64 bg-teal-400 rounded-full filter blur-[80px] opacity-50 group-hover:opacity-70 transition duration-700"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-blue-950 via-blue-950/60 to-transparent"></div>
-              </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <Lock className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Prove compliance</h3>
                 </div>
                 <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
                   <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
