@@ -139,6 +139,7 @@ function Tooltip({ data }: { data: TooltipData }) {
 export default function GanttTimelineView({ steps, onStepClick, threadStatus }: GanttTimelineViewProps) {
   const chartScrollRef = useRef<HTMLDivElement>(null);
   const leftColRef     = useRef<HTMLDivElement>(null);
+  const stepBarRefs    = useRef<Map<string, HTMLDivElement>>(new Map());
   const [containerWidth, setContainerWidth] = useState(900);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4);
@@ -218,6 +219,28 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     }
   };
 
+  const scrollToStep = (step: StepStateInfo) => {
+    if (!chartScrollRef.current) return;
+    
+    // Find the step's index in the sorted list
+    const stepIndex = sortedSteps.findIndex(
+      s => s.stepName === step.stepName && s.idempotencyKey === step.idempotencyKey
+    );
+    
+    if (stepIndex === -1) return;
+    
+    // Calculate horizontal position based on step's start time (same as bar positioning)
+    const startMs = new Date(step.startedAt ?? step.firstSeenAt).getTime() - timelineStart;
+    const barLeft = CHART_PADDING_LEFT + (startMs * pxPerMs);
+    const targetScrollLeft = barLeft - 50;
+    
+    // Smooth scroll horizontally only
+    chartScrollRef.current.scrollTo({
+      left: Math.max(0, targetScrollLeft),
+      behavior: 'smooth'
+    });
+  };
+
   const gridBackground = `repeating-linear-gradient(to right, transparent, transparent ${intervalPx - 1}px, #d1d5db ${intervalPx - 1}px, #d1d5db ${intervalPx}px)`;
 
   return (
@@ -268,13 +291,18 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
             return (
               <div
                 key={`lbl-${step.stepName}:${step.idempotencyKey}`}
-                className="flex-shrink-0 flex items-center px-3 border-b border-gray-300 overflow-hidden"
+                className="flex-shrink-0 flex items-center px-3 border-b border-gray-300 overflow-hidden cursor-pointer hover:bg-opacity-80 transition-colors"
                 style={{ height: ROW_HEIGHT, backgroundColor: svc.bg }}
+                onClick={() => scrollToStep(step)}
+                title="Click to scroll to step"
               >
                 <span
                   className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
                   style={{ color: '#374151' }}
-                  onClick={() => onStepClick(step)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStepClick(step);
+                  }}
                   title={step.stepName}
                 >
                   {step.stepName.length > MAX_LABEL_CHARS
@@ -345,6 +373,9 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                       style={{ left: CHART_PADDING_LEFT + (m.ms * pxPerMs), width: 1, backgroundColor: '#fcd34d', opacity: 0.6 }} />
                   ))}
                   <div
+                    ref={el => {
+                      if (el) stepBarRefs.current.set(`${step.stepName}:${step.idempotencyKey}`, el);
+                    }}
                     className="absolute rounded-lg cursor-pointer hover:opacity-85 transition-opacity overflow-hidden"
                     style={{
                       left: barLeft, top: (ROW_HEIGHT - BAR_HEIGHT) / 2,

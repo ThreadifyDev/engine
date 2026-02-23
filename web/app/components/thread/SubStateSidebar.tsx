@@ -37,6 +37,11 @@ export function SubStateSidebar({ subSteps, stepName, stepStartedAt, onClose, on
     const subStepRecorded = new Date(recordedAt).getTime();
     const diffMs = subStepRecorded - stepStart;
     
+    // Debug logging
+    console.log('Step Start:', stepStartedAt, '→', stepStart);
+    console.log('SubStep Recorded:', recordedAt, '→', subStepRecorded);
+    console.log('Diff (ms):', diffMs);
+    
     if (diffMs < 0) return '0ms after step start';
     if (diffMs < 1000) return `${diffMs}ms after step start`;
     if (diffMs < 60000) return `${(diffMs / 1000).toFixed(2)}s after step start`;
