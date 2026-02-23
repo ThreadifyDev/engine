@@ -138,6 +138,7 @@ func (r *ThreadRepository) GetThreadsByRef(ctx context.Context, refKey, refValue
 
 // GetThreadsByRefWithFilters finds threads by ref with additional filtering (status, dates, pagination)
 // SECURITY: Always filters by companyID to enforce company isolation
+// If refKey is empty, searches across all ref keys for the given refValue
 func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	ctx context.Context,
 	companyID string,
@@ -150,19 +151,38 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	offset int,
 ) ([]*models.Thread, int, error) {
 	// Build query with dynamic filters
-	query := `
-		SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version, 
-		       t.owner_id, t.company_id, t.status, t.error, 
-		       t.created_at, t.updated_at, t.completed_at
-		FROM threads t
-		JOIN thread_refs tr ON t.id = tr.thread_id
-		WHERE t.company_id = $1
-		  AND tr.ref_key = $2
-		  AND tr.ref_value = $3
-	`
+	var query string
+	var args []interface{}
+	var argIdx int
 
-	args := []interface{}{companyID, refKey, refValue}
-	argIdx := 4
+	if refKey == "" {
+		// Search across all ref keys for the value
+		query = `
+			SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version, 
+			       t.owner_id, t.company_id, t.status, t.error, 
+			       t.created_at, t.updated_at, t.completed_at
+			FROM threads t
+			JOIN thread_refs tr ON t.id = tr.thread_id
+			WHERE t.company_id = $1
+			  AND tr.ref_value ILIKE $2
+		`
+		args = []interface{}{companyID, "%" + refValue + "%"}
+		argIdx = 3
+	} else {
+		// Search for specific ref key-value pair
+		query = `
+			SELECT DISTINCT t.id, t.contract_id, t.contract_name, t.contract_version, 
+			       t.owner_id, t.company_id, t.status, t.error, 
+			       t.created_at, t.updated_at, t.completed_at
+			FROM threads t
+			JOIN thread_refs tr ON t.id = tr.thread_id
+			WHERE t.company_id = $1
+			  AND tr.ref_key = $2
+			  AND tr.ref_value ILIKE $3
+		`
+		args = []interface{}{companyID, refKey, "%" + refValue + "%"}
+		argIdx = 4
+	}
 
 	// Add optional filters
 	if status != nil && *status != "" {
@@ -185,17 +205,33 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 
 	// Execute COUNT query first (without LIMIT/OFFSET)
 	// Build count query with same filters as main query
-	countQuery := `
-		SELECT COUNT(DISTINCT t.id)
-		FROM threads t
-		JOIN thread_refs tr ON t.id = tr.thread_id
-		WHERE t.company_id = $1
-		  AND tr.ref_key = $2
-		  AND tr.ref_value = $3
-	`
+	var countQuery string
+	var countArgIdx int
+
+	if refKey == "" {
+		// Count across all ref keys
+		countQuery = `
+			SELECT COUNT(DISTINCT t.id)
+			FROM threads t
+			JOIN thread_refs tr ON t.id = tr.thread_id
+			WHERE t.company_id = $1
+			  AND tr.ref_value ILIKE $2
+		`
+		countArgIdx = 3
+	} else {
+		// Count for specific ref key
+		countQuery = `
+			SELECT COUNT(DISTINCT t.id)
+			FROM threads t
+			JOIN thread_refs tr ON t.id = tr.thread_id
+			WHERE t.company_id = $1
+			  AND tr.ref_key = $2
+			  AND tr.ref_value ILIKE $3
+		`
+		countArgIdx = 4
+	}
 
 	// Add all the same filters that were added to main query
-	countArgIdx := 4
 	if status != nil && *status != "" {
 		countQuery += fmt.Sprintf(" AND t.status = $%d", countArgIdx)
 		countArgIdx++

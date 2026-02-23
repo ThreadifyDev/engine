@@ -236,7 +236,30 @@ type Query {
     limit: Int
     offset: Int
   ): ThreadConnection!
+  threadsByRef(
+    refKey: String
+    refValue: String!
+    status: String
+    limit: Int
+  ): ThreadConnection!
 }
+
+QUERY SELECTION RULES (CRITICAL):
+Use threadsByRef() when user mentions:
+- Business identifiers: customer_id, order_id, payment_id, stripe_payment_id, transaction_id, invoice_id, etc.
+- If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
+- If you DON'T know the ref key: threadsByRef(refValue: "cus_123") - searches across ALL ref keys
+- Example: "Find thread for customer cus_123" → threadsByRef(refValue: "cus_123")
+- Example: "Show order ORD-456" → threadsByRef(refValue: "ORD-456")
+- Example: "Find pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+
+Use threads(actor:) ONLY when user explicitly mentions:
+- Service names: "ran by payment-service", "where merchant-service was involved"
+- User names: "executed by john@example.com"
+- Example: "Threads run by payment-service" → threads(actor: "payment-service")
+
+Default to threadsByRef() for business IDs, NOT threads(actor:)!
+When in doubt about the ref key name, omit refKey and search by value only.
 
 type Thread {
   id: ID!
@@ -310,9 +333,26 @@ All GraphQL queries MUST be wrapped in "query { }" syntax:
 ❌ WRONG: thread(id: "abc") { status }
 
 EXAMPLES:
+
 Q: "Analyze thread 5d724fa5"
 1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { status steps { stepName status } } }')
 2. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
+
+Q: "Find thread for customer cus_ABC123"
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+2. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
+
+Q: "Show order ORD-456 status"
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "ORD-456", limit: 1) { threads { id status steps { stepName status } } } }')
+2. Respond: "Order ORD-456 is completed with 5 steps: validate_cart, check_inventory, charge_payment, generate_label, send_confirmation."
+
+Q: "Find payment pi_ABC123"
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "pi_ABC123") { threads { id status } } }')
+2. Respond: "Found 1 thread with payment pi_ABC123, currently in progress."
+
+Q: "Threads run by payment-service"
+1. Call: execute_graphql(query: 'query { threads(actor: "payment-service", limit: 10) { threads { id contractName } } }')
+2. Respond: "Found 8 threads executed by payment-service in the last hour."
 
 Q: "Show failed threads"
 1. Call: execute_graphql(query: 'query { threads(status: "failed", limit: 10) { threads { id contractName } } }')
@@ -429,6 +469,9 @@ IMPORTANT:
 			Messages: messages,
 			Tools:    tools,
 			Stream:   true,
+			StreamOptions: &openai.StreamOptions{
+				IncludeUsage: true,
+			},
 		}
 
 		stream, err := h.openaiClient.CreateChatCompletionStream(context.Background(), req)
@@ -535,7 +578,7 @@ IMPORTANT:
 				}
 				messages = append(messages, toolResultMsg)
 
-				// Save both messages to DB (assistant tool call + tool result)
+				// Save tool call to DB for debugging/audit (hidden in UI)
 				toolCallJSON, _ := json.Marshal([]openai.ToolCall{
 					{
 						ID:   currentToolId,
@@ -548,7 +591,6 @@ IMPORTANT:
 				})
 				tcStr := string(toolCallJSON)
 
-				// Save AI tool invocation
 				_ = h.agentRepo.AddMessage(&models.AgentMessage{
 					ID:             uuid.New().String(),
 					ConversationID: convID,
@@ -557,7 +599,7 @@ IMPORTANT:
 					ToolCalls:      &tcStr,
 				})
 
-				// Save Tool Execution Result
+				// Save tool result to DB for debugging/audit (hidden in UI)
 				_ = h.agentRepo.AddMessage(&models.AgentMessage{
 					ID:             uuid.New().String(),
 					ConversationID: convID,
@@ -566,7 +608,7 @@ IMPORTANT:
 					ToolCallID:     &currentToolId,
 				})
 
-				// Loop continues! (jump to next llm call with data)
+				// Loop continues! (LLM will summarize in next iteration)
 				continue
 			} else if currentToolName == "save_context" {
 				var args map[string]interface{}
@@ -596,7 +638,7 @@ IMPORTANT:
 				}
 				messages = append(messages, toolResultMsg)
 
-				// Save tool call to DB
+				// Save tool call to DB for debugging/audit (hidden in UI)
 				toolCallJSON, _ := json.Marshal([]openai.ToolCall{
 					{
 						ID:   currentToolId,
@@ -617,6 +659,7 @@ IMPORTANT:
 					ToolCalls:      &tcStr,
 				})
 
+				// Save tool result to DB for debugging/audit (hidden in UI)
 				_ = h.agentRepo.AddMessage(&models.AgentMessage{
 					ID:             uuid.New().String(),
 					ConversationID: convID,
@@ -650,6 +693,23 @@ IMPORTANT:
 		if !hasToolCalls {
 			break
 		}
+	}
+
+	// Get current conversation stats
+	messageCount, tokenCount, err := h.agentRepo.GetConversationStats(convID)
+	if err == nil {
+		// Increment message count (user message + assistant message)
+		messageCount += 2
+
+		// Add tokens from this request
+		tokenCount += totalTokens
+
+		// Update stats in database
+		_ = h.agentRepo.UpdateConversationStats(convID, messageCount, tokenCount)
+
+		// Send stats to frontend
+		c.SSEvent("tokens", fmt.Sprintf("%d", tokenCount))
+		c.SSEvent("message_count", fmt.Sprintf("%d", messageCount))
 	}
 
 	// Send final payload with conversation info

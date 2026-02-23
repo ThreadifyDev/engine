@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
 
@@ -10,6 +10,11 @@ interface Message {
   toolCalls?: any[];
   toolCallId?: string;
   timestamp: Date;
+  hidden?: boolean;
+  relatedToolCall?: {
+    query: string;
+    response: string;
+  };
 }
 
 interface Conversation {
@@ -32,6 +37,7 @@ export default function ThreadChat() {
   const [selectedSkill, setSelectedSkill] = useState<Skill>('support');
   const [tokenCount, setTokenCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
+  const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -64,13 +70,51 @@ export default function ThreadChat() {
   const loadConversation = async (convId: string) => {
     try {
       const response = await api.getChatMessageHistory(convId);
-      const msgs = response.messages.map((msg: any) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: new Date(msg.created_at),
-      }));
-      setMessages(msgs);
+      const allMessages = response.messages;
+      
+      // Process messages and link tool calls to their responses
+      const processedMessages: Message[] = [];
+      
+      for (let i = 0; i < allMessages.length; i++) {
+        const msg = allMessages[i];
+        
+        // Skip tool messages and empty assistant messages (tool calls)
+        if (msg.role === 'tool' || (msg.role === 'assistant' && !msg.content)) {
+          continue;
+        }
+        
+        const processedMsg: Message = {
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.created_at),
+        };
+        
+        // Check if this assistant message was preceded by a tool call
+        if (msg.role === 'assistant' && i >= 2) {
+          const prevMsg = allMessages[i - 1]; // Should be tool result
+          const prevPrevMsg = allMessages[i - 2]; // Should be tool call
+          
+          if (prevMsg?.role === 'tool' && prevPrevMsg?.role === 'assistant' && prevPrevMsg.tool_calls) {
+            try {
+              const toolCalls = JSON.parse(prevPrevMsg.tool_calls);
+              if (toolCalls && toolCalls[0]?.function?.name === 'execute_graphql') {
+                const args = JSON.parse(toolCalls[0].function.arguments);
+                processedMsg.relatedToolCall = {
+                  query: args.query || '',
+                  response: prevMsg.content || '',
+                };
+              }
+            } catch (e) {
+              // Ignore parsing errors
+            }
+          }
+        }
+        
+        processedMessages.push(processedMsg);
+      }
+      
+      setMessages(processedMessages);
       setConversationId(convId);
       setIsDropdownOpen(false);
       setSearchQuery('');
@@ -117,6 +161,32 @@ export default function ThreadChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Convert thread IDs (UUIDs) to clickable links
+  const linkifyThreadIds = (text: string) => {
+    const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+    const parts = text.split(uuidRegex);
+    const matches = text.match(uuidRegex) || [];
+    
+    return parts.reduce((acc, part, i) => {
+      acc.push(part);
+      if (matches[i]) {
+        acc.push(
+          <a
+            key={`link-${i}`}
+            href={`/u/threads/${matches[i]}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {matches[i]}
+          </a>
+        );
+      }
+      return acc;
+    }, [] as (string | JSX.Element)[]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -385,14 +455,113 @@ export default function ThreadChat() {
             >
               <div className="text-sm break-words prose prose-sm max-w-none prose-p:my-1 prose-strong:font-semibold prose-strong:text-gray-900">
                 {message.role === 'assistant' ? (
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    components={{
+                      code: ({ node, inline, children, ...props }) => {
+                        const text = String(children);
+                        const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+                        
+                        if (inline && uuidRegex.test(text)) {
+                          return (
+                            <a
+                              href={`/u/threads/${text.trim()}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 underline font-mono text-xs bg-gray-200 px-1 rounded"
+                            >
+                              {text}
+                            </a>
+                          );
+                        }
+                        
+                        return isInline ? (
+                          <code className="bg-gray-200 px-1 rounded" {...props}>{children}</code>
+                        ) : (
+                          <code className="block bg-gray-200 p-2 rounded" {...props}>{children}</code>
+                        );
+                      },
+                      p: ({ children }) => {
+                        const processText = (node: any): any => {
+                          if (typeof node === 'string') {
+                            const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+                            const parts = node.split(uuidRegex);
+                            const matches = node.match(uuidRegex) || [];
+                            
+                            if (matches.length === 0) return node;
+                            
+                            return parts.reduce((acc: any[], part: string, i: number) => {
+                              if (part) acc.push(part);
+                              if (matches[i]) {
+                                acc.push(
+                                  <a
+                                    key={`uuid-${i}`}
+                                    href={`/u/threads/${matches[i]}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 underline"
+                                  >
+                                    {matches[i]}
+                                  </a>
+                                );
+                              }
+                              return acc;
+                            }, []);
+                          }
+                          return node;
+                        };
+                        
+                        return <p>{React.Children.map(children, processText)}</p>;
+                      },
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
                 ) : (
                   <div className="whitespace-pre-wrap">{message.content}</div>
                 )}
               </div>
-              <p className="text-xs opacity-60 mt-1">
-                {message.timestamp.toLocaleTimeString()}
-              </p>
+              
+              {/* Timestamp and View GraphQL Query Button */}
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-xs opacity-60">
+                  {message.timestamp.toLocaleTimeString()}
+                </p>
+                {message.relatedToolCall && (
+                  <button
+                    onClick={() => {
+                      const newExpanded = new Set(expandedQueries);
+                      if (newExpanded.has(message.id)) {
+                        newExpanded.delete(message.id);
+                      } else {
+                        newExpanded.add(message.id);
+                      }
+                      setExpandedQueries(newExpanded);
+                    }}
+                    className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    <Code className="w-3 h-3" />
+                    {expandedQueries.has(message.id) ? 'Hide' : 'View'} Query
+                  </button>
+                )}
+              </div>
+              
+              {/* Expandable Query Section */}
+              {message.relatedToolCall && expandedQueries.has(message.id) && (
+                <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">Query:</div>
+                    <pre className="bg-gray-800 text-green-400 p-2 rounded text-xs overflow-x-auto">
+                      <code>{message.relatedToolCall.query}</code>
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">Response:</div>
+                    <pre className="bg-gray-800 text-blue-300 p-2 rounded text-xs overflow-x-auto max-h-48 overflow-y-auto">
+                      <code>{JSON.stringify(JSON.parse(message.relatedToolCall.response), null, 2)}</code>
+                    </pre>
+                  </div>
+                </div>
+              )}
             </div>
             {message.role === 'user' && (
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center">
@@ -446,7 +615,7 @@ export default function ThreadChat() {
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <select
                 value={selectedSkill}
@@ -464,18 +633,18 @@ export default function ThreadChat() {
               </span>
             </div>
             {conversationId && (tokenCount > 0 || messageCount > 0) && (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-24 h-1 bg-gray-200 rounded-full overflow-hidden">
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                <div className="flex items-center gap-1">
+                  <div className="w-12 h-0.5 bg-gray-200 rounded-full overflow-hidden">
                     <div 
                       className={`h-full transition-all ${tokenCount > 180000 ? 'bg-red-500' : tokenCount > 150000 ? 'bg-yellow-500' : 'bg-green-500'}`}
                       style={{ width: `${Math.min((tokenCount / 200000) * 100, 100)}%` }}
                     />
                   </div>
-                  <span>{tokenCount.toLocaleString()}/200k tokens</span>
+                  <span className="font-mono">{(tokenCount / 1000).toFixed(0)}k</span>
                 </div>
                 <span>•</span>
-                <span>{messageCount}/50 msgs</span>
+                <span className="font-mono">{messageCount}/50</span>
               </div>
             )}
           </div>

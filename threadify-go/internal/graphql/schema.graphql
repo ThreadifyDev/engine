@@ -185,8 +185,9 @@ type Query {
   ): ThreadConnection!
   
   # Find threads by reference key-value pair with filtering and pagination (max limit: 100)
+  # If refKey is omitted, searches across all ref keys for the given refValue
   threadsByRef(
-    refKey: String!
+    refKey: String
     refValue: String!
     status: String
     startedAfter: String

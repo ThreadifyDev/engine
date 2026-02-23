@@ -264,6 +264,11 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 			event.Data["refValue"],
 		)
 		if err != nil {
+			// Check if it's a foreign key violation (thread doesn't exist yet)
+			if strings.Contains(err.Error(), "thread_refs_thread_id_fkey") {
+				fmt.Printf("⚠️  [WARN] Skipping ref for non-existent thread %s (will retry when thread is archived)\n", event.Data["threadId"])
+				continue // Skip this ref, don't fail the batch
+			}
 			fmt.Printf("ERROR: Failed to write thread ref to Postgres: %v\n", err)
 			return err
 		}
