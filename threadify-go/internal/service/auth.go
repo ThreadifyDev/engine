@@ -4,17 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	sharedauth "threadify-go/shared/auth"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
-// UserInfo represents user information derived from an API key
 type UserInfo struct {
 	OwnerID   string `json:"ownerId"`
 	CompanyID string `json:"companyId"`
@@ -28,44 +29,37 @@ type cachedUserInfo struct {
 }
 
 type AuthService struct {
-	secret        []byte
-	issuer        string
-	audience      string
-	expiration    time.Duration
 	db            *pgxpool.Pool
 	cache         sync.Map // key: apiKeyHash -> cachedUserInfo
 	cacheTTL      time.Duration
 	writeBackPool *workerpool.Pool
+
+	jwksVerifier *sharedauth.JWKSVerifier
 }
 
-func NewAuthService(secret, issuer, audience string, expirationHours int) *AuthService {
-	return &AuthService{
-		secret:     []byte(secret),
-		issuer:     issuer,
-		audience:   audience,
-		expiration: time.Duration(expirationHours) * time.Hour,
-	}
+func NewAuthService() *AuthService {
+	return &AuthService{}
 }
 
-// SetDB sets the database connection for API key validation
+func (s *AuthService) SetJWKSVerifier(v *sharedauth.JWKSVerifier) {
+	s.jwksVerifier = v
+}
+
+// SetDB sets the database connection for API key validation.
 func (s *AuthService) SetDB(db *pgxpool.Pool) {
 	s.db = db
 }
 
-// SetWriteBackPool sets the worker pool for async cache updates
+// SetWriteBackPool sets the worker pool for async last_used_at updates.
 func (s *AuthService) SetWriteBackPool(pool *workerpool.Pool) {
 	s.writeBackPool = pool
-	s.cacheTTL = 1 * time.Hour // Cache API key lookups for 1 hour
-
-	// Start cache cleanup goroutine
+	s.cacheTTL = 1 * time.Hour
 	go s.cleanupExpiredCache()
 }
 
-// cleanupExpiredCache periodically removes expired entries from cache
 func (s *AuthService) cleanupExpiredCache() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-
 	for range ticker.C {
 		now := time.Now()
 		s.cache.Range(func(key, value interface{}) bool {
@@ -79,62 +73,48 @@ func (s *AuthService) cleanupExpiredCache() {
 	}
 }
 
-// ValidateApiKey validates an API key using cache-aside pattern
-// 1. Check cache first
-// 2. If miss, query database
-// 3. Store result in cache
+// ValidateApiKey validates an API key token using a cache-aside pattern.
+// Cache hit → no DB query; cache miss or expired → query DB, warm cache.
 func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not configured")
 	}
 
-	// Hash the API key for cache lookup
 	hash := sha256.Sum256([]byte(apiKey))
 	keyHash := hex.EncodeToString(hash[:])
 
-	// Check cache first
 	if cached, ok := s.cache.Load(keyHash); ok {
 		if cachedInfo, ok := cached.(*cachedUserInfo); ok {
-			// Check if cache entry is still valid
 			if time.Now().Before(cachedInfo.expiresAt) {
 				metrics.APIKeyCacheHits.Inc()
 				return cachedInfo.userInfo, nil
 			}
-			// Cache expired, remove it
 			s.cache.Delete(keyHash)
 		}
 	}
 
-	// Cache miss or expired - query database
 	metrics.APIKeyCacheMisses.Inc()
 	userInfo, err := s.validateApiKeyFromDB(apiKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// Store in cache
 	s.cache.Store(keyHash, &cachedUserInfo{
 		userInfo:  userInfo,
 		expiresAt: time.Now().Add(s.cacheTTL),
 	})
-
 	return userInfo, nil
 }
 
-// validateApiKeyFromDB validates API key against the database
-// This is called only on cache miss - results are cached by ValidateApiKey
 func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Hash the API key (assuming keys are stored hashed)
 	hash := sha256.Sum256([]byte(apiKey))
 	keyHash := hex.EncodeToString(hash[:])
 
-	// Query to get service account info from API key
-	// Role is fetched from user_roles table (service accounts use principal_id)
 	query := `
-		SELECT 
+		SELECT
 			sa.id as owner_id,
 			sa.company_id,
 			COALESCE(ur.role_name, 'standard_service') as role,
@@ -160,62 +140,61 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 		&isActive,
 		&expiresAt,
 	)
-
 	if err != nil {
-		// Don't leak database implementation details (e.g., "no rows in result set")
 		return nil, fmt.Errorf("API key not found or inactive")
 	}
 
-	// Check if key is expired
 	if expiresAt != nil && expiresAt.Before(time.Now()) {
 		return nil, fmt.Errorf("API key has expired")
 	}
 
-	// Update last_used_at timestamp (async via writeback worker pool)
-	s.writeBackPool.Submit(func(ctx context.Context) {
-		updateCtx, updateCancel := context.WithTimeout(ctx, 3*time.Second)
-		defer updateCancel()
-
-		updateQuery := `UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1`
-		s.db.Exec(updateCtx, updateQuery, keyHash)
-	})
+	if s.writeBackPool != nil {
+		s.writeBackPool.Submit(func(ctx context.Context) {
+			updateCtx, updateCancel := context.WithTimeout(ctx, 3*time.Second)
+			defer updateCancel()
+			s.db.Exec(updateCtx, `UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1`, keyHash)
+		})
+	}
 
 	return &userInfo, nil
 }
 
-func (s *AuthService) CreateToken(userID string, claims map[string]interface{}) (string, error) {
-	now := time.Now()
-	jwtClaims := jwt.MapClaims{
-		"sub": userID,
-		"iss": s.issuer,
-		"aud": s.audience,
-		"iat": now.Unix(),
-		"exp": now.Add(s.expiration).Unix(),
+func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
+	if s.jwksVerifier == nil {
+		return nil, errors.New("JWT verification not configured — call SetJWKSVerifier during startup")
 	}
-
-	for k, v := range claims {
-		jwtClaims[k] = v
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwtClaims)
-	return token.SignedString(s.secret)
+	return s.jwksVerifier.Verify(ctx, tokenString)
 }
 
-func (s *AuthService) VerifyToken(tokenString string) (jwt.MapClaims, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("invalid token")
-		}
-		return s.secret, nil
-	})
+func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string) ([]string, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not configured")
+	}
 
+	query := `
+		SELECT role_name
+		FROM user_roles
+		WHERE principal_id = $1 AND principal_type = $2
+	`
+
+	rows, err := s.db.Query(ctx, query, principalID, principalType)
 	if err != nil {
-		return nil, fmt.Errorf("invalid token")
+		return nil, fmt.Errorf("failed to query user roles: %w", err)
+	}
+	defer rows.Close()
+
+	var roles []string
+	for rows.Next() {
+		var roleName string
+		if err := rows.Scan(&roleName); err != nil {
+			return nil, fmt.Errorf("failed to scan role name: %w", err)
+		}
+		roles = append(roles, roleName)
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		return claims, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row error fetching user roles: %w", err)
 	}
 
-	return nil, fmt.Errorf("invalid token")
+	return roles, nil
 }

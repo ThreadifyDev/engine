@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
+	sharedauth "threadify-go/shared/auth"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/threadify/engine/internal/middleware"
@@ -24,24 +26,22 @@ type PreviewResponse struct {
 
 type ContractHandler struct {
 	contractService *service.ContractService
-	authService     *service.AuthService
 }
 
-func NewContractHandler(contractService *service.ContractService, authService *service.AuthService) *ContractHandler {
+func NewContractHandler(contractService *service.ContractService) *ContractHandler {
 	return &ContractHandler{
 		contractService: contractService,
-		authService:     authService,
 	}
 }
 
 func (h *ContractHandler) GetAllContracts(c *gin.Context) {
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims["ownerId"].(string)
+	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -52,14 +52,14 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 }
 
 func (h *ContractHandler) CreateContract(c *gin.Context) {
-	userID := c.GetString("userID")
-	claimsInterface := c.MustGet("claims")
+	userID := c.GetString(sharedauth.CtxUserID)
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims["ownerId"].(string)
+	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -68,7 +68,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 	// Get companyID from header or claims
 	companyID := c.GetHeader("X-Company-ID")
 	if companyID == "" {
-		if cid, ok := claims["companyId"].(string); ok {
+		if cid, ok := claims[sharedauth.CtxCompanyID].(string); ok {
 			companyID = cid
 		}
 	}
@@ -99,13 +99,13 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 
 func (h *ContractHandler) GetContract(c *gin.Context) {
 	contractID := c.Param("id")
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	requesterID, ok := claims["ownerId"].(string)
+	requesterID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -125,14 +125,14 @@ func (h *ContractHandler) GetContract(c *gin.Context) {
 
 func (h *ContractHandler) UpdateContract(c *gin.Context) {
 	contractID := c.Param("id")
-	userID := c.GetString("userID")
-	claimsInterface := c.MustGet("claims")
+	userID := c.GetString(sharedauth.CtxUserID)
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims["ownerId"].(string)
+	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -160,13 +160,13 @@ func (h *ContractHandler) UpdateContract(c *gin.Context) {
 
 func (h *ContractHandler) DeleteContract(c *gin.Context) {
 	contractID := c.Param("id")
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims["ownerId"].(string)
+	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -178,13 +178,13 @@ func (h *ContractHandler) DeleteContract(c *gin.Context) {
 
 func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
 	contractID := c.Param("id")
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	requesterID, ok := claims["ownerId"].(string)
+	requesterID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -198,13 +198,13 @@ func (h *ContractHandler) GetContractVersion(c *gin.Context) {
 	contractID := c.Param("id")
 	versionParam := c.Param("version")
 
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	requesterID, ok := claims["ownerId"].(string)
+	requesterID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
@@ -282,13 +282,13 @@ func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
 	contractID := c.Param("id")
 	versionParam := c.Param("version")
 
-	claimsInterface := c.MustGet("claims")
+	claimsInterface := c.MustGet(sharedauth.CtxClaims)
 	claims, ok := claimsInterface.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims["ownerId"].(string)
+	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return

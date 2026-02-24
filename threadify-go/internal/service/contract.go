@@ -34,8 +34,13 @@ type ContractWithOwnershipResponse struct {
 }
 
 func NewContractService(db *database.PostgresDB) *ContractService {
+	var repo *postgres.ContractRepository
+	if db != nil {
+		repo = postgres.NewContractRepository(db.Pool)
+	}
+
 	return &ContractService{
-		repo:      postgres.NewContractRepository(db.Pool),
+		repo:      repo,
 		validator: validator.NewContractValidator(),
 	}
 }

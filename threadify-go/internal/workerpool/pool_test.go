@@ -58,9 +58,12 @@ func TestPoolBackpressure(t *testing.T) {
 
 	// Block the single worker
 	blocker := make(chan struct{})
+	started := make(chan struct{})
 	pool.Submit(func(ctx context.Context) {
+		close(started)
 		<-blocker
 	})
+	<-started
 
 	// Fill the queue
 	for i := 0; i < 5; i++ {
@@ -216,9 +219,12 @@ func TestPoolSubmitWait(t *testing.T) {
 
 	// Block the worker
 	blocker := make(chan struct{})
+	started := make(chan struct{})
 	pool.Submit(func(ctx context.Context) {
+		close(started)
 		<-blocker
 	})
+	<-started
 
 	// Fill the queue
 	pool.Submit(func(ctx context.Context) {})

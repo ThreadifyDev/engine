@@ -65,6 +65,13 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 		return nil, fmt.Errorf("failed to initialize archival system")
 	}
 
+	// Initialize outbox trigger stream
+	if err := client.initializeOutboxStream(); err != nil {
+		nc.Close()
+		log.Printf("Failed to initialize outbox stream: %v", err)
+		return nil, fmt.Errorf("failed to initialize outbox triggers")
+	}
+
 	return client, nil
 }
 
@@ -168,6 +175,35 @@ func (c *Client) initializeArchivalStreams() error {
 		}
 	}
 
+	return nil
+}
+
+// initializeOutboxStream creates or updates the outbox trigger stream
+func (c *Client) initializeOutboxStream() error {
+	streamConfig := &nats.StreamConfig{
+		Name:      "OUTBOX_TRIGGERS",
+		Subjects:  []string{"outbox.trigger"},
+		Retention: nats.WorkQueuePolicy, // One worker per message
+		MaxAge:    24 * time.Hour,       // 1 day retention
+		Storage:   nats.FileStorage,
+		Replicas:  1,
+		Discard:   nats.DiscardOld,
+		MaxMsgs:   -1,
+		MaxBytes:  -1,
+		NoAck:     false,
+	}
+
+	// Try to add stream, update if it already exists
+	_, err := c.js.AddStream(streamConfig)
+	if err != nil {
+		// If stream exists, try to update it
+		_, err = c.js.UpdateStream(streamConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create/update outbox stream: %w", err)
+		}
+	}
+
+	log.Printf("[NATS] Initialized OUTBOX_TRIGGERS stream with subject: outbox.trigger")
 	return nil
 }
 
