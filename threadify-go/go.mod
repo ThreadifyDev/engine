@@ -23,7 +23,6 @@ require (
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/sashabaranov/go-openai v1.41.2 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 )
 
