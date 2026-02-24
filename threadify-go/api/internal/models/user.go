@@ -6,7 +6,7 @@ type User struct {
 	ID                       string     `json:"id"`
 	CompanyID                string     `json:"company_id"`
 	Email                    string     `json:"email"`
-	PasswordHash             string     `json:"-"` // Never expose password hash in JSON
+	AuthUserID               *string    `json:"-"` // Internal identity mapping for Auth migration/sync
 	FullName                 *string    `json:"full_name,omitempty"`
 	JobRole                  *string    `json:"job_role,omitempty"`
 	EmailVerified            bool       `json:"email_verified"`
@@ -25,15 +25,6 @@ type Company struct {
 	UseCase   *string   `json:"use_case,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type OTPCode struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Code      string    `json:"-"` // Never expose OTP code in JSON
-	ExpiresAt time.Time `json:"expires_at"`
-	Verified  bool      `json:"verified"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 type ServiceAccount struct {
@@ -76,7 +67,7 @@ type APIKey struct {
 type SignupRequest struct {
 	CompanyName string  `json:"company_name" binding:"required,min=2,max=255"`
 	Email       string  `json:"email" binding:"required,email"`
-	Password    string  `json:"password" binding:"required,min=8"`
+	Password    string  `json:"password" binding:"required,min=12,max=128"`
 	FullName    string  `json:"full_name"`
 	JobRole     string  `json:"job_role"`
 	Industry    *string `json:"industry"`
@@ -87,11 +78,6 @@ type SignupRequest struct {
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
-}
-
-type VerifyOTPRequest struct {
-	Email string `json:"email" binding:"required,email"`
-	Code  string `json:"code" binding:"required,len=6"`
 }
 
 type AuthResponse struct {
@@ -106,5 +92,9 @@ type ForgotPasswordRequest struct {
 
 type ResetPasswordRequest struct {
 	Token    string `json:"token" binding:"required"`
-	Password string `json:"password" binding:"required,min=8"`
+	Password string `json:"password" binding:"required,min=12,max=128"`
+}
+
+type VerifyEmailRequest struct {
+	Token string `json:"token" binding:"required"`
 }

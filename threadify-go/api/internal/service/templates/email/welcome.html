@@ -1,0 +1,24 @@
+{{template "base.html" .}}
+
+{{define "content"}}
+<h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.5px;">
+    You're in, {{.Name}} 👋
+</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
+    Your email has been verified and your Threadify account is ready to go.
+    Head to your dashboard to get started.
+</p>
+<p style="margin:0 0 32px;font-size:15px;line-height:1.6;color:#374151;">
+    If you have any questions, just reply to this email — we're always happy to help.
+</p>
+<table role="presentation" cellpadding="0" cellspacing="0">
+    <tr>
+        <td style="border-radius:6px;background-color:#000000;">
+            <a href="{{.ActionURL}}"
+                style="display:inline-block;padding:14px 28px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;letter-spacing:0.2px;">
+                Go to Dashboard →
+            </a>
+        </td>
+    </tr>
+</table>
+{{end}}

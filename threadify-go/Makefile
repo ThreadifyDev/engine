@@ -68,7 +68,7 @@ clean: ## Clean build artifacts
 	rm -f coverage.out coverage.html
 
 docker-up: ## Start PostgreSQL and Redis
-	docker-compose up -d postgres redis
+	docker-compose up -d
 
 docker-down: ## Stop all containers
 	docker-compose down

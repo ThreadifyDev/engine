@@ -1,10 +1,15 @@
+// service/email.go
 package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -13,168 +18,128 @@ type EmailService struct {
 	apiURL      string
 	frontendURL string
 	httpClient  *http.Client
+	templates   *template.Template
 }
 
-func NewEmailService(apiKey, frontendURL string) *EmailService {
+func NewEmailService(apiKey, apiURL, frontendURL string) (*EmailService, error) {
+	tmpl, err := template.ParseFS(emailTemplates, "templates/email/*.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse email templates: %w", err)
+	}
+
 	return &EmailService{
 		apiKey:      apiKey,
-		apiURL:      "https://api.useplunk.com/v1/send",
+		apiURL:      apiURL,
 		frontendURL: frontendURL,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		templates:   tmpl,
+	}, nil
 }
 
-type PlunkEmailRequest struct {
+type emailData struct {
+	Name        string
+	ActionURL   string
+	FrontendURL string
+	Year        int
+}
+
+type plunkEmailRequest struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 }
 
-func (s *EmailService) SendOTP(email, code string) error {
-	emailBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-			<h2 style="color: #000;">Verify Your Email</h2>
-			<p>Your verification code is:</p>
-			<div style="background-color: #000; color: #fff; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 20px 0;">
-				%s
-			</div>
-			<p>This code will expire in 10 minutes.</p>
-			<p style="color: #666; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
-		</div>
-	`, code)
-
-	payload := PlunkEmailRequest{
-		To:      email,
-		Subject: "Verify Your Threadify Account",
-		Body:    emailBody,
-	}
-
-	jsonData, err := json.Marshal(payload)
+func (s *EmailService) SendWelcomeEmail(ctx context.Context, email, fullName string) error {
+	name := firstNonEmpty(fullName, "there")
+	body, err := s.render("welcome.html", emailData{
+		Name:        name,
+		ActionURL:   fmt.Sprintf("%s/u/dashboard", s.frontendURL),
+		FrontendURL: s.frontendURL,
+		Year:        time.Now().Year(),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal email payload: %w", err)
+		return err
 	}
-
-	req, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("email service returned status %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-func (s *EmailService) SendWelcomeEmail(email, fullName string) error {
-	dashboardLink := fmt.Sprintf("%s/u/dashboard", s.frontendURL)
-	emailBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-			<h2 style="color: #000;">Welcome to Threadify!</h2>
-			<p>Hi %s,</p>
-			<p>Your account has been successfully verified. You can now start using Threadify to monitor and validate your business workflows.</p>
-			<div style="margin: 30px 0;">
-				<a href="%s" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; display: inline-block;">
-					Go to Dashboard
-				</a>
-			</div>
-			<p>If you have any questions, feel free to reach out to our support team.</p>
-			<p style="color: #666; font-size: 12px;">© 2026 Threadify. All rights reserved.</p>
-		</div>
-	`, fullName, dashboardLink)
-
-	payload := PlunkEmailRequest{
+	return s.send(ctx, plunkEmailRequest{
 		To:      email,
 		Subject: "Welcome to Threadify",
-		Body:    emailBody,
-	}
+		Body:    body,
+	})
+}
 
+func (s *EmailService) SendVerificationEmail(ctx context.Context, email, token string) error {
+	body, err := s.render("verify.html", emailData{
+		ActionURL:   fmt.Sprintf("%s/auth/verify-email?token=%s", s.frontendURL, token),
+		FrontendURL: s.frontendURL,
+		Year:        time.Now().Year(),
+	})
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, plunkEmailRequest{
+		To:      email,
+		Subject: "Verify Your Threadify Account",
+		Body:    body,
+	})
+}
+
+func (s *EmailService) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
+	body, err := s.render("reset_password.html", emailData{
+		ActionURL:   fmt.Sprintf("%s/auth/reset-password?token=%s", s.frontendURL, resetToken),
+		FrontendURL: s.frontendURL,
+		Year:        time.Now().Year(),
+	})
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, plunkEmailRequest{
+		To:      email,
+		Subject: "Reset Your Threadify Password",
+		Body:    body,
+	})
+}
+
+func (s *EmailService) render(templateName string, data emailData) (string, error) {
+	var buf bytes.Buffer
+	if err := s.templates.ExecuteTemplate(&buf, templateName, data); err != nil {
+		return "", fmt.Errorf("render template %s: %w", templateName, err)
+	}
+	return buf.String(), nil
+}
+
+func (s *EmailService) send(ctx context.Context, payload plunkEmailRequest) error {
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal email payload: %w", err)
+		return fmt.Errorf("marshal email payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("create request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		return fmt.Errorf("send email: %w", err)
 	}
 	defer resp.Body.Close()
+	defer io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("email service returned status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	return nil
 }
 
-func (s *EmailService) SendPasswordResetEmail(email, resetToken string) error {
-	// Construct reset link using configured frontend URL
-	resetLink := fmt.Sprintf("%s/auth/reset-password?token=%s", s.frontendURL, resetToken)
-
-	emailBody := fmt.Sprintf(`
-		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-			<h2 style="color: #000;">Reset Your Password</h2>
-			<p>You requested to reset your password for your Threadify account.</p>
-			<p>Click the button below to reset your password:</p>
-			<div style="margin: 30px 0;">
-				<a href="%s" style="background-color: #000; color: #fff; padding: 12px 24px; text-decoration: none; display: inline-block;">
-					Reset Password
-				</a>
-			</div>
-			<p>Or copy and paste this link into your browser:</p>
-			<p style="word-break: break-all; color: #666; font-size: 12px;">%s</p>
-			<p style="color: #666; margin-top: 30px;">This link will expire in 1 hour.</p>
-			<p style="color: #666; font-size: 12px;">If you didn't request this password reset, please ignore this email. Your password will remain unchanged.</p>
-		</div>
-	`, resetLink, resetLink)
-
-	payload := PlunkEmailRequest{
-		To:      email,
-		Subject: "Reset Your Threadify Password",
-		Body:    emailBody,
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
 	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal email payload: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("email service returned status %d", resp.StatusCode)
-	}
-
-	return nil
+	return ""
 }

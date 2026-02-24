@@ -24,7 +24,6 @@ func NewContractProxyHandler(threadifyEngineURL string) *ContractProxyHandler {
 
 // proxyRequest forwards the request to ThreadifyEngine with JWT passthrough
 func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path string, body interface{}) {
-	// Get JWT token from incoming request
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})

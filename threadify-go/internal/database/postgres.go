@@ -57,6 +57,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		email VARCHAR(255) UNIQUE NOT NULL,
 		company_id VARCHAR(255),
 		password_hash VARCHAR(255),
+		auth_user_id VARCHAR(255),
 		full_name VARCHAR(255),
 		job_role VARCHAR(255),
 		email_verified BOOLEAN DEFAULT FALSE,
@@ -67,7 +68,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-	);
+		);
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_user_id VARCHAR(255);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id) WHERE auth_user_id IS NOT NULL;
 	
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
@@ -129,7 +132,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
 		closed_at TIMESTAMP,
-		FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
@@ -152,13 +154,16 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		END IF;
 		
 		-- Add new constraint if it doesn't exist (references service_accounts)
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'threads_owner_id_fkey'
-			AND confrelid = 'service_accounts'::regclass
-		) THEN
-			ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey 
-				FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+		-- IMPORTANT: to_regclass returns NULL if the table doesn't exist yet, avoiding errors on fresh DBs.
+		IF to_regclass('public.service_accounts') IS NOT NULL THEN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'threads_owner_id_fkey'
+				AND confrelid = to_regclass('public.service_accounts')
+			) THEN
+				ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey 
+					FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+			END IF;
 		END IF;
 	END $$;
 
@@ -661,11 +666,16 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		code VARCHAR(255) NOT NULL,
 		expires_at TIMESTAMP NOT NULL,
 		verified BOOLEAN NOT NULL DEFAULT FALSE,
+		invalidated BOOLEAN NOT NULL DEFAULT FALSE,
+		attempt_count INTEGER NOT NULL DEFAULT 0,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+	ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS invalidated BOOLEAN NOT NULL DEFAULT FALSE;
+	ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 
 	CREATE INDEX IF NOT EXISTS idx_otp_codes_email ON otp_codes(email);
 	CREATE INDEX IF NOT EXISTS idx_otp_codes_expires ON otp_codes(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_otp_codes_active ON otp_codes(email, verified, invalidated, expires_at, created_at DESC);
 
 	-- Service accounts table (for API access)
 	CREATE TABLE IF NOT EXISTS service_accounts (
@@ -681,6 +691,22 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
 		FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 	);
+
+	-- Ensure threads.owner_id references service_accounts when possible.
+	-- (threads table may be created before service_accounts on fresh DB init)
+	DO $$
+	BEGIN
+		IF to_regclass('public.threads') IS NOT NULL AND to_regclass('public.service_accounts') IS NOT NULL THEN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conname = 'threads_owner_id_fkey'
+				AND confrelid = to_regclass('public.service_accounts')
+			) THEN
+				ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey
+					FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+			END IF;
+		END IF;
+	END $$;
 
 	CREATE INDEX IF NOT EXISTS idx_service_accounts_company ON service_accounts(company_id);
 	CREATE INDEX IF NOT EXISTS idx_service_accounts_company_id ON service_accounts(company_id);
@@ -802,6 +828,24 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_context_conversation ON agent_context(conversation_id);
+
+	-- Outbox Pattern tables
+	CREATE TABLE IF NOT EXISTS outbox_events (
+		id UUID PRIMARY KEY,
+		type VARCHAR(255) NOT NULL,
+		payload BYTEA NOT NULL,
+		status VARCHAR(50) NOT NULL DEFAULT 'pending',
+		retry_count INT DEFAULT 0,
+		max_retries INT DEFAULT 5,
+		next_run_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		error_log TEXT,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_outbox_events_status_next_run 
+		ON outbox_events(status, next_run_at) 
+		WHERE status IN ('pending', 'failed');
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)
