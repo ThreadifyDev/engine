@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -16,13 +15,15 @@ import (
 	"github.com/threadify/engine/internal/workerpool"
 )
 
+const defaultCacheTTL = 1 * time.Hour
+
 type UserInfo struct {
 	OwnerID   string `json:"ownerId"`
 	CompanyID string `json:"companyId"`
 	Role      string `json:"role"`
 }
 
-// cachedUserInfo stores UserInfo with expiration time
+// cachedUserInfo stores UserInfo with expiration time.
 type cachedUserInfo struct {
 	userInfo  *UserInfo
 	expiresAt time.Time
@@ -30,15 +31,25 @@ type cachedUserInfo struct {
 
 type AuthService struct {
 	db            *pgxpool.Pool
-	cache         sync.Map // key: apiKeyHash -> cachedUserInfo
+	cache         sync.Map // key: apiKeyHash -> *cachedUserInfo
 	cacheTTL      time.Duration
 	writeBackPool *workerpool.Pool
-
-	jwksVerifier *sharedauth.JWKSVerifier
+	jwksVerifier  *sharedauth.JWKSVerifier
+	stopCleanup   chan struct{}
 }
 
 func NewAuthService() *AuthService {
-	return &AuthService{}
+	s := &AuthService{
+		cacheTTL:    defaultCacheTTL,
+		stopCleanup: make(chan struct{}),
+	}
+	go s.cleanupExpiredCache()
+	return s
+}
+
+// Stop shuts down the background cache cleanup goroutine.
+func (s *AuthService) Stop() {
+	close(s.stopCleanup)
 }
 
 func (s *AuthService) SetJWKSVerifier(v *sharedauth.JWKSVerifier) {
@@ -53,23 +64,24 @@ func (s *AuthService) SetDB(db *pgxpool.Pool) {
 // SetWriteBackPool sets the worker pool for async last_used_at updates.
 func (s *AuthService) SetWriteBackPool(pool *workerpool.Pool) {
 	s.writeBackPool = pool
-	s.cacheTTL = 1 * time.Hour
-	go s.cleanupExpiredCache()
 }
 
 func (s *AuthService) cleanupExpiredCache() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		s.cache.Range(func(key, value interface{}) bool {
-			if cached, ok := value.(*cachedUserInfo); ok {
-				if now.After(cached.expiresAt) {
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			s.cache.Range(func(key, value interface{}) bool {
+				if cached, ok := value.(*cachedUserInfo); ok && now.After(cached.expiresAt) {
 					s.cache.Delete(key)
 				}
-			}
-			return true
-		})
+				return true
+			})
+		case <-s.stopCleanup:
+			return
+		}
 	}
 }
 
@@ -77,11 +89,10 @@ func (s *AuthService) cleanupExpiredCache() {
 // Cache hit → no DB query; cache miss or expired → query DB, warm cache.
 func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not configured")
+		return nil, ErrDatabaseNotConfigured
 	}
 
-	hash := sha256.Sum256([]byte(apiKey))
-	keyHash := hex.EncodeToString(hash[:])
+	keyHash := hashAPIKey(apiKey)
 
 	if cached, ok := s.cache.Load(keyHash); ok {
 		if cachedInfo, ok := cached.(*cachedUserInfo); ok {
@@ -94,7 +105,7 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	}
 
 	metrics.APIKeyCacheMisses.Inc()
-	userInfo, err := s.validateApiKeyFromDB(apiKey)
+	userInfo, err := s.validateApiKeyFromDB(keyHash)
 	if err != nil {
 		return nil, err
 	}
@@ -106,12 +117,9 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	return userInfo, nil
 }
 
-func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
+func (s *AuthService) validateApiKeyFromDB(keyHash string) (*UserInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	hash := sha256.Sum256([]byte(apiKey))
-	keyHash := hex.EncodeToString(hash[:])
 
 	query := `
 		SELECT
@@ -141,11 +149,11 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 		&expiresAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("API key not found or inactive")
+		return nil, ErrApiKeyInvalidOrInactive
 	}
 
 	if expiresAt != nil && expiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("API key has expired")
+		return nil, ErrApiKeyExpired
 	}
 
 	if s.writeBackPool != nil {
@@ -161,23 +169,21 @@ func (s *AuthService) validateApiKeyFromDB(apiKey string) (*UserInfo, error) {
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
 	if s.jwksVerifier == nil {
-		return nil, errors.New("JWT verification not configured — call SetJWKSVerifier during startup")
+		return nil, ErrJwtVerificationNotConfigured
 	}
 	return s.jwksVerifier.Verify(ctx, tokenString)
 }
 
 func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string) ([]string, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not configured")
+		return nil, ErrDatabaseNotConfigured
 	}
 
-	query := `
+	rows, err := s.db.Query(ctx, `
 		SELECT role_name
 		FROM user_roles
 		WHERE principal_id = $1 AND principal_type = $2
-	`
-
-	rows, err := s.db.Query(ctx, query, principalID, principalType)
+	`, principalID, principalType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user roles: %w", err)
 	}
@@ -197,4 +203,10 @@ func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, prin
 	}
 
 	return roles, nil
+}
+
+// hashAPIKey returns the hex-encoded SHA-256 hash of an API key.
+func hashAPIKey(apiKey string) string {
+	hash := sha256.Sum256([]byte(apiKey))
+	return hex.EncodeToString(hash[:])
 }

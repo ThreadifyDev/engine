@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"time"
 
@@ -14,8 +13,10 @@ import (
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/nats"
 
-	"github.com/nats-io/nats.go"
+	natsio "github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 const (
@@ -31,6 +32,7 @@ type OutboxWorker struct {
 	emailSvc      *service.EmailService
 	encryptionKey []byte
 	trigger       chan struct{}
+	logger        *zap.Logger
 }
 
 func NewOutboxWorker(
@@ -39,6 +41,7 @@ func NewOutboxWorker(
 	authClient sharedauth.AuthClient,
 	emailSvc *service.EmailService,
 	encryptionKey string,
+	logger *zap.Logger,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepo:    outboxRepo,
@@ -47,6 +50,7 @@ func NewOutboxWorker(
 		emailSvc:      emailSvc,
 		encryptionKey: []byte(encryptionKey),
 		trigger:       make(chan struct{}, 1),
+		logger:        logger,
 	}
 }
 
@@ -57,13 +61,13 @@ func (w *OutboxWorker) Trigger() {
 	}
 }
 
-func (w *OutboxWorker) Run(ctx context.Context, js nats.JetStreamContext) {
+func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	sub, err := js.PullSubscribe("outbox.trigger", "outbox-worker")
+	sub, err := js.PullSubscribe(nats.SubjectOutboxTrigger, "outbox-worker")
 	if err != nil {
-		log.Printf("outbox: failed to subscribe to NATS trigger: %v", err)
+		w.logger.Error("outbox: failed to subscribe to NATS trigger", zap.Error(err))
 	} else {
 		defer sub.Unsubscribe()
 	}
@@ -75,17 +79,13 @@ func (w *OutboxWorker) Run(ctx context.Context, js nats.JetStreamContext) {
 		case <-ticker.C:
 			w.processEvents(ctx)
 		case <-w.trigger:
-			w.processEvents(ctx)
-		default:
 			if sub != nil {
-				msgs, err := sub.Fetch(1, nats.MaxWait(100*time.Millisecond))
+				msgs, err := sub.Fetch(1, natsio.MaxWait(100*time.Millisecond))
 				if err == nil && len(msgs) > 0 {
-					w.processEvents(ctx)
 					msgs[0].Ack()
 				}
-			} else {
-				time.Sleep(100 * time.Millisecond)
 			}
+			w.processEvents(ctx)
 		}
 	}
 }
@@ -93,24 +93,33 @@ func (w *OutboxWorker) Run(ctx context.Context, js nats.JetStreamContext) {
 func (w *OutboxWorker) processEvents(ctx context.Context) {
 	events, err := w.outboxRepo.FetchPendingDue(batchSize)
 	if err != nil {
-		log.Printf("outbox: failed to fetch pending events: %v", err)
+		w.logger.Error("outbox: failed to fetch pending events", zap.Error(err))
 		return
 	}
 
 	for _, event := range events {
 		if err := w.handleEvent(ctx, event); err != nil {
-			log.Printf("outbox: event %s (%s) attempt %d failed: %v",
-				event.ID, event.Type, event.RetryCount+1, err)
-
+			w.logger.Error("outbox: event processing failed",
+				zap.String("event_id", event.ID),
+				zap.String("event_type", event.Type),
+				zap.Int("attempt", event.RetryCount+1),
+				zap.Error(err),
+			)
 			backoff := time.Duration(math.Pow(2, float64(event.RetryCount))) * backoffDelay
 			if err := w.outboxRepo.MarkFailedWithRetry(event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
-				log.Printf("outbox: failed to mark event %s for retry: %v", event.ID, err)
+				w.logger.Error("outbox: failed to mark event for retry",
+					zap.String("event_id", event.ID),
+					zap.Error(err),
+				)
 			}
 			continue
 		}
 
 		if err := w.outboxRepo.MarkDone(event.ID); err != nil {
-			log.Printf("outbox: failed to mark event %s as done: %v", event.ID, err)
+			w.logger.Error("outbox: failed to mark event as done",
+				zap.String("event_id", event.ID),
+				zap.Error(err),
+			)
 		}
 	}
 }
@@ -141,7 +150,7 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 	}
 }
 
-func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, event *models.OutboxEvent, data map[string]string) error {
+func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.OutboxEvent, data map[string]string) error {
 	userID, err := getField(data, "user_id")
 	if err != nil {
 		return err
@@ -216,7 +225,9 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 	token, err := w.authClient.GenerateSignupLink(ctx, email)
 	if err != nil {
 		if errors.Is(err, sharedauth.ErrAuthUserAlreadyExists) {
-			log.Printf("outbox: skipping email for %s - user already exists/confirmed in auth provider", email)
+			w.logger.Info("outbox: skipping email - user already exists/confirmed in auth provider",
+				zap.String("email", email),
+			)
 			return nil
 		}
 		return fmt.Errorf("generate signup link: %w", err)

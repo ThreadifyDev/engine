@@ -6,8 +6,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"threadify-go/api/internal/service"
+	"time"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	contractProxyTimeout      = 30 * time.Second
+	contractProxyPath         = "/v1/contracts"
+	contentTypeTextPlain      = "text/plain"
+	contractProxyPreviewPath  = "/v1/contracts/preview"
+	contractProxyVersionsPath = "/v1/contracts/%s/versions"
+	contractProxyVersionPath  = "/v1/contracts/%s/versions/%s"
 )
 
 type ContractProxyHandler struct {
@@ -18,43 +29,46 @@ type ContractProxyHandler struct {
 func NewContractProxyHandler(threadifyEngineURL string) *ContractProxyHandler {
 	return &ContractProxyHandler{
 		threadifyEngineURL: threadifyEngineURL,
-		httpClient:         &http.Client{},
+		httpClient:         &http.Client{Timeout: contractProxyTimeout},
 	}
 }
 
-// proxyRequest forwards the request to ThreadifyEngine with JWT passthrough
-func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path string, body interface{}) {
-	authHeader := c.GetHeader("Authorization")
+func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, contentType string, body interface{}) {
+	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 		return
 	}
 
-	// Prepare request body
 	var reqBody io.Reader
 	if body != nil {
-		jsonData, err := json.Marshal(body)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare request"})
-			return
+		switch v := body.(type) {
+		case []byte:
+			reqBody = bytes.NewBuffer(v)
+		default:
+			jsonData, err := json.Marshal(v)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare request"})
+				return
+			}
+			reqBody = bytes.NewBuffer(jsonData)
 		}
-		reqBody = bytes.NewBuffer(jsonData)
 	}
 
-	// Create request to ThreadifyEngine
-	url := fmt.Sprintf("%s%s", h.threadifyEngineURL, path)
-	req, err := http.NewRequest(method, url, reqBody)
+	if contentType == "" {
+		contentType = service.ContentTypeJSON
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, h.threadifyEngineURL+path, reqBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
 		return
 	}
 
-	// Forward JWT token from incoming request to Engine
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
+	req.Header.Set(service.HeaderAuthorization, authHeader)
+	req.Header.Set(service.HeaderContentType, contentType)
+	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
-	// Execute request
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
@@ -62,172 +76,72 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path string,
 	}
 	defer resp.Body.Close()
 
-	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
 		return
 	}
 
-	// Forward response
-	c.Data(resp.StatusCode, "application/json", respBody)
-}
-
-// GetAllContracts - GET /api/contracts
-func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
-	h.proxyRequest(c, "GET", "/v1/contracts", nil)
-}
-
-// CreateContract - POST /api/contracts
-func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
-	// Get JWT token from incoming request
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-		return
+	respContentType := resp.Header.Get(service.HeaderContentType)
+	if respContentType == "" {
+		respContentType = service.ContentTypeJSON
 	}
+	c.Data(resp.StatusCode, respContentType, respBody)
+}
 
-	// Read raw body (YAML)
+// proxyRawBody reads the raw request body and proxies it, preserving the incoming Content-Type.
+func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaultContentType string) {
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
 
-	// Create request to ThreadifyEngine
-	url := fmt.Sprintf("%s/v1/contracts", h.threadifyEngineURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
-		return
+	contentType := c.GetHeader(service.HeaderContentType)
+	if contentType == "" {
+		contentType = defaultContentType
 	}
 
-	// Forward headers
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("Content-Type", c.GetHeader("Content-Type")) // Forward original content type
-	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
-
-	// Execute request
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
-		return
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
-		return
-	}
-
-	// Forward response
-	c.Data(resp.StatusCode, "application/json", respBody)
+	h.proxyRequest(c, method, path, contentType, bodyBytes)
 }
 
-// PreviewContract - POST /api/contracts/preview
+func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
+	h.proxyRequest(c, http.MethodGet, contractProxyPath, "", nil)
+}
+
+func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
+	h.proxyRawBody(c, http.MethodPost, contractProxyPath, contentTypeTextPlain)
+}
+
 func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
 	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-	h.proxyRequest(c, "POST", "/v1/contracts/preview", body)
+	h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, "", body)
 }
 
-// GetContract - GET /api/contracts/:id
 func (h *ContractProxyHandler) GetContract(c *gin.Context) {
-	id := c.Param("id")
-	path := fmt.Sprintf("/v1/contracts/%s", id)
-	h.proxyRequest(c, "GET", path, nil)
+	h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), "", nil)
 }
 
-// UpdateContract - PUT /api/contracts/:id
 func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
-	id := c.Param("id")
-
-	// Get JWT token from incoming request
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-		return
-	}
-
-	// Read raw body (YAML)
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to read request body: %v", err)})
-		return
-	}
-
-	fmt.Printf("[PROXY] UpdateContract - ID: %s, Body length: %d bytes, Content-Type: %s\n",
-		id, len(bodyBytes), c.GetHeader("Content-Type"))
-
-	// Create request to ThreadifyEngine
-	url := fmt.Sprintf("%s/v1/contracts/%s", h.threadifyEngineURL, id)
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
-		return
-	}
-
-	// Forward headers
-	req.Header.Set("Authorization", authHeader)
-	contentType := c.GetHeader("Content-Type")
-	if contentType == "" {
-		contentType = "text/plain" // Default for YAML
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "Threadify-WebAPI/1.0")
-
-	// Execute request
-	resp, err := h.httpClient.Do(req)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Failed to connect to ThreadifyEngine: %v", err)})
-		return
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read response: %v", err)})
-		return
-	}
-
-	fmt.Printf("[PROXY] UpdateContract - Response status: %d, Body: %s\n", resp.StatusCode, string(respBody))
-
-	// Forward response with exact status code and body from Engine
-	c.Data(resp.StatusCode, "application/json", respBody)
+	h.proxyRawBody(c, http.MethodPut, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), contentTypeTextPlain)
 }
 
-// DeleteContract - DELETE /api/contracts/:id
 func (h *ContractProxyHandler) DeleteContract(c *gin.Context) {
-	id := c.Param("id")
-	path := fmt.Sprintf("/v1/contracts/%s", id)
-	h.proxyRequest(c, "DELETE", path, nil)
+	h.proxyRequest(c, http.MethodDelete, fmt.Sprintf("/v1/contracts/%s", c.Param("id")), "", nil)
 }
 
-// GetAllContractVersions - GET /api/contracts/:id/versions
 func (h *ContractProxyHandler) GetAllContractVersions(c *gin.Context) {
-	id := c.Param("id")
-	path := fmt.Sprintf("/v1/contracts/%s/versions", id)
-	h.proxyRequest(c, "GET", path, nil)
+	h.proxyRequest(c, http.MethodGet, fmt.Sprintf("/v1/contracts/%s/versions", c.Param("id")), "", nil)
 }
 
-// GetContractVersion - GET /api/contracts/:id/versions/:version
 func (h *ContractProxyHandler) GetContractVersion(c *gin.Context) {
-	id := c.Param("id")
-	version := c.Param("version")
-	path := fmt.Sprintf("/v1/contracts/%s/versions/%s", id, version)
-	h.proxyRequest(c, "GET", path, nil)
+	h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
 }
 
-// DeleteContractVersion - DELETE /api/contracts/:id/versions/:version
 func (h *ContractProxyHandler) DeleteContractVersion(c *gin.Context) {
-	id := c.Param("id")
-	version := c.Param("version")
-	path := fmt.Sprintf("/v1/contracts/%s/versions/%s", id, version)
-	h.proxyRequest(c, "DELETE", path, nil)
+	h.proxyRequest(c, http.MethodDelete, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
 }

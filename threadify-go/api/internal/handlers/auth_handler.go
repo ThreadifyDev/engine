@@ -22,8 +22,7 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 
 func (h *AuthHandler) Signup(c *gin.Context) {
 	var req models.SignupRequest
-	if err := bindStrictJSON(c, &req); err != nil {
-		respondBindError(c, err)
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := validation.ValidateSignupRequest(&req); err != nil {
@@ -47,8 +46,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
-	if err := bindStrictJSON(c, &req); err != nil {
-		respondBindError(c, err)
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := validation.ValidateLoginRequest(&req); err != nil {
@@ -71,8 +69,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req models.ForgotPasswordRequest
-	if err := bindStrictJSON(c, &req); err != nil {
-		respondBindError(c, err)
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := validation.ValidateForgotPasswordRequest(&req); err != nil {
@@ -96,8 +93,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req models.ResetPasswordRequest
-	if err := bindStrictJSON(c, &req); err != nil {
-		respondBindError(c, err)
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := validation.ValidateResetPasswordRequest(&req); err != nil {
@@ -121,8 +117,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	var req models.VerifyEmailRequest
-	if err := bindStrictJSON(c, &req); err != nil {
-		respondBindError(c, err)
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := validation.ValidateVerifyEmailRequest(&req); err != nil {

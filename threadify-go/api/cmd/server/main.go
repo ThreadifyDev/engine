@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 
 	"threadify-go/api/internal/database"
 	"threadify-go/api/internal/handlers"
@@ -25,49 +26,56 @@ import (
 	"threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/config"
+	"threadify-go/shared/logger"
 	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
 )
 
 func main() {
+	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == "production")
+	if err != nil {
+		log.Fatalf("failed to initialize logger: %v", err)
+	}
+	defer appLogger.Sync() //nolint:errcheck
+
 	cfg, err := config.Load(resolveConfigPath())
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		appLogger.Fatal("load config", zap.Error(err))
 	}
 
 	db, err := initDB(cfg.Postgres.URL)
 	if err != nil {
-		log.Fatalf("init database: %v", err)
+		appLogger.Fatal("init database", zap.Error(err))
 	}
 	defer db.Close()
 
 	if err := database.InitSchema(context.Background(), db); err != nil {
-		log.Fatalf("init schema: %v", err)
+		appLogger.Fatal("init schema", zap.Error(err))
 	}
 
 	rbacLoader, err := rbac.NewLoader(resolveRBACPaths())
 	if err != nil {
-		log.Fatalf("load rbac: %v", err)
+		appLogger.Fatal("load rbac", zap.Error(err))
 	}
 
-	svcs, err := initServices(cfg, db)
+	svcs, err := initServices(cfg, db, appLogger)
 	if err != nil {
-		log.Fatalf("init services: %v", err)
+		appLogger.Fatal("init services", zap.Error(err))
 	}
 	defer svcs.close()
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.WebAPI.Port),
-		Handler:      buildRouter(cfg, db, svcs, rbacLoader),
+		Handler:      buildRouter(cfg, db, svcs, rbacLoader, appLogger),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {
-		log.Printf("web API starting on %s", srv.Addr)
+		appLogger.Info("web API starting", zap.String("address", srv.Addr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
+			appLogger.Fatal("server error", zap.Error(err))
 		}
 	}()
 
@@ -75,14 +83,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("shutting down...")
+	appLogger.Info("shutting down...")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("server forced shutdown: %v", err)
+		appLogger.Error("server forced shutdown", zap.Error(err))
 	}
-	log.Println("shutdown complete")
+	appLogger.Info("shutdown complete")
 }
 
 type services struct {
@@ -96,7 +104,7 @@ func (s *services) close() {
 	}
 }
 
-func initServices(cfg *config.Config, db *sql.DB) (*services, error) {
+func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services, error) {
 	emailSvc, err := service.NewEmailService(
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
@@ -115,14 +123,14 @@ func initServices(cfg *config.Config, db *sql.DB) (*services, error) {
 	outboxRepo := repository.NewOutboxRepository(db)
 
 	var outboxTrigger service.OutboxWorkerTrigger
-	natsClient, err := nats.NewClient(&cfg.NATS)
+	natsClient, err := nats.NewClient(&cfg.NATS, logger)
 	if err != nil {
-		log.Printf("NATS unavailable — outbox triggers disabled: %v", err)
+		logger.Warn("NATS unavailable — outbox triggers disabled", zap.Error(err))
 	} else {
-		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), "outbox.trigger")
+		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), nats.SubjectOutboxTrigger, logger)
 	}
 
-	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey)
+	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey, logger)
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
@@ -131,7 +139,7 @@ func initServices(cfg *config.Config, db *sql.DB) (*services, error) {
 	return &services{natsClient: natsClient, authService: authSvc}, nil
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader) http.Handler {
+func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) http.Handler {
 	userRepo := repository.NewUserRepository(db)
 	companyRepo := repository.NewCompanyRepository(db)
 	userRoleRepo := repository.NewUserRoleRepository(db)
@@ -148,7 +156,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	roleHandler := handlers.NewRoleHandler(rbacLoader)
 	codeSamplesHandler := handlers.NewCodeSamplesHandler("./code_samples")
 	contractProxyHandler := handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL)
-	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
+	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger)
 
 	// Agent AI Chat
 	agentRepo := repository.NewAgentRepository(db)
@@ -159,13 +167,14 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 		cfg.WebAPI.Agent.MaxMessages,
 		cfg.WebAPI.Agent.MaxTokens,
 		cfg.WebAPI.Agent.SummaryMaxTokens,
+		logger,
 	)
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware(cfg.WebAPI.CORSOrigins))
-	r.Use(middleware.RequestLogger())
+	r.Use(middleware.RequestLogger(logger))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "threadify-web-api"})

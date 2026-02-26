@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -15,21 +14,16 @@ import (
 	"threadify-go/api/internal/utils"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
-)
 
-var (
-	ErrUserAlreadyExists        = errors.New("user with this email already exists")
-	ErrInvalidCredentials       = errors.New("invalid email or password")
-	ErrInvalidEmail             = errors.New("invalid email address")
-	ErrAccountStillProvisioning = errors.New("account is still being set up, please try again shortly")
+	"go.uber.org/zap"
 )
 
 const (
 	userRole     = "user"
 	standardRole = "standard"
-)
 
-const operationTimeout = 10 * time.Second
+	operationTimeout = 10 * time.Second
+)
 
 type OutboxWorkerTrigger interface {
 	Trigger()
@@ -46,6 +40,7 @@ type AuthService struct {
 	jwksVerifier  *sharedauth.JWKSVerifier
 	outboxWorker  OutboxWorkerTrigger
 	encryptionKey []byte
+	logger        *zap.Logger
 }
 
 func NewAuthService(
@@ -55,6 +50,7 @@ func NewAuthService(
 	outboxRepo *repository.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
 	encryptionKey string,
+	logger *zap.Logger,
 ) *AuthService {
 	return &AuthService{
 		db:            db,
@@ -66,6 +62,7 @@ func NewAuthService(
 		authClient:    authClient,
 		outboxWorker:  outboxWorker,
 		encryptionKey: []byte(encryptionKey),
+		logger:        logger,
 	}
 }
 
@@ -138,7 +135,6 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	if err := s.outboxRepo.CreateTx(tx, outboxEvent); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
 	}
-
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
@@ -153,8 +149,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 func (s *AuthService) buildRegisterAuthUserEvent(
 	user *models.User,
 	company *models.Company,
-	password string,
-	fullName string,
+	password, fullName string,
 ) (*models.OutboxEvent, error) {
 	payload, err := json.Marshal(map[string]string{
 		"email":        user.Email,
@@ -169,11 +164,9 @@ func (s *AuthService) buildRegisterAuthUserEvent(
 	}
 
 	encrypted, err := utils.Encrypt(payload, s.encryptionKey)
-
 	for i := range payload {
 		payload[i] = 0
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("encrypt outbox payload: %w", err)
 	}
@@ -263,7 +256,6 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 		}
 		return nil
 	}
-
 	if token == "" {
 		return nil
 	}
@@ -301,7 +293,6 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	if user == nil {
 		return ErrInvalidEmail
 	}
-
 	if user.EmailVerified {
 		return nil
 	}
@@ -318,7 +309,10 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
 		defer cancel()
 		if err := s.emailSvc.SendWelcomeEmail(sendCtx, user.Email, name); err != nil {
-			log.Printf("failed to send welcome email to %s: %v", user.Email, err)
+			s.logger.Error("failed to send welcome email",
+				zap.String("email", user.Email),
+				zap.Error(err),
+			)
 		}
 	}()
 
@@ -327,7 +321,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
 	if s.jwksVerifier == nil {
-		return nil, errors.New("JWT verification not configured")
+		return nil, ErrJwtVerificationNotConfigured
 	}
 	return s.jwksVerifier.Verify(ctx, tokenString)
 }

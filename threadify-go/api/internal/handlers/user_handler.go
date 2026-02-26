@@ -14,7 +14,11 @@ type UserHandler struct {
 	apiKeyService *service.APIKeyService
 }
 
-func NewUserHandler(userRepo *repository.UserRepository, companyRepo *repository.CompanyRepository, apiKeyService *service.APIKeyService) *UserHandler {
+func NewUserHandler(
+	userRepo *repository.UserRepository,
+	companyRepo *repository.CompanyRepository,
+	apiKeyService *service.APIKeyService,
+) *UserHandler {
 	return &UserHandler{
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
@@ -30,18 +34,9 @@ type UpdateProfileRequest struct {
 	UseCase     string `json:"use_case"`
 }
 
-// UpdateProfile handles user profile updates (for onboarding)
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	// Get user ID from JWT claims (set by auth middleware)
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	companyID, exists := c.Get("companyID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, companyID, ok := getUserAndCompanyID(c)
+	if !ok {
 		return
 	}
 
@@ -51,85 +46,67 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Validate required fields
 	if req.FullName == "" || req.JobRole == "" || req.Industry == "" || req.CompanySize == "" || req.UseCase == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "All fields are required"})
 		return
 	}
 
-	// Update user profile
-	var fullName, jobRole *string
-	if req.FullName != "" {
-		fullName = &req.FullName
-	}
-	if req.JobRole != "" {
-		jobRole = &req.JobRole
-	}
-
-	err := h.userRepo.UpdateProfile(userID.(string), fullName, jobRole, true)
-	if err != nil {
+	if err := h.userRepo.UpdateProfile(userID, &req.FullName, &req.JobRole, true); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
 		return
 	}
 
-	// Update company details
-	var industry, size, useCase *string
-	if req.Industry != "" {
-		industry = &req.Industry
-	}
-	if req.CompanySize != "" {
-		size = &req.CompanySize
-	}
-	if req.UseCase != "" {
-		useCase = &req.UseCase
-	}
-
-	err = h.companyRepo.UpdateDetails(companyID.(string), industry, size, useCase)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to update company details",
-			"details": err.Error(),
-		})
+	if err := h.companyRepo.UpdateDetails(companyID, &req.Industry, &req.CompanySize, &req.UseCase); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update company details"})
 		return
 	}
 
-	// Get updated user
-	user, err := h.userRepo.FindByID(userID.(string))
-	if err != nil || user == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated user"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Profile updated successfully",
-		"user":    user,
-	})
+	h.respondWithUser(c, userID, "Profile updated successfully")
 }
 
 func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
-	// Get user ID from JWT claims
-	userID, exists := c.Get("userID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	userID, ok := getUserID(c)
+	if !ok {
 		return
 	}
 
-	// Mark first instrumentation as done
-	err := h.userRepo.MarkFirstInstrumentationDone(userID.(string))
-	if err != nil {
+	if err := h.userRepo.MarkFirstInstrumentationDone(userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update instrumentation status"})
 		return
 	}
 
-	// Get updated user
-	user, err := h.userRepo.FindByID(userID.(string))
+	h.respondWithUser(c, userID, "Instrumentation status updated")
+}
+
+// helpers
+
+func getUserID(c *gin.Context) (string, bool) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return "", false
+	}
+	return userID.(string), true
+}
+
+func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return "", "", false
+	}
+	companyID, exists := c.Get("companyID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return "", "", false
+	}
+	return userID, companyID.(string), true
+}
+
+func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {
+	user, err := h.userRepo.FindByID(userID)
 	if err != nil || user == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated user"})
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Instrumentation status updated",
-		"user":    user,
-	})
+	c.JSON(http.StatusOK, gin.H{"message": message, "user": user})
 }

@@ -18,34 +18,45 @@ import (
 	"threadify-go/api/internal/worker"
 	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/config"
+	"threadify-go/shared/logger"
 	"threadify-go/shared/nats"
+
+	"go.uber.org/zap"
 )
 
+const production = "production"
+
 func main() {
+	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == production)
+	if err != nil {
+		log.Fatalf("failed to initialize logger: %v", err)
+	}
+	defer appLogger.Sync() //nolint:errcheck
+
 	cfg, err := config.Load(resolveConfigPath())
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		appLogger.Fatal("load config", zap.Error(err))
 	}
 
 	db, err := initDB(cfg.Postgres.URL)
 	if err != nil {
-		log.Fatalf("init database: %v", err)
+		appLogger.Fatal("init database", zap.Error(err))
 	}
 	defer db.Close()
 
-	natsClient, err := nats.NewClient(&cfg.NATS)
+	natsClient, err := nats.NewClient(&cfg.NATS, appLogger)
 	if err != nil {
-		log.Fatalf("connect NATS: %v", err)
+		appLogger.Fatal("connect NATS", zap.Error(err))
 	}
 	defer natsClient.Close()
 
 	if err := natsClient.InitializeOutboxStream(); err != nil {
-		log.Fatalf("init outbox stream: %v", err)
+		appLogger.Fatal("init outbox stream", zap.Error(err))
 	}
 
 	authClient, err := sharedauth.NewAuthClientFromSharedConfig(cfg)
 	if err != nil {
-		log.Fatalf("init auth client: %v", err)
+		appLogger.Fatal("init auth client", zap.Error(err))
 	}
 
 	outboxRepo := repository.NewOutboxRepository(db)
@@ -57,23 +68,23 @@ func main() {
 	)
 
 	if err != nil {
-		log.Fatalf("init email service: %v", err)
+		appLogger.Fatal("init email service", zap.Error(err))
 	}
 
 	encryptionKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY"))
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, authClient, emailSvc, encryptionKey)
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, authClient, emailSvc, encryptionKey, appLogger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go runPruner(ctx, outboxRepo)
+	go runPruner(ctx, outboxRepo, appLogger)
 
-	log.Println("outbox worker starting")
+	appLogger.Info("outbox worker starting")
 	outboxWorker.Run(ctx, natsClient.JetStream())
-	log.Println("outbox worker stopped")
+	appLogger.Info("outbox worker stopped")
 }
 
-func runPruner(ctx context.Context, repo *repository.OutboxRepository) {
+func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *zap.Logger) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 
@@ -85,9 +96,12 @@ func runPruner(ctx context.Context, repo *repository.OutboxRepository) {
 			cutoff := time.Now().Add(-7 * 24 * time.Hour)
 			count, err := repo.PruneProcessed(cutoff)
 			if err != nil {
-				log.Printf("pruner: failed to prune old events: %v", err)
+				logger.Error("pruner: failed to prune old events", zap.Error(err))
 			} else {
-				log.Printf("pruner: removed %d events older than %s", count, cutoff.Format(time.DateOnly))
+				logger.Info("pruner: removed events",
+					zap.Int64("count", count),
+					zap.String("cutoff", cutoff.Format(time.DateOnly)),
+				)
 			}
 		}
 	}

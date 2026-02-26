@@ -1,10 +1,14 @@
 package interfaces
 
-import "github.com/threadify/engine/internal/models"
+import (
+	"context"
+
+	"github.com/threadify/engine/internal/models"
+)
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
-	RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error
+	RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error
 	Start() error
 	Stop() error
 }
