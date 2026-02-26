@@ -1,27 +1,31 @@
 package perf
 
 import (
-	"log"
+	"fmt"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
-// Global flag for performance monitoring (set once at startup)
-var monitoringEnabled atomic.Bool
+// Global flag and logger for performance monitoring
+var (
+	monitoringEnabled atomic.Bool
+	perfLogger        *zap.Logger
+)
 
-// Initialize sets the performance monitoring flag from config
-// This should be called once during application startup
-func Initialize(enabled bool) {
+// Initialize sets the performance monitoring flag and logger from config
+func Initialize(enabled bool, logger *zap.Logger) {
 	monitoringEnabled.Store(enabled)
+	perfLogger = logger
 }
 
 // IsEnabled returns whether performance monitoring is enabled
 func IsEnabled() bool {
-	return monitoringEnabled.Load()
+	return monitoringEnabled.Load() && perfLogger != nil
 }
 
 // Now returns the current time if monitoring is enabled, otherwise returns zero time
-// This eliminates time.Now() allocations when monitoring is disabled
 func Now() time.Time {
 	if monitoringEnabled.Load() {
 		return time.Now()
@@ -30,7 +34,6 @@ func Now() time.Time {
 }
 
 // Since returns the duration since start if monitoring is enabled, otherwise returns 0
-// This eliminates time.Since() allocations when monitoring is disabled
 func Since(start time.Time) time.Duration {
 	if monitoringEnabled.Load() {
 		return time.Since(start)
@@ -38,15 +41,21 @@ func Since(start time.Time) time.Duration {
 	return 0
 }
 
-// Log logs a performance message if monitoring is enabled
-// This eliminates log.Printf allocations and formatting when monitoring is disabled
+// Log logs a performance message if monitoring is enabled (backward compatible with format strings)
 func Log(format string, args ...interface{}) {
-	if monitoringEnabled.Load() {
-		log.Printf(format, args...)
+	if monitoringEnabled.Load() && perfLogger != nil {
+		perfLogger.Info(fmt.Sprintf(format, args...))
+	}
+}
+
+// LogStructured logs a performance message with fields if monitoring is enabled
+func LogStructured(message string, fields ...zap.Field) {
+	if monitoringEnabled.Load() && perfLogger != nil {
+		perfLogger.Info(message, fields...)
 	}
 }
 
 // Logf is an alias for Log for consistency with log.Printf naming
 func Logf(format string, args ...interface{}) {
-	Log(format, args)
+	Log(format, args...)
 }

@@ -1,15 +1,5 @@
 package utils
 
-// Contains checks if a string exists in a slice
-func Contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
 // Unique removes duplicate strings from a slice while preserving order
 func Unique(slice []string) []string {
 	seen := make(map[string]bool)

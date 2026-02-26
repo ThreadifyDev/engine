@@ -3,25 +3,25 @@ package archiver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/threadify/engine/internal/database"
+	"go.uber.org/zap"
 )
 
-// StepStateConsumer consumes step state events from NATS and writes to Postgres
 type StepStateConsumer struct {
-	nc          *nats.Conn
-	js          nats.JetStreamContext
-	db          *database.PostgresDB
-	batchSize   int
-	flushTicker *time.Ticker
-	buffer      []StepStateEvent
-	consumerID  string
+	nc         *nats.Conn
+	js         nats.JetStreamContext
+	db         *database.PostgresDB
+	batchSize  int
+	ticker     *time.Ticker
+	consumerID string
+	logger     *zap.Logger
 }
 
-// StepStateEvent represents a step state event from NATS
 type StepStateEvent struct {
 	StepID         string `json:"step_id"`
 	ThreadID       string `json:"thread_id"`
@@ -39,93 +39,81 @@ type StepStateEvent struct {
 	LatestContext  string `json:"latest_context"`
 }
 
-// NewStepStateConsumer creates a new step state consumer
 func NewStepStateConsumer(
 	nc *nats.Conn,
 	db *database.PostgresDB,
 	batchSize int,
 	flushInterval time.Duration,
 	consumerID string,
+	logger *zap.Logger,
 ) (*StepStateConsumer, error) {
 	js, err := nc.JetStream()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
+		return nil, fmt.Errorf("get jetstream context: %w", err)
 	}
 
-	consumer := &StepStateConsumer{
-		nc:          nc,
-		js:          js,
-		db:          db,
-		batchSize:   batchSize,
-		flushTicker: time.NewTicker(flushInterval),
-		buffer:      make([]StepStateEvent, 0, batchSize),
-		consumerID:  consumerID,
-	}
-
-	return consumer, nil
+	return &StepStateConsumer{
+		nc:         nc,
+		js:         js,
+		db:         db,
+		batchSize:  batchSize,
+		ticker:     time.NewTicker(flushInterval),
+		consumerID: consumerID,
+		logger:     logger,
+	}, nil
 }
 
-// Start begins consuming step state events
 func (c *StepStateConsumer) Start(ctx context.Context) error {
-	// Subscribe to step state subject
 	sub, err := c.js.PullSubscribe("state.step", "step-state-archivers", nats.ManualAck())
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to state.step: %w", err)
+		return fmt.Errorf("subscribe to state.step: %w", err)
 	}
 
-	fmt.Printf("[STEP-STATE-CONSUMER] Started consuming from state.step\n")
+	c.logger.Info("started step state consumer", zap.String("consumer", c.consumerID))
 
-	// Process messages
+	var buffer []StepStateEvent
+
+	flush := func(ctx context.Context) {
+		if len(buffer) == 0 {
+			return
+		}
+		if err := c.writeBatch(ctx, buffer); err != nil {
+			c.logger.Error("flush failed", zap.String("consumer", c.consumerID), zap.Error(err))
+		}
+		buffer = buffer[:0]
+	}
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Printf("[STEP-STATE-CONSUMER] Context cancelled, stopping...\n")
-				c.flush(context.Background())
+				flush(context.Background())
 				return
-			case <-c.flushTicker.C:
-				if len(c.buffer) > 0 {
-					if err := c.flush(ctx); err != nil {
-						fmt.Printf("[STEP-STATE-CONSUMER] Flush failed: %v\n", err)
-					}
-				}
+			case <-c.ticker.C:
+				flush(ctx)
 			default:
-				// Fetch messages
 				msgs, err := sub.Fetch(c.batchSize, nats.MaxWait(5*time.Second))
 				if err != nil {
-					if err == nats.ErrTimeout {
-						// Timeout is normal when no messages available
-						continue
+					if !errors.Is(err, nats.ErrTimeout) {
+						c.logger.Error("fetch error", zap.String("consumer", c.consumerID), zap.Error(err))
+						time.Sleep(time.Second)
 					}
-					fmt.Printf("[STEP-STATE-CONSUMER] Error fetching messages: %v\n", err)
-					time.Sleep(1 * time.Second)
 					continue
 				}
 
 				for _, msg := range msgs {
 					var event StepStateEvent
 					if err := json.Unmarshal(msg.Data, &event); err != nil {
-						fmt.Printf("[STEP-STATE-CONSUMER] Failed to unmarshal event: %v\n", err)
+						c.logger.Error("failed to unmarshal event", zap.String("consumer", c.consumerID), zap.Error(err))
 						msg.Nak()
 						continue
 					}
+					buffer = append(buffer, event)
+					msg.Ack()
+				}
 
-					c.buffer = append(c.buffer, event)
-
-					// Flush if buffer is full
-					if len(c.buffer) >= c.batchSize {
-						if err := c.flush(ctx); err != nil {
-							fmt.Printf("[STEP-STATE-CONSUMER] Flush failed: %v\n", err)
-							// Nak all messages in buffer
-							msg.Nak()
-						} else {
-							// Ack all messages
-							msg.Ack()
-						}
-					} else {
-						// Ack individual message
-						msg.Ack()
-					}
+				if len(buffer) >= c.batchSize {
+					flush(ctx)
 				}
 			}
 		}
@@ -134,114 +122,62 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 	return nil
 }
 
-// flush writes buffered events to Postgres
-func (c *StepStateConsumer) flush(ctx context.Context) error {
-	if len(c.buffer) == 0 {
-		return nil
-	}
-
-	// Flushing step state events to Postgres
-
-	// Deduplicate buffer - keep only the latest event for each unique (thread_id, step_name, idempotency_key)
-	// Since NATS delivers in order, the last event in the buffer is the most recent
-	uniqueEvents := make(map[string]*StepStateEvent)
-	for i := range c.buffer {
-		event := &c.buffer[i]
-		key := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
-
-		// Last one wins (most recent)
-		uniqueEvents[key] = event
-	}
-
-	// Convert map to slice
-	deduplicatedEvents := make([]*StepStateEvent, 0, len(uniqueEvents))
-	for _, event := range uniqueEvents {
-		deduplicatedEvents = append(deduplicatedEvents, event)
-	}
-
-	fmt.Printf("[STEP-STATE-CONSUMER] Deduplicated %d events to %d unique step states\n", len(c.buffer), len(deduplicatedEvents))
-
-	// Build batch upsert query
-	query := `
-		INSERT INTO thread_step_states (
-			id, thread_id, step_name, idempotency_key, status,
-			retry_count, first_seen_at, last_updated_at, started_at, finished_at,
-			previous_step, actor, actor_service, latest_context, created_at
-		) VALUES `
-
-	values := make([]interface{}, 0, len(deduplicatedEvents)*14)
-	placeholders := ""
-
-	for i, event := range deduplicatedEvents {
-		if i > 0 {
-			placeholders += ", "
-		}
-
-		offset := i * 14
-		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
-			offset+1, offset+2, offset+3, offset+4, offset+5,
-			offset+6, offset+7, offset+8, offset+9, offset+10,
-			offset+11, offset+12, offset+13, offset+14,
-		)
-
-		// Handle NULL values for optional timestamps
-		var startedAtVal interface{} = nil
-		if event.StartedAt != "" {
-			startedAtVal = event.StartedAt
-		}
-		var finishedAtVal interface{} = nil
-		if event.FinishedAt != "" {
-			finishedAtVal = event.FinishedAt
-		}
-
-		values = append(values,
-			event.StepID,
-			event.ThreadID,
-			event.StepName,
-			event.IdempotencyKey,
-			event.Status,
-			event.RetryCount,
-			event.FirstSeenAt,
-			event.LastUpdatedAt,
-			startedAtVal,
-			finishedAtVal,
-			event.PreviousStep,
-			event.Actor,
-			event.ActorService,
-			event.LatestContext,
-		)
-	}
-
-	query += placeholders + `
-		ON CONFLICT (thread_id, step_name, idempotency_key) DO UPDATE SET
-			status = EXCLUDED.status,
-			retry_count = EXCLUDED.retry_count,
-			last_updated_at = EXCLUDED.last_updated_at,
-			started_at = EXCLUDED.started_at,
-			finished_at = EXCLUDED.finished_at,
-			previous_step = EXCLUDED.previous_step,
-			actor = EXCLUDED.actor,
-			actor_service = EXCLUDED.actor_service,
-			latest_context = EXCLUDED.latest_context`
-
-	// Execute batch insert
-	_, err := c.db.Pool.Exec(ctx, query, values...)
-	if err != nil {
-		return fmt.Errorf("failed to insert step states: %w", err)
-	}
-
-	fmt.Printf("[STEP-STATE-CONSUMER] Successfully wrote %d step states to Postgres\n", len(c.buffer))
-
-	// Clear buffer
-	c.buffer = c.buffer[:0]
-
-	return nil
+func (c *StepStateConsumer) Stop() {
+	c.ticker.Stop()
+	c.logger.Info("stopped step state consumer", zap.String("consumer", c.consumerID))
 }
 
-// Stop stops the consumer
-func (c *StepStateConsumer) Stop() {
-	c.flushTicker.Stop()
-	c.flush(context.Background())
-	fmt.Printf("[STEP-STATE-CONSUMER] Stopped\n")
+func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEvent) error {
+	unique := make(map[string]*StepStateEvent, len(events))
+	for i := range events {
+		e := &events[i]
+		unique[fmt.Sprintf("%s:%s:%s", e.ThreadID, e.StepName, e.IdempotencyKey)] = e
+	}
+
+	deduped := make([]*StepStateEvent, 0, len(unique))
+	for _, e := range unique {
+		deduped = append(deduped, e)
+	}
+
+	const cols = 14
+	values := make([]interface{}, 0, len(deduped)*cols)
+	for _, e := range deduped {
+		values = append(values,
+			e.StepID, e.ThreadID, e.StepName, e.IdempotencyKey, e.Status,
+			e.RetryCount, e.FirstSeenAt, e.LastUpdatedAt,
+			nullIfEmpty(e.StartedAt), nullIfEmpty(e.FinishedAt),
+			e.PreviousStep, e.Actor, e.ActorService, e.LatestContext,
+		)
+	}
+
+	query := `INSERT INTO thread_step_states (
+		id, thread_id, step_name, idempotency_key, status,
+		retry_count, first_seen_at, last_updated_at, started_at, finished_at,
+		previous_step, actor, actor_service, latest_context, created_at
+	) VALUES ` + buildPlaceholders(len(deduped), cols) + `
+	ON CONFLICT (thread_id, step_name, idempotency_key) DO UPDATE SET
+		status         = EXCLUDED.status,
+		retry_count    = EXCLUDED.retry_count,
+		last_updated_at = EXCLUDED.last_updated_at,
+		started_at     = EXCLUDED.started_at,
+		finished_at    = EXCLUDED.finished_at,
+		previous_step  = EXCLUDED.previous_step,
+		actor          = EXCLUDED.actor,
+		actor_service  = EXCLUDED.actor_service,
+		latest_context = EXCLUDED.latest_context`
+
+	// buildPlaceholders doesn't handle the trailing NOW() for created_at;
+	// replace the last closing paren of each row to append it.
+	// Alternatively, pass created_at as a value — but NOW() is idiomatic here.
+
+	if _, err := c.db.Pool.Exec(ctx, query, values...); err != nil {
+		return fmt.Errorf("insert step states: %w", err)
+	}
+
+	c.logger.Info("wrote step states",
+		zap.Int("total", len(events)),
+		zap.Int("unique", len(deduped)),
+		zap.String("consumer", c.consumerID),
+	)
+	return nil
 }

@@ -3,9 +3,10 @@ package handlers
 import (
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
+
+	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/threadify/engine/internal/utils"
 )
 
-// PreviewResponse represents the response for contract preview
 type PreviewResponse struct {
 	Valid     bool     `json:"valid"`
 	Mermaid   string   `json:"mermaid,omitempty"`
@@ -26,281 +26,205 @@ type PreviewResponse struct {
 
 type ContractHandler struct {
 	contractService *service.ContractService
+	logger          *zap.Logger
 }
 
-func NewContractHandler(contractService *service.ContractService) *ContractHandler {
-	return &ContractHandler{
-		contractService: contractService,
-	}
+func NewContractHandler(contractService *service.ContractService, logger *zap.Logger) *ContractHandler {
+	return &ContractHandler{contractService: contractService, logger: logger}
 }
 
-func (h *ContractHandler) GetAllContracts(c *gin.Context) {
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+// claimsOwnerID extracts ownerID from JWT claims stored in the gin context.
+// Returns ("", false) and writes a JSON error if extraction fails.
+func claimsOwnerID(c *gin.Context) (string, bool) {
+	raw, _ := c.Get(sharedauth.CtxClaims)
+	claims, ok := raw.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
+		return "", false
 	}
 	ownerID, ok := claims[sharedauth.OwnerID].(string)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
+		return "", false
+	}
+	return ownerID, true
+}
+
+// companyIDFromRequestOrClaims resolves the company ID from the X-Company-ID
+// header, falling back to JWT claims.
+func companyIDFromRequestOrClaims(c *gin.Context, claims jwt.MapClaims) string {
+	if id := c.GetHeader("X-Company-ID"); id != "" {
+		return id
+	}
+	id, _ := claims[sharedauth.CtxCompanyID].(string)
+	return id
+}
+
+// recordContractMetrics records Prometheus metrics based on the service response code.
+func recordContractMetrics(statusCode int) {
+	if statusCode == http.StatusOK {
+		middleware.RecordContractValidation(true)
+		middleware.RecordContractVersionCreated()
+	} else {
+		middleware.RecordContractValidation(false)
+	}
+}
+
+func (h *ContractHandler) GetAllContracts(c *gin.Context) {
+	ownerID, ok := claimsOwnerID(c)
+	if !ok {
 		return
 	}
-
 	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) CreateContract(c *gin.Context) {
-	userID := c.GetString(sharedauth.CtxUserID)
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
-	}
-	ownerID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
 	}
 
-	// Get companyID from header or claims
-	companyID := c.GetHeader("X-Company-ID")
-	if companyID == "" {
-		if cid, ok := claims[sharedauth.CtxCompanyID].(string); ok {
-			companyID = cid
-		}
-	}
+	raw, _ := c.Get(sharedauth.CtxClaims)
+	claims, _ := raw.(jwt.MapClaims)
+
+	companyID := companyIDFromRequestOrClaims(c, claims)
 	if companyID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Company ID required"})
 		return
 	}
 
-	// Read raw YAML request body
 	yamlBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
 
-	statusCode, response := h.contractService.CreateContract(c.Request.Context(), ownerID, companyID, userID, string(yamlBytes))
-
-	// Record metrics
-	if statusCode == 200 {
-		middleware.RecordContractValidation(true)
-		middleware.RecordContractVersionCreated()
-	} else {
-		middleware.RecordContractValidation(false)
-	}
-
+	statusCode, response := h.contractService.CreateContract(
+		c.Request.Context(), ownerID, companyID,
+		c.GetString(sharedauth.CtxUserID), string(yamlBytes),
+	)
+	recordContractMetrics(statusCode)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) GetContract(c *gin.Context) {
-	contractID := c.Param("id")
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
-	}
-	requesterID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
 	}
 
 	var version *int
 	if v := c.Query("version"); v != "" {
-		ver, err := strconv.Atoi(v)
-		if err == nil {
+		if ver, err := strconv.Atoi(v); err == nil {
 			version = &ver
 		}
 	}
 
-	statusCode, response := h.contractService.GetContract(c.Request.Context(), contractID, requesterID, version)
+	statusCode, response := h.contractService.GetContract(c.Request.Context(), c.Param("id"), ownerID, version)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) UpdateContract(c *gin.Context) {
-	contractID := c.Param("id")
-	userID := c.GetString(sharedauth.CtxUserID)
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
-	}
-	ownerID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
 	}
 
-	// Read YAML content from request body
 	yamlContent, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
 
-	statusCode, response := h.contractService.UpdateContract(c.Request.Context(), contractID, ownerID, userID, string(yamlContent))
-
-	// Record metrics
-	if statusCode == 200 {
-		middleware.RecordContractValidation(true)
-		middleware.RecordContractVersionCreated()
-	} else {
-		middleware.RecordContractValidation(false)
-	}
-
+	statusCode, response := h.contractService.UpdateContract(
+		c.Request.Context(), c.Param("id"), ownerID,
+		c.GetString(sharedauth.CtxUserID), string(yamlContent),
+	)
+	recordContractMetrics(statusCode)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) DeleteContract(c *gin.Context) {
-	contractID := c.Param("id")
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	ownerID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
-		return
-	}
-
-	statusCode, response := h.contractService.DeleteContract(c.Request.Context(), contractID, ownerID)
+	statusCode, response := h.contractService.DeleteContract(c.Request.Context(), c.Param("id"), ownerID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
-	contractID := c.Param("id")
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
 		return
 	}
-	requesterID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
-		return
-	}
-
-	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), contractID, requesterID)
+	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), c.Param("id"), ownerID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) GetContractVersion(c *gin.Context) {
-	contractID := c.Param("id")
-	versionParam := c.Param("version")
-
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
+	ownerID, ok := claimsOwnerID(c)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
-	}
-	requesterID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
 		return
 	}
 
-	// Parse version parameter
-	version, err := strconv.Atoi(versionParam)
+	version, err := strconv.Atoi(c.Param("version"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid version number is required"})
 		return
 	}
 
-	statusCode, response := h.contractService.GetContractVersion(c.Request.Context(), contractID, version, requesterID)
+	statusCode, response := h.contractService.GetContractVersion(c.Request.Context(), c.Param("id"), version, ownerID)
+	c.JSON(statusCode, response)
+}
+
+func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
+	ownerID, ok := claimsOwnerID(c)
+	if !ok {
+		return
+	}
+
+	version, err := strconv.Atoi(c.Param("version"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid version number is required"})
+		return
+	}
+
+	statusCode, response := h.contractService.DeleteContractVersion(c.Request.Context(), c.Param("id"), version, ownerID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) PreviewContract(c *gin.Context) {
-	// Read YAML body
 	yamlBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, PreviewResponse{
-			Valid:  false,
-			Errors: []string{"Failed to read request body"},
-		})
+		c.JSON(http.StatusBadRequest, PreviewResponse{Valid: false, Errors: []string{"Failed to read request body"}})
 		return
 	}
 
-	// Validate and build graph using service method
 	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
 	if err != nil {
-		log.Printf("Failed to preview contract: %v", err)
-		c.JSON(http.StatusInternalServerError, PreviewResponse{
-			Valid:  false,
-			Errors: []string{"Failed to process contract"},
-		})
+		h.logger.Error("failed to preview contract", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})
 		return
 	}
 
-	// Handle validation errors
 	if !validationResult.IsValid {
-		errors := make([]string, len(validationResult.Errors))
-		for i, err := range validationResult.Errors {
-			errors[i] = fmt.Sprintf("%s: %s", err.Field, err.Message)
+		errs := make([]string, len(validationResult.Errors))
+		for i, e := range validationResult.Errors {
+			errs[i] = fmt.Sprintf("%s: %s", e.Field, e.Message)
 		}
-		c.JSON(http.StatusOK, PreviewResponse{
-			Valid:  false,
-			Errors: errors,
-		})
+		c.JSON(http.StatusOK, PreviewResponse{Valid: false, Errors: errs})
 		return
 	}
 
-	// Convert to Mermaid
 	mermaidCode := utils.ContractGraphToMermaid(contract.ContractName, graph)
-
-	// Convert to Cytoscape
 	cytoscapeJSON, err := utils.ContractGraphToCytoscapeJSON(contract.ContractName, graph)
 	if err != nil {
-		// Log error but don't fail the request - Mermaid is still available
-		fmt.Printf("Error converting to Cytoscape: %v\n", err)
-		c.JSON(http.StatusOK, PreviewResponse{
-			Valid:   true,
-			Mermaid: mermaidCode,
-		})
+		h.logger.Warn("failed to convert to Cytoscape", zap.Error(err))
+		c.JSON(http.StatusOK, PreviewResponse{Valid: true, Mermaid: mermaidCode})
 		return
 	}
 
-	c.JSON(http.StatusOK, PreviewResponse{
-		Valid:     true,
-		Mermaid:   mermaidCode,
-		Cytoscape: cytoscapeJSON,
-	})
-}
-
-func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
-	contractID := c.Param("id")
-	versionParam := c.Param("version")
-
-	claimsInterface := c.MustGet(sharedauth.CtxClaims)
-	claims, ok := claimsInterface.(jwt.MapClaims)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
-		return
-	}
-	ownerID, ok := claims[sharedauth.OwnerID].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
-		return
-	}
-
-	// Parse version parameter
-	version, err := strconv.Atoi(versionParam)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid version number is required"})
-		return
-	}
-
-	statusCode, response := h.contractService.DeleteContractVersion(c.Request.Context(), contractID, version, ownerID)
-	c.JSON(statusCode, response)
+	c.JSON(http.StatusOK, PreviewResponse{Valid: true, Mermaid: mermaidCode, Cytoscape: cytoscapeJSON})
 }

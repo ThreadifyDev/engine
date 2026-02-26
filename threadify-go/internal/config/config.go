@@ -171,6 +171,7 @@ type ScopeConfig struct {
 // ArchiverConfig holds archiver configuration
 type ArchiverConfig struct {
 	Enabled         bool                    `yaml:"enabled" mapstructure:"enabled"`
+	MetricsPort     int                     `yaml:"metrics_port" mapstructure:"metrics_port"`
 	Buffers         map[string]BufferConfig `yaml:"buffers" mapstructure:"buffers"`
 	ActivityStreams ActivityStreamsConfig   `yaml:"activity_streams" mapstructure:"activity_streams"`
 	Retry           RetryConfig             `yaml:"retry" mapstructure:"retry"`
@@ -206,10 +207,12 @@ type RetryConfig struct {
 
 // StreamsConfig holds streams configuration
 type StreamsConfig struct {
-	ConsumerGroup  string        `yaml:"consumer_group" mapstructure:"consumer_group"`
-	BlockTimeoutMs int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
-	BatchSize      int           `yaml:"batch_size" mapstructure:"batch_size"`
-	BlockTimeout   time.Duration // Computed from BlockTimeoutMs
+	ConsumerGroup            string        `yaml:"consumer_group" mapstructure:"consumer_group"`
+	BlockTimeoutMs           int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
+	BatchSize                int           `yaml:"batch_size" mapstructure:"batch_size"`
+	StepStateFlushIntervalMs int           `yaml:"step_state_flush_interval_ms" mapstructure:"step_state_flush_interval_ms"`
+	BlockTimeout             time.Duration // Computed
+	StepStateFlushInterval   time.Duration // Computed
 }
 
 // SecurityConfig holds security configuration

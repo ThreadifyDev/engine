@@ -2,23 +2,24 @@ package nats
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"threadify-go/shared/config"
 
 	"github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 // Client wraps NATS connection and JetStream context
 type Client struct {
-	conn *nats.Conn
-	js   nats.JetStreamContext
-	cfg  *config.NATSConfig
+	conn   *nats.Conn
+	js     nats.JetStreamContext
+	cfg    *config.NATSConfig
+	logger *zap.Logger
 }
 
 // NewClient creates a new NATS client with JetStream
-func NewClient(cfg *config.NATSConfig) (*Client, error) {
+func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 	// Connect to NATS
 	nc, err := nats.Connect(
 		cfg.URL,
@@ -27,7 +28,7 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 		nats.ReconnectWait(2*time.Second),
 	)
 	if err != nil {
-		log.Printf("Failed to connect to NATS: %v", err)
+		logger.Error("failed to connect to NATS", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to message broker")
 	}
 
@@ -35,14 +36,15 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()
-		log.Printf("Failed to create JetStream context: %v", err)
+		logger.Error("failed to create JetStream context", zap.Error(err))
 		return nil, fmt.Errorf("failed to initialize message broker")
 	}
 
 	client := &Client{
-		conn: nc,
-		js:   js,
-		cfg:  cfg,
+		conn:   nc,
+		js:     js,
+		cfg:    cfg,
+		logger: logger,
 	}
 
 	return client, nil
@@ -50,8 +52,8 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 
 func (c *Client) InitializeOutboxStream() error {
 	streamConfig := &nats.StreamConfig{
-		Name:      "OUTBOX_TRIGGERS",
-		Subjects:  []string{"outbox.trigger"},
+		Name:      StreamOutboxTriggers,
+		Subjects:  []string{SubjectOutboxTrigger},
 		Retention: nats.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   nats.FileStorage,
@@ -68,7 +70,7 @@ func (c *Client) InitializeOutboxStream() error {
 		}
 	}
 
-	log.Printf("[NATS] Initialized OUTBOX_TRIGGERS stream")
+	c.logger.Info("initialized OUTBOX_TRIGGERS stream")
 	return nil
 }
 
