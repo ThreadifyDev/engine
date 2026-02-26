@@ -239,7 +239,7 @@ web_api:
     graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
   
   # Agent LLM configuration 
-  openai_api_key: "sk-a8cfd2b415d240669861772414b3e2c8"
+  openai_api_key: ""
   
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days
@@ -248,6 +248,12 @@ web_api:
   rate_limit:
     requests: 100
     window_minutes: 1
+  
+  # AI Agent conversation limits
+  agent:
+    max_messages: 100    # Maximum messages per conversation
+    max_tokens: 1000  # Maximum tokens per conversation (1M tokens)
+    summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency
 worker_pools:
