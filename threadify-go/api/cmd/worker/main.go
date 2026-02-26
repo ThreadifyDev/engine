@@ -72,7 +72,10 @@ func main() {
 		appLogger.Fatal("init email service", zap.Error(err))
 	}
 
-	encryptionKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY"))
+	encryptionKey := strings.TrimSpace(cfg.WebAPI.OutboxEncryptionKey)
+	if encryptionKey == "" {
+		appLogger.Fatal("outbox_encryption_key is required in config.yaml (or set OUTBOX_ENCRYPTION_KEY env var)")
+	}
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, companyRepo, authClient, emailSvc, encryptionKey, appLogger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

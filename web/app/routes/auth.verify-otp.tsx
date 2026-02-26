@@ -10,6 +10,8 @@ export default function VerifyOTP() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
 
   useEffect(() => {
     if (!email) {
@@ -47,6 +49,20 @@ export default function VerifyOTP() {
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '').slice(0, 6);
     setCode(value);
+  };
+
+  const handleResendVerification = async () => {
+    setResendMessage('');
+    setResending(true);
+
+    try {
+      const response = await api.resendVerificationEmail({ email });
+      setResendMessage(response.message || 'Verification email sent!');
+    } catch (err) {
+      setResendMessage(err instanceof Error ? err.message : 'Failed to resend email');
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -113,20 +129,30 @@ export default function VerifyOTP() {
         </form>
 
         {/* Resend Code */}
-        <div className="text-center">
-          <p className="text-sm text-gray-600">
-            Didn't receive the code?{' '}
-            <button
-              type="button"
-              className="text-black font-medium hover:underline"
-              onClick={() => {
-                // TODO: Implement resend logic
-                alert('Resend functionality coming soon');
-              }}
-            >
-              Resend
-            </button>
-          </p>
+        <div className="space-y-3">
+          {resendMessage && (
+            <div className={`px-4 py-3 text-sm text-center ${
+              resendMessage.includes('Failed') || resendMessage.includes('error')
+                ? 'bg-red-50 text-red-800 border-2 border-red-500'
+                : 'bg-green-50 text-green-800 border-2 border-green-500'
+            }`}>
+              {resendMessage}
+            </div>
+          )}
+          
+          <div className="text-center">
+            <p className="text-sm text-gray-600">
+              Didn't receive the code?{' '}
+              <button
+                type="button"
+                className="text-black font-medium hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleResendVerification}
+                disabled={resending}
+              >
+                {resending ? 'Sending...' : 'Resend'}
+              </button>
+            </p>
+          </div>
         </div>
       </div>
     </div>

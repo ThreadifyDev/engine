@@ -99,6 +99,10 @@ type VerifyEmailRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
+type ResendVerificationEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
 type UpdateProfileRequest struct {
 	FullName    string `json:"full_name"`
 	JobRole     string `json:"job_role"`

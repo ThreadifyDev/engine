@@ -123,9 +123,9 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		return nil, fmt.Errorf("init auth client: %w", err)
 	}
 
-	encryptionKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY"))
+	encryptionKey := strings.TrimSpace(cfg.WebAPI.OutboxEncryptionKey)
 	if encryptionKey == "" {
-		return nil, errors.New("OUTBOX_ENCRYPTION_KEY environment variable is required")
+		return nil, errors.New("outbox_encryption_key is required in config.yaml (or set OUTBOX_ENCRYPTION_KEY env var)")
 	}
 
 	outboxRepo := repository.NewOutboxRepository(db)
@@ -229,6 +229,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 		auth.POST("/forgot-password", h.auth.ForgotPassword)
 		auth.POST("/reset-password", h.auth.ResetPassword)
 		auth.POST("/verify-email", h.auth.VerifyEmail)
+		auth.POST("/resend-verification", h.auth.ResendVerificationEmail)
 	}
 
 	r.GET("/api/code-samples", h.codeSamples.GetCodeSample)

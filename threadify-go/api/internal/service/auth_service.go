@@ -391,6 +391,77 @@ func (s *AuthService) resolveUserFromAuthIdentity(emailHint string, info *shared
 	return user, nil
 }
 
+func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.ResendVerificationEmailRequest) error {
+	if err := validation.ValidateResendVerificationEmailRequest(req); err != nil {
+		return err
+	}
+
+	email := normalizeEmail(req.Email)
+
+	// Find user by email
+	user, err := s.userRepo.FindByEmail(email)
+	if err != nil {
+		if errors.Is(err, serror.ErrUserNotFound) {
+			// Don't reveal if email exists - return success anyway for security
+			return nil
+		}
+		return fmt.Errorf("find user: %w", err)
+	}
+
+	// If already verified, silently succeed
+	if user.EmailVerified {
+		return nil
+	}
+
+	// Check if verification email already queued (prevent spam)
+	alreadyQueued, err := s.outboxRepo.ExistsByReference(models.EventTypeSendVerificationEmail, user.ID)
+	if err != nil {
+		return fmt.Errorf("check existing verification email event: %w", err)
+	}
+	if alreadyQueued {
+		// Already queued, don't create duplicate
+		return nil
+	}
+
+	// Create encrypted payload
+	payload, err := json.Marshal(map[string]string{"email": email})
+	if err != nil {
+		return fmt.Errorf("marshal email event payload: %w", err)
+	}
+	encrypted, err := utils.Encrypt(payload, s.encryptionKey)
+	for i := range payload {
+		payload[i] = 0 // Zero out plaintext
+	}
+	if err != nil {
+		return fmt.Errorf("encrypt email event payload: %w", err)
+	}
+
+	// Queue verification email in outbox
+	if err := s.outboxRepo.Create(&models.OutboxEvent{
+		ID:          utils.GenerateID(),
+		Type:        models.EventTypeSendVerificationEmail,
+		Payload:     encrypted,
+		Status:      models.OutboxStatusPending,
+		MaxRetries:  5,
+		NextRunAt:   time.Now(),
+		ReferenceID: user.ID,
+	}); err != nil {
+		return fmt.Errorf("create verification email event: %w", err)
+	}
+
+	// Trigger outbox worker
+	if s.outboxWorker != nil {
+		s.outboxWorker.Trigger()
+	}
+
+	s.logger.Info("resend verification email queued",
+		zap.String("user_id", user.ID),
+		zap.String("email", email),
+	)
+
+	return nil
+}
+
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

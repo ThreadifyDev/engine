@@ -139,6 +139,30 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
+	var req models.ResendVerificationEmailRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateResendVerificationEmailRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+
+	if err := h.authService.ResendVerificationEmail(c.Request.Context(), &req); err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "If an account exists with this email and is not verified, a verification email will be sent.",
+	})
+}
+
 func authErrorResponse(err error, fallbackStatus int, fallbackMessage string) (int, string) {
 	var requestValidationErr *validation.RequestValidationError
 	if errors.As(err, &requestValidationErr) {

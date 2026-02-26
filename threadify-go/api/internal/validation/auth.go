@@ -170,6 +170,17 @@ func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
 	return b.err()
 }
 
+func ValidateResendVerificationEmailRequest(req *models.ResendVerificationEmailRequest) error {
+	b := &validationBuilder{}
+	if req == nil {
+		b.add("request", "Request body is required")
+		return b.err()
+	}
+	req.Email = normalizeEmail(req.Email)
+	validateEmail("email", req.Email, b)
+	return b.err()
+}
+
 func validateEmail(field, email string, b *validationBuilder) {
 	switch {
 	case email == "":

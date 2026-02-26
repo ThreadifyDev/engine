@@ -62,12 +62,13 @@ type Config struct {
 	NATS         NATSConfig       `yaml:"nats"`
 
 	WebAPI struct {
-		Enabled     bool   `yaml:"enabled"`
-		Port        int    `yaml:"port"`
-		Host        string `yaml:"host"`
-		CORSOrigins string `yaml:"cors_origins"`
-		FrontendURL string `yaml:"frontend_url"`
-		Email       struct {
+		Enabled             bool   `yaml:"enabled"`
+		Port                int    `yaml:"port"`
+		Host                string `yaml:"host"`
+		CORSOrigins         string `yaml:"cors_origins"`
+		FrontendURL         string `yaml:"frontend_url"`
+		OutboxEncryptionKey string `yaml:"outbox_encryption_key"`
+		Email               struct {
 			PlunkAPIKey    string `yaml:"plunk_api_key"`
 			PlunkFromEmail string `yaml:"plunk_from_email"`
 			PlunkAPIURL    string `yaml:"plunk_api_url"`
@@ -117,6 +118,7 @@ func Load(path string) (*Config, error) {
 
 	// WebAPI config
 	cfg.WebAPI.FrontendURL = expandEnv(cfg.WebAPI.FrontendURL)
+	cfg.WebAPI.OutboxEncryptionKey = expandEnv(cfg.WebAPI.OutboxEncryptionKey)
 	cfg.WebAPI.Email.PlunkAPIKey = expandEnv(cfg.WebAPI.Email.PlunkAPIKey)
 	cfg.WebAPI.Email.PlunkFromEmail = expandEnv(cfg.WebAPI.Email.PlunkFromEmail)
 	cfg.WebAPI.Email.PlunkAPIURL = expandEnv(cfg.WebAPI.Email.PlunkAPIURL)

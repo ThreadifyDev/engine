@@ -180,6 +180,13 @@ class ApiClient {
     });
   }
 
+  async resendVerificationEmail(data: { email: string }): Promise<{ message: string }> {
+    return this.request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   logout() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
