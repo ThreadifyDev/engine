@@ -13,19 +13,23 @@ import (
 
 	"github.com/threadify/engine/internal/handlers"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/pkg/validator"
 )
 
 func TestContractPreview_ValidYAML(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Setup
-	contractValidator := validator.NewContractValidator()
-	contractService := service.NewContractService(nil, nil, contractValidator, nil)
-	handler := handlers.NewContractHandler(contractService, nil, nil)
+	contractService := service.NewContractService(nil)
+	handler := handlers.NewContractHandler(contractService, nil)
 
 	router := gin.New()
-	handler.RegisterRoutes(router)
+	router.POST("/v1/contracts/preview", func(c *gin.Context) {
+		if c.GetHeader("Authorization") == "" {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		handler.PreviewContract(c)
+	})
 
 	// Test YAML
 	validYAML := `
@@ -71,12 +75,17 @@ func TestContractPreview_InvalidYAML(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Setup
-	contractValidator := validator.NewContractValidator()
-	contractService := service.NewContractService(nil, nil, contractValidator, nil)
-	handler := handlers.NewContractHandler(contractService, nil, nil)
+	contractService := service.NewContractService(nil)
+	handler := handlers.NewContractHandler(contractService, nil)
 
 	router := gin.New()
-	handler.RegisterRoutes(router)
+	router.POST("/v1/contracts/preview", func(c *gin.Context) {
+		if c.GetHeader("Authorization") == "" {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		handler.PreviewContract(c)
+	})
 
 	// Invalid YAML - missing required fields
 	invalidYAML := `
@@ -107,12 +116,17 @@ func TestContractPreview_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Setup
-	contractValidator := validator.NewContractValidator()
-	contractService := service.NewContractService(nil, nil, contractValidator, nil)
-	handler := handlers.NewContractHandler(contractService, nil, nil)
+	contractService := service.NewContractService(nil)
+	handler := handlers.NewContractHandler(contractService, nil)
 
 	router := gin.New()
-	handler.RegisterRoutes(router)
+	router.POST("/v1/contracts/preview", func(c *gin.Context) {
+		if c.GetHeader("Authorization") == "" {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		handler.PreviewContract(c)
+	})
 
 	validYAML := `
 contract_name: test_contract

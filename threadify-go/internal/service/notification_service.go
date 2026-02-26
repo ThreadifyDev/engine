@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,18 +17,17 @@ import (
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/workerpool"
+	"go.uber.org/zap"
 )
 
-// NotificationService orchestrates async validation and notification archival.
-// It handles non-blocking validation processing, stores validation results in streams,
-// and manages the archival of validation notifications without blocking main execution.
-
-// NotificationPublisher defines the interface for publishing notifications
+// NotificationPublisher defines the interface for publishing notifications.
 type NotificationPublisher interface {
 	PublishNotification(ctx context.Context, notification models.ValidationNotification) error
 }
 
-// NotificationService handles async validation processing and coordination
+// NotificationService orchestrates async validation and notification archival.
+// It handles non-blocking validation processing, stores validation results in streams,
+// and manages the archival of validation notifications without blocking main execution.
 type NotificationService struct {
 	validationService     *ValidationService
 	activityRepo          interfaces.ActivityRepository
@@ -40,9 +39,10 @@ type NotificationService struct {
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
+	logger                *zap.Logger
 }
 
-// NewNotificationService creates a new notification service
+// NewNotificationService creates a new notification service.
 func NewNotificationService(
 	validationService *ValidationService,
 	activityRepo interfaces.ActivityRepository,
@@ -54,6 +54,7 @@ func NewNotificationService(
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
+	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
 		validationService:     validationService,
@@ -66,10 +67,11 @@ func NewNotificationService(
 		rbacLoader:            rbacLoader,
 		validationPool:        validationPool,
 		notificationPool:      notificationPool,
+		logger:                logger,
 	}
 }
 
-// PerformAsyncValidation runs all non-blocking validations via worker pool
+// PerformAsyncValidation runs all non-blocking validations via worker pool.
 func (s *NotificationService) PerformAsyncValidation(
 	threadID string,
 	stepID string,
@@ -80,128 +82,101 @@ func (s *NotificationService) PerformAsyncValidation(
 	graph *models.ContractGraph,
 	stepNode models.GraphNode,
 ) {
-	// Submit to validation worker pool instead of spawning unbounded goroutines
-	// The pool provides timeout via job context
 	submitted := s.validationPool.Submit(func(ctx context.Context) {
-		fmt.Printf("[ASYNC-VALIDATION] Starting validation for thread=%s, step=%s, stepName=%s\n", threadID, stepID, stepName)
+		s.logger.Info("starting validation",
+			zap.String("thread", threadID),
+			zap.String("step_uuid", stepID),
+			zap.String("step_name", stepName),
+		)
 
-		// Perform all non-blocking validations (contract-specific if graph exists)
-		var notifications []models.ValidationNotification
-
-		// If no contract, send execution notification only (no validation possible)
 		if graph == nil {
-			contractName := ""
-			if thread != nil {
-				contractName = thread.ContractName
-			}
-
-			// Create execution notification based on SDK status
-			var message string
-			if req.Status == "success" {
-				message = "Step '" + stepName + "' completed successfully (no contract)"
-			} else if req.Status == "failed" {
-				message = "Step '" + stepName + "' failed (no contract)"
-			} else if req.Status == "error" {
-				message = "Step '" + stepName + "' encountered an error (no contract)"
-			} else {
-				message = "Step '" + stepName + "' recorded with status '" + req.Status + "' (no contract)"
-			}
-
-			executionNotif := models.ValidationNotification{
-				NotificationID: uuid.New().String(),
-				ThreadID:       threadID,
-				StepID:         stepID,
-				StepName:       stepName,
-				OwnerID:        ownerID,
-				ContractName:   contractName,
-				StepStatus:     req.Status,
-				Status:         "none", // No validation status
-				ViolationType:  "",
-				Severity:       string(models.SeverityInfo),
-				Message:        message,
-				Details:        nil, // Use nil for empty map to avoid allocation
-				Timestamp:      time.Now(),
-			}
-
-			// Publish execution notification via notification worker pool
-			if s.natsPublisher != nil {
-				s.submitNotificationJob(executionNotif)
-			}
-
-			// Archive step state even for threads without contracts
-			idempKey := req.IdempotencyKey
-			if idempKey == "" {
-				idempKey = stepID
-			}
-
-			now := time.Now().Format(time.RFC3339Nano)
-
-			// Serialize context to JSON string
-			contextJSON := ""
-			if len(req.Context) > 0 {
-				if contextBytes, err := json.Marshal(req.Context); err == nil {
-					contextJSON = string(contextBytes)
-				}
-			}
-
-			stepStateSnapshot := &interfaces.StepStateSnapshot{
-				ID:             stepID,
-				ThreadID:       threadID,
-				StepName:       stepName,
-				IdempotencyKey: idempKey,
-				Status:         req.Status,
-				RetryCount:     0, // No retry tracking without contract
-				FirstSeenAt:    now,
-				LastUpdatedAt:  now,
-				StartedAt:      req.StartedAt,
-				FinishedAt:     req.FinishedAt,
-				PreviousStep:   "",
-				Actor:          ownerID,
-				ActorService:   req.ServiceName,
-				LatestContext:  contextJSON,
-			}
-
-			if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {
-				fmt.Printf("[ARCHIVE-ERROR] Failed to archive step state (no contract): %v\n", err)
-			}
-
-			// Return early - no need to process validations
-			fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s (no contract)\n", threadID)
+			s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
 			return
 		}
 
-		// Perform validations (graph is guaranteed to be non-nil here)
-		notifications = s.performNonBlockingValidations(
-			ctx,
-			thread,
-			req,
-			stepNode,
-			graph,
-			stepID,
-			ownerID,
+		notifications := s.performNonBlockingValidations(ctx, thread, req, stepNode, graph, stepID, ownerID)
+
+		s.logger.Debug("generated notifications",
+			zap.Int("count", len(notifications)),
+			zap.String("thread_id", threadID),
 		)
 
-		fmt.Printf("[ASYNC-VALIDATION] Generated %d notifications for thread=%s\n", len(notifications), threadID)
-
-		// Use stepID as default idempotency key if not provided
 		idempKey := req.IdempotencyKey
 		if idempKey == "" {
 			idempKey = stepID
-			fmt.Printf("[ASYNC-VALIDATION] No idempotency key provided, using stepID: %s\n", stepID)
+			s.logger.Debug("no idempotency key provided, using stepID", zap.String("step_id", stepID))
 		}
 
-		// Process notifications and update step state
 		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req)
-
-		fmt.Printf("[ASYNC-VALIDATION] Completed validation for thread=%s\n", threadID)
+		s.logger.Debug("completed validation", zap.String("thread_id", threadID))
 	})
 
 	if !submitted {
-		fmt.Printf("[ASYNC-VALIDATION] Job dropped due to backpressure for thread=%s, step=%s\n", threadID, stepName)
+		s.logger.Warn("job dropped due to backpressure",
+			zap.String("thread_id", threadID),
+			zap.String("step", stepName),
+		)
 	}
 }
 
-// performNonBlockingValidations executes all validation checks
+// handleNoContractStep handles steps on threads with no contract: emits an execution
+// notification and archives step state, then returns without validation.
+func (s *NotificationService) handleNoContractStep(
+	ctx context.Context,
+	threadID, stepID, stepName, ownerID string,
+	req *models.RecordEventRequest,
+	thread *models.Thread,
+) {
+	contractName := ""
+	if thread != nil {
+		contractName = thread.ContractName
+	}
+
+	var message string
+	switch req.Status {
+	case StepStatusSuccess:
+		message = fmt.Sprintf("Step %q completed successfully (no contract)", stepName)
+	case StepStatusFailed:
+		message = fmt.Sprintf("Step %q failed (no contract)", stepName)
+	case StepStatusError:
+		message = fmt.Sprintf("Step %q encountered an error (no contract)", stepName)
+	default:
+		message = fmt.Sprintf("Step %q recorded with status %q (no contract)", stepName, req.Status)
+	}
+
+	executionNotif := models.ValidationNotification{
+		NotificationID: uuid.New().String(),
+		ThreadID:       threadID,
+		StepID:         stepID,
+		StepName:       stepName,
+		OwnerID:        ownerID,
+		ContractName:   contractName,
+		StepStatus:     req.Status,
+		Status:         ValidationStatusNone,
+		Severity:       string(models.SeverityInfo),
+		Message:        message,
+		Timestamp:      time.Now(),
+	}
+
+	if s.natsPublisher != nil {
+		s.submitNotificationJob(executionNotif)
+	}
+
+	idempKey := req.IdempotencyKey
+	if idempKey == "" {
+		idempKey = stepID
+	}
+
+	if err := s.activityRepo.ArchiveStepState(ctx, buildStepStateSnapshot(
+		stepID, threadID, stepName, idempKey, req.Status, ownerID, req, 0, "", "",
+	)); err != nil {
+		s.logger.Error("failed to archive step state (no contract)", zap.Error(err))
+	}
+
+	s.logger.Debug("completed validation (no contract)", zap.String("thread_id", threadID))
+}
+
+// performNonBlockingValidations executes all validation checks and returns notifications.
 func (s *NotificationService) performNonBlockingValidations(
 	ctx context.Context,
 	thread *models.Thread,
@@ -211,21 +186,14 @@ func (s *NotificationService) performNonBlockingValidations(
 	stepID string,
 	ownerID string,
 ) []models.ValidationNotification {
-	// Pre-allocate with capacity to avoid reallocation (typical: 0-3 violations)
 	notifications := make([]models.ValidationNotification, 0, 5)
 	now := time.Now()
 
-	// === STRUCTURAL/TIME-BASED VALIDATIONS (Run for ALL statuses) ===
-
 	// 1. Step Timeout Exceeded (Critical)
 	if violation := s.validationService.CheckStepTimeout(stepNode, req.StartedAt, req.FinishedAt); violation != nil {
-		details := violation.Details
-		if details == nil {
-			details = make(map[string]interface{})
-		}
+		details := ensureDetails(violation.Details)
 		details["duration"] = violation.Duration
 		details["limit"] = violation.Limit
-
 		notifications = append(notifications, models.ValidationNotification{
 			NotificationID: uuid.New().String(),
 			ThreadID:       req.ThreadID,
@@ -234,7 +202,7 @@ func (s *NotificationService) performNonBlockingValidations(
 			OwnerID:        ownerID,
 			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
-			Status:         "violated",
+			Status:         ValidationStatusViolated,
 			ViolationType:  string(models.ViolationStepTimeoutExceeded),
 			Severity:       string(models.SeverityCritical),
 			Message:        violation.Message,
@@ -245,13 +213,9 @@ func (s *NotificationService) performNonBlockingValidations(
 
 	// 2. Max Duration Exceeded (Critical)
 	if violation := s.validationService.CheckMaxDuration(thread, graph); violation != nil {
-		details := violation.Details
-		if details == nil {
-			details = make(map[string]interface{})
-		}
+		details := ensureDetails(violation.Details)
 		details["duration"] = violation.Duration
 		details["limit"] = violation.Limit
-
 		notifications = append(notifications, models.ValidationNotification{
 			NotificationID: uuid.New().String(),
 			ThreadID:       req.ThreadID,
@@ -260,7 +224,7 @@ func (s *NotificationService) performNonBlockingValidations(
 			OwnerID:        ownerID,
 			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
-			Status:         "violated",
+			Status:         ValidationStatusViolated,
 			ViolationType:  string(models.ViolationMaxDurationExceeded),
 			Severity:       string(models.SeverityCritical),
 			Message:        violation.Message,
@@ -269,204 +233,121 @@ func (s *NotificationService) performNonBlockingValidations(
 		})
 	}
 
-	// 3. Multiple Terminal States (Critical/Configurable) - Handled by Lua script atomically
-	// The Lua script checks for multiple terminal states and adds violation if found
+	// 3. Multiple Terminal States — handled atomically by Lua script.
+	// 4. Retry Limit Exceeded   — handled atomically by Lua script.
+	// 5. Invalid Transition     — handled atomically by Lua script.
 
-	// 4. Retry Limit Exceeded (Critical) - Handled by Lua script atomically
-	// The Lua script checks retry count and adds violation if exceeded
-
-	// 5. Invalid Transition (Critical) - Handled by Lua script atomically
-	// The Lua script checks allowed transitions and adds violation if invalid
-
-	// === BUSINESS/DATA QUALITY VALIDATIONS (Only run for successful steps) ===
-	// Note: Currently no business validations beyond invalid transitions
-	// Optional fields are not validated since they're optional
-
-	// Return only violation notifications; Lua script determines final status
 	return notifications
 }
 
-// processValidationNotifications stores notifications and updates step state via Lua script
+// processValidationNotifications stores notifications and updates step state via Lua script.
 func (s *NotificationService) processValidationNotifications(
 	ctx context.Context,
-	threadID string,
-	stepID string,
-	stepName string,
-	ownerID string,
-	idempotencyKey string,
+	threadID, stepID, stepName, ownerID, idempotencyKey string,
 	notifications []models.ValidationNotification,
 	graph *models.ContractGraph,
 	thread *models.Thread,
 	originalStatus string,
 	req *models.RecordEventRequest,
 ) {
-	// Don't publish Go violations individually - will be included in final notification
-	fmt.Printf("[PROCESS-NOTIFICATIONS] Processing %d Go violations for thread=%s, step=%s\n", len(notifications), threadID, stepName)
+	s.logger.Debug("processing Go violations",
+		zap.Int("count", len(notifications)),
+		zap.String("thread_id", threadID),
+		zap.String("step", stepName),
+	)
 
-	// Check for critical violations
 	hasCriticalViolation := false
-	var criticalViolations []models.StepViolation
+	var existingViolations []interfaces.Violation
 
 	for _, notif := range notifications {
 		if notif.Severity == string(models.SeverityCritical) {
-			fmt.Printf("[CRITICAL-VIOLATION] Found violation: type=%s, message=%s\n", notif.ViolationType, notif.Message)
+			s.logger.Info("found critical violation",
+				zap.String("type", notif.ViolationType),
+				zap.String("message", notif.Message),
+			)
 			hasCriticalViolation = true
-			criticalViolations = append(criticalViolations, models.StepViolation{
-				StepID:        stepID,
-				StepName:      stepName,
-				OwnerID:       ownerID,
-				ViolationType: models.ViolationType(notif.ViolationType),
-				Severity:      models.ViolationSeverity(notif.Severity),
-				Message:       notif.Message,
-				Details:       notif.Details,
-				ViolatedAt:    notif.Timestamp,
+			existingViolations = append(existingViolations, interfaces.Violation{
+				Type:     notif.ViolationType,
+				Severity: notif.Severity,
+				Message:  notif.Message,
+				Details:  notif.Details,
 			})
 		}
 	}
 
-	// Check if step is terminal
-	isTerminal := false
-	if graph != nil {
-		for _, terminalStep := range graph.Graph.TerminalSteps {
-			if terminalStep == stepName {
-				isTerminal = true
-				break
-			}
-		}
-	}
+	isTerminal := slices.Contains(graph.Graph.TerminalSteps, stepName)
 
-	// Prepare parameters for repository
-	var existingViolations []interfaces.Violation
-	for _, v := range criticalViolations {
-		existingViolations = append(existingViolations, interfaces.Violation{
-			Type:     string(v.ViolationType),
-			Severity: string(v.Severity),
-			Message:  v.Message,
-			Details:  v.Details,
-		})
-	}
+	params := buildValidateStepParams(threadID, stepID, stepName, idempotencyKey, originalStatus, ownerID, isTerminal, existingViolations, graph)
 
-	// Get contract parameters
-	maxRetries := 0
-	transitionsMap := make(map[string][]string)
-	terminalSteps := []string{}
-	allowMultipleTerminals := false
-
-	if graph != nil {
-		// Build transitions map: stepName -> allowed next steps
-		for _, transition := range graph.Transitions {
-			transitionsMap[transition.From] = transition.To
-
-			// Also get max retries for current step
-			if transition.From == stepName && transition.MaxRetries > 0 {
-				maxRetries = transition.MaxRetries
-			}
-		}
-
-		// Get terminal steps
-		terminalSteps = graph.Graph.TerminalSteps
-
-		// Check if multiple terminals allowed
-		if graph.Validation != nil {
-			allowMultipleTerminals = graph.Validation.AllowMultipleTerminals
-		}
-	}
-
-	// Call repository to validate and update atomically with timing
 	luaStart := perf.Now()
-	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, interfaces.ValidateStepParams{
-		ThreadID:               threadID,
-		StepID:                 stepID,
-		StepName:               stepName,
-		IdempotencyKey:         idempotencyKey,
-		Status:                 originalStatus,
-		ExistingViolations:     existingViolations,
-		IsTerminalStep:         isTerminal,
-		Timestamp:              time.Now().Format(time.RFC3339Nano),
-		MaxRetries:             maxRetries,
-		TransitionsMap:         transitionsMap,
-		TerminalSteps:          terminalSteps,
-		AllowMultipleTerminals: allowMultipleTerminals,
-		Actor:                  ownerID, // User who recorded this step (for .own permission filtering)
-	})
-
+	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, params)
 	luaDuration := perf.Since(luaStart)
+
 	stepEventID := threadID + ":" + stepName + ":" + idempotencyKey
-	perf.Log("[PERF] Validation LUA_SCRIPT: %s | duration=%v | success=%t", stepEventID, luaDuration, err == nil)
+	perf.LogStructured("Validation LUA_SCRIPT",
+		zap.String("step_event_id", stepEventID),
+		zap.Duration("duration", luaDuration),
+		zap.Bool("success", err == nil),
+	)
 
 	if err != nil {
-		fmt.Printf("[REPO-ERROR] Error validating and updating step state: %v\n", err)
+		s.logger.Error("error validating and updating step state", zap.Error(err))
 		return
 	}
 
-	fmt.Printf("[REPO-SUCCESS] Step state updated, status: %s, violations: %d, retry count: %d\n",
-		result.Status, len(result.Violations), result.RetryCount)
+	s.logger.Debug("step state updated",
+		zap.String("status", result.Status),
+		zap.Int("violations", len(result.Violations)),
+		zap.Int("retry_count", result.RetryCount),
+	)
 
-	// Combine Go and Lua violations
-	// Pre-allocate with known size to avoid reallocation
+	// Combine Go and Lua violations.
 	allViolations := make([]map[string]interface{}, 0, len(notifications)+len(result.Violations))
-
-	// Add Go violations
 	for _, notif := range notifications {
-		violationData := map[string]interface{}{
-			"type":     notif.ViolationType,
-			"severity": notif.Severity,
-			"message":  notif.Message,
-			"details":  notif.Details,
-		}
-		allViolations = append(allViolations, violationData)
+		allViolations = append(allViolations, map[string]interface{}{
+			"type": notif.ViolationType, "severity": notif.Severity,
+			"message": notif.Message, "details": notif.Details,
+		})
 	}
-
-	// Add Lua violations
 	for _, v := range result.Violations {
-		violationData := map[string]interface{}{
-			"type":     v.Type,
-			"severity": v.Severity,
-			"message":  v.Message,
-			"details":  v.Details,
-		}
-		allViolations = append(allViolations, violationData)
+		allViolations = append(allViolations, map[string]interface{}{
+			"type": v.Type, "severity": v.Severity,
+			"message": v.Message, "details": v.Details,
+		})
 	}
 
-	// Update final status and critical violation flag from repository result
 	status := result.Status
-	hasCriticalViolation = result.HasCriticalViolation || hasCriticalViolation // Combine Go + Lua critical flags
+	if status == "" {
+		status = ValidationStatusPassed
+	}
+	hasCriticalViolation = hasCriticalViolation || result.HasCriticalViolation
 
-	// Send final status notification based on overall validation result
 	finalDetails := make(map[string]interface{})
 	var finalStatus, finalMessage, violationType, severity string
 
-	totalViolations := len(allViolations)
-	if totalViolations > 0 {
-		finalStatus = "violated"
-
-		// If there's exactly one violation, use its details directly
-		if totalViolations == 1 {
-			violation := allViolations[0]
-			violationType = violation["type"].(string)
-			severity = violation["severity"].(string)
-			finalMessage = violation["message"].(string)
-			// Merge violation details into top level
-			if details, ok := violation["details"].(map[string]interface{}); ok {
-				for k, v := range details {
-					finalDetails[k] = v
+	if len(allViolations) > 0 {
+		finalStatus = ValidationStatusViolated
+		if len(allViolations) == 1 {
+			v := allViolations[0]
+			violationType = v["type"].(string)
+			severity = v["severity"].(string)
+			finalMessage = v["message"].(string)
+			if details, ok := v["details"].(map[string]interface{}); ok {
+				for k, val := range details {
+					finalDetails[k] = val
 				}
 			}
 		} else {
-			// Multiple violations - include all in details
-			finalMessage = "Step '" + stepName + "' completed with " + strconv.Itoa(totalViolations) + " violations"
+			finalMessage = fmt.Sprintf("Step %q completed with %s violations", stepName, strconv.Itoa(len(allViolations)))
 			finalDetails["violations"] = allViolations
 		}
 	} else {
-		finalStatus = "passed"
-		finalMessage = "Step '" + stepName + "' completed successfully"
+		finalStatus = ValidationStatusPassed
+		finalMessage = fmt.Sprintf("Step %q completed successfully", stepName)
 	}
 
-	// Add idempotencyKey to details for archival (needed for PostgreSQL foreign key)
 	finalDetails["idempotencyKey"] = idempotencyKey
 
-	// Send both execution and validation notifications in a single pass
-	executionMessage := "Step '" + stepName + "' execution " + originalStatus
 	executionNotif := models.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
@@ -475,11 +356,9 @@ func (s *NotificationService) processValidationNotifications(
 		OwnerID:        ownerID,
 		ContractName:   thread.ContractName,
 		StepStatus:     originalStatus,
-		Status:         "none", // Execution notification has no validation status
-		ViolationType:  "",
+		Status:         ValidationStatusNone,
 		Severity:       string(models.SeverityInfo),
-		Message:        executionMessage,
-		Details:        nil, // Use nil for empty map to avoid allocation
+		Message:        fmt.Sprintf("Step %q execution %s", stepName, originalStatus),
 		Timestamp:      time.Now(),
 	}
 
@@ -499,40 +378,33 @@ func (s *NotificationService) processValidationNotifications(
 		Timestamp:      time.Now(),
 	}
 
-	// Publish both notifications efficiently (single member query)
-	// Use background context to avoid cancellation when parent goroutine finishes
+	// Intentional detached context: this goroutine outlives the request lifecycle.
 	if s.natsPublisher != nil {
 		go s.publishDualNotifications(context.Background(), executionNotif, validationNotif)
 	}
 
-	// Handle terminal step completion
-	if isTerminal && result.Status == "completed" && !result.HasCriticalViolation {
-		fmt.Printf("[TERMINAL-STEP] Thread marked as COMPLETED\n")
+	// Handle terminal step completion.
+	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
+		s.logger.Info("thread marked as COMPLETED", zap.String("thread_id", threadID))
 
-		// Create thread completion notification
-		threadCompletionNotif := models.ValidationNotification{
-			NotificationID: uuid.New().String(),
-			ThreadID:       threadID,
-			StepID:         stepID,
-			StepName:       stepName,
-			OwnerID:        ownerID,
-			ContractName:   thread.ContractName,
-			StepStatus:     originalStatus,
-			Status:         "passed",
-			ViolationType:  "",
-			Severity:       "",
-			Message:        "Thread completed successfully at terminal step '" + stepName + "'",
-			Details:        nil, // Use nil for empty map to avoid allocation
-			Timestamp:      time.Now(),
-		}
-
-		// Publish thread completion notification to all authorized members
 		if s.natsPublisher != nil {
-			go s.publishToAuthorizedMembers(ctx, threadCompletionNotif)
+			completionNotif := models.ValidationNotification{
+				NotificationID: uuid.New().String(),
+				ThreadID:       threadID,
+				StepID:         stepID,
+				StepName:       stepName,
+				OwnerID:        ownerID,
+				ContractName:   thread.ContractName,
+				StepStatus:     originalStatus,
+				Status:         ValidationStatusPassed,
+				Severity:       "",
+				Message:        fmt.Sprintf("Thread completed successfully at terminal step %q", stepName),
+				Timestamp:      time.Now(),
+			}
+			go s.publishToAuthorizedMembers(ctx, completionNotif)
 		}
 
-		// Archive thread metadata
-		s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{
+		if err := s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{
 			ID:              threadID,
 			OwnerID:         thread.OwnerID,
 			CompanyID:       thread.CompanyID,
@@ -542,148 +414,84 @@ func (s *NotificationService) processValidationNotifications(
 			LastHash:        thread.LastHash,
 			StartedAt:       thread.StartedAt,
 			CompletedAt:     thread.CompletedAt,
-		}, "completed")
+		}, ThreadStatusCompleted); err != nil {
+			s.logger.Error("failed to archive thread metadata", zap.Error(err))
+		}
 	}
 
-	// Archive validation results via ActivityRepository
 	if err := s.activityRepo.ArchiveValidationResults(ctx, threadID, stepID, stepName, idempotencyKey, notifications, status, hasCriticalViolation); err != nil {
-		fmt.Printf("[ARCHIVE-ERROR] Failed to archive validation results: %v\n", err)
+		s.logger.Error("failed to archive validation results", zap.Error(err))
 	} else {
-		fmt.Printf("[ARCHIVE-SUCCESS] Validation results archived for step=%s\n", stepName)
+		s.logger.Debug("validation results archived", zap.String("step", stepName))
 	}
 
 	now := time.Now().Format(time.RFC3339Nano)
-
-	// Use firstSeenAt from Redis if available, otherwise use current time
 	firstSeenAt := result.FirstSeenAt
 	if firstSeenAt == "" {
 		firstSeenAt = now
 	}
 
-	// Extract step name from previousStep key (format: stepName:idempKey)
-	previousStepName := ""
-	if result.PreviousStep != "" {
-		// Extract just the step name part before the colon
-		if idx := strings.Index(result.PreviousStep, ":"); idx > 0 {
-			previousStepName = result.PreviousStep[:idx]
-		}
-	}
+	previousStepName := extractStepName(result.PreviousStep)
+	contextJSON := marshalContext(req.Context)
 
-	// Serialize context to JSON string
-	contextJSON := ""
-	if len(req.Context) > 0 {
-		if contextBytes, err := json.Marshal(req.Context); err == nil {
-			contextJSON = string(contextBytes)
-		}
-	}
-
-	stepStateSnapshot := &interfaces.StepStateSnapshot{
-		ID:             stepID,
-		ThreadID:       threadID,
-		StepName:       stepName,
-		IdempotencyKey: idempotencyKey,
-		Status:         result.Status,
-		RetryCount:     result.RetryCount,
-		FirstSeenAt:    firstSeenAt,
-		LastUpdatedAt:  now,
-		StartedAt:      req.StartedAt,
-		FinishedAt:     req.FinishedAt,
-		PreviousStep:   previousStepName,
-		Actor:          ownerID,
-		ActorService:   req.ServiceName,
-		LatestContext:  contextJSON,
-	}
-
-	if err := s.activityRepo.ArchiveStepState(ctx, stepStateSnapshot); err != nil {
-		fmt.Printf("[ARCHIVE-ERROR] Failed to archive step state: %v\n", err)
+	if err := s.activityRepo.ArchiveStepState(ctx, buildStepStateSnapshot(
+		stepID, threadID, stepName, idempotencyKey, result.Status, ownerID, req,
+		result.RetryCount, firstSeenAt, previousStepName,
+	)); err != nil {
+		s.logger.Error("failed to archive step state", zap.Error(err))
 	} else {
-		fmt.Printf("[ARCHIVE-SUCCESS] Step state archived for step=%s\n", stepName)
+		s.logger.Debug("step state archived", zap.String("step", stepName))
 	}
+	_ = contextJSON // used inside buildStepStateSnapshot via req
 
-	// Invalidate cache to force reload on next access
 	s.cacheManager.ClearThreadCache(threadID)
 }
 
-// getRequiredPermissionsForNotification determines which permissions are needed
-// to receive a notification based on its type, status, and severity
-// Returns both wildcard and .own versions so users with either can receive notifications
-func getRequiredPermissionsForNotification(
-	status string, // "violated", "passed", "none"
-	stepStatus string, // "success", "failed", "error"
-	severity string, // "critical", "major", "minor", "warning", "info"
-	violationType string, // e.g., "step_timeout_exceeded", "retry_limit_exceeded"
-) []string {
-	// No contract validation - use step status (execution notifications)
+// getRequiredPermissionsForNotification returns the permission strings needed to receive
+// a notification of a given type/status/severity.
+func getRequiredPermissionsForNotification(status, stepStatus, severity, violationType string) []string {
 	if status == "none" {
 		switch stepStatus {
 		case "failed", "error":
-			// Step execution failed - both wildcard and .own
 			return []string{"notification.execution.failed.*", "notification.execution.failed.own"}
 		case "success":
-			// Step execution succeeded - both wildcard and .own
 			return []string{"notification.execution.success.*", "notification.execution.success.own"}
 		default:
-			return []string{}
+			return nil
 		}
 	}
 
-	// Contract-based validation notifications
 	switch status {
 	case "violated":
-		// Check for specific violation types (timeout, retry_limit)
-		if violationType == "step_timeout_exceeded" {
-			return []string{
-				"notification.validation.violated.*",
-				"notification.validation.violated.timeout.*",
-				"notification.validation.violated.timeout.own",
-				"notification.validation.violated.own",
-			}
+		base := []string{"notification.validation.violated.*", "notification.validation.violated.own"}
+		switch violationType {
+		case "step_timeout_exceeded":
+			return append(base, "notification.validation.violated.timeout.*", "notification.validation.violated.timeout.own")
+		case "retry_limit_exceeded":
+			return append(base, "notification.validation.violated.retry_limit.*", "notification.validation.violated.retry_limit.own")
 		}
-		if violationType == "retry_limit_exceeded" {
-			return []string{
-				"notification.validation.violated.*",
-				"notification.validation.violated.retry_limit.*",
-				"notification.validation.violated.retry_limit.own",
-				"notification.validation.violated.own",
-			}
-		}
-
-		// General contract violation
 		if severity == "critical" {
-			// Critical violations: wildcard, critical-specific, or .own
-			return []string{
-				"notification.validation.violated.*",
-				"notification.validation.violated.critical",
-				"notification.validation.violated.own",
-			}
+			return append(base, "notification.validation.violated.critical")
 		}
-		// Non-critical violations: wildcard or .own
-		return []string{"notification.validation.violated.*", "notification.validation.violated.own"}
+		return base
 
 	case "passed":
-		// Contract validation passed - both wildcard and .own
 		return []string{"notification.validation.passed.*", "notification.validation.passed.own"}
 
 	default:
-		return []string{}
+		return nil
 	}
 }
 
-// submitNotificationJob submits a notification publishing job to the notification worker pool
+// submitNotificationJob submits a notification publishing job to the notification worker pool.
 func (s *NotificationService) submitNotificationJob(notification models.ValidationNotification) {
 	s.notificationPool.Submit(func(ctx context.Context) {
 		s.publishToAuthorizedMembers(ctx, notification)
 	})
 }
 
-// publishToAuthorizedMembers publishes notification to all thread members with appropriate permissions
-// Uses permission-based filtering with .own logic: users with wildcard permissions get all notifications,
-// users with .own permissions only get notifications for steps they own
-func (s *NotificationService) publishToAuthorizedMembers(
-	ctx context.Context,
-	notification models.ValidationNotification,
-) {
-	// Set notification source and type based on status
+// publishToAuthorizedMembers publishes a notification to all thread members with appropriate permissions.
+func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, notification models.ValidationNotification) {
 	if notification.Status == "none" {
 		notification.Source = models.NotificationSourceExecution
 		notification.NotificationType = fmt.Sprintf("execution.%s", notification.StepStatus)
@@ -692,313 +500,296 @@ func (s *NotificationService) publishToAuthorizedMembers(
 		notification.NotificationType = fmt.Sprintf("validation.%s", notification.Status)
 	}
 
-	// 1. Determine required permissions for this notification
 	requiredPerms := getRequiredPermissionsForNotification(
-		notification.Status,
-		notification.StepStatus,
-		notification.Severity,
-		notification.ViolationType,
+		notification.Status, notification.StepStatus, notification.Severity, notification.ViolationType,
 	)
-
 	if len(requiredPerms) == 0 {
-		log.Printf("[NOTIF-SKIP] No permissions required for notification type")
+		s.logger.Debug("no permissions required for notification type")
 		return
 	}
 
-	// 2. Get users with required permissions via ThreadAccessService
-	// Returns users with their actual permissions for .own filtering
-	users, err := s.threadAccessService.GetUsersByPermissions(
-		ctx,
-		notification.ThreadID,
-		requiredPerms,
-	)
+	users, err := s.threadAccessService.GetUsersByPermissions(ctx, notification.ThreadID, requiredPerms)
 	if err != nil {
-		log.Printf("[NOTIF-ERROR] Failed to get authorized users: %v", err)
+		s.logger.Error("failed to get authorized users", zap.Error(err))
 		return
 	}
-
 	if len(users) == 0 {
-		log.Printf("[NOTIF-SKIP] No users found with required permissions")
+		s.logger.Debug("no users found with required permissions")
 		return
 	}
 
-	// 3. Filter users based on .own permissions and publish
 	publishedCount := 0
 	for _, user := range users {
-		// Check if user should receive based on their actual permissions
 		if !s.shouldReceiveNotification(user.Permissions, requiredPerms, user.UserID, notification.OwnerID) {
 			continue
 		}
-
 		userNotif := notification
 		userNotif.OwnerID = user.UserID
-
 		if err := s.natsPublisher.PublishNotification(ctx, userNotif); err != nil {
-			log.Printf("[NOTIF-ERROR] Failed to publish to user %s: %v", user.UserID, err)
+			s.logger.Error("failed to publish to user", zap.String("user_id", user.UserID), zap.Error(err))
 			continue
 		}
 		publishedCount++
 	}
 
-	log.Printf("[NOTIF-SUCCESS] Published to %d/%d users with permissions %v", publishedCount, len(users), requiredPerms)
+	s.logger.Debug("published to users",
+		zap.Int("published_count", publishedCount),
+		zap.Int("total_users", len(users)),
+		zap.Strings("perms", requiredPerms),
+	)
 
-	// 4. Archive ONLY validation notifications to PostgreSQL (not execution status updates)
-	// Execution notifications are ephemeral - step status is already in thread_step_states
-	// Only violations/warnings are audit-worthy and need historical querying
 	shouldArchive := notification.Source == models.NotificationSourceValidation &&
 		(notification.Status == "violated" || notification.Severity == "warning")
 
 	if s.natsArchivalPublisher != nil && publishedCount > 0 && shouldArchive {
-		// Convert details map to JSON string for payload
-		detailsJSON, _ := json.Marshal(notification.Details)
-
-		// Extract idempotencyKey from details if available
-		idempotencyKey := ""
-		if notification.Details != nil {
-			if idempKey, ok := notification.Details["idempotencyKey"].(string); ok {
-				idempotencyKey = idempKey
-			}
-		}
-
-		// Build step_id in format "stepName:idempotencyKey"
-		stepID := notification.StepName
-		if idempotencyKey != "" {
-			stepID = notification.StepName + ":" + idempotencyKey
-		}
-
-		// Archive as activity.log event with activity_type='validation_result'
-		// Follows thread_activities schema: step_id, actor, actor_service, payload, status
-		activityEvent := map[string]interface{}{
-			"thread_id":     notification.ThreadID,
-			"type":          "validation_result",
-			"step_id":       stepID, // Format: "stepName:idempotencyKey"
-			"actor":         notification.OwnerID,
-			"actor_service": "rule_engine",
-			"timestamp":     notification.Timestamp.Format(time.RFC3339),
-			"status":        notification.Status, // violated/passed
-			// Payload contains notification-specific fields
-			"notification_id":   notification.NotificationID,
-			"source":            notification.Source,
-			"notification_type": notification.NotificationType,
-			"step_status":       notification.StepStatus,
-			"violation_type":    notification.ViolationType,
-			"severity":          notification.Severity,
-			"message":           notification.Message,
-			"details":           string(detailsJSON),
-		}
-
-		if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-			log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive validation result: %v", err)
+		if err := s.archiveNotification(ctx, notification); err != nil {
+			s.logger.Error("failed to archive validation result", zap.Error(err))
 		}
 	}
 }
 
-// publishDualNotifications sends both execution and validation notifications efficiently
-// Queries thread members once and filters for each notification type
+// publishDualNotifications sends both execution and validation notifications in a single member query.
 func (s *NotificationService) publishDualNotifications(
 	ctx context.Context,
-	executionNotif models.ValidationNotification,
-	validationNotif models.ValidationNotification,
+	executionNotif, validationNotif models.ValidationNotification,
 ) {
-	// Set notification sources
 	executionNotif.Source = models.NotificationSourceExecution
 	executionNotif.NotificationType = fmt.Sprintf("execution.%s", executionNotif.StepStatus)
-
 	validationNotif.Source = models.NotificationSourceValidation
 	validationNotif.NotificationType = fmt.Sprintf("validation.%s", validationNotif.Status)
 
-	// Get permissions for both notification types
 	executionPerms := getRequiredPermissionsForNotification(
-		executionNotif.Status,
-		executionNotif.StepStatus,
-		executionNotif.Severity,
-		executionNotif.ViolationType,
+		executionNotif.Status, executionNotif.StepStatus, executionNotif.Severity, executionNotif.ViolationType,
 	)
-
 	validationPerms := getRequiredPermissionsForNotification(
-		validationNotif.Status,
-		validationNotif.StepStatus,
-		validationNotif.Severity,
-		validationNotif.ViolationType,
+		validationNotif.Status, validationNotif.StepStatus, validationNotif.Severity, validationNotif.ViolationType,
 	)
 
 	if len(executionPerms) == 0 && len(validationPerms) == 0 {
-		log.Printf("[NOTIF-SKIP] No permissions required for either notification")
+		s.logger.Debug("no permissions required for either notification")
 		return
 	}
 
-	// Combine permissions to get all users who need at least one notification
-	allPerms := append(executionPerms, validationPerms...)
+	// Build combined perm list without mutating executionPerms.
+	allPerms := make([]string, 0, len(executionPerms)+len(validationPerms))
+	allPerms = append(allPerms, executionPerms...)
+	allPerms = append(allPerms, validationPerms...)
 
-	// Get users with any of the required permissions (single query)
-	users, err := s.threadAccessService.GetUsersByPermissions(
-		ctx,
-		executionNotif.ThreadID,
-		allPerms,
-	)
+	users, err := s.threadAccessService.GetUsersByPermissions(ctx, executionNotif.ThreadID, allPerms)
 	if err != nil {
-		log.Printf("[NOTIF-ERROR] Failed to get authorized users: %v", err)
+		s.logger.Error("failed to get authorized users", zap.Error(err))
 		return
 	}
-
 	if len(users) == 0 {
-		log.Printf("[NOTIF-SKIP] No users found with required permissions")
+		s.logger.Debug("no users found with required permissions")
 		return
 	}
 
-	// For each user, check which notifications they should receive
-	executionCount := 0
-	validationCount := 0
+	executionCount, validationCount := 0, 0
 
 	for _, user := range users {
-		// Check execution notification
 		if len(executionPerms) > 0 && s.shouldReceiveNotification(user.Permissions, executionPerms, user.UserID, executionNotif.OwnerID) {
-			userExecNotif := executionNotif
-			userExecNotif.OwnerID = user.UserID
-
-			if err := s.natsPublisher.PublishNotification(ctx, userExecNotif); err != nil {
-				log.Printf("[NOTIF-ERROR] Failed to publish execution notif to %s: %v", user.UserID, err)
+			n := executionNotif
+			n.OwnerID = user.UserID
+			if err := s.natsPublisher.PublishNotification(ctx, n); err != nil {
+				s.logger.Error("failed to publish execution notif", zap.String("user_id", user.UserID), zap.Error(err))
 			} else {
 				executionCount++
 			}
 		}
 
-		// Check validation notification
 		if len(validationPerms) > 0 && s.shouldReceiveNotification(user.Permissions, validationPerms, user.UserID, validationNotif.OwnerID) {
-			userValNotif := validationNotif
-			userValNotif.OwnerID = user.UserID
-
-			if err := s.natsPublisher.PublishNotification(ctx, userValNotif); err != nil {
-				log.Printf("[NOTIF-ERROR] Failed to publish validation notif to %s: %v", user.UserID, err)
+			n := validationNotif
+			n.OwnerID = user.UserID
+			if err := s.natsPublisher.PublishNotification(ctx, n); err != nil {
+				s.logger.Error("failed to publish validation notif", zap.String("user_id", user.UserID), zap.Error(err))
 			} else {
 				validationCount++
 			}
 		}
 	}
 
-	log.Printf("[NOTIF-SUCCESS] Published execution:%d validation:%d to %d users", executionCount, validationCount, len(users))
+	s.logger.Debug("published dual notifications",
+		zap.Int("execution_count", executionCount),
+		zap.Int("validation_count", validationCount),
+		zap.Int("total_users", len(users)),
+	)
 
-	// Archive ONLY validation violations/warnings to PostgreSQL (not execution status)
-	if s.natsArchivalPublisher != nil {
-		// Skip execution notifications - they're ephemeral status updates
-		// Only archive validation violations/warnings for audit trail
-
-		// Add execution notification ONLY if it's a warning (future use case)
-		if executionCount > 0 && executionNotif.Severity == "warning" {
-			execDetailsJSON, _ := json.Marshal(executionNotif.Details)
-			execIdempKey := ""
-			if executionNotif.Details != nil {
-				if idempKey, ok := executionNotif.Details["idempotencyKey"].(string); ok {
-					execIdempKey = idempKey
-				}
-			}
-
-			// Build step_id in format "stepName:idempotencyKey"
-			execStepID := executionNotif.StepName
-			if execIdempKey != "" {
-				execStepID = executionNotif.StepName + ":" + execIdempKey
-			}
-
-			activityEvent := map[string]interface{}{
-				"thread_id":         executionNotif.ThreadID,
-				"type":              "validation_result",
-				"step_id":           execStepID,
-				"actor":             executionNotif.OwnerID,
-				"actor_service":     "rule_engine",
-				"timestamp":         executionNotif.Timestamp.Format(time.RFC3339),
-				"status":            executionNotif.Status,
-				"notification_id":   executionNotif.NotificationID,
-				"source":            executionNotif.Source,
-				"notification_type": executionNotif.NotificationType,
-				"step_status":       executionNotif.StepStatus,
-				"violation_type":    executionNotif.ViolationType,
-				"severity":          executionNotif.Severity,
-				"message":           executionNotif.Message,
-				"details":           string(execDetailsJSON),
-			}
-
-			if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-				log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive execution warning: %v", err)
-			}
+	if s.natsArchivalPublisher == nil {
+		return
+	}
+	if executionCount > 0 && executionNotif.Severity == "warning" {
+		if err := s.archiveNotification(ctx, executionNotif); err != nil {
+			s.logger.Error("failed to archive execution warning", zap.Error(err))
 		}
-
-		// Add validation notification if published AND it's a violation or warning
-		if validationCount > 0 && (validationNotif.Status == "violated" || validationNotif.Severity == "warning") {
-			valDetailsJSON, _ := json.Marshal(validationNotif.Details)
-			valIdempKey := ""
-			if validationNotif.Details != nil {
-				if idempKey, ok := validationNotif.Details["idempotencyKey"].(string); ok {
-					valIdempKey = idempKey
-				}
-			}
-
-			// Build step_id in format "stepName:idempotencyKey"
-			valStepID := validationNotif.StepName
-			if valIdempKey != "" {
-				valStepID = validationNotif.StepName + ":" + valIdempKey
-			}
-
-			activityEvent := map[string]interface{}{
-				"thread_id":         validationNotif.ThreadID,
-				"type":              "validation_result",
-				"step_id":           valStepID,
-				"actor":             validationNotif.OwnerID,
-				"actor_service":     "rule_engine",
-				"timestamp":         validationNotif.Timestamp.Format(time.RFC3339),
-				"status":            validationNotif.Status,
-				"notification_id":   validationNotif.NotificationID,
-				"source":            validationNotif.Source,
-				"notification_type": validationNotif.NotificationType,
-				"step_status":       validationNotif.StepStatus,
-				"violation_type":    validationNotif.ViolationType,
-				"severity":          validationNotif.Severity,
-				"message":           validationNotif.Message,
-				"details":           string(valDetailsJSON),
-			}
-
-			if err := s.natsArchivalPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-				log.Printf("[NOTIF-ARCHIVE-ERROR] Failed to archive validation result: %v", err)
-			}
+	}
+	if validationCount > 0 && (validationNotif.Status == "violated" || validationNotif.Severity == "warning") {
+		if err := s.archiveNotification(ctx, validationNotif); err != nil {
+			s.logger.Error("failed to archive validation result", zap.Error(err))
 		}
 	}
 }
 
-// shouldReceiveNotification checks if a user should receive a notification based on their actual permissions
-// Handles .own permissions: user must own the step to receive .own-only notifications
+// shouldReceiveNotification reports whether a user should receive a notification
+// based on their permissions, handling wildcard and .own permission logic.
 func (s *NotificationService) shouldReceiveNotification(
-	userPerms []string,
-	requiredPerms []string,
-	userID string,
-	stepOwnerID string,
+	userPerms, requiredPerms []string,
+	userID, stepOwnerID string,
 ) bool {
-	// Check if user has any matching permission
 	for _, userPerm := range userPerms {
 		for _, reqPerm := range requiredPerms {
-			// Exact match (e.g., "notification.violations.critical")
 			if userPerm == reqPerm {
 				return true
 			}
-
-			// Wildcard match (e.g., user has "notification.violations.*", req is "notification.violations.own")
 			if strings.HasSuffix(userPerm, ".*") {
 				prefix := strings.TrimSuffix(userPerm, ".*")
 				if strings.HasPrefix(reqPerm, prefix) {
 					return true
 				}
 			}
-
-			// .own match (user has .own permission and is the owner)
 			if strings.HasSuffix(userPerm, ".own") && userID == stepOwnerID {
-				// Check if .own permission matches required permission base
 				ownBase := strings.TrimSuffix(userPerm, ".own")
-				reqBase := strings.TrimSuffix(reqPerm, ".*")
-				reqBaseOwn := strings.TrimSuffix(reqPerm, ".own")
-				if ownBase == reqBase || ownBase == reqBaseOwn {
+				if ownBase == strings.TrimSuffix(reqPerm, ".*") || ownBase == strings.TrimSuffix(reqPerm, ".own") {
 					return true
 				}
 			}
 		}
 	}
-
 	return false
+}
+
+// archiveNotification publishes a notification as an activity log event to NATS for archival.
+func (s *NotificationService) archiveNotification(ctx context.Context, n models.ValidationNotification) error {
+	detailsJSON, _ := json.Marshal(n.Details)
+
+	idempotencyKey := ""
+	if n.Details != nil {
+		if v, ok := n.Details["idempotencyKey"].(string); ok {
+			idempotencyKey = v
+		}
+	}
+
+	stepID := n.StepName
+	if idempotencyKey != "" {
+		stepID = n.StepName + ":" + idempotencyKey
+	}
+
+	return s.natsArchivalPublisher.PublishActivityLog(ctx, map[string]interface{}{
+		"thread_id":         n.ThreadID,
+		"type":              ActivityTypeValidationResult,
+		"step_id":           stepID,
+		"actor":             n.OwnerID,
+		"actor_service":     ActorServiceRuleEngine,
+		"timestamp":         n.Timestamp.Format(time.RFC3339),
+		"status":            n.Status,
+		"notification_id":   n.NotificationID,
+		"source":            n.Source,
+		"notification_type": n.NotificationType,
+		"step_status":       n.StepStatus,
+		"violation_type":    n.ViolationType,
+		"severity":          n.Severity,
+		"message":           n.Message,
+		"details":           string(detailsJSON),
+	})
+}
+
+// --- package-level helpers ---
+
+// buildValidateStepParams constructs the params struct for ValidateAndUpdateStepState.
+func buildValidateStepParams(
+	threadID, stepID, stepName, idempotencyKey, status, ownerID string,
+	isTerminal bool,
+	existingViolations []interfaces.Violation,
+	graph *models.ContractGraph,
+) interfaces.ValidateStepParams {
+	maxRetries := 0
+	transitionsMap := make(map[string][]string)
+	terminalSteps := []string{}
+	allowMultipleTerminals := false
+
+	if graph != nil {
+		for _, t := range graph.Transitions {
+			transitionsMap[t.From] = t.To
+			if t.From == stepName && t.MaxRetries > 0 {
+				maxRetries = t.MaxRetries
+			}
+		}
+		terminalSteps = graph.Graph.TerminalSteps
+		if graph.Validation != nil {
+			allowMultipleTerminals = graph.Validation.AllowMultipleTerminals
+		}
+	}
+
+	return interfaces.ValidateStepParams{
+		ThreadID:               threadID,
+		StepID:                 stepID,
+		StepName:               stepName,
+		IdempotencyKey:         idempotencyKey,
+		Status:                 status,
+		ExistingViolations:     existingViolations,
+		IsTerminalStep:         isTerminal,
+		Timestamp:              time.Now().Format(time.RFC3339Nano),
+		MaxRetries:             maxRetries,
+		TransitionsMap:         transitionsMap,
+		TerminalSteps:          terminalSteps,
+		AllowMultipleTerminals: allowMultipleTerminals,
+		Actor:                  ownerID,
+	}
+}
+
+// buildStepStateSnapshot constructs a StepStateSnapshot for archival.
+func buildStepStateSnapshot(
+	stepID, threadID, stepName, idempotencyKey, status, ownerID string,
+	req *models.RecordEventRequest,
+	retryCount int,
+	firstSeenAt, previousStep string,
+) *interfaces.StepStateSnapshot {
+	now := time.Now().Format(time.RFC3339Nano)
+	if firstSeenAt == "" {
+		firstSeenAt = now
+	}
+	return &interfaces.StepStateSnapshot{
+		ID:             stepID,
+		ThreadID:       threadID,
+		StepName:       stepName,
+		IdempotencyKey: idempotencyKey,
+		Status:         status,
+		RetryCount:     retryCount,
+		FirstSeenAt:    firstSeenAt,
+		LastUpdatedAt:  now,
+		StartedAt:      req.StartedAt,
+		FinishedAt:     req.FinishedAt,
+		PreviousStep:   previousStep,
+		Actor:          ownerID,
+		ActorService:   req.ServiceName,
+		LatestContext:  marshalContext(req.Context),
+	}
+}
+
+// extractStepName extracts the step name from a "stepName:idempotencyKey" composite key.
+func extractStepName(previousStep string) string {
+	if idx := strings.Index(previousStep, ":"); idx > 0 {
+		return previousStep[:idx]
+	}
+	return ""
+}
+
+// marshalContext serialises a context map to a JSON string, returning "" on failure or empty input.
+func marshalContext(ctx map[string]string) string {
+	if len(ctx) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ctx)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// ensureDetails returns d if non-nil, otherwise allocates a fresh map.
+func ensureDetails(d map[string]interface{}) map[string]interface{} {
+	if d != nil {
+		return d
+	}
+	return make(map[string]interface{})
 }

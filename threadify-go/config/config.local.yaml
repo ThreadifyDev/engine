@@ -21,13 +21,20 @@ redis:
   write_timeout_ms: 500           # Write operation timeout (500ms) - can be increased for high goroutine concurrency
   pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
   conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
+	conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
-jwt:
-  secret: NDUHGL&O$Lbfuwisnc43p89h34t89rwed;cl4tgq3ufwrp9yt834____u8f0gd78^FO&^D@2
-  issuer: threadify-engine
-  audience: threadify-users
-  realm: Threadify API
-  expiration_hours: 24
+auth_provider: supabase
+
+supabase:
+  url: "$SUPABASE_URL:"
+  publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
+  secret_key: "$SUPABASE_SECRET_KEY:"
+  request_timeout_seconds: 10
+
+jwks:
+  url: "$JWKS_URL:"
+  audience: "$JWKS_AUDIENCE:authenticated"
+  issuer: "$JWKS_ISSUER:"
 
 queue:
   ttl_seconds: 7776000
@@ -228,7 +235,8 @@ web_api:
   threadify_engine:
     url: "$THREADIFY_ENGINE_URL:http://th-engine:8081"
     graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://th-engine:8081/graphql"
-  
+
+
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days
   

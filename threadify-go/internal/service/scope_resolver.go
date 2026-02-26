@@ -6,153 +6,150 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
+	"go.uber.org/zap"
 )
 
-// ScopeResolver handles notification scope resolution for users in threads
+// ScopeResolver handles notification scope resolution for users in threads.
 type ScopeResolver struct {
 	config            *config.Config
 	contractGraphRepo interfaces.ContractGraphRepository
 	threadRepo        interfaces.ThreadRepository
+	logger            *zap.Logger
 }
 
-// NewScopeResolver creates a new scope resolver
+// NewScopeResolver creates a new scope resolver.
 func NewScopeResolver(
 	cfg *config.Config,
 	contractGraphRepo interfaces.ContractGraphRepository,
 	threadRepo interfaces.ThreadRepository,
+	logger *zap.Logger,
 ) *ScopeResolver {
-	resolver := &ScopeResolver{
+	r := &ScopeResolver{
 		config:            cfg,
 		contractGraphRepo: contractGraphRepo,
 		threadRepo:        threadRepo,
+		logger:            logger,
 	}
 
-	// Validate configuration on initialization
-	if err := resolver.ValidateConfig(); err != nil {
-		// Log warning but don't fail - use defaults
-		fmt.Printf("[SCOPE-RESOLVER-WARN] Configuration validation failed: %v\n", err)
+	// Log a warning on misconfiguration but don't fail — defaults will be used.
+	if err := r.ValidateConfig(); err != nil {
+		r.logger.Warn("configuration validation failed", zap.Error(err))
 	}
 
-	return resolver
+	return r
 }
 
-// ValidateConfig validates the notification system configuration
+// ValidateConfig validates the notification system configuration.
 func (r *ScopeResolver) ValidateConfig() error {
 	if r.config.NotificationSystem.DefaultScope == "" {
-		return fmt.Errorf("notification_system.default_scope is not set")
+		return ErrConfigMissingDefaultScope
 	}
 
-	// Validate default scope exists in scopes map
 	if _, exists := r.config.NotificationSystem.Scopes[r.config.NotificationSystem.DefaultScope]; !exists {
-		return fmt.Errorf("default_scope '%s' does not exist in scopes configuration", r.config.NotificationSystem.DefaultScope)
+		return fmt.Errorf("default_scope %q does not exist in scopes configuration", r.config.NotificationSystem.DefaultScope)
 	}
 
-	// Validate all scopes have permissions
 	for scopeName, scopeConfig := range r.config.NotificationSystem.Scopes {
 		if len(scopeConfig.Permissions) == 0 {
-			return fmt.Errorf("scope '%s' has no permissions defined", scopeName)
+			return fmt.Errorf("scope %q has no permissions defined", scopeName)
 		}
 	}
 
 	return nil
 }
 
-// ResolveScope determines the notification scope for a user in a thread
+// ResolveScope determines the notification scope for a user in a thread.
+//
 // Resolution order:
-// 1. Creator is always "owner"
-// 2. Explicit scope provided (from invitation)
-// 3. Contract role_defaults
-// 4. Contract default_scope
-// 5. System default_scope
+//  1. Creator  → always "owner"
+//  2. Explicit scope provided (from invitation)
+//  3. Contract role_defaults
+//  4. Contract default_scope
+//  5. System default_scope
 func (r *ScopeResolver) ResolveScope(
 	ctx context.Context,
-	threadID string,
-	userID string,
-	role string,
+	threadID, userID, role string,
 	isCreator bool,
 	explicitScope *string,
 ) (string, error) {
-	// 1. Creator is always owner
+	scopeFields := r.scopeLogFields(userID, threadID, role)
+
+	// 1. Creator is always owner.
 	if isCreator {
-		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → owner (creator)\n", userID, threadID, role)
+		r.logger.Debug("resolved scope (creator)", append(scopeFields, zap.String("result", "owner"))...)
 		return "owner", nil
 	}
 
-	// 2. Explicit scope provided (from invitation)
+	// 2. Explicit scope provided (from invitation).
 	if explicitScope != nil {
 		if *explicitScope == "" {
-			// Explicitly no scope - no notification access
-			fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → none (explicit)\n", userID, threadID, role)
+			r.logger.Debug("resolved scope (explicit none)", scopeFields...)
 			return "", nil
 		}
-
-		// Validate scope exists in system config
-		if r.isValidScope(*explicitScope) {
-			fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (explicit)\n", userID, threadID, role, *explicitScope)
-			return *explicitScope, nil
+		if !r.isValidScope(*explicitScope) {
+			r.logger.Error("invalid explicit scope", append(scopeFields, zap.String("scope", *explicitScope))...)
+			return "", fmt.Errorf("invalid scope: %q", *explicitScope)
 		}
-
-		fmt.Printf("[SCOPE-RESOLVE-ERROR] User=%s, Thread=%s, Role=%s → invalid scope: %s\n", userID, threadID, role, *explicitScope)
-		return "", fmt.Errorf("invalid scope: %s", *explicitScope)
+		r.logger.Debug("resolved scope (explicit)", append(scopeFields, zap.String("result", *explicitScope))...)
+		return *explicitScope, nil
 	}
 
-	// 3-4. Get contract for role_defaults and default_scope
+	systemDefault := r.config.NotificationSystem.DefaultScope
+
+	// 3-4. Fetch thread and contract for role_defaults / contract default_scope.
 	thread, err := r.threadRepo.Get(ctx, threadID)
 	if err != nil {
-		// If can't get thread, use system default
-		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, thread not found)\n",
-			userID, threadID, role, r.config.NotificationSystem.DefaultScope)
-		return r.config.NotificationSystem.DefaultScope, nil
+		r.logger.Debug("resolved scope (system default, thread not found)", append(scopeFields, zap.String("result", systemDefault))...)
+		return systemDefault, nil
 	}
 
-	// Handle nil contract name or version (contract name is used for graph lookups)
 	if thread.ContractName == "" || thread.ContractVersion == nil {
-		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, no contract)\n",
-			userID, threadID, role, r.config.NotificationSystem.DefaultScope)
-		return r.config.NotificationSystem.DefaultScope, nil
+		r.logger.Debug("resolved scope (system default, no contract)", append(scopeFields, zap.String("result", systemDefault))...)
+		return systemDefault, nil
 	}
 
-	// Use contract name (not UUID) for graph repository lookups
 	contract, err := r.contractGraphRepo.Get(ctx, thread.ContractName, *thread.ContractVersion, thread.CompanyID)
 	if err != nil {
-		// If can't get contract, use system default
-		fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default, contract not found)\n",
-			userID, threadID, role, r.config.NotificationSystem.DefaultScope)
-		return r.config.NotificationSystem.DefaultScope, nil
+		r.logger.Debug("resolved scope (system default, contract not found)", append(scopeFields, zap.String("result", systemDefault))...)
+		return systemDefault, nil
 	}
 
-	// 3. Check contract role_defaults
-	if contract.NotificationConfig != nil && contract.NotificationConfig.RoleDefaults != nil {
-		if roleDefault, exists := contract.NotificationConfig.RoleDefaults[role]; exists {
-			if r.isValidScope(roleDefault) {
-				fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (contract role_default)\n",
-					userID, threadID, role, roleDefault)
-				return roleDefault, nil
-			}
-		}
+	nc := contract.NotificationConfig
 
-		// 4. Check contract default_scope
-		if contract.NotificationConfig.DefaultScope != "" {
-			if r.isValidScope(contract.NotificationConfig.DefaultScope) {
-				fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (contract default)\n",
-					userID, threadID, role, contract.NotificationConfig.DefaultScope)
-				return contract.NotificationConfig.DefaultScope, nil
-			}
+	// 3. Contract role_defaults.
+	if nc != nil && nc.RoleDefaults != nil {
+		if roleDefault, exists := nc.RoleDefaults[role]; exists && r.isValidScope(roleDefault) {
+			r.logger.Debug("resolved scope (contract role_default)", append(scopeFields, zap.String("result", roleDefault))...)
+			return roleDefault, nil
 		}
 	}
 
-	// 5. Use system default
-	fmt.Printf("[SCOPE-RESOLVE] User=%s, Thread=%s, Role=%s → %s (system default)\n",
-		userID, threadID, role, r.config.NotificationSystem.DefaultScope)
-	return r.config.NotificationSystem.DefaultScope, nil
+	// 4. Contract default_scope (checked independently of RoleDefaults).
+	if nc != nil && nc.DefaultScope != "" && r.isValidScope(nc.DefaultScope) {
+		r.logger.Debug("resolved scope (contract default)", append(scopeFields, zap.String("result", nc.DefaultScope))...)
+		return nc.DefaultScope, nil
+	}
+
+	// 5. System default.
+	r.logger.Debug("resolved scope (system default)", append(scopeFields, zap.String("result", systemDefault))...)
+	return systemDefault, nil
 }
 
-// isValidScope checks if a scope exists in system configuration
+// isValidScope reports whether scope exists in the system configuration.
+// An empty scope is valid and means "no notification access".
 func (r *ScopeResolver) isValidScope(scope string) bool {
 	if scope == "" {
-		return true // Empty scope is valid (means no notification access)
+		return true
 	}
-
 	_, exists := r.config.NotificationSystem.Scopes[scope]
 	return exists
+}
+
+// scopeLogFields returns the common zap fields used in ResolveScope log lines.
+func (r *ScopeResolver) scopeLogFields(userID, threadID, role string) []zap.Field {
+	return []zap.Field{
+		zap.String("user_id", userID),
+		zap.String("thread_id", threadID),
+		zap.String("role", role),
+	}
 }

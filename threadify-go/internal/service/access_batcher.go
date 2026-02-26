@@ -2,14 +2,14 @@ package service
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/threadify/engine/internal/repository/valkey"
+	"go.uber.org/zap"
 )
 
-// AccessWrite represents a pending access grant/update operation
+// AccessWrite represents a pending access grant/update operation.
 type AccessWrite struct {
 	ThreadID    string
 	UserID      string
@@ -20,8 +20,8 @@ type AccessWrite struct {
 	ResultChan  chan error // For synchronous error handling if needed
 }
 
-// AccessBatcher batches thread access writes to reduce Valkey load
-// Uses hybrid flushing: batch size OR timeout (whichever comes first)
+// AccessBatcher batches thread access writes to reduce Valkey load.
+// Uses hybrid flushing: batch size OR timeout (whichever comes first).
 type AccessBatcher struct {
 	buffer        chan *AccessWrite
 	batchSize     int
@@ -30,15 +30,17 @@ type AccessBatcher struct {
 	luaScripts    *valkey.LuaScriptManager
 	stopChan      chan struct{}
 	wg            sync.WaitGroup
+	logger        *zap.Logger
 }
 
-// NewAccessBatcher creates a new access batcher
+// NewAccessBatcher creates a new access batcher.
 func NewAccessBatcher(
 	bufferSize int,
 	batchSize int,
 	flushInterval time.Duration,
 	accessRepo *valkey.AccessRepository,
 	luaScripts *valkey.LuaScriptManager,
+	logger *zap.Logger,
 ) *AccessBatcher {
 	return &AccessBatcher{
 		buffer:        make(chan *AccessWrite, bufferSize),
@@ -47,24 +49,29 @@ func NewAccessBatcher(
 		accessRepo:    accessRepo,
 		luaScripts:    luaScripts,
 		stopChan:      make(chan struct{}),
+		logger:        logger,
 	}
 }
 
-// Start begins the batching goroutine
+// Start begins the batching goroutine.
 func (b *AccessBatcher) Start() {
 	b.wg.Add(1)
 	go b.run()
-	log.Printf("[ACCESS-BATCHER] Started (batch_size=%d, flush_interval=%v)", b.batchSize, b.flushInterval)
+	b.logger.Info("access batcher started",
+		zap.Int("batch_size", b.batchSize),
+		zap.Duration("flush_interval", b.flushInterval),
+	)
 }
 
-// Stop gracefully stops the batcher and flushes remaining items
+// Stop gracefully stops the batcher, drains the buffer, and flushes remaining items.
 func (b *AccessBatcher) Stop() {
 	close(b.stopChan)
 	b.wg.Wait()
-	log.Printf("[ACCESS-BATCHER] Stopped")
+	b.logger.Info("access batcher stopped")
 }
 
-// Write queues an access write operation (non-blocking)
+// Write queues an access write operation (non-blocking).
+// Falls back to a synchronous write if the buffer is full.
 func (b *AccessBatcher) Write(write *AccessWrite) error {
 	select {
 	case b.buffer <- write:
@@ -72,13 +79,15 @@ func (b *AccessBatcher) Write(write *AccessWrite) error {
 	case <-b.stopChan:
 		return context.Canceled
 	default:
-		// Buffer full - write synchronously to avoid blocking caller
-		log.Printf("[WARN] Access batcher buffer full, writing synchronously")
+		b.logger.Warn("access batcher buffer full, writing synchronously",
+			zap.String("thread_id", write.ThreadID),
+			zap.String("user_id", write.UserID),
+		)
 		return b.writeSync(write)
 	}
 }
 
-// run is the main batching loop
+// run is the main batching loop.
 func (b *AccessBatcher) run() {
 	defer b.wg.Done()
 
@@ -90,8 +99,6 @@ func (b *AccessBatcher) run() {
 		select {
 		case write := <-b.buffer:
 			batch = append(batch, write)
-
-			// Flush if batch is full
 			if len(batch) >= b.batchSize {
 				b.flush(batch)
 				batch = make([]*AccessWrite, 0, b.batchSize)
@@ -99,23 +106,29 @@ func (b *AccessBatcher) run() {
 			}
 
 		case <-ticker.C:
-			// Flush on timeout if batch has items
 			if len(batch) > 0 {
 				b.flush(batch)
 				batch = make([]*AccessWrite, 0, b.batchSize)
 			}
 
 		case <-b.stopChan:
-			// Flush remaining items on shutdown
-			if len(batch) > 0 {
-				b.flush(batch)
+			// Drain any writes that arrived before the channel closed.
+			for {
+				select {
+				case write := <-b.buffer:
+					batch = append(batch, write)
+				default:
+					if len(batch) > 0 {
+						b.flush(batch)
+					}
+					return
+				}
 			}
-			return
 		}
 	}
 }
 
-// flush writes a batch of access operations to Valkey
+// flush writes a batch of access operations to Valkey.
 func (b *AccessBatcher) flush(batch []*AccessWrite) {
 	if len(batch) == 0 {
 		return
@@ -128,9 +141,6 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 	successCount := 0
 	errorCount := 0
 
-	// Process each access write
-	// Note: We could optimize further by grouping by threadID and using a single Lua script call
-	// but for now, process individually with timeout context
 	for _, write := range batch {
 		_, err := b.accessRepo.GrantOrUpdateAccess(
 			ctx,
@@ -141,41 +151,31 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 			write.Permissions,
 			write.InvitedBy,
 			b.luaScripts,
-			nil, // threadData - not creating thread
-			nil, // threadTTL - not creating thread
+			nil, // threadData — not creating thread
+			nil, // threadTTL — not creating thread
 		)
-
 		if err != nil {
-			log.Printf("[ERROR] Failed to grant access in batch: threadID=%s, userID=%s, error=%v",
-				write.ThreadID, write.UserID, err)
+			b.logger.Error("failed to grant access in batch",
+				zap.String("thread_id", write.ThreadID),
+				zap.String("user_id", write.UserID),
+				zap.Error(err),
+			)
 			errorCount++
-
-			// Send error back if result channel exists
-			if write.ResultChan != nil {
-				select {
-				case write.ResultChan <- err:
-				default:
-				}
-			}
 		} else {
 			successCount++
-
-			// Send success back if result channel exists
-			if write.ResultChan != nil {
-				select {
-				case write.ResultChan <- nil:
-				default:
-				}
-			}
 		}
+		sendResult(write.ResultChan, err)
 	}
 
-	duration := time.Since(start)
-	log.Printf("[ACCESS-BATCHER] Flushed batch: size=%d, success=%d, errors=%d, duration=%v",
-		len(batch), successCount, errorCount, duration)
+	b.logger.Debug("flushed batch",
+		zap.Int("size", len(batch)),
+		zap.Int("success", successCount),
+		zap.Int("errors", errorCount),
+		zap.Duration("duration", time.Since(start)),
+	)
 }
 
-// writeSync writes an access operation synchronously (fallback when buffer is full)
+// writeSync writes an access operation synchronously (fallback when buffer is full).
 func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -192,6 +192,16 @@ func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 		nil, // threadData
 		nil, // threadTTL
 	)
-
 	return err
+}
+
+// sendResult delivers err to the result channel if one was provided, non-blocking.
+func sendResult(ch chan error, err error) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- err:
+	default:
+	}
 }
