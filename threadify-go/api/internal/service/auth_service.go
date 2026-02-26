@@ -14,14 +14,14 @@ import (
 	"threadify-go/api/internal/utils"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
+	serror "threadify-go/shared/errors"
 
 	"go.uber.org/zap"
 )
 
 const (
-	userRole     = "user"
-	standardRole = "standard"
-
+	userRole         = "user"
+	standardRole     = "standard"
 	operationTimeout = 10 * time.Second
 )
 
@@ -75,14 +75,8 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return err
 	}
 
-	email := normalizeEmail(req.Email)
-	if email == "" {
-		return ErrInvalidCredentials
-	}
-	req.Email = email
-
-	existing, err := s.userRepo.FindByEmail(email)
-	if err != nil {
+	existing, err := s.userRepo.FindByEmail(req.Email)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return fmt.Errorf("check existing user: %w", err)
 	}
 	if existing != nil {
@@ -100,16 +94,13 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		UpdatedAt: now,
 	}
 	user := &models.User{
-		ID:                       utils.GenerateID(),
-		CompanyID:                company.ID,
-		Email:                    email,
-		FullName:                 normalizeOptionalString(req.FullName),
-		JobRole:                  normalizeOptionalString(req.JobRole),
-		EmailVerified:            false,
-		OnboardingCompleted:      false,
-		FirstInstrumentationDone: false,
-		CreatedAt:                now,
-		UpdatedAt:                now,
+		ID:        utils.GenerateID(),
+		CompanyID: company.ID,
+		Email:     req.Email,
+		FullName:  normalizeOptionalString(req.FullName),
+		JobRole:   normalizeOptionalString(req.JobRole),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)
@@ -138,6 +129,11 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
+
+	s.logger.Info("signup: user registered",
+		zap.String("user_id", user.ID),
+		zap.String("company_id", company.ID),
+	)
 
 	if s.outboxWorker != nil {
 		s.outboxWorker.Trigger()
@@ -172,12 +168,13 @@ func (s *AuthService) buildRegisterAuthUserEvent(
 	}
 
 	return &models.OutboxEvent{
-		ID:         utils.GenerateID(),
-		Type:       models.EventTypeRegisterAuthUser,
-		Payload:    encrypted,
-		Status:     models.OutboxStatusPending,
-		MaxRetries: 5,
-		NextRunAt:  time.Now(),
+		ID:          utils.GenerateID(),
+		Type:        models.EventTypeRegisterAuthUser,
+		Payload:     encrypted,
+		Status:      models.OutboxStatusPending,
+		MaxRetries:  5,
+		NextRunAt:   time.Now(),
+		ReferenceID: user.ID,
 	}, nil
 }
 
@@ -186,13 +183,8 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, err
 	}
 
-	email := normalizeEmail(req.Email)
-	if email == "" {
-		return nil, ErrInvalidCredentials
-	}
-
-	localUser, err := s.userRepo.FindByEmail(email)
-	if err != nil {
+	localUser, err := s.userRepo.FindByEmail(req.Email)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
 	if localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
@@ -202,15 +194,18 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	accessToken, userInfo, err := s.authClient.LoginWithPassword(authCtx, email, req.Password, clientIP)
+	accessToken, userInfo, err := s.authClient.LoginWithPassword(authCtx, req.Email, req.Password, clientIP)
 	if err != nil {
-		if errors.Is(err, sharedauth.ErrAuthInvalidCredentials) {
-			return nil, err
+		switch {
+		case errors.Is(err, sharedauth.ErrAuthInvalidCredentials):
+			return nil, ErrInvalidCredentials
+		case errors.Is(err, sharedauth.ErrAuthRateLimit):
+			return nil, ErrRateLimit
 		}
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
-	user, err := s.resolveUserFromAuthIdentity(email, userInfo)
+	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +220,10 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		}
 	}
 
+	s.logger.Info("login: user authenticated",
+		zap.String("user_id", user.ID),
+	)
+
 	return &models.AuthResponse{Token: accessToken, User: user}, nil
 }
 
@@ -233,34 +232,29 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 		return err
 	}
 
-	email := normalizeEmail(req.Email)
-	if email == "" {
-		return nil
-	}
-
-	user, err := s.userRepo.FindByEmail(email)
-	if err != nil {
+	user, err := s.userRepo.FindByEmail(req.Email)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return fmt.Errorf("find user: %w", err)
 	}
 	if user == nil {
-		return nil
+		return nil // do not reveal whether the email exists
 	}
 
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	token, err := s.authClient.GeneratePasswordResetLink(authCtx, email)
+	token, err := s.authClient.GeneratePasswordResetLink(authCtx, req.Email)
 	if err != nil {
 		if errors.Is(err, sharedauth.ErrAuthInvalidEmail) {
 			return ErrInvalidEmail
 		}
-		return nil
+		return nil // do not expose internal errors to caller
 	}
 	if token == "" {
 		return nil
 	}
 
-	if err := s.emailSvc.SendPasswordResetEmail(ctx, email, token); err != nil {
+	if err := s.emailSvc.SendPasswordResetEmail(ctx, req.Email, token); err != nil {
 		return fmt.Errorf("send password reset email: %w", err)
 	}
 
@@ -272,8 +266,17 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 	defer cancel()
 
 	if err := s.authClient.ResetPasswordWithToken(authCtx, req.Token, req.Password); err != nil {
+		switch {
+		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
+			return ErrInvalidToken
+		case errors.Is(err, sharedauth.ErrAuthExpiredToken):
+			return ErrExpiredToken
+		case errors.Is(err, sharedauth.ErrAuthRateLimit):
+			return ErrRateLimit
+		}
 		return fmt.Errorf("reset password: %w", err)
 	}
+
 	return nil
 }
 
@@ -283,11 +286,19 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 
 	authUserID, err := s.authClient.VerifyEmailWithToken(authCtx, req.Token)
 	if err != nil {
+		switch {
+		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
+			return ErrInvalidToken
+		case errors.Is(err, sharedauth.ErrAuthExpiredToken):
+			return ErrExpiredToken
+		case errors.Is(err, sharedauth.ErrAuthRateLimit):
+			return ErrRateLimit
+		}
 		return fmt.Errorf("verify email token: %w", err)
 	}
 
 	user, err := s.userRepo.FindByAuthUserID(authUserID)
-	if err != nil {
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return fmt.Errorf("find user by auth ID: %w", err)
 	}
 	if user == nil {
@@ -301,6 +312,10 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		return fmt.Errorf("update verification status: %w", err)
 	}
 
+	s.logger.Info("verify email: email verified",
+		zap.String("user_id", user.ID),
+	)
+
 	name := ""
 	if user.FullName != nil {
 		name = *user.FullName
@@ -309,8 +324,8 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
 		defer cancel()
 		if err := s.emailSvc.SendWelcomeEmail(sendCtx, user.Email, name); err != nil {
-			s.logger.Error("failed to send welcome email",
-				zap.String("email", user.Email),
+			s.logger.Error("verify email: failed to send welcome email",
+				zap.String("user_id", user.ID),
 				zap.Error(err),
 			)
 		}
@@ -348,14 +363,15 @@ func (s *AuthService) resolveUserFromAuthIdentity(emailHint string, info *shared
 
 	if email != "" {
 		user, err = s.userRepo.FindByEmail(email)
-		if err != nil {
+		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 			return nil, fmt.Errorf("find user by email: %w", err)
 		}
 	}
 
 	if user == nil && info != nil && strings.TrimSpace(info.Sub) != "" {
-		user, err = s.userRepo.FindByAuthUserID(strings.TrimSpace(info.Sub))
-		if err != nil {
+		sub := strings.TrimSpace(info.Sub)
+		user, err = s.userRepo.FindByAuthUserID(sub)
+		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 			return nil, fmt.Errorf("find user by auth ID: %w", err)
 		}
 	}

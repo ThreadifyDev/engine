@@ -22,7 +22,7 @@ func NewNatsOutboxTrigger(js nats.JetStreamContext, subject string, logger *zap.
 func (t *NatsOutboxTrigger) Trigger() {
 	_, err := t.js.Publish(t.subject, []byte("process"))
 	if err != nil {
-		t.logger.Error("nats_trigger: failed to publish outbox trigger",
+		t.logger.Warn("nats_trigger: failed to publish outbox trigger",
 			zap.String("subject", t.subject),
 			zap.Error(err),
 		)

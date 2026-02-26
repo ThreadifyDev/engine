@@ -1,6 +1,4 @@
-{{template "base.html" .}}
-
-{{define "content"}}
+{{template "_header.html" .}}
 <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.5px;">
     You're in, {{.Name}} 👋
 </h1>
@@ -21,4 +19,4 @@
         </td>
     </tr>
 </table>
-{{end}}
+{{template "_footer.html" .}}

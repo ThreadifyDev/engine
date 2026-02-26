@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/validation"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,28 +30,28 @@ func NewUserHandler(
 	}
 }
 
-type UpdateProfileRequest struct {
-	FullName    string `json:"full_name"`
-	JobRole     string `json:"job_role"`
-	Industry    string `json:"industry"`
-	CompanySize string `json:"company_size"`
-	UseCase     string `json:"use_case"`
-}
-
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	userID, companyID, ok := getUserAndCompanyID(c)
 	if !ok {
 		return
 	}
 
-	var req UpdateProfileRequest
+	var req models.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
-	if req.FullName == "" || req.JobRole == "" || req.Industry == "" || req.CompanySize == "" || req.UseCase == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "All fields are required"})
+	if err := validation.ValidateUpdateProfileRequest(&req); err != nil {
+		var vErr *validation.RequestValidationError
+		if errors.As(err, &vErr) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":    vErr.FirstMessage(),
+				"problems": vErr.Problems(),
+			})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -104,8 +108,16 @@ func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
 
 func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {
 	user, err := h.userRepo.FindByID(userID)
-	if err != nil || user == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated user"})
+	if err != nil {
+		if errors.Is(err, serror.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": message, "user": user})

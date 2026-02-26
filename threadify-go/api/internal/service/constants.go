@@ -1,33 +1,40 @@
 package service
 
-import "errors"
+import (
+	serror "threadify-go/shared/errors"
+)
 
-// API-level sentinel errors.
+// API-level sentinel errors (moved to shared/errors/api_errors.go)
 var (
-	ErrUserAlreadyExists            = errors.New("user with this email already exists")
-	ErrInvalidCredentials           = errors.New("invalid email or password")
-	ErrInvalidEmail                 = errors.New("invalid email address")
-	ErrAccountStillProvisioning     = errors.New("account is still being set up, please try again shortly")
-	ErrJwtVerificationNotConfigured = errors.New("JWT verification not configured")
+	ErrUserAlreadyExists            = serror.ErrUserAlreadyExists
+	ErrInvalidCredentials           = serror.ErrInvalidCredentials
+	ErrInvalidEmail                 = serror.ErrInvalidEmail
+	ErrAccountStillProvisioning     = serror.ErrAccountStillProvisioning
+	ErrJwtVerificationNotConfigured = serror.ErrJwtVerificationNotConfigured
+	ErrExpiredToken                 = serror.ErrExpiredToken
+	ErrInvalidToken                 = serror.ErrInvalidToken
+	ErrRateLimit                    = serror.ErrRateLimit
+	ErrInternalServerError          = serror.ErrInternalServerError
 
 	// API Key errors
-	ErrApiKeyNameRequired        = errors.New("API key name is required")
-	ErrInvalidServiceAccountRole = errors.New("invalid service account role: must be from api_level")
-	ErrServiceAccountNotFound    = errors.New("service account not found")
-	ErrUnauthorizedCompany       = errors.New("unauthorized: service account belongs to different company")
-	ErrFailedToAssignRole        = errors.New("failed to assign role to service account")
-	ErrApiKeyNotFound            = errors.New("API key not found")
-	ErrUnauthorized              = errors.New("unauthorized")
-	ErrInvalidApiKey             = errors.New("invalid API key")
-	ErrApiKeyRevoked             = errors.New("API key has been revoked")
-	ErrApiKeyExpiredAPI          = errors.New("API key has expired")
+	ErrApiKeyNameRequired        = serror.ErrApiKeyNameRequired
+	ErrInvalidServiceAccountRole = serror.ErrInvalidServiceAccountRole
+	ErrServiceAccountNotFound    = serror.ErrServiceAccountNotFound
+	ErrUnauthorizedCompany       = serror.ErrUnauthorizedCompany
+	ErrFailedToAssignRole        = serror.ErrFailedToAssignRole
+	ErrApiKeyNotFound            = serror.ErrApiKeyNotFound
+	ErrUnauthorized              = serror.ErrUnauthorized
+	ErrInvalidApiKey             = serror.ErrInvalidApiKey
+	ErrApiKeyRevoked             = serror.ErrApiKeyRevoked
+	ErrApiKeyExpiredAPI          = serror.ErrApiKeyExpiredAPI
 
 	// Service Account errors
-	ErrServiceAccountNameRequired = errors.New("service account name is required")
-	ErrInvalidRoleAPI             = errors.New("invalid role: must be 'standard_service' or 'reader'")
+	ErrServiceAccountNameRequired = serror.ErrServiceAccountNameRequired
+	ErrInvalidRoleAPI             = serror.ErrInvalidRoleAPI
+	ErrUserNotFound               = serror.ErrUserNotFound
 
 	// System errors
-	ErrDeprecatedPermissions = errors.New("deprecated: use role-based permissions instead")
+	ErrDeprecatedPermissions = serror.ErrDeprecatedPermissions
 )
 
 // HTTP Header constants.

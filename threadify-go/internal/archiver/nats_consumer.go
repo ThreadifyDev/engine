@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -53,12 +55,31 @@ func NewNATSConsumer(nc *nats.Conn, db *database.PostgresDB, batchSize int, batc
 func (c *NATSConsumer) Start(ctx context.Context) error {
 	c.logger.Info("starting NATS archival consumer", zap.String("consumer", c.consumerName))
 
-	go c.consumeStream(ctx, "activity_log", "activity.log", c.processActivityLog)
-	go c.consumeStream(ctx, "thread_metadata", "metadata.thread", c.processThreadMetadata)
-	go c.consumeStream(ctx, "thread_access", "access.thread", c.processThreadAccess)
-	go c.consumeStream(ctx, "thread_validations", "validations.thread", c.processThreadValidations)
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		c.consumeStream(ctx, "activity_log", "activity.log", c.processActivityLog)
+	}()
+	go func() {
+		defer wg.Done()
+		c.consumeStream(ctx, "thread_metadata", "metadata.thread", c.processThreadMetadata)
+	}()
+	go func() {
+		defer wg.Done()
+		c.consumeStream(ctx, "thread_access", "access.thread", c.processThreadAccess)
+	}()
+	go func() {
+		defer wg.Done()
+		c.consumeStream(ctx, "thread_validations", "validations.thread", c.processThreadValidations)
+	}()
 
 	c.logger.Info("NATS archival consumer started", zap.String("consumer", c.consumerName))
+
+	<-ctx.Done()
+	c.Stop()
+	wg.Wait()
 	return nil
 }
 
@@ -94,10 +115,21 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 		for {
 			msg, err := iter.Next()
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				// During shutdown, the iterator may be closed or the context canceled.
+				// We check for strings containing "iterator closed" because the NATS client
+				// doesn't always return a wrapped context error here.
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+					strings.Contains(err.Error(), "iterator closed") {
 					close(msgChan)
 					return
 				}
+
+				// Double-check context before logging as an ERROR
+				if ctx.Err() != nil {
+					close(msgChan)
+					return
+				}
+
 				c.logger.Error("error fetching message", zap.String("stream", streamName), zap.Error(err))
 				StreamConsumptionErrors.WithLabelValues(streamName).Inc()
 				time.Sleep(time.Second)

@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"threadify-go/api/internal/models"
+	serror "threadify-go/shared/errors"
 )
 
 type ServiceAccountRepository struct {
@@ -33,6 +34,9 @@ func (r *ServiceAccountRepository) FindByID(id string) (*models.ServiceAccount, 
 	err := r.db.QueryRow(query, id).Scan(
 		&sa.ID, &sa.CompanyID, &sa.Name, &sa.Description, &sa.IsActive, &sa.CreatedBy, &sa.LastUsedAt, &sa.CreatedAt, &sa.UpdatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, serror.ErrServiceAccountNotFound
+		}
 		return nil, err
 	}
 	return &sa, nil
@@ -91,7 +95,7 @@ func (r *ServiceAccountRepository) IsServiceAccountActive(id string) (bool, erro
 	var isActive bool
 	err := r.db.QueryRow(query, id).Scan(&isActive)
 	if err == sql.ErrNoRows {
-		return false, err
+		return false, serror.ErrServiceAccountNotFound
 	}
 	if err != nil {
 		return false, err

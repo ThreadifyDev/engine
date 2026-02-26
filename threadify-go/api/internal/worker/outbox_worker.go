@@ -28,6 +28,7 @@ const (
 type OutboxWorker struct {
 	outboxRepo    *repository.OutboxRepository
 	userRepo      *repository.UserRepository
+	companyRepo   *repository.CompanyRepository
 	authClient    sharedauth.AuthClient
 	emailSvc      *service.EmailService
 	encryptionKey []byte
@@ -38,6 +39,7 @@ type OutboxWorker struct {
 func NewOutboxWorker(
 	outboxRepo *repository.OutboxRepository,
 	userRepo *repository.UserRepository,
+	companyRepo *repository.CompanyRepository,
 	authClient sharedauth.AuthClient,
 	emailSvc *service.EmailService,
 	encryptionKey string,
@@ -46,6 +48,7 @@ func NewOutboxWorker(
 	return &OutboxWorker{
 		outboxRepo:    outboxRepo,
 		userRepo:      userRepo,
+		companyRepo:   companyRepo,
 		authClient:    authClient,
 		emailSvc:      emailSvc,
 		encryptionKey: []byte(encryptionKey),
@@ -102,6 +105,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 			w.logger.Error("outbox: event processing failed",
 				zap.String("event_id", event.ID),
 				zap.String("event_type", event.Type),
+				zap.String("reference_id", event.ReferenceID),
 				zap.Int("attempt", event.RetryCount+1),
 				zap.Error(err),
 			)
@@ -151,26 +155,11 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 }
 
 func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.OutboxEvent, data map[string]string) error {
-	userID, err := getField(data, "user_id")
+	fields, err := getFields(data, "user_id", "email", "password", "full_name", "company_id")
 	if err != nil {
 		return err
 	}
-	email, err := getField(data, "email")
-	if err != nil {
-		return err
-	}
-	password, err := getField(data, "password")
-	if err != nil {
-		return err
-	}
-	fullName, err := getField(data, "full_name")
-	if err != nil {
-		return err
-	}
-	companyID, err := getField(data, "company_id")
-	if err != nil {
-		return err
-	}
+	userID, email, password, fullName, companyID := fields[0], fields[1], fields[2], fields[3], fields[4]
 
 	user, err := w.userRepo.FindByID(userID)
 	if err != nil {
@@ -181,13 +170,31 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 	}
 
 	if user.AuthUserID == nil || *user.AuthUserID == "" {
-		authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, companyID)
+		authUserID, err := w.resolveAuthUserID(ctx, email, password, fullName, userID, companyID)
 		if err != nil {
-			return fmt.Errorf("register auth user: %w", err)
+			return err
 		}
+		if authUserID == "" {
+			// Permanent failure — user and company already cleaned up.
+			return nil
+		}
+
 		if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
 			return fmt.Errorf("update auth user ID: %w", err)
 		}
+
+		w.logger.Info("outbox: user registered in auth provider",
+			zap.String("user_id", userID),
+			zap.String("auth_user_id", authUserID),
+		)
+	}
+
+	alreadyQueued, err := w.outboxRepo.ExistsByReference(models.EventTypeSendVerificationEmail, userID)
+	if err != nil {
+		return fmt.Errorf("check existing verification email event: %w", err)
+	}
+	if alreadyQueued {
+		return nil
 	}
 
 	payload, err := json.Marshal(map[string]string{"email": email})
@@ -202,14 +209,80 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		return fmt.Errorf("encrypt email event payload: %w", err)
 	}
 
-	return w.outboxRepo.CreateTx(nil, &models.OutboxEvent{
-		ID:         utils.GenerateID(),
-		Type:       models.EventTypeSendVerificationEmail,
-		Payload:    encrypted,
-		Status:     models.OutboxStatusPending,
-		MaxRetries: 5,
-		NextRunAt:  time.Now(),
-	})
+	if err := w.outboxRepo.Create(&models.OutboxEvent{
+		ID:          utils.GenerateID(),
+		Type:        models.EventTypeSendVerificationEmail,
+		Payload:     encrypted,
+		Status:      models.OutboxStatusPending,
+		MaxRetries:  5,
+		NextRunAt:   time.Now(),
+		ReferenceID: userID,
+	}); err != nil {
+		return fmt.Errorf("create verification email event: %w", err)
+	}
+
+	w.logger.Info("outbox: queued verification email",
+		zap.String("user_id", userID),
+	)
+	return nil
+}
+
+func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, fullName, userID, companyID string) (string, error) {
+	authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, companyID)
+	if err == nil {
+		return authUserID, nil
+	}
+
+	switch {
+	case errors.Is(err, sharedauth.ErrAuthUserAlreadyExists):
+		recovered, fetchErr := w.authClient.FindUserIDByEmail(ctx, email)
+		if fetchErr != nil {
+			return "", fmt.Errorf("recover existing auth user: %w", fetchErr)
+		}
+		w.logger.Info("outbox: recovered existing auth user",
+			zap.String("email", email),
+			zap.String("auth_user_id", recovered),
+		)
+		return recovered, nil
+
+	case errors.Is(err, sharedauth.ErrAuthInvalidEmail):
+		w.logger.Error("outbox: permanent registration failure, cleaning up",
+			zap.String("user_id", userID),
+			zap.String("email", email),
+			zap.Error(err),
+		)
+		if cleanupErr := w.cleanupUser(ctx, userID, companyID); cleanupErr != nil {
+			return "", cleanupErr
+		}
+		return "", nil
+
+	default:
+		return "", fmt.Errorf("register auth user: %w", err)
+	}
+}
+
+func (w *OutboxWorker) cleanupUser(ctx context.Context, userID, companyID string) error {
+	tx, err := w.userRepo.GetDB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cleanup transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if err := w.userRepo.DeleteTx(tx, userID); err != nil {
+		return fmt.Errorf("cleanup delete user: %w", err)
+	}
+	if err := w.companyRepo.DeleteTx(tx, companyID); err != nil {
+		return fmt.Errorf("cleanup delete company: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit cleanup transaction: %w", err)
+	}
+
+	w.logger.Info("outbox: orphaned user cleaned up",
+		zap.String("user_id", userID),
+		zap.String("company_id", companyID),
+	)
+	return nil
 }
 
 func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map[string]string) error {
@@ -225,9 +298,6 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 	token, err := w.authClient.GenerateSignupLink(ctx, email)
 	if err != nil {
 		if errors.Is(err, sharedauth.ErrAuthUserAlreadyExists) {
-			w.logger.Info("outbox: skipping email - user already exists/confirmed in auth provider",
-				zap.String("email", email),
-			)
 			return nil
 		}
 		return fmt.Errorf("generate signup link: %w", err)
@@ -237,7 +307,20 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 		return fmt.Errorf("send verification email: %w", err)
 	}
 
+	w.logger.Info("outbox: verification email sent", zap.String("email", email))
 	return nil
+}
+
+func getFields(data map[string]string, keys ...string) ([]string, error) {
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		v, err := getField(data, k)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
 }
 
 func getField(data map[string]string, key string) (string, error) {

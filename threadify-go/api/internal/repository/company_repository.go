@@ -66,3 +66,14 @@ func (r *CompanyRepository) UpdateDetails(id string, industry, size, useCase *st
 	}
 	return nil
 }
+func (r *CompanyRepository) Delete(id string) error {
+	return r.DeleteTx(r.db, id)
+}
+
+func (r *CompanyRepository) DeleteTx(execer companyExecer, id string) error {
+	_, err := execer.Exec(`DELETE FROM companies WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete company: %w", err)
+	}
+	return nil
+}

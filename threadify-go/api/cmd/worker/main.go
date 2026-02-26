@@ -61,6 +61,7 @@ func main() {
 
 	outboxRepo := repository.NewOutboxRepository(db)
 	userRepo := repository.NewUserRepository(db)
+	companyRepo := repository.NewCompanyRepository(db)
 	emailSvc, err := service.NewEmailService(
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
@@ -72,7 +73,7 @@ func main() {
 	}
 
 	encryptionKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY"))
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, authClient, emailSvc, encryptionKey, appLogger)
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, companyRepo, authClient, emailSvc, encryptionKey, appLogger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

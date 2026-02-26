@@ -1,4 +1,4 @@
-package errors
+package serror
 
 import "errors"
 
@@ -10,4 +10,7 @@ var (
 	ErrNoActiveThread        = errors.New("no active thread found")
 	ErrNotAuthenticated      = errors.New("not authenticated")
 	ErrInvalidRole           = errors.New("invalid role")
+	ErrContractNotFound      = errors.New("contract not found")
+	ErrActivityLogNotFound   = errors.New("activity log not found")
+	ErrContractAlreadyExists = errors.New("contract already exists")
 )

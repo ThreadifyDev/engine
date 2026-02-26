@@ -38,7 +38,8 @@ func main() {
 	}
 	defer appLogger.Sync() //nolint:errcheck
 
-	cfg, err := config.Load(resolveConfigPath())
+	configPath := resolveConfigPath(appLogger)
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		appLogger.Fatal("load config", zap.Error(err))
 	}
@@ -53,7 +54,8 @@ func main() {
 		appLogger.Fatal("init schema", zap.Error(err))
 	}
 
-	rbacLoader, err := rbac.NewLoader(resolveRBACPaths())
+	permissionsPath, rolesPath := resolveRBACPaths(appLogger)
+	rbacLoader, err := rbac.NewLoader(permissionsPath, rolesPath)
 	if err != nil {
 		appLogger.Fatal("load rbac", zap.Error(err))
 	}
@@ -64,9 +66,11 @@ func main() {
 	}
 	defer svcs.close()
 
+	hdlrs := initHandlers(cfg, db, svcs, rbacLoader, appLogger)
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.WebAPI.Port),
-		Handler:      buildRouter(cfg, db, svcs, rbacLoader, appLogger),
+		Handler:      buildRouter(cfg, db, svcs, rbacLoader, hdlrs, appLogger),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -120,59 +124,95 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 	}
 
 	encryptionKey := strings.TrimSpace(os.Getenv("OUTBOX_ENCRYPTION_KEY"))
+	if encryptionKey == "" {
+		return nil, errors.New("OUTBOX_ENCRYPTION_KEY environment variable is required")
+	}
+
 	outboxRepo := repository.NewOutboxRepository(db)
 
-	var outboxTrigger service.OutboxWorkerTrigger
-	natsClient, err := nats.NewClient(&cfg.NATS, logger)
-	if err != nil {
-		logger.Warn("NATS unavailable — outbox triggers disabled", zap.Error(err))
+	var (
+		natsClient    *nats.Client
+		outboxTrigger service.OutboxWorkerTrigger
+	)
+	nc, natsErr := nats.NewClient(&cfg.NATS, logger)
+	if natsErr != nil {
+		logger.Warn("NATS unavailable — outbox triggers disabled", zap.Error(natsErr))
 	} else {
-		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), nats.SubjectOutboxTrigger, logger)
+		if err := nc.InitializeOutboxStream(); err != nil {
+			logger.Error("failed to initialize NATS outbox stream — outbox triggers disabled",
+				zap.Error(err))
+			nc.Close()
+		} else {
+			natsClient = nc
+			outboxTrigger = service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
+			logger.Info("NATS outbox trigger initialized")
+		}
 	}
 
 	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey, logger)
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
+		logger.Info("JWKS verifier configured", zap.String("url", cfg.JWKS.URL))
+	} else {
+		logger.Warn("JWKS URL not configured — token verification disabled")
 	}
 
-	return &services{natsClient: natsClient, authService: authSvc}, nil
+	return &services{
+		natsClient:  natsClient,
+		authService: authSvc,
+	}, nil
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) http.Handler {
+type appHandlers struct {
+	auth           *handlers.AuthHandler
+	user           *handlers.UserHandler
+	apiKey         *handlers.APIKeyHandler
+	serviceAccount *handlers.ServiceAccountHandler
+	role           *handlers.RoleHandler
+	codeSamples    *handlers.CodeSamplesHandler
+	contractProxy  *handlers.ContractProxyHandler
+	graphqlProxy   *handlers.GraphQLProxyHandler
+	agent          *handlers.AgentHandler
+}
+
+func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
 	userRepo := repository.NewUserRepository(db)
 	companyRepo := repository.NewCompanyRepository(db)
 	userRoleRepo := repository.NewUserRoleRepository(db)
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
+	agentRepo := repository.NewAgentRepository(db)
 
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
 
-	authHandler := handlers.NewAuthHandler(svcs.authService)
-	userHandler := handlers.NewUserHandler(userRepo, companyRepo, apiKeySvc)
-	apiKeyHandler := handlers.NewAPIKeyHandler(apiKeySvc)
-	serviceAccountHandler := handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader)
-	roleHandler := handlers.NewRoleHandler(rbacLoader)
-	codeSamplesHandler := handlers.NewCodeSamplesHandler("./code_samples")
-	contractProxyHandler := handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL)
-	graphqlProxyHandler := handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger)
+	return &appHandlers{
+		auth:           handlers.NewAuthHandler(svcs.authService),
+		user:           handlers.NewUserHandler(userRepo, companyRepo, apiKeySvc),
+		apiKey:         handlers.NewAPIKeyHandler(apiKeySvc),
+		serviceAccount: handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
+		role:           handlers.NewRoleHandler(rbacLoader),
+		codeSamples:    handlers.NewCodeSamplesHandler("./code_samples"),
+		contractProxy:  handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
+		graphqlProxy:   handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
+		agent: handlers.NewAgentHandler(
+			cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+			cfg.WebAPI.OpenAIAPIKey,
+			agentRepo,
+			cfg.WebAPI.Agent.MaxMessages,
+			cfg.WebAPI.Agent.MaxTokens,
+			cfg.WebAPI.Agent.SummaryMaxTokens,
+			logger,
+		),
+	}
+}
 
-	// Agent AI Chat
-	agentRepo := repository.NewAgentRepository(db)
-	agentHandler := handlers.NewAgentHandler(
-		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
-		cfg.WebAPI.OpenAIAPIKey,
-		agentRepo,
-		cfg.WebAPI.Agent.MaxMessages,
-		cfg.WebAPI.Agent.MaxTokens,
-		cfg.WebAPI.Agent.SummaryMaxTokens,
-		logger,
-	)
-
+func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, h *appHandlers, logger *zap.Logger) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery())
+
+	r.Use(middleware.RecoveryWithLogger(logger))
 	r.Use(corsMiddleware(cfg.WebAPI.CORSOrigins))
 	r.Use(middleware.RequestLogger(logger))
 
@@ -184,62 +224,64 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	// Public routes
 	auth := r.Group("/api/auth")
 	{
-		auth.POST("/signup", authHandler.Signup)
-		auth.POST("/login", authHandler.Login)
-		auth.POST("/forgot-password", authHandler.ForgotPassword)
-		auth.POST("/reset-password", authHandler.ResetPassword)
-		auth.POST("/verify-email", authHandler.VerifyEmail)
+		auth.POST("/signup", h.auth.Signup)
+		auth.POST("/login", h.auth.Login)
+		auth.POST("/forgot-password", h.auth.ForgotPassword)
+		auth.POST("/reset-password", h.auth.ResetPassword)
+		auth.POST("/verify-email", h.auth.VerifyEmail)
 	}
-	r.GET("/api/code-samples", codeSamplesHandler.GetCodeSample)
-	r.GET("/api/roles", roleHandler.GetRoles)
-	r.GET("/api/roles/:level", roleHandler.GetRolesByLevel)
 
-	// Protected routes
+	r.GET("/api/code-samples", h.codeSamples.GetCodeSample)
+	r.GET("/api/roles", h.role.GetRoles)
+	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
+
+	userRoleRepo := repository.NewUserRoleRepository(db)
+	serviceAccountRepo := repository.NewServiceAccountRepository(db)
+
 	api := r.Group("/api")
 	api.Use(middleware.AuthAccessTokenAuth(svcs.authService))
 
 	user := api.Group("/user")
 	{
-		user.POST("/profile", userHandler.UpdateProfile)
-		user.POST("/mark-instrumentation-done", userHandler.MarkInstrumentationDone)
+		user.POST("/profile", h.user.UpdateProfile)
+		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
 	}
 
 	requirePerm := func(perm string) gin.HandlerFunc {
 		return rbac.RequirePermission(rbacLoader, userRoleRepo, serviceAccountRepo, perm)
 	}
 
-	api.POST("/api-keys", requirePerm("apikey.create"), apiKeyHandler.CreateAPIKey)
-	api.GET("/api-keys", requirePerm("apikey.read"), apiKeyHandler.ListAPIKeys)
-	api.DELETE("/api-keys/:id", requirePerm("apikey.delete"), apiKeyHandler.RevokeAPIKey)
+	api.POST("/api-keys", requirePerm("apikey.create"), h.apiKey.CreateAPIKey)
+	api.GET("/api-keys", requirePerm("apikey.read"), h.apiKey.ListAPIKeys)
+	api.DELETE("/api-keys/:id", requirePerm("apikey.delete"), h.apiKey.RevokeAPIKey)
 
-	api.POST("/service-accounts", requirePerm("serviceaccount.create"), serviceAccountHandler.CreateServiceAccount)
-	api.GET("/service-accounts", requirePerm("serviceaccount.read"), serviceAccountHandler.ListServiceAccounts)
-	api.GET("/service-accounts/:id", requirePerm("serviceaccount.read"), serviceAccountHandler.GetServiceAccount)
-	api.PUT("/service-accounts/:id", requirePerm("serviceaccount.update"), serviceAccountHandler.UpdateServiceAccount)
-	api.DELETE("/service-accounts/:id", requirePerm("serviceaccount.delete"), serviceAccountHandler.DeleteServiceAccount)
-	api.GET("/service-accounts/scopes/:scope/permissions", requirePerm("serviceaccount.read"), serviceAccountHandler.GetPermissions)
+	api.POST("/service-accounts", requirePerm("serviceaccount.create"), h.serviceAccount.CreateServiceAccount)
+	api.GET("/service-accounts", requirePerm("serviceaccount.read"), h.serviceAccount.ListServiceAccounts)
+	api.GET("/service-accounts/:id", requirePerm("serviceaccount.read"), h.serviceAccount.GetServiceAccount)
+	api.PUT("/service-accounts/:id", requirePerm("serviceaccount.update"), h.serviceAccount.UpdateServiceAccount)
+	api.DELETE("/service-accounts/:id", requirePerm("serviceaccount.delete"), h.serviceAccount.DeleteServiceAccount)
+	api.GET("/service-accounts/scopes/:scope/permissions", requirePerm("serviceaccount.read"), h.serviceAccount.GetPermissions)
 
 	contracts := api.Group("/contracts")
 	{
-		contracts.GET("", contractProxyHandler.GetAllContracts)
-		contracts.POST("", contractProxyHandler.CreateContract)
-		contracts.POST("/preview", contractProxyHandler.PreviewContract)
-		contracts.GET("/:id", contractProxyHandler.GetContract)
-		contracts.PUT("/:id", contractProxyHandler.UpdateContract)
-		contracts.DELETE("/:id", contractProxyHandler.DeleteContract)
-		contracts.GET("/:id/versions", contractProxyHandler.GetAllContractVersions)
-		contracts.GET("/:id/versions/:version", contractProxyHandler.GetContractVersion)
-		contracts.DELETE("/:id/versions/:version", contractProxyHandler.DeleteContractVersion)
+		contracts.GET("", h.contractProxy.GetAllContracts)
+		contracts.POST("", h.contractProxy.CreateContract)
+		contracts.POST("/preview", h.contractProxy.PreviewContract)
+		contracts.GET("/:id", h.contractProxy.GetContract)
+		contracts.PUT("/:id", h.contractProxy.UpdateContract)
+		contracts.DELETE("/:id", h.contractProxy.DeleteContract)
+		contracts.GET("/:id/versions", h.contractProxy.GetAllContractVersions)
+		contracts.GET("/:id/versions/:version", h.contractProxy.GetContractVersion)
+		contracts.DELETE("/:id/versions/:version", h.contractProxy.DeleteContractVersion)
 	}
 
-	api.POST("/graphql", graphqlProxyHandler.ProxyGraphQL)
+	api.POST("/graphql", h.graphqlProxy.ProxyGraphQL)
 
-	// Agent AI Chat routes
-	api.POST("/chat/ask", agentHandler.Chat)
-	api.GET("/chat/conversations", agentHandler.GetConversations)
-	api.GET("/chat/conversations/:id", agentHandler.GetConversation)
-	api.POST("/chat/conversations/:id/continue", agentHandler.ContinueConversation)
-	api.DELETE("/chat/conversations/:id", agentHandler.DeleteConversation)
+	api.POST("/chat/ask", h.agent.Chat)
+	api.GET("/chat/conversations", h.agent.GetConversations)
+	api.GET("/chat/conversations/:id", h.agent.GetConversation)
+	api.POST("/chat/conversations/:id/continue", h.agent.ContinueConversation)
+	api.DELETE("/chat/conversations/:id", h.agent.DeleteConversation)
 
 	return r
 }
@@ -269,22 +311,28 @@ func initDB(url string) (*sql.DB, error) {
 	return db, nil
 }
 
-func resolveConfigPath() string {
+func resolveConfigPath(logger *zap.Logger) string {
 	if p := os.Getenv("CONFIG_PATH"); p != "" {
+		logger.Info("using config path from CONFIG_PATH env", zap.String("path", p))
 		return p
 	}
 	if _, err := os.Stat("/app/config/config.yaml"); err == nil {
+		logger.Info("using config path", zap.String("path", "/app/config/config.yaml"))
 		return "/app/config/config.yaml"
 	}
+	logger.Info("using config path (dev fallback)", zap.String("path", "../config/config.yaml"))
 	return "../config/config.yaml"
 }
 
-func resolveRBACPaths() (string, string) {
+func resolveRBACPaths(logger *zap.Logger) (string, string) {
 	if _, err := os.Stat("/app/shared/rbac/permissions.json"); err == nil {
+		logger.Info("using RBAC paths", zap.String("base", "/app/shared/rbac"))
 		return "/app/shared/rbac/permissions.json", "/app/shared/rbac/roles.json"
 	}
 	if _, err := os.Stat("./shared/rbac/permissions.json"); err == nil {
+		logger.Info("using RBAC paths", zap.String("base", "./shared/rbac"))
 		return "./shared/rbac/permissions.json", "./shared/rbac/roles.json"
 	}
+	logger.Info("using RBAC paths (dev fallback)", zap.String("base", "../shared/rbac"))
 	return "../shared/rbac/permissions.json", "../shared/rbac/roles.json"
 }

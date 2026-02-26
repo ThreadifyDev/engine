@@ -98,3 +98,11 @@ type ResetPasswordRequest struct {
 type VerifyEmailRequest struct {
 	Token string `json:"token" binding:"required"`
 }
+
+type UpdateProfileRequest struct {
+	FullName    string `json:"full_name"`
+	JobRole     string `json:"job_role"`
+	Industry    string `json:"industry"`
+	CompanySize string `json:"company_size"`
+	UseCase     string `json:"use_case"`
+}

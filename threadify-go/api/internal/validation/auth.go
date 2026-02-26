@@ -102,7 +102,6 @@ func ValidateSignupRequest(req *models.SignupRequest) error {
 
 	req.CompanyName = strings.TrimSpace(req.CompanyName)
 	validateCompanyName(req.CompanyName, b)
-
 	validatePassword(req.Password, b)
 
 	req.FullName = normalizeOptionalText("full_name", req.FullName, maxFullNameLen, namePattern, b)
@@ -141,10 +140,8 @@ func ValidateForgotPasswordRequest(req *models.ForgotPasswordRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	req.Email = normalizeEmail(req.Email)
 	validateEmail("email", req.Email, b)
-
 	return b.err()
 }
 
@@ -154,12 +151,10 @@ func ValidateResetPasswordRequest(req *models.ResetPasswordRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	if strings.TrimSpace(req.Token) == "" {
 		b.add("token", "Reset token is required")
 	}
 	validatePassword(req.Password, b)
-
 	return b.err()
 }
 
@@ -169,11 +164,9 @@ func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	if strings.TrimSpace(req.Token) == "" {
 		b.add("token", "Verification token is required")
 	}
-
 	return b.err()
 }
 
@@ -252,6 +245,8 @@ func validatePassword(password string, b *validationBuilder) {
 		b.add("password", "Password must include upper, lower, number, and special character")
 	}
 }
+
+// -- normalizers (unchanged) --
 
 func normalizeOptionalText(field, value string, maxLen int, pattern *regexp.Regexp, b *validationBuilder) string {
 	trimmed := strings.TrimSpace(value)

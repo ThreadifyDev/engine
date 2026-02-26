@@ -7,10 +7,15 @@ import (
 	"time"
 
 	"threadify-go/api/internal/models"
+	serror "threadify-go/shared/errors"
 )
 
 type UserRepository struct {
 	db *sql.DB
+}
+
+func (r *UserRepository) GetDB() *sql.DB {
+	return r.db
 }
 
 func NewUserRepository(db *sql.DB) *UserRepository {
@@ -53,7 +58,7 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, serror.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find user by email: %w", err)
@@ -76,7 +81,7 @@ func (r *UserRepository) FindByID(id string) (*models.User, error) {
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, serror.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)
@@ -99,7 +104,7 @@ func (r *UserRepository) FindByAuthUserID(authUserID string) (*models.User, erro
 		&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, serror.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find user by auth user id: %w", err)
@@ -159,10 +164,21 @@ func (r *UserRepository) GetPasswordChangedAt(id string) (*time.Time, error) {
 	var changedAt *time.Time
 	err := r.db.QueryRow(`SELECT password_changed_at FROM users WHERE id = $1`, id).Scan(&changedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, serror.ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get password changed at: %w", err)
 	}
 	return changedAt, nil
+}
+func (r *UserRepository) Delete(id string) error {
+	return r.DeleteTx(r.db, id)
+}
+
+func (r *UserRepository) DeleteTx(execer userExecer, id string) error {
+	_, err := execer.Exec(`DELETE FROM users WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
 }
