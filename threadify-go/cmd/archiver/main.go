@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -138,12 +139,14 @@ func startNATSConsumers(
 		nc.Close()
 		return fmt.Errorf("create nats consumer: %w", err)
 	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	go func() {
+		defer wg.Done()
 		if err := natsConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("nats consumer error", zap.Error(err))
 		}
-		natsConsumer.Stop()
-		nc.Close()
 	}()
 
 	flushInterval := cfg.Archiver.Streams.StepStateFlushInterval
@@ -162,10 +165,16 @@ func startNATSConsumers(
 		return fmt.Errorf("create step state consumer: %w", err)
 	}
 	go func() {
+		defer wg.Done()
 		if err := stepStateConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			logger.Error("step state consumer error", zap.Error(err))
 		}
 		stepStateConsumer.Stop()
+	}()
+
+	go func() {
+		wg.Wait()
+		nc.Close()
 	}()
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))

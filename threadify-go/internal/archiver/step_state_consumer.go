@@ -83,43 +83,40 @@ func (c *StepStateConsumer) Start(ctx context.Context) error {
 		buffer = buffer[:0]
 	}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				flush(context.Background())
-				return
-			case <-c.ticker.C:
-				flush(ctx)
-			default:
-				msgs, err := sub.Fetch(c.batchSize, nats.MaxWait(5*time.Second))
-				if err != nil {
-					if !errors.Is(err, nats.ErrTimeout) {
-						c.logger.Error("fetch error", zap.String("consumer", c.consumerID), zap.Error(err))
-						time.Sleep(time.Second)
-					}
+	for {
+		select {
+		case <-ctx.Done():
+			flush(context.Background())
+			return nil
+		case <-c.ticker.C:
+			flush(context.Background())
+		default:
+			msgs, err := sub.Fetch(c.batchSize, nats.MaxWait(5*time.Second))
+			if err != nil {
+				if !errors.Is(err, nats.ErrTimeout) {
+					c.logger.Error("fetch error", zap.String("consumer", c.consumerID), zap.Error(err))
+					time.Sleep(time.Second)
+				}
+				continue
+			}
+
+			for _, msg := range msgs {
+				var event StepStateEvent
+				if err := json.Unmarshal(msg.Data, &event); err != nil {
+					c.logger.Error("failed to unmarshal event", zap.String("consumer", c.consumerID), zap.Error(err))
+					msg.Nak()
 					continue
 				}
+				buffer = append(buffer, event)
+				msg.Ack()
+			}
 
-				for _, msg := range msgs {
-					var event StepStateEvent
-					if err := json.Unmarshal(msg.Data, &event); err != nil {
-						c.logger.Error("failed to unmarshal event", zap.String("consumer", c.consumerID), zap.Error(err))
-						msg.Nak()
-						continue
-					}
-					buffer = append(buffer, event)
-					msg.Ack()
-				}
-
-				if len(buffer) >= c.batchSize {
-					flush(ctx)
-				}
+			if len(buffer) >= c.batchSize {
+				flush(ctx)
 			}
 		}
-	}()
+	}
 
-	return nil
 }
 
 func (c *StepStateConsumer) Stop() {

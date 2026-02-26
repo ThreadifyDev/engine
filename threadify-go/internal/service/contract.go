@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"go.uber.org/zap"
+
+	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
@@ -100,8 +103,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	}
 
 	if err := s.repo.Create(ctx, contractModel); err != nil {
-		// TODO: replace string comparison with sentinel error or errors.Is check
-		if err.Error() == "unique_contract_name" {
+		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
 			return 400, map[string]string{"message": "Contract with this name already exists"}
 		}
 		s.logger.Error("failed to create contract", zap.Error(err))

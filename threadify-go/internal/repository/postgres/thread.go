@@ -159,6 +159,9 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Th
 		&createdAt, &updatedAt, &errorMsg, &status, &contractName,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, shderrors.ErrThreadNotFound
+		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
 
@@ -414,7 +417,7 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID, sta
 	err := r.pool.QueryRow(ctx, `SELECT status FROM threads WHERE id = $1`, threadID).Scan(&currentStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("thread not found")
+			return shderrors.ErrThreadNotFound
 		}
 		return fmt.Errorf("check thread status: %w", err)
 	}
@@ -464,7 +467,7 @@ func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("step state not found")
+			return nil, shderrors.ErrNoActiveThread
 		}
 		return nil, fmt.Errorf("get step state: %w", err)
 	}

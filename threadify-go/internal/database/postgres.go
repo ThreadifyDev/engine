@@ -841,7 +841,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_outbox_events_status_next_run 
 		ON outbox_events(status, next_run_at) 
-		WHERE status IN ('pending', 'failed');
+		WHERE status IN ('pending', 'failed');	
+
+	ALTER TABLE outbox_events ADD COLUMN reference_id TEXT;
+	CREATE INDEX idx_outbox_reference_id ON outbox_events(reference_id);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

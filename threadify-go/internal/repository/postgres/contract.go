@@ -3,12 +3,16 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
+	shderrors "threadify-go/shared/errors"
+
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/models"
-	customerrors "github.com/threadify/engine/internal/utils/errors"
 )
 
 // contractCols and versionCols are the canonical SELECT column lists,
@@ -42,20 +46,32 @@ func scanVersion(row pgx.Row, v *models.ContractVersion) error {
 	)
 }
 
-// contractErr maps pgx errors to domain errors for contract lookups.
 func contractErr(err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
-		return customerrors.NewNotFoundError(customerrors.MsgContractNotFound, err)
+	if err == nil {
+		return nil
 	}
-	return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return shderrors.ErrContractNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		// Code 23505 is unique_violation
+		if pgErr.Code == "23505" {
+			if strings.Contains(pgErr.ConstraintName, "idx_contracts_name_company_active") ||
+				strings.Contains(pgErr.ConstraintName, "unique_contract_name") ||
+				strings.Contains(pgErr.Message, "idx_contracts_name_company_active") {
+				return shderrors.ErrContractAlreadyExists
+			}
+		}
+	}
+	return fmt.Errorf("[CONTRACT_REPO_ERROR] %w", err)
 }
 
-// versionErr maps pgx errors to domain errors for version lookups.
 func versionErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return customerrors.NewNotFoundError(customerrors.MsgContractVersionNotFound, err)
+		return shderrors.ErrContractNotFound
 	}
-	return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+	return fmt.Errorf("version error: %w", err)
 }
 
 func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
@@ -69,8 +85,9 @@ func (r *ContractRepository) Create(ctx context.Context, contract *models.Contra
 		contract.CreatedAt, contract.UpdatedAt, contract.CompanyID,
 	), contract)
 	if err != nil {
-		return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return contractErr(err)
 	}
+
 	return nil
 }
 
@@ -82,6 +99,15 @@ func (r *ContractRepository) Update(ctx context.Context, contractID, description
 
 	var c models.Contract
 	if err := scanContract(r.pool.QueryRow(ctx, query, description, contentHash, latestVersion, updatedAt, contractID), &c); err != nil {
+		return nil, contractErr(err)
+	}
+	return &c, nil
+}
+
+func (r *ContractRepository) Get(ctx context.Context, id string) (*models.Contract, error) {
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE id = $1 AND is_deleted = false`
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, id), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
@@ -149,7 +175,7 @@ func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, 
 		updatedAt, contractID,
 	)
 	if err != nil {
-		return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return contractErr(err)
 	}
 	return nil
 }
@@ -160,7 +186,7 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 
 	rows, err := r.pool.Query(ctx, query, ownerID)
 	if err != nil {
-		return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return nil, fmt.Errorf("query contracts by owner: %w", err)
 	}
 	defer rows.Close()
 
@@ -168,12 +194,12 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 	for rows.Next() {
 		var c models.Contract
 		if err := scanContract(rows, &c); err != nil {
-			return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+			return nil, fmt.Errorf("scan contract: %w", err)
 		}
 		contracts = append(contracts, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return nil, fmt.Errorf("iterate contracts: %w", err)
 	}
 	return contracts, nil
 }
@@ -188,7 +214,7 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.Contra
 		v.ContractID, v.CreatedBy, v.Graph, v.IsDeleted,
 		v.CreatedAt, v.UpdatedAt,
 	), v); err != nil {
-		return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return versionErr(err)
 	}
 	return nil
 }
@@ -222,7 +248,7 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 
 	rows, err := r.pool.Query(ctx, query, contractID)
 	if err != nil {
-		return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return nil, fmt.Errorf("query contract versions: %w", err)
 	}
 	defer rows.Close()
 
@@ -230,12 +256,12 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 	for rows.Next() {
 		var v models.ContractVersion
 		if err := scanVersion(rows, &v); err != nil {
-			return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+			return nil, fmt.Errorf("scan contract version: %w", err)
 		}
 		versions = append(versions, &v)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return nil, fmt.Errorf("iterate versions: %w", err)
 	}
 	return versions, nil
 }
@@ -246,7 +272,7 @@ func (r *ContractRepository) SoftDeleteVersion(ctx context.Context, contractID s
 		updatedAt, contractID, version,
 	)
 	if err != nil {
-		return customerrors.NewInternalError(customerrors.MsgInternalError, err)
+		return fmt.Errorf("soft delete version: %w", err)
 	}
 	return nil
 }
