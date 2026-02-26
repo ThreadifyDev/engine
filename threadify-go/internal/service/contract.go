@@ -5,9 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"time"
+
+	"go.uber.org/zap"
+
+	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
@@ -17,9 +21,14 @@ import (
 	"github.com/threadify/engine/pkg/validator"
 )
 
+// TODO: CreateContract, UpdateContract, etc. return (int, interface{}) mixing HTTP
+// concerns into the service layer. Consider returning typed errors and moving
+// status code mapping to the handler layer.
+
 type ContractService struct {
 	repo      *postgres.ContractRepository
 	validator *validator.ContractValidator
+	logger    *zap.Logger
 }
 
 type ContractResponse struct {
@@ -33,24 +42,26 @@ type ContractWithOwnershipResponse struct {
 	IsOwner         bool                    `json:"isOwner"`
 }
 
-func NewContractService(db *database.PostgresDB) *ContractService {
+func NewContractService(db *database.PostgresDB, logger *zap.Logger) *ContractService {
+	var repo *postgres.ContractRepository
+	if db != nil {
+		repo = postgres.NewContractRepository(db.Pool)
+	}
 	return &ContractService{
-		repo:      postgres.NewContractRepository(db.Pool),
+		repo:      repo,
 		validator: validator.NewContractValidator(),
+		logger:    logger,
 	}
 }
 
-// PreviewContract validates YAML and builds contract graph without persisting
+// PreviewContract validates YAML and builds a contract graph without persisting.
 func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
-	// Validate YAML
 	contract, validationResult := s.validator.Validate(yamlString)
 	if !validationResult.IsValid {
 		return nil, nil, validationResult, nil
 	}
 
-	// Build contract graph
-	graphBuilder := NewGraphBuilder()
-	graph, err := graphBuilder.BuildGraph([]byte(yamlString))
+	graph, err := NewGraphBuilder().BuildGraph([]byte(yamlString))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -59,7 +70,6 @@ func (s *ContractService) PreviewContract(yamlString string) (*validator.Contrac
 }
 
 func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{}) {
-	// Validate contract YAML
 	contract, validationResult := s.validator.Validate(contractYAML)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
@@ -68,19 +78,15 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		}
 	}
 
-	// Force version to 1 for new contracts
 	contract.Version = 1
 
-	// Serialize contract
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to serialize contract"}
 	}
 
-	// Calculate content hash (excluding metadata)
-	contentHash := s.calculateHash(contentOnlyJSON)
+	contentHash := calculateContentHash(contentOnlyJSON)
 
-	// Create contract in database
 	now := time.Now()
 	contractModel := &models.Contract{
 		ID:            uuid.New().String(),
@@ -96,36 +102,24 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:     now,
 	}
 
-	err = s.repo.Create(ctx, contractModel)
-	if err != nil {
-		if err.Error() == "unique_contract_name" {
+	if err := s.repo.Create(ctx, contractModel); err != nil {
+		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
 			return 400, map[string]string{"message": "Contract with this name already exists"}
 		}
-		// Log internally without exposing to user
-		log.Printf("Failed to create contract: %v", err)
+		s.logger.Error("failed to create contract", zap.Error(err))
 		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 
-	// Generate contract graph
-	// Use contentOnlyJSON since metadata is already in contract_versions table
-	graphBuilder := NewGraphBuilder()
-	contractGraph, err := graphBuilder.BuildGraph([]byte(contentOnlyJSON))
+	graphJSON, err := buildGraphJSON(contentOnlyJSON)
 	if err != nil {
-		return 500, map[string]string{"message": "Failed to build contract graph"}
+		return 500, map[string]string{"message": err.Error()}
 	}
 
-	// Serialize graph to JSON (serialize the entire ContractGraph including Transitions)
-	graphJSON, err := json.Marshal(contractGraph)
-	if err != nil {
-		return 500, map[string]string{"message": "Failed to serialize graph"}
-	}
-
-	// Create first version
 	versionModel := &models.ContractVersion{
 		ID:          uuid.New().String(),
 		Version:     1,
 		Content:     fullJSON,
-		YAMLContent: contractYAML, // Store original YAML source code
+		YAMLContent: contractYAML,
 		ContentHash: contentHash,
 		ContractID:  contractModel.ID,
 		CreatedBy:   createdBy,
@@ -135,8 +129,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:   now,
 	}
 
-	err = s.repo.CreateVersion(ctx, versionModel)
-	if err != nil {
+	if err := s.repo.CreateVersion(ctx, versionModel); err != nil {
 		return 500, map[string]string{"message": "Failed to create contract version"}
 	}
 
@@ -147,13 +140,11 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 }
 
 func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{}) {
-	// Find existing contract and verify ownership
-	existingContract, err := s.getContractByIDAndOwner(ctx, contractID, ownerID)
+	existingContract, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to update it"}
 	}
 
-	// Validate contract YAML
 	contract, validationResult := s.validator.Validate(contractYAML)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
@@ -162,28 +153,26 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		}
 	}
 
-	// Confirm version is greater than latest
 	if contract.Version <= existingContract.LatestVersion {
 		return 400, map[string]string{
-			"message": fmt.Sprintf("Set Contract version: (%d) cannot be less or equal to the last created version of this contract (%d)",
+			"message": fmt.Sprintf("contract version (%d) must be greater than the current latest version (%d)",
 				contract.Version, existingContract.LatestVersion),
 		}
 	}
 
-	// Serialize contract
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to serialize contract"}
 	}
 
-	contentHash := s.calculateHash(contentOnlyJSON)
+	contentHash := calculateContentHash(contentOnlyJSON)
 
-	// Check if content has changed
 	if existingContract.ContentHash != nil && *existingContract.ContentHash == contentHash {
 		return 400, map[string]string{"message": "Contract content has not changed"}
 	}
 
-	// Update contract
+	// nextVersion is always existingContract.LatestVersion+1 regardless of contract.Version,
+	// since the DB is the source of truth for sequential versioning.
 	nextVersion := existingContract.LatestVersion + 1
 	now := time.Now()
 
@@ -192,26 +181,16 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 500, map[string]string{"message": "Failed to update contract"}
 	}
 
-	// Generate contract graph for new version
-	// Use contentOnlyJSON since metadata is already in contract_versions table
-	graphBuilder := NewGraphBuilder()
-	contractGraph, err := graphBuilder.BuildGraph([]byte(contentOnlyJSON))
+	graphJSON, err := buildGraphJSON(contentOnlyJSON)
 	if err != nil {
-		return 500, map[string]string{"message": "Failed to build contract graph"}
+		return 500, map[string]string{"message": err.Error()}
 	}
 
-	// Serialize graph to JSON (serialize the entire ContractGraph including Transitions)
-	graphJSON, err := json.Marshal(contractGraph)
-	if err != nil {
-		return 500, map[string]string{"message": "Failed to serialize graph"}
-	}
-
-	// Create new version
 	newVersion := &models.ContractVersion{
 		ID:          uuid.New().String(),
 		Version:     nextVersion,
 		Content:     fullJSON,
-		YAMLContent: contractYAML, // Store original YAML source code
+		YAMLContent: contractYAML,
 		ContentHash: contentHash,
 		ContractID:  contractID,
 		CreatedBy:   createdBy,
@@ -221,8 +200,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		UpdatedAt:   now,
 	}
 
-	err = s.repo.CreateVersion(ctx, newVersion)
-	if err != nil {
+	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {
 		return 500, map[string]string{"message": "Failed to create new version"}
 	}
 
@@ -233,26 +211,22 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 }
 
 func (s *ContractService) GetContract(ctx context.Context, contractID, requesterID string, version *int) (int, interface{}) {
-	// Find contract (only non-deleted)
-	contract, err := s.getContractByIDNotDeleted(ctx, contractID)
+	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	// Check if contract is accessible (public or owned by requester)
 	isOwner := contract.OwnerID == requesterID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
 
-	// Get the requested version or latest version
 	var contractVersion *models.ContractVersion
 	if version != nil {
-		contractVersion, err = s.getContractVersion(ctx, contractID, *version)
+		contractVersion, err = s.repo.GetVersion(ctx, contractID, *version)
 	} else {
-		contractVersion, err = s.getLatestVersionNotDeleted(ctx, contractID)
+		contractVersion, err = s.repo.GetLatestVersion(ctx, contractID)
 	}
-
 	if err != nil {
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
@@ -265,8 +239,7 @@ func (s *ContractService) GetContract(ctx context.Context, contractID, requester
 }
 
 func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerID string) (int, interface{}) {
-	// Find contract and verify ownership
-	contract, err := s.getContractByIDAndOwner(ctx, contractID, ownerID)
+	contract, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to delete it"}
 	}
@@ -275,35 +248,11 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 		return 400, map[string]string{"message": "Contract is already deleted"}
 	}
 
-	// Soft delete
-	err = s.repo.SoftDelete(ctx, contractID, time.Now())
-	if err != nil {
+	if err := s.repo.SoftDelete(ctx, contractID, time.Now()); err != nil {
 		return 500, map[string]string{"message": "Failed to delete contract"}
 	}
 
 	return 200, map[string]string{"message": "Contract deleted successfully"}
-}
-
-// Helper functions
-func (s *ContractService) getContractByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
-	return s.repo.GetByIDAndOwner(ctx, contractID, ownerID)
-}
-
-func (s *ContractService) getContractByIDNotDeleted(ctx context.Context, contractID string) (*models.Contract, error) {
-	return s.repo.GetByID(ctx, contractID)
-}
-
-func (s *ContractService) getContractVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
-	return s.repo.GetVersion(ctx, contractID, version)
-}
-
-func (s *ContractService) getLatestVersionNotDeleted(ctx context.Context, contractID string) (*models.ContractVersion, error) {
-	return s.repo.GetLatestVersion(ctx, contractID)
-}
-
-func (s *ContractService) calculateHash(content string) string {
-	hash := sha256.Sum256([]byte(content))
-	return hex.EncodeToString(hash[:])
 }
 
 func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string) (int, interface{}) {
@@ -319,19 +268,16 @@ func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string) (
 }
 
 func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string) (int, interface{}) {
-	// Find contract (only non-deleted)
-	contract, err := s.getContractByIDNotDeleted(ctx, contractID)
+	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	// Check if contract is accessible (public or owned by requester)
 	isOwner := contract.OwnerID == requesterID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
 
-	// Get all versions
 	versions, err := s.repo.GetAllVersions(ctx, contractID)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to retrieve contract versions"}
@@ -351,71 +297,63 @@ func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID
 }
 
 func (s *ContractService) GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{}) {
-	// Find contract (only non-deleted)
-	contract, err := s.getContractByIDNotDeleted(ctx, contractID)
+	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	// Check if contract is accessible (public or owned by requester)
 	isOwner := contract.OwnerID == requesterID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
 
-	// Get the specific version
-	contractVersion, err := s.getContractVersion(ctx, contractID, version)
+	contractVersion, err := s.repo.GetVersion(ctx, contractID, version)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
 
-	// Parse the graph and generate Mermaid code
 	var graph models.ContractGraph
-	if err := json.Unmarshal(contractVersion.Graph, &graph); err == nil {
-		mermaidCode := utils.ContractGraphToMermaid(contract.Name, &graph)
-
-		// Return version with Mermaid code
-		return 200, map[string]interface{}{
-			"id":           contractVersion.ID,
-			"version":      contractVersion.Version,
-			"content":      contractVersion.Content,
-			"yamlContent":  contractVersion.YAMLContent,
-			"contentHash":  contractVersion.ContentHash,
-			"contractId":   contractVersion.ContractID,
-			"contractName": contract.Name,
-			"createdBy":    contractVersion.CreatedBy,
-			"graph":        graph,
-			"mermaid":      mermaidCode,
-			"isDeleted":    contractVersion.IsDeleted,
-			"createdAt":    contractVersion.CreatedAt,
-			"updatedAt":    contractVersion.UpdatedAt,
-		}
+	if err := json.Unmarshal(contractVersion.Graph, &graph); err != nil {
+		s.logger.Warn("failed to parse contract graph for Mermaid generation",
+			zap.String("contract_id", contractID),
+			zap.Int("version", version),
+			zap.Error(err),
+		)
+		return 200, contractVersion
 	}
 
-	return 200, contractVersion
+	return 200, map[string]interface{}{
+		"id":           contractVersion.ID,
+		"version":      contractVersion.Version,
+		"content":      contractVersion.Content,
+		"yamlContent":  contractVersion.YAMLContent,
+		"contentHash":  contractVersion.ContentHash,
+		"contractId":   contractVersion.ContractID,
+		"contractName": contract.Name,
+		"createdBy":    contractVersion.CreatedBy,
+		"graph":        graph,
+		"mermaid":      utils.ContractGraphToMermaid(contract.Name, &graph),
+		"isDeleted":    contractVersion.IsDeleted,
+		"createdAt":    contractVersion.CreatedAt,
+		"updatedAt":    contractVersion.UpdatedAt,
+	}
 }
 
 func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{}) {
-	// Find contract and verify ownership
-	_, err := s.getContractByIDAndOwner(ctx, contractID, ownerID)
-	if err != nil {
+	if _, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID); err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission"}
 	}
 
-	// Find the specific version
-	contractVersion, err := s.getContractVersion(ctx, contractID, version)
+	contractVersion, err := s.repo.GetVersion(ctx, contractID, version)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
 
-	// Check if already deleted
 	if contractVersion.IsDeleted {
 		return 400, map[string]string{"message": "Contract version is already deleted"}
 	}
 
-	// Soft delete the version
-	err = s.repo.SoftDeleteVersion(ctx, contractID, version, time.Now())
-	if err != nil {
+	if err := s.repo.SoftDeleteVersion(ctx, contractID, version, time.Now()); err != nil {
 		return 500, map[string]string{"message": "Failed to delete contract version"}
 	}
 
@@ -427,4 +365,23 @@ func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID 
 			"contractId": contractVersion.ContractID,
 		},
 	}
+}
+
+// buildGraphJSON builds a contract graph from content JSON and serializes it.
+func buildGraphJSON(contentJSON string) ([]byte, error) {
+	graph, err := NewGraphBuilder().BuildGraph([]byte(contentJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build contract graph")
+	}
+	graphJSON, err := json.Marshal(graph)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize graph")
+	}
+	return graphJSON, nil
+}
+
+// calculateContentHash returns the hex-encoded SHA-256 hash of content.
+func calculateContentHash(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
 }
