@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut, Search, X } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut, Search, X, XOctagon } from 'lucide-react';
 import type { StepStateInfo } from '~/lib/graphql';
 
 interface GanttTimelineViewProps {
@@ -425,11 +425,16 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                 title="Click to scroll to step"
               >
                 {/* Status icons - positioned at top */}
-                {(step.status === 'violated' || step.retryCount > 1) && (
+                {(step.status === 'violated' || step.status === 'failed' || step.retryCount > 1) && (
                   <div className="absolute top-1 right-1 flex items-center gap-1">
                     {step.status === 'violated' && (
                       <div className="flex items-center justify-center bg-orange-500 text-white rounded-full p-1 shadow-sm">
                         <AlertTriangle className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    {step.status === 'failed' && (
+                      <div className="flex items-center justify-center bg-red-500 text-white rounded-full p-1 shadow-sm">
+                        <XOctagon className="w-3.5 h-3.5" />
                       </div>
                     )}
                     {step.retryCount > 1 && (
@@ -442,7 +447,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                 
                 <span
                   className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
-                  style={{ color: '#374151' }}
+                  style={{ color: step.status === 'failed' ? '#991b1b' : step.status === 'violated' ? '#9a3412' : step.status === 'success' ? '#166534' : '#374151' }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onStepClick(step);

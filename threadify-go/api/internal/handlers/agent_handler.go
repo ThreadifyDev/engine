@@ -247,22 +247,52 @@ type Query {
   ): ThreadConnection!
 }
 
-QUERY SELECTION RULES (CRITICAL):
-Use threadsByRef() when user mentions:
-- Business identifiers: customer_id, order_id, payment_id, stripe_payment_id, transaction_id, invoice_id, etc.
-- If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
-- If you DON'T know the ref key: threadsByRef(refValue: "cus_123") - searches across ALL ref keys
-- Example: "Find thread for customer cus_123" → threadsByRef(refValue: "cus_123")
-- Example: "Show order ORD-456" → threadsByRef(refValue: "ORD-456")
-- Example: "Find pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+QUERY SELECTION RULES (CRITICAL - Follow this decision tree):
 
-Use threads(actor:) ONLY when user explicitly mentions:
-- Service names: "ran by payment-service", "where merchant-service was involved"
-- User names: "executed by john@example.com"
-- Example: "Threads run by payment-service" → threads(actor: "payment-service")
+1. Use thread(id:) ONLY when user explicitly asks about a thread by UUID:
+   - Must have thread-specific keywords: "thread", "analyze thread", "show thread", "find thread"
+   - AND the ID matches UUID pattern: 8-4-4-4-12 hex characters
+   - Example: "Find thread 5d724fa5-1234-5678-9abc-def012345678" → thread(id: "5d724fa5-1234-5678-9abc-def012345678")
+   - Example: "Analyze thread abc-123-def" → thread(id: "abc-123-def")
+   - IMPORTANT: If thread(id:) returns null, RETRY with threadsByRef(refValue: "<uuid>") as fallback
 
-Default to threadsByRef() for business IDs, NOT threads(actor:)!
-When in doubt about the ref key name, omit refKey and search by value only.
+2. Use threadsByRef() for ALL business identifiers (including UUID-format external IDs):
+   - External system IDs: Stripe (pi_*, cus_*, ch_*), PayPal, AWS, etc.
+   - Business IDs: customer_id, order_id, payment_id, transaction_id, invoice_id, etc.
+   - Pure UUIDs WITHOUT "thread" keyword → assume it's a business ref, not thread ID
+   - If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
+   - If you DON'T know the ref key: threadsByRef(refValue: "cus_123") - searches across ALL ref keys
+   - Example: "Find customer cus_123" → threadsByRef(refValue: "cus_123")
+   - Example: "Show order ORD-456" → threadsByRef(refValue: "ORD-456")
+   - Example: "Find payment pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+   - Example: "Show me 5d724fa5-1234-..." (no "thread" keyword) → threadsByRef(refValue: "5d724fa5-1234-...")
+
+3. Use threads(contractName:) when searching by contract/workflow type:
+   - Keywords: "contract", "workflow", "process type"
+   - Example: "Show order_processing threads" → threads(contractName: "order_processing")
+   - Can combine with status: threads(contractName: "checkout", status: "failed")
+
+4. Use threads(actor:) ONLY when user explicitly mentions who executed:
+   - Service names: "ran by payment-service", "where merchant-service was involved"
+   - User names: "executed by john@example.com"
+   - Example: "Threads run by payment-service" → threads(actor: "payment-service")
+
+DECISION PRIORITY (keyword-based, not pattern-based):
+"thread" + UUID → thread(id:) with fallback to threadsByRef()
+Business context (customer, order, payment, etc.) → threadsByRef()
+Contract/workflow keywords → threads(contractName:)
+Actor/service keywords → threads(actor:)
+
+IMPORTANT: When in doubt, use threadsByRef() - it's safer and searches across all refs!
+
+FALLBACK STRATEGY (CRITICAL - Always apply):
+If your first query returns NO RESULTS (null, empty array, or totalCount: 0), ALWAYS try an alternative:
+1. If thread(id:) returns null → RETRY with threadsByRef(refValue: "<same_id>")
+2. If threadsByRef(refKey: "X", refValue: "Y") returns empty → RETRY with threadsByRef(refValue: "Y") (omit refKey to search all refs)
+3. If threadsByRef(refValue: "X") returns empty AND value looks like UUID → RETRY with thread(id: "X")
+4. If threads(contractName: "X") returns empty → Try threads() without filters (general search)
+
+NEVER tell the user "I couldn't find it" without trying at least ONE fallback query!
 
 type Thread {
   id: ID!
@@ -337,13 +367,25 @@ All GraphQL queries MUST be wrapped in "query { }" syntax:
 
 EXAMPLES:
 
-Q: "Analyze thread 5d724fa5"
-1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { status steps { stepName status } } }')
-2. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
+Q: "Find thread 5d724fa5-1234-5678-9abc-def012345678" (has "thread" keyword)
+1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status steps { stepName status } } }')
+2. If result is null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+3. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
 
-Q: "Find thread for customer cus_ABC123"
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
-2. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
+Q: "Analyze thread abc-123-def" (has "thread" keyword)
+1. Call: execute_graphql(query: 'query { thread(id: "abc-123-def") { status contractName steps { stepName status } } }')
+2. If null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "abc-123-def") { threads { id status } } }')
+3. Respond: "Thread is active, running order_processing contract with 8 completed steps."
+
+Q: "Show me 5d724fa5-1234-5678-9abc-def012345678" (NO "thread" keyword - could be external ID)
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+2. If empty: FALLBACK → execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status } }')
+3. Respond: "Found 1 thread with ref 5d724fa5-1234-5678-9abc-def012345678."
+
+Q: "Find customer cus_ABC123" (business context)
+1. Call: execute_graphql(query: 'query { threadsByRef(refKey: "customer_id", refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+2. If empty: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+3. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
 
 Q: "Show order ORD-456 status"
 1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "ORD-456", limit: 1) { threads { id status steps { stepName status } } } }')
@@ -352,6 +394,10 @@ Q: "Show order ORD-456 status"
 Q: "Find payment pi_ABC123"
 1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "pi_ABC123") { threads { id status } } }')
 2. Respond: "Found 1 thread with payment pi_ABC123, currently in progress."
+
+Q: "Show order_processing threads"
+1. Call: execute_graphql(query: 'query { threads(contractName: "order_processing", limit: 10) { threads { id status } } }')
+2. Respond: "Found 12 order_processing threads: 10 completed, 2 in progress."
 
 Q: "Threads run by payment-service"
 1. Call: execute_graphql(query: 'query { threads(actor: "payment-service", limit: 10) { threads { id contractName } } }')
