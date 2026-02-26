@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/validation"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,133 +20,158 @@ func NewAuthHandler(authService *service.AuthService) *AuthHandler {
 	}
 }
 
-// Signup handles user registration
 func (h *AuthHandler) Signup(c *gin.Context) {
 	var req models.SignupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateSignupRequest(&req); err != nil {
+		respondValidationError(c, err)
 		return
 	}
 
-	// Validate required fields (only email, password, company_name)
-	if req.Email == "" || req.Password == "" || req.CompanyName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email, password, and company name are required"})
-		return
-	}
-
-	// Validate password length
-	if len(req.Password) < 8 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
-		return
-	}
-
-	if err := h.authService.Signup(&req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.authService.Signup(c.Request.Context(), &req); err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "Signup successful. Please check your email for verification code.",
+		"message": "Signup successful.",
 	})
 }
 
-// Login handles user authentication
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateLoginRequest(&req); err != nil {
+		respondValidationError(c, err)
 		return
 	}
 
-	// Validate required fields
-	if req.Email == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and password are required"})
-		return
-	}
-
-	if err := h.authService.Login(&req); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Login successful. Please check your email for verification code.",
-	})
-}
-
-// VerifyOTP handles OTP verification
-func (h *AuthHandler) VerifyOTP(c *gin.Context) {
-	var req models.VerifyOTPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-
-	// Validate required fields
-	if req.Email == "" || req.Code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and code are required"})
-		return
-	}
-
-	authResp, err := h.authService.VerifyOTP(&req)
+	authResp, err := h.authService.Login(c.Request.Context(), &req, c.ClientIP())
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusUnauthorized, err.Error())
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
 	c.JSON(http.StatusOK, authResp)
 }
 
-// ForgotPassword handles password reset request
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req models.ForgotPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateForgotPasswordRequest(&req); err != nil {
+		respondValidationError(c, err)
 		return
 	}
 
-	// Validate required fields
-	if req.Email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email is required"})
-		return
-	}
-
-	if err := h.authService.ForgotPassword(&req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.authService.ForgotPassword(c.Request.Context(), &req); err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, _ := authErrorResponse(err, http.StatusInternalServerError, "Unable to process password reset request.")
+		c.JSON(statusCode, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "If an account exists with this email, you will receive a password reset link.",
+		"message": "If an account exists with this email, password reset instructions will be sent.",
 	})
 }
 
-// ResetPassword handles password reset with token
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req models.ResetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateResetPasswordRequest(&req); err != nil {
+		respondValidationError(c, err)
 		return
 	}
 
-	// Validate required fields
-	if req.Token == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Token and password are required"})
-		return
-	}
-
-	// Validate password length
-	if len(req.Password) < 8 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
-		return
-	}
-
-	if err := h.authService.ResetPassword(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.authService.ResetPassword(c.Request.Context(), &req); err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Password has been reset successfully.",
+		"message": "Password has been successfully reset. You can now log in with your new password.",
 	})
+}
+
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	var req models.VerifyEmailRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateVerifyEmailRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+
+	if err := h.authService.VerifyEmail(c.Request.Context(), &req); err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Email has been successfully verified. You can now log in.",
+	})
+}
+
+func authErrorResponse(err error, fallbackStatus int, fallbackMessage string) (int, string) {
+	var requestValidationErr *validation.RequestValidationError
+	if errors.As(err, &requestValidationErr) {
+		return http.StatusBadRequest, requestValidationErr.FirstMessage()
+	}
+
+	switch {
+	case errors.Is(err, service.ErrUserAlreadyExists):
+		return http.StatusConflict, service.ErrUserAlreadyExists.Error()
+	case errors.Is(err, service.ErrInvalidCredentials):
+		return http.StatusUnauthorized, service.ErrInvalidCredentials.Error()
+	case errors.Is(err, service.ErrInvalidEmail):
+		return http.StatusBadRequest, service.ErrInvalidEmail.Error()
+	case errors.Is(err, service.ErrExpiredToken):
+		return http.StatusBadRequest, service.ErrExpiredToken.Error()
+	case errors.Is(err, service.ErrInvalidToken):
+		return http.StatusBadRequest, service.ErrInvalidToken.Error()
+	case errors.Is(err, service.ErrRateLimit):
+		return http.StatusTooManyRequests, service.ErrRateLimit.Error()
+	default:
+		return fallbackStatus, service.ErrInternalServerError.Error()
+	}
+}
+
+func respondValidationError(c *gin.Context, err error) bool {
+	var requestValidationErr *validation.RequestValidationError
+	if !errors.As(err, &requestValidationErr) {
+		return false
+	}
+
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error":   "Validation failed",
+		"details": requestValidationErr.Problems(),
+	})
+	return true
 }

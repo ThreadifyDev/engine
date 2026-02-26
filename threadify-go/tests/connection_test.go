@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/threadify/engine/internal/service"
 )
 
 func TestConnectionService_BasicOperations(t *testing.T) {
-	conn := NewConnectionService()
+	conn := service.NewConnectionService()
 
 	// Test connection
 	err := conn.ConnectWithOwnerAndCompany("owner-123", "api-key-123", "test-service", "company-abc")
@@ -41,7 +42,7 @@ func TestConnectionService_BasicOperations(t *testing.T) {
 }
 
 func TestConnectionService_ConcurrentAccess(t *testing.T) {
-	conn := NewConnectionService()
+	conn := service.NewConnectionService()
 
 	// Test concurrent connections
 	for i := 0; i < 10; i++ {

@@ -15,15 +15,18 @@ type Graph struct {
 	Nodes         map[string]GraphNode `json:"nodes"`          // Key: step_id
 	EntryPoints   []string             `json:"entry_points"`   // Steps where threads can start
 	TerminalSteps []string             `json:"terminal_steps"` // Steps where threads end
+	FinalStep     string               `json:"final_step,omitempty"`
 }
 
 // GraphNode represents a step or parallel group in the workflow
 type GraphNode struct {
 	ID              string      `json:"id"`
 	Owner           string      `json:"owner,omitempty"` // Party that owns/executes this step (e.g., "merchant", "payment_processor")
+	Role            string      `json:"role,omitempty"`  // Deprecated alias for Owner (kept for backward compatibility)
 	Type            string      `json:"type"`            // "step" or "parallel_group"
 	Mode            string      `json:"mode,omitempty"`  // "all_of" or "any_of" for groups
 	Required        bool        `json:"required"`
+	DependsOn       []string    `json:"depends_on,omitempty"` // Steps that must complete before this step
 	Next            []string    `json:"next"`            // Steps that can be transitioned to from this step
 	Steps           []string    `json:"steps,omitempty"` // For parallel_group type
 	Timeout         string      `json:"timeout,omitempty"`
@@ -52,6 +55,8 @@ type ContractYAML struct {
 type Step struct {
 	ID              string           `yaml:"id" json:"ID"`
 	Owner           string           `yaml:"owner,omitempty" json:"Owner,omitempty"` // Party that owns/executes this step
+	Role            string           `yaml:"role,omitempty" json:"Role,omitempty"`   // Deprecated alias for Owner (kept for backward compatibility)
+	DependsOn       []string         `yaml:"depends_on,omitempty" json:"DependsOn,omitempty"`
 	Timeout         string           `yaml:"timeout,omitempty" json:"Timeout,omitempty"`
 	BusinessContext *BusinessContext `yaml:"business_context,omitempty" json:"BusinessContext,omitempty"`
 }

@@ -12,7 +12,7 @@ import (
 func TestCheckInvalidTransition(t *testing.T) {
 	tests := []struct {
 		name            string
-		thread          *models.Thread
+		currentSteps    []string
 		currentStep     string
 		transitions     []models.Transition
 		expectViolation bool
@@ -20,22 +20,18 @@ func TestCheckInvalidTransition(t *testing.T) {
 		expectedTo      string
 	}{
 		{
-			name: "valid transition",
-			thread: &models.Thread{
-				CurrentSteps: []string{"order_placed"},
-			},
-			currentStep: "payment_validated",
+			name:         "valid transition",
+			currentSteps: []string{"order_placed"},
+			currentStep:  "payment_validated",
 			transitions: []models.Transition{
 				{From: "order_placed", To: []string{"payment_validated", "order_cancelled"}},
 			},
 			expectViolation: false,
 		},
 		{
-			name: "invalid transition",
-			thread: &models.Thread{
-				CurrentSteps: []string{"order_placed"},
-			},
-			currentStep: "package_shipped",
+			name:         "invalid transition",
+			currentSteps: []string{"order_placed"},
+			currentStep:  "package_shipped",
 			transitions: []models.Transition{
 				{From: "order_placed", To: []string{"payment_validated"}},
 			},
@@ -44,19 +40,15 @@ func TestCheckInvalidTransition(t *testing.T) {
 			expectedTo:      "package_shipped",
 		},
 		{
-			name: "first step - no previous step",
-			thread: &models.Thread{
-				CurrentSteps: []string{},
-			},
+			name:            "first step - no previous step",
+			currentSteps:    []string{},
 			currentStep:     "order_placed",
 			transitions:     []models.Transition{},
 			expectViolation: false,
 		},
 		{
-			name: "no transition defined",
-			thread: &models.Thread{
-				CurrentSteps: []string{"order_placed"},
-			},
+			name:            "no transition defined",
+			currentSteps:    []string{"order_placed"},
 			currentStep:     "payment_validated",
 			transitions:     []models.Transition{},
 			expectViolation: true,
@@ -71,7 +63,7 @@ func TestCheckInvalidTransition(t *testing.T) {
 				Transitions: tt.transitions,
 			}
 
-			violation := checkInvalidTransition(tt.thread, tt.currentStep, graph)
+			violation := checkInvalidTransition(tt.currentSteps, tt.currentStep, graph)
 
 			if tt.expectViolation {
 				assert.NotNil(t, violation, "Expected violation but got none")
@@ -236,9 +228,6 @@ func TestCheckMultipleTerminalStates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			thread := &models.Thread{
-				CurrentSteps: tt.currentSteps,
-			}
 			graph := &models.ContractGraph{
 				Graph: models.Graph{
 					TerminalSteps: tt.terminalSteps,
@@ -249,7 +238,7 @@ func TestCheckMultipleTerminalStates(t *testing.T) {
 				},
 			}
 
-			violation := checkMultipleTerminalStates(thread, tt.currentStepName, graph)
+			violation := checkMultipleTerminalStates(tt.currentSteps, tt.currentStepName, graph)
 
 			if tt.expectViolation {
 				assert.NotNil(t, violation, "Expected violation but got none")
@@ -310,20 +299,6 @@ func TestCheckRetryLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			thread := &models.Thread{
-				CurrentSteps: []string{"order_placed"},
-				Steps:        make(map[string]*models.StepState),
-			}
-
-			if tt.idempotencyKey != "" {
-				storageKey := tt.stepName + ":" + tt.idempotencyKey
-				thread.Steps[storageKey] = &models.StepState{
-					StepName:       tt.stepName,
-					IdempotencyKey: tt.idempotencyKey,
-					RetryCount:     tt.retryCount,
-				}
-			}
-
 			graph := &models.ContractGraph{
 				Transitions: []models.Transition{
 					{
@@ -334,7 +309,7 @@ func TestCheckRetryLimit(t *testing.T) {
 				},
 			}
 
-			violation := checkRetryLimit(thread, tt.stepName, tt.idempotencyKey, graph)
+			violation := checkRetryLimit(tt.retryCount, tt.stepName, tt.idempotencyKey, graph)
 
 			if tt.expectViolation {
 				assert.NotNil(t, violation, "Expected violation but got none")

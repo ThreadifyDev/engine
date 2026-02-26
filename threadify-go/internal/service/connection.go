@@ -1,108 +1,118 @@
 package service
 
 import (
-	"log"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 )
 
-// ConnectionService implements the ConnectionManager interface with in-memory client tracking
+// ConnectionService implements the ConnectionManager interface with in-memory client tracking.
 type ConnectionService struct {
 	clients       map[string]*models.ConnectedClient
-	sessionCounts map[string]int // Track number of active sessions per ownerID
-	mu            sync.RWMutex   // Thread safety for concurrent access
+	sessionCounts map[string]int
+	mu            sync.RWMutex
+	logger        *zap.Logger
 }
 
-// NewConnectionService creates a new connection service
-func NewConnectionService() interfaces.ConnectionManager {
+// NewConnectionService creates a new connection service.
+func NewConnectionService(logger *zap.Logger) interfaces.ConnectionManager {
 	return &ConnectionService{
 		clients:       make(map[string]*models.ConnectedClient),
 		sessionCounts: make(map[string]int),
+		logger:        logger,
 	}
 }
 
-// ConnectWithOwnerAndCompany adds a new client connection with owner and company information
+// ConnectWithOwnerAndCompany registers a new client session.
+// If the owner is already connected, all fields are refreshed to reflect the latest connection.
+// Note: ApiKey is stored in plaintext in memory — consider storing only its hash.
 func (c *ConnectionService) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	client := &models.ConnectedClient{
-		OwnerID:          ownerID,
-		CompanyID:        companyID,
-		ApiKey:           apiKey,
-		ServiceName:      serviceName,
-		ConnectedAt:      time.Now(),
-		SubscribedEvents: []string{}, // Default empty events
-	}
-
-	// Store client in memory (or update if exists)
-	if _, exists := c.clients[ownerID]; !exists {
-		c.clients[ownerID] = client
+	if existing, exists := c.clients[ownerID]; exists {
+		existing.ConnectedAt = time.Now()
+		existing.ApiKey = apiKey
+		existing.ServiceName = serviceName
+		existing.CompanyID = companyID
 	} else {
-		// Update ConnectedAt to reflect latest connection
-		c.clients[ownerID].ConnectedAt = time.Now()
+		c.clients[ownerID] = &models.ConnectedClient{
+			OwnerID:          ownerID,
+			CompanyID:        companyID,
+			ApiKey:           apiKey,
+			ServiceName:      serviceName,
+			ConnectedAt:      time.Now(),
+			SubscribedEvents: []string{},
+		}
 	}
 
-	// Increment session count
 	c.sessionCounts[ownerID]++
-	log.Printf("[CONNECTION] Session connected for owner %s (total sessions: %d)", ownerID, c.sessionCounts[ownerID])
+	c.logger.Info("session connected",
+		zap.String("owner_id", ownerID),
+		zap.Int("total_sessions", c.sessionCounts[ownerID]),
+	)
 	return nil
 }
 
-// Disconnect removes a client connection (only removes if last session)
+// Disconnect decrements the session count for an owner.
+// The client entry is removed only when the last session closes.
 func (c *ConnectionService) Disconnect(ownerID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Decrement session count
-	if count, exists := c.sessionCounts[ownerID]; exists {
-		if count <= 1 {
-			// Last session closing, remove client
-			log.Printf("[CONNECTION] Last session disconnected for owner %s, removing client", ownerID)
-			delete(c.clients, ownerID)
-			delete(c.sessionCounts, ownerID)
-		} else if count > 1 {
-			// Other sessions still active, just decrement
-			c.sessionCounts[ownerID]--
-			log.Printf("[CONNECTION] Session disconnected for owner %s (remaining sessions: %d)", ownerID, c.sessionCounts[ownerID])
-		} else {
-			// Safety check: count should never be < 1
-			log.Printf("[CONNECTION] WARNING: Invalid session count %d for owner %s, cleaning up", count, ownerID)
-			delete(c.clients, ownerID)
-			delete(c.sessionCounts, ownerID)
-		}
-	} else {
-		log.Printf("[CONNECTION] WARNING: Disconnect called for non-existent owner %s", ownerID)
+	count, exists := c.sessionCounts[ownerID]
+	if !exists {
+		c.logger.Warn("disconnect called for unknown owner", zap.String("owner_id", ownerID))
+		return nil
 	}
+
+	switch {
+	case count > 1:
+		c.sessionCounts[ownerID]--
+		c.logger.Info("session disconnected",
+			zap.String("owner_id", ownerID),
+			zap.Int("remaining_sessions", c.sessionCounts[ownerID]),
+		)
+	case count == 1:
+		delete(c.clients, ownerID)
+		delete(c.sessionCounts, ownerID)
+		c.logger.Info("last session disconnected", zap.String("owner_id", ownerID))
+	default:
+		c.logger.Warn("invalid session count during disconnect",
+			zap.String("owner_id", ownerID),
+			zap.Int("count", count),
+		)
+		delete(c.clients, ownerID)
+		delete(c.sessionCounts, ownerID)
+	}
+
 	return nil
 }
 
-// GetClient retrieves a connected client by owner ID
+// GetClient retrieves a connected client by owner ID.
 func (c *ConnectionService) GetClient(ownerID string) (*models.ConnectedClient, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	client, exists := c.clients[ownerID]
 	return client, exists
 }
 
-// IsConnected checks if a client is connected
+// IsConnected reports whether a client currently has at least one active session.
 func (c *ConnectionService) IsConnected(ownerID string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	_, exists := c.clients[ownerID]
 	return exists
 }
 
-// GetClientCompany retrieves the company ID for a connected client
+// GetClientCompany returns the company ID for a connected client.
 func (c *ConnectionService) GetClientCompany(ownerID string) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	client, exists := c.clients[ownerID]
 	if !exists {
 		return "", false

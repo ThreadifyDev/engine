@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,209 +15,237 @@ import (
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"go.uber.org/zap"
 )
 
-// StepEventService handles step event processing with cryptographic hashing
-// Hash generation is now handled atomically via Lua scripts rather than in-memory cache
+// StepEventService handles step event processing with cryptographic hashing.
+// Hash generation is handled atomically via Lua scripts rather than in-memory cache.
 type StepEventService struct {
 	valkeyRepo    interfaces.ValkeyClient
 	threadRepo    *valkey.ThreadRepository
 	natsPublisher *natsrepo.ArchivalPublisher
 	config        *config.Config
+	logger        *zap.Logger
 }
 
-// NewStepEventService creates a new step event service
-func NewStepEventService(valkeyRepo interfaces.ValkeyClient, threadRepo *valkey.ThreadRepository, natsPublisher *natsrepo.ArchivalPublisher, cfg *config.Config, workers int, batchSize int, batchTimeout time.Duration) *StepEventService {
+// NewStepEventService creates a new step event service.
+func NewStepEventService(
+	valkeyRepo interfaces.ValkeyClient,
+	threadRepo *valkey.ThreadRepository,
+	natsPublisher *natsrepo.ArchivalPublisher,
+	cfg *config.Config,
+	logger *zap.Logger,
+) *StepEventService {
 	return &StepEventService{
 		valkeyRepo:    valkeyRepo,
 		threadRepo:    threadRepo,
 		natsPublisher: natsPublisher,
 		config:        cfg,
+		logger:        logger,
 	}
 }
 
-// Start begins the step event service (no-op for direct write mode)
-func (ses *StepEventService) Start() error {
-	return nil
-}
+// Start is a no-op for direct write mode.
+func (ses *StepEventService) Start() error { return nil }
 
-// Stop stops the step event service (no-op for direct write mode)
-func (ses *StepEventService) Stop() error {
-	return nil
-}
+// Stop is a no-op for direct write mode.
+func (ses *StepEventService) Stop() error { return nil }
 
-// loadLuaScript loads a Lua script from the lua/ directory
+// loadLuaScript loads a Lua script from the valkey/lua directory.
 func loadLuaScript(filename string) (string, error) {
-	// Try multiple possible paths (handles different working directories)
-	possiblePaths := []string{
+	paths := []string{
 		filepath.Join("internal", "repository", "valkey", "lua", filename),
 		filepath.Join("threadify-go", "internal", "repository", "valkey", "lua", filename),
-		filepath.Join("/Users/martins2/Downloads/ThreadifyEngine/threadify-go", "internal", "repository", "valkey", "lua", filename),
 	}
-
-	for _, path := range possiblePaths {
+	for _, path := range paths {
 		if data, err := os.ReadFile(path); err == nil {
 			return string(data), nil
 		}
 	}
-
 	return "", fmt.Errorf("failed to load Lua script: %s", filename)
 }
 
-// RecordStepEventDirect records a step event immediately without batching
-// Also processes sub-steps if provided
-func (ses *StepEventService) RecordStepEventDirect(event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
-	// Track overall step event latency
+// RecordStepEventDirect records a step event immediately without batching.
+// Also processes sub-steps if provided.
+func (ses *StepEventService) RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
 	startTime := perf.Now()
 	stepEventID := fmt.Sprintf("%s:%s:%s", event.ThreadID, event.StepName, event.IdempotencyKey)
-	perf.Log("[PERF] StepEvent START: %s | thread=%s | step=%s", stepEventID, event.ThreadID, event.StepName)
-
+	perf.LogStructured("StepEvent START",
+		zap.String("event_id", stepEventID),
+		zap.String("thread", event.ThreadID),
+		zap.String("step", event.StepName),
+	)
 	defer func() {
-		duration := perf.Since(startTime)
-		perf.Log("[PERF] StepEvent COMPLETE: %s | duration=%v", stepEventID, duration)
+		perf.LogStructured("StepEvent COMPLETE",
+			zap.String("event_id", stepEventID),
+			zap.Duration("duration", perf.Since(startTime)),
+		)
 	}()
 
-	// 1. Validate the step event
+	// 1. Validate.
 	validationStart := perf.Now()
 	if err := ses.validateStepEvent(event); err != nil {
-		// User input validation errors are safe to expose with context
-		perf.Log("[PERF] StepEvent VALIDATION FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(validationStart), err)
+		perf.LogStructured("StepEvent VALIDATION FAILED",
+			zap.String("event_id", stepEventID),
+			zap.Duration("duration", perf.Since(validationStart)),
+			zap.Error(err),
+		)
 		return fmt.Errorf("invalid step data: %w", err)
 	}
-	perf.Log("[PERF] StepEvent VALIDATION: %s | duration=%v", stepEventID, perf.Since(validationStart))
+	perf.LogStructured("StepEvent VALIDATION",
+		zap.String("event_id", stepEventID),
+		zap.Duration("duration", perf.Since(validationStart)),
+	)
 
-	// 2. Execute atomic hash generation via Lua script
+	// 2. Atomic hash generation via Lua script.
 	hashStart := perf.Now()
-	hashResult, err := ses.executeAtomicHashScript(event, ownerID, serviceName)
-	hashDuration := perf.Since(hashStart)
-	perf.Log("[PERF] StepEvent HASH_GENERATION: %s | duration=%v | success=%t", stepEventID, hashDuration, err == nil)
-
+	hashResult, err := ses.executeAtomicHashScript(ctx, event, ownerID, serviceName)
+	perf.LogStructured("StepEvent HASH_GENERATION",
+		zap.String("event_id", stepEventID),
+		zap.Duration("duration", perf.Since(hashStart)),
+		zap.Bool("success", err == nil),
+	)
 	if err != nil {
-		return err // Already sanitized by executeAtomicHashScript
+		return err // already sanitised by executeAtomicHashScript
 	}
 
-	// 3. Send activity event to NATS for archival (SYNCHRONOUS - critical for audit trail)
-	// Skip if NATS publisher is not available (graceful degradation)
+	// 3. Publish activity event to NATS (SYNCHRONOUS — critical for audit trail).
 	if ses.natsPublisher != nil {
 		natsStart := perf.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		natsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		activityEvent := ses.createActivityEvent(hashResult, event, ownerID, serviceName)
-
-		if err := ses.natsPublisher.PublishActivityLog(ctx, activityEvent); err != nil {
-			natsDuration := perf.Since(natsStart)
-			perf.Log("[PERF] StepEvent NATS_PUBLISH FAILED: %s | duration=%v | error=%v", stepEventID, natsDuration, err)
-			logInternalErrorWithDetails("PublishActivityLog", fmt.Sprintf("stepId=%s", event.StepID), err)
+		if err := ses.natsPublisher.PublishActivityLog(natsCtx, ses.createActivityEvent(hashResult, event, ownerID, serviceName)); err != nil {
+			perf.LogStructured("StepEvent NATS_PUBLISH FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Duration("duration", perf.Since(natsStart)),
+				zap.Error(err),
+			)
+			ses.logger.Error("nats_publish failed", zap.String("step_id", event.StepID), zap.Error(err))
 		} else {
-			perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | duration=%v", stepEventID, perf.Since(natsStart))
+			perf.LogStructured("StepEvent NATS_PUBLISH",
+				zap.String("event_id", stepEventID),
+				zap.Duration("duration", perf.Since(natsStart)),
+			)
 		}
 	} else {
-		perf.Log("[PERF] StepEvent NATS_PUBLISH: %s | SKIPPED (no publisher)", stepEventID)
+		perf.LogStructured("StepEvent NATS_PUBLISH SKIPPED", zap.String("event_id", stepEventID))
 	}
 
-	// 4. Process sub-steps if provided
+	// 4. Process sub-steps.
 	if len(subSteps) > 0 && ses.natsPublisher != nil {
 		subStepsStart := perf.Now()
-		if err := ses.processSubSteps(event.ThreadID, event.StepID, subSteps); err != nil {
-			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS FAILED: %s | duration=%v | error=%v", stepEventID, perf.Since(subStepsStart), err)
-			// Don't fail the main step if sub-steps fail
+		if err := ses.processSubSteps(ctx, event.ThreadID, event.StepID, subSteps); err != nil {
+			perf.LogStructured("StepEvent SUBSTEPS_PROCESS FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Duration("duration", perf.Since(subStepsStart)),
+				zap.Error(err),
+			)
+			// Sub-step failure does not fail the main step.
 		} else {
-			perf.Log("[PERF] StepEvent SUBSTEPS_PROCESS: %s | count=%d | duration=%v", stepEventID, len(subSteps), perf.Since(subStepsStart))
+			perf.LogStructured("StepEvent SUBSTEPS_PROCESS",
+				zap.String("event_id", stepEventID),
+				zap.Int("count", len(subSteps)),
+				zap.Duration("duration", perf.Since(subStepsStart)),
+			)
 		}
 	}
 
 	return nil
 }
 
-// processSubSteps publishes sub-steps to NATS for archival
-func (ses *StepEventService) processSubSteps(threadID, stepID string, subSteps []models.SubStepRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// processSubSteps publishes sub-steps to NATS as a batch for archival.
+func (ses *StepEventService) processSubSteps(ctx context.Context, threadID, stepID string, subSteps []models.SubStepRequest) error {
+	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Create sub-step events for NATS
-	subStepEvents := make([]map[string]interface{}, 0, len(subSteps))
-
-	for _, subStep := range subSteps {
-		// Parse recordedAt timestamp
-		recordedAt, err := time.Parse(time.RFC3339, subStep.RecordedAt)
+	events := make([]map[string]interface{}, 0, len(subSteps))
+	for _, ss := range subSteps {
+		recordedAt, err := time.Parse(time.RFC3339, ss.RecordedAt)
 		if err != nil {
-			log.Printf("[WARN] Invalid sub-step recordedAt timestamp: %v", err)
+			ses.logger.Warn("invalid sub-step recordedAt, using current time", zap.Error(err))
 			recordedAt = time.Now()
 		}
-
-		subStepEvent := map[string]interface{}{
+		events = append(events, map[string]interface{}{
 			"thread_id":   threadID,
 			"step_id":     stepID,
-			"name":        subStep.Name,
-			"status":      subStep.Status,
-			"payload":     subStep.Payload,
+			"name":        ss.Name,
+			"status":      ss.Status,
+			"payload":     ss.Payload,
 			"recorded_at": recordedAt.Format(time.RFC3339Nano),
-		}
-		subStepEvents = append(subStepEvents, subStepEvent)
+		})
 	}
 
-	// Publish all sub-steps as a batch
-	batchEvent := map[string]interface{}{
+	return ses.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
 		"type":      "substeps_batch",
 		"thread_id": threadID,
 		"step_id":   stepID,
-		"substeps":  subStepEvents,
-	}
-
-	return ses.natsPublisher.PublishActivityLog(ctx, batchEvent)
+		"substeps":  events,
+	})
 }
 
-// HashResult contains the result of atomic hash generation
+// HashResult contains the result of atomic hash generation.
 type HashResult struct {
 	OldHash  string
 	NewHash  string
 	ThreadID string
 }
 
-// executeAtomicHashScript performs atomic hash generation and thread metadata update via Lua script
-// This MUST be atomic to prevent race conditions in the hash chain
-func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
+// executeAtomicHashScript performs atomic hash generation and thread metadata update via Lua script.
+// This MUST be atomic to prevent race conditions in the hash chain.
+func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
 	stepEventID := event.ThreadID + ":" + event.StepName + ":" + event.IdempotencyKey
 
-	// Get hash configuration
 	version := ses.config.Security.HashChainCurrentVersion
 	if version == "" {
-		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | version not configured", stepEventID)
-		logInternalError("executeAtomicHashScript", fmt.Errorf("hash_chain_current_version not configured"))
-		return nil, fmt.Errorf("failed to process step event")
+		perf.LogStructured("StepEvent HASH_CALC_FAILED",
+			zap.String("event_id", stepEventID),
+			zap.String("reason", "version not configured"),
+		)
+		ses.logger.Error("hash_chain_current_version not configured")
+		return nil, ErrFailedToProcessStep
 	}
 
 	secret := ses.config.Security.HashChainSecrets[version]
 	if secret == "" {
-		perf.Log("[PERF] StepEvent HASH_CALC_FAILED: %s | secret version %s not configured", stepEventID, version)
-		logInternalError("executeAtomicHashScript", fmt.Errorf("hash secret version %s not configured", version))
-		return nil, fmt.Errorf("failed to process step event")
+		perf.LogStructured("StepEvent HASH_CALC_FAILED",
+			zap.String("event_id", stepEventID),
+			zap.String("reason", fmt.Sprintf("secret version %s not configured", version)),
+		)
+		ses.logger.Error("hash secret mapping missing", zap.String("version", version))
+		return nil, ErrFailedToProcessStep
 	}
 
-	// Get old hash, calculate new hash, and update - with retry on race condition
-	var oldHash, newHash string
-	maxRetries := 3
-	atomicStart := perf.Now()
+	// Load scripts once before the retry loop — content never changes between attempts.
+	getScript, err := loadLuaScript("get_thread_hash.lua")
+	if err != nil {
+		ses.logger.Error("failed to load get_thread_hash.lua", zap.Error(err))
+		return nil, sanitizeError(err)
+	}
+	updateScript, err := loadLuaScript("update_thread_hash.lua")
+	if err != nil {
+		ses.logger.Error("failed to load update_thread_hash.lua", zap.Error(err))
+		return nil, sanitizeError(err)
+	}
+
 	threadKey := "thread:" + event.ThreadID
+	recordedAt := event.Timestamp.Format(time.RFC3339Nano)
+	const maxRetries = 3
+	atomicStart := perf.Now()
+
+	var oldHash, newHash string
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// Load and execute get hash script
-		getScript, err := loadLuaScript("get_thread_hash.lua")
+		// Fetch current hash.
+		result, err := ses.valkeyRepo.Eval(ctx, getScript, []string{threadKey})
 		if err != nil {
-			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.LogStructured("StepEvent GET_HASH FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Int("attempt", attempt+1),
+				zap.Error(err),
+			)
 			if attempt == maxRetries-1 {
-				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
-				return nil, sanitizeError(err)
-			}
-			continue
-		}
-
-		result, err := ses.valkeyRepo.Eval(context.Background(), getScript, []string{threadKey})
-		if err != nil {
-			perf.Log("[PERF] StepEvent GET_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
-			if attempt == maxRetries-1 {
-				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				ses.logger.Error("get hash eval failed", zap.String("thread_id", event.ThreadID), zap.Error(err))
 				return nil, sanitizeError(err)
 			}
 			continue
@@ -226,83 +253,65 @@ func (ses *StepEventService) executeAtomicHashScript(event models.StepEvent, own
 
 		resultSlice, ok := result.([]interface{})
 		if !ok || len(resultSlice) < 1 {
-			perf.Log("[PERF] StepEvent LUA_PARSE_FAILED: %s | unexpected result format: %v", stepEventID, result)
-			return nil, fmt.Errorf("failed to process step event")
+			perf.LogStructured("StepEvent LUA_PARSE_FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Any("result", result),
+			)
+			return nil, ErrFailedToProcessStep
 		}
-
 		oldHash, _ = resultSlice[0].(string)
 
-		// Calculate new hash using contentHash for content integrity verification
-		// Note: event.Timestamp becomes recorded_at in PostgreSQL, so formats must match exactly
-		recordedAt := event.Timestamp.Format(time.RFC3339Nano)
+		// Compute new hash.
 		h := hmac.New(sha256.New, []byte(secret))
-		hashData := oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.ContentHash + ":" + recordedAt
-		h.Write([]byte(hashData))
-		newHash = "hmac-sha256-" + version + ":" + fmt.Sprintf("%x", h.Sum(nil))
+		h.Write([]byte(oldHash + ":" + event.ThreadID + ":" + event.StepID + ":" + event.StepName + ":" + event.ContentHash + ":" + recordedAt))
+		newHash = fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
-		// Load and execute update hash script with optimistic locking
-		updateScript, err := loadLuaScript("update_thread_hash.lua")
+		// Attempt atomic update with optimistic locking.
+		result, err = ses.valkeyRepo.Eval(ctx, updateScript, []string{threadKey}, oldHash, newHash, version)
 		if err != nil {
-			perf.Log("[PERF] StepEvent LOAD_SCRIPT_FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
+			perf.LogStructured("StepEvent UPDATE_HASH FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Int("attempt", attempt+1),
+				zap.Error(err),
+			)
 			if attempt == maxRetries-1 {
-				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
+				ses.logger.Error("update hash eval failed", zap.String("thread_id", event.ThreadID), zap.Error(err))
 				return nil, sanitizeError(err)
 			}
 			continue
 		}
 
-		result, err = ses.valkeyRepo.Eval(
-			context.Background(),
-			updateScript,
-			[]string{threadKey},
-			oldHash,
-			newHash,
-			version,
-		)
-
-		if err != nil {
-			perf.Log("[PERF] StepEvent UPDATE_HASH FAILED: %s | attempt=%d | error=%v", stepEventID, attempt+1, err)
-			if attempt == maxRetries-1 {
-				logInternalErrorWithDetails("executeAtomicHashScript", "threadId="+event.ThreadID, err)
-				return nil, sanitizeError(err)
-			}
-			continue
-		}
-
-		// Check if update succeeded
 		updateResult, ok := result.([]interface{})
 		if !ok || len(updateResult) < 1 {
-			perf.Log("[PERF] StepEvent UPDATE_PARSE_FAILED: %s | unexpected result: %v", stepEventID, result)
-			return nil, fmt.Errorf("failed to process step event")
+			perf.LogStructured("StepEvent UPDATE_PARSE_FAILED",
+				zap.String("event_id", stepEventID),
+				zap.Any("result", result),
+			)
+			return nil, ErrFailedToProcessStep
 		}
 
-		success, _ := updateResult[0].(int64)
-		if success == 1 {
-			// Success!
-			atomicDuration := perf.Since(atomicStart)
-			perf.Log("[PERF] StepEvent ATOMIC_HASH: %s | duration=%v | attempts=%d", stepEventID, atomicDuration, attempt+1)
-			break
+		if success, _ := updateResult[0].(int64); success == 1 {
+			perf.LogStructured("StepEvent ATOMIC_HASH",
+				zap.String("event_id", stepEventID),
+				zap.Duration("duration", perf.Since(atomicStart)),
+				zap.Int("attempts", attempt+1),
+			)
+			return &HashResult{OldHash: oldHash, NewHash: newHash, ThreadID: event.ThreadID}, nil
 		}
 
-		// Race condition detected, retry
-		perf.Log("[PERF] StepEvent HASH_RACE_DETECTED: %s | attempt=%d | retrying...", stepEventID, attempt+1)
-		if attempt == maxRetries-1 {
-			return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
-		}
+		// Hash changed between get and update — retry.
+		perf.LogStructured("StepEvent HASH_RACE_DETECTED",
+			zap.String("event_id", stepEventID),
+			zap.Int("attempt", attempt+1),
+		)
 	}
 
-	return &HashResult{
-		OldHash:  oldHash,
-		NewHash:  newHash,
-		ThreadID: event.ThreadID,
-	}, nil
+	return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
 }
 
-// createActivityEvent creates an activity event with all required fields for NATS publishing
+// createActivityEvent builds the activity event payload for NATS publishing.
 func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
-	timestampStr := event.Timestamp.Format(time.RFC3339Nano)
-
-	activityValues := map[string]interface{}{
+	return map[string]interface{}{
 		"type":            "step_recorded",
 		"thread_id":       event.ThreadID,
 		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
@@ -310,7 +319,7 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"step_uuid":       event.StepID,
 		"idempotency_key": event.IdempotencyKey,
 		"content_hash":    event.ContentHash,
-		"timestamp":       timestampStr,
+		"timestamp":       event.Timestamp.Format(time.RFC3339Nano),
 		"context":         event.ContextJSON(),
 		"actor":           ownerID,
 		"actor_service":   serviceName,
@@ -320,19 +329,17 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"started_at":      event.StartedAt,
 		"finished_at":     event.FinishedAt,
 	}
-
-	return activityValues
 }
 
 func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
 	if event.StepID == "" {
-		return fmt.Errorf("step_id is required")
+		return ErrStepIdRequired
 	}
 	if event.ThreadID == "" {
-		return fmt.Errorf("thread_id is required")
+		return ErrThreadIdRequired
 	}
 	if event.Context == nil {
-		return fmt.Errorf("context is required")
+		return ErrContextRequired
 	}
 	return nil
 }

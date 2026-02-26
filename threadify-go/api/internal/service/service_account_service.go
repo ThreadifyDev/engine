@@ -1,12 +1,16 @@
 package service
 
 import (
-	"errors"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
 	"time"
 )
+
+var validServiceAccountRoles = map[string]bool{
+	"standard_service": true,
+	"reader":           true,
+}
 
 type ServiceAccountService struct {
 	serviceAccountRepo *repository.ServiceAccountRepository
@@ -26,25 +30,24 @@ func NewServiceAccountService(
 type CreateServiceAccountRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	Description *string `json:"description"`
-	Role        string  `json:"role" binding:"required"` // e.g., "owner", "participant", "observer"
+	Role        string  `json:"role" binding:"required"`
+}
+
+type UpdateServiceAccountRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	IsActive    *bool   `json:"is_active"`
 }
 
 func (s *ServiceAccountService) CreateServiceAccount(companyID, createdBy string, req *CreateServiceAccountRequest) (*models.ServiceAccount, error) {
-	// Validate name
 	if req.Name == "" {
-		return nil, errors.New("service account name is required")
+		return nil, ErrServiceAccountNameRequired
+	}
+	if !validServiceAccountRoles[req.Role] {
+		return nil, ErrInvalidRoleAPI
 	}
 
-	// Validate role - service accounts get app_level roles
-	validRoles := map[string]bool{
-		"standard_service": true,
-		"reader":           true,
-	}
-	if !validRoles[req.Role] {
-		return nil, errors.New("invalid role: must be 'standard_service' or 'reader'")
-	}
-
-	// Create service account
+	now := time.Now()
 	sa := &models.ServiceAccount{
 		ID:          utils.GenerateID(),
 		CompanyID:   companyID,
@@ -52,19 +55,15 @@ func (s *ServiceAccountService) CreateServiceAccount(companyID, createdBy string
 		Description: req.Description,
 		IsActive:    true,
 		CreatedBy:   &createdBy,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.serviceAccountRepo.Create(sa); err != nil {
 		return nil, err
 	}
-
-	// Assign role to service account
 	if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, req.Role, createdBy); err != nil {
-		// Log error but don't fail creation - role can be assigned later
-		// TODO: Consider rolling back service account creation on role assignment failure
-		return nil, errors.New("failed to assign role to service account")
+		return nil, ErrFailedToAssignRole
 	}
 
 	return sa, nil
@@ -80,18 +79,12 @@ func (s *ServiceAccountService) GetServiceAccount(id, companyID string) (*models
 		return nil, err
 	}
 	if sa == nil {
-		return nil, errors.New("service account not found")
+		return nil, ErrServiceAccountNotFound
 	}
 	if sa.CompanyID != companyID {
-		return nil, errors.New("unauthorized")
+		return nil, ErrUnauthorized
 	}
 	return sa, nil
-}
-
-type UpdateServiceAccountRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
 }
 
 func (s *ServiceAccountService) UpdateServiceAccount(id, companyID string, req *UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
@@ -100,7 +93,6 @@ func (s *ServiceAccountService) UpdateServiceAccount(id, companyID string, req *
 		return nil, err
 	}
 
-	// Update fields
 	if req.Name != nil {
 		sa.Name = *req.Name
 	}
@@ -124,15 +116,6 @@ func (s *ServiceAccountService) DeleteServiceAccount(id, companyID string) error
 	if err != nil {
 		return err
 	}
-
-	// Check if service account has any active API keys
-	// TODO: Add check for active API keys
-
+	// TODO: check for active API keys before deleting
 	return s.serviceAccountRepo.Delete(sa.ID)
-}
-
-// GetPermissions is deprecated - use role-based permissions instead
-// This method is kept for backward compatibility but should not be used
-func (s *ServiceAccountService) GetPermissions(roleStr string) ([]models.Permission, error) {
-	return nil, errors.New("deprecated: use role-based permissions instead")
 }

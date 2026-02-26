@@ -1,7 +1,7 @@
 package config
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"time"
 
@@ -39,18 +39,32 @@ type Config struct {
 	RateLimitWindow   time.Duration
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
 	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
+	err := godotenv.Load() // ignore error, default to environment variables
+	if err != nil {
+		return nil, fmt.Errorf("load .env file: %w", err)
+	}
+
+	jwtExp, err := parseDuration(getEnv("JWT_EXPIRATION", "15m"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid JWT_EXPIRATION: %w", err)
+	}
+	refreshTokenExp, err := parseDuration(getEnv("REFRESH_TOKEN_EXPIRATION", "168h"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid REFRESH_TOKEN_EXPIRATION: %w", err)
+	}
+	apiKeyTTL, err := parseDuration(getEnv("API_KEY_TTL", "8760h"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid API_KEY_TTL: %w", err)
 	}
 
 	return &Config{
 		DatabaseURL:               getEnv("DATABASE_URL", "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"),
 		JWTSecret:                 getEnv("JWT_SECRET", "dev-secret-key"),
-		JWTExpiration:             parseDuration(getEnv("JWT_EXPIRATION", "15m")),
-		RefreshTokenExpiration:    parseDuration(getEnv("REFRESH_TOKEN_EXPIRATION", "168h")), // 7 days
-		APIKeyTTL:                 parseDuration(getEnv("API_KEY_TTL", "8760h")),             // 365 days
+		JWTExpiration:             jwtExp,
+		RefreshTokenExpiration:    refreshTokenExp, // 7 days
+		APIKeyTTL:                 apiKeyTTL,       // 365 days
 		PlunkAPIKey:               getEnv("PLUNK_API_KEY", ""),
 		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.com"),
 		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "http://localhost:8081"),
@@ -61,7 +75,7 @@ func Load() *Config {
 		FrontendURL:               getEnv("FRONTEND_URL", "http://localhost:3000"),
 		RateLimitRequests:         100,
 		RateLimitWindow:           time.Minute,
-	}
+	}, nil
 }
 
 func getEnv(key, defaultValue string) string {
@@ -71,10 +85,10 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func parseDuration(s string) time.Duration {
+func parseDuration(s string) (time.Duration, error) {
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		log.Fatalf("Invalid duration: %s", s)
+		return 0, fmt.Errorf("invalid duration %s", s)
 	}
-	return d
+	return d, nil
 }

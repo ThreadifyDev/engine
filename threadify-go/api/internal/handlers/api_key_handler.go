@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"threadify-go/api/internal/service"
 
@@ -30,7 +31,11 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 	response, err := h.apiKeyService.CreateAPIKey(userID.(string), companyID.(string), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrApiKeyNameRequired) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
