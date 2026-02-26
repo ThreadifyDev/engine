@@ -129,7 +129,8 @@ func (s *EmailService) send(ctx context.Context, payload plunkEmailRequest) erro
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		errMsg := strings.TrimSpace(string(body))
+		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, errMsg)
 	}
 
 	return nil

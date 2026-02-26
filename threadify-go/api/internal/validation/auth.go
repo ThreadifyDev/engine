@@ -1,13 +1,13 @@
 package validation
 
 import (
-	"fmt"
 	"net/mail"
 	"regexp"
 	"strings"
-	"threadify-go/api/internal/models"
 	"unicode"
 	"unicode/utf8"
+
+	"threadify-go/api/internal/models"
 )
 
 const (
@@ -36,6 +36,13 @@ var allowedCompanySizes = map[string]struct{}{
 	"enterprise": {},
 }
 
+var fieldLabels = map[string]string{
+	"full_name": "Full name",
+	"job_role":  "Job role",
+	"industry":  "Industry",
+	"use_case":  "Use case",
+}
+
 type FieldError struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
@@ -46,14 +53,14 @@ type RequestValidationError struct {
 }
 
 func (e *RequestValidationError) Error() string {
-	if e == nil || len(e.problems) == 0 {
+	if len(e.problems) == 0 {
 		return "validation failed"
 	}
-	return fmt.Sprintf("validation failed: %s", e.problems[0].Message)
+	return "validation failed: " + e.problems[0].Message
 }
 
 func (e *RequestValidationError) Problems() []FieldError {
-	if e == nil || len(e.problems) == 0 {
+	if len(e.problems) == 0 {
 		return nil
 	}
 	out := make([]FieldError, len(e.problems))
@@ -62,7 +69,7 @@ func (e *RequestValidationError) Problems() []FieldError {
 }
 
 func (e *RequestValidationError) FirstMessage() string {
-	if e == nil || len(e.problems) == 0 {
+	if len(e.problems) == 0 {
 		return "Invalid request"
 	}
 	return e.problems[0].Message
@@ -73,10 +80,7 @@ type validationBuilder struct {
 }
 
 func (b *validationBuilder) add(field, message string) {
-	b.problems = append(b.problems, FieldError{
-		Field:   field,
-		Message: message,
-	})
+	b.problems = append(b.problems, FieldError{Field: field, Message: message})
 }
 
 func (b *validationBuilder) err() error {
@@ -98,7 +102,6 @@ func ValidateSignupRequest(req *models.SignupRequest) error {
 
 	req.CompanyName = strings.TrimSpace(req.CompanyName)
 	validateCompanyName(req.CompanyName, b)
-
 	validatePassword(req.Password, b)
 
 	req.FullName = normalizeOptionalText("full_name", req.FullName, maxFullNameLen, namePattern, b)
@@ -137,10 +140,8 @@ func ValidateForgotPasswordRequest(req *models.ForgotPasswordRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	req.Email = normalizeEmail(req.Email)
 	validateEmail("email", req.Email, b)
-
 	return b.err()
 }
 
@@ -150,58 +151,40 @@ func ValidateResetPasswordRequest(req *models.ResetPasswordRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	if strings.TrimSpace(req.Token) == "" {
 		b.add("token", "Reset token is required")
 	}
-
 	validatePassword(req.Password, b)
-
 	return b.err()
 }
+
 func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
-
 	if strings.TrimSpace(req.Token) == "" {
 		b.add("token", "Verification token is required")
 	}
-
 	return b.err()
 }
 
-func normalizeEmail(email string) string {
-	return strings.ToLower(strings.TrimSpace(email))
-}
-
 func validateEmail(field, email string, b *validationBuilder) {
-	if email == "" {
+	switch {
+	case email == "":
 		b.add(field, "Email is required")
-		return
-	}
-	if len(email) > maxEmailLength {
+	case len(email) > maxEmailLength:
 		b.add(field, "Email exceeds maximum length")
-		return
-	}
-	if strings.ContainsAny(email, " \t\r\n") {
+	case strings.ContainsAny(email, " \t\r\n"):
 		b.add(field, "Email must not contain spaces")
-		return
-	}
-	if !utf8.ValidString(email) || hasControlChars(email) {
+	case !utf8.ValidString(email) || hasControlChars(email):
 		b.add(field, "Email contains invalid characters")
-		return
-	}
-
-	parsed, err := mail.ParseAddress(email)
-	if err != nil || parsed == nil || !strings.EqualFold(parsed.Address, email) {
-		b.add(field, "Email format is invalid")
-		return
-	}
-	if !emailPattern.MatchString(email) {
-		b.add(field, "Email format is invalid")
+	default:
+		parsed, err := mail.ParseAddress(email)
+		if err != nil || parsed == nil || !strings.EqualFold(parsed.Address, email) || !emailPattern.MatchString(email) {
+			b.add(field, "Email format is invalid")
+		}
 	}
 }
 
@@ -210,7 +193,8 @@ func validateCompanyName(name string, b *validationBuilder) {
 		b.add("company_name", "Company name is required")
 		return
 	}
-	if utf8.RuneCountInString(name) < minCompanyNameLen || utf8.RuneCountInString(name) > maxCompanyNameLen {
+	runeLen := utf8.RuneCountInString(name)
+	if runeLen < minCompanyNameLen || runeLen > maxCompanyNameLen {
 		b.add("company_name", "Company name length is invalid")
 		return
 	}
@@ -220,53 +204,53 @@ func validateCompanyName(name string, b *validationBuilder) {
 }
 
 func validatePassword(password string, b *validationBuilder) {
-	if password == "" {
+	switch {
+	case password == "":
 		b.add("password", "Password is required")
 		return
-	}
-	if strings.TrimSpace(password) != password {
+	case strings.TrimSpace(password) != password:
 		b.add("password", "Password must not have leading or trailing spaces")
-	}
-	if strings.ContainsFunc(password, unicode.IsSpace) {
+		return
+	case strings.ContainsFunc(password, unicode.IsSpace):
 		b.add("password", "Password must not contain whitespace")
-	}
-	if len(password) < minPasswordLength {
+		return
+	case len(password) < minPasswordLength:
 		b.add("password", "Password must be at least 12 characters")
-	}
-	if len(password) > maxPasswordLength {
+		return
+	case len(password) > maxPasswordLength:
 		b.add("password", "Password exceeds maximum length")
-	}
-	if hasControlChars(password) {
+		return
+	case hasControlChars(password):
 		b.add("password", "Password contains invalid characters")
+		return
 	}
 
-	hasUpper := strings.IndexFunc(password, unicode.IsUpper) >= 0
-	hasLower := strings.IndexFunc(password, unicode.IsLower) >= 0
-	hasDigit := strings.IndexFunc(password, unicode.IsDigit) >= 0
-	hasSpecial := strings.IndexFunc(password, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !unicode.IsSpace(r)
-	}) >= 0
-
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+		if hasUpper && hasLower && hasDigit && hasSpecial {
+			break
+		}
+	}
 	if !hasUpper || !hasLower || !hasDigit || !hasSpecial {
 		b.add("password", "Password must include upper, lower, number, and special character")
 	}
 }
 
+// -- normalizers (unchanged) --
+
 func normalizeOptionalText(field, value string, maxLen int, pattern *regexp.Regexp, b *validationBuilder) string {
 	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-	if utf8.RuneCountInString(trimmed) > maxLen {
-		b.add(field, fmt.Sprintf("%s exceeds maximum length", displayField(field)))
-		return ""
-	}
-	if hasControlChars(trimmed) {
-		b.add(field, fmt.Sprintf("%s contains invalid characters", displayField(field)))
-		return ""
-	}
-	if pattern != nil && !pattern.MatchString(trimmed) {
-		b.add(field, fmt.Sprintf("%s contains invalid characters", displayField(field)))
+	if trimmed == "" || !validateOptional(field, trimmed, maxLen, pattern, b) {
 		return ""
 	}
 	return trimmed
@@ -277,22 +261,26 @@ func normalizeOptionalPointer(field string, value *string, maxLen int, pattern *
 		return nil
 	}
 	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(trimmed) > maxLen {
-		b.add(field, fmt.Sprintf("%s exceeds maximum length", displayField(field)))
-		return nil
-	}
-	if hasControlChars(trimmed) {
-		b.add(field, fmt.Sprintf("%s contains invalid characters", displayField(field)))
-		return nil
-	}
-	if pattern != nil && !pattern.MatchString(trimmed) {
-		b.add(field, fmt.Sprintf("%s contains invalid characters", displayField(field)))
+	if trimmed == "" || !validateOptional(field, trimmed, maxLen, pattern, b) {
 		return nil
 	}
 	return &trimmed
+}
+
+func validateOptional(field, value string, maxLen int, pattern *regexp.Regexp, b *validationBuilder) bool {
+	label := displayField(field)
+	switch {
+	case utf8.RuneCountInString(value) > maxLen:
+		b.add(field, label+" exceeds maximum length")
+		return false
+	case hasControlChars(value):
+		b.add(field, label+" contains invalid characters")
+		return false
+	case pattern != nil && !pattern.MatchString(value):
+		b.add(field, label+" contains invalid characters")
+		return false
+	}
+	return true
 }
 
 func normalizeCompanySize(value *string, b *validationBuilder) *string {
@@ -310,6 +298,10 @@ func normalizeCompanySize(value *string, b *validationBuilder) *string {
 	return &normalized
 }
 
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 func hasControlChars(v string) bool {
 	for _, r := range v {
 		if unicode.IsControl(r) {
@@ -320,16 +312,8 @@ func hasControlChars(v string) bool {
 }
 
 func displayField(field string) string {
-	switch field {
-	case "full_name":
-		return "Full name"
-	case "job_role":
-		return "Job role"
-	case "industry":
-		return "Industry"
-	case "use_case":
-		return "Use case"
-	default:
-		return field
+	if label, ok := fieldLabels[field]; ok {
+		return label
 	}
+	return field
 }

@@ -7,16 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/service"
+
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
+)
+
+const (
+	eventStreamContentType = "text/event-stream"
+	cacheControlNoCache    = "no-cache"
+	connectionKeepAlive    = "keep-alive"
 )
 
 type ChatRequest struct {
@@ -33,19 +41,25 @@ type AgentHandler struct {
 	maxMessages        int
 	maxTokens          int
 	summaryMaxTokens   int
+	logger             *zap.Logger
 }
 
-func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *repository.AgentRepository, maxMessages, maxTokens, summaryMaxTokens int) *AgentHandler {
-	client := openai.NewClient(apiKey)
-
+func NewAgentHandler(
+	threadifyEngineURL string,
+	apiKey string,
+	agentRepo *repository.AgentRepository,
+	maxMessages, maxTokens, summaryMaxTokens int,
+	logger *zap.Logger,
+) *AgentHandler {
 	return &AgentHandler{
 		threadifyEngineURL: threadifyEngineURL,
-		httpClient:         &http.Client{},
-		openaiClient:       client,
+		httpClient:         &http.Client{Timeout: 30 * time.Second},
+		openaiClient:       openai.NewClient(apiKey),
 		agentRepo:          agentRepo,
 		maxMessages:        maxMessages,
 		maxTokens:          maxTokens,
 		summaryMaxTokens:   summaryMaxTokens,
+		logger:             logger,
 	}
 }
 
@@ -65,9 +79,9 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 		return "", err
 	}
 
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Threadify-AI-Agent/1.0")
+	req.Header.Set(service.HeaderAuthorization, authHeader)
+	req.Header.Set(service.HeaderContentType, service.ContentTypeJSON)
+	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
@@ -85,7 +99,7 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 
 // Chat handles natural language queries related to thread analysis
 func (h *AgentHandler) Chat(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
+	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 		return
@@ -145,7 +159,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 			Title:     title,
 		})
 		if err != nil {
-			log.Printf("Failed to create conversation: %v", err)
+			h.logger.Error("failed to create conversation", zap.Error(err))
 		}
 	} else {
 		// verify existence + permission by loading messages
@@ -160,7 +174,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		Content:        chatReq.Message,
 	})
 	if err != nil {
-		log.Printf("Failed to save user message: %v", err)
+		h.logger.Error("failed to save user message", zap.Error(err))
 	}
 
 	// 1. Initial State (LangGraph pattern) -> Loading History vs Fresh
@@ -332,8 +346,8 @@ Core Concepts:
 
 QUERY FORMAT (CRITICAL):
 All GraphQL queries MUST be wrapped in "query { }" syntax:
-✅ CORRECT: query { thread(id: "abc") { status } }
-❌ WRONG: thread(id: "abc") { status }
+CORRECT: query { thread(id: "abc") { status } }
+WRONG: thread(id: "abc") { status }
 
 EXAMPLES:
 
@@ -458,9 +472,9 @@ IMPORTANT:
 	}
 
 	// SSE Header setup
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set(service.HeaderContentType, eventStreamContentType)
+	c.Writer.Header().Set(service.HeaderCacheControl, cacheControlNoCache)
+	c.Writer.Header().Set(service.HeaderConnection, connectionKeepAlive)
 
 	// Token tracking
 	totalTokens := 0
@@ -479,7 +493,7 @@ IMPORTANT:
 
 		stream, err := h.openaiClient.CreateChatCompletionStream(context.Background(), req)
 		if err != nil {
-			log.Printf("[AGENT ERROR] %v", err)
+			h.logger.Error("failed to create chat completion stream", zap.Error(err))
 			return
 		}
 
@@ -493,7 +507,7 @@ IMPORTANT:
 				break
 			}
 			if err != nil {
-				log.Printf("[AGENT ERROR] Stream error: %v", err)
+				h.logger.Error("agent stream error", zap.Error(err))
 				break
 			}
 
@@ -558,14 +572,14 @@ IMPORTANT:
 			if currentToolName == "execute_graphql" {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
-					log.Printf("Tool args parsing error: %v", err)
+					h.logger.Error("tool args parsing error", zap.Error(err))
 					break
 				}
 
 				query, _ := args["query"].(string)
 				variables, _ := args["variables"].(map[string]interface{})
 
-				log.Printf("[AGENT] Executing GraphQL tool call for query: %s", query)
+				h.logger.Info("executing GraphQL tool call", zap.String("query", query))
 
 				// Use original proxy
 				engineOutput, err := h.executeGraphQL(authHeader, query, variables)
@@ -616,14 +630,19 @@ IMPORTANT:
 			} else if currentToolName == "save_context" {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
-					log.Printf("Tool args parsing error: %v", err)
+					h.logger.Error("tool args parsing error", zap.Error(err))
 					break
 				}
 
 				key, _ := args["key"].(string)
 				value, _ := args["value"].(string)
 
-				log.Printf("[AGENT] Saving context: %s = %s", key, value)
+				if key == "" || value == "" {
+					h.logger.Error("missing key or value")
+					break
+				}
+
+				h.logger.Info("saving context", zap.String("key", key), zap.String("value", value))
 
 				// Save context to DB
 				_ = h.agentRepo.SaveContext(&models.AgentContext{
@@ -732,6 +751,7 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -751,6 +771,7 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	// Quick authorization - ensure user owns the conversation
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations for authorization", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation history"})
 		return
 	}
@@ -764,12 +785,14 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	}
 
 	if !owns {
+		h.logger.Warn("user attempted to access unauthorized conversation", zap.String("userID", userID.(string)), zap.String("conversationID", convID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
 		return
 	}
 
 	msgs, err := h.agentRepo.GetMessages(convID)
 	if err != nil {
+		h.logger.Error("failed to load messages for conversation", zap.Error(err), zap.String("conversationID", convID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load messages"})
 		return
 	}
@@ -794,6 +817,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	// Verify user owns the parent conversation
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations for parent verification", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -809,6 +833,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	}
 
 	if !owns {
+		h.logger.Warn("user attempted to continue unauthorized conversation", zap.String("userID", userID.(string)), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to continue this conversation"})
 		return
 	}
@@ -816,6 +841,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	// Get messages from parent conversation to generate summary
 	messages, err := h.agentRepo.GetMessages(parentConvID)
 	if err != nil {
+		h.logger.Error("failed to load parent messages for summarization", zap.Error(err), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load parent messages"})
 		return
 	}
@@ -852,7 +878,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 
 		summaryResp, err := h.openaiClient.CreateChatCompletion(context.Background(), summaryReq)
 		if err != nil {
-			log.Printf("Failed to generate summary: %v", err)
+			h.logger.Error("failed to generate summary", zap.Error(err), zap.String("parentConversationID", parentConvID))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate conversation summary"})
 			return
 		}
@@ -870,6 +896,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 
 	err = h.agentRepo.CreateConversationWithParent(newConv, parentConvID)
 	if err != nil {
+		h.logger.Error("failed to create new conversation with parent", zap.Error(err), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}
@@ -883,7 +910,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 			ContextValue:   summary,
 		}
 		if err := h.agentRepo.SaveContext(summaryCtx); err != nil {
-			log.Printf("Failed to save summary context: %v", err)
+			h.logger.Error("failed to save summary context", zap.Error(err), zap.String("newConversationID", newConvID))
 		}
 	}
 

@@ -1,13 +1,14 @@
 package service
 
 import (
-	"errors"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
 	"threadify-go/shared/rbac"
 	"time"
 )
+
+const defaultServiceAccountRole = "standard_service"
 
 type APIKeyService struct {
 	apiKeyRepo         *repository.APIKeyRepository
@@ -32,124 +33,48 @@ func NewAPIKeyService(
 
 type CreateAPIKeyRequest struct {
 	Name                 string  `json:"name" binding:"required"`
-	ExpiresIn            *int    `json:"expires_in"`             // days, nil = never expires
-	ServiceAccountID     *string `json:"service_account_id"`     // Optional: link to existing service account
-	CreateServiceAccount bool    `json:"create_service_account"` // Auto-create service account
-	ServiceAccountRole   *string `json:"service_account_role"`   // Role if creating new service account (e.g., "owner", "developer")
+	ExpiresIn            *int    `json:"expires_in"`
+	ServiceAccountID     *string `json:"service_account_id"`
+	CreateServiceAccount bool    `json:"create_service_account"`
+	ServiceAccountRole   *string `json:"service_account_role"`
 }
 
 type CreateAPIKeyResponse struct {
-	Key       string         `json:"key"`        // Only returned once!
-	KeyPrefix string         `json:"key_prefix"` // For display
+	Key       string         `json:"key"`
+	KeyPrefix string         `json:"key_prefix"`
 	APIKey    *models.APIKey `json:"api_key"`
 }
 
 func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
-	// Validate name
 	if req.Name == "" {
-		return nil, errors.New("API key name is required")
+		return nil, ErrApiKeyNameRequired
 	}
 
-	var serviceAccountID *string
-
-	// Option 1: Create new service account
-	if req.CreateServiceAccount {
-		role := "standard_service" // Default role
-		if req.ServiceAccountRole != nil {
-			role = *req.ServiceAccountRole
-		}
-
-		// Validate role
-		// Validate role exists in api_level (service account roles)
-		apiLevelRoles := s.rbacLoader.GetRolesByLevel("api_level")
-		if _, exists := apiLevelRoles[role]; !exists {
-			return nil, errors.New("invalid service account role: must be from api_level")
-		}
-
-		sa := &models.ServiceAccount{
-			ID:        utils.GenerateID(),
-			CompanyID: companyID,
-			Name:      req.Name, // Use same name as API key
-			IsActive:  true,
-			CreatedBy: &userID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		if err := s.serviceAccountRepo.Create(sa); err != nil {
-			return nil, err
-		}
-
-		// Assign role to service account
-		if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, role, userID); err != nil {
-			return nil, errors.New("failed to assign role to service account")
-		}
-
-		serviceAccountID = &sa.ID
-	} else if req.ServiceAccountID != nil {
-		// Option 2: Link to existing service account
-		// Verify service account exists and belongs to company
-		sa, err := s.serviceAccountRepo.FindByID(*req.ServiceAccountID)
-		if err != nil || sa == nil {
-			return nil, errors.New("service account not found")
-		}
-		if sa.CompanyID != companyID {
-			return nil, errors.New("unauthorized: service account belongs to different company")
-		}
-		serviceAccountID = req.ServiceAccountID
-	} else {
-		// Option 3: Auto-create service account with default role
-		defaultRole := "standard_service" // Default service account role
-
-		sa := &models.ServiceAccount{
-			ID:        utils.GenerateID(),
-			CompanyID: companyID,
-			Name:      req.Name + " (auto-generated)", // Distinguish auto-generated
-			IsActive:  true,
-			CreatedBy: &userID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		if err := s.serviceAccountRepo.Create(sa); err != nil {
-			return nil, err
-		}
-
-		// Assign default role to service account
-		if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, defaultRole, userID); err != nil {
-			return nil, errors.New("failed to assign role to service account")
-		}
-
-		serviceAccountID = &sa.ID
+	serviceAccountID, err := s.resolveServiceAccount(userID, companyID, req)
+	if err != nil {
+		return nil, err
 	}
 
-	// Generate API key
 	key, err := utils.GenerateAPIKey()
 	if err != nil {
 		return nil, err
 	}
 
-	// Hash the key for storage
-	keyHash := utils.HashAPIKey(key)
-	keyPrefix := utils.GetKeyPrefix(key)
-
-	// Calculate expiration
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
 		expiry := time.Now().AddDate(0, 0, *req.ExpiresIn)
 		expiresAt = &expiry
 	}
 
-	// Create API key record.
-	// The DB constraint chk_api_key_owner requires exactly one of user_id /
-	// service_account_id to be non-null. When the key is owned by a service
-	// account, omit user_id (the creator is already tracked via the service
-	// account's own created_by column). Only set user_id when the key is
-	// owned directly by a human user (no service account).
+	// DB constraint chk_api_key_owner requires exactly one of user_id /
+	// service_account_id to be non-null.
 	var ownerUserID *string
 	if serviceAccountID == nil {
 		ownerUserID = &userID
 	}
+
+	keyHash := utils.HashAPIKey(key)
+	keyPrefix := utils.GetKeyPrefix(key)
 
 	apiKey := &models.APIKey{
 		ID:               utils.GenerateID(),
@@ -174,47 +99,91 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 	}, nil
 }
 
+// resolveServiceAccount returns the service account ID to associate with the
+// new API key, creating one if necessary.
+func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *CreateAPIKeyRequest) (*string, error) {
+	if req.ServiceAccountID != nil {
+		sa, err := s.serviceAccountRepo.FindByID(*req.ServiceAccountID)
+		if err != nil || sa == nil {
+			return nil, ErrServiceAccountNotFound
+		}
+		if sa.CompanyID != companyID {
+			return nil, ErrUnauthorizedCompany
+		}
+		return req.ServiceAccountID, nil
+	}
+
+	role := defaultServiceAccountRole
+	if req.CreateServiceAccount && req.ServiceAccountRole != nil {
+		role = *req.ServiceAccountRole
+	}
+
+	if req.CreateServiceAccount {
+		apiLevelRoles := s.rbacLoader.GetRolesByLevel("api_level")
+		if _, exists := apiLevelRoles[role]; !exists {
+			return nil, ErrInvalidServiceAccountRole
+		}
+	}
+
+	name := req.Name
+	if !req.CreateServiceAccount {
+		name += " (auto-generated)"
+	}
+
+	sa := &models.ServiceAccount{
+		ID:        utils.GenerateID(),
+		CompanyID: companyID,
+		Name:      name,
+		IsActive:  true,
+		CreatedBy: &userID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.serviceAccountRepo.Create(sa); err != nil {
+		return nil, err
+	}
+
+	if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, role, userID); err != nil {
+		return nil, ErrFailedToAssignRole
+	}
+
+	return &sa.ID, nil
+}
+
 func (s *APIKeyService) ListAPIKeys(companyID string) ([]*models.APIKey, error) {
 	return s.apiKeyRepo.FindByCompanyID(companyID)
 }
 
 func (s *APIKeyService) RevokeAPIKey(keyID, companyID string) error {
-	// Verify the key belongs to the company
 	key, err := s.apiKeyRepo.FindByID(keyID)
 	if err != nil {
 		return err
 	}
 	if key == nil {
-		return errors.New("API key not found")
+		return ErrApiKeyNotFound
 	}
 	if key.CompanyID != companyID {
-		return errors.New("unauthorized")
+		return ErrUnauthorized
 	}
-
 	return s.apiKeyRepo.Revoke(keyID)
 }
 
 func (s *APIKeyService) ValidateAPIKey(key string) (*models.APIKey, error) {
-	keyHash := utils.HashAPIKey(key)
-	apiKey, err := s.apiKeyRepo.FindByHash(keyHash)
+	apiKey, err := s.apiKeyRepo.FindByHash(utils.HashAPIKey(key))
 	if err != nil {
 		return nil, err
 	}
 	if apiKey == nil {
-		return nil, errors.New("invalid API key")
+		return nil, ErrInvalidApiKey
 	}
-
-	// Check if revoked
 	if apiKey.RevokedAt != nil {
-		return nil, errors.New("API key has been revoked")
+		return nil, ErrApiKeyRevoked
 	}
-
-	// Check if expired
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-		return nil, errors.New("API key has expired")
+		return nil, ErrApiKeyExpiredAPI
 	}
 
-	// Update last used timestamp (async, don't wait)
 	go s.apiKeyRepo.UpdateLastUsed(apiKey.ID)
 
 	return apiKey, nil

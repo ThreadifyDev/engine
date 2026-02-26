@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/models"
@@ -410,7 +412,7 @@ func (r *ActivityRepository) GetStepHashes(ctx context.Context, threadID, stepNa
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes: %w", err)
@@ -450,7 +452,7 @@ func (r *ActivityRepository) GetStepHashesByID(ctx context.Context, threadID, st
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes by ID: %w", err)

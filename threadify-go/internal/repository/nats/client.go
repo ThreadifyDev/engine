@@ -2,23 +2,21 @@ package nats
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/threadify/engine/internal/config"
+	"go.uber.org/zap"
 )
 
-// Client wraps NATS connection and JetStream context
 type Client struct {
-	conn *nats.Conn
-	js   nats.JetStreamContext
-	cfg  *config.NATSConfig
+	conn   *nats.Conn
+	js     nats.JetStreamContext
+	cfg    *config.NATSConfig
+	logger *zap.Logger
 }
 
-// NewClient creates a new NATS client with JetStream
-func NewClient(cfg *config.NATSConfig) (*Client, error) {
-	// Connect to NATS
+func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 	nc, err := nats.Connect(
 		cfg.URL,
 		nats.Name(cfg.ClientID),
@@ -26,212 +24,154 @@ func NewClient(cfg *config.NATSConfig) (*Client, error) {
 		nats.ReconnectWait(2*time.Second),
 	)
 	if err != nil {
-		log.Printf("Failed to connect to NATS: %v", err)
-		return nil, fmt.Errorf("failed to connect to message broker")
+		return nil, fmt.Errorf("connect to message broker: %w", err)
 	}
 
-	// Create JetStream context
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()
-		log.Printf("Failed to create JetStream context: %v", err)
-		return nil, fmt.Errorf("failed to initialize message broker")
+		return nil, fmt.Errorf("initialize message broker: %w", err)
 	}
 
-	client := &Client{
-		conn: nc,
-		js:   js,
-		cfg:  cfg,
+	c := &Client{conn: nc, js: js, cfg: cfg, logger: logger}
+
+	steps := []struct {
+		fn  func() error
+		msg string
+	}{
+		{c.initializeNotificationStream, "initialize notifications"},
+		{c.initializeDeadLetterQueue, "initialize DLQ"},
+		{c.initializeArchivalStreams, "initialize archival system"},
+		{c.initializeOutboxStream, "initialize outbox triggers"},
+	}
+	for _, step := range steps {
+		if err := step.fn(); err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("%s: %w", step.msg, err)
+		}
 	}
 
-	// Initialize notification stream
-	if err := client.initializeNotificationStream(); err != nil {
-		nc.Close()
-		log.Printf("Failed to initialize notification stream: %v", err)
-		return nil, fmt.Errorf("failed to initialize notifications")
-	}
-
-	// Initialize dead letter queue for failed notifications
-	if err := client.initializeDeadLetterQueue(); err != nil {
-		nc.Close()
-		log.Printf("Failed to initialize dead letter queue: %v", err)
-		return nil, fmt.Errorf("failed to initialize DLQ")
-	}
-
-	// Initialize archival streams
-	if err := client.initializeArchivalStreams(); err != nil {
-		nc.Close()
-		log.Printf("Failed to initialize archival streams: %v", err)
-		return nil, fmt.Errorf("failed to initialize archival system")
-	}
-
-	// Initialize outbox trigger stream
-	if err := client.initializeOutboxStream(); err != nil {
-		nc.Close()
-		log.Printf("Failed to initialize outbox stream: %v", err)
-		return nil, fmt.Errorf("failed to initialize outbox triggers")
-	}
-
-	return client, nil
+	return c, nil
 }
 
-// initializeNotificationStream creates or updates the notification stream
+// ensureStream creates or updates a JetStream stream.
+func (c *Client) ensureStream(cfg *nats.StreamConfig) error {
+	if _, err := c.js.AddStream(cfg); err != nil {
+		if _, err = c.js.UpdateStream(cfg); err != nil {
+			return fmt.Errorf("create/update stream %q: %w", cfg.Name, err)
+		}
+	}
+	return nil
+}
+
 func (c *Client) initializeNotificationStream() error {
-	streamConfig := &nats.StreamConfig{
+	err := c.ensureStream(&nats.StreamConfig{
 		Name:       c.cfg.StreamName,
-		Subjects:   []string{"notifications.user.>"},
-		Retention:  nats.WorkQueuePolicy, // Delete after consumer ACK
-		MaxAge:     3 * 24 * time.Hour,   // 3 days
+		Subjects:   []string{SubjectNotificationsUser},
+		Retention:  nats.WorkQueuePolicy,
+		MaxAge:     3 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
 		Replicas:   1,
 		Discard:    nats.DiscardOld,
-		MaxMsgs:    -1, // Unlimited
-		MaxBytes:   -1, // Unlimited
-		NoAck:      false,
+		MaxMsgs:    -1,
+		MaxBytes:   -1,
 		Duplicates: 5 * time.Minute,
-	}
-
-	// Try to add stream, update if it already exists
-	_, err := c.js.AddStream(streamConfig)
+	})
 	if err != nil {
-		// If stream exists, try to update it
-		_, err = c.js.UpdateStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create/update notification stream: %w", err)
-		}
+		return err
 	}
-
-	log.Printf("[NATS] Initialized NOTIFICATIONS stream with subjects: notifications.user.>, retention: 3 days")
+	c.logger.Info("initialized notifications stream", zap.String("subject", SubjectNotificationsUser))
 	return nil
 }
 
-// initializeDeadLetterQueue creates or updates the dead letter queue stream
 func (c *Client) initializeDeadLetterQueue() error {
-	streamConfig := &nats.StreamConfig{
-		Name:      "NOTIFICATIONS_DLQ",
-		Subjects:  []string{"notifications.dlq.>"},
-		Retention: nats.LimitsPolicy,  // Keep messages (not WorkQueue)
-		MaxAge:    7 * 24 * time.Hour, // 7 days retention
+	err := c.ensureStream(&nats.StreamConfig{
+		Name:      StreamNotificationsDLQ,
+		Subjects:  []string{SubjectNotificationsDLQ},
+		Retention: nats.LimitsPolicy,
+		MaxAge:    7 * 24 * time.Hour,
 		Storage:   nats.FileStorage,
 		Replicas:  1,
 		Discard:   nats.DiscardOld,
-		MaxMsgs:   10000,             // Limit to 10k failed messages
-		MaxBytes:  100 * 1024 * 1024, // 100MB max
-		NoAck:     false,
-	}
-
-	// Try to add stream, update if it already exists
-	_, err := c.js.AddStream(streamConfig)
+		MaxMsgs:   10000,
+		MaxBytes:  100 * 1024 * 1024,
+	})
 	if err != nil {
-		// If stream exists, try to update it
-		_, err = c.js.UpdateStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create/update DLQ stream: %w", err)
-		}
+		return err
 	}
-
-	log.Printf("[NATS] Initialized NOTIFICATIONS_DLQ stream (7 days retention, 10k messages max)")
+	c.logger.Info("initialized notifications DLQ stream")
 	return nil
 }
 
-// initializeArchivalStreams creates or updates archival streams
 func (c *Client) initializeArchivalStreams() error {
-	// Define archival streams
 	streams := []struct {
-		name     string
-		subjects []string
+		name    string
+		subject string
 	}{
-		{"activity_log", []string{"activity.log"}},
-		{"thread_metadata", []string{"metadata.thread"}},
-		{"thread_access", []string{"access.thread"}},
-		{"thread_validations", []string{"validations.thread"}},
-		// Note: thread_notifications removed - now archived via activity.log with activity_type='validation_result'
-		{"step_state", []string{"state.step"}},
+		{StreamActivityLog, SubjectActivityLog},
+		{StreamThreadMetadata, SubjectThreadMetadata},
+		{StreamThreadAccess, SubjectThreadAccess},
+		{StreamThreadValidations, SubjectThreadValidations},
+		{StreamStepState, SubjectStepState},
 	}
 
-	for _, stream := range streams {
-		streamConfig := &nats.StreamConfig{
-			Name:       stream.name,
-			Subjects:   stream.subjects,
-			Retention:  nats.WorkQueuePolicy, // Delete after ACK
-			MaxAge:     24 * time.Hour,       // Safety retention
+	for _, s := range streams {
+		if err := c.ensureStream(&nats.StreamConfig{
+			Name:       s.name,
+			Subjects:   []string{s.subject},
+			Retention:  nats.WorkQueuePolicy,
+			MaxAge:     24 * time.Hour,
 			Storage:    nats.FileStorage,
 			Replicas:   1,
 			Discard:    nats.DiscardOld,
-			MaxMsgs:    -1, // Unlimited
-			MaxBytes:   -1, // Unlimited
-			NoAck:      false,
+			MaxMsgs:    -1,
+			MaxBytes:   -1,
 			Duplicates: 5 * time.Minute,
-		}
-
-		// Try to add stream, update if it already exists
-		_, err := c.js.AddStream(streamConfig)
-		if err != nil {
-			// If stream exists, try to update it
-			_, err = c.js.UpdateStream(streamConfig)
-			if err != nil {
-				return fmt.Errorf("failed to create/update archival stream %s: %w", stream.name, err)
-			}
+		}); err != nil {
+			return err
 		}
 	}
-
 	return nil
 }
 
-// initializeOutboxStream creates or updates the outbox trigger stream
 func (c *Client) initializeOutboxStream() error {
-	streamConfig := &nats.StreamConfig{
-		Name:      "OUTBOX_TRIGGERS",
-		Subjects:  []string{"outbox.trigger"},
-		Retention: nats.WorkQueuePolicy, // One worker per message
-		MaxAge:    24 * time.Hour,       // 1 day retention
+	err := c.ensureStream(&nats.StreamConfig{
+		Name:      StreamOutboxTriggers,
+		Subjects:  []string{SubjectOutboxTrigger},
+		Retention: nats.WorkQueuePolicy,
+		MaxAge:    24 * time.Hour,
 		Storage:   nats.FileStorage,
 		Replicas:  1,
 		Discard:   nats.DiscardOld,
 		MaxMsgs:   -1,
 		MaxBytes:  -1,
-		NoAck:     false,
-	}
-
-	// Try to add stream, update if it already exists
-	_, err := c.js.AddStream(streamConfig)
+	})
 	if err != nil {
-		// If stream exists, try to update it
-		_, err = c.js.UpdateStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create/update outbox stream: %w", err)
-		}
+		return err
 	}
-
-	log.Printf("[NATS] Initialized OUTBOX_TRIGGERS stream with subject: outbox.trigger")
+	c.logger.Info("initialized outbox triggers stream", zap.String("subject", SubjectOutboxTrigger))
 	return nil
 }
 
-// JetStream returns the JetStream context
 func (c *Client) JetStream() nats.JetStreamContext {
 	return c.js
 }
 
-// Conn returns the underlying NATS connection
 func (c *Client) Conn() *nats.Conn {
 	return c.conn
 }
 
-// Close closes the NATS connection
 func (c *Client) Close() {
 	if c.conn != nil {
 		c.conn.Close()
 	}
 }
 
-// IsConnected returns true if connected to NATS
 func (c *Client) IsConnected() bool {
 	return c.conn != nil && c.conn.IsConnected()
 }
 
-// FetchMessage fetches a single message from a JetStream consumer
 func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duration) ([]byte, error) {
-	// Create or get durable consumer
 	consumerConfig := &nats.ConsumerConfig{
 		Durable:       consumerName,
 		FilterSubject: subject,
@@ -241,34 +181,26 @@ func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duratio
 		DeliverPolicy: nats.DeliverNewPolicy,
 	}
 
-	// Try to add consumer, ignore if it already exists
-	_, err := c.js.AddConsumer(c.cfg.StreamName, consumerConfig)
-	if err != nil && err != nats.ErrConsumerNameAlreadyInUse {
-		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	if _, err := c.js.AddConsumer(c.cfg.StreamName, consumerConfig); err != nil && err != nats.ErrConsumerNameAlreadyInUse {
+		return nil, fmt.Errorf("create consumer: %w", err)
 	}
 
-	// Fetch one message
 	sub, err := c.js.PullSubscribe(subject, consumerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pull subscription: %w", err)
+		return nil, fmt.Errorf("create pull subscription: %w", err)
 	}
 	defer sub.Unsubscribe()
 
 	msgs, err := sub.Fetch(1, nats.MaxWait(timeout))
 	if err != nil {
-		return nil, err // Timeout or no messages
+		return nil, err
 	}
-
 	if len(msgs) == 0 {
 		return nil, fmt.Errorf("no messages available")
 	}
 
-	msg := msgs[0]
-
-	// ACK the message
-	if err := msg.Ack(); err != nil {
-		return nil, fmt.Errorf("failed to ACK message: %w", err)
+	if err := msgs[0].Ack(); err != nil {
+		return nil, fmt.Errorf("ACK message: %w", err)
 	}
-
-	return msg.Data, nil
+	return msgs[0].Data, nil
 }

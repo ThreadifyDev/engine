@@ -11,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
+	"go.uber.org/zap"
 )
 
 func TestContractRepository_SoftDelete_AllowsRecreateWithSameName(t *testing.T) {
@@ -33,7 +34,7 @@ func TestContractRepository_SoftDelete_AllowsRecreateWithSameName(t *testing.T) 
 	err = db.InitSchema(ctx)
 	require.NoError(t, err)
 
-	repo := postgres.NewContractRepository(db.Pool)
+	repo := postgres.NewContractRepository(db.Pool, zap.NewNop())
 
 	// Test scenario: Create -> Soft Delete -> Create again with same name
 	t.Run("can create contract with same name after soft delete", func(t *testing.T) {

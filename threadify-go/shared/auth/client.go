@@ -10,6 +10,9 @@ var (
 	ErrAuthUserAlreadyExists  = errors.New("user with this email already exists")
 	ErrAuthUserNotFound       = errors.New("auth user not found")
 	ErrAuthInvalidEmail       = errors.New("invalid email address")
+	ErrAuthExpiredToken       = errors.New("token has expired")
+	ErrAuthInvalidToken       = errors.New("invalid or already used token")
+	ErrAuthRateLimit          = errors.New("too many requests, please try again later")
 )
 
 type AuthUserInfo struct {

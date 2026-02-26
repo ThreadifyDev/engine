@@ -14,14 +14,15 @@ const (
 )
 
 type OutboxEvent struct {
-	ID         string    `json:"id"`
-	Type       string    `json:"type"`
-	Payload    []byte    `json:"-"` // Encrypted JSON
-	Status     string    `json:"status"`
-	RetryCount int       `json:"retry_count"`
-	MaxRetries int       `json:"max_retries"`
-	NextRunAt  time.Time `json:"next_run_at"`
-	ErrorLog   *string   `json:"error_log,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string
+	Type        string
+	Payload     []byte
+	Status      string
+	RetryCount  int
+	MaxRetries  int
+	LastError   *string
+	NextRunAt   time.Time
+	ReferenceID string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
