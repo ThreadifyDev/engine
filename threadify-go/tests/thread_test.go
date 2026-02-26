@@ -243,7 +243,7 @@ func TestThreadService_LoadContractGraph(t *testing.T) {
 // 		// Test would verify contract validation happens
 // 		// Once we have proper service initialization with mocks:
 // 		// req := &models.StartThreadRequest{ContractID: "contract123"}
-// 		// response := service.HandleStartThread(req, "owner123")
+// 		// response := service.HandleStartThread(context.Background(), req, "owner123")
 // 		// assert.Equal(t, "success", response.Status)
 //
 // 		mockContractRepo.AssertExpectations(t)
@@ -258,7 +258,7 @@ func TestThreadService_LoadContractGraph(t *testing.T) {
 // 		// Test would verify error is returned
 // 		// Once we have proper service initialization with mocks:
 // 		// req := &models.StartThreadRequest{ContractID: "nonexistent"}
-// 		// response := service.HandleStartThread(req, "owner123")
+// 		// response := service.HandleStartThread(context.Background(), req, "owner123")
 // 		// assert.Equal(t, "error", response.Status)
 // 		// assert.Contains(t, response.Message, "contract not found")
 //
@@ -580,7 +580,7 @@ func TestThreadService_HandleRecordEvent_RequiredFields(t *testing.T) {
 			mockConnection.On("GetClient", ownerID).Return(client, true)
 			mockConnection.On("IsConnected", ownerID).Return(true)
 
-			response := service.HandleRecordEvent(tt.request, ownerID)
+			response := service.HandleRecordEvent(context.Background(), tt.request, ownerID)
 
 			if tt.wantErr {
 				assert.Equal(t, "error", response.Status)
@@ -653,7 +653,7 @@ func TestThreadService_HandleRecordEvent_DuplicateStepPrevention(t *testing.T) {
 		Context:    map[string]string{"key": "value"},
 	}
 
-	response := service.HandleRecordEvent(request, ownerID)
+	response := service.HandleRecordEvent(context.Background(), request, ownerID)
 
 	// Should fail with duplicate error
 	assert.Equal(t, "error", response.Status)
@@ -727,7 +727,7 @@ func TestThreadService_HandleRecordEvent_RetryTracking(t *testing.T) {
 		Context:    map[string]string{"key": "value"},
 	}
 
-	response := service.HandleRecordEvent(request, ownerID)
+	response := service.HandleRecordEvent(context.Background(), request, ownerID)
 
 	// Should succeed
 	assert.Equal(t, "success", response.Status)

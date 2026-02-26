@@ -77,10 +77,14 @@ func (s *supabaseClient) RegisterUser(ctx context.Context, email, password, full
 		if errors.As(err, &httpErr) {
 			switch {
 			case isSupabaseConflict(err):
-				if id, lookupErr := s.FindUserIDByEmail(ctx, email); lookupErr == nil && id != "" {
-					return id, nil
+				id, lookupErr := s.FindUserIDByEmail(ctx, email)
+				if lookupErr != nil {
+					return "", fmt.Errorf("user exists in auth provider but ID lookup failed: %w", lookupErr)
 				}
-				return "", ErrAuthUserAlreadyExists
+				if id == "" {
+					return "", fmt.Errorf("user exists in auth provider but could not resolve ID for email: %s", email)
+				}
+				return id, nil
 			case isSupabaseInvalidEmail(err):
 				return "", ErrAuthInvalidEmail
 			default:
@@ -222,6 +226,14 @@ func (s *supabaseClient) ResetPasswordWithToken(ctx context.Context, token, newP
 	if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
+			switch {
+			case httpErr.hasCode(supabaseCodeBadToken, supabaseCodeOTPDisabled):
+				return ErrAuthInvalidToken
+			case httpErr.hasCode(supabaseCodeOTPExpired):
+				return ErrAuthExpiredToken
+			case isSupabaseRateLimit(err):
+				return ErrAuthRateLimit
+			}
 			return httpErr
 		}
 		return fmt.Errorf("verify reset token: %w", err)
@@ -247,6 +259,14 @@ func (s *supabaseClient) VerifyEmailWithToken(ctx context.Context, token string)
 	if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
+			switch {
+			case httpErr.hasCode(supabaseCodeBadToken, supabaseCodeOTPDisabled):
+				return "", ErrAuthInvalidToken
+			case httpErr.hasCode(supabaseCodeOTPExpired):
+				return "", ErrAuthExpiredToken
+			case isSupabaseRateLimit(err):
+				return "", ErrAuthRateLimit
+			}
 			return "", httpErr
 		}
 		return "", fmt.Errorf("verify signup token: %w", err)
@@ -408,15 +428,23 @@ type supabaseListUsersResponse struct {
 	} `json:"users"`
 }
 
+// -----------------------------------------------------------------------------
+// Error codes & helpers
+// -----------------------------------------------------------------------------
+
 const (
-	supabaseCodeInvalidCredentials  = "invalid_credentials"
-	supabaseCodeBadJWT              = "bad_jwt"
-	supabaseCodeEmailExists         = "email_exists"
-	supabaseCodeUserAlreadyExists   = "user_already_exists"
-	supabaseCodeConflict            = "conflict"
-	supabaseCodeUserNotFound        = "user_not_found"
-	supabaseCodeEmailAddressInvalid = "email_address_invalid"
-	supabaseCodeInvalidEmail        = "invalid_email"
+	supabaseCodeInvalidCredentials     = "invalid_credentials"
+	supabaseCodeBadJWT                 = "bad_jwt"
+	supabaseCodeEmailExists            = "email_exists"
+	supabaseCodeUserAlreadyExists      = "user_already_exists"
+	supabaseCodeConflict               = "conflict"
+	supabaseCodeUserNotFound           = "user_not_found"
+	supabaseCodeEmailAddressInvalid    = "email_address_invalid"
+	supabaseCodeInvalidEmail           = "invalid_email"
+	supabaseCodeOverEmailSendRateLimit = "over_email_send_rate_limit"
+	supabaseCodeBadToken               = "bad_token"
+	supabaseCodeOTPExpired             = "otp_expired"  // token used after expiry
+	supabaseCodeOTPDisabled            = "otp_disabled" // token already consumed / invalid
 )
 
 type supabaseHTTPError struct {
@@ -432,15 +460,16 @@ func (e *supabaseHTTPError) Error() string {
 	return fmt.Sprintf("supabase HTTP %d: %s", e.StatusCode, e.Body)
 }
 
-// newSupabaseHTTPError builds a supabaseHTTPError, attempting to parse the
-// stable "code" field from the JSON body so callers can match on it directly.
+// newSupabaseHTTPError parses the stable "error_code" field from Supabase's
+// JSON error body. Note: Supabase uses "error_code" (string) for the error
+// identifier and "code" (integer) for the HTTP status — do not confuse them.
 func newSupabaseHTTPError(statusCode int, body string) *supabaseHTTPError {
 	e := &supabaseHTTPError{StatusCode: statusCode, Body: body}
 	var parsed struct {
-		Code string `json:"code"`
+		ErrorCode string `json:"error_code"`
 	}
-	if err := json.Unmarshal([]byte(body), &parsed); err == nil {
-		e.Code = parsed.Code
+	if err := json.Unmarshal([]byte(body), &parsed); err == nil && parsed.ErrorCode != "" {
+		e.Code = parsed.ErrorCode
 	}
 	return e
 }
@@ -488,6 +517,14 @@ func isSupabaseInvalidEmail(err error) bool {
 		return false
 	}
 	return e.hasCode(supabaseCodeEmailAddressInvalid, supabaseCodeInvalidEmail)
+}
+
+func isSupabaseRateLimit(err error) bool {
+	var e *supabaseHTTPError
+	if !errors.As(err, &e) {
+		return false
+	}
+	return e.hasCode(supabaseCodeOverEmailSendRateLimit) || e.StatusCode == http.StatusTooManyRequests
 }
 
 func buildUserMetadata(fullName, localUserID, companyID string) map[string]interface{} {

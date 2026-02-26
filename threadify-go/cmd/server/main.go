@@ -13,6 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/logger"
+	"threadify-go/shared/rbac"
+
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
@@ -20,9 +24,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-
-	sharedauth "threadify-go/shared/auth"
-	"threadify-go/shared/rbac"
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
@@ -38,6 +39,11 @@ import (
 	"github.com/threadify/engine/internal/workerpool"
 )
 
+const (
+	shutdownTimeout = 30 * time.Second
+	pprofAddr       = "localhost:6060"
+)
+
 type contextKey string
 
 const (
@@ -47,33 +53,36 @@ const (
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
-	defer logger.Sync() //nolint:errcheck
+	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == "production")
+	if err != nil {
+		log.Fatalf("failed to initialize logger: %v", err)
+	}
+	defer appLogger.Sync() //nolint:errcheck
 
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	deps, err := initDependencies(cfg, logger)
+	deps, err := initDependencies(cfg, appLogger)
 	if err != nil {
-		logger.Fatal("failed to initialize dependencies", zap.Error(err))
+		appLogger.Fatal("failed to initialize dependencies", zap.Error(err))
 	}
 	defer deps.close()
 
-	srv := buildServer(cfg, deps, logger)
+	srv := buildServer(cfg, deps, appLogger)
 
-	go startPprof(logger)
+	go startPprof(appLogger)
 
 	go func() {
 		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-		logger.Info("starting server", zap.String("address", addr))
+		appLogger.Info("starting server", zap.String("address", addr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Fatal("server error", zap.Error(err))
+			appLogger.Fatal("server error", zap.Error(err))
 		}
 	}()
 
-	waitForShutdown(logger, srv, deps)
+	waitForShutdown(appLogger, srv, deps)
 }
 
 type deps struct {
@@ -120,24 +129,21 @@ func loadConfig() (*config.Config, error) {
 func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 	d := &deps{}
 
-	// PostgreSQL
 	db, err := database.NewPostgresDB(cfg.Postgres.URL, cfg.Postgres.MaxConnections)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)
 	}
-	// Initialize performance monitoring (must be done early, before any perf calls)
-	perf.Initialize(cfg.Performance.MonitoringEnabled)
+	d.db = db
+
+	perf.Initialize(cfg.Performance.MonitoringEnabled, logger)
 	if cfg.Performance.MonitoringEnabled {
-		log.Println("✅ Performance monitoring ENABLED - time.Now() calls and [PERF] logs active")
-	} else {
-		log.Println("⚡ Performance monitoring DISABLED - zero overhead mode for production")
+		logger.Info("performance monitoring enabled")
 	}
+
 	if err := db.InitSchema(context.Background()); err != nil {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
-	d.db = db
 
-	// Valkey / Redis
 	valkeyService, err := database.NewValkeyService(
 		cfg.Redis.Host,
 		cfg.Redis.Port,
@@ -158,15 +164,13 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 	}
 	d.valkey = valkeyService
 
-	// NATS (optional — graceful degradation)
-	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize)
+	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize, logger)
 	if err != nil {
 		logger.Warn("NATS unavailable — notifications and archival disabled", zap.Error(err))
 	} else {
 		d.natsPool = natsPool
 	}
 
-	// Worker pools
 	d.workerPools = workerpool.NewPools(workerpool.NewPrometheusMetrics())
 	logger.Info("worker pools initialized",
 		zap.Int32("validation", d.workerPools.Validation.Stats().TotalWorkers),
@@ -179,7 +183,6 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 }
 
 func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
-	// Auth service
 	authSvc := service.NewAuthService()
 	if strings.TrimSpace(cfg.JWKS.URL) == "" {
 		logger.Fatal("jwks.url not configured — JWT authentication unavailable")
@@ -193,10 +196,9 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		logger.Fatal("failed to load RBAC roles", zap.Error(err))
 	}
 
-	// Repositories
 	postgresThreadRepo := postgres.NewThreadRepository(d.db.Pool)
 	stepStatePostgres := postgres.NewStepStateRepository(d.db.Pool)
-	cacheManager := service.NewCacheService()
+	cacheManager := service.NewCacheService(logger)
 
 	threadTTL := time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond
 	threadRepo := valkey.NewThreadRepository(d.valkey, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager)
@@ -222,31 +224,27 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	accessRepo.SetRBACLoader(rbacLoader)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
 
-	// Services
 	var natsArchival *natsrepo.ArchivalPublisher
 	var natsNotification *natsrepo.Publisher
 	if d.natsPool != nil {
-		natsArchival = natsrepo.NewArchivalPublisher(d.natsPool.GetClient())
+		natsArchival = natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
 		natsNotification = natsrepo.NewPublisher(d.natsPool.GetClient())
 	}
 
-	batchTimeout := time.Duration(cfg.ThreadActivities.BatchTimeoutMs) * time.Millisecond
-	stepEventSvc := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, 4, cfg.ThreadActivities.BatchSize, batchTimeout)
+	stepEventSvc := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
 	stepEventSvc.Start()
 	d.stepEventSvc = stepEventSvc
 
-	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader)
-	contractSvc := service.NewContractService(d.db)
-	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools)
-
+	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
+	contractSvc := service.NewContractService(d.db, logger)
+	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools, logger)
 	invitationSvc := service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
-	// Handlers
-	contractHandler := handlers.NewContractHandler(contractSvc)
+	contractHandler := handlers.NewContractHandler(contractSvc, logger)
 
 	var notifRouter *handlers.NotificationRouter
 	if d.natsPool != nil {
-		notifRouter, err = handlers.NewNotificationRouter(d.natsPool.GetClient().Conn(), &cfg.NATS)
+		notifRouter, err = handlers.NewNotificationRouter(d.natsPool.GetClient().Conn(), &cfg.NATS, logger)
 		if err != nil {
 			logger.Fatal("failed to create notification router", zap.Error(err))
 		}
@@ -258,6 +256,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		threadSvc.GetNotificationConsumer(), notifRouter,
 		d.valkey, luaScriptManager,
 		&cfg.RateLimit, &cfg.WebSocket,
+		logger,
 	)
 
 	graphqlResolver := graphql.NewResolver(
@@ -265,13 +264,13 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		threadAccessSvc, threadSvc.GetContractValidator(), contractRepo,
 		refsRepo, postgresStepRepo, activityRepo, actorRepo,
 		notificationRepo, subStepRepo,
+		logger,
 	)
 
 	gqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: graphqlResolver}))
 	gqlHandler.Use(extension.FixedComplexityLimit(1000))
 	gqlHandler.Use(extension.Introspection{})
 
-	// Rate limiter & bot scanner
 	ipRateLimiter := middleware.NewIPRateLimiter(&cfg.RateLimit)
 	if cfg.RateLimit.CleanupInterval != "" {
 		if interval, err := time.ParseDuration(cfg.RateLimit.CleanupInterval); err == nil {
@@ -280,11 +279,10 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	}
 	botScanner := middleware.NewBotScanner(&cfg.BotScanner)
 
-	// Router
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(requestLogger())
+	r.Use(requestLogger(logger))
 	r.Use(middleware.PrometheusMiddleware())
 	r.Use(botScanner.Middleware())
 	r.Use(ipRateLimiter.Middleware())
@@ -333,14 +331,13 @@ func waitForShutdown(logger *zap.Logger, srv *http.Server, d *deps) {
 
 	logger.Info("shutting down...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("server forced to shutdown", zap.Error(err))
 	}
-
-	if err := d.workerPools.Shutdown(30 * time.Second); err != nil {
+	if err := d.workerPools.Shutdown(shutdownTimeout); err != nil {
 		logger.Warn("worker pools shutdown with error", zap.Error(err))
 	}
 
@@ -349,7 +346,7 @@ func waitForShutdown(logger *zap.Logger, srv *http.Server, d *deps) {
 }
 
 func startPprof(logger *zap.Logger) {
-	srv := &http.Server{Addr: "localhost:6060"}
+	srv := &http.Server{Addr: pprofAddr}
 	logger.Info("starting pprof server", zap.String("address", srv.Addr))
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("pprof server error", zap.Error(err))
@@ -378,23 +375,33 @@ func healthHandler(d *deps) gin.HandlerFunc {
 	}
 }
 
-func requestLogger() gin.HandlerFunc {
-	return gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/metrics"},
-		Formatter: func(p gin.LogFormatterParams) string {
-			if p.StatusCode == 403 || p.StatusCode == 429 {
-				return ""
-			}
-			if p.StatusCode == 404 && p.Path != "/" {
-				return ""
-			}
-			return fmt.Sprintf("[GIN] %v | %3d | %13v | %15s | %-7s %#v\n",
-				p.TimeStamp.Format("2006/01/02 - 15:04:05"),
-				p.StatusCode, p.Latency, p.ClientIP,
-				p.Method, p.Path,
-			)
-		},
-	})
+func requestLogger(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.URL.Path == "/metrics" {
+			c.Next()
+			return
+		}
+
+		start := time.Now()
+		c.Next()
+
+		status := c.Writer.Status()
+		if status == 403 || status == 429 {
+			return
+		}
+		if status == 404 && c.Request.URL.Path != "/" {
+			return
+		}
+
+		logger.Info("request",
+			zap.Int("status", status),
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.String("ip", c.ClientIP()),
+			zap.Duration("latency", time.Since(start)),
+			zap.String("user_agent", c.Request.UserAgent()),
+		)
+	}
 }
 
 func mustGet(c *gin.Context, key string) any {

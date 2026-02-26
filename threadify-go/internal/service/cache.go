@@ -2,7 +2,9 @@ package service
 
 import (
 	"fmt"
-	"log"
+	"strings"
+
+	"go.uber.org/zap"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/spf13/viper"
@@ -10,68 +12,42 @@ import (
 	"github.com/threadify/engine/internal/models"
 )
 
-// CacheService implements the CacheManager interface with LRU in-memory caching
+// CacheService implements the CacheManager interface with LRU in-memory caching.
 type CacheService struct {
 	contractCache              *lru.Cache[string, *models.ContractGraph]
 	threadCache                *lru.Cache[string, *models.Thread]
-	runtimeRolePermissionCache *lru.Cache[string, []string] // "runtime_role" -> permissions (global)
+	runtimeRolePermissionCache *lru.Cache[string, []string] // runtime_role -> permissions (global)
 	roleCache                  *lru.Cache[string, string]   // "threadID:userID" -> role
 	stepStatusCache            *lru.Cache[string, string]   // "threadID:stepName:idempotencyKey" -> status
+	logger                     *zap.Logger
 }
 
-// NewCacheService creates a new cache service with LRU eviction
-// Cache sizes are configurable via config.yaml under cache.lru
-func NewCacheService() interfaces.CacheManager {
-	// Read cache sizes from config with sensible defaults
+// NewCacheService creates a new cache service with LRU eviction.
+// Cache sizes are configurable via config.yaml under cache.lru.
+func NewCacheService(logger *zap.Logger) interfaces.CacheManager {
+	viper.SetDefault("cache.lru.contract_cache_size", 1000)
+	viper.SetDefault("cache.lru.thread_cache_size", 10000)
+	viper.SetDefault("cache.lru.role_cache_size", 50000)
+	viper.SetDefault("cache.lru.step_status_cache_size", 100000)
+
 	contractCacheSize := viper.GetInt("cache.lru.contract_cache_size")
-	if contractCacheSize == 0 {
-		contractCacheSize = 1000
-	}
-
 	threadCacheSize := viper.GetInt("cache.lru.thread_cache_size")
-	if threadCacheSize == 0 {
-		threadCacheSize = 10000
-	}
-
 	roleCacheSize := viper.GetInt("cache.lru.role_cache_size")
-	if roleCacheSize == 0 {
-		roleCacheSize = 50000
-	}
-
 	stepStatusCacheSize := viper.GetInt("cache.lru.step_status_cache_size")
-	if stepStatusCacheSize == 0 {
-		stepStatusCacheSize = 100000
-	}
 
-	// Create LRU caches with configured size limits
-	contractCache, err := lru.New[string, *models.ContractGraph](contractCacheSize)
-	if err != nil {
-		log.Fatalf("Failed to create contract cache: %v", err)
-	}
+	contractCache := mustNewLRU[string, *models.ContractGraph](contractCacheSize, "contract", logger)
+	threadCache := mustNewLRU[string, *models.Thread](threadCacheSize, "thread", logger)
+	// Runtime role permission cache — only ~5 entries (owner, participant, observer, external, etc.)
+	runtimeRolePermissionCache := mustNewLRU[string, []string](10, "runtime_role_permission", logger)
+	roleCache := mustNewLRU[string, string](roleCacheSize, "role", logger)
+	stepStatusCache := mustNewLRU[string, string](stepStatusCacheSize, "step_status", logger)
 
-	threadCache, err := lru.New[string, *models.Thread](threadCacheSize)
-	if err != nil {
-		log.Fatalf("Failed to create thread cache: %v", err)
-	}
-
-	// Runtime role permission cache - only ~5 entries (owner, participant, observer, external, etc.)
-	runtimeRolePermissionCache, err := lru.New[string, []string](10)
-	if err != nil {
-		log.Fatalf("Failed to create runtime role permission cache: %v", err)
-	}
-
-	roleCache, err := lru.New[string, string](roleCacheSize)
-	if err != nil {
-		log.Fatalf("Failed to create role cache: %v", err)
-	}
-
-	stepStatusCache, err := lru.New[string, string](stepStatusCacheSize)
-	if err != nil {
-		log.Fatalf("Failed to create step status cache: %v", err)
-	}
-
-	log.Printf("[CACHE] Initialized LRU caches: contracts=%d, threads=%d, roles=%d, stepStatus=%d",
-		contractCacheSize, threadCacheSize, roleCacheSize, stepStatusCacheSize)
+	logger.Info("initialized LRU caches",
+		zap.Int("contracts", contractCacheSize),
+		zap.Int("threads", threadCacheSize),
+		zap.Int("roles", roleCacheSize),
+		zap.Int("step_status", stepStatusCacheSize),
+	)
 
 	return &CacheService{
 		contractCache:              contractCache,
@@ -79,89 +55,95 @@ func NewCacheService() interfaces.CacheManager {
 		runtimeRolePermissionCache: runtimeRolePermissionCache,
 		roleCache:                  roleCache,
 		stepStatusCache:            stepStatusCache,
+		logger:                     logger,
 	}
 }
 
-// GetThread retrieves a thread from cache
+// mustNewLRU creates an LRU cache, fatally logging if construction fails.
+func mustNewLRU[K comparable, V any](size int, name string, logger *zap.Logger) *lru.Cache[K, V] {
+	cache, err := lru.New[K, V](size)
+	if err != nil {
+		logger.Fatal("failed to create LRU cache", zap.String("cache", name), zap.Error(err))
+	}
+	return cache
+}
+
+// contractCacheKey returns the canonical cache key for a contract graph.
+func contractCacheKey(ownerID, contractID string, version int) string {
+	return fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
+}
+
+// GetThread retrieves a thread from cache.
 func (c *CacheService) GetThread(threadID string) (*models.Thread, bool) {
 	return c.threadCache.Get(threadID)
 }
 
-// SetThread stores a thread in cache
+// SetThread stores a thread in cache.
 func (c *CacheService) SetThread(threadID string, thread *models.Thread) {
 	c.threadCache.Add(threadID, thread)
 }
 
-// GetContractGraph retrieves a contract graph from cache
+// GetContractGraph retrieves a contract graph from cache.
 func (c *CacheService) GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, bool) {
-	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
-	return c.contractCache.Get(cacheKey)
+	return c.contractCache.Get(contractCacheKey(ownerID, contractID, version))
 }
 
-// SetContractGraph stores a contract graph in cache
+// SetContractGraph stores a contract graph in cache.
 func (c *CacheService) SetContractGraph(contractID string, version int, ownerID string, graph *models.ContractGraph) {
-	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
-	c.contractCache.Add(cacheKey, graph)
+	c.contractCache.Add(contractCacheKey(ownerID, contractID, version), graph)
 }
 
-// ClearContractCache removes a contract from cache
+// ClearContractCache removes a contract graph from cache.
 func (c *CacheService) ClearContractCache(contractID string, version int, ownerID string) {
-	cacheKey := fmt.Sprintf("%s:%s:v%d", ownerID, contractID, version)
-	c.contractCache.Remove(cacheKey)
+	c.contractCache.Remove(contractCacheKey(ownerID, contractID, version))
 }
 
-// ClearThreadCache removes a thread from cache
+// ClearThreadCache removes a thread from cache.
 func (c *CacheService) ClearThreadCache(threadID string) {
 	c.threadCache.Remove(threadID)
 }
 
-// GetRuntimeRolePermissions retrieves permissions for a runtime_role from cache
+// GetRuntimeRolePermissions retrieves permissions for a runtime_role from cache.
 func (c *CacheService) GetRuntimeRolePermissions(runtimeRole string) ([]string, bool) {
 	return c.runtimeRolePermissionCache.Get(runtimeRole)
 }
 
-// SetRuntimeRolePermissions stores permissions for a runtime_role in cache
+// SetRuntimeRolePermissions stores permissions for a runtime_role in cache.
 func (c *CacheService) SetRuntimeRolePermissions(runtimeRole string, permissions []string) {
 	c.runtimeRolePermissionCache.Add(runtimeRole, permissions)
 }
 
-// GetUserRole retrieves role from in-memory cache
+// GetUserRole retrieves a user's role for a thread from cache.
 func (c *CacheService) GetUserRole(threadID, userID string) (string, bool) {
-	key := threadID + ":" + userID
-	return c.roleCache.Get(key)
+	return c.roleCache.Get(threadID + ":" + userID)
 }
 
-// SetUserRole stores role in in-memory cache
+// SetUserRole stores a user's role for a thread in cache.
 func (c *CacheService) SetUserRole(threadID, userID, role string) {
-	key := threadID + ":" + userID
-	c.roleCache.Add(key, role)
+	c.roleCache.Add(threadID+":"+userID, role)
 }
 
-// ClearThreadRoles removes all roles for a thread
+// ClearThreadRoles removes all cached roles for a given thread.
 func (c *CacheService) ClearThreadRoles(threadID string) {
-	// Remove all role entries starting with threadID
 	prefix := threadID + ":"
-
-	// LRU cache doesn't support prefix deletion, so we iterate through keys
 	for _, key := range c.roleCache.Keys() {
-		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+		if strings.HasPrefix(key, prefix) {
 			c.roleCache.Remove(key)
 		}
 	}
 }
 
-// GetStepStatus retrieves a step status from cache
-// Returns status and true if found, empty string and false otherwise
+// GetStepStatus retrieves a step status from cache.
 func (c *CacheService) GetStepStatus(stepHashKey string) (string, bool) {
 	return c.stepStatusCache.Get(stepHashKey)
 }
 
-// SetStepStatus stores a step status in cache for duplicate detection
+// SetStepStatus stores a step status in cache for duplicate detection.
 func (c *CacheService) SetStepStatus(stepHashKey, status string) {
 	c.stepStatusCache.Add(stepHashKey, status)
 }
 
-// ClearStepStatus removes a step from cache
+// ClearStepStatus removes a step from cache.
 func (c *CacheService) ClearStepStatus(stepHashKey string) {
 	c.stepStatusCache.Remove(stepHashKey)
 }

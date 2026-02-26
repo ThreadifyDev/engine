@@ -7,17 +7,20 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"go.uber.org/zap"
 )
 
 // ArchivalPublisher handles publishing archival events to NATS JetStream
 type ArchivalPublisher struct {
 	client *Client
+	logger *zap.Logger
 }
 
 // NewArchivalPublisher creates a new archival event publisher
-func NewArchivalPublisher(client *Client) *ArchivalPublisher {
+func NewArchivalPublisher(client *Client, logger *zap.Logger) *ArchivalPublisher {
 	return &ArchivalPublisher{
 		client: client,
+		logger: logger,
 	}
 }
 
@@ -73,14 +76,18 @@ func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event m
 	return nil
 }
 
-// PublishAsync publishes event asynchronously (fire-and-forget with error logging)
+// PublishAsync publishes event asynchronously (fire-and-forget with error logging).
+// Intentional: uses detached context — this goroutine outlives any request lifecycle.
 func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interface{}) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := p.publish(ctx, subject, event); err != nil {
-			fmt.Printf("❌ [NATS-ARCHIVAL] Failed to publish to %s: %v\n", subject, err)
+			p.logger.Error("failed to publish async NATS message",
+				zap.String("subject", subject),
+				zap.Error(err),
+			)
 		}
 	}()
 }

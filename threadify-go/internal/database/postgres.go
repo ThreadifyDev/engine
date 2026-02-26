@@ -14,22 +14,18 @@ type PostgresDB struct {
 func NewPostgresDB(connString string, maxConns int) (*PostgresDB, error) {
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
-		// Log internally but don't expose connection string details
-		fmt.Printf("Failed to parse database config: %v\n", err)
-		return nil, fmt.Errorf("failed to configure database connection")
+		return nil, fmt.Errorf("failed to configure database connection: %w", err)
 	}
 
 	config.MaxConns = int32(maxConns)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
-		fmt.Printf("Failed to create database pool: %v\n", err)
-		return nil, fmt.Errorf("failed to connect to database")
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	if err := pool.Ping(context.Background()); err != nil {
-		fmt.Printf("Failed to ping database: %v\n", err)
-		return nil, fmt.Errorf("failed to connect to database")
+		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
 	return &PostgresDB{Pool: pool}, nil
@@ -845,7 +841,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_outbox_events_status_next_run 
 		ON outbox_events(status, next_run_at) 
-		WHERE status IN ('pending', 'failed');
+		WHERE status IN ('pending', 'failed');	
+
+	ALTER TABLE outbox_events ADD COLUMN reference_id TEXT;
+	CREATE INDEX idx_outbox_reference_id ON outbox_events(reference_id);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)
