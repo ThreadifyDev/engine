@@ -194,7 +194,7 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	accessToken, userInfo, err := s.authClient.LoginWithPassword(authCtx, req.Email, req.Password, clientIP)
+	_, userInfo, err := s.authClient.LoginWithPassword(authCtx, req.Email, req.Password, clientIP)
 	if err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidCredentials):
@@ -205,26 +205,32 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
+	otpCode, err := s.authClient.GenerateLoginOTP(authCtx, req.Email)
+	if err != nil {
+		s.logger.Error("login: failed to generate otp", zap.String("email", req.Email), zap.Error(err))
+		return nil, fmt.Errorf("failed to generate login verification code")
+	}
+
+	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
+		s.logger.Error("login: failed to send otp email", zap.String("email", req.Email), zap.Error(err))
+		return nil, fmt.Errorf("failed to send login verification email")
+	}
+
 	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.userRepo.UpdateLastLogin(user.ID); err != nil {
-		return nil, fmt.Errorf("update last login: %w", err)
-	}
-
-	if userInfo.EmailVerified && !user.EmailVerified {
-		if err := s.userRepo.UpdateEmailVerified(user.ID, true); err == nil {
-			user.EmailVerified = true
-		}
-	}
-
-	s.logger.Info("login: user authenticated",
+	s.logger.Info("login: password verified, otp sent",
 		zap.String("user_id", user.ID),
+		zap.String("email", req.Email),
 	)
 
-	return &models.AuthResponse{Token: accessToken, User: user}, nil
+	return &models.AuthResponse{
+		User:        user,
+		OTPRequired: true,
+		Message:     "A login code has been sent to your email.",
+	}, nil
 }
 
 func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPasswordRequest) error {
@@ -243,8 +249,12 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	token, err := s.authClient.GeneratePasswordResetLink(authCtx, req.Email)
+	token, err := s.authClient.GeneratePasswordResetToken(authCtx, req.Email)
 	if err != nil {
+		s.logger.Error("forgot password: generate otp failed",
+			zap.String("email", req.Email),
+			zap.Error(err),
+		)
 		if errors.Is(err, sharedauth.ErrAuthInvalidEmail) {
 			return ErrInvalidEmail
 		}
@@ -255,6 +265,10 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 	}
 
 	if err := s.emailSvc.SendPasswordResetEmail(ctx, req.Email, token); err != nil {
+		s.logger.Error("forgot password: send email failed",
+			zap.String("email", req.Email),
+			zap.Error(err),
+		)
 		return fmt.Errorf("send password reset email: %w", err)
 	}
 
@@ -265,7 +279,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	if err := s.authClient.ResetPasswordWithToken(authCtx, req.Token, req.Password); err != nil {
+	if err := s.authClient.ResetPasswordWithOTP(authCtx, req.Token, req.Password); err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
 			return ErrInvalidToken
@@ -280,37 +294,42 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 	return nil
 }
 
-func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRequest) error {
+func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRequest) (*models.AuthResponse, error) {
 	authCtx, cancel := timeoutContext(ctx)
 	defer cancel()
 
-	authUserID, err := s.authClient.VerifyEmailWithToken(authCtx, req.Token)
+	accessToken, userInfo, err := s.authClient.VerifyEmailWithOTP(authCtx, req.Email, req.Token)
 	if err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
-			return ErrInvalidToken
+			return nil, ErrInvalidToken
 		case errors.Is(err, sharedauth.ErrAuthExpiredToken):
-			return ErrExpiredToken
+			return nil, ErrExpiredToken
 		case errors.Is(err, sharedauth.ErrAuthRateLimit):
-			return ErrRateLimit
+			return nil, ErrRateLimit
 		}
-		return fmt.Errorf("verify email token: %w", err)
+		return nil, fmt.Errorf("verify email token: %w", err)
 	}
 
-	user, err := s.userRepo.FindByAuthUserID(authUserID)
+	user, err := s.userRepo.FindByAuthUserID(userInfo.Sub)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		return fmt.Errorf("find user by auth ID: %w", err)
+		return nil, fmt.Errorf("find user by auth ID: %w", err)
 	}
 	if user == nil {
-		return ErrInvalidEmail
-	}
-	if user.EmailVerified {
-		return nil
+		// Fallback to email lookup if auth ID mapping is missing
+		user, err = s.userRepo.FindByEmail(req.Email)
+		if err != nil {
+			return nil, ErrInvalidEmail
+		}
 	}
 
 	if err := s.userRepo.UpdateEmailVerified(user.ID, true); err != nil {
-		return fmt.Errorf("update verification status: %w", err)
+		return nil, fmt.Errorf("update verification status: %w", err)
 	}
+	if err := s.userRepo.UpdateLastLogin(user.ID); err != nil {
+		s.logger.Warn("verify email: failed to update last login", zap.Error(err))
+	}
+	user.EmailVerified = true
 
 	s.logger.Info("verify email: email verified",
 		zap.String("user_id", user.ID),
@@ -330,6 +349,25 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 			)
 		}
 	}()
+
+	return &models.AuthResponse{
+		Token:   accessToken,
+		User:    user,
+		Message: "Email verified and logged in.",
+	}, nil
+}
+
+func (s *AuthService) Logout(ctx context.Context, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return nil
+	}
+	authCtx, cancel := timeoutContext(ctx)
+	defer cancel()
+
+	if err := s.authClient.Logout(authCtx, token); err != nil {
+		s.logger.Error("logout: failed", zap.Error(err))
+		return fmt.Errorf("logout: %w", err)
+	}
 
 	return nil
 }

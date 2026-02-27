@@ -228,7 +228,8 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 		auth.POST("/login", h.auth.Login)
 		auth.POST("/forgot-password", h.auth.ForgotPassword)
 		auth.POST("/reset-password", h.auth.ResetPassword)
-		auth.POST("/verify-email", h.auth.VerifyEmail)
+		auth.POST("/logout", h.auth.Logout)
+		auth.POST("/verify-otp", h.auth.VerifyEmail)
 		auth.POST("/resend-verification", h.auth.ResendVerificationEmail)
 	}
 

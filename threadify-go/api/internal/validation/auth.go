@@ -164,6 +164,8 @@ func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
 		b.add("request", "Request body is required")
 		return b.err()
 	}
+	req.Email = normalizeEmail(req.Email)
+	validateEmail("email", req.Email, b)
 	if strings.TrimSpace(req.Token) == "" {
 		b.add("token", "Verification token is required")
 	}

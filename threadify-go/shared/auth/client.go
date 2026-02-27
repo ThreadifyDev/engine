@@ -27,10 +27,12 @@ type AuthClient interface {
 	LoginWithPassword(ctx context.Context, email, password, clientIP string) (string, *AuthUserInfo, error)
 	Authenticate(ctx context.Context, email, password, clientIP string) error
 	RequestPasswordReset(ctx context.Context, email string) error
-	GeneratePasswordResetLink(ctx context.Context, email string) (string, error)
-	GenerateSignupLink(ctx context.Context, email string) (string, error)
-	ResetPasswordWithToken(ctx context.Context, token, newPassword string) error
-	VerifyEmailWithToken(ctx context.Context, token string) (string, error)
+	GeneratePasswordResetToken(ctx context.Context, email string) (string, error)
+	GenerateSignupOTP(ctx context.Context, email string) (string, error)
+	GenerateLoginOTP(ctx context.Context, email string) (string, error)
+	ResetPasswordWithOTP(ctx context.Context, token, newPassword string) error
+	VerifyEmailWithOTP(ctx context.Context, email, token string) (string, *AuthUserInfo, error)
+	Logout(ctx context.Context, accessToken string) error
 	UpdatePassword(ctx context.Context, authUserID, email, newPassword string) (string, error)
 	FindUserIDByEmail(ctx context.Context, email string) (string, error)
 }

@@ -39,6 +39,7 @@ func NewEmailService(apiKey, apiURL, frontendURL string) (*EmailService, error) 
 type emailData struct {
 	Name        string
 	ActionURL   string
+	Token       string
 	FrontendURL string
 	Year        int
 }
@@ -69,7 +70,8 @@ func (s *EmailService) SendWelcomeEmail(ctx context.Context, email, fullName str
 
 func (s *EmailService) SendVerificationEmail(ctx context.Context, email, token string) error {
 	body, err := s.render("verify.html", emailData{
-		ActionURL:   fmt.Sprintf("%s/auth/verify-email?token=%s", s.frontendURL, token),
+		ActionURL:   fmt.Sprintf("%s/auth/verify-email?email=%s", s.frontendURL, email),
+		Token:       token,
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
 	})
@@ -83,9 +85,25 @@ func (s *EmailService) SendVerificationEmail(ctx context.Context, email, token s
 	})
 }
 
+func (s *EmailService) SendLoginOTPEmail(ctx context.Context, email, token string) error {
+	body, err := s.render("login_otp.html", emailData{
+		Token: token,
+		Year:  time.Now().Year(),
+	})
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, plunkEmailRequest{
+		To:      email,
+		Subject: "Your Threadify Login Code",
+		Body:    body,
+	})
+}
+
 func (s *EmailService) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
 	body, err := s.render("reset_password.html", emailData{
-		ActionURL:   fmt.Sprintf("%s/auth/reset-password?token=%s", s.frontendURL, resetToken),
+		ActionURL:   fmt.Sprintf("%s/auth/reset-password", s.frontendURL),
+		Token:       resetToken,
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
 	})

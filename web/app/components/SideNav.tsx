@@ -1,8 +1,8 @@
 import { useNavigate, useLocation } from '@remix-run/react';
 import { useState } from 'react';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
+import {
+  ChevronLeft,
+  ChevronRight,
   LogOut,
   LayoutDashboard,
   GitBranch,
@@ -23,13 +23,13 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
   const navigate = useNavigate();
   const location = useLocation();
   const [internalCollapsed, setInternalCollapsed] = useState(true);
-  
+
   // Use controlled state if provided, otherwise use internal state
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
   const handleToggle = onToggle || (() => setInternalCollapsed(!internalCollapsed));
 
-  const handleLogout = () => {
-    api.logout();
+  const handleLogout = async () => {
+    await api.logout();
     navigate('/login');
   };
 
@@ -49,16 +49,15 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
   ];
 
   return (
-    <div 
-      className={`hidden lg:flex h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 ${
-        isCollapsed ? 'w-16' : 'w-64'
-      }`}
+    <div
+      className={`hidden lg:flex h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
+        }`}
     >
       {/* Logo & Toggle */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         {!isCollapsed && (
-          <h1 
-            className="text-xl font-bold cursor-pointer text-white" 
+          <h1
+            className="text-xl font-bold cursor-pointer text-white"
             style={{ fontFamily: 'Block, sans-serif' }}
             onClick={() => navigate('/u/dashboard')}
           >
@@ -80,11 +79,10 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
           <button
             key={item.path}
             onClick={() => navigate(item.path)}
-            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${
-              isActive(item.path)
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${isActive(item.path)
                 ? 'bg-white text-black'
                 : 'text-gray-300 hover:bg-gray-900 hover:text-white'
-            }`}
+              }`}
             title={isCollapsed ? item.label : undefined}
           >
             <item.icon className="w-5 h-5" />
@@ -97,9 +95,8 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
       <div className="p-4 border-t border-gray-800">
         <button
           onClick={handleLogout}
-          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${
-            isCollapsed ? 'justify-center' : 'justify-start'
-          }`}
+          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${isCollapsed ? 'justify-center' : 'justify-start'
+            }`}
           title={isCollapsed ? 'Logout' : undefined}
         >
           <LogOut className="w-4 h-4" />

@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
@@ -125,7 +126,8 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.VerifyEmail(c.Request.Context(), &req); err != nil {
+	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &req)
+	if err != nil {
 		if respondValidationError(c, err) {
 			return
 		}
@@ -134,9 +136,24 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Email has been successfully verified. You can now log in.",
-	})
+	c.JSON(http.StatusOK, authResp)
+}
+
+func (h *AuthHandler) Logout(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
+	token := parts[1]
+	if err := h.authService.Logout(c.Request.Context(), token); err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "Logged out."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully."})
 }
 
 func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {

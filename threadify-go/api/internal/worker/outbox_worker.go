@@ -94,11 +94,13 @@ func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 }
 
 func (w *OutboxWorker) processEvents(ctx context.Context) {
+	w.logger.Debug("outbox: polling for pending events")
 	events, err := w.outboxRepo.FetchPendingDue(batchSize)
 	if err != nil {
 		w.logger.Error("outbox: failed to fetch pending events", zap.Error(err))
 		return
 	}
+	w.logger.Debug("outbox: fetched pending events", zap.Int("count", len(events)))
 
 	for _, event := range events {
 		if err := w.handleEvent(ctx, event); err != nil {
@@ -146,8 +148,16 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 
 	switch event.Type {
 	case models.EventTypeRegisterAuthUser:
+		w.logger.Debug("outbox: dispatching register-auth-user",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
 		return w.handleRegisterAuthUser(ctx, event, data)
 	case models.EventTypeSendVerificationEmail:
+		w.logger.Debug("outbox: dispatching send-verification-email",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
 		return w.handleSendVerificationEmail(ctx, data)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.Type)
@@ -155,11 +165,16 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 }
 
 func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.OutboxEvent, data map[string]string) error {
-	fields, err := getFields(data, "user_id", "email", "password", "full_name", "company_id")
+	fields, err := getFields(data, "user_id", "email", "password", "company_id")
 	if err != nil {
 		return err
 	}
-	userID, email, password, fullName, companyID := fields[0], fields[1], fields[2], fields[3], fields[4]
+	userID, email, password, companyID := fields[0], fields[1], fields[2], fields[3]
+
+	var fullName string
+	if val, ok := data["full_name"]; ok {
+		fullName = val
+	}
 
 	user, err := w.userRepo.FindByID(userID)
 	if err != nil {
@@ -170,12 +185,18 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 	}
 
 	if user.AuthUserID == nil || *user.AuthUserID == "" {
+		w.logger.Debug("outbox: registering user in auth provider",
+			zap.String("user_id", userID),
+			zap.String("email", email),
+		)
 		authUserID, err := w.resolveAuthUserID(ctx, email, password, fullName, userID, companyID)
 		if err != nil {
 			return err
 		}
 		if authUserID == "" {
-			// Permanent failure — user and company already cleaned up.
+			w.logger.Debug("outbox: skipping event after permanent auth registration failure",
+				zap.String("user_id", userID),
+			)
 			return nil
 		}
 
@@ -194,6 +215,9 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}
 	if alreadyQueued {
+		w.logger.Debug("outbox: verification email already queued, skipping",
+			zap.String("user_id", userID),
+		)
 		return nil
 	}
 
@@ -292,10 +316,12 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 	}
 
 	if u, err := w.userRepo.FindByEmail(email); err == nil && u != nil && u.EmailVerified {
+		w.logger.Debug("outbox: user already verified, skipping email", zap.String("email", email))
 		return nil
 	}
 
-	token, err := w.authClient.GenerateSignupLink(ctx, email)
+	w.logger.Debug("outbox: generating signup OTP", zap.String("email", email))
+	token, err := w.authClient.GenerateSignupOTP(ctx, email)
 	if err != nil {
 		if errors.Is(err, sharedauth.ErrAuthUserAlreadyExists) {
 			return nil

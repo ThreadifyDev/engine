@@ -1,12 +1,15 @@
 {{template "_header.html" .}}
 <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.5px;">
-    Verify your email address
+    Your login code
 </h1>
 <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
-    Your 8-digit verification code is:
+    Use the 8-digit code below to complete your Threadify login. This code expires in 10 minutes.
 </p>
 <div
     style="margin:0 0 32px;padding:20px;background-color:#f3f4f6;border-radius:8px;text-align:center;font-family:monospace;font-size:32px;font-weight:700;letter-spacing:4px;color:#111827;">
     {{.Token}}
 </div>
+<p style="margin:0 0 16px;font-size:13px;line-height:1.6;color:#6b7280;">
+    If you didn't try to log in, you can safely ignore this email.
+</p>
 {{template "_footer.html" .}}
