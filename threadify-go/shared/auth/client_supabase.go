@@ -154,13 +154,13 @@ func (s *supabaseClient) RequestPasswordReset(ctx context.Context, email string)
 	return nil
 }
 
-func (s *supabaseClient) GeneratePasswordResetLink(ctx context.Context, email string) (string, error) {
+func (s *supabaseClient) GeneratePasswordResetToken(ctx context.Context, email string) (string, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
 	body := map[string]interface{}{"type": "recovery", "email": email}
 
-	var resp supabaseGenerateLinkResponse
+	var resp supabaseGenerateOTPResponse
 	if err := s.adminPost(ctx, "/auth/v1/admin/generate_link", body, &resp); err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
@@ -173,7 +173,7 @@ func (s *supabaseClient) GeneratePasswordResetLink(ctx context.Context, email st
 				return "", httpErr
 			}
 		}
-		return "", fmt.Errorf("generate password reset link: %w", err)
+		return "", fmt.Errorf("generate password reset token: %w", err)
 	}
 
 	if resp.HashedToken == "" {
@@ -182,7 +182,7 @@ func (s *supabaseClient) GeneratePasswordResetLink(ctx context.Context, email st
 	return resp.HashedToken, nil
 }
 
-func (s *supabaseClient) GenerateSignupLink(ctx context.Context, email string) (string, error) {
+func (s *supabaseClient) GenerateSignupOTP(ctx context.Context, email string) (string, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -191,7 +191,7 @@ func (s *supabaseClient) GenerateSignupLink(ctx context.Context, email string) (
 		"email": email,
 	}
 
-	var resp supabaseGenerateLinkResponse
+	var resp supabaseGenerateOTPResponse
 	if err := s.adminPost(ctx, "/auth/v1/admin/generate_link", body, &resp); err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
@@ -204,16 +204,43 @@ func (s *supabaseClient) GenerateSignupLink(ctx context.Context, email string) (
 				return "", httpErr
 			}
 		}
-		return "", fmt.Errorf("generate signup link: %w", err)
+		return "", fmt.Errorf("generate signup otp: %w", err)
 	}
 
-	if resp.HashedToken == "" {
-		return "", errors.New("supabase did not return a hashed token")
+	if resp.Token == "" {
+		return "", errors.New("supabase did not return a numeric token")
 	}
-	return resp.HashedToken, nil
+	return resp.Token, nil
 }
 
-func (s *supabaseClient) ResetPasswordWithToken(ctx context.Context, token, newPassword string) error {
+func (s *supabaseClient) GenerateLoginOTP(ctx context.Context, email string) (string, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	body := map[string]interface{}{
+		"type":  "magiclink",
+		"email": email,
+	}
+
+	var resp supabaseGenerateOTPResponse
+	if err := s.adminPost(ctx, "/auth/v1/admin/generate_link", body, &resp); err != nil {
+		var httpErr *supabaseHTTPError
+		if errors.As(err, &httpErr) {
+			if isSupabaseInvalidEmail(err) {
+				return "", ErrAuthInvalidEmail
+			}
+			return "", httpErr
+		}
+		return "", fmt.Errorf("generate login otp: %w", err)
+	}
+
+	if resp.Token == "" {
+		return "", errors.New("supabase did not return a numeric token for login")
+	}
+	return resp.Token, nil
+}
+
+func (s *supabaseClient) ResetPasswordWithOTP(ctx context.Context, token, newPassword string) error {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -236,46 +263,74 @@ func (s *supabaseClient) ResetPasswordWithToken(ctx context.Context, token, newP
 			}
 			return httpErr
 		}
-		return fmt.Errorf("verify reset token: %w", err)
+		return fmt.Errorf("verify reset otp: %w", err)
 	}
 	if verifyResp.User.ID == "" {
-		return errors.New("failed to identify user from reset token")
+		return errors.New("failed to identify user from reset otp")
 	}
 
 	_, err := s.UpdatePassword(ctx, verifyResp.User.ID, "", newPassword)
 	return err
 }
 
-func (s *supabaseClient) VerifyEmailWithToken(ctx context.Context, token string) (string, error) {
+func (s *supabaseClient) VerifyEmailWithOTP(ctx context.Context, email, token string) (string, *AuthUserInfo, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	verifyBody := map[string]interface{}{
-		"type":       "signup",
-		"token_hash": token,
+	// Try signup first (common case)
+	onVerify := func(vType string) (string, *AuthUserInfo, error) {
+		verifyBody := map[string]interface{}{
+			"type":  vType,
+			"email": email,
+			"token": token,
+		}
+
+		var verifyResp supabaseVerifyResponse
+		if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
+			return "", nil, err
+		}
+		return verifyResp.AccessToken, &AuthUserInfo{
+			Sub:           verifyResp.User.ID,
+			Email:         verifyResp.User.Email,
+			EmailVerified: true,
+		}, nil
 	}
 
-	var verifyResp supabaseVerifyResponse
-	if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
+	// Try signup
+	accessToken, userInfo, err := onVerify("signup")
+	if err == nil {
+		return accessToken, userInfo, nil
+	}
+
+	// If signup fails, try magiclink (login OTP)
+	accessToken, userInfo, err = onVerify("magiclink")
+	if err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
 			switch {
 			case httpErr.hasCode(supabaseCodeBadToken, supabaseCodeOTPDisabled):
-				return "", ErrAuthInvalidToken
+				return "", nil, ErrAuthInvalidToken
 			case httpErr.hasCode(supabaseCodeOTPExpired):
-				return "", ErrAuthExpiredToken
+				return "", nil, ErrAuthExpiredToken
 			case isSupabaseRateLimit(err):
-				return "", ErrAuthRateLimit
+				return "", nil, ErrAuthRateLimit
 			}
-			return "", httpErr
+			return "", nil, httpErr
 		}
-		return "", fmt.Errorf("verify signup token: %w", err)
-	}
-	if verifyResp.User.ID == "" {
-		return "", errors.New("failed to identify user from verification token")
+		return "", nil, fmt.Errorf("verify otp (magiclink): %w", err)
 	}
 
-	return verifyResp.User.ID, nil
+	return accessToken, userInfo, nil
+}
+
+func (s *supabaseClient) Logout(ctx context.Context, accessToken string) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	if err := s.do(ctx, http.MethodPost, "/auth/v1/logout", s.publishableKey, accessToken, nil, nil); err != nil {
+		return fmt.Errorf("logout: %w", err)
+	}
+	return nil
 }
 
 func (s *supabaseClient) UpdatePassword(ctx context.Context, authUserID, email, newPassword string) (string, error) {
@@ -411,13 +466,15 @@ type supabaseLoginResponse struct {
 }
 
 type supabaseVerifyResponse struct {
-	User struct {
-		ID string `json:"id"`
+	AccessToken string `json:"access_token"`
+	User        struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
 	} `json:"user"`
 }
 
-type supabaseGenerateLinkResponse struct {
-	ActionLink  string `json:"action_link"`
+type supabaseGenerateOTPResponse struct {
+	Token       string `json:"email_otp"`
 	HashedToken string `json:"hashed_token"`
 }
 

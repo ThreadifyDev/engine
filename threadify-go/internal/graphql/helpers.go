@@ -3,6 +3,7 @@ package graphql
 import (
 	"context"
 	"fmt"
+	sharedauth "threadify-go/shared/auth"
 )
 
 // Context keys for caching
@@ -15,23 +16,28 @@ const (
 
 // getUserInfoFromContext extracts user info from GraphQL context
 func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role string, err error) {
-	ownerIDVal := ctx.Value("ownerID")
-	companyIDVal := ctx.Value("companyID")
-	roleVal := ctx.Value("role")
+	ownerIDVal := ctx.Value(sharedauth.CtxUserID)
+	companyIDVal := ctx.Value(sharedauth.CtxCompanyID)
+	rolesVal := ctx.Value(sharedauth.CtxRoles)
 
-	if ownerIDVal == nil || companyIDVal == nil || roleVal == nil {
+	if ownerIDVal == nil || companyIDVal == nil || rolesVal == nil {
 		return "", "", "", fmt.Errorf("user authentication context not found")
 	}
 
-	ownerID, ok1 := ownerIDVal.(string)
-	companyID, ok2 := companyIDVal.(string)
-	role, ok3 := roleVal.(string)
+	ownerID, ownerOK := ownerIDVal.(string)
+	companyID, companyOK := companyIDVal.(string)
+	roles, rolesOK := rolesVal.([]string)
 
-	if !ok1 || !ok2 || !ok3 {
+	if !ownerOK || !companyOK || !rolesOK {
 		return "", "", "", fmt.Errorf("invalid user authentication context types")
 	}
 
-	return ownerID, companyID, role, nil
+	extractedRole := ""
+	if len(roles) > 0 {
+		extractedRole = roles[0]
+	}
+
+	return ownerID, companyID, extractedRole, nil
 }
 
 // cacheAccessCheck stores an access check result in the context

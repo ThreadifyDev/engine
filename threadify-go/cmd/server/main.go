@@ -356,9 +356,9 @@ func startPprof(logger *zap.Logger) {
 func graphqlMiddleware(h *handler.Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		ctx = context.WithValue(ctx, contextKeyOwnerID, mustGet(c, "ownerID"))
-		ctx = context.WithValue(ctx, contextKeyCompanyID, mustGet(c, "companyID"))
-		ctx = context.WithValue(ctx, contextKeyRole, mustGet(c, "role"))
+		ctx = context.WithValue(ctx, sharedauth.CtxUserID, mustGet(c, sharedauth.CtxUserID))
+		ctx = context.WithValue(ctx, sharedauth.CtxCompanyID, mustGet(c, sharedauth.CtxCompanyID))
+		ctx = context.WithValue(ctx, sharedauth.CtxRoles, mustGet(c, sharedauth.CtxRoles))
 		c.Request = c.Request.WithContext(ctx)
 		h.ServeHTTP(c.Writer, c.Request)
 	}

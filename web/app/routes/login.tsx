@@ -19,7 +19,7 @@ export default function Login() {
     try {
       await api.login(formData);
       // Navigate to OTP verification with email
-      navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}`);
+      navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=login`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

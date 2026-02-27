@@ -29,7 +29,7 @@ export interface LoginData {
 
 export interface VerifyOTPData {
   email: string;
-  code: string;
+  token: string;
 }
 
 export interface ForgotPasswordData {
@@ -187,10 +187,16 @@ class ApiClient {
     });
   }
 
-  logout() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user');
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore backend errors — we still clear local state
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+      }
     }
   }
 
@@ -419,6 +425,10 @@ class ApiClient {
 
   async continueConversation(conversationId: string): Promise<{ conversation_id: string; title: string; parent_id: string }> {
     return this.post(`/chat/conversations/${conversationId}/continue`, {});
+  }
+
+  async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
+    return this.request(`/code-samples?codeType=${codeType}`);
   }
 }
 
