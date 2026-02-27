@@ -653,8 +653,8 @@ func (s *ThreadService) EndThread(
 		defer cancel()
 
 		if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
-			"thread_id":   threadID,
-			"owner_id":    actorID,
+			"threadId":    threadID,
+			"ownerId":     actorID,
 			"companyId":   thread.CompanyID,
 			"status":      status,
 			"startedAt":   recordedAt.Format(time.RFC3339Nano),
@@ -675,14 +675,14 @@ func (s *ThreadService) EndThread(
 		}
 
 		if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-			"thread_id":     threadID,
-			"activity_type": activityType,
-			"actor":         actorID,
-			"actor_service": actorService,
-			"recorded_at":   recordedAt.Format(time.RFC3339Nano),
-			"payload":       map[string]interface{}{"reason": reason, "status": status},
+			"threadId":     threadID,
+			"type":         activityType,
+			"actor":        actorID,
+			"actorService": actorService,
+			"timestamp":    recordedAt.Format(time.RFC3339Nano),
+			"payload":      map[string]interface{}{"reason": reason, "status": status},
 		}); err != nil {
-			s.logger.Warn("failed to publish end activity", zap.String("thread_id", threadID), zap.Error(err))
+			s.logger.Warn("failed to publish end activity", zap.String("threadId", threadID), zap.Error(err))
 		}
 	}
 
@@ -869,16 +869,16 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 	}
 
 	if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-		"type":             "thread_created",
-		"thread_id":        threadID,
-		"owner_id":         ownerID,
-		"actor":            ownerID,
-		"actor_service":    serviceName,
-		"contract_id":      contractID,
-		"contract_name":    thread.ContractName,
-		"contract_version": contractVersion,
-		"role":             role,
-		"timestamp":        thread.StartedAt.Format(time.RFC3339),
+		"type":            "thread_created",
+		"threadId":        threadID,
+		"ownerId":         ownerID,
+		"actor":           ownerID,
+		"actorService":    serviceName,
+		"contractId":      contractID,
+		"contractName":    thread.ContractName,
+		"contractVersion": contractVersion,
+		"role":            role,
+		"timestamp":       thread.StartedAt.Format(time.RFC3339),
 	}); err != nil {
 		s.logger.Error("failed to publish activity log to NATS", zap.Error(err))
 	}

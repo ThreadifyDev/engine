@@ -675,21 +675,21 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n models.
 	}
 
 	return s.natsArchivalPublisher.PublishActivityLog(ctx, map[string]interface{}{
-		"thread_id":         n.ThreadID,
-		"type":              ActivityTypeValidationResult,
-		"step_id":           stepID,
-		"actor":             n.OwnerID,
-		"actor_service":     ActorServiceRuleEngine,
-		"timestamp":         n.Timestamp.Format(time.RFC3339),
-		"status":            n.Status,
-		"notification_id":   n.NotificationID,
-		"source":            n.Source,
-		"notification_type": n.NotificationType,
-		"step_status":       n.StepStatus,
-		"violation_type":    n.ViolationType,
-		"severity":          n.Severity,
-		"message":           n.Message,
-		"details":           string(detailsJSON),
+		"threadId":         n.ThreadID,
+		"type":             ActivityTypeValidationResult,
+		"stepId":           stepID,
+		"actor":            n.OwnerID,
+		"actorService":     ActorServiceRuleEngine,
+		"timestamp":        n.Timestamp.Format(time.RFC3339),
+		"status":           n.Status,
+		"notificationId":   n.NotificationID,
+		"source":           n.Source,
+		"notificationType": n.NotificationType,
+		"stepStatus":       n.StepStatus,
+		"violationType":    n.ViolationType,
+		"severity":         n.Severity,
+		"message":          n.Message,
+		"details":          string(detailsJSON),
 	})
 }
 

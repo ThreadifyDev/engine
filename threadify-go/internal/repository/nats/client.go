@@ -68,7 +68,7 @@ func (c *Client) initializeNotificationStream() error {
 	err := c.ensureStream(&nats.StreamConfig{
 		Name:       c.cfg.StreamName,
 		Subjects:   []string{SubjectNotificationsUser},
-		Retention:  nats.WorkQueuePolicy,
+		Retention:  nats.LimitsPolicy,
 		MaxAge:     3 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
 		Replicas:   1,
@@ -119,7 +119,7 @@ func (c *Client) initializeArchivalStreams() error {
 		if err := c.ensureStream(&nats.StreamConfig{
 			Name:       s.name,
 			Subjects:   []string{s.subject},
-			Retention:  nats.WorkQueuePolicy,
+			Retention:  nats.LimitsPolicy,
 			MaxAge:     24 * time.Hour,
 			Storage:    nats.FileStorage,
 			Replicas:   1,
@@ -138,7 +138,7 @@ func (c *Client) initializeOutboxStream() error {
 	err := c.ensureStream(&nats.StreamConfig{
 		Name:      StreamOutboxTriggers,
 		Subjects:  []string{SubjectOutboxTrigger},
-		Retention: nats.WorkQueuePolicy,
+		Retention: nats.LimitsPolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   nats.FileStorage,
 		Replicas:  1,
