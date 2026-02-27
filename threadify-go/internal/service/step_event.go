@@ -167,20 +167,20 @@ func (ses *StepEventService) processSubSteps(ctx context.Context, threadID, step
 			recordedAt = time.Now()
 		}
 		events = append(events, map[string]interface{}{
-			"thread_id":   threadID,
-			"step_id":     stepID,
-			"name":        ss.Name,
-			"status":      ss.Status,
-			"payload":     ss.Payload,
-			"recorded_at": recordedAt.Format(time.RFC3339Nano),
+			"threadId":   threadID,
+			"stepId":     stepID,
+			"name":       ss.Name,
+			"status":     ss.Status,
+			"payload":    ss.Payload,
+			"recordedAt": recordedAt.Format(time.RFC3339Nano),
 		})
 	}
 
 	return ses.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-		"type":      "substeps_batch",
-		"thread_id": threadID,
-		"step_id":   stepID,
-		"substeps":  events,
+		"type":     "substeps_batch",
+		"threadId": threadID,
+		"stepId":   stepID,
+		"substeps": events,
 	})
 }
 
@@ -312,22 +312,22 @@ func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event 
 // createActivityEvent builds the activity event payload for NATS publishing.
 func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
 	return map[string]interface{}{
-		"type":            "step_recorded",
-		"thread_id":       event.ThreadID,
-		"step_id":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
-		"step_name":       event.StepName,
-		"step_uuid":       event.StepID,
-		"idempotency_key": event.IdempotencyKey,
-		"content_hash":    event.ContentHash,
-		"timestamp":       event.Timestamp.Format(time.RFC3339Nano),
-		"context":         event.ContextJSON(),
-		"actor":           ownerID,
-		"actor_service":   serviceName,
-		"status":          event.Status,
-		"hash":            hashResult.NewHash,
-		"prev_hash":       hashResult.OldHash,
-		"started_at":      event.StartedAt,
-		"finished_at":     event.FinishedAt,
+		"type":           "step_recorded",
+		"threadId":       event.ThreadID,
+		"stepId":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
+		"stepName":       event.StepName,
+		"stepUuid":       event.StepID,
+		"idempotencyKey": event.IdempotencyKey,
+		"contentHash":    event.ContentHash,
+		"timestamp":      event.Timestamp.Format(time.RFC3339Nano),
+		"context":        event.ContextJSON(),
+		"actor":          ownerID,
+		"actorService":   serviceName,
+		"status":         event.Status,
+		"hash":           hashResult.NewHash,
+		"prevHash":       hashResult.OldHash,
+		"startedAt":      event.StartedAt,
+		"finishedAt":     event.FinishedAt,
 	}
 }
 

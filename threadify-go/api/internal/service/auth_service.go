@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,6 +53,13 @@ func NewAuthService(
 	encryptionKey string,
 	logger *zap.Logger,
 ) *AuthService {
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		logger.Error("failed to decode outbox encryption key", zap.Error(err))
+		// We fallback to raw bytes if hex decoding fails, but in production, this should be valid hex.
+		key = []byte(encryptionKey)
+	}
+
 	return &AuthService{
 		db:            db,
 		userRepo:      repository.NewUserRepository(db),
@@ -61,7 +69,7 @@ func NewAuthService(
 		emailSvc:      emailSvc,
 		authClient:    authClient,
 		outboxWorker:  outboxWorker,
-		encryptionKey: []byte(encryptionKey),
+		encryptionKey: key,
 		logger:        logger,
 	}
 }
@@ -77,9 +85,11 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 
 	existing, err := s.userRepo.FindByEmail(req.Email)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+		s.logger.Error("failed to check existing user", zap.String("email", req.Email), zap.Error(err))
 		return fmt.Errorf("check existing user: %w", err)
 	}
 	if existing != nil {
+		s.logger.Warn("user already exists", zap.String("email", req.Email))
 		return ErrUserAlreadyExists
 	}
 
@@ -105,6 +115,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 
 	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)
 	if err != nil {
+		s.logger.Error("failed to register user", zap.String("email", req.Email), zap.Error(err))
 		return err
 	}
 

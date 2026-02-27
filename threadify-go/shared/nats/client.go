@@ -54,7 +54,7 @@ func (c *Client) InitializeOutboxStream() error {
 	streamConfig := &nats.StreamConfig{
 		Name:      StreamOutboxTriggers,
 		Subjects:  []string{SubjectOutboxTrigger},
-		Retention: nats.WorkQueuePolicy,
+		Retention: nats.LimitsPolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   nats.FileStorage,
 		Replicas:  1,

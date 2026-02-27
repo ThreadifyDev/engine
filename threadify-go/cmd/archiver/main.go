@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -128,11 +127,6 @@ func startNATSConsumers(
 		return fmt.Errorf("connect nats: %w", err)
 	}
 
-	if err := ensureArchiverStreams(ctx, nc, logger); err != nil {
-		nc.Close()
-		return fmt.Errorf("ensure archiver streams: %w", err)
-	}
-
 	natsConsumer, err := archiver.NewNATSConsumer(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
@@ -184,37 +178,6 @@ func startNATSConsumers(
 	}()
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return nil
-}
-
-func ensureArchiverStreams(ctx context.Context, nc *nats.Conn, log *zap.Logger) error {
-	js, err := jetstream.New(nc)
-	if err != nil {
-		return fmt.Errorf("create jetstream context: %w", err)
-	}
-
-	streams := []struct {
-		name     string
-		subjects []string
-	}{
-		{"activity_log", []string{"activity.log"}},
-		{"thread_metadata", []string{"metadata.thread"}},
-		{"thread_access", []string{"access.thread"}},
-		{"thread_validations", []string{"validations.thread"}},
-		{"state_step", []string{"state.step"}},
-	}
-
-	for _, s := range streams {
-		_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-			Name:     s.name,
-			Subjects: s.subjects,
-			Storage:  jetstream.FileStorage,
-		})
-		if err != nil {
-			return fmt.Errorf("ensure stream %q: %w", s.name, err)
-		}
-		log.Info("ensured NATS stream", zap.String("stream", s.name))
-	}
 	return nil
 }
 
