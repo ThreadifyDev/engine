@@ -15,6 +15,7 @@ interface RefFilter {
 }
 
 interface SearchFilters {
+  searchQuery?: string; // Simple search input
   threadId?: string;
   contractName?: string;
   contractVersion?: number;
@@ -25,12 +26,20 @@ interface SearchFilters {
   status?: string;
 }
 
+type ParsedSearchType = 'thread_id' | 'contract' | 'reference';
+
+interface ParsedSearch {
+  type: ParsedSearchType;
+  value: string;
+}
+
 export default function ThreadsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [searchMode, setSearchMode] = useState<SearchMode>('advanced');
   const [filters, setFilters] = useState<SearchFilters>({
+    searchQuery: '',
     refs: [],
     timeRange: 'all',
   });
@@ -47,6 +56,7 @@ export default function ThreadsPage() {
   useEffect(() => {
     const mode = searchParams.get('mode') as SearchMode;
     const page = searchParams.get('page');
+    const searchQuery = searchParams.get('q');
     const contractName = searchParams.get('contract');
     const contractVersion = searchParams.get('version');
     const threadId = searchParams.get('threadId');
@@ -60,6 +70,7 @@ export default function ThreadsPage() {
 
     if (mode === 'advanced') {
       const restoredFilters: SearchFilters = {
+        searchQuery: searchQuery || '',
         refs: refKey && refValue ? [{ key: refKey, value: refValue }] : [],
         timeRange: (timeRange as any) || 'all',
         threadId,
@@ -83,6 +94,42 @@ export default function ThreadsPage() {
     }
   }, [searchParams]);
 
+  const parseSearchQuery = (query: string): ParsedSearch => {
+    const trimmed = query.trim();
+    
+    // Check for explicit prefixes
+    if (trimmed.startsWith('contract:')) {
+      return {
+        type: 'contract',
+        value: trimmed.substring(9).trim(),
+      };
+    }
+    
+    if (trimmed.startsWith('ref:')) {
+      return {
+        type: 'reference',
+        value: trimmed.substring(4).trim(),
+      };
+    }
+    
+    if (trimmed.startsWith('thread:')) {
+      return {
+        type: 'thread_id',
+        value: trimmed.substring(7).trim(),
+      };
+    }
+    
+    // Auto-detect: UUID = thread_id, otherwise = reference
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(trimmed)) {
+      return { type: 'thread_id', value: trimmed };
+    }
+    
+    // Default to reference search
+    return { type: 'reference', value: trimmed };
+  };
+
   const performAdvancedSearch = async (page: number = 1, searchFilters?: SearchFilters) => {
     const activeFilters = searchFilters || filters;
     
@@ -91,6 +138,7 @@ export default function ThreadsPage() {
       mode: 'advanced',
       page: page.toString(),
     };
+    if (activeFilters.searchQuery) params.q = activeFilters.searchQuery;
     if (activeFilters.threadId) params.threadId = activeFilters.threadId;
     if (activeFilters.contractName) params.contract = activeFilters.contractName;
     if (activeFilters.contractVersion) params.version = activeFilters.contractVersion.toString();
@@ -110,17 +158,64 @@ export default function ThreadsPage() {
 
     try {
       let results: Thread[] = [];
+      const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
 
-      // Search by thread ID
-      if (activeFilters.threadId) {
+      // Priority 1: Simple search query (if provided)
+      if (activeFilters.searchQuery && activeFilters.searchQuery.trim()) {
+        const parsed = parseSearchQuery(activeFilters.searchQuery);
+        
+        switch (parsed.type) {
+          case 'thread_id':
+            // Exact thread ID lookup
+            const thread = await graphqlClient.getThread(parsed.value);
+            results = thread ? [thread] : [];
+            setTotalResults(results.length);
+            break;
+            
+          case 'contract':
+            // Search by contract name
+            const contractResponse = await graphqlClient.getThreadsByContract({
+              contractName: parsed.value,
+              contractVersion: activeFilters.contractVersion,
+              status: activeFilters.status,
+              startedAfter,
+              startedBefore,
+              limit: resultsPerPage,
+              offset,
+            });
+            results = contractResponse.threads;
+            setTotalResults(contractResponse.totalCount);
+            break;
+            
+          case 'reference':
+            // Search by reference value (omit refKey to search across all ref keys)
+            const refResponse = await graphqlClient.getThreadsByRef({
+              // refKey omitted - searches across all reference keys
+              refValue: parsed.value,
+              status: activeFilters.status,
+              startedAfter,
+              startedBefore,
+              limit: resultsPerPage,
+              offset,
+            });
+            results = refResponse.threads;
+            setTotalResults(refResponse.totalCount);
+            
+            // Apply advanced contract filter if provided
+            if (activeFilters.contractName) {
+              results = results.filter(t => t.contractName === activeFilters.contractName);
+              setTotalResults(results.length);
+            }
+            break;
+        }
+      }
+      // Priority 2: Advanced filters (legacy behavior)
+      else if (activeFilters.threadId) {
         const thread = await graphqlClient.getThread(activeFilters.threadId);
         results = thread ? [thread] : [];
         setTotalResults(results.length);
       }
-      // Single ref search
       else if (activeFilters.refs.length > 0 && activeFilters.refs[0].key && activeFilters.refs[0].value) {
-        // Search by first ref (only support one ref for now)
-        const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
         const response = await graphqlClient.getThreadsByRef({
           refKey: activeFilters.refs[0].key,
           refValue: activeFilters.refs[0].value,
@@ -133,10 +228,7 @@ export default function ThreadsPage() {
         results = response.threads;
         setTotalResults(response.totalCount);
       }
-      // Contract search
       else if (activeFilters.contractName) {
-        // Search by contract
-        const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
         const response = await graphqlClient.getThreadsByContract({
           contractName: activeFilters.contractName,
           contractVersion: activeFilters.contractVersion,
@@ -149,9 +241,7 @@ export default function ThreadsPage() {
         results = response.threads;
         setTotalResults(response.totalCount);
       }
-      // General search with filters
       else {
-        const { startedAfter, startedBefore } = getTimeFilters(activeFilters);
         const response = await graphqlClient.getThreads({
           status: activeFilters.status,
           startedAfter,
@@ -385,105 +475,90 @@ function AdvancedSearchFilters({
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
-      {/* Thread ID */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          <Hash className="inline w-3 h-3 mr-1" />
-          Thread ID
-        </label>
-        <input
-          type="text"
-          placeholder="Enter exact thread ID..."
-          value={filters.threadId || ''}
-          onChange={(e) => onChange({ ...filters, threadId: e.target.value })}
-          className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
-        />
-      </div>
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isSearching) {
+      onSearch(1);
+    }
+  };
 
-      {/* Contract */}
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            <FileText className="inline w-3 h-3 mr-1" />
-            Contract Name
-          </label>
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      {/* Simple Search Box */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          <Search className="inline w-4 h-4 mr-1" />
+          Search Threads
+        </label>
+        <div className="flex gap-2">
           <input
             type="text"
-            placeholder="e.g., order_fulfillment"
-            value={filters.contractName || ''}
-            onChange={(e) => onChange({ ...filters, contractName: e.target.value })}
-            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+            placeholder="Search by thread ID, contract name, or reference value..."
+            value={filters.searchQuery || ''}
+            onChange={(e) => onChange({ ...filters, searchQuery: e.target.value })}
+            onKeyPress={handleKeyPress}
+            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
           />
+          <button
+            onClick={() => onSearch(1)}
+            disabled={isSearching}
+            className="px-6 py-2 text-sm bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            {isSearching ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Searching...
+              </>
+            ) : (
+              <>
+                <Search className="w-4 h-4" />
+                Search
+              </>
+            )}
+          </button>
         </div>
-        <div className="w-20">
-          <label className="block text-xs font-medium text-gray-700 mb-1">Version</label>
-          <input
-            type="number"
-            placeholder="1"
-            value={filters.contractVersion || ''}
-            onChange={(e) => onChange({ ...filters, contractVersion: e.target.value ? parseInt(e.target.value) : undefined })}
-            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900 text-center"
-          />
-        </div>
-      </div>
-
-      {/* Refs */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">References</label>
-        {filters.refs.map((ref, idx) => (
-          <div key={idx} className="flex gap-1.5 mb-1.5">
-            <input
-              placeholder="Key"
-              value={ref.key}
-              onChange={(e) => updateRefFilter(idx, 'key', e.target.value)}
-              className="w-32 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
-            />
-            <input
-              placeholder="Value"
-              value={ref.value}
-              onChange={(e) => updateRefFilter(idx, 'value', e.target.value)}
-              className="flex-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
-            />
-            <button
-              onClick={() => removeRefFilter(idx)}
-              className="px-1.5 py-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-        <button
-          onClick={addRefFilter}
-          className="text-xs text-gray-600 hover:text-gray-900 font-medium mt-0.5"
-        >
-          + Add Reference
-        </button>
+        <p className="text-xs text-gray-500 mt-1.5">
+          <b>Tip</b>: Use <code className="bg-gray-100 px-1 py-0.5 rounded">contract:order_fulfillment</code> or{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded">ref:customer@example.com</code> for specific searches
+        </p>
       </div>
 
       {/* Advanced Filters Toggle */}
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-900 pt-1"
+        className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 pt-1"
       >
-        {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        {showAdvanced ? 'Hide' : 'Show'} Advanced
+        {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        {showAdvanced ? 'Hide' : 'Show'} Advanced Filters
       </button>
 
       {/* Advanced Filters */}
       {showAdvanced && (
-        <div className="space-y-2 pt-2 border-t border-gray-200">
+        <div className="space-y-3 pt-3 border-t border-gray-200">
+          {/* Contract Filter (for ref: searches) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <FileText className="inline w-4 h-4 mr-1" />
+              Filter by Contract
+            </label>
+            <input
+              type="text"
+              placeholder="e.g., order_fulfillment (optional)"
+              value={filters.contractName || ''}
+              onChange={(e) => onChange({ ...filters, contractName: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+            />
+          </div>
+
           {/* Time Range */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              <Calendar className="inline w-3 h-3 mr-1" />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <Calendar className="inline w-4 h-4 mr-1" />
               Time Range
             </label>
             <select
               value={filters.timeRange}
               onChange={(e) => onChange({ ...filters, timeRange: e.target.value as any })}
-              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
             >
               <option value="all">All Time</option>
               <option value="24h">Last 24 Hours</option>
@@ -497,21 +572,21 @@ function AdvancedSearchFilters({
           {filters.timeRange === 'custom' && (
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Start (From)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Start (From)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedAfter || ''}
                   onChange={(e) => onChange({ ...filters, startedAfter: e.target.value })}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-700 mb-1">End (To)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">End (To)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedBefore || ''}
                   onChange={(e) => onChange({ ...filters, startedBefore: e.target.value })}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
                 />
               </div>
             </div>
@@ -519,11 +594,11 @@ function AdvancedSearchFilters({
 
           {/* Status Filter */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
             <select
               value={filters.status || ''}
               onChange={(e) => onChange({ ...filters, status: e.target.value || undefined })}
-              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
             >
               <option value="">All Statuses</option>
               <option value="active">Active</option>
@@ -534,15 +609,6 @@ function AdvancedSearchFilters({
           </div>
         </div>
       )}
-
-      {/* Search Button */}
-      <button
-        onClick={() => onSearch(1)}
-        disabled={isSearching}
-        className="w-full py-1.5 px-4 text-xs bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors mt-1"
-      >
-        {isSearching ? 'Searching...' : 'Search Threads'}
-      </button>
     </div>
   );
 }

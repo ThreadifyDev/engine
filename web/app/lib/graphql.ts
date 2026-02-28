@@ -538,7 +538,7 @@ class GraphQLClient {
   }
 
   async getThreadsByRef(options: {
-    refKey: string;
+    refKey?: string; // Optional - if omitted, searches across all ref keys
     refValue: string;
     status?: string;
     limit?: number;
@@ -548,7 +548,7 @@ class GraphQLClient {
   }): Promise<{ threads: Thread[]; totalCount: number }> {
     const query = `
       query GetThreadsByRef(
-        $refKey: String!
+        $refKey: String
         $refValue: String!
         $status: String
         $limit: Int

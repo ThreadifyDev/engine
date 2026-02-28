@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code } from 'lucide-react';
+import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
 
@@ -40,6 +40,7 @@ export default function ThreadChat() {
   const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
   const [limitError, setLimitError] = useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [copiedThreadId, setCopiedThreadId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -352,6 +353,24 @@ export default function ThreadChat() {
                       : msg
                   ));
                 }
+              } else if (currentEvent === 'tool_call') {
+                // Tool call information (GraphQL query and response)
+                try {
+                  const toolCallData = JSON.parse(data.trim());
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === assistantMessageId 
+                      ? { 
+                          ...msg, 
+                          relatedToolCall: {
+                            query: toolCallData.query || '',
+                            response: toolCallData.response || '',
+                          }
+                        }
+                      : msg
+                  ));
+                } catch (e) {
+                  // Ignore parsing errors
+                }
               } else if (currentEvent === 'done') {
                 // Stream complete
                 break;
@@ -525,7 +544,7 @@ export default function ThreadChat() {
                           );
                         }
                         
-                        return isInline ? (
+                        return inline ? (
                           <code className="bg-gray-200 px-1 rounded" {...props}>{children}</code>
                         ) : (
                           <code className="block bg-gray-200 p-2 rounded" {...props}>{children}</code>
@@ -544,15 +563,33 @@ export default function ThreadChat() {
                               if (part) acc.push(part);
                               if (matches[i]) {
                                 acc.push(
-                                  <a
-                                    key={`uuid-${i}`}
-                                    href={`/u/threads/${matches[i]}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:text-blue-800 underline"
-                                  >
-                                    {matches[i]}
-                                  </a>
+                                  <span key={`uuid-wrapper-${i}`} className="inline-flex items-center gap-1">
+                                    <a
+                                      href={`/u/threads/${matches[i]}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-gray-600 hover:text-gray-800 underline"
+                                      title={matches[i]}
+                                    >
+                                      {matches[i].slice(-12)}
+                                    </a>
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        navigator.clipboard.writeText(matches[i]);
+                                        setCopiedThreadId(matches[i]);
+                                        setTimeout(() => setCopiedThreadId(null), 2000);
+                                      }}
+                                      className="inline-flex items-center justify-center w-4 h-4 text-gray-500 hover:text-gray-700 transition-colors"
+                                      title="Copy full thread ID"
+                                    >
+                                      {copiedThreadId === matches[i] ? (
+                                        <Check className="w-3 h-3 text-green-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </span>
                                 );
                               }
                               return acc;
@@ -562,6 +599,60 @@ export default function ThreadChat() {
                         };
                         
                         return <p>{React.Children.map(children, processText)}</p>;
+                      },
+                      strong: ({ children }) => {
+                        const processText = (node: any): any => {
+                          if (typeof node === 'string') {
+                            const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+                            const parts = node.split(uuidRegex);
+                            const matches = node.match(uuidRegex) || [];
+                            
+                            if (matches.length === 0) return <strong>{node}</strong>;
+                            
+                            return (
+                              <strong>
+                                {parts.reduce((acc: any[], part: string, i: number) => {
+                                  if (part) acc.push(part);
+                                  if (matches[i]) {
+                                    acc.push(
+                                      <span key={`uuid-wrapper-${i}`} className="inline-flex items-center gap-1">
+                                        <a
+                                          href={`/u/threads/${matches[i]}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-gray-600 hover:text-gray-800 underline font-bold"
+                                          title={matches[i]}
+                                        >
+                                          {matches[i].slice(-12)}
+                                        </a>
+                                        <button
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            navigator.clipboard.writeText(matches[i]);
+                                            setCopiedThreadId(matches[i]);
+                                            setTimeout(() => setCopiedThreadId(null), 2000);
+                                          }}
+                                          className="inline-flex items-center justify-center w-4 h-4 text-gray-500 hover:text-gray-700 transition-colors"
+                                          title="Copy full thread ID"
+                                        >
+                                          {copiedThreadId === matches[i] ? (
+                                            <Check className="w-3 h-3 text-green-600" />
+                                          ) : (
+                                            <Copy className="w-3 h-3" />
+                                          )}
+                                        </button>
+                                      </span>
+                                    );
+                                  }
+                                  return acc;
+                                }, [])}
+                              </strong>
+                            );
+                          }
+                          return <strong>{node}</strong>;
+                        };
+                        
+                        return <>{React.Children.map(children, processText)}</>;
                       },
                     }}
                   >

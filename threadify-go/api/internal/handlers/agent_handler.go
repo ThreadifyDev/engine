@@ -611,6 +611,15 @@ IMPORTANT:
 					ToolCallID:     &currentToolId,
 				})
 
+				// Send tool call info to frontend via SSE for real-time "View Query" button
+				toolCallData := map[string]string{
+					"query":    query,
+					"response": engineOutput,
+				}
+				toolCallDataJSON, _ := json.Marshal(toolCallData)
+				c.SSEvent("tool_call", string(toolCallDataJSON))
+				c.Writer.Flush()
+
 				// Loop continues! (LLM will summarize in next iteration)
 				continue
 			} else if currentToolName == "save_context" {
