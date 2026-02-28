@@ -248,21 +248,46 @@ type Query {
 }
 
 QUERY SELECTION RULES (CRITICAL):
-Use threadsByRef() when user mentions:
-- Business identifiers: customer_id, order_id, payment_id, stripe_payment_id, transaction_id, invoice_id, etc.
-- If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
-- If you DON'T know the ref key: threadsByRef(refValue: "cus_123") - searches across ALL ref keys
-- Example: "Find thread for customer cus_123" → threadsByRef(refValue: "cus_123")
-- Example: "Show order ORD-456" → threadsByRef(refValue: "ORD-456")
-- Example: "Find pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+Use threadsByRef() when user mentions EXTERNAL REFERENCES linked via addRef():
+- External resource IDs: order_id, payment_id, customer_id, invoice_id, etc.
+- These are references to external systems/resources that were LINKED to the thread via addRef()
+- NOT for data stored in steps via addContext() - that's internal thread data
+- If you know the ref key name: threadsByRef(refKey: "order_id", refValue: "ORD-456")
+- If you DON'T know the ref key: threadsByRef(refValue: "ORD-456") - searches across ALL ref keys
+- Example: "Find thread for order ORD-456" → threadsByRef(refValue: "ORD-456")
+- Example: "Show payment pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+- Example: "customer cus_123" → threadsByRef(refValue: "cus_123")
 
-Use threads(actor:) ONLY when user explicitly mentions:
-- Service names: "ran by payment-service", "where merchant-service was involved"
-- User names: "executed by john@example.com"
-- Example: "Threads run by payment-service" → threads(actor: "payment-service")
+Use threads(actor:) when user asks about WHICH SYSTEM/SERVICE made the request to Threadify:
+- Actors are ALWAYS systems/services (payment-service, order-service, api-gateway, etc.)
+- Actors are NEVER customer emails, user IDs, or business data
+- "threads from payment-service" → threads(actor: "payment-service")
+- "requests made by order-service" → threads(actor: "order-service")
+- Keywords: "from [service]", "by [service]", "[service] requests"
 
-Default to threadsByRef() for business IDs, NOT threads(actor:)!
-When in doubt about the ref key name, omit refKey and search by value only.
+Use threads(contractName:) when user asks about a specific workflow/contract:
+- "order_fulfillment threads" → threads(contractName: "order_fulfillment")
+- "payment processing workflows" → threads(contractName: "payment_processing")
+
+DEFAULT BEHAVIOR:
+- External resource IDs (order, payment, customer IDs) → threadsByRef()
+- System/service names → threads(actor:)
+- Workflow/contract names → threads(contractName:)
+- When in doubt about an ID/reference → threadsByRef() with refValue only (omit refKey)
+
+FALLBACK STRATEGY (if query returns no results or fails):
+If you're unsure whether user input is a thread ID, reference, or actor:
+1. First try: threadsByRef(refValue: "...") - most common case for business IDs
+2. If no results: try thread(id: "...") - might be a thread ID
+3. If still no results: try threads(actor: "...") - might be a service name
+4. Inform user: "No threads found for [value]. Tried searching by reference, thread ID, and actor."
+
+Example: User says "abc-123-def"
+- Try: threadsByRef(refValue: "abc-123-def")
+- If empty: Try: thread(id: "abc-123-def")
+- If still empty: Inform user no results found
+
+This ensures you always attempt the most likely query first, then fallback to alternatives.
 
 type Thread {
   id: ID!
@@ -271,6 +296,7 @@ type Thread {
   status: String!
   startedAt: String
   completedAt: String
+  refs: String  # JSON string of reference key-value pairs
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
 }
 
@@ -278,6 +304,11 @@ type ThreadConnection {
   threads: [Thread!]!
   totalCount: Int!
 }
+
+CRITICAL: threadsByRef and threads queries return ThreadConnection, NOT Thread directly!
+Always query: { threads { ... } totalCount } - NOT just { id status }
+✅ CORRECT: threadsByRef(refValue: "x") { threads { id status } totalCount }
+❌ WRONG: threadsByRef(refValue: "x") { id status }
 
 type StepStateInfo {
   stepName: String!
@@ -338,20 +369,20 @@ All GraphQL queries MUST be wrapped in "query { }" syntax:
 EXAMPLES:
 
 Q: "Analyze thread 5d724fa5"
-1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { status steps { stepName status } } }')
-2. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
+1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { id contractName status startedAt completedAt steps { stepName status } } }')
+2. Respond: "Thread 5d724fa5 (order_fulfillment) completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
 
 Q: "Find thread for customer cus_ABC123"
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id contractName status startedAt } totalCount } }')
 2. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
 
 Q: "Show order ORD-456 status"
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "ORD-456", limit: 1) { threads { id status steps { stepName status } } } }')
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "ORD-456", limit: 5) { threads { id contractName status startedAt completedAt steps { stepName status } } totalCount } }')
 2. Respond: "Order ORD-456 is completed with 5 steps: validate_cart, check_inventory, charge_payment, generate_label, send_confirmation."
 
-Q: "Find payment pi_ABC123"
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "pi_ABC123") { threads { id status } } }')
-2. Respond: "Found 1 thread with payment pi_ABC123, currently in progress."
+Q: "What threads handled customer@email.com request?"
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "customer@email.com", limit: 10) { threads { id contractName status startedAt completedAt } totalCount } }')
+2. Respond: "Found 3 threads for customer@email.com: 2 completed (order_fulfillment, payment_processing), 1 active (shipping_notification)."
 
 Q: "Threads run by payment-service"
 1. Call: execute_graphql(query: 'query { threads(actor: "payment-service", limit: 10) { threads { id contractName } } }')
