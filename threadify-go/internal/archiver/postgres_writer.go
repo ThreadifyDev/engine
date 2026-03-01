@@ -2,29 +2,28 @@ package archiver
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/database"
 	"go.uber.org/zap"
 )
 
-// PostgresWriter handles writing events to Postgres.
+var ErrThreadNotFound = errors.New("wait for thread metadata")
+
 type PostgresWriter struct {
 	db     *database.PostgresDB
 	logger *zap.Logger
 }
 
-// NewPostgresWriter creates a new PostgresWriter.
 func NewPostgresWriter(db *database.PostgresDB, logger *zap.Logger) *PostgresWriter {
 	return &PostgresWriter{db: db, logger: logger}
 }
 
-// buildPlaceholders returns a ($1,$2,...), ($N+1,...) placeholder string for
-// a batch INSERT with rowCount rows and colCount columns per row.
 func buildPlaceholders(rowCount, colCount int) string {
 	rows := make([]string, rowCount)
 	for i := range rows {
@@ -37,82 +36,65 @@ func buildPlaceholders(rowCount, colCount int) string {
 	return strings.Join(rows, ", ")
 }
 
-// nullIfEmpty returns nil when s is empty, otherwise s.
-// Use for optional fields that map to nullable DB columns.
-func nullIfEmpty(s string) interface{} {
+func deterministicUUID(parts ...string) string {
+	h := sha256.Sum256([]byte(strings.Join(parts, ":")))
+	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
+}
+
+func parseTimestamp(s string) interface{} {
 	if s == "" {
 		return nil
 	}
 	return s
 }
 
-// WriteStepEvents writes step events to Postgres.
-func (w *PostgresWriter) WriteStepEvents(ctx context.Context, events []StreamEvent) error {
-	if len(events) == 0 {
-		return nil
+func parseTimestampOrDefault(s string) interface{} {
+	if s != "" {
+		return s
 	}
-
-	const cols = 12
-	values := make([]interface{}, 0, len(events)*cols)
-	for _, event := range events {
-		contextJSON, err := json.Marshal(event.Data["context"])
-		if err != nil {
-			w.logger.Error("failed to marshal context",
-				zap.String("step_id", event.Data["stepId"]),
-				zap.Error(err),
-			)
-			return fmt.Errorf("marshal context: %w", err)
-		}
-		values = append(values,
-			event.Data["stepId"],
-			event.Data["threadId"],
-			event.Data["stepName"],
-			event.Data["serviceName"],
-			event.Data["type"],
-			event.Data["status"],
-			string(contextJSON),
-			event.Data["startedAt"],
-			event.Data["finishedAt"],
-			event.Data["timestamp"],
-			event.Data["hash"],
-			event.Data["prevHash"],
-		)
-	}
-
-	query := `INSERT INTO thread_activities (
-		step_id, thread_id, step_name, service_name, type, status,
-		context, started_at, finished_at, timestamp, hash, prev_hash
-	) VALUES ` + buildPlaceholders(len(events), cols) + ` ON CONFLICT (step_id) DO NOTHING`
-
-	start := time.Now()
-	_, err := w.db.Pool.Exec(ctx, query, values...)
-	duration := time.Since(start)
-
-	table := "thread_activities"
-	if err != nil {
-		DatabaseWritesTotal.WithLabelValues(table, "error").Inc()
-		DatabaseWriteDuration.WithLabelValues(table).Observe(duration.Seconds())
-		return fmt.Errorf("write step events: %w", err)
-	}
-	DatabaseWritesTotal.WithLabelValues(table, "success").Inc()
-	DatabaseWriteDuration.WithLabelValues(table).Observe(duration.Seconds())
-	w.logger.Info("wrote step events", zap.Int("count", len(events)), zap.Duration("duration", duration))
-	return nil
+	return time.Now().Format(time.RFC3339Nano)
 }
 
-// WriteThreadMetadata writes thread metadata to Postgres.
+func (w *PostgresWriter) queryExistingIDs(ctx context.Context, table, column string, ids []string) (map[string]bool, error) {
+	if len(ids) == 0 {
+		return map[string]bool{}, nil
+	}
+	rows, err := w.db.Pool.Query(ctx,
+		fmt.Sprintf(`SELECT %s FROM %s WHERE %s = ANY($1::text[])`, column, table, column),
+		ids,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query existing %s.%s: %w", table, column, err)
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool, len(ids))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan %s.%s: %w", table, column, err)
+		}
+		existing[id] = true
+	}
+	return existing, rows.Err()
+}
+
 func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	refEvents := make([]StreamEvent, 0)
-	metadataEvents := make([]StreamEvent, 0)
+	w.logger.Info("received thread metadata events", zap.Int("count", len(events)))
+
+	var refEvents, completionEvents, insertEvents []StreamEvent
 	for _, event := range events {
-		if event.Data["action"] == "ref_added" {
+		switch {
+		case event.Data["action"] == "ref_added":
 			refEvents = append(refEvents, event)
-		} else {
-			metadataEvents = append(metadataEvents, event)
+		case event.Data["status"] == "completed" || event.Data["status"] == "cancelled":
+			completionEvents = append(completionEvents, event)
+		default:
+			insertEvents = append(insertEvents, event)
 		}
 	}
 
@@ -122,185 +104,300 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 		}
 	}
 
-	for _, event := range metadataEvents {
-		// Handle thread completion / cancellation events.
-		if status := event.Data["status"]; status == "completed" || status == "cancelled" {
-			completedAt := event.Data["completedAt"]
-			if completedAt == "" {
-				completedAt = event.Data["startedAt"] // fallback
-			}
-			_, err := w.db.Pool.Exec(ctx, `
-				UPDATE threads
-				SET status      = $1,
-				    completed_at = $2,
-				    updated_at   = $2,
-				    company_id   = COALESCE($4, company_id)
-				WHERE id = $3`,
-				status, completedAt,
-				event.Data["thread_id"], // matches File 1 key
-				nullIfEmpty(event.Data["companyId"]),
-			)
-			if err != nil {
-				w.logger.Warn("failed to update thread status",
-					zap.String("thread_id", event.Data["thread_id"]),
-					zap.Error(err),
-				)
-			}
-			continue
-		}
+	insertEventMap := make(map[string]StreamEvent)
+	completionEventMap := make(map[string]StreamEvent)
 
-		// Validate company_id.
-		companyID := event.Data["companyId"]
-		if companyID == "" {
-			w.logger.Error("missing company_id for thread",
-				zap.String("thread_id", event.Data["threadId"]),
-				zap.Any("data", event.Data),
-			)
-			return fmt.Errorf("missing company_id for thread %s", event.Data["threadId"])
+	for _, event := range insertEvents {
+		if id := event.Data["threadId"]; id != "" {
+			insertEventMap[id] = event
 		}
-
-		var companyExists bool
-		if err := w.db.Pool.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1)`, companyID,
-		).Scan(&companyExists); err != nil {
-			return fmt.Errorf("validate company_id: %w", err)
-		}
-		if !companyExists {
-			return fmt.Errorf("company_id %q not found in companies table", companyID)
-		}
-
-		// Validate owner_id — must exist in service_accounts; NULL otherwise.
-		var ownerIDParam interface{} = nullIfEmpty(event.Data["ownerId"])
-		if ownerID := event.Data["ownerId"]; ownerID != "" {
-			var exists bool
-			if err := w.db.Pool.QueryRow(ctx,
-				`SELECT EXISTS(SELECT 1 FROM service_accounts WHERE id = $1)`, ownerID,
-			).Scan(&exists); err != nil || !exists {
-				ownerIDParam = nil
-			}
-		}
-
-		_, err := w.db.Pool.Exec(ctx, `
-			INSERT INTO threads (
-				id, company_id, contract_id, contract_name, contract_version,
-				owner_id, error, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			ON CONFLICT (id) DO UPDATE SET
-				company_id       = EXCLUDED.company_id,
-				contract_id      = EXCLUDED.contract_id,
-				contract_name    = EXCLUDED.contract_name,
-				contract_version = EXCLUDED.contract_version,
-				owner_id         = EXCLUDED.owner_id,
-				error            = EXCLUDED.error,
-				updated_at       = EXCLUDED.updated_at`,
-			event.Data["threadId"],
-			companyID,
-			event.Data["contractId"],
-			event.Data["contractName"],
-			nullIfEmpty(event.Data["contractVersion"]), // integer column — NULL if empty
-			ownerIDParam,
-			event.Data["error"],
-			event.Data["startedAt"],
-			event.Data["startedAt"], // updated_at for new records
-		)
-		if err != nil {
-			return fmt.Errorf("upsert thread %s: %w", event.Data["threadId"], err)
+	}
+	for _, event := range completionEvents {
+		if id := event.Data["threadId"]; id != "" {
+			completionEventMap[id] = event
 		}
 	}
 
-	w.logger.Info("wrote thread metadata", zap.Int("count", len(metadataEvents)))
+	insertEventsDeduped := make([]StreamEvent, 0, len(insertEventMap))
+	for _, event := range insertEventMap {
+		insertEventsDeduped = append(insertEventsDeduped, event)
+	}
+
+	completionEventsDeduped := make([]StreamEvent, 0, len(completionEventMap))
+	for _, event := range completionEventMap {
+		completionEventsDeduped = append(completionEventsDeduped, event)
+	}
+
+	if len(insertEventsDeduped) > 0 {
+
+		companyIDs := make([]string, 0, len(insertEventsDeduped))
+		ownerIDs := make([]string, 0, len(insertEventsDeduped))
+		for _, event := range insertEventsDeduped {
+			if id := event.Data["companyId"]; id != "" {
+				companyIDs = append(companyIDs, id)
+			}
+			if id := event.Data["ownerId"]; id != "" {
+				ownerIDs = append(ownerIDs, id)
+			}
+		}
+
+		validCompanies, err := w.queryExistingIDs(ctx, "companies", "id", companyIDs)
+		if err != nil {
+			return err
+		}
+		validOwners, err := w.queryExistingIDs(ctx, "service_accounts", "id", ownerIDs)
+		if err != nil {
+			return err
+		}
+
+		const cols = 10
+		values := make([]interface{}, 0, len(insertEventsDeduped)*cols)
+		var skipped int
+
+		for _, event := range insertEventsDeduped {
+			companyID := event.Data["companyId"]
+			if companyID == "" {
+				w.logger.Warn("skipping thread with missing company_id",
+					zap.String("thread_id", event.Data["threadId"]),
+				)
+				skipped++
+				continue
+			}
+			if !validCompanies[companyID] {
+				w.logger.Warn("skipping thread with unknown company_id",
+					zap.String("thread_id", event.Data["threadId"]),
+					zap.String("company_id", companyID),
+				)
+				skipped++
+				continue
+			}
+
+			var ownerIDParam interface{}
+			if ownerID := event.Data["ownerId"]; ownerID != "" && validOwners[ownerID] {
+				ownerIDParam = ownerID
+			}
+
+			var contractVersionParam interface{}
+			cv := event.Data["contractVersion"]
+			if cv != "" && cv != "0" {
+				contractVersionParam = cv
+			}
+
+			ts := event.Data["createdAt"]
+			if ts == "" {
+				ts = event.Data["startedAt"]
+			}
+			if ts == "" {
+				ts = time.Now().Format(time.RFC3339Nano)
+			}
+			createdAt := parseTimestamp(ts)
+
+			values = append(values,
+				event.Data["threadId"],
+				companyID,
+				event.Data["contractId"],
+				event.Data["contractName"],
+				contractVersionParam,
+				ownerIDParam,
+				event.Data["error"],
+				event.Data["status"],
+				createdAt,
+				createdAt,
+			)
+		}
+
+		validCount := len(insertEventsDeduped) - skipped
+		if validCount == 0 {
+			w.logger.Info("wrote thread metadata", zap.Int("count", 0), zap.Int("skipped", skipped))
+			return nil
+		}
+
+		query := `INSERT INTO threads (
+		id, company_id, contract_id, contract_name, contract_version,
+		owner_id, error, status, created_at, updated_at
+	) VALUES ` + buildPlaceholders(validCount, cols) + `
+	ON CONFLICT (id) DO UPDATE SET
+		company_id       = COALESCE(NULLIF(EXCLUDED.company_id, ''),       threads.company_id),
+		contract_id      = COALESCE(EXCLUDED.contract_id,                  threads.contract_id),
+		contract_name    = COALESCE(NULLIF(EXCLUDED.contract_name, ''),    threads.contract_name),
+		contract_version = COALESCE(EXCLUDED.contract_version,             threads.contract_version),
+		owner_id         = COALESCE(EXCLUDED.owner_id,                     threads.owner_id),
+		error            = COALESCE(NULLIF(EXCLUDED.error, ''),            threads.error),
+		status           = COALESCE(NULLIF(EXCLUDED.status, ''),           threads.status),
+		updated_at       = EXCLUDED.updated_at`
+
+		if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
+			return fmt.Errorf("batch upsert threads: %w", err)
+		}
+
+		w.logger.Info("wrote thread metadata", zap.Int("count", validCount), zap.Int("skipped", skipped))
+	}
+
+	if len(completionEventsDeduped) > 0 {
+		if err := w.batchUpdateThreadStatus(ctx, completionEventsDeduped); err != nil {
+			return fmt.Errorf("batch update thread status: %w", err)
+		}
+	}
+
 	return nil
 }
 
-// WriteThreadRefs writes thread refs to Postgres.
+// FIX 1: cast threads.id to text so Postgres can compare uuid = character varying
+// FIX 2: use camelCase key "threadId" to match what the NATS publisher sends
+func (w *PostgresWriter) batchUpdateThreadStatus(ctx context.Context, events []StreamEvent) error {
+	const cols = 4
+	values := make([]interface{}, 0, len(events)*cols)
+	for _, event := range events {
+		completedAt := event.Data["completedAt"]
+		if completedAt == "" {
+			completedAt = event.Data["startedAt"]
+		}
+		values = append(values,
+			event.Data["threadId"], // camelCase — matches NATS publisher
+			event.Data["status"],
+			parseTimestamp(completedAt),
+			event.Data["companyId"],
+		)
+	}
+
+	query := `UPDATE threads SET
+		status       = v.status,
+		completed_at = v.completed_at::timestamptz,
+		updated_at   = v.completed_at::timestamptz,
+		company_id   = COALESCE(v.company_id, threads.company_id)
+	FROM (VALUES ` + buildPlaceholders(len(events), cols) + `) AS v(thread_id, status, completed_at, company_id)
+	WHERE threads.id::text = v.thread_id` // cast uuid col to text to avoid 42883
+
+	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
+		return fmt.Errorf("batch update thread status: %w", err)
+	}
+
+	w.logger.Info("updated thread statuses", zap.Int("count", len(events)))
+	return nil
+}
+
 func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
+	threadIDs := make([]string, 0, len(events))
 	for _, event := range events {
-		_, err := w.db.Pool.Exec(ctx, `
-			INSERT INTO thread_refs (thread_id, ref_key, ref_value, created_at, updated_at)
-			VALUES ($1, $2, $3, NOW(), NOW())
-			ON CONFLICT (thread_id, ref_key) DO UPDATE SET
-				ref_value  = EXCLUDED.ref_value,
-				updated_at = NOW()`,
+		threadIDs = append(threadIDs, event.Data["threadId"])
+	}
+	validThreads, err := w.queryExistingIDs(ctx, "threads", "id", threadIDs)
+	if err != nil {
+		return err
+	}
+
+	const cols = 3
+	values := make([]interface{}, 0, len(events)*cols)
+	var skipped int
+	for _, event := range events {
+		if !validThreads[event.Data["threadId"]] {
+			w.logger.Warn("skipping ref for non-existent thread",
+				zap.String("thread_id", event.Data["threadId"]),
+			)
+			skipped++
+			continue
+		}
+		values = append(values,
 			event.Data["threadId"],
 			event.Data["refKey"],
 			event.Data["refValue"],
 		)
-		if err != nil {
-			if strings.Contains(err.Error(), "thread_refs_thread_id_fkey") {
-				w.logger.Warn("skipping ref for non-existent thread",
-					zap.String("thread_id", event.Data["threadId"]),
-				)
-				continue
-			}
-			return fmt.Errorf("write thread ref: %w", err)
-		}
 	}
 
-	w.logger.Info("wrote thread refs", zap.Int("count", len(events)))
+	validCount := len(events) - skipped
+	if validCount == 0 {
+		return nil
+	}
+
+	query := `INSERT INTO thread_refs (thread_id, ref_key, ref_value, created_at, updated_at)
+		VALUES ` + buildPlaceholders(validCount, cols) + `
+		ON CONFLICT (thread_id, ref_key) DO UPDATE SET
+			ref_value  = EXCLUDED.ref_value,
+			updated_at = NOW()`
+
+	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
+		return fmt.Errorf("write thread refs: %w", err)
+	}
+
+	w.logger.Info("wrote thread refs", zap.Int("count", validCount), zap.Int("skipped", skipped))
 	return nil
 }
 
-// WriteThreadAccess writes thread access grants to Postgres.
 func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// Use COALESCE to only update non-empty fields (allows separate role and runtime_role updates).
-	query := `
-		INSERT INTO thread_access (
-			thread_id, user_id, roles, runtime_role, permissions, granted_by, granted_at, status
-		) VALUES ($1, $2, $3::jsonb, $4, $5::text[], $6, $7, $8)
-		ON CONFLICT (thread_id, user_id) DO UPDATE SET
-			roles        = COALESCE(NULLIF(EXCLUDED.roles,        '[]'::jsonb),  thread_access.roles),
-			runtime_role = COALESCE(NULLIF(EXCLUDED.runtime_role, ''::text),     thread_access.runtime_role),
-			permissions  = COALESCE(NULLIF(EXCLUDED.permissions,  '{}'::text[]), thread_access.permissions),
-			granted_by   = COALESCE(NULLIF(EXCLUDED.granted_by,   ''::text),     thread_access.granted_by),
-			granted_at   = EXCLUDED.granted_at,
-			status       = EXCLUDED.status`
+	threadIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		threadIDs = append(threadIDs, event.Data["threadId"])
+	}
+	validThreads, err := w.queryExistingIDs(ctx, "threads", "id", threadIDs)
+	if err != nil {
+		return err
+	}
 
 	var success, skipped int
 	for _, event := range events {
+		if !validThreads[event.Data["threadId"]] {
+			w.logger.Debug("skipping access for non-existent thread",
+				zap.String("thread_id", event.Data["threadId"]),
+			)
+			skipped++
+			continue
+		}
+
 		var permissions []string
 		if permStr := event.Data["permissions"]; permStr != "" {
 			if err := json.Unmarshal([]byte(permStr), &permissions); err != nil {
-				w.logger.Error("failed to parse permissions JSON", zap.Error(err))
+				w.logger.Error("failed to parse permissions JSON",
+					zap.String("thread_id", event.Data["threadId"]),
+					zap.Error(err),
+				)
 				permissions = []string{}
 			}
 		}
 
-		_, err := w.db.Pool.Exec(ctx, query,
+		_, err := w.db.Pool.Exec(ctx, `
+			INSERT INTO thread_access (
+				thread_id, user_id, roles, runtime_role, permissions, granted_by, granted_at, status
+			) VALUES ($1, $2, $3::jsonb, $4, $5::text[], $6, $7, $8)
+			ON CONFLICT (thread_id, user_id) DO UPDATE SET
+				roles        = COALESCE(NULLIF(EXCLUDED.roles,        '[]'::jsonb),  thread_access.roles),
+				runtime_role = COALESCE(NULLIF(EXCLUDED.runtime_role, ''::text),     thread_access.runtime_role),
+				permissions  = COALESCE(NULLIF(EXCLUDED.permissions,  '{}'::text[]), thread_access.permissions),
+				granted_by   = COALESCE(NULLIF(EXCLUDED.granted_by,   ''::text),     thread_access.granted_by),
+				granted_at   = EXCLUDED.granted_at,
+				status       = EXCLUDED.status`,
 			event.Data["threadId"],
 			event.Data["userId"],
 			event.Data["roles"],
 			event.Data["runtime_role"],
 			permissions,
 			event.Data["grantedBy"],
-			event.Data["grantedAt"],
+			parseTimestampOrDefault(event.Data["grantedAt"]),
 			event.Data["status"],
 		)
 		if err != nil {
-			if strings.Contains(err.Error(), "fk_thread_access_thread") || strings.Contains(err.Error(), "23503") {
-				w.logger.Warn("skipping access for non-existent thread",
-					zap.String("thread_id", event.Data["threadId"]),
-				)
-				skipped++
-				continue
-			}
-			return fmt.Errorf("write thread access event: %w", err)
+			return fmt.Errorf("write thread access for thread %s: %w", event.Data["threadId"], err)
 		}
 		success++
 	}
 
 	w.logger.Info("wrote thread access events", zap.Int("success", success), zap.Int("skipped", skipped))
+
+	// If every event was skipped because its thread doesn't exist yet, signal the
+	// caller to NAK and retry — the thread metadata batch just hasn't landed yet.
+	if success == 0 && skipped > 0 {
+		return ErrThreadNotFound
+	}
 	return nil
 }
 
-// WriteValidationResults writes validation results to Postgres.
 func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -315,7 +412,7 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 			event.Data["stepID"],
 			event.Data["stepName"],
 			event.Data["idempotencyKey"],
-			event.Data["timestamp"],
+			parseTimestamp(event.Data["timestamp"]),
 			event.Data["validations"],
 			event.Data["overallStatus"],
 			event.Data["hasCriticalViolation"],
@@ -341,7 +438,6 @@ func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []St
 	return nil
 }
 
-// WriteThreadNotifications writes individual thread notifications to Postgres.
 func (w *PostgresWriter) WriteThreadNotifications(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -355,16 +451,16 @@ func (w *PostgresWriter) WriteThreadNotifications(ctx context.Context, events []
 			event.Data["threadID"],
 			event.Data["stepID"],
 			event.Data["stepName"],
-			nullIfEmpty(event.Data["idempotencyKey"]),
+			event.Data["idempotencyKey"],
 			event.Data["source"],
 			event.Data["notificationType"],
-			nullIfEmpty(event.Data["stepStatus"]),
-			nullIfEmpty(event.Data["validationStatus"]),
-			nullIfEmpty(event.Data["violationType"]),
-			nullIfEmpty(event.Data["severity"]),
+			event.Data["stepStatus"],
+			event.Data["validationStatus"],
+			event.Data["violationType"],
+			event.Data["severity"],
 			event.Data["message"],
-			nullIfEmpty(event.Data["details"]),
-			event.Data["timestamp"],
+			event.Data["details"],
+			parseTimestamp(event.Data["timestamp"]),
 		)
 	}
 
@@ -382,31 +478,75 @@ func (w *PostgresWriter) WriteThreadNotifications(ctx context.Context, events []
 	return nil
 }
 
-// WriteActivityLog writes activity log events to Postgres (batched).
 func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// Top-level fields extracted as dedicated columns; everything else goes into payload.
+	seen := make(map[string]struct{}, len(events))
+	deduped := make([]StreamEvent, 0, len(events))
+	for _, event := range events {
+		h := event.Data["hash"]
+		if h == "" {
+			deduped = append(deduped, event) // no hash — always insert
+			continue
+		}
+		if _, exists := seen[h]; !exists {
+			seen[h] = struct{}{}
+			deduped = append(deduped, event)
+		}
+	}
+
+	hashes := make([]string, 0, len(seen))
+	for h := range seen {
+		hashes = append(hashes, h)
+	}
+	if len(hashes) > 0 {
+		rows, err := w.db.Pool.Query(ctx,
+			`SELECT hash FROM thread_activities WHERE hash = ANY($1::text[])`,
+			hashes,
+		)
+		if err != nil {
+			return fmt.Errorf("check existing activity hashes: %w", err)
+		}
+		existing := make(map[string]struct{})
+		for rows.Next() {
+			var h string
+			if err := rows.Scan(&h); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan activity hash: %w", err)
+			}
+			existing[h] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate activity hashes: %w", err)
+		}
+
+		filtered := deduped[:0]
+		for _, event := range deduped {
+			if _, dup := existing[event.Data["hash"]]; !dup {
+				filtered = append(filtered, event)
+			}
+		}
+		deduped = filtered
+	}
+
+	if len(deduped) == 0 {
+		w.logger.Info("wrote activity log events", zap.Int("count", 0), zap.String("reason", "all duplicates"))
+		return nil
+	}
+
 	topLevel := map[string]bool{
-		"thread_id":     true,
-		"type":          true,
-		"step_id":       true,
-		"actor":         true,
-		"actor_service": true,
-		"hash":          true,
-		"prev_hash":     true,
-		"status":        true,
-		"content_hash":  true,
-		"timestamp":     true,
-		"started_at":    true,
-		"finished_at":   true,
+		"threadId": true, "type": true, "stepId": true,
+		"actor": true, "actorService": true, "hash": true,
+		"prevHash": true, "status": true, "contentHash": true,
+		"timestamp": true, "startedAt": true, "finishedAt": true,
 	}
 
 	const cols = 13
-	values := make([]interface{}, 0, len(events)*cols)
-	for _, event := range events {
+	values := make([]interface{}, 0, len(deduped)*cols)
+	for _, event := range deduped {
 		ts := event.Data["timestamp"]
 		if ts == "" {
 			ts = time.Now().Format(time.RFC3339Nano)
@@ -424,36 +564,35 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		}
 
 		values = append(values,
-			event.Data["thread_id"],
+			event.Data["threadId"],
 			event.Data["type"],
-			event.Data["step_id"],
+			event.Data["stepId"],
 			event.Data["actor"],
-			event.Data["actor_service"],
+			event.Data["actorService"],
 			string(payloadJSON),
-			ts,
+			parseTimestamp(ts),
 			event.Data["hash"],
-			event.Data["prev_hash"],
+			event.Data["prevHash"],
 			event.Data["status"],
-			event.Data["content_hash"],
-			nullIfEmpty(event.Data["started_at"]),
-			nullIfEmpty(event.Data["finished_at"]),
+			event.Data["contentHash"],
+			parseTimestamp(event.Data["startedAt"]),
+			parseTimestamp(event.Data["finishedAt"]),
 		)
 	}
 
 	query := `INSERT INTO thread_activities (
 		thread_id, activity_type, step_id, actor, actor_service, payload,
 		recorded_at, hash, prev_hash, status, content_hash, started_at, finished_at
-	) VALUES ` + buildPlaceholders(len(events), cols)
+	) VALUES ` + buildPlaceholders(len(deduped), cols)
 
 	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
 		return fmt.Errorf("write activity log: %w", err)
 	}
 
-	w.logger.Info("wrote activity log events", zap.Int("count", len(events)))
+	w.logger.Info("wrote activity log events", zap.Int("count", len(deduped)))
 	return nil
 }
 
-// WriteSubSteps writes sub-steps to Postgres (batched).
 func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[string]interface{}) error {
 	if len(subSteps) == 0 {
 		return nil
@@ -462,10 +601,9 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 	const cols = 7
 	values := make([]interface{}, 0, len(subSteps)*cols)
 	for _, subStep := range subSteps {
-		// Helper to safely cast map values to string.
 		str := func(key string) string { s, _ := subStep[key].(string); return s }
 
-		recordedAt := str("recorded_at")
+		recordedAt := str("recordedAt")
 		if recordedAt == "" {
 			recordedAt = time.Now().Format(time.RFC3339Nano)
 		}
@@ -475,14 +613,16 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 			payloadJSON, _ = json.Marshal(payload)
 		}
 
+		id := deterministicUUID(str("threadId"), str("stepId"), str("name"))
+
 		values = append(values,
-			uuid.New().String(),
-			str("thread_id"),
-			str("step_id"),
+			id,
+			str("threadId"),
+			str("stepId"),
 			str("name"),
 			str("status"),
 			string(payloadJSON),
-			recordedAt,
+			parseTimestamp(recordedAt),
 		)
 	}
 
@@ -498,48 +638,59 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 	return nil
 }
 
-// WriteThreadStepState writes step state snapshots to Postgres (batched).
 func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// Deduplicate by step_id — keep only the latest event for each step_id.
-	seen := make(map[string]StreamEvent, len(events))
+	type dedupKey struct{ threadID, stepName, idempKey string }
+	seen := make(map[dedupKey]StreamEvent, len(events))
 	for _, event := range events {
-		if id := event.Data["step_id"]; id != "" {
-			seen[id] = event
+		k := dedupKey{
+			threadID: event.Data["threadId"],
+			stepName: event.Data["stepName"],
+			idempKey: event.Data["idempotencyKey"],
 		}
-	}
-	if len(seen) == 0 {
-		return nil
+		seen[k] = event
 	}
 
-	const cols = 9
+	const cols = 14
 	values := make([]interface{}, 0, len(seen)*cols)
 	for _, event := range seen {
 		values = append(values,
-			event.Data["step_id"],
-			event.Data["thread_id"],
-			event.Data["step_name"],
-			event.Data["idempotency_key"],
+			event.Data["stepId"],
+			event.Data["threadId"],
+			event.Data["stepName"],
+			event.Data["idempotencyKey"],
 			event.Data["status"],
-			event.Data["retry_count"],
-			event.Data["first_seen_at"],
-			event.Data["last_updated_at"],
-			event.Data["previous_step"],
+			event.Data["retryCount"],
+			parseTimestamp(event.Data["firstSeenAt"]),
+			parseTimestamp(event.Data["lastUpdatedAt"]),
+			parseTimestamp(event.Data["startedAt"]),
+			parseTimestamp(event.Data["finishedAt"]),
+			event.Data["previousStep"],
+			event.Data["actor"],
+			event.Data["actorService"],
+			event.Data["latestContext"],
 		)
 	}
 
-	query := `INSERT INTO thread_step_state (
+	// FIX 5: correct table name is thread_step_states (plural), matching the migration
+	query := `INSERT INTO thread_step_states (
 		id, thread_id, step_name, idempotency_key, status,
-		retry_count, first_seen_at, last_updated_at, previous_step
+		retry_count, first_seen_at, last_updated_at, started_at, finished_at,
+		previous_step, actor, actor_service, latest_context
 	) VALUES ` + buildPlaceholders(len(seen), cols) + `
-	ON CONFLICT (id) DO UPDATE SET
+	ON CONFLICT (thread_id, step_name, idempotency_key) DO UPDATE SET
 		status          = EXCLUDED.status,
 		retry_count     = EXCLUDED.retry_count,
 		last_updated_at = EXCLUDED.last_updated_at,
-		previous_step   = EXCLUDED.previous_step`
+		started_at      = EXCLUDED.started_at,
+		finished_at     = EXCLUDED.finished_at,
+		previous_step   = EXCLUDED.previous_step,
+		actor           = EXCLUDED.actor,
+		actor_service   = EXCLUDED.actor_service,
+		latest_context  = EXCLUDED.latest_context`
 
 	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
 		return fmt.Errorf("write step state: %w", err)

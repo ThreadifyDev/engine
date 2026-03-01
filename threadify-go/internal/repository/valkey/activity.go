@@ -81,15 +81,15 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 	// SYNCHRONOUS - Critical for access control persistence
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
-			"threadId":    threadID,
-			"userId":      userID,
-			"roles":       string(rolesJSON),
-			"runtimeRole": runtimeRole,
-			"permissions": string(permissionsJSON),
-			"grantedBy":   invitedBy,
-			"grantedAt":   access.GrantedAt,
-			"status":      access.Status,
-			"eventType":   eventType,
+			"threadId":     threadID,
+			"userId":       userID,
+			"roles":        string(rolesJSON),
+			"runtime_role": runtimeRole,
+			"permissions":  string(permissionsJSON),
+			"grantedBy":    invitedBy,
+			"grantedAt":    access.GrantedAt,
+			"status":       access.Status,
+			"eventType":    eventType,
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish thread access to NATS",
