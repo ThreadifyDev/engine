@@ -280,7 +280,7 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 			row.stepUUID,
 			row.stepName,
 			row.contentHash,
-			row.recordedAt.Format(time.RFC3339Nano))
+			row.recordedAt.UTC().Format(time.RFC3339Nano))
 		h.Write([]byte(hashData))
 		expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
@@ -378,7 +378,7 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 		stepUUID.String,
 		storedStepName.String,
 		contentHash.String,
-		recordedAt.Format(time.RFC3339Nano))
+		recordedAt.UTC().Format(time.RFC3339Nano))
 	h.Write([]byte(hashData))
 	expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 

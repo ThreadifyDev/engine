@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -99,6 +98,8 @@ func run(configPath string, logger *zap.Logger) error {
 
 	logger.Info("shutdown signal received, stopping...")
 
+	cancel()
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
@@ -106,7 +107,6 @@ func run(configPath string, logger *zap.Logger) error {
 		logger.Warn("metrics server shutdown error", zap.Error(err))
 	}
 
-	cancel()
 	logger.Info("archiver stopped")
 	return nil
 }
@@ -127,6 +127,11 @@ func startNATSConsumers(
 		return fmt.Errorf("connect nats: %w", err)
 	}
 
+	go func() {
+		<-ctx.Done()
+		nc.Drain()
+	}()
+
 	natsConsumer, err := archiver.NewNATSConsumer(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
@@ -139,13 +144,10 @@ func startNATSConsumers(
 		nc.Close()
 		return fmt.Errorf("create nats consumer: %w", err)
 	}
-	var wg sync.WaitGroup
-	wg.Add(2)
 
 	go func() {
-		defer wg.Done()
-		if err := natsConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("nats consumer error", zap.Error(err))
+		if err := natsConsumer.Start(ctx); err != nil {
+			logger.Error("nats consumer exited with error", zap.Error(err))
 		}
 	}()
 
@@ -162,20 +164,14 @@ func startNATSConsumers(
 		logger,
 	)
 	if err != nil {
+		nc.Close()
 		return fmt.Errorf("create step state consumer: %w", err)
 	}
-	go func() {
-		defer wg.Done()
-		if err := stepStateConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("step state consumer error", zap.Error(err))
-		}
-		stepStateConsumer.Stop()
-	}()
 
-	go func() {
-		wg.Wait()
+	if err := stepStateConsumer.Start(ctx); err != nil {
 		nc.Close()
-	}()
+		return fmt.Errorf("start step state consumer: %w", err)
+	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
 	return nil

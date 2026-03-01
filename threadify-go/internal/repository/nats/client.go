@@ -68,7 +68,7 @@ func (c *Client) initializeNotificationStream() error {
 	err := c.ensureStream(&nats.StreamConfig{
 		Name:       c.cfg.StreamName,
 		Subjects:   []string{SubjectNotificationsUser},
-		Retention:  nats.LimitsPolicy,
+		Retention:  nats.WorkQueuePolicy,
 		MaxAge:     3 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
 		Replicas:   1,
@@ -106,19 +106,19 @@ func (c *Client) initializeDeadLetterQueue() error {
 func (c *Client) initializeArchivalStreams() error {
 	streams := []struct {
 		name    string
-		subject string
+		subject []string
 	}{
-		{StreamActivityLog, SubjectActivityLog},
-		{StreamThreadMetadata, SubjectThreadMetadata},
-		{StreamThreadAccess, SubjectThreadAccess},
-		{StreamThreadValidations, SubjectThreadValidations},
-		{StreamStepState, SubjectStepState},
+		{StreamActivityLog, []string{SubjectActivityLog}},
+		{StreamThreadMetadata, []string{SubjectThreadMetadata}},
+		{StreamThreadAccess, []string{SubjectThreadAccess}},
+		{StreamThreadValidations, []string{SubjectThreadValidations}},
+		{StreamStepState, []string{SubjectStepState}},
 	}
 
-	for _, s := range streams {
+	for _, stream := range streams {
 		if err := c.ensureStream(&nats.StreamConfig{
-			Name:       s.name,
-			Subjects:   []string{s.subject},
+			Name:       stream.name,
+			Subjects:   stream.subject,
 			Retention:  nats.LimitsPolicy,
 			MaxAge:     24 * time.Hour,
 			Storage:    nats.FileStorage,
@@ -138,7 +138,7 @@ func (c *Client) initializeOutboxStream() error {
 	err := c.ensureStream(&nats.StreamConfig{
 		Name:      StreamOutboxTriggers,
 		Subjects:  []string{SubjectOutboxTrigger},
-		Retention: nats.LimitsPolicy,
+		Retention: nats.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   nats.FileStorage,
 		Replicas:  1,

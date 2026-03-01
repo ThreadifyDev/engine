@@ -229,7 +229,10 @@ func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event 
 	}
 
 	threadKey := "thread:" + event.ThreadID
-	recordedAt := event.Timestamp.Format(time.RFC3339Nano)
+	// Truncate to microsecond precision to match PostgreSQL TIMESTAMP(6) precision.
+	// This prevents hash mismatch when recomputing from stored database values.
+	truncatedTime := event.Timestamp.UTC().Truncate(time.Microsecond)
+	recordedAt := truncatedTime.Format(time.RFC3339Nano)
 	const maxRetries = 3
 	atomicStart := perf.Now()
 
@@ -312,22 +315,22 @@ func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event 
 // createActivityEvent builds the activity event payload for NATS publishing.
 func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
 	return map[string]interface{}{
-		"type":           "step_recorded",
-		"threadId":       event.ThreadID,
-		"stepId":         fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
-		"stepName":       event.StepName,
-		"stepUuid":       event.StepID,
-		"idempotencyKey": event.IdempotencyKey,
-		"contentHash":    event.ContentHash,
-		"timestamp":      event.Timestamp.Format(time.RFC3339Nano),
-		"context":        event.ContextJSON(),
-		"actor":          ownerID,
-		"actorService":   serviceName,
-		"status":         event.Status,
-		"hash":           hashResult.NewHash,
-		"prevHash":       hashResult.OldHash,
-		"startedAt":      event.StartedAt,
-		"finishedAt":     event.FinishedAt,
+		"type":            "step_recorded",
+		"threadId":        event.ThreadID,
+		"stepId":          fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
+		"step_uuid":       event.StepID,
+		"step_name":       event.StepName,
+		"idempotency_key": event.IdempotencyKey,
+		"contentHash":     event.ContentHash,
+		"timestamp":       event.Timestamp.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano),
+		"context":         event.ContextJSON(),
+		"actor":           ownerID,
+		"actorService":    serviceName,
+		"status":          event.Status,
+		"hash":            hashResult.NewHash,
+		"prevHash":        hashResult.OldHash,
+		"startedAt":       event.StartedAt,
+		"finishedAt":      event.FinishedAt,
 	}
 }
 
