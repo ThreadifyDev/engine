@@ -75,7 +75,8 @@ func run(configPath string, logger *zap.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := startNATSConsumers(ctx, cfg, db, logger); err != nil {
+	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
 
@@ -100,6 +101,13 @@ func run(configPath string, logger *zap.Logger) error {
 
 	cancel()
 
+	if stepStateConsumer != nil {
+		stepStateConsumer.Stop()
+	}
+	if natsConn != nil {
+		natsConn.Drain()
+	}
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
@@ -116,7 +124,7 @@ func startNATSConsumers(
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
 	logger *zap.Logger,
-) error {
+) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -124,25 +132,23 @@ func startNATSConsumers(
 
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		return fmt.Errorf("connect nats: %w", err)
+		return nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
-	go func() {
-		<-ctx.Done()
-		nc.Drain()
-	}()
+	hostname, _ := os.Hostname()
+	consumerPrefix := fmt.Sprintf("archiver-%s-%d", hostname, os.Getpid())
 
 	natsConsumer, err := archiver.NewNATSConsumer(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
 		cfg.Archiver.Streams.BlockTimeout,
-		"archiver-nats-1",
+		consumerPrefix+"-nats",
 		cfg,
 		logger,
 	)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
 	}
 
 	go func() {
@@ -160,21 +166,21 @@ func startNATSConsumers(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
 		flushInterval,
-		"archiver-step-state-1",
+		consumerPrefix+"-step-state",
 		logger,
 	)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("create step state consumer: %w", err)
+		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
 	}
 
 	if err := stepStateConsumer.Start(ctx); err != nil {
 		nc.Close()
-		return fmt.Errorf("start step state consumer: %w", err)
+		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
 	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return nil
+	return stepStateConsumer, nc, nil
 }
 
 func maskURL(url string) string {

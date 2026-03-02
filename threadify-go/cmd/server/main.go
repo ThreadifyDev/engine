@@ -231,7 +231,11 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		natsNotification = natsrepo.NewPublisher(d.natsPool.GetClient())
 	}
 
-	stepEventSvc := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
+	stepEventSvc, err := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
+	if err != nil {
+		logger.Fatal("failed to create step event service", zap.Error(err))
+	}
+
 	stepEventSvc.Start()
 	d.stepEventSvc = stepEventSvc
 
