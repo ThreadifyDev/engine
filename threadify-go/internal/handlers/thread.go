@@ -42,8 +42,8 @@ const (
 	StatusSuccess = "success"
 	StatusError   = "error"
 
-	ThreadStatusCancelled = "cancelled"
-	ThreadStatusCompleted = "completed"
+	ThreadStatusCancelled = string(models.ThreadStatusCancelled)
+	ThreadStatusCompleted = string(models.ThreadStatusCompleted)
 )
 
 var upgrader websocket.Upgrader

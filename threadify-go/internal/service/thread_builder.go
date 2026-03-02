@@ -154,7 +154,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader, b.logger)
 	validationService := NewValidationService(b.valkeyService, b.threadRepo)
 	notificationService := NewNotificationService(
-		validationService, activityRepo, stepStateRepo, cacheService,
+		validationService, activityRepo, stepStateRepo, b.threadRepo, cacheService,
 		b.natsPublisher, b.natsArchivalPublisher,
 		accessService, rbacLoader,
 		validationPool, notificationPool,

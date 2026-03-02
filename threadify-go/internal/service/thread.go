@@ -624,9 +624,9 @@ func (s *ThreadService) EndThread(
 	recordedAt time.Time,
 ) error {
 	if status == "" {
-		status = "cancelled"
+		status = ThreadStatusCancelled
 	}
-	if status != "cancelled" && status != "completed" {
+	if status != ThreadStatusCancelled && status != ThreadStatusCompleted {
 		return ErrInvalidThreadStatus
 	}
 
@@ -635,7 +635,17 @@ func (s *ThreadService) EndThread(
 		return ErrFailedToGetThread
 	}
 
-	if status == "completed" && thread.ContractID != nil && *thread.ContractID != "" {
+	// Early exit: if Valkey already shows "completed" or "cancelled", skip.
+	// The NotificationService updates Valkey synchronously on terminal step completion,
+	// so this guard will catch disconnect events that arrive after completion.
+	if thread.Status == models.ThreadStatusCompleted || thread.Status == models.ThreadStatusCancelled {
+		s.logger.Debug("thread already terminal, skipping EndThread",
+			zap.String("thread_id", threadID),
+			zap.String("current_status", string(thread.Status)))
+		return nil
+	}
+
+	if status == ThreadStatusCompleted && thread.ContractID != nil && *thread.ContractID != "" {
 		return ErrCannotManuallyCompleteThreadLinkedToContract
 	}
 
@@ -670,7 +680,7 @@ func (s *ThreadService) EndThread(
 		defer cancel()
 
 		activityType := "thread_cancelled"
-		if status == "completed" {
+		if status == ThreadStatusCompleted {
 			activityType = "thread_completed"
 		}
 
