@@ -171,11 +171,14 @@ func (s *AuthService) buildRegisterAuthUserEvent(
 	}
 
 	encrypted, err := utils.Encrypt(payload, s.encryptionKey)
+	if err != nil {
+		for i := range payload {
+			payload[i] = 0
+		}
+		return nil, fmt.Errorf("encrypt signup event payload: %w", err)
+	}
 	for i := range payload {
 		payload[i] = 0
-	}
-	if err != nil {
-		return nil, fmt.Errorf("encrypt outbox payload: %w", err)
 	}
 
 	return &models.OutboxEvent{
@@ -183,7 +186,7 @@ func (s *AuthService) buildRegisterAuthUserEvent(
 		Type:        models.EventTypeRegisterAuthUser,
 		Payload:     encrypted,
 		Status:      models.OutboxStatusPending,
-		MaxRetries:  5,
+		MaxRetries:  models.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: user.ID,
 	}, nil
@@ -202,10 +205,26 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, ErrAccountStillProvisioning
 	}
 
-	authCtx, cancel := timeoutContext(ctx)
-	defer cancel()
+	if localUser != nil && !localUser.EmailVerified {
+		s.logger.Info("login: email not verified, queuing verification email for onboarding",
+			zap.String("user_id", localUser.ID),
+			zap.String("email", req.Email),
+		)
 
-	_, userInfo, err := s.authClient.LoginWithPassword(authCtx, req.Email, req.Password, clientIP)
+		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
+			s.logger.Error("login: failed to queue verification email",
+				zap.String("email", req.Email), zap.Error(err))
+			return nil, fmt.Errorf("failed to queue verification email")
+		}
+
+		return &models.AuthResponse{
+			User:                      localUser,
+			EmailVerificationRequired: true,
+			Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
+		}, nil
+	}
+
+	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
 	if err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidCredentials):
@@ -216,7 +235,12 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
-	otpCode, err := s.authClient.GenerateLoginOTP(authCtx, req.Email)
+	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
 	if err != nil {
 		s.logger.Error("login: failed to generate otp", zap.String("email", req.Email), zap.Error(err))
 		return nil, fmt.Errorf("failed to generate login verification code")
@@ -225,11 +249,6 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
 		s.logger.Error("login: failed to send otp email", zap.String("email", req.Email), zap.Error(err))
 		return nil, fmt.Errorf("failed to send login verification email")
-	}
-
-	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
-	if err != nil {
-		return nil, err
 	}
 
 	s.logger.Info("login: password verified, otp sent",
@@ -254,13 +273,10 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 		return fmt.Errorf("find user: %w", err)
 	}
 	if user == nil {
-		return nil // do not reveal whether the email exists
+		return nil
 	}
 
-	authCtx, cancel := timeoutContext(ctx)
-	defer cancel()
-
-	token, err := s.authClient.GeneratePasswordResetToken(authCtx, req.Email)
+	token, err := s.authClient.GeneratePasswordResetToken(ctx, req.Email)
 	if err != nil {
 		s.logger.Error("forgot password: generate otp failed",
 			zap.String("email", req.Email),
@@ -287,10 +303,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 }
 
 func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswordRequest) error {
-	authCtx, cancel := timeoutContext(ctx)
-	defer cancel()
-
-	if err := s.authClient.ResetPasswordWithOTP(authCtx, req.Token, req.Password); err != nil {
+	if err := s.authClient.ResetPasswordWithOTP(ctx, req.Token, req.Password); err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
 			return ErrInvalidToken
@@ -306,10 +319,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 }
 
 func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRequest) (*models.AuthResponse, error) {
-	authCtx, cancel := timeoutContext(ctx)
-	defer cancel()
-
-	accessToken, userInfo, err := s.authClient.VerifyEmailWithOTP(authCtx, req.Email, req.Token)
+	accessToken, userInfo, err := s.authClient.VerifyEmailWithOTP(ctx, req.Email, req.Token)
 	if err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
@@ -327,12 +337,13 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		return nil, fmt.Errorf("find user by auth ID: %w", err)
 	}
 	if user == nil {
-		// Fallback to email lookup if auth ID mapping is missing
 		user, err = s.userRepo.FindByEmail(req.Email)
 		if err != nil {
 			return nil, ErrInvalidEmail
 		}
 	}
+
+	wasAlreadyVerified := user.EmailVerified
 
 	if err := s.userRepo.UpdateEmailVerified(user.ID, true); err != nil {
 		return nil, fmt.Errorf("update verification status: %w", err)
@@ -346,20 +357,22 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		zap.String("user_id", user.ID),
 	)
 
-	name := ""
-	if user.FullName != nil {
-		name = *user.FullName
-	}
-	go func() {
-		sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
-		defer cancel()
-		if err := s.emailSvc.SendWelcomeEmail(sendCtx, user.Email, name); err != nil {
-			s.logger.Error("verify email: failed to send welcome email",
-				zap.String("user_id", user.ID),
-				zap.Error(err),
-			)
+	if !wasAlreadyVerified {
+		name := ""
+		if user.FullName != nil {
+			name = *user.FullName
 		}
-	}()
+		go func() {
+			sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
+			defer cancel()
+			if err := s.emailSvc.SendWelcomeEmail(sendCtx, user.Email, name); err != nil {
+				s.logger.Error("verify email: failed to send welcome email",
+					zap.String("user_id", user.ID),
+					zap.Error(err),
+				)
+			}
+		}()
+	}
 
 	return &models.AuthResponse{
 		Token:   accessToken,
@@ -372,10 +385,7 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 	if strings.TrimSpace(token) == "" {
 		return nil
 	}
-	authCtx, cancel := timeoutContext(ctx)
-	defer cancel()
-
-	if err := s.authClient.Logout(authCtx, token); err != nil {
+	if err := s.authClient.Logout(ctx, token); err != nil {
 		s.logger.Error("logout: failed", zap.Error(err))
 		return fmt.Errorf("logout: %w", err)
 	}
@@ -440,6 +450,55 @@ func (s *AuthService) resolveUserFromAuthIdentity(emailHint string, info *shared
 	return user, nil
 }
 
+func (s *AuthService) queueVerificationEmail(userID, email string) error {
+	email = normalizeEmail(email)
+
+	inflight, err := s.outboxRepo.ExistsPendingByReference(models.EventTypeSendVerificationEmail, userID)
+	if err != nil {
+		return fmt.Errorf("check inflight verification email: %w", err)
+	}
+	if inflight {
+		return nil
+	}
+
+	payload, err := json.Marshal(map[string]string{"email": email})
+	if err != nil {
+		return fmt.Errorf("marshal email event payload: %w", err)
+	}
+	encrypted, err := utils.Encrypt(payload, s.encryptionKey)
+	if err != nil {
+		for i := range payload {
+			payload[i] = 0
+		}
+		return fmt.Errorf("encrypt email event payload: %w", err)
+	}
+	for i := range payload {
+		payload[i] = 0
+	}
+
+	if err := s.outboxRepo.Create(&models.OutboxEvent{
+		ID:          utils.GenerateID(),
+		Type:        models.EventTypeSendVerificationEmail,
+		Payload:     encrypted,
+		Status:      models.OutboxStatusPending,
+		MaxRetries:  models.OutboxDefaultMaxRetries,
+		NextRunAt:   time.Now(),
+		ReferenceID: userID,
+	}); err != nil {
+		return fmt.Errorf("create verification email event: %w", err)
+	}
+
+	if s.outboxWorker != nil {
+		s.outboxWorker.Trigger()
+	}
+
+	s.logger.Info("login: verification email queued via outbox",
+		zap.String("user_id", userID),
+		zap.String("email", email),
+	)
+	return nil
+}
+
 func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.ResendVerificationEmailRequest) error {
 	if err := validation.ValidateResendVerificationEmailRequest(req); err != nil {
 		return err
@@ -447,60 +506,28 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.R
 
 	email := normalizeEmail(req.Email)
 
-	// Find user by email
 	user, err := s.userRepo.FindByEmail(email)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
-			// Don't reveal if email exists - return success anyway for security
 			return nil
 		}
 		return fmt.Errorf("find user: %w", err)
 	}
 
-	// If already verified, silently succeed
 	if user.EmailVerified {
 		return nil
 	}
 
-	// Check if verification email already queued (prevent spam)
 	alreadyQueued, err := s.outboxRepo.ExistsByReference(models.EventTypeSendVerificationEmail, user.ID)
 	if err != nil {
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}
 	if alreadyQueued {
-		// Already queued, don't create duplicate
 		return nil
 	}
 
-	// Create encrypted payload
-	payload, err := json.Marshal(map[string]string{"email": email})
-	if err != nil {
-		return fmt.Errorf("marshal email event payload: %w", err)
-	}
-	encrypted, err := utils.Encrypt(payload, s.encryptionKey)
-	for i := range payload {
-		payload[i] = 0 // Zero out plaintext
-	}
-	if err != nil {
-		return fmt.Errorf("encrypt email event payload: %w", err)
-	}
-
-	// Queue verification email in outbox
-	if err := s.outboxRepo.Create(&models.OutboxEvent{
-		ID:          utils.GenerateID(),
-		Type:        models.EventTypeSendVerificationEmail,
-		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  5,
-		NextRunAt:   time.Now(),
-		ReferenceID: user.ID,
-	}); err != nil {
-		return fmt.Errorf("create verification email event: %w", err)
-	}
-
-	// Trigger outbox worker
-	if s.outboxWorker != nil {
-		s.outboxWorker.Trigger()
+	if err := s.queueVerificationEmail(user.ID, email); err != nil {
+		return err
 	}
 
 	s.logger.Info("resend verification email queued",
@@ -520,11 +547,4 @@ func normalizeOptionalString(value string) *string {
 		return &trimmed
 	}
 	return nil
-}
-
-func timeoutContext(parent context.Context) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	return context.WithTimeout(parent, operationTimeout)
 }

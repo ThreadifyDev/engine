@@ -17,9 +17,15 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await api.login(formData);
-      // Navigate to OTP verification with email
-      navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=login`);
+      const response = await api.login(formData);
+
+      if (response.email_verification_required) {
+        // User hasn't verified email — send them through the verification flow
+        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=signup`);
+      } else {
+        // Normal login — send them through the OTP flow
+        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=login`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

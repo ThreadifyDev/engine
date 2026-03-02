@@ -9,6 +9,8 @@ const (
 	OutboxStatusFailed     = "failed"
 	OutboxStatusDead       = "dead"
 
+	OutboxDefaultMaxRetries = 5
+
 	EventTypeRegisterAuthUser      = "register_auth_user"
 	EventTypeSendVerificationEmail = "send_verification_email"
 )

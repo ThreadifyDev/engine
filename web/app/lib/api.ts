@@ -61,6 +61,13 @@ export interface AuthResponse {
   message?: string;
 }
 
+export interface LoginResponse {
+  user?: User;
+  otp_required?: boolean;
+  email_verification_required?: boolean;
+  message?: string;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -144,8 +151,8 @@ class ApiClient {
     });
   }
 
-  async login(data: LoginData): Promise<{ message: string }> {
-    return this.request('/auth/login', {
+  async login(data: LoginData): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });

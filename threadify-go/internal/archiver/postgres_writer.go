@@ -266,7 +266,7 @@ func (w *PostgresWriter) batchUpdateThreadStatus(ctx context.Context, events []S
 		updated_at   = v.completed_at::timestamptz,
 		company_id   = COALESCE(v.company_id, threads.company_id)
 	FROM (VALUES ` + buildPlaceholders(len(events), cols) + `) AS v(thread_id, status, completed_at, company_id)
-	WHERE threads.id::text = v.thread_id` // cast uuid col to text to avoid 42883
+	WHERE threads.id::text = v.thread_id`
 
 	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
 		return fmt.Errorf("batch update thread status: %w", err)
