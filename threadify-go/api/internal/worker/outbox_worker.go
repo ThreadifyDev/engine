@@ -199,7 +199,6 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 	if user.AuthUserID == nil || *user.AuthUserID == "" {
 		w.logger.Debug("outbox: registering user in auth provider",
 			zap.String("user_id", userID),
-			zap.String("email", email),
 		)
 		authUserID, err := w.resolveAuthUserID(ctx, email, password, fullName, userID, companyID)
 		if err != nil {
@@ -283,7 +282,6 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 			return "", fmt.Errorf("recover existing auth user: %w", fetchErr)
 		}
 		w.logger.Info("outbox: recovered existing auth user",
-			zap.String("email", email),
 			zap.String("auth_user_id", recovered),
 		)
 		return recovered, nil
@@ -291,7 +289,6 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 	case errors.Is(err, sharedauth.ErrAuthInvalidEmail):
 		w.logger.Error("outbox: permanent registration failure, cleaning up",
 			zap.String("user_id", userID),
-			zap.String("email", email),
 			zap.Error(err),
 		)
 		if cleanupErr := w.cleanupUser(ctx, userID, companyID); cleanupErr != nil {
@@ -335,11 +332,11 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 	}
 
 	if u, err := w.userRepo.FindByEmail(email); err == nil && u != nil && u.EmailVerified {
-		w.logger.Debug("outbox: user already verified, skipping email", zap.String("email", email))
+		w.logger.Debug("outbox: user already verified, skipping email")
 		return nil
 	}
 
-	w.logger.Debug("outbox: generating verification OTP", zap.String("email", email))
+	w.logger.Debug("outbox: generating verification OTP")
 	token, err := w.authClient.GenerateLoginOTP(ctx, email)
 	if err != nil {
 		return fmt.Errorf("generate verification otp: %w", err)
@@ -349,7 +346,7 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 		return fmt.Errorf("send verification email: %w", err)
 	}
 
-	w.logger.Info("outbox: verification email sent", zap.String("email", email))
+	w.logger.Info("outbox: verification email sent")
 	return nil
 }
 

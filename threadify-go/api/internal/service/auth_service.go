@@ -85,11 +85,11 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 
 	existing, err := s.userRepo.FindByEmail(req.Email)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		s.logger.Error("failed to check existing user", zap.String("email", req.Email), zap.Error(err))
+		s.logger.Error("failed to check existing user", zap.Error(err))
 		return fmt.Errorf("check existing user: %w", err)
 	}
 	if existing != nil {
-		s.logger.Warn("user already exists", zap.String("email", req.Email))
+		s.logger.Warn("user already exists")
 		return ErrUserAlreadyExists
 	}
 
@@ -115,7 +115,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 
 	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)
 	if err != nil {
-		s.logger.Error("failed to register user", zap.String("email", req.Email), zap.Error(err))
+		s.logger.Error("failed to register user", zap.Error(err))
 		return err
 	}
 
@@ -208,12 +208,11 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	if localUser != nil && !localUser.EmailVerified {
 		s.logger.Info("login: email not verified, queuing verification email for onboarding",
 			zap.String("user_id", localUser.ID),
-			zap.String("email", req.Email),
 		)
 
 		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
 			s.logger.Error("login: failed to queue verification email",
-				zap.String("email", req.Email), zap.Error(err))
+				zap.Error(err))
 			return nil, fmt.Errorf("failed to queue verification email")
 		}
 
@@ -242,18 +241,17 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 
 	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
 	if err != nil {
-		s.logger.Error("login: failed to generate otp", zap.String("email", req.Email), zap.Error(err))
+		s.logger.Error("login: failed to generate otp", zap.Error(err))
 		return nil, fmt.Errorf("failed to generate login verification code")
 	}
 
 	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
-		s.logger.Error("login: failed to send otp email", zap.String("email", req.Email), zap.Error(err))
+		s.logger.Error("login: failed to send otp email", zap.Error(err))
 		return nil, fmt.Errorf("failed to send login verification email")
 	}
 
 	s.logger.Info("login: password verified, otp sent",
 		zap.String("user_id", user.ID),
-		zap.String("email", req.Email),
 	)
 
 	return &models.AuthResponse{
@@ -279,7 +277,6 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 	token, err := s.authClient.GeneratePasswordResetToken(ctx, req.Email)
 	if err != nil {
 		s.logger.Error("forgot password: generate otp failed",
-			zap.String("email", req.Email),
 			zap.Error(err),
 		)
 		if errors.Is(err, sharedauth.ErrAuthInvalidEmail) {
@@ -293,7 +290,6 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 
 	if err := s.emailSvc.SendPasswordResetEmail(ctx, req.Email, token); err != nil {
 		s.logger.Error("forgot password: send email failed",
-			zap.String("email", req.Email),
 			zap.Error(err),
 		)
 		return fmt.Errorf("send password reset email: %w", err)
@@ -494,7 +490,6 @@ func (s *AuthService) queueVerificationEmail(userID, email string) error {
 
 	s.logger.Info("login: verification email queued via outbox",
 		zap.String("user_id", userID),
-		zap.String("email", email),
 	)
 	return nil
 }
@@ -532,7 +527,6 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.R
 
 	s.logger.Info("resend verification email queued",
 		zap.String("user_id", user.ID),
-		zap.String("email", email),
 	)
 
 	return nil
