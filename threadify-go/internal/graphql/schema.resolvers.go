@@ -8,15 +8,18 @@ package graphql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
+
+	shderrors "threadify-go/shared/errors"
 
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
+	"go.uber.org/zap"
 )
 
 // Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
@@ -92,7 +95,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		// Return user-friendly error for access denied
-		if strings.Contains(err.Error(), "access denied") {
+		if errors.Is(err, shderrors.ErrAccessDenied) {
 			return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
 		}
 		// Return not found errors as-is
@@ -139,7 +142,13 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	queryStart := perf.Now()
 	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
 	perf.Log("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", perf.Since(queryStart), len(threads), totalCount)
+
 	if err != nil {
+		r.logger.Error("failed to query threads",
+			zap.String("company_id", companyID),
+			zap.String("owner_id", ownerID),
+			zap.Error(err),
+		)
 		return nil, apperrors.NewInternalError("Failed to query threads with access", err)
 	}
 
@@ -176,6 +185,12 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	// Query threads with SQL-based access filtering
 	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
 	if err != nil {
+		r.logger.Error("failed to query threads by contract",
+			zap.String("company_id", companyID),
+			zap.String("owner_id", ownerID),
+			zap.String("contract_name", contractName),
+			zap.Error(err),
+		)
 		return nil, apperrors.NewInternalError("Failed to query threads by contract", err)
 	}
 
@@ -218,6 +233,12 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	// Query threads by ref (this method already filters by company)
 	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeyVal, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
+		r.logger.Error("failed to query threads by ref",
+			zap.String("company_id", companyID),
+			zap.String("ref_key", refKeyVal),
+			zap.String("ref_value", refValue),
+			zap.Error(err),
+		)
 		return nil, apperrors.NewInternalError("Failed to query threads by ref", err)
 	}
 
@@ -261,6 +282,11 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 	// Permission check happens at each level of the chain
 	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, companyID, &depthVal)
 	if err != nil {
+		r.logger.Error("failed to query thread chain",
+			zap.String("root_id", rootID),
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
 	}
 
@@ -320,6 +346,11 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 	// SQL-level permission check: company-wide access with cross-company sharing
 	history, err := r.stepStateRepo.GetStepHistoryWithPermissionCheck(ctx, threadID, companyID, stepIdentifier, limitVal, offsetVal, startAt, endAt, activityType, actor)
 	if err != nil {
+		r.logger.Error("failed to get step history",
+			zap.String("thread_id", threadID),
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("failed to get step history: %w", err)
 	}
 
@@ -353,23 +384,36 @@ func (r *queryResolver) VerifyThreadIntegrity(ctx context.Context, threadID stri
 	// Call the activity repository to verify the chain
 	status, err := r.activityRepo.VerifyActivityChain(ctx, threadID)
 	if err != nil {
+		r.logger.Error("failed to verify thread integrity",
+			zap.String("thread_id", threadID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("failed to verify thread integrity: %w", err)
 	}
 	return status, nil
 }
 
-// VerifyStepIntegrity is the resolver for the verifyStepIntegrity query
 // Verifies the hash integrity of a single step
 func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error) {
 	// Get the step hashes
 	hash, prevHash, err := r.activityRepo.GetStepHashes(ctx, threadID, stepName, idempotencyKey)
 	if err != nil {
+		r.logger.Error("failed to get step hashes",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("failed to get step hashes: %w", err)
 	}
 
 	// Verify the step hash
 	verified, errMsg, err := r.activityRepo.VerifyStepHash(ctx, threadID, stepName, idempotencyKey)
 	if err != nil {
+		r.logger.Error("failed to verify step hash",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("failed to verify step hash: %w", err)
 	}
 

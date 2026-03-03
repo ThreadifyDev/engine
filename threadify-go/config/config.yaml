@@ -22,12 +22,21 @@ redis:
   pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
   conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
-jwt:
-  secret: NDUHGL&O$Lbfuwisnc43p89h34t89rwed;cl4tgq3ufwrp9yt834____u8f0gd78^FO&^D@2
-  issuer: threadify-engine
-  audience: threadify-users
-  realm: Threadify API
-  expiration_hours: 24
+
+auth_provider: supabase
+
+
+supabase:
+  url: "$SUPABASE_URL:"
+  publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
+  secret_key: "$SUPABASE_SECRET_KEY:"
+  request_timeout_seconds: 10
+
+
+jwks:
+  url: "$JWKS_URL:"                      
+  audience: "$JWKS_AUDIENCE:authenticated" 
+  issuer: "$JWKS_ISSUER:"            
 
 queue:
   ttl_seconds: 7776000
@@ -36,7 +45,6 @@ thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
 
-# Rate limiting configuration
 rate_limit:
   enabled: true
   cleanup_interval: "1h"
@@ -135,6 +143,7 @@ nats:
   retention_hours: 48
   max_age_hours: 168  # 7 days
   ack_wait_seconds: 30
+  pool_size: 5
   
   # Consumer configuration
   consumer_ack_wait_seconds: 30
@@ -227,19 +236,20 @@ web_api:
   host: 0.0.0.0
   cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
   frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
-  
+  outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
+
   # Email service (Plunk)
   email:
-    plunk_api_key: "$PLUNK_API_KEY:sk_b2383fde9b0f52295c5410166454519f4db28e48561bd419"
+    plunk_api_key: "$PLUNK_API_KEY:"
     plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.com"
+    plunk_api_url: "$PLUNK_API_URL:https://api.useplunk.com/v1/send"
   
   # Threadify Engine integration
   threadify_engine:
     url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
     graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
-  
   # Agent LLM configuration 
-  openai_api_key: "sk-a8cfd2b415d240669861772414b3e2c8"
+  openai_api_key: ""
   
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days
@@ -248,6 +258,12 @@ web_api:
   rate_limit:
     requests: 100
     window_minutes: 1
+  
+  # AI Agent conversation limits
+  agent:
+    max_messages: 100    # Maximum messages per conversation
+    max_tokens: 1000  # Maximum tokens per conversation (1M tokens)
+    summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency
 worker_pools:

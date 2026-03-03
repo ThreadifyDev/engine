@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from '@remix-run/react';
-import { api, type SignupData } from '~/lib/api';
+import { api, type SignupData, ValidationError } from '~/lib/api';
 import Alert, { type AlertType } from '~/components/Alert';
 
 export default function Signup() {
@@ -15,7 +15,7 @@ export default function Signup() {
     company_size: undefined,
     use_case: undefined,
   });
-  const [alert, setAlert] = useState<{ type: AlertType; message: string } | null>(null);
+  const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -28,10 +28,18 @@ export default function Signup() {
       // Navigate to OTP verification with email
       navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}`);
     } catch (err) {
-      setAlert({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Signup failed',
-      });
+      if (err instanceof ValidationError) {
+        setAlert({
+          type: 'error',
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setAlert({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Signup failed',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -57,7 +65,7 @@ export default function Signup() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {alert && <Alert type={alert.type} message={alert.message} />}
+          {alert && <Alert type={alert.type} message={alert.message} details={alert.details} />}
 
           <div className="space-y-4">
             {/* Company Name */}

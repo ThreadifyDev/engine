@@ -7,16 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/service"
+
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
+)
+
+const (
+	eventStreamContentType = "text/event-stream"
+	cacheControlNoCache    = "no-cache"
+	connectionKeepAlive    = "keep-alive"
 )
 
 type ChatRequest struct {
@@ -33,19 +41,25 @@ type AgentHandler struct {
 	maxMessages        int
 	maxTokens          int
 	summaryMaxTokens   int
+	logger             *zap.Logger
 }
 
-func NewAgentHandler(threadifyEngineURL string, apiKey string, agentRepo *repository.AgentRepository, maxMessages, maxTokens, summaryMaxTokens int) *AgentHandler {
-	client := openai.NewClient(apiKey)
-
+func NewAgentHandler(
+	threadifyEngineURL string,
+	apiKey string,
+	agentRepo *repository.AgentRepository,
+	maxMessages, maxTokens, summaryMaxTokens int,
+	logger *zap.Logger,
+) *AgentHandler {
 	return &AgentHandler{
 		threadifyEngineURL: threadifyEngineURL,
-		httpClient:         &http.Client{},
-		openaiClient:       client,
+		httpClient:         &http.Client{Timeout: 30 * time.Second},
+		openaiClient:       openai.NewClient(apiKey),
 		agentRepo:          agentRepo,
 		maxMessages:        maxMessages,
 		maxTokens:          maxTokens,
 		summaryMaxTokens:   summaryMaxTokens,
+		logger:             logger,
 	}
 }
 
@@ -65,9 +79,9 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 		return "", err
 	}
 
-	req.Header.Set("Authorization", authHeader)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Threadify-AI-Agent/1.0")
+	req.Header.Set(service.HeaderAuthorization, authHeader)
+	req.Header.Set(service.HeaderContentType, service.ContentTypeJSON)
+	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
@@ -85,7 +99,7 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 
 // Chat handles natural language queries related to thread analysis
 func (h *AgentHandler) Chat(c *gin.Context) {
-	authHeader := c.GetHeader("Authorization")
+	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 		return
@@ -145,7 +159,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 			Title:     title,
 		})
 		if err != nil {
-			log.Printf("Failed to create conversation: %v", err)
+			h.logger.Error("failed to create conversation", zap.Error(err))
 		}
 	} else {
 		// verify existence + permission by loading messages
@@ -160,7 +174,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		Content:        chatReq.Message,
 	})
 	if err != nil {
-		log.Printf("Failed to save user message: %v", err)
+		h.logger.Error("failed to save user message", zap.Error(err))
 	}
 
 	// 1. Initial State (LangGraph pattern) -> Loading History vs Fresh
@@ -247,47 +261,52 @@ type Query {
   ): ThreadConnection!
 }
 
-QUERY SELECTION RULES (CRITICAL):
-Use threadsByRef() when user mentions EXTERNAL REFERENCES linked via addRef():
-- External resource IDs: order_id, payment_id, customer_id, invoice_id, etc.
-- These are references to external systems/resources that were LINKED to the thread via addRef()
-- NOT for data stored in steps via addContext() - that's internal thread data
-- If you know the ref key name: threadsByRef(refKey: "order_id", refValue: "ORD-456")
-- If you DON'T know the ref key: threadsByRef(refValue: "ORD-456") - searches across ALL ref keys
-- Example: "Find thread for order ORD-456" → threadsByRef(refValue: "ORD-456")
-- Example: "Show payment pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
-- Example: "customer cus_123" → threadsByRef(refValue: "cus_123")
+QUERY SELECTION RULES (CRITICAL - Follow this decision tree):
 
-Use threads(actor:) when user asks about WHICH SYSTEM/SERVICE made the request to Threadify:
-- Actors are ALWAYS systems/services (payment-service, order-service, api-gateway, etc.)
-- Actors are NEVER customer emails, user IDs, or business data
-- "threads from payment-service" → threads(actor: "payment-service")
-- "requests made by order-service" → threads(actor: "order-service")
-- Keywords: "from [service]", "by [service]", "[service] requests"
+1. Use thread(id:) ONLY when user explicitly asks about a thread by UUID:
+   - Must have thread-specific keywords: "thread", "analyze thread", "show thread", "find thread"
+   - AND the ID matches UUID pattern: 8-4-4-4-12 hex characters
+   - Example: "Find thread 5d724fa5-1234-5678-9abc-def012345678" → thread(id: "5d724fa5-1234-5678-9abc-def012345678")
+   - Example: "Analyze thread abc-123-def" → thread(id: "abc-123-def")
+   - IMPORTANT: If thread(id:) returns null, RETRY with threadsByRef(refValue: "<uuid>") as fallback
 
-Use threads(contractName:) when user asks about a specific workflow/contract:
-- "order_fulfillment threads" → threads(contractName: "order_fulfillment")
-- "payment processing workflows" → threads(contractName: "payment_processing")
+2. Use threadsByRef() for ALL business identifiers (including UUID-format external IDs):
+   - External system IDs: Stripe (pi_*, cus_*, ch_*), PayPal, AWS, etc.
+   - Business IDs: customer_id, order_id, payment_id, transaction_id, invoice_id, etc.
+   - Pure UUIDs WITHOUT "thread" keyword → assume it's a business ref, not thread ID
+   - If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
+   - If you DON'T know the ref key: threadsByRef(refValue: "cus_123") - searches across ALL ref keys
+   - Example: "Find customer cus_123" → threadsByRef(refValue: "cus_123")
+   - Example: "Show order ORD-456" → threadsByRef(refValue: "ORD-456")
+   - Example: "Find payment pi_ABC123" → threadsByRef(refValue: "pi_ABC123")
+   - Example: "Show me 5d724fa5-1234-..." (no "thread" keyword) → threadsByRef(refValue: "5d724fa5-1234-...")
 
-DEFAULT BEHAVIOR:
-- External resource IDs (order, payment, customer IDs) → threadsByRef()
-- System/service names → threads(actor:)
-- Workflow/contract names → threads(contractName:)
-- When in doubt about an ID/reference → threadsByRef() with refValue only (omit refKey)
+3. Use threads(contractName:) when searching by contract/workflow type:
+   - Keywords: "contract", "workflow", "process type"
+   - Example: "Show order_processing threads" → threads(contractName: "order_processing")
+   - Can combine with status: threads(contractName: "checkout", status: "failed")
 
-FALLBACK STRATEGY (if query returns no results or fails):
-If you're unsure whether user input is a thread ID, reference, or actor:
-1. First try: threadsByRef(refValue: "...") - most common case for business IDs
-2. If no results: try thread(id: "...") - might be a thread ID
-3. If still no results: try threads(actor: "...") - might be a service name
-4. Inform user: "No threads found for [value]. Tried searching by reference, thread ID, and actor."
+4. Use threads(actor:) ONLY when user explicitly mentions who executed:
+   - Service names: "ran by payment-service", "where merchant-service was involved"
+   - User names: "executed by john@example.com"
+   - Example: "Threads run by payment-service" → threads(actor: "payment-service")
 
-Example: User says "abc-123-def"
-- Try: threadsByRef(refValue: "abc-123-def")
-- If empty: Try: thread(id: "abc-123-def")
-- If still empty: Inform user no results found
+DECISION PRIORITY (keyword-based, not pattern-based):
+"thread" + UUID → thread(id:) with fallback to threadsByRef()
+Business context (customer, order, payment, etc.) → threadsByRef()
+Contract/workflow keywords → threads(contractName:)
+Actor/service keywords → threads(actor:)
 
-This ensures you always attempt the most likely query first, then fallback to alternatives.
+IMPORTANT: When in doubt, use threadsByRef() - it's safer and searches across all refs!
+
+FALLBACK STRATEGY (CRITICAL - Always apply):
+If your first query returns NO RESULTS (null, empty array, or totalCount: 0), ALWAYS try an alternative:
+1. If thread(id:) returns null → RETRY with threadsByRef(refValue: "<same_id>")
+2. If threadsByRef(refKey: "X", refValue: "Y") returns empty → RETRY with threadsByRef(refValue: "Y") (omit refKey to search all refs)
+3. If threadsByRef(refValue: "X") returns empty AND value looks like UUID → RETRY with thread(id: "X")
+4. If threads(contractName: "X") returns empty → Try threads() without filters (general search)
+
+NEVER tell the user "I couldn't find it" without trying at least ONE fallback query!
 
 type Thread {
   id: ID!
@@ -363,18 +382,30 @@ Core Concepts:
 
 QUERY FORMAT (CRITICAL):
 All GraphQL queries MUST be wrapped in "query { }" syntax:
-✅ CORRECT: query { thread(id: "abc") { status } }
-❌ WRONG: thread(id: "abc") { status }
+CORRECT: query { thread(id: "abc") { status } }
+WRONG: thread(id: "abc") { status }
 
 EXAMPLES:
 
-Q: "Analyze thread 5d724fa5"
-1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5") { id contractName status startedAt completedAt steps { stepName status } } }')
-2. Respond: "Thread 5d724fa5 (order_fulfillment) completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
+Q: "Find thread 5d724fa5-1234-5678-9abc-def012345678" (has "thread" keyword)
+1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status steps { stepName status } } }')
+2. If result is null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+3. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
 
-Q: "Find thread for customer cus_ABC123"
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id contractName status startedAt } totalCount } }')
-2. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
+Q: "Analyze thread abc-123-def" (has "thread" keyword)
+1. Call: execute_graphql(query: 'query { thread(id: "abc-123-def") { status contractName steps { stepName status } } }')
+2. If null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "abc-123-def") { threads { id status } } }')
+3. Respond: "Thread is active, running order_processing contract with 8 completed steps."
+
+Q: "Show me 5d724fa5-1234-5678-9abc-def012345678" (NO "thread" keyword - could be external ID)
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+2. If empty: FALLBACK → execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status } }')
+3. Respond: "Found 1 thread with ref 5d724fa5-1234-5678-9abc-def012345678."
+
+Q: "Find customer cus_ABC123" (business context)
+1. Call: execute_graphql(query: 'query { threadsByRef(refKey: "customer_id", refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+2. If empty: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+3. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
 
 Q: "Show order ORD-456 status"
 1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "ORD-456", limit: 5) { threads { id contractName status startedAt completedAt steps { stepName status } } totalCount } }')
@@ -383,6 +414,10 @@ Q: "Show order ORD-456 status"
 Q: "What threads handled customer@email.com request?"
 1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "customer@email.com", limit: 10) { threads { id contractName status startedAt completedAt } totalCount } }')
 2. Respond: "Found 3 threads for customer@email.com: 2 completed (order_fulfillment, payment_processing), 1 active (shipping_notification)."
+
+Q: "Show order_processing threads"
+1. Call: execute_graphql(query: 'query { threads(contractName: "order_processing", limit: 10) { threads { id status } } }')
+2. Respond: "Found 12 order_processing threads: 10 completed, 2 in progress."
 
 Q: "Threads run by payment-service"
 1. Call: execute_graphql(query: 'query { threads(actor: "payment-service", limit: 10) { threads { id contractName } } }')
@@ -489,9 +524,9 @@ IMPORTANT:
 	}
 
 	// SSE Header setup
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set(service.HeaderContentType, eventStreamContentType)
+	c.Writer.Header().Set(service.HeaderCacheControl, cacheControlNoCache)
+	c.Writer.Header().Set(service.HeaderConnection, connectionKeepAlive)
 
 	// Token tracking
 	totalTokens := 0
@@ -510,7 +545,7 @@ IMPORTANT:
 
 		stream, err := h.openaiClient.CreateChatCompletionStream(context.Background(), req)
 		if err != nil {
-			log.Printf("[AGENT ERROR] %v", err)
+			h.logger.Error("failed to create chat completion stream", zap.Error(err))
 			return
 		}
 
@@ -524,7 +559,7 @@ IMPORTANT:
 				break
 			}
 			if err != nil {
-				log.Printf("[AGENT ERROR] Stream error: %v", err)
+				h.logger.Error("agent stream error", zap.Error(err))
 				break
 			}
 
@@ -589,14 +624,14 @@ IMPORTANT:
 			if currentToolName == "execute_graphql" {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
-					log.Printf("Tool args parsing error: %v", err)
+					h.logger.Error("tool args parsing error", zap.Error(err))
 					break
 				}
 
 				query, _ := args["query"].(string)
 				variables, _ := args["variables"].(map[string]interface{})
 
-				log.Printf("[AGENT] Executing GraphQL tool call for query: %s", query)
+				h.logger.Info("executing GraphQL tool call", zap.String("query", query))
 
 				// Use original proxy
 				engineOutput, err := h.executeGraphQL(authHeader, query, variables)
@@ -656,14 +691,19 @@ IMPORTANT:
 			} else if currentToolName == "save_context" {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
-					log.Printf("Tool args parsing error: %v", err)
+					h.logger.Error("tool args parsing error", zap.Error(err))
 					break
 				}
 
 				key, _ := args["key"].(string)
 				value, _ := args["value"].(string)
 
-				log.Printf("[AGENT] Saving context: %s = %s", key, value)
+				if key == "" || value == "" {
+					h.logger.Error("missing key or value")
+					break
+				}
+
+				h.logger.Info("saving context", zap.String("key", key), zap.String("value", value))
 
 				// Save context to DB
 				_ = h.agentRepo.SaveContext(&models.AgentContext{
@@ -772,6 +812,7 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -791,6 +832,7 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	// Quick authorization - ensure user owns the conversation
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations for authorization", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation history"})
 		return
 	}
@@ -804,12 +846,14 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	}
 
 	if !owns {
+		h.logger.Warn("user attempted to access unauthorized conversation", zap.String("userID", userID.(string)), zap.String("conversationID", convID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
 		return
 	}
 
 	msgs, err := h.agentRepo.GetMessages(convID)
 	if err != nil {
+		h.logger.Error("failed to load messages for conversation", zap.Error(err), zap.String("conversationID", convID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load messages"})
 		return
 	}
@@ -834,6 +878,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	// Verify user owns the parent conversation
 	convs, err := h.agentRepo.GetConversations(userID.(string))
 	if err != nil {
+		h.logger.Error("failed to load conversations for parent verification", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -849,6 +894,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	}
 
 	if !owns {
+		h.logger.Warn("user attempted to continue unauthorized conversation", zap.String("userID", userID.(string)), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to continue this conversation"})
 		return
 	}
@@ -856,6 +902,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	// Get messages from parent conversation to generate summary
 	messages, err := h.agentRepo.GetMessages(parentConvID)
 	if err != nil {
+		h.logger.Error("failed to load parent messages for summarization", zap.Error(err), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load parent messages"})
 		return
 	}
@@ -892,7 +939,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 
 		summaryResp, err := h.openaiClient.CreateChatCompletion(context.Background(), summaryReq)
 		if err != nil {
-			log.Printf("Failed to generate summary: %v", err)
+			h.logger.Error("failed to generate summary", zap.Error(err), zap.String("parentConversationID", parentConvID))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate conversation summary"})
 			return
 		}
@@ -910,6 +957,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 
 	err = h.agentRepo.CreateConversationWithParent(newConv, parentConvID)
 	if err != nil {
+		h.logger.Error("failed to create new conversation with parent", zap.Error(err), zap.String("parentConversationID", parentConvID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}
@@ -923,7 +971,7 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 			ContextValue:   summary,
 		}
 		if err := h.agentRepo.SaveContext(summaryCtx); err != nil {
-			log.Printf("Failed to save summary context: %v", err)
+			h.logger.Error("failed to save summary context", zap.Error(err), zap.String("newConversationID", newConvID))
 		}
 	}
 

@@ -6,11 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"slices"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// InvitationConfig represents configuration for invitation system
+// allowedAccessLevels is the fixed set of valid access levels.
+var allowedAccessLevels = []string{"owner", "participant", "observer", "external"}
+
+// InvitationConfig represents configuration for the invitation system.
 type InvitationConfig struct {
 	DefaultPermissions string   `mapstructure:"default_permissions"`
 	DefaultExpiry      string   `mapstructure:"default_expiry"`
@@ -18,44 +23,37 @@ type InvitationConfig struct {
 	AllowedRoles       []string `mapstructure:"allowed_roles"`
 }
 
-// GetDefaultExpiryDuration returns default expiry as time.Duration
+// GetDefaultExpiryDuration returns the default expiry as a time.Duration.
 func (c *InvitationConfig) GetDefaultExpiryDuration() (time.Duration, error) {
-	service := &InvitationTokenService{secretKey: "dummy"}
-	return service.ParseExpiry(c.DefaultExpiry)
+	return parseExpiry(c.DefaultExpiry)
 }
 
-// GetMaxExpiryDuration returns max expiry as time.Duration
+// GetMaxExpiryDuration returns the max expiry as a time.Duration.
 func (c *InvitationConfig) GetMaxExpiryDuration() (time.Duration, error) {
-	service := &InvitationTokenService{secretKey: "dummy"}
-	return service.ParseExpiry(c.MaxExpiry)
+	return parseExpiry(c.MaxExpiry)
 }
 
-// IsRoleAllowed checks if role is in allowed list
+// IsRoleAllowed reports whether role is in the allowed list.
 func (c *InvitationConfig) IsRoleAllowed(role string) bool {
-	for _, allowed := range c.AllowedRoles {
-		if role == allowed {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.AllowedRoles, role)
 }
 
-// ThreadInvitationClaims represents JWT claims for thread invitations
+// ThreadInvitationClaims represents JWT claims for thread invitations.
 type ThreadInvitationClaims struct {
 	ThreadID    string `json:"threadId"`
 	Role        string `json:"role"`        // Business/contract role
-	AccessLevel string `json:"accessLevel"` // Access level (owner/participant/observer/external)
+	AccessLevel string `json:"accessLevel"` // owner | participant | observer | external
 	InvitedBy   string `json:"invitedBy"`
 	jwt.RegisteredClaims
 }
 
-// InvitationTokenService handles JWT token creation and validation for invitations
+// InvitationTokenService handles JWT token creation and validation for invitations.
 type InvitationTokenService struct {
 	secretKey string
 	issuer    string
 }
 
-// NewInvitationTokenService creates a new invitation token service
+// NewInvitationTokenService creates a new invitation token service.
 func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService {
 	return &InvitationTokenService{
 		secretKey: secretKey,
@@ -63,7 +61,7 @@ func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService
 	}
 }
 
-// CreateToken creates a JWT token for thread invitation
+// CreateToken creates a signed JWT for a thread invitation.
 func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := &ThreadInvitationClaims{
@@ -80,45 +78,67 @@ func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel
 			Subject:   "thread-invitation",
 		},
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.secretKey))
 }
 
-// ValidateToken validates a JWT token and returns claims
+// ValidateToken validates a JWT and returns its claims.
 func (s *InvitationTokenService) ValidateToken(tokenString string) (*ThreadInvitationClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &ThreadInvitationClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("invalid token")
+			return nil, ErrInvalidToken
 		}
 		return []byte(s.secretKey), nil
 	})
-
 	if err != nil {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidToken
 	}
 
-	if claims, ok := token.Claims.(*ThreadInvitationClaims); ok && token.Valid {
-		return claims, nil
+	claims, ok := token.Claims.(*ThreadInvitationClaims)
+	if !ok || !token.Valid {
+		return nil, ErrInvalidToken
 	}
-
-	return nil, fmt.Errorf("invalid token")
+	return claims, nil
 }
 
-// ParseExpiry parses expiry string in format "24h", "2d", "30m"
-func (s *InvitationTokenService) ParseExpiry(expiresIn string) (time.Duration, error) {
-	if expiresIn == "" {
-		return 24 * time.Hour, nil // Default 24 hours
+// ValidateRole checks if role is permitted by the given config.
+func (s *InvitationTokenService) ValidateRole(role string, config *InvitationConfig) error {
+	if config != nil && !config.IsRoleAllowed(role) {
+		return fmt.Errorf("invalid role %q, allowed: %s", role, strings.Join(config.AllowedRoles, ", "))
 	}
+	return nil
+}
 
+// ValidateAccessLevel checks if accessLevel is one of the known values.
+// An empty string is allowed and will default to "external" at the call site.
+func (s *InvitationTokenService) ValidateAccessLevel(accessLevel string) error {
+	if accessLevel == "" {
+		return nil
+	}
+	if !slices.Contains(allowedAccessLevels, accessLevel) {
+		return fmt.Errorf("invalid access level %q, allowed: %s", accessLevel, strings.Join(allowedAccessLevels, ", "))
+	}
+	return nil
+}
+
+// ParseExpiry parses an expiry string in the format "30m", "24h", or "7d".
+// Defaults to 24h if the string is empty.
+func (s *InvitationTokenService) ParseExpiry(expiresIn string) (time.Duration, error) {
+	return parseExpiry(expiresIn)
+}
+
+func parseExpiry(expiresIn string) (time.Duration, error) {
+	if expiresIn == "" {
+		return 24 * time.Hour, nil
+	}
 	if len(expiresIn) < 2 {
-		return 0, fmt.Errorf("invalid expiry format: %s", expiresIn)
+		return 0, fmt.Errorf("invalid expiry format: %q", expiresIn)
 	}
 
 	unit := expiresIn[len(expiresIn)-1:]
 	value, err := strconv.Atoi(expiresIn[:len(expiresIn)-1])
 	if err != nil {
-		return 0, fmt.Errorf("invalid expiry value: %s", expiresIn)
+		return 0, fmt.Errorf("invalid expiry value: %q", expiresIn)
 	}
 
 	switch unit {
@@ -129,31 +149,6 @@ func (s *InvitationTokenService) ParseExpiry(expiresIn string) (time.Duration, e
 	case "d":
 		return time.Duration(value) * 24 * time.Hour, nil
 	default:
-		return 0, fmt.Errorf("invalid expiry unit: %s", unit)
+		return 0, fmt.Errorf("invalid expiry unit %q, use m, h, or d", unit)
 	}
-}
-
-// ValidateRole checks if the role is allowed using configuration
-func (s *InvitationTokenService) ValidateRole(role string, config *InvitationConfig) error {
-	if config != nil && !config.IsRoleAllowed(role) {
-		return fmt.Errorf("invalid role: %s. Allowed roles: %s", role, strings.Join(config.AllowedRoles, ", "))
-	}
-
-	return nil
-}
-
-// ValidateAccessLevel checks if access level is valid
-func (s *InvitationTokenService) ValidateAccessLevel(accessLevel string) error {
-	if accessLevel == "" {
-		return nil // Empty is allowed (will default to "external")
-	}
-
-	allowedLevels := []string{"owner", "participant", "observer", "external"}
-	for _, allowed := range allowedLevels {
-		if accessLevel == allowed {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid access level: %s. Allowed levels: %s", accessLevel, strings.Join(allowedLevels, ", "))
 }

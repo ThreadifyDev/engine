@@ -6,10 +6,14 @@ export default function VerifyOTP() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const email = searchParams.get('email') || '';
-  
+  const isLoginFlow = searchParams.get('type') === 'login';
+
+
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
 
   useEffect(() => {
     if (!email) {
@@ -23,7 +27,7 @@ export default function VerifyOTP() {
     setLoading(true);
 
     try {
-      const data: VerifyOTPData = { email, code };
+      const data: VerifyOTPData = { email, token: code };
       const response = await api.verifyOTP(data);
       // Store token and user info
       api.setToken(response.token);
@@ -45,8 +49,22 @@ export default function VerifyOTP() {
   };
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+    const value = e.target.value.replace(/\D/g, '').slice(0, 8);
     setCode(value);
+  };
+
+  const handleResendVerification = async () => {
+    setResendMessage('');
+    setResending(true);
+
+    try {
+      const response = await api.resendVerificationEmail({ email });
+      setResendMessage(response.message || 'Verification email sent!');
+    } catch (err) {
+      setResendMessage(err instanceof Error ? err.message : 'Failed to resend email');
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -57,9 +75,13 @@ export default function VerifyOTP() {
           <h1 className="text-4xl font-bold text-black" style={{ fontFamily: 'Block, monospace' }}>
             Threadify
           </h1>
-          <h2 className="mt-6 text-3xl font-bold text-black">Verify your email</h2>
+          <h2 className="mt-6 text-3xl font-bold text-black">
+            {isLoginFlow ? 'Enter your login code' : 'Verify your email'}
+          </h2>
           <p className="mt-2 text-sm text-gray-600">
-            We sent a 6-digit code to <span className="font-medium text-black">{email}</span>
+            {isLoginFlow
+              ? <>We sent a login code to <span className="font-medium text-black">{email}</span></>
+              : <>We sent an 8-digit code to <span className="font-medium text-black">{email}</span></>}
           </p>
         </div>
 
@@ -80,25 +102,25 @@ export default function VerifyOTP() {
               name="code"
               type="text"
               inputMode="numeric"
-              pattern="[0-9]{6}"
+              pattern="[0-9]{8}"
               required
-              maxLength={6}
-              minLength={6}
+              maxLength={8}
+              minLength={8}
               value={code}
               onChange={handleCodeChange}
               className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black text-center text-2xl tracking-widest font-mono"
-              placeholder="000000"
+              placeholder="00000000"
               autoComplete="one-time-code"
             />
             <p className="mt-2 text-xs text-gray-500">
-              Enter the 6-digit code sent to your email (expires in 10 minutes)
+              Enter the 8-digit code sent to your email (expires in 10 minutes)
             </p>
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || code.length !== 6}
+            disabled={loading || code.length !== 8}
             className="w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? 'Verifying...' : 'Verify Code'}
@@ -106,28 +128,39 @@ export default function VerifyOTP() {
 
           {/* Back Link */}
           <div className="text-center text-sm">
-            <Link to="/login" className="text-gray-600 hover:text-black">
+            <Link to={isLoginFlow ? '/login' : '/login'} className="text-gray-600 hover:text-black">
               ← Back to login
             </Link>
           </div>
         </form>
 
-        {/* Resend Code */}
-        <div className="text-center">
-          <p className="text-sm text-gray-600">
-            Didn't receive the code?{' '}
-            <button
-              type="button"
-              className="text-black font-medium hover:underline"
-              onClick={() => {
-                // TODO: Implement resend logic
-                alert('Resend functionality coming soon');
-              }}
-            >
-              Resend
-            </button>
-          </p>
-        </div>
+        {/* Resend Code — only shown on signup flow */}
+        {!isLoginFlow && (
+          <div className="space-y-3">
+            {resendMessage && (
+              <div className={`px-4 py-3 text-sm text-center ${resendMessage.includes('Failed') || resendMessage.includes('error')
+                ? 'bg-red-50 text-red-800 border-2 border-red-500'
+                : 'bg-green-50 text-green-800 border-2 border-green-500'
+                }`}>
+                {resendMessage}
+              </div>
+            )}
+
+            <div className="text-center">
+              <p className="text-sm text-gray-600">
+                Didn't receive the code?{' '}
+                <button
+                  type="button"
+                  className="text-black font-medium hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleResendVerification}
+                  disabled={resending}
+                >
+                  {resending ? 'Sending...' : 'Resend'}
+                </button>
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

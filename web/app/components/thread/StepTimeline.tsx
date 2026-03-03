@@ -9,6 +9,8 @@ import {
   Users,
   ChevronRight,
   ExternalLink,
+  AlertTriangle,
+  XOctagon,
 } from 'lucide-react';
 import { graphqlClient, type StepStateInfo } from '~/lib/graphql';
 
@@ -19,6 +21,8 @@ export function CompactStepTimeline({ steps, onStepClick, currentCompanyId }: { 
         return <CheckCircle2 className="w-4 h-4 text-green-600" />;
       case 'failed':
         return <XCircle className="w-4 h-4 text-red-600" />;
+      case 'violated':
+        return <AlertTriangle className="w-4 h-4 text-orange-600" />;
       case 'in_progress':
         return <Clock className="w-4 h-4 text-blue-600 animate-pulse" />;
       default:
@@ -32,6 +36,8 @@ export function CompactStepTimeline({ steps, onStepClick, currentCompanyId }: { 
         return 'bg-green-50 border-green-200 hover:bg-green-100';
       case 'failed':
         return 'bg-red-50 border-red-200 hover:bg-red-100';
+      case 'violated':
+        return 'bg-orange-50 border-orange-200 hover:bg-orange-100';
       case 'in_progress':
         return 'bg-blue-50 border-blue-200 hover:bg-blue-100';
       default:
@@ -228,18 +234,54 @@ function StepTimelineItem({
 
   const latestHistory = history?.[0];
 
+  // Get text color based on status
+  const getStepNameColor = (status: string) => {
+    switch (status) {
+      case 'failed':
+        return 'text-red-700';
+      case 'violated':
+        return 'text-orange-700';
+      case 'success':
+        return 'text-green-700';
+      case 'in_progress':
+        return 'text-blue-700';
+      default:
+        return 'text-gray-900';
+    }
+  };
+
   return (
     <button
       onClick={() => onStepClick(step)}
-      className={`w-full border rounded-lg p-3 transition-all text-left ${getStepBgColor(step.status)}`}
+      className={`w-full border rounded-lg p-3 transition-all text-left relative ${getStepBgColor(step.status)}`}
     >
+      {/* Status badges in top-right corner */}
+      <div className="absolute -top-2 -right-2 flex items-center gap-1">
+        {step.status === 'violated' && (
+          <div className="bg-orange-500 text-white rounded-full p-1.5 shadow-md">
+            <AlertTriangle className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {step.status === 'failed' && (
+          <div className="bg-red-500 text-white rounded-full p-1.5 shadow-md">
+            <XOctagon className="w-3.5 h-3.5" />
+          </div>
+        )}
+        {step.retryCount > 1 && (
+          <div className="bg-orange-500 text-white rounded-full px-2 py-1 text-xs font-bold shadow-md flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" />
+            {step.retryCount}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <div className="flex-shrink-0">
           {getStepIcon(step.status)}
         </div>
         
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 text-sm">{step.stepName}</h3>
+          <h3 className={`font-semibold text-sm ${getStepNameColor(step.status)}`}>{step.stepName}</h3>
           <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-600">
             <span className="capitalize">{step.status}</span>
             {step.retryCount > 0 && (

@@ -3,22 +3,24 @@ package archiver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"go.uber.org/zap"
 )
 
-// StreamEvent represents an event from a NATS stream
 type StreamEvent struct {
 	StreamID string
 	Data     map[string]string
 }
 
-// NATSConsumer consumes archival events from NATS JetStream
 type NATSConsumer struct {
 	js           jetstream.JetStream
 	db           *database.PostgresDB
@@ -26,55 +28,81 @@ type NATSConsumer struct {
 	batchSize    int
 	batchTimeout time.Duration
 	consumerName string
+	stopOnce     sync.Once
 	stopChan     chan struct{}
 	cfg          *config.Config
+	logger       *zap.Logger
 }
 
-// NewNATSConsumer creates a new NATS consumer for archival
-func NewNATSConsumer(nc *nats.Conn, db *database.PostgresDB, batchSize int, batchTimeout time.Duration, consumerName string, cfg *config.Config) (*NATSConsumer, error) {
+func NewNATSConsumer(
+	nc *nats.Conn,
+	db *database.PostgresDB,
+	batchSize int,
+	batchTimeout time.Duration,
+	consumerName string,
+	cfg *config.Config,
+	logger *zap.Logger,
+) (*NATSConsumer, error) {
 	js, err := jetstream.New(nc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+		return nil, fmt.Errorf("create jetstream context: %w", err)
 	}
 
 	return &NATSConsumer{
 		js:           js,
 		db:           db,
-		writer:       NewPostgresWriter(db),
+		writer:       NewPostgresWriter(db, logger),
 		batchSize:    batchSize,
 		batchTimeout: batchTimeout,
 		consumerName: consumerName,
 		stopChan:     make(chan struct{}),
 		cfg:          cfg,
+		logger:       logger,
 	}, nil
 }
 
-// Start begins consuming from all archival streams
 func (c *NATSConsumer) Start(ctx context.Context) error {
-	fmt.Printf("🚀 Starting NATS archival consumer: %s\n", c.consumerName)
+	c.logger.Info("starting NATS archival consumer", zap.String("consumer", c.consumerName))
 
-	// Start consumers for each stream
-	go c.consumeStream(ctx, "activity_log", "activity.log", c.processActivityLog)
-	go c.consumeStream(ctx, "thread_metadata", "metadata.thread", c.processThreadMetadata)
-	go c.consumeStream(ctx, "thread_access", "access.thread", c.processThreadAccess)
-	go c.consumeStream(ctx, "thread_validations", "validations.thread", c.processThreadValidations)
-	// Note: Notifications now archived via activity.log stream with activity_type='validation_result'
+	var wg sync.WaitGroup
 
-	fmt.Printf("NATS archival consumer started successfully\n")
+	consumers := []struct {
+		streamName string
+		subject    string
+		processor  func(context.Context, []jetstream.Msg) error
+	}{
+		{"activity_log", "activity.log", c.processActivityLog},
+		{"thread_metadata", "metadata.thread", c.processThreadMetadata},
+		{"thread_access", "access.thread", c.processThreadAccess},
+		{"thread_validations", "validations.thread", c.processThreadValidations},
+	}
+
+	for _, consumer := range consumers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.consumeStream(ctx, consumer.streamName, consumer.subject, consumer.processor)
+		}()
+	}
+
+	c.logger.Info("NATS archival consumer started", zap.String("consumer", c.consumerName))
+
+	<-ctx.Done()
+	c.Stop()
+	wg.Wait()
 	return nil
 }
 
-// Stop gracefully stops the consumer
 func (c *NATSConsumer) Stop() {
-	fmt.Printf("Stopping NATS archival consumer...\n")
-	close(c.stopChan)
+	c.stopOnce.Do(func() {
+		c.logger.Info("stopping NATS archival consumer")
+		close(c.stopChan)
+	})
 }
 
-// consumeStream consumes messages from a specific NATS stream
 func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject string, processor func(context.Context, []jetstream.Msg) error) {
-	fmt.Printf("📡 Starting consumer for stream: %s (subject: %s)\n", streamName, subject)
+	c.logger.Info("starting stream consumer", zap.String("stream", streamName), zap.String("subject", subject))
 
-	// Create or get consumer
 	consumer, err := c.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		Durable:       fmt.Sprintf("archiver-%s", streamName),
 		AckPolicy:     jetstream.AckExplicitPolicy,
@@ -83,158 +111,177 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 		FilterSubject: subject,
 	})
 	if err != nil {
-		fmt.Printf("Failed to create consumer for %s: %v\n", streamName, err)
+		c.logger.Error("failed to create consumer", zap.String("stream", streamName), zap.Error(err))
 		return
 	}
 
-	// Batch processing
-	batch := make([]jetstream.Msg, 0, c.batchSize)
-	ticker := time.NewTicker(c.batchTimeout)
-	defer ticker.Stop()
-
-	// Consume messages using iterator
 	iter, err := consumer.Messages()
 	if err != nil {
-		fmt.Printf("Failed to get message iterator for %s: %v\n", streamName, err)
+		c.logger.Error("failed to get message iterator", zap.String("stream", streamName), zap.Error(err))
 		return
 	}
 	defer iter.Stop()
 
-	// Process messages in goroutine
 	msgChan := make(chan jetstream.Msg, c.batchSize)
 	go func() {
+		backoff := 100 * time.Millisecond
 		for {
 			msg, err := iter.Next()
 			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+					strings.Contains(err.Error(), "iterator closed") {
 					close(msgChan)
 					return
 				}
-				fmt.Printf("Error fetching message from %s: %v\n", streamName, err)
+				if ctx.Err() != nil {
+					close(msgChan)
+					return
+				}
+				c.logger.Error("error fetching message", zap.String("stream", streamName), zap.Error(err))
 				StreamConsumptionErrors.WithLabelValues(streamName).Inc()
-				time.Sleep(time.Second)
+				select {
+				case <-time.After(backoff):
+					backoff = min(backoff*2, 30*time.Second)
+				case <-ctx.Done():
+					close(msgChan)
+					return
+				}
 				continue
 			}
+			backoff = 100 * time.Millisecond
 			msgChan <- msg
 		}
 	}()
 
+	batch := make([]jetstream.Msg, 0, c.batchSize)
+	ticker := time.NewTicker(c.batchTimeout)
+	defer ticker.Stop()
+
+	flush := func(reason string) {
+		if len(batch) == 0 {
+			return
+		}
+		BatchSize.WithLabelValues(streamName).Observe(float64(len(batch)))
+		start := time.Now()
+		err := processor(ctx, batch)
+		elapsed := time.Since(start)
+		BatchProcessingDuration.WithLabelValues(streamName).Observe(elapsed.Seconds())
+		if err != nil {
+			if strings.Contains(err.Error(), "wait for thread metadata") {
+				c.logger.Warn("batch processing delayed (waiting for thread metadata)", zap.String("stream", streamName), zap.Error(err))
+			} else {
+				c.logger.Error("failed to process batch", zap.String("stream", streamName), zap.Error(err))
+			}
+			BatchesProcessed.WithLabelValues(streamName, "error").Inc()
+			for _, msg := range batch {
+				msg.Nak()
+				RetryAttempts.WithLabelValues(streamName).Inc()
+			}
+		} else {
+			BatchesProcessed.WithLabelValues(streamName, "success").Inc()
+			for _, msg := range batch {
+				msg.Ack()
+			}
+		}
+		batch = batch[:0]
+		BufferFlushes.WithLabelValues(streamName, reason).Inc()
+	}
+
 	for {
 		select {
 		case <-c.stopChan:
-			// Process remaining batch before stopping
-			if len(batch) > 0 {
-				BatchSize.WithLabelValues(streamName).Observe(float64(len(batch)))
-				start := time.Now()
-				if err := processor(ctx, batch); err != nil {
-					fmt.Printf("Failed to process final batch for %s: %v\n", streamName, err)
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "error").Inc()
-				} else {
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "success").Inc()
+			for {
+				select {
+				case msg, ok := <-msgChan:
+					if !ok {
+						flush("shutdown")
+						return
+					}
+					StreamMessagesConsumed.WithLabelValues(streamName).Inc()
+					batch = append(batch, msg)
+				default:
+					flush("shutdown")
+					return
 				}
-				BufferFlushes.WithLabelValues(streamName, "shutdown").Inc()
 			}
-			return
 
 		case <-ticker.C:
-			// Process batch on timeout
-			if len(batch) > 0 {
-				BatchSize.WithLabelValues(streamName).Observe(float64(len(batch)))
-				start := time.Now()
-
-				if err := processor(ctx, batch); err != nil {
-					fmt.Printf("Failed to process batch for %s: %v\n", streamName, err)
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "error").Inc()
-					// NACK messages for retry
-					for _, msg := range batch {
-						msg.Nak()
-						RetryAttempts.WithLabelValues(streamName).Inc()
-					}
-				} else {
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "success").Inc()
-					// ACK messages on success
-					for _, msg := range batch {
-						msg.Ack()
-					}
-				}
-				batch = batch[:0] // Clear batch
-				BufferFlushes.WithLabelValues(streamName, "time").Inc()
-			}
+			flush("time")
 
 		case msg, ok := <-msgChan:
 			if !ok {
+				flush("shutdown")
 				return
 			}
-			// Record message consumed
 			StreamMessagesConsumed.WithLabelValues(streamName).Inc()
 			batch = append(batch, msg)
-
-			// Process batch when full
 			if len(batch) >= c.batchSize {
-				// Record batch size and processing time
-				BatchSize.WithLabelValues(streamName).Observe(float64(len(batch)))
-				start := time.Now()
-
-				if err := processor(ctx, batch); err != nil {
-					fmt.Printf("Failed to process batch for %s: %v\n", streamName, err)
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "error").Inc()
-					// NACK messages for retry
-					for _, msg := range batch {
-						msg.Nak()
-						RetryAttempts.WithLabelValues(streamName).Inc()
-					}
-				} else {
-					BatchProcessingDuration.WithLabelValues(streamName).Observe(time.Since(start).Seconds())
-					BatchesProcessed.WithLabelValues(streamName, "success").Inc()
-					// ACK messages on success
-					for _, msg := range batch {
-						msg.Ack()
-					}
-				}
-				batch = batch[:0] // Clear batch
-				BufferFlushes.WithLabelValues(streamName, "size").Inc()
+				flush("size")
 			}
 		}
 	}
 }
 
-// convertToStringMap converts map[string]interface{} to map[string]string
-func convertToStringMap(data map[string]interface{}) map[string]string {
-	result := make(map[string]string)
-	for k, v := range data {
-		result[k] = fmt.Sprintf("%v", v)
+func (c *NATSConsumer) parseMsgs(streamName string, msgs []jetstream.Msg) ([]StreamEvent, []jetstream.Msg) {
+	events := make([]StreamEvent, 0, len(msgs))
+	var failed []jetstream.Msg
+	for _, msg := range msgs {
+		var data map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &data); err != nil {
+			c.logger.Error("failed to unmarshal message", zap.String("stream", streamName), zap.Error(err))
+			failed = append(failed, msg)
+			continue
+		}
+		events = append(events, StreamEvent{StreamID: msg.Subject(), Data: convertToStringMap(data)})
 	}
-	return result
+	return events, failed
 }
 
-// processActivityLog processes activity log messages
+func (c *NATSConsumer) nakFailed(streamName string, failed []jetstream.Msg) {
+	for _, msg := range failed {
+		msg.Nak()
+		RetryAttempts.WithLabelValues(streamName).Inc()
+	}
+	if len(failed) > 0 {
+		c.logger.Warn("nacked unparseable messages",
+			zap.String("stream", streamName),
+			zap.Int("count", len(failed)),
+		)
+	}
+}
+
+func (c *NATSConsumer) logPerf(subject string, count int, start time.Time) {
+	duration := time.Since(start)
+	rate := 0.0
+	if duration > 0 {
+		rate = float64(count) / duration.Seconds()
+	}
+	c.logger.Info("processed messages",
+		zap.String("subject", subject),
+		zap.Int("count", count),
+		zap.Duration("duration", duration),
+		zap.Float64("rate", rate),
+	)
+}
+
 func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.Msg) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-
 	start := time.Now()
-	fmt.Printf("📝 Processing %d activity log messages\n", len(msgs))
 
-	// Separate regular events and sub-steps
 	events := make([]StreamEvent, 0, len(msgs))
-	allSubSteps := make([]map[string]interface{}, 0)
+	var allSubSteps []map[string]interface{}
+	var failed []jetstream.Msg
 
 	for _, msg := range msgs {
 		var data map[string]interface{}
 		if err := json.Unmarshal(msg.Data(), &data); err != nil {
-			fmt.Printf("Failed to unmarshal activity log message: %v\n", err)
+			c.logger.Error("failed to unmarshal activity log message", zap.Error(err))
+			failed = append(failed, msg)
 			continue
 		}
-
-		// Check if this is a substeps_batch event
 		if eventType, ok := data["type"].(string); ok && eventType == "substeps_batch" {
-			// Extract sub-steps array
 			if substeps, ok := data["substeps"].([]interface{}); ok {
 				for _, ss := range substeps {
 					if subStepMap, ok := ss.(map[string]interface{}); ok {
@@ -243,124 +290,77 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 				}
 			}
 		} else {
-			// Regular activity event
-			events = append(events, StreamEvent{
-				StreamID: msg.Subject(),
-				Data:     convertToStringMap(data),
-			})
+			events = append(events, StreamEvent{StreamID: msg.Subject(), Data: convertToStringMap(data)})
 		}
 	}
 
-	// Write regular activity events
+	c.nakFailed("activity_log", failed)
+
 	if len(events) > 0 {
 		if err := c.writer.WriteActivityLog(ctx, events); err != nil {
 			return err
 		}
 	}
-
-	// Write sub-steps
 	if len(allSubSteps) > 0 {
 		if err := c.writer.WriteSubSteps(ctx, allSubSteps); err != nil {
 			return err
 		}
 	}
 
-	duration := time.Since(start)
-	fmt.Printf("⏱️  [NATS-PERF] Processed %d activity_log messages (%d events, %d substeps) in %v (%.2f msg/s)\n",
-		len(msgs), len(events), len(allSubSteps), duration, float64(len(msgs))/duration.Seconds())
+	c.logPerf("activity.log", len(msgs), start)
 	return nil
 }
 
-// processThreadMetadata processes thread metadata messages
 func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstream.Msg) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-
 	start := time.Now()
-	fmt.Printf("📝 Processing %d thread metadata messages\n", len(msgs))
-
-	events := make([]StreamEvent, 0, len(msgs))
-	for _, msg := range msgs {
-		var data map[string]interface{}
-		if err := json.Unmarshal(msg.Data(), &data); err != nil {
-			fmt.Printf("Failed to unmarshal thread metadata message: %v\n", err)
-			continue
-		}
-
-		events = append(events, StreamEvent{
-			StreamID: msg.Subject(),
-			Data:     convertToStringMap(data),
-		})
-	}
-
+	events, failed := c.parseMsgs("thread_metadata", msgs)
+	c.nakFailed("thread_metadata", failed)
 	err := c.writer.WriteThreadMetadata(ctx, events)
-	duration := time.Since(start)
-	fmt.Printf("⏱️  [NATS-PERF] Processed %d metadata.thread messages in %v (%.2f msg/s)\n",
-		len(msgs), duration, float64(len(msgs))/duration.Seconds())
+	c.logPerf("metadata.thread", len(msgs), start)
 	return err
 }
 
-// processThreadAccess processes thread access messages
 func (c *NATSConsumer) processThreadAccess(ctx context.Context, msgs []jetstream.Msg) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-
 	start := time.Now()
-	fmt.Printf("📝 Processing %d thread access messages\n", len(msgs))
-
-	events := make([]StreamEvent, 0, len(msgs))
-	for _, msg := range msgs {
-		var data map[string]interface{}
-		if err := json.Unmarshal(msg.Data(), &data); err != nil {
-			fmt.Printf("Failed to unmarshal thread access message: %v\n", err)
-			continue
-		}
-
-		events = append(events, StreamEvent{
-			StreamID: msg.Subject(),
-			Data:     convertToStringMap(data),
-		})
-	}
-
+	events, failed := c.parseMsgs("thread_access", msgs)
+	c.nakFailed("thread_access", failed)
 	err := c.writer.WriteThreadAccess(ctx, events)
-	duration := time.Since(start)
-	fmt.Printf("⏱️  [NATS-PERF] Processed %d access.thread messages in %v (%.2f msg/s)\n",
-		len(msgs), duration, float64(len(msgs))/duration.Seconds())
+	if errors.Is(err, ErrThreadNotFound) {
+		c.logger.Debug("thread access arrived before thread metadata, will retry",
+			zap.Int("count", len(msgs)),
+		)
+		for _, msg := range msgs {
+			msg.NakWithDelay(5 * time.Second)
+		}
+		c.logPerf("access.thread", len(msgs), start)
+		return nil
+	}
+	c.logPerf("access.thread", len(msgs), start)
 	return err
 }
 
-// processThreadValidations processes thread validation messages
 func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jetstream.Msg) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-
 	start := time.Now()
-	fmt.Printf("📝 Processing %d thread validation messages\n", len(msgs))
-
-	events := make([]StreamEvent, 0, len(msgs))
-	for _, msg := range msgs {
-		var data map[string]interface{}
-		if err := json.Unmarshal(msg.Data(), &data); err != nil {
-			fmt.Printf("Failed to unmarshal thread validation message: %v\n", err)
-			continue
-		}
-
-		events = append(events, StreamEvent{
-			StreamID: msg.Subject(),
-			Data:     convertToStringMap(data),
-		})
-	}
-
+	events, failed := c.parseMsgs("thread_validations", msgs)
+	c.nakFailed("thread_validations", failed)
 	err := c.writer.WriteValidationResults(ctx, events)
-	duration := time.Since(start)
-	fmt.Printf("⏱️  [NATS-PERF] Processed %d validations.thread messages in %v (%.2f msg/s)\n",
-		len(msgs), duration, float64(len(msgs))/duration.Seconds())
+	c.logPerf("validations.thread", len(msgs), start)
 	return err
 }
 
-// processThreadNotifications - REMOVED
-// Notifications now archived via activity.log stream with activity_type='validation_result'
-// This consolidates all thread events (steps, validations, notifications) into thread_activities table
+func convertToStringMap(data map[string]interface{}) map[string]string {
+	result := make(map[string]string, len(data))
+	for k, v := range data {
+		result[k] = fmt.Sprintf("%v", v)
+	}
+	return result
+}

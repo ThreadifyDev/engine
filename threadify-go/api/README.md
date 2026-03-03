@@ -43,8 +43,31 @@ api/
 - **Health check**: `GET /health`
 - **API base**: `/api`
 
-## Phase 1: Authentication (In Progress)
+## Auth Integration
+
+Authentication and authorization run through the configured auth provider.
+
+Set these values under `web_api.auth` in your config (or `web_api.auth0` for backward compatibility):
+
+- `enabled`
+- `domain`
+- `client_id`
+- `client_secret`
+- `database_connection`
+- `audience` (optional)
+- `management_client_id`
+- `management_client_secret`
+- `management_audience` (optional; defaults to `https://<domain>/api/v2/`)
+- `request_timeout_seconds`
+
+Current behavior:
+
+- `POST /api/auth/signup`: creates local tenant/user and auth-provider credentials
+- `POST /api/auth/login`: authenticates with auth provider and returns access token
+- `POST /api/auth/forgot-password`: triggers provider password reset flow
+
+## Authentication Endpoints
 
 - `POST /api/auth/signup` - Create account
-- `POST /api/auth/login` - Authenticate user
-- `POST /api/auth/verify-otp` - Verify email OTP
+- `POST /api/auth/login` - Authenticate and receive access token
+- `POST /api/auth/forgot-password` - Trigger provider password reset

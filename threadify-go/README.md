@@ -124,11 +124,7 @@ node test/example.js
 ## API Endpoints
 
 ### Authentication
-```bash
-POST /v1/contracts/login
-Body: {"userId": "user-123"}
-Response: {"token": "jwt-token", "userId": "user-123"}
-```
+
 
 ### Contracts (Protected)
 ```bash

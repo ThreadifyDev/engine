@@ -42,7 +42,7 @@ build-api: ## Build the Web API binary
 	cd api && go build -o ../bin/api cmd/server/main.go
 	@echo "✓ Binary created at bin/api"
 
-run-api: ## Run the Web API server
+run-api: ## Run the Web API server (includes outbox worker in-process)
 	@echo "Killing any process on port 3001..."
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 	make build-api
@@ -68,7 +68,7 @@ clean: ## Clean build artifacts
 	rm -f coverage.out coverage.html
 
 docker-up: ## Start PostgreSQL and Redis
-	docker-compose up -d postgres redis
+	docker-compose up -d
 
 docker-down: ## Stop all containers
 	docker-compose down

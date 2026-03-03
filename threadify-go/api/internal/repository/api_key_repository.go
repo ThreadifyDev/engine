@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"threadify-go/api/internal/models"
+	serror "threadify-go/shared/errors"
 )
 
 type APIKeyRepository struct {
@@ -66,7 +67,7 @@ func (r *APIKeyRepository) FindByID(id string) (*models.APIKey, error) {
 		&key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt, &key.RevokedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, serror.ErrApiKeyNotFound
 	}
 	return key, err
 }
@@ -84,7 +85,7 @@ func (r *APIKeyRepository) FindByHash(keyHash string) (*models.APIKey, error) {
 		&key.LastUsedAt, &key.ExpiresAt, &key.CreatedAt, &key.RevokedAt,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, serror.ErrApiKeyNotFound
 	}
 	return key, err
 }

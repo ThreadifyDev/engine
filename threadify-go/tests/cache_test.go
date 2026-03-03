@@ -13,15 +13,15 @@ func TestCacheService_BasicOperations(t *testing.T) {
 
 	// Test thread caching
 	contractID := "contract-1"
+	companyID := "company-123"
 	contractVersion := 1
 	thread := &models.Thread{
 		ID:              "thread-123",
 		ContractID:      &contractID,
 		ContractVersion: &contractVersion,
 		OwnerID:         "owner-123",
-		CompanyID:       "company-123",
+		CompanyID:       companyID,
 		Status:          models.ThreadStatusActive,
-		CurrentSteps:    []string{"step-a"},
 		StartedAt:       time.Now(),
 	}
 
@@ -47,13 +47,13 @@ func TestCacheService_BasicOperations(t *testing.T) {
 	}
 
 	// Test SetContractGraph and GetContractGraph
-	cache.SetContractGraph("contract-1", 1, graph)
-	retrievedGraph, exists := cache.GetContractGraph("contract-1", 1)
+	cache.SetContractGraph("contract-1", 1, companyID, graph)
+	retrievedGraph, exists := cache.GetContractGraph("contract-1", 1, companyID)
 	assert.True(t, exists)
 	assert.Equal(t, []string{"step-a"}, retrievedGraph.Graph.TerminalSteps)
 
 	// Test non-existent graph
-	_, exists = cache.GetContractGraph("non-existent", 1)
+	_, exists = cache.GetContractGraph("non-existent", 1, companyID)
 	assert.False(t, exists)
 
 	// Test ClearThreadCache
@@ -62,9 +62,9 @@ func TestCacheService_BasicOperations(t *testing.T) {
 	assert.False(t, exists)
 
 	// Test ClearContractCache
-	cache.SetContractGraph("contract-1", 1, graph) // Put it back
-	cache.ClearContractCache("contract-1", 1)
-	_, exists = cache.GetContractGraph("contract-1", 1)
+	cache.SetContractGraph("contract-1", 1, companyID, graph) // Put it back
+	cache.ClearContractCache("contract-1", 1, companyID)
+	_, exists = cache.GetContractGraph("contract-1", 1, companyID)
 	assert.False(t, exists)
 }
 

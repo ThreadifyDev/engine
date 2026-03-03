@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/models"
@@ -278,7 +280,7 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 			row.stepUUID,
 			row.stepName,
 			row.contentHash,
-			row.recordedAt.Format(time.RFC3339Nano))
+			row.recordedAt.UTC().Format(time.RFC3339Nano))
 		h.Write([]byte(hashData))
 		expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
@@ -376,7 +378,7 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 		stepUUID.String,
 		storedStepName.String,
 		contentHash.String,
-		recordedAt.Format(time.RFC3339Nano))
+		recordedAt.UTC().Format(time.RFC3339Nano))
 	h.Write([]byte(hashData))
 	expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
@@ -410,7 +412,7 @@ func (r *ActivityRepository) GetStepHashes(ctx context.Context, threadID, stepNa
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes: %w", err)
@@ -450,7 +452,7 @@ func (r *ActivityRepository) GetStepHashesByID(ctx context.Context, threadID, st
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes by ID: %w", err)
