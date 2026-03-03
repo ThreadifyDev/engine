@@ -104,6 +104,20 @@ func (r *OutboxRepository) ExistsByReference(eventType, referenceID string) (boo
 	return exists, err
 }
 
+func (r *OutboxRepository) ExistsPendingByReference(eventType, referenceID string) (bool, error) {
+	const query = `
+		SELECT EXISTS (
+			SELECT 1 FROM outbox_events
+			WHERE type = $1
+			  AND reference_id = $2
+			  AND status IN ('pending', 'processing')
+		)
+	`
+	var exists bool
+	err := r.db.QueryRow(query, eventType, referenceID).Scan(&exists)
+	return exists, err
+}
+
 func (r *OutboxRepository) MarkDone(id string) error {
 	const query = `
 		UPDATE outbox_events

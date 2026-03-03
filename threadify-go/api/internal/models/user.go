@@ -81,10 +81,11 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	Token       string `json:"token,omitempty"`
-	User        *User  `json:"user,omitempty"`
-	OTPRequired bool   `json:"otp_required"`
-	Message     string `json:"message,omitempty"`
+	Token                     string `json:"token,omitempty"`
+	User                      *User  `json:"user,omitempty"`
+	OTPRequired               bool   `json:"otp_required"`
+	EmailVerificationRequired bool   `json:"email_verification_required,omitempty"`
+	Message                   string `json:"message,omitempty"`
 }
 
 type ForgotPasswordRequest struct {

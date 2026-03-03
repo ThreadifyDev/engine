@@ -32,6 +32,7 @@ type NotificationService struct {
 	validationService     *ValidationService
 	activityRepo          interfaces.ActivityRepository
 	stepStateRepo         interfaces.StepStateRepository
+	threadRepo            interfaces.ThreadRepository
 	cacheManager          interfaces.CacheManager
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
@@ -47,6 +48,7 @@ func NewNotificationService(
 	validationService *ValidationService,
 	activityRepo interfaces.ActivityRepository,
 	stepStateRepo interfaces.StepStateRepository,
+	threadRepo interfaces.ThreadRepository,
 	cacheManager interfaces.CacheManager,
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
@@ -60,6 +62,7 @@ func NewNotificationService(
 		validationService:     validationService,
 		activityRepo:          activityRepo,
 		stepStateRepo:         stepStateRepo,
+		threadRepo:            threadRepo,
 		cacheManager:          cacheManager,
 		natsPublisher:         natsPublisher,
 		natsArchivalPublisher: natsArchivalPublisher,
@@ -387,6 +390,18 @@ func (s *NotificationService) processValidationNotifications(
 	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
 		s.logger.Info("thread marked as COMPLETED", zap.String("thread_id", threadID))
 
+		// Update Valkey status to "completed" SYNCHRONOUSLY.
+		// This is critical: it must happen before any WebSocket disconnect can call EndThread.
+		if s.threadRepo != nil {
+			if err := s.threadRepo.UpdateThreadStatus(ctx, threadID, ThreadStatusCompleted, time.Now()); err != nil {
+				s.logger.Error("failed to update thread status in Valkey",
+					zap.String("thread_id", threadID), zap.Error(err))
+			} else {
+				s.logger.Info("thread status updated to completed in Valkey",
+					zap.String("thread_id", threadID))
+			}
+		}
+
 		if s.natsPublisher != nil {
 			completionNotif := models.ValidationNotification{
 				NotificationID: uuid.New().String(),
@@ -675,21 +690,21 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n models.
 	}
 
 	return s.natsArchivalPublisher.PublishActivityLog(ctx, map[string]interface{}{
-		"thread_id":         n.ThreadID,
-		"type":              ActivityTypeValidationResult,
-		"step_id":           stepID,
-		"actor":             n.OwnerID,
-		"actor_service":     ActorServiceRuleEngine,
-		"timestamp":         n.Timestamp.Format(time.RFC3339),
-		"status":            n.Status,
-		"notification_id":   n.NotificationID,
-		"source":            n.Source,
-		"notification_type": n.NotificationType,
-		"step_status":       n.StepStatus,
-		"violation_type":    n.ViolationType,
-		"severity":          n.Severity,
-		"message":           n.Message,
-		"details":           string(detailsJSON),
+		"threadId":         n.ThreadID,
+		"type":             ActivityTypeValidationResult,
+		"stepId":           stepID,
+		"actor":            n.OwnerID,
+		"actorService":     ActorServiceRuleEngine,
+		"timestamp":        n.Timestamp.Format(time.RFC3339),
+		"status":           n.Status,
+		"notificationId":   n.NotificationID,
+		"source":           n.Source,
+		"notificationType": n.NotificationType,
+		"stepStatus":       n.StepStatus,
+		"violationType":    n.ViolationType,
+		"severity":         n.Severity,
+		"message":          n.Message,
+		"details":          string(detailsJSON),
 	})
 }
 

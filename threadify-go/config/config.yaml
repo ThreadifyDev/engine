@@ -143,6 +143,7 @@ nats:
   retention_hours: 48
   max_age_hours: 168  # 7 days
   ack_wait_seconds: 30
+  pool_size: 5
   
   # Consumer configuration
   consumer_ack_wait_seconds: 30

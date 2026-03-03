@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,13 +46,20 @@ func NewOutboxWorker(
 	encryptionKey string,
 	logger *zap.Logger,
 ) *OutboxWorker {
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		logger.Error("failed to decode outbox encryption key", zap.Error(err))
+		// Fallback to raw bytes if hex decoding fails.
+		key = []byte(encryptionKey)
+	}
+
 	return &OutboxWorker{
 		outboxRepo:    outboxRepo,
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
 		authClient:    authClient,
 		emailSvc:      emailSvc,
-		encryptionKey: []byte(encryptionKey),
+		encryptionKey: key,
 		trigger:       make(chan struct{}, 1),
 		logger:        logger,
 	}
@@ -111,7 +119,11 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 				zap.Int("attempt", event.RetryCount+1),
 				zap.Error(err),
 			)
-			backoff := time.Duration(math.Pow(2, float64(event.RetryCount))) * backoffDelay
+			retryExp := event.RetryCount
+			if retryExp > 20 {
+				retryExp = 20
+			}
+			backoff := time.Duration(math.Pow(2, float64(retryExp))) * backoffDelay
 			if err := w.outboxRepo.MarkFailedWithRetry(event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
 				w.logger.Error("outbox: failed to mark event for retry",
 					zap.String("event_id", event.ID),
@@ -187,14 +199,13 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 	if user.AuthUserID == nil || *user.AuthUserID == "" {
 		w.logger.Debug("outbox: registering user in auth provider",
 			zap.String("user_id", userID),
-			zap.String("email", email),
 		)
 		authUserID, err := w.resolveAuthUserID(ctx, email, password, fullName, userID, companyID)
 		if err != nil {
 			return err
 		}
 		if authUserID == "" {
-			w.logger.Debug("outbox: skipping event after permanent auth registration failure",
+			w.logger.Warn("outbox: discarding event — permanent auth registration failure",
 				zap.String("user_id", userID),
 			)
 			return nil
@@ -221,16 +232,23 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		return nil
 	}
 
+	return w.queueVerificationEmail(userID, email)
+}
+
+func (w *OutboxWorker) queueVerificationEmail(userID, email string) error {
 	payload, err := json.Marshal(map[string]string{"email": email})
 	if err != nil {
 		return fmt.Errorf("marshal email event payload: %w", err)
 	}
 	encrypted, err := utils.Encrypt(payload, w.encryptionKey)
+	if err != nil {
+		for i := range payload {
+			payload[i] = 0
+		}
+		return fmt.Errorf("encrypt email event payload: %w", err)
+	}
 	for i := range payload {
 		payload[i] = 0
-	}
-	if err != nil {
-		return fmt.Errorf("encrypt email event payload: %w", err)
 	}
 
 	if err := w.outboxRepo.Create(&models.OutboxEvent{
@@ -238,7 +256,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		Type:        models.EventTypeSendVerificationEmail,
 		Payload:     encrypted,
 		Status:      models.OutboxStatusPending,
-		MaxRetries:  5,
+		MaxRetries:  models.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: userID,
 	}); err != nil {
@@ -264,7 +282,6 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 			return "", fmt.Errorf("recover existing auth user: %w", fetchErr)
 		}
 		w.logger.Info("outbox: recovered existing auth user",
-			zap.String("email", email),
 			zap.String("auth_user_id", recovered),
 		)
 		return recovered, nil
@@ -272,7 +289,6 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 	case errors.Is(err, sharedauth.ErrAuthInvalidEmail):
 		w.logger.Error("outbox: permanent registration failure, cleaning up",
 			zap.String("user_id", userID),
-			zap.String("email", email),
 			zap.Error(err),
 		)
 		if cleanupErr := w.cleanupUser(ctx, userID, companyID); cleanupErr != nil {
@@ -316,24 +332,21 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 	}
 
 	if u, err := w.userRepo.FindByEmail(email); err == nil && u != nil && u.EmailVerified {
-		w.logger.Debug("outbox: user already verified, skipping email", zap.String("email", email))
+		w.logger.Debug("outbox: user already verified, skipping email")
 		return nil
 	}
 
-	w.logger.Debug("outbox: generating signup OTP", zap.String("email", email))
-	token, err := w.authClient.GenerateSignupOTP(ctx, email)
+	w.logger.Debug("outbox: generating verification OTP")
+	token, err := w.authClient.GenerateLoginOTP(ctx, email)
 	if err != nil {
-		if errors.Is(err, sharedauth.ErrAuthUserAlreadyExists) {
-			return nil
-		}
-		return fmt.Errorf("generate signup link: %w", err)
+		return fmt.Errorf("generate verification otp: %w", err)
 	}
 
 	if err := w.emailSvc.SendVerificationEmail(ctx, email, token); err != nil {
 		return fmt.Errorf("send verification email: %w", err)
 	}
 
-	w.logger.Info("outbox: verification email sent", zap.String("email", email))
+	w.logger.Info("outbox: verification email sent")
 	return nil
 }
 

@@ -293,7 +293,7 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID stri
 
 	// Update thread object
 	thread.Status = models.ThreadStatus(status)
-	if status == "completed" || status == "cancelled" {
+	if status == string(models.ThreadStatusCompleted) || status == string(models.ThreadStatusCancelled) {
 		thread.CompletedAt = &timestamp
 	}
 
@@ -313,7 +313,7 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID stri
 	metadata := map[string]interface{}{
 		"status": status,
 	}
-	if status == "completed" || status == "cancelled" {
+	if status == string(models.ThreadStatusCompleted) || status == string(models.ThreadStatusCancelled) {
 		metadata["completedAt"] = timestamp.Format(time.RFC3339)
 	}
 	pipe.HSet(ctx, metaKey, metadata)
