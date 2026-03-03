@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
@@ -6,7 +6,7 @@ import Nav from '~/components/homepage/Nav';
 import LiveThreadDemo from '~/components/homepage/LiveThreadDemo';
 import FeatureSection from '~/components/homepage/FeatureSection';
 import Footer from '~/components/homepage/Footer';
-import { Zap, Link2, Lock, Radio, MessageSquare, Clock, Database, ShieldCheck, Webhook, Brain, Route } from 'lucide-react';
+import { Zap, Link2, Lock, Radio, MessageSquare, Clock, Database, ShieldCheck, Webhook, Brain, Route, ChevronDown } from 'lucide-react';
 
 export const meta: MetaFunction = () => {
   return [
@@ -17,6 +17,7 @@ export const meta: MetaFunction = () => {
 
 export default function Index() {
   const navigate = useNavigate();
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   useEffect(() => {
     // Redirect to dashboard if already authenticated
@@ -47,20 +48,20 @@ export default function Index() {
               </h1>
 
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Threadify turns customer requests into live execution graphs. Support answers "what happened?" in seconds. Operations validates business logic in real-time. AI agents act with complete context.
+                Threadify captures how customer requests execute across your systems—as live execution graphs with complete business context. See what's happening, validate it's correct, and react with intelligence.
               </p>
 
               <div className="flex gap-4">
                 <button onClick={() => navigate('/signup')} className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition">
                   Get Started
                 </button>
-                <button onClick={() => navigate('https://docs.threadify.dev')} className="px-6 py-3 border border-gray-300 text-black font-semibold rounded-lg hover:border-gray-500 transition">
+                <a href="https://docs.threadify.dev" target="_blank" rel="noopener noreferrer" className="px-6 py-3 border border-gray-300 text-black font-semibold rounded-lg hover:border-gray-500 transition inline-block">
                   View Docs
-                </button>
+                </a>
               </div>
 
               <p className="text-xs text-gray-500 mt-8">
-                Real-time • Cryptographically verified • Drives revenue, reduces cost, manages risk
+                Real-time • Cryptographically verified
               </p>
             </div>
 
@@ -408,6 +409,99 @@ export default function Index() {
                   </h3>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Problem Statements Section */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-medium text-black mb-3">
+              Is Threadify for me?
+            </h2>
+            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+              See if these pain points sound familiar
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* Problem 1: Can't see execution */}
+            <div className="border border-gray-200 rounded-lg p-6 hover:border-blue-300 hover:shadow-lg transition-all group">
+              <div className="mb-4">
+                <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center mb-4 group-hover:bg-blue-100 transition">
+                  <Route className="w-6 h-6 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
+                  Can't see how customer requests actually execute across your systems?
+                </h3>
+              </div>
+              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
+                How we solve this →
+              </a>
+            </div>
+
+            {/* Problem 2: Silent failures */}
+            <div className="border border-gray-200 rounded-lg p-6 hover:border-yellow-300 hover:shadow-lg transition-all group">
+              <div className="mb-4">
+                <div className="w-12 h-12 rounded-lg bg-yellow-50 flex items-center justify-center mb-4 group-hover:bg-yellow-100 transition">
+                  <svg className="w-6 h-6 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
+                  Do silent business logic failures cost you $10K each?
+                </h3>
+              </div>
+              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
+                How we solve this →
+              </a>
+            </div>
+
+            {/* Problem 3: AI agents */}
+            <div className="border border-gray-200 rounded-lg p-6 hover:border-purple-300 hover:shadow-lg transition-all group">
+              <div className="mb-4">
+                <div className="w-12 h-12 rounded-lg bg-purple-50 flex items-center justify-center mb-4 group-hover:bg-purple-100 transition">
+                  <Brain className="w-6 h-6 text-purple-600" />
+                </div>
+                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
+                  Are your AI agents making decisions without understanding the business process?
+                </h3>
+              </div>
+              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
+                How we solve this →
+              </a>
+            </div>
+
+            {/* Problem 4: Support questions */}
+            <div className="border border-gray-200 rounded-lg p-6 hover:border-indigo-300 hover:shadow-lg transition-all group">
+              <div className="mb-4">
+                <div className="w-12 h-12 rounded-lg bg-indigo-50 flex items-center justify-center mb-4 group-hover:bg-indigo-100 transition">
+                  <MessageSquare className="w-6 h-6 text-indigo-600" />
+                </div>
+                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
+                  Can't answer "what happened to this customer's request" in 30 seconds?
+                </h3>
+              </div>
+              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
+                How we solve this →
+              </a>
+            </div>
+
+            {/* Problem 5: Audit compliance */}
+            <div className="border border-gray-200 rounded-lg p-6 hover:border-green-300 hover:shadow-lg transition-all group">
+              <div className="mb-4">
+                <div className="w-12 h-12 rounded-lg bg-green-50 flex items-center justify-center mb-4 group-hover:bg-green-100 transition">
+                  <ShieldCheck className="w-6 h-6 text-green-600" />
+                </div>
+                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
+                  Can't prove to auditors that business processes executed correctly?
+                </h3>
+              </div>
+              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
+                How we solve this →
+              </a>
             </div>
           </div>
         </div>

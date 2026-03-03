@@ -129,6 +129,7 @@ type ComplexityRoot struct {
 		Error        func(childComplexity int) int
 		FinishedAt   func(childComplexity int) int
 		Hash         func(childComplexity int) int
+		Metadata     func(childComplexity int) int
 		PrevHash     func(childComplexity int) int
 		StartedAt    func(childComplexity int) int
 		Status       func(childComplexity int) int
@@ -771,6 +772,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StepHistory.Hash(childComplexity), true
+	case "StepHistory.metadata":
+		if e.ComplexityRoot.StepHistory.Metadata == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepHistory.Metadata(childComplexity), true
 	case "StepHistory.prevHash":
 		if e.ComplexityRoot.StepHistory.PrevHash == nil {
 			break
@@ -1516,7 +1523,8 @@ type StepHistory {
   duration: Int!
   startedAt: String
   finishedAt: String
-  error: String
+  error: String # Deprecated: Use metadata instead
+  metadata: String # SDK metadata from threadify_metadata (message, etc.) - JSONB as string
   actor: String!
   actorService: String!
   companyId: String!
@@ -3870,6 +3878,8 @@ func (ec *executionContext) fieldContext_Query_stepHistory(ctx context.Context, 
 				return ec.fieldContext_StepHistory_finishedAt(ctx, field)
 			case "error":
 				return ec.fieldContext_StepHistory_error(ctx, field)
+			case "metadata":
+				return ec.fieldContext_StepHistory_metadata(ctx, field)
 			case "actor":
 				return ec.fieldContext_StepHistory_actor(ctx, field)
 			case "actorService":
@@ -4454,6 +4464,35 @@ func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphq
 }
 
 func (ec *executionContext) fieldContext_StepHistory_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepHistory_metadata(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_metadata,
+		func(ctx context.Context) (any, error) {
+			return obj.Metadata, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_metadata(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StepHistory",
 		Field:      field,
@@ -5319,6 +5358,8 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 				return ec.fieldContext_StepHistory_finishedAt(ctx, field)
 			case "error":
 				return ec.fieldContext_StepHistory_error(ctx, field)
+			case "metadata":
+				return ec.fieldContext_StepHistory_metadata(ctx, field)
 			case "actor":
 				return ec.fieldContext_StepHistory_actor(ctx, field)
 			case "actorService":
@@ -10207,6 +10248,8 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 			out.Values[i] = ec._StepHistory_finishedAt(ctx, field, obj)
 		case "error":
 			out.Values[i] = ec._StepHistory_error(ctx, field, obj)
+		case "metadata":
+			out.Values[i] = ec._StepHistory_metadata(ctx, field, obj)
 		case "actor":
 			out.Values[i] = ec._StepHistory_actor(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
