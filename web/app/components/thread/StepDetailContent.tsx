@@ -116,6 +116,7 @@ export function StepDetailContent({
   const [showValidations, setShowValidations] = useState(false);
   const [validationFilter, setValidationFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showErrorMessage, setShowErrorMessage] = useState(true);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -202,6 +203,85 @@ export function StepDetailContent({
           )}
         </div>
       </div>
+
+      {/* Error/Success Message Display */}
+      {step.history && step.history.length > 0 && (step.history[0].metadata || step.history[0].error) && (
+        <div className={`rounded-lg border ${
+          step.status === 'failed' ? 'bg-red-50/50 border-red-200' : 
+          step.status === 'success' ? 'bg-green-50/50 border-green-200' : 
+          'bg-yellow-50/50 border-yellow-200'
+        }`}>
+          <button
+            onClick={() => setShowErrorMessage(!showErrorMessage)}
+            className="w-full p-4 text-left transition-colors hover:bg-black/5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {step.status === 'failed' ? (
+                  <XCircle className="w-4 h-4 text-red-600" />
+                ) : step.status === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                ) : (
+                  <Clock className="w-4 h-4 text-yellow-600" />
+                )}
+                <h5 className={`text-sm font-semibold ${
+                  step.status === 'failed' ? 'text-red-900' : 
+                  step.status === 'success' ? 'text-green-900' : 
+                  'text-yellow-900'
+                }`}>
+                  {step.status === 'failed' ? 'Error Message' : 
+                   step.status === 'success' ? 'Success Message' : 'Message'}
+                </h5>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${
+                showErrorMessage ? 'rotate-90' : ''
+              }`} />
+            </div>
+          </button>
+          
+          {showErrorMessage && (
+            <div className="px-4 pb-4">
+              <div className={`text-sm leading-relaxed ${
+                step.status === 'failed' ? 'text-red-800' : 
+                step.status === 'success' ? 'text-green-800' : 
+                'text-yellow-800'
+              }`}>
+                {(() => {
+                  const messageData = step.history[0].metadata || step.history[0].error;
+                  if (!messageData) return null;
+                  try {
+                    const parsed = JSON.parse(messageData);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                      if (parsed.message) {
+                        return (
+                          <div className="space-y-2">
+                            <p>{parsed.message}</p>
+                            {Object.keys(parsed).length > 1 && (
+                              <pre className="text-xs bg-white/50 p-2 rounded border border-current/20 overflow-x-auto font-mono mt-2">
+                                {JSON.stringify(parsed, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <pre className="text-xs bg-white/50 p-2 rounded border border-current/20 overflow-x-auto font-mono">
+                            {JSON.stringify(parsed, null, 2)}
+                          </pre>
+                        );
+                      }
+                    } else {
+                      return <p>{String(parsed)}</p>;
+                    }
+                  } catch {
+                    return <p>{messageData}</p>;
+                  }
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Timestamps */}
       <div className="space-y-3">

@@ -572,9 +572,10 @@ func (s *ThreadService) HandleRecordEvent(req *models.RecordEventRequest, ownerI
 		Context:        contextInterface, // Use converted context
 		StartedAt:      req.StartedAt,
 		FinishedAt:     req.FinishedAt,
-		Timestamp:      finishedAtTime,     // Use SDK's finishedAt to preserve millisecond precision for ordering
-		IdempotencyKey: req.IdempotencyKey, // Pass through idempotency key (user-provided or auto-generated)
-		ContentHash:    contentHash,        // Always include content hash for cryptographic verification
+		Timestamp:      finishedAtTime,        // Use SDK's finishedAt to preserve millisecond precision for ordering
+		IdempotencyKey: req.IdempotencyKey,    // Pass through idempotency key (user-provided or auto-generated)
+		ContentHash:    contentHash,           // Always include content hash for cryptographic verification
+		Metadata:       req.ThreadifyMetadata, // SDK metadata from threadify_metadata (message, etc.)
 	}
 
 	// Process step event immediately (with sub-steps if provided)

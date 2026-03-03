@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -319,6 +320,13 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"prev_hash":       hashResult.OldHash,
 		"started_at":      event.StartedAt,
 		"finished_at":     event.FinishedAt,
+	}
+
+	// Add metadata if present
+	if event.Metadata != nil && len(event.Metadata) > 0 {
+		if metadataBytes, err := json.Marshal(event.Metadata); err == nil {
+			activityValues["metadata"] = string(metadataBytes)
+		}
 	}
 
 	return activityValues

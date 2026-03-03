@@ -517,10 +517,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 
 	query := `
 		INSERT INTO thread_activities (
-			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash, prev_hash, status, content_hash, started_at, finished_at
+			thread_id, activity_type, step_id, actor, actor_service, payload, recorded_at, hash, prev_hash, status, content_hash, started_at, finished_at, metadata
 		) VALUES `
 
-	values := make([]interface{}, 0, len(events)*13)
+	values := make([]interface{}, 0, len(events)*14)
 	placeholders := ""
 
 	for i, event := range events {
@@ -528,10 +528,10 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 			placeholders += ", "
 		}
 
-		offset := i * 13
+		offset := i * 14
 		placeholders += fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9, offset+10, offset+11, offset+12, offset+13,
+			"($%d, $%d, $%d, $%d, $%d, $%d::jsonb, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d::jsonb)",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8, offset+9, offset+10, offset+11, offset+12, offset+13, offset+14,
 		)
 
 		// Extract fields from event data
@@ -547,6 +547,7 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		timestamp := event.Data["timestamp"]
 		startedAt := event.Data["started_at"]
 		finishedAt := event.Data["finished_at"]
+		metadata := event.Data["metadata"]
 
 		// Handle empty timestamp - use current time as fallback
 		if timestamp == "" {
@@ -556,7 +557,7 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		// Create payload with all event data except the top-level fields
 		payload := make(map[string]interface{})
 		for k, v := range event.Data {
-			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "prev_hash" && k != "status" && k != "content_hash" && k != "timestamp" && k != "started_at" && k != "finished_at" {
+			if k != "thread_id" && k != "type" && k != "step_id" && k != "actor" && k != "actor_service" && k != "hash" && k != "prev_hash" && k != "status" && k != "content_hash" && k != "timestamp" && k != "started_at" && k != "finished_at" && k != "metadata" {
 				payload[k] = v
 			}
 		}
@@ -577,7 +578,13 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 			finishedAtVal = finishedAt
 		}
 
-		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash, prevHash, status, contentHash, startedAtVal, finishedAtVal)
+		// Handle metadata (already JSON string from server)
+		var metadataVal interface{} = nil
+		if metadata != "" {
+			metadataVal = metadata
+		}
+
+		values = append(values, threadID, activityType, stepID, actor, actorService, string(payloadJSON), timestamp, hash, prevHash, status, contentHash, startedAtVal, finishedAtVal, metadataVal)
 	}
 
 	query += placeholders
