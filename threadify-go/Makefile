@@ -42,29 +42,11 @@ build-api: ## Build the Web API binary
 	cd api && go build -o ../bin/api cmd/server/main.go
 	@echo "✓ Binary created at bin/api"
 
-build-worker: ## Build the Worker binary
-	@echo "Building Worker..."
-	@mkdir -p bin
-	cd api && go build -o ../bin/worker ./cmd/worker/main.go
-	@echo "✓ Binary created at bin/worker"
-
-run-api: ## Run the Web API server
+run-api: ## Run the Web API server (includes outbox worker in-process)
 	@echo "Killing any process on port 3001..."
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 	make build-api
 	cd api && go run cmd/server/main.go --config=../config/config.yaml
-
-run-worker: ## Run the Worker
-	@echo "Killing any process for worker"
-	make build-worker
-	cd api && go run cmd/worker/main.go --config=../config/config.yaml
-
-run-api-full: ## Run both API and Worker (useful for local development)
-	@echo "Starting API and Worker..."
-	@lsof -ti:3001 | xargs kill -9 2>/dev/null || trues
-	make build-api
-	make build-worker
-	(trap 'kill 0' SIGINT; cd api && go run cmd/server/main.go --config=../config/config.yaml & cd api && go run cmd/worker/main.go --config=../config/config.yaml)
 
 test: ## Run all tests
 	go test ./tests/... -v -count=1
