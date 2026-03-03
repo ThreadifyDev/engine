@@ -122,8 +122,10 @@ class ApiClient {
     if (!response.ok) {
       const errorMessage = data.error || data.message || 'An error occurred';
 
-      // Handle invalid token by logging out
-      if (errorMessage === 'Invalid token' || response.status === 401) {
+      // Handle invalid token by logging out (only for authenticated requests)
+      // Don't redirect on login failures (which also return 401)
+      const hasAuthHeader = headers['Authorization'];
+      if ((errorMessage === 'Invalid token' || response.status === 401) && hasAuthHeader) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('user');
