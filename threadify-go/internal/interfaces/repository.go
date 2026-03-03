@@ -167,4 +167,5 @@ type ContractGraphRepository interface {
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
 	CheckUserRateLimit(ctx context.Context, userID string, requestsPerMinute int, windowSeconds int) (bool, error)
+	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
 }
