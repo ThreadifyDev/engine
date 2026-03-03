@@ -61,6 +61,7 @@ run-worker: ## Run the Worker
 
 run-api-full: ## Run both API and Worker (useful for local development)
 	@echo "Starting API and Worker..."
+	@lsof -ti:3001 | xargs kill -9 2>/dev/null || trues
 	make build-api
 	make build-worker
 	(trap 'kill 0' SIGINT; cd api && go run cmd/server/main.go --config=../config/config.yaml & cd api && go run cmd/worker/main.go --config=../config/config.yaml)

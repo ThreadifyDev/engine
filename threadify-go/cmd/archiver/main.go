@@ -10,12 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -77,7 +75,8 @@ func run(configPath string, logger *zap.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := startNATSConsumers(ctx, cfg, db, logger); err != nil {
+	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
 
@@ -100,6 +99,15 @@ func run(configPath string, logger *zap.Logger) error {
 
 	logger.Info("shutdown signal received, stopping...")
 
+	cancel()
+
+	if stepStateConsumer != nil {
+		stepStateConsumer.Stop()
+	}
+	if natsConn != nil {
+		natsConn.Drain()
+	}
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
@@ -107,7 +115,6 @@ func run(configPath string, logger *zap.Logger) error {
 		logger.Warn("metrics server shutdown error", zap.Error(err))
 	}
 
-	cancel()
 	logger.Info("archiver stopped")
 	return nil
 }
@@ -117,7 +124,7 @@ func startNATSConsumers(
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
 	logger *zap.Logger,
-) error {
+) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -125,33 +132,28 @@ func startNATSConsumers(
 
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		return fmt.Errorf("connect nats: %w", err)
+		return nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
-	if err := ensureArchiverStreams(ctx, nc, logger); err != nil {
-		nc.Close()
-		return fmt.Errorf("ensure archiver streams: %w", err)
-	}
+	hostname, _ := os.Hostname()
+	consumerPrefix := fmt.Sprintf("archiver-%s-%d", hostname, os.Getpid())
 
 	natsConsumer, err := archiver.NewNATSConsumer(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
 		cfg.Archiver.Streams.BlockTimeout,
-		"archiver-nats-1",
+		consumerPrefix+"-nats",
 		cfg,
 		logger,
 	)
 	if err != nil {
 		nc.Close()
-		return fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
 	}
-	var wg sync.WaitGroup
-	wg.Add(2)
 
 	go func() {
-		defer wg.Done()
-		if err := natsConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("nats consumer error", zap.Error(err))
+		if err := natsConsumer.Start(ctx); err != nil {
+			logger.Error("nats consumer exited with error", zap.Error(err))
 		}
 	}()
 
@@ -164,58 +166,21 @@ func startNATSConsumers(
 		nc, db,
 		cfg.Archiver.Streams.BatchSize,
 		flushInterval,
-		"archiver-step-state-1",
+		consumerPrefix+"-step-state",
 		logger,
 	)
 	if err != nil {
-		return fmt.Errorf("create step state consumer: %w", err)
-	}
-	go func() {
-		defer wg.Done()
-		if err := stepStateConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("step state consumer error", zap.Error(err))
-		}
-		stepStateConsumer.Stop()
-	}()
-
-	go func() {
-		wg.Wait()
 		nc.Close()
-	}()
+		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
+	}
+
+	if err := stepStateConsumer.Start(ctx); err != nil {
+		nc.Close()
+		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
+	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return nil
-}
-
-func ensureArchiverStreams(ctx context.Context, nc *nats.Conn, log *zap.Logger) error {
-	js, err := jetstream.New(nc)
-	if err != nil {
-		return fmt.Errorf("create jetstream context: %w", err)
-	}
-
-	streams := []struct {
-		name     string
-		subjects []string
-	}{
-		{"activity_log", []string{"activity.log"}},
-		{"thread_metadata", []string{"metadata.thread"}},
-		{"thread_access", []string{"access.thread"}},
-		{"thread_validations", []string{"validations.thread"}},
-		{"state_step", []string{"state.step"}},
-	}
-
-	for _, s := range streams {
-		_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-			Name:     s.name,
-			Subjects: s.subjects,
-			Storage:  jetstream.FileStorage,
-		})
-		if err != nil {
-			return fmt.Errorf("ensure stream %q: %w", s.name, err)
-		}
-		log.Info("ensured NATS stream", zap.String("stream", s.name))
-	}
-	return nil
+	return stepStateConsumer, nc, nil
 }
 
 func maskURL(url string) string {

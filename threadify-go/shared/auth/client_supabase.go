@@ -277,34 +277,14 @@ func (s *supabaseClient) VerifyEmailWithOTP(ctx context.Context, email, token st
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	// Try signup first (common case)
-	onVerify := func(vType string) (string, *AuthUserInfo, error) {
-		verifyBody := map[string]interface{}{
-			"type":  vType,
-			"email": email,
-			"token": token,
-		}
-
-		var verifyResp supabaseVerifyResponse
-		if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
-			return "", nil, err
-		}
-		return verifyResp.AccessToken, &AuthUserInfo{
-			Sub:           verifyResp.User.ID,
-			Email:         verifyResp.User.Email,
-			EmailVerified: true,
-		}, nil
+	verifyBody := map[string]interface{}{
+		"type":  "magiclink",
+		"email": email,
+		"token": token,
 	}
 
-	// Try signup
-	accessToken, userInfo, err := onVerify("signup")
-	if err == nil {
-		return accessToken, userInfo, nil
-	}
-
-	// If signup fails, try magiclink (login OTP)
-	accessToken, userInfo, err = onVerify("magiclink")
-	if err != nil {
+	var verifyResp supabaseVerifyResponse
+	if err := s.anonPost(ctx, "/auth/v1/verify", verifyBody, &verifyResp); err != nil {
 		var httpErr *supabaseHTTPError
 		if errors.As(err, &httpErr) {
 			switch {
@@ -317,10 +297,14 @@ func (s *supabaseClient) VerifyEmailWithOTP(ctx context.Context, email, token st
 			}
 			return "", nil, httpErr
 		}
-		return "", nil, fmt.Errorf("verify otp (magiclink): %w", err)
+		return "", nil, fmt.Errorf("verify otp: %w", err)
 	}
 
-	return accessToken, userInfo, nil
+	return verifyResp.AccessToken, &AuthUserInfo{
+		Sub:           verifyResp.User.ID,
+		Email:         verifyResp.User.Email,
+		EmailVerified: true,
+	}, nil
 }
 
 func (s *supabaseClient) Logout(ctx context.Context, accessToken string) error {

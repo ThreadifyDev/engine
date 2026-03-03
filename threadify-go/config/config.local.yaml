@@ -21,7 +21,6 @@ redis:
   write_timeout_ms: 500           # Write operation timeout (500ms) - can be increased for high goroutine concurrency
   pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
   conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
-	conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
 auth_provider: supabase
 
