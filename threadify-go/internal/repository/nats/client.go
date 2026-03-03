@@ -68,7 +68,7 @@ func (c *Client) initializeNotificationStream() error {
 	err := c.ensureStream(&nats.StreamConfig{
 		Name:       c.cfg.StreamName,
 		Subjects:   []string{SubjectNotificationsUser},
-		Retention:  nats.WorkQueuePolicy,
+		Retention:  nats.LimitsPolicy,
 		MaxAge:     3 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
 		Replicas:   1,

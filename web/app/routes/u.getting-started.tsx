@@ -133,7 +133,7 @@ export default function GettingStarted() {
               <button
                 onClick={handleCreateAPIKey}
                 disabled={creatingKey}
-                className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-3 bg-black rounded-lg text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {creatingKey ? 'Creating...' : 'Create API Key'}
               </button>
@@ -188,7 +188,7 @@ export default function GettingStarted() {
           <div className="p-4 bg-gray-50 border-t-2 border-black flex justify-end">
             <button
               onClick={() => copyToClipboard(codeWithKey)}
-              className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+              className="px-4 py-2 border-2 rounded-lg border-black hover:bg-black hover:text-white transition-colors font-medium"
             >
               Copy Code
             </button>
@@ -210,7 +210,7 @@ export default function GettingStarted() {
                 href="/AI.md"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors font-medium text-sm"
+                className="inline-block px-4 py-2 bg-blue-800 rounded-lg text-white hover:bg-blue-900 transition-colors font-medium text-sm"
               >
                 View AI Context Guide →
               </a>
@@ -226,7 +226,7 @@ export default function GettingStarted() {
           <button
             onClick={handleCheckInstrumentation}
             disabled={checkingInstrumentation || !hasApiKey}
-            className="px-8 py-4 bg-black text-white text-lg font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-4 bg-black text-white rounded-lg text-lg font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {checkingInstrumentation ? 'Checking...' : 'I\'ve Completed My First Instrumentation'}
           </button>
