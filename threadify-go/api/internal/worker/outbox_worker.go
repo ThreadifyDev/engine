@@ -102,13 +102,15 @@ func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 }
 
 func (w *OutboxWorker) processEvents(ctx context.Context) {
-	w.logger.Debug("outbox: polling for pending events")
 	events, err := w.outboxRepo.FetchPendingDue(batchSize)
 	if err != nil {
 		w.logger.Error("outbox: failed to fetch pending events", zap.Error(err))
 		return
 	}
-	w.logger.Debug("outbox: fetched pending events", zap.Int("count", len(events)))
+	if len(events) == 0 {
+		return
+	}
+	w.logger.Debug("outbox: processing events", zap.Int("count", len(events)))
 
 	for _, event := range events {
 		if err := w.handleEvent(ctx, event); err != nil {

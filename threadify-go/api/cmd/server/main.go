@@ -24,6 +24,7 @@ import (
 	"threadify-go/api/internal/middleware"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/worker"
 	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/config"
 	"threadify-go/shared/logger"
@@ -98,11 +99,15 @@ func main() {
 }
 
 type services struct {
-	natsClient  *nats.Client
-	authService *service.AuthService
+	natsClient   *nats.Client
+	authService  *service.AuthService
+	workerCancel context.CancelFunc
 }
 
 func (s *services) close() {
+	if s.workerCancel != nil {
+		s.workerCancel()
+	}
 	if s.natsClient != nil {
 		s.natsClient.Close()
 	}
@@ -129,24 +134,39 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 	}
 
 	outboxRepo := repository.NewOutboxRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	companyRepo := repository.NewCompanyRepository(db)
 
 	var (
-		natsClient    *nats.Client
-		outboxTrigger service.OutboxWorkerTrigger
+		natsClient   *nats.Client
+		workerCancel context.CancelFunc
 	)
 	nc, natsErr := nats.NewClient(&cfg.NATS, logger)
 	if natsErr != nil {
-		logger.Warn("NATS unavailable — outbox triggers disabled", zap.Error(natsErr))
+		logger.Warn("NATS unavailable — outbox worker disabled", zap.Error(natsErr))
 	} else {
 		if err := nc.InitializeOutboxStream(); err != nil {
-			logger.Error("failed to initialize NATS outbox stream — outbox triggers disabled",
+			logger.Error("failed to initialize NATS outbox stream — outbox worker disabled",
 				zap.Error(err))
 			nc.Close()
 		} else {
 			natsClient = nc
-			outboxTrigger = service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
-			logger.Info("NATS outbox trigger initialized")
+
+			outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, companyRepo, authClient, emailSvc, encryptionKey, logger)
+
+			workerCtx, cancel := context.WithCancel(context.Background())
+			workerCancel = cancel
+
+			go outboxWorker.Run(workerCtx, nc.JetStream())
+			go runPruner(workerCtx, outboxRepo, logger)
+
+			logger.Info("outbox worker started (in-process)")
 		}
+	}
+
+	var outboxTrigger service.OutboxWorkerTrigger
+	if natsClient != nil {
+		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), nats.SubjectOutboxTrigger, logger)
 	}
 
 	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey, logger)
@@ -159,8 +179,9 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 	}
 
 	return &services{
-		natsClient:  natsClient,
-		authService: authSvc,
+		natsClient:   natsClient,
+		authService:  authSvc,
+		workerCancel: workerCancel,
 	}, nil
 }
 
@@ -337,4 +358,27 @@ func resolveRBACPaths(logger *zap.Logger) (string, string) {
 	}
 	logger.Info("using RBAC paths (dev fallback)", zap.String("base", "../shared/rbac"))
 	return "../shared/rbac/permissions.json", "../shared/rbac/roles.json"
+}
+
+func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *zap.Logger) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-7 * 24 * time.Hour)
+			count, err := repo.PruneProcessed(cutoff)
+			if err != nil {
+				logger.Error("pruner: failed to prune old events", zap.Error(err))
+			} else {
+				logger.Info("pruner: removed events",
+					zap.Int64("count", count),
+					zap.String("cutoff", cutoff.Format(time.DateOnly)),
+				)
+			}
+		}
+	}
 }
