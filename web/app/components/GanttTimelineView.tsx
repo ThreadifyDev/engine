@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut, Search, X } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertTriangle, RefreshCw, ZoomIn, ZoomOut, Search, X, XOctagon } from 'lucide-react';
 import type { StepStateInfo } from '~/lib/graphql';
 
 interface GanttTimelineViewProps {
@@ -26,11 +26,11 @@ const CHART_PADDING_RIGHT = 56;
 const CHART_PADDING_LEFT = 5;
 
 const STATUS_COLORS: Record<string, { bar: string; border: string; text: string; label: string }> = {
-  success:     { bar: '#dcfce7', border: '#16a34a', text: '#15803d', label: '#166534' },
-  failed:      { bar: '#fee2e2', border: '#dc2626', text: '#b91c1c', label: '#991b1b' },
-  violated:    { bar: '#ffedd5', border: '#ea580c', text: '#c2410c', label: '#9a3412' },
+  success: { bar: '#dcfce7', border: '#16a34a', text: '#15803d', label: '#166534' },
+  failed: { bar: '#fee2e2', border: '#dc2626', text: '#b91c1c', label: '#991b1b' },
+  violated: { bar: '#ffedd5', border: '#ea580c', text: '#c2410c', label: '#9a3412' },
   in_progress: { bar: '#dbeafe', border: '#2563eb', text: '#1d4ed8', label: '#1e40af' },
-  default:     { bar: '#f3f4f6', border: '#9ca3af', text: '#6b7280', label: '#4b5563' },
+  default: { bar: '#f3f4f6', border: '#9ca3af', text: '#6b7280', label: '#4b5563' },
 };
 
 function getStatusColors(status: string) {
@@ -78,11 +78,11 @@ function formatAxisTime(ms: number): string {
 
 function getStatusIcon(status: string, size = 'w-3 h-3') {
   switch (status) {
-    case 'success':     return <CheckCircle2 className={size} />;
-    case 'failed':      return <XCircle className={size} />;
-    case 'violated':    return <AlertTriangle className={size} />;
+    case 'success': return <CheckCircle2 className={size} />;
+    case 'failed': return <XCircle className={size} />;
+    case 'violated': return <AlertTriangle className={size} />;
     case 'in_progress': return <Clock className={`${size} animate-pulse`} />;
-    default:            return <Clock className={size} />;
+    default: return <Clock className={size} />;
   }
 }
 
@@ -138,9 +138,9 @@ function Tooltip({ data }: { data: TooltipData }) {
 
 export default function GanttTimelineView({ steps, onStepClick, threadStatus }: GanttTimelineViewProps) {
   const chartScrollRef = useRef<HTMLDivElement>(null);
-  const leftColRef     = useRef<HTMLDivElement>(null);
-  const stepBarRefs    = useRef<Map<string, HTMLDivElement>>(new Map());
-  const leftLabelRefs  = useRef<Map<string, HTMLDivElement>>(new Map());
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const stepBarRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const leftLabelRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [containerWidth, setContainerWidth] = useState(900);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4);
@@ -159,54 +159,46 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
 
   const { sortedSteps, timelineStart, totalMs, searchResults } = useMemo(() => {
     if (steps.length === 0) return { sortedSteps: [], timelineStart: 0, totalMs: 1, searchResults: [] };
-    
+
     // Sort all steps by time
     const sorted = [...steps].sort((a, b) =>
       new Date(a.startedAt ?? a.firstSeenAt).getTime() -
       new Date(b.startedAt ?? b.firstSeenAt).getTime()
     );
-    
+
     // Apply status filters
     const filtered = sorted.filter(s => statusFilters.has(s.status));
-    
+
     // Filter for search results dropdown (from filtered steps)
     let results: typeof steps = [];
     if (searchTerm) {
-      results = filtered.filter(s => 
+      results = filtered.filter(s =>
         s.stepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.actorService?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    
+
     // Calculate timeline range from filtered steps
     if (filtered.length === 0) return { sortedSteps: [], timelineStart: 0, totalMs: 1, searchResults: [] };
-    
+
     const starts = filtered.map(s => new Date(s.startedAt ?? s.firstSeenAt).getTime());
-    const ends   = filtered.map(s => new Date(s.finishedAt ?? s.lastUpdatedAt).getTime());
-    const start  = Math.min(...starts);
-    const end    = Math.max(...ends, start + 1);
+    const ends = filtered.map(s => new Date(s.finishedAt ?? s.lastUpdatedAt).getTime());
+    const start = Math.min(...starts);
+    const end = Math.max(...ends, start + 1);
     return { sortedSteps: filtered, timelineStart: start, totalMs: end - start, searchResults: results };
   }, [steps, searchTerm, statusFilters]);
 
-  if (steps.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
-        <div className="text-center">
-          <Clock className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-          <p className="text-sm">No steps to display</p>
-        </div>
-      </div>
-    );
-  }
+  // Use sortedSteps and totalMs from the memoized calculation above.
+  // The early return must be moved below all hook calls to avoid "Rendered more hooks than during previous render".
 
   const { usableBase, pxPerMs, chartMinWidth, majorTicks, minorTicks, intervalPx, finishedAtMarkers, gridBackground } = useMemo(() => {
-    const usableBase    = Math.max(200, containerWidth - CHART_PADDING_LEFT - CHART_PADDING_RIGHT);
-    const pxPerMs       = (usableBase / totalMs) * zoom;
+    const usableBase = Math.max(200, containerWidth - CHART_PADDING_LEFT - CHART_PADDING_RIGHT);
+    const pxPerMs = (usableBase / totalMs) * zoom;
     const chartMinWidth = Math.ceil(totalMs * pxPerMs) + CHART_PADDING_RIGHT;
 
     const TARGET_MAJOR_TICKS = 8;
-    const rawInterval   = totalMs / TARGET_MAJOR_TICKS;
-    const mag           = Math.pow(10, Math.floor(Math.log10(Math.max(rawInterval, 1))));
+    const rawInterval = totalMs / TARGET_MAJOR_TICKS;
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.max(rawInterval, 1))));
     const majorInterval = Math.ceil(rawInterval / mag) * mag;
     const minorInterval = majorInterval / 5;
 
@@ -226,7 +218,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     const finishedAtMarkers = sortedSteps
       .filter(s => s.finishedAt)
       .map(s => ({
-        ms:    new Date(s.finishedAt!).getTime() - timelineStart,
+        ms: new Date(s.finishedAt!).getTime() - timelineStart,
         label: formatAxisTime(new Date(s.finishedAt!).getTime() - timelineStart),
       }));
 
@@ -249,33 +241,33 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
 
   const scrollToStep = useCallback((step: StepStateInfo, scrollVertically: boolean = false) => {
     if (!chartScrollRef.current || !leftColRef.current) return;
-    
+
     // Find the step's index in the sorted list
     const stepIndex = sortedSteps.findIndex(
       s => s.stepName === step.stepName && s.idempotencyKey === step.idempotencyKey
     );
-    
+
     if (stepIndex === -1) return;
-    
+
     // Calculate horizontal position based on step's start time (same as bar positioning)
     const startMs = new Date(step.startedAt ?? step.firstSeenAt).getTime() - timelineStart;
     const barLeft = CHART_PADDING_LEFT + (startMs * pxPerMs);
     const targetScrollLeft = barLeft - 50;
-    
+
     if (scrollVertically) {
       // Calculate vertical position to center the row
       const RULER_HEIGHT = 48;
       const rowTop = stepIndex * ROW_HEIGHT + RULER_HEIGHT;
       const viewportHeight = chartScrollRef.current.clientHeight;
       const targetScrollTop = rowTop - (viewportHeight / 2) + (ROW_HEIGHT / 2);
-      
+
       // Smooth scroll both horizontally and vertically
       chartScrollRef.current.scrollTo({
         left: Math.max(0, targetScrollLeft),
         top: Math.max(0, targetScrollTop),
         behavior: 'smooth'
       });
-      
+
       // Also scroll the left column
       leftColRef.current.scrollTo({
         top: Math.max(0, targetScrollTop),
@@ -300,7 +292,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
   const handleSearchResultClick = useCallback((result: StepStateInfo) => {
     // Use the existing scrollToStep function with vertical scrolling enabled
     scrollToStep(result, true);
-    
+
     setShowSearch(false);
     setSearchTerm('');
   }, [scrollToStep]);
@@ -313,6 +305,17 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
   const handleZoomIn = useCallback(() => {
     setZoom(z => Math.min(50, +(z * 1.5).toFixed(1)));
   }, []);
+
+  if (steps.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+        <div className="text-center">
+          <Clock className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+          <p className="text-sm">No steps to display</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
@@ -344,7 +347,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              
+
               {/* Search Results Dropdown */}
               {searchTerm && (
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[100] max-h-64 overflow-y-auto min-w-[300px]">
@@ -425,11 +428,16 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                 title="Click to scroll to step"
               >
                 {/* Status icons - positioned at top */}
-                {(step.status === 'violated' || step.retryCount > 1) && (
+                {(step.status === 'violated' || step.status === 'failed' || step.retryCount > 1) && (
                   <div className="absolute top-1 right-1 flex items-center gap-1">
                     {step.status === 'violated' && (
                       <div className="flex items-center justify-center bg-orange-500 text-white rounded-full p-1 shadow-sm">
                         <AlertTriangle className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    {step.status === 'failed' && (
+                      <div className="flex items-center justify-center bg-red-500 text-white rounded-full p-1 shadow-sm">
+                        <XOctagon className="w-3.5 h-3.5" />
                       </div>
                     )}
                     {step.retryCount > 1 && (
@@ -439,10 +447,10 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                     )}
                   </div>
                 )}
-                
+
                 <span
                   className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
-                  style={{ color: '#374151' }}
+                  style={{ color: step.status === 'failed' ? '#991b1b' : step.status === 'violated' ? '#9a3412' : step.status === 'success' ? '#166534' : '#374151' }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onStepClick(step);
@@ -495,16 +503,16 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
 
             {/* Step rows */}
             {sortedSteps.map(step => {
-              const startMs     = new Date(step.startedAt ?? step.firstSeenAt).getTime() - timelineStart;
-              const endMs       = step.finishedAt
+              const startMs = new Date(step.startedAt ?? step.firstSeenAt).getTime() - timelineStart;
+              const endMs = step.finishedAt
                 ? new Date(step.finishedAt).getTime() - timelineStart
                 : step.status === 'in_progress' ? totalMs : startMs;
-              const durationMs  = Math.max(0, endMs - startMs);
-              const barLeft     = CHART_PADDING_LEFT + (startMs * pxPerMs);
-              const barWidth    = Math.max(MIN_BAR_WIDTH, durationMs * pxPerMs);
-              const colors      = getStatusColors(step.status);
+              const durationMs = Math.max(0, endMs - startMs);
+              const barLeft = CHART_PADDING_LEFT + (startMs * pxPerMs);
+              const barWidth = Math.max(MIN_BAR_WIDTH, durationMs * pxPerMs);
+              const colors = getStatusColors(step.status);
               const isInProgress = step.status === 'in_progress';
-              const svc         = getServiceColor(step.actorService);
+              const svc = getServiceColor(step.actorService);
 
               return (
                 <div
@@ -530,7 +538,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                     onMouseEnter={e => setTooltip({
                       step,
                       durationMs: new Date(step.finishedAt ?? step.lastUpdatedAt).getTime() -
-                                  new Date(step.startedAt  ?? step.firstSeenAt).getTime(),
+                        new Date(step.startedAt ?? step.firstSeenAt).getTime(),
                       x: e.clientX, y: e.clientY,
                     })}
                     onMouseMove={e => setTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
@@ -566,8 +574,8 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
             const c = getStatusColors(status);
             const isChecked = statusFilters.has(status);
             return (
-              <label 
-                key={status} 
+              <label
+                key={status}
                 className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer hover:text-gray-900 transition-colors"
               >
                 <input

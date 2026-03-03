@@ -5,6 +5,7 @@ export type AlertType = 'error' | 'info' | 'success' | 'warning';
 interface AlertProps {
   type: AlertType;
   message: string;
+  details?: Array<{ field: string; message: string }>;
   className?: string;
 }
 
@@ -27,13 +28,25 @@ const alertStyles: Record<AlertType, { container: string; icon: JSX.Element }> =
   },
 };
 
-export default function Alert({ type, message, className = '' }: AlertProps) {
+export default function Alert({ type, message, details, className = '' }: AlertProps) {
   const styles = alertStyles[type];
 
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 rounded-lg capitalize ${styles.container} ${className}`}>
-      <div className="flex-shrink-0 mt-0.5">{styles.icon}</div>
-      <div className="flex-1 text-sm">{message}</div>
+    <div className={`flex flex-col gap-3 px-4 py-3 rounded-lg ${styles.container} ${className}`}>
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-0.5">{styles.icon}</div>
+        <div className="flex-1 text-sm font-medium">{message}</div>
+      </div>
+      {details && details.length > 0 && (
+        <ul className="ml-8 space-y-1 text-sm">
+          {details.map((detail, index) => (
+            <li key={index} className="flex items-center gap-2">
+              <span className="font-medium capitalize">{detail.field}:</span>
+              <span>{detail.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -35,7 +35,7 @@ func TestThreadService_HandleStartThread_Success(t *testing.T) {
 		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "owner-123", "company-123")
+	response := service.HandleStartThread(context.Background(), req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "success", response.Status)
@@ -65,7 +65,7 @@ func TestThreadService_HandleStartThread_NotAuthenticated(t *testing.T) {
 		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "unauthorized-user", "company-123")
+	response := service.HandleStartThread(context.Background(), req, "unauthorized-user", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "error", response.Status)
@@ -98,7 +98,7 @@ func TestThreadService_HandleStartThread_ContractLoadingError(t *testing.T) {
 		Role:         "payment_processor",
 	}
 
-	response := service.HandleStartThread(req, "owner-123", "company-123")
+	response := service.HandleStartThread(context.Background(), req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "error", response.Status)
@@ -133,7 +133,7 @@ func TestThreadService_HandleStartThread_NoContract(t *testing.T) {
 		Role:         "", // No role for non-contract workflow
 	}
 
-	response := service.HandleStartThread(req, "owner-123", "company-123")
+	response := service.HandleStartThread(context.Background(), req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "success", response.Status)
@@ -171,7 +171,7 @@ func TestThreadService_HandleStartThread_WithContract(t *testing.T) {
 		Role:         "processor",
 	}
 
-	response := service.HandleStartThread(req, "owner-123", "company-123")
+	response := service.HandleStartThread(context.Background(), req, "owner-123", "company-123")
 
 	assert.Equal(t, "startThread", response.Action)
 	assert.Equal(t, "success", response.Status)

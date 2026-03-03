@@ -11,6 +11,16 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export class ValidationError extends Error {
+  details?: Array<{ field: string; message: string }>;
+
+  constructor(message: string, details?: Array<{ field: string; message: string }>) {
+    super(message);
+    this.name = 'ValidationError';
+    this.details = details;
+  }
+}
+
 export interface SignupData {
   company_name: string;
   email: string;
@@ -29,7 +39,7 @@ export interface LoginData {
 
 export interface VerifyOTPData {
   email: string;
-  code: string;
+  token: string;
 }
 
 export interface ForgotPasswordData {
@@ -58,6 +68,13 @@ export interface User {
 export interface AuthResponse {
   token: string;
   user: User;
+  message?: string;
+}
+
+export interface LoginResponse {
+  user?: User;
+  otp_required?: boolean;
+  email_verification_required?: boolean;
   message?: string;
 }
 
@@ -133,6 +150,11 @@ class ApiClient {
         }
       }
 
+      // If we have validation details, throw ValidationError
+      if (data.details && Array.isArray(data.details)) {
+        throw new ValidationError(errorMessage, data.details);
+      }
+
       throw new Error(errorMessage);
     }
 
@@ -146,8 +168,8 @@ class ApiClient {
     });
   }
 
-  async login(data: LoginData): Promise<{ message: string }> {
-    return this.request('/auth/login', {
+  async login(data: LoginData): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -182,10 +204,23 @@ class ApiClient {
     });
   }
 
-  logout() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user');
+  async resendVerificationEmail(data: { email: string }): Promise<{ message: string }> {
+    return this.request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore backend errors — we still clear local state
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+      }
     }
   }
 
@@ -414,6 +449,10 @@ class ApiClient {
 
   async continueConversation(conversationId: string): Promise<{ conversation_id: string; title: string; parent_id: string }> {
     return this.post(`/chat/conversations/${conversationId}/continue`, {});
+  }
+
+  async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
+    return this.request(`/code-samples?codeType=${codeType}`);
   }
 }
 

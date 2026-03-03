@@ -25,11 +25,7 @@ Server: `http://localhost:8080`
 ## 📝 Quick Test
 
 ### 1. Get Token
-```bash
-curl -X POST http://localhost:8080/v1/contracts/login \
-  -H "Content-Type: application/json" \
-  -d '{"userId": "test-user"}'
-```
+
 
 Save the token from response.
 

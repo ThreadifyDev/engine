@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/threadify/engine/internal/interfaces"
 )
 
 // Unified MockValkeyClient for all tests
 type MockValkeyClient struct {
+	mock.Mock
 	data         map[string]string
 	hash         map[string]map[string]string
 	currentSteps map[string][]string
@@ -57,6 +59,10 @@ func (m *MockValkeyClient) Delete(ctx context.Context, key string) error {
 func (m *MockValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	// Mock implementation - just return success
 	return nil
+}
+
+func (m *MockValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	return 0, nil
 }
 
 func (m *MockValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
@@ -120,11 +126,11 @@ func (m *MockValkeyClient) ZRange(ctx context.Context, key string, start, stop i
 	return m.currentSteps[threadID], nil
 }
 
-func (m *MockValkeyClient) ZAdd(ctx context.Context, key string, members ...interface{}) error {
+func (m *MockValkeyClient) ZAdd(ctx context.Context, key string, score float64, member string) error {
 	return nil
 }
 
-func (m *MockValkeyClient) ZRem(ctx context.Context, key string, members ...interface{}) error {
+func (m *MockValkeyClient) ZRem(ctx context.Context, key string, members ...string) error {
 	return nil
 }
 
@@ -170,7 +176,11 @@ func (m *MockValkeyClient) XReadGroup(ctx context.Context, group, consumer, key 
 }
 
 func (m *MockValkeyClient) XAck(ctx context.Context, stream, group string, ids []string) error {
-	return nil
+	if len(m.ExpectedCalls) == 0 {
+		return nil
+	}
+	args := m.Called(ctx, stream, group, ids)
+	return args.Error(0)
 }
 
 func (m *MockValkeyClient) XDel(ctx context.Context, key, id string) error {
@@ -348,6 +358,10 @@ func (m *MockValkeyClient) ScriptLoad(ctx context.Context, script string) (strin
 
 func (m *MockValkeyClient) ScriptFlush(ctx context.Context) error {
 	return nil
+}
+
+func (m *MockValkeyClient) ExecuteWithBackoff(ctx context.Context, operation func() error) error {
+	return operation()
 }
 
 // Helper methods for validation testing

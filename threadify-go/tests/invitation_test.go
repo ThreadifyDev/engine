@@ -24,7 +24,7 @@ func TestWebSocketHandler_InviteParty(t *testing.T) {
 	request := models.InvitePartyRequest{
 		Action:      "inviteParty",
 		Role:        "external_partner",
-		Permissions: "read,write",
+		AccessLevel: "external",
 		ExpiresIn:   "24h",
 	}
 
@@ -38,13 +38,14 @@ func TestWebSocketHandler_InviteParty(t *testing.T) {
 	assert.Equal(t, "success", inviteResponse.Status)
 	assert.NotEmpty(t, inviteResponse.ThreadToken)
 	assert.Equal(t, "external_partner", inviteResponse.Role)
-	assert.Equal(t, "read,write", inviteResponse.Permissions)
+	assert.Equal(t, "external", inviteResponse.AccessLevel)
 
 	// Verify token can be validated
 	claims, err := handler.invitationService.ValidateToken(inviteResponse.ThreadToken)
 	require.NoError(t, err)
 	assert.Equal(t, "test-thread-1", claims.ThreadID)
 	assert.Equal(t, "external_partner", claims.Role)
+	assert.Equal(t, "external", claims.AccessLevel)
 }
 
 func TestWebSocketHandler_InviteParty_Validation(t *testing.T) {
@@ -59,7 +60,7 @@ func TestWebSocketHandler_InviteParty_Validation(t *testing.T) {
 	request := models.InvitePartyRequest{
 		Action:      "inviteParty",
 		Role:        "invalid_role",
-		Permissions: "read,write",
+		AccessLevel: "external",
 		ExpiresIn:   "24h",
 	}
 
@@ -82,7 +83,7 @@ func TestWebSocketHandler_InviteParty_AuditLogging(t *testing.T) {
 	request := models.InvitePartyRequest{
 		Action:      "inviteParty",
 		Role:        "external_partner",
-		Permissions: "read,write",
+		AccessLevel: "external",
 		ExpiresIn:   "24h",
 	}
 
@@ -99,8 +100,8 @@ func TestWebSocketHandler_JoinThread(t *testing.T) {
 	handler := setupTestHandler(t)
 
 	// First create an invitation token
-	invitationService := service.NewInvitationTokenService("test-secret")
-	threadToken, err := invitationService.CreateToken("thread-123", "contract-456", "user-789", "external_partner", "read,write", 24*time.Hour)
+	invitationService := service.NewInvitationTokenService("test-secret", "test-issuer")
+	threadToken, err := invitationService.CreateToken("thread-123", "user-789", "external_partner", "external", 24*time.Hour)
 	require.NoError(t, err)
 
 	// Create test session for joining user
@@ -124,9 +125,8 @@ func TestWebSocketHandler_JoinThread(t *testing.T) {
 	assert.Equal(t, "joinThread", joinResponse.Action)
 	assert.Equal(t, "success", joinResponse.Status)
 	assert.Equal(t, "thread-123", joinResponse.ThreadID)
-	assert.Equal(t, "contract-456", joinResponse.ContractID)
 	assert.Equal(t, "external_partner", joinResponse.Role)
-	assert.Equal(t, "read,write", joinResponse.Permissions)
+	assert.Equal(t, "external", joinResponse.AccessLevel)
 
 	// Verify session was updated with thread context
 	assert.Contains(t, session.threadIDs, "thread-123")
@@ -157,8 +157,8 @@ func TestWebSocketHandler_JoinThread_ExpiredToken(t *testing.T) {
 	handler := setupTestHandler(t)
 
 	// Create expired token
-	invitationService := service.NewInvitationTokenService("test-secret")
-	expiredToken, err := invitationService.CreateToken("thread-123", "contract-456", "user-789", "external_partner", "read,write", -1*time.Hour)
+	invitationService := service.NewInvitationTokenService("test-secret", "test-issuer")
+	expiredToken, err := invitationService.CreateToken("thread-123", "user-789", "external_partner", "external", -1*time.Hour)
 	require.NoError(t, err)
 
 	session := &Session{
@@ -183,8 +183,8 @@ func TestWebSocketHandler_JoinThread_AuditLogging(t *testing.T) {
 	handler := setupTestHandler(t)
 
 	// Create invitation token
-	invitationService := service.NewInvitationTokenService("test-secret")
-	threadToken, err := invitationService.CreateToken("thread-123", "contract-456", "user-789", "external_partner", "read,write", 24*time.Hour)
+	invitationService := service.NewInvitationTokenService("test-secret", "test-issuer")
+	threadToken, err := invitationService.CreateToken("thread-123", "user-789", "external_partner", "external", 24*time.Hour)
 	require.NoError(t, err)
 
 	session := &Session{
@@ -208,7 +208,7 @@ func TestWebSocketHandler_JoinThread_AuditLogging(t *testing.T) {
 // Helper function to set up test handler
 func setupTestHandler(t *testing.T) *WebSocketHandler {
 	// Create test services
-	invitationService := service.NewInvitationTokenService("test-secret")
+	invitationService := service.NewInvitationTokenService("test-secret", "test-issuer")
 
 	return &WebSocketHandler{
 		invitationService: invitationService,
