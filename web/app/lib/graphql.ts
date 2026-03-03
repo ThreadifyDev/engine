@@ -24,6 +24,7 @@ export interface StepHistory {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
+  metadata?: string;
   actor: string;
   actorService: string;
   companyId: string;
@@ -285,6 +286,9 @@ class GraphQLClient {
             latestContext
             hash
             prevHash
+            history(limit: 1) {
+              metadata
+            }
             subSteps {
               id
               threadId
@@ -409,7 +413,7 @@ class GraphQLClient {
           duration
           startedAt
           finishedAt
-          error
+          metadata
           actor
           actorService
           companyId
