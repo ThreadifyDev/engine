@@ -11,6 +11,16 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export class ValidationError extends Error {
+  details?: Array<{ field: string; message: string }>;
+
+  constructor(message: string, details?: Array<{ field: string; message: string }>) {
+    super(message);
+    this.name = 'ValidationError';
+    this.details = details;
+  }
+}
+
 export interface SignupData {
   company_name: string;
   email: string;
@@ -136,6 +146,11 @@ class ApiClient {
           localStorage.removeItem('user');
           window.location.href = '/login';
         }
+      }
+
+      // If we have validation details, throw ValidationError
+      if (data.details && Array.isArray(data.details)) {
+        throw new ValidationError(errorMessage, data.details);
       }
 
       throw new Error(errorMessage);
