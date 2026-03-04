@@ -173,6 +173,18 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleSendVerificationEmail(ctx, data)
+	case models.EventTypeSendPasswordResetEmail:
+		w.logger.Debug("outbox: dispatching send-password-reset-email",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleSendPasswordResetEmail(ctx, data)
+	case models.EventTypeMigrateLegacyUser:
+		w.logger.Debug("outbox: dispatching migrate-legacy-user",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleMigrateLegacyUser(ctx, data)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.Type)
 	}
@@ -350,6 +362,114 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 
 	w.logger.Info("outbox: verification email sent")
 	return nil
+}
+
+func (w *OutboxWorker) handleSendPasswordResetEmail(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "email", "token")
+	if err != nil {
+		return err
+	}
+	email, token := fields[0], fields[1]
+
+	w.logger.Debug("outbox: sending password reset email for legacy user migration",
+		zap.String("email", email),
+	)
+
+	if err := w.emailSvc.SendPasswordResetEmail(ctx, email, token); err != nil {
+		return fmt.Errorf("send password reset email: %w", err)
+	}
+
+	w.logger.Info("outbox: password reset email sent for legacy user migration",
+		zap.String("email", email),
+	)
+	return nil
+}
+
+func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "email", "user_id", "source")
+	if err != nil {
+		return err
+	}
+	email, userID, source := fields[0], fields[1], fields[2]
+
+	w.logger.Info("outbox: migrating legacy user to Supabase",
+		zap.String("user_id", userID),
+		zap.String("email", email),
+		zap.String("source", source),
+	)
+
+	// Get user details from database
+	user, err := w.userRepo.FindByEmail(email)
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+
+	// Check if already migrated
+	if user.AuthUserID != nil && *user.AuthUserID != "" {
+		w.logger.Info("outbox: user already migrated, skipping",
+			zap.String("user_id", userID),
+			zap.String("auth_user_id", *user.AuthUserID),
+		)
+		return nil
+	}
+
+	// Generate a secure temporary password for Supabase registration
+	tempPassword := generateSecurePassword()
+
+	// Get full name
+	fullName := ""
+	if user.FullName != nil {
+		fullName = *user.FullName
+	}
+
+	// Create user in Supabase with temporary password
+	authUserID, err := w.authClient.RegisterUser(ctx, email, tempPassword, fullName, userID, user.CompanyID)
+	if err != nil {
+		return fmt.Errorf("register user in Supabase: %w", err)
+	}
+
+	// Update local user with auth_user_id
+	if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
+		return fmt.Errorf("update auth_user_id: %w", err)
+	}
+
+	w.logger.Info("outbox: legacy user migration completed",
+		zap.String("user_id", userID),
+		zap.String("auth_user_id", authUserID),
+	)
+
+	// Send appropriate email based on source
+	if source == "forgot_password" {
+		// Generate password reset token for the newly created Supabase user
+		resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+		if err != nil {
+			return fmt.Errorf("generate password reset token: %w", err)
+		}
+
+		// Send password reset email
+		if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
+			return fmt.Errorf("send password reset email: %w", err)
+		}
+
+		w.logger.Info("outbox: password reset email sent for migrated user",
+			zap.String("user_id", userID),
+			zap.String("email", email),
+		)
+	} else {
+		// For login source, OTP verification email is queued separately
+		w.logger.Info("outbox: migration completed, OTP email queued separately",
+			zap.String("user_id", userID),
+			zap.String("source", source),
+		)
+	}
+
+	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword() string {
+	// Use two UUIDs for 64 characters of randomness
+	return utils.GenerateID() + utils.GenerateID()
 }
 
 func getFields(data map[string]string, keys ...string) ([]string, error) {

@@ -10,6 +10,7 @@ var (
 	ErrInvalidCredentials           = serror.ErrInvalidCredentials
 	ErrInvalidEmail                 = serror.ErrInvalidEmail
 	ErrAccountStillProvisioning     = serror.ErrAccountStillProvisioning
+	ErrPasswordResetRequired        = serror.ErrPasswordResetRequired
 	ErrJwtVerificationNotConfigured = serror.ErrJwtVerificationNotConfigured
 	ErrExpiredToken                 = serror.ErrExpiredToken
 	ErrInvalidToken                 = serror.ErrInvalidToken
@@ -32,9 +33,6 @@ var (
 	ErrServiceAccountNameRequired = serror.ErrServiceAccountNameRequired
 	ErrInvalidRoleAPI             = serror.ErrInvalidRoleAPI
 	ErrUserNotFound               = serror.ErrUserNotFound
-
-	// System errors
-	ErrDeprecatedPermissions = serror.ErrDeprecatedPermissions
 )
 
 // HTTP Header constants.

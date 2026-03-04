@@ -11,8 +11,10 @@ const (
 
 	OutboxDefaultMaxRetries = 5
 
-	EventTypeRegisterAuthUser      = "register_auth_user"
-	EventTypeSendVerificationEmail = "send_verification_email"
+	EventTypeRegisterAuthUser       = "register_auth_user"
+	EventTypeSendVerificationEmail  = "send_verification_email"
+	EventTypeSendPasswordResetEmail = "send_password_reset_email"
+	EventTypeMigrateLegacyUser      = "migrate_legacy_user"
 )
 
 type OutboxEvent struct {

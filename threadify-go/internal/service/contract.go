@@ -17,7 +17,6 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
-	"github.com/threadify/engine/internal/utils"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -314,7 +313,7 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 
 	var graph models.ContractGraph
 	if err := json.Unmarshal(contractVersion.Graph, &graph); err != nil {
-		s.logger.Warn("failed to parse contract graph for Mermaid generation",
+		s.logger.Warn("failed to parse contract graph",
 			zap.String("contract_id", contractID),
 			zap.Int("version", version),
 			zap.Error(err),
@@ -332,7 +331,6 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 		"contractName": contract.Name,
 		"createdBy":    contractVersion.CreatedBy,
 		"graph":        graph,
-		"mermaid":      utils.ContractGraphToMermaid(contract.Name, &graph),
 		"isDeleted":    contractVersion.IsDeleted,
 		"createdAt":    contractVersion.CreatedAt,
 		"updatedAt":    contractVersion.UpdatedAt,

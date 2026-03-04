@@ -23,7 +23,6 @@ export interface StepHistory {
   duration: number;
   startedAt?: string;
   finishedAt?: string;
-  error?: string;
   metadata?: string;
   actor: string;
   actorService: string;

@@ -171,6 +171,26 @@ func (r *UserRepository) GetPasswordChangedAt(id string) (*time.Time, error) {
 	}
 	return changedAt, nil
 }
+
+func (r *UserRepository) GetPasswordHash(email string) (string, error) {
+	var passwordHash string
+	err := r.db.QueryRow(`SELECT password_hash FROM users WHERE email = $1`, email).Scan(&passwordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", serror.ErrUserNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get password hash: %w", err)
+	}
+	return passwordHash, nil
+}
+
+func (r *UserRepository) ClearPasswordHash(userID string) error {
+	_, err := r.db.Exec(`UPDATE users SET password_hash = NULL WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("clear password hash: %w", err)
+	}
+	return nil
+}
 func (r *UserRepository) Delete(id string) error {
 	return r.DeleteTx(r.db, id)
 }

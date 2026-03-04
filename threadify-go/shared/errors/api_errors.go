@@ -8,6 +8,7 @@ var (
 	ErrInvalidCredentials           = errors.New("invalid email or password")
 	ErrInvalidEmail                 = errors.New("invalid email address")
 	ErrAccountStillProvisioning     = errors.New("account is still being set up, please try again shortly")
+	ErrPasswordResetRequired        = errors.New("please use 'Forgot Password' to set up your account")
 	ErrJwtVerificationNotConfigured = errors.New("JWT verification not configured")
 	ErrExpiredToken                 = errors.New("token has expired")
 	ErrInvalidToken                 = errors.New("invalid or already used token")
@@ -30,7 +31,4 @@ var (
 	ErrServiceAccountNameRequired = errors.New("service account name is required")
 	ErrInvalidRoleAPI             = errors.New("invalid role: must be 'standard_service' or 'reader'")
 	ErrUserNotFound               = errors.New("user not found")
-
-	// System errors
-	ErrDeprecatedPermissions = errors.New("deprecated: use role-based permissions instead")
 )

@@ -193,6 +193,10 @@ func authErrorResponse(err error, fallbackStatus int, fallbackMessage string) (i
 		return http.StatusUnauthorized, service.ErrInvalidCredentials.Error()
 	case errors.Is(err, service.ErrInvalidEmail):
 		return http.StatusBadRequest, service.ErrInvalidEmail.Error()
+	case errors.Is(err, service.ErrAccountStillProvisioning):
+		return http.StatusServiceUnavailable, service.ErrAccountStillProvisioning.Error()
+	case errors.Is(err, service.ErrPasswordResetRequired):
+		return http.StatusUnauthorized, service.ErrPasswordResetRequired.Error()
 	case errors.Is(err, service.ErrExpiredToken):
 		return http.StatusBadRequest, service.ErrExpiredToken.Error()
 	case errors.Is(err, service.ErrInvalidToken):

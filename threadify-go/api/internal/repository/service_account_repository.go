@@ -102,13 +102,3 @@ func (r *ServiceAccountRepository) IsServiceAccountActive(id string) (bool, erro
 	}
 	return isActive, nil
 }
-
-// GetPermissions is deprecated - use role-based permissions instead
-func (r *ServiceAccountRepository) GetPermissions(roleStr string) ([]models.Permission, error) {
-	return nil, nil
-}
-
-// HasPermission is deprecated - use role-based permissions instead
-func (r *ServiceAccountRepository) HasPermission(roleStr, resource, action string) (bool, error) {
-	return false, nil
-}

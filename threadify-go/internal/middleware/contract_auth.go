@@ -8,67 +8,7 @@ import (
 	"threadify-go/shared/rbac"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/threadify/engine/internal/service"
 )
-
-const (
-	userRole = "user"
-)
-
-func ContractDualAuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
-			userInfo, err := authService.ValidateApiKey(apiKey)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
-				c.Abort()
-				return
-			}
-			setAPIKeyContext(c, userInfo)
-			c.Next()
-			return
-		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Either X-API-Key or Authorization header required"})
-			c.Abort()
-			return
-		}
-
-		token, err := sharedauth.ExtractBearerToken(authHeader)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			c.Abort()
-			return
-		}
-
-		claims, err := authService.VerifyToken(c.Request.Context(), token)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			c.Abort()
-			return
-		}
-
-		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, userRole)
-		if err != nil {
-		}
-		if len(dbRoles) > 0 {
-			claims.Roles = dbRoles
-		}
-
-		sharedauth.SetGinContextFromClaims(c, claims)
-		claimsMap := jwt.MapClaims{
-			sharedauth.OwnerID:      claims.UserID,
-			sharedauth.CtxCompanyID: claims.CompanyID,
-			sharedauth.CtxEmail:     claims.Email,
-			sharedauth.CtxRoles:     claims.Roles,
-		}
-		c.Set(sharedauth.CtxClaims, claimsMap)
-		c.Next()
-	}
-}
 
 func ContractRBACMiddleware(rbacLoader *rbac.Loader, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {

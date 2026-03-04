@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/workerpool"
+	"go.uber.org/zap"
 )
 
 // AccessRepository handles role and permission management in Valkey
@@ -23,6 +23,7 @@ type AccessRepository struct {
 	rbacLoader    *rbac.Loader             // For dynamic permission-to-role mapping
 	ttl           int                      // TTL in seconds for access keys
 	writeBackPool *workerpool.Pool         // For async cache write-backs
+	logger        *zap.Logger
 }
 
 // PostgresAccessRepository defines the interface for PostgreSQL access operations
@@ -34,19 +35,21 @@ type PostgresAccessRepository interface {
 }
 
 // NewAccessRepository creates a new access repository
-func NewAccessRepository(valkey interfaces.ValkeyClient, ttl int) *AccessRepository {
+func NewAccessRepository(valkey interfaces.ValkeyClient, ttl int, logger *zap.Logger) *AccessRepository {
 	return &AccessRepository{
 		valkey: valkey,
 		ttl:    ttl,
+		logger: logger,
 	}
 }
 
 // NewAccessRepositoryWithPostgres creates a new access repository with PostgreSQL fallback
-func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRepo PostgresAccessRepository, ttl int) *AccessRepository {
+func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRepo PostgresAccessRepository, ttl int, logger *zap.Logger) *AccessRepository {
 	return &AccessRepository{
 		valkey:       valkey,
 		postgresRepo: postgresRepo,
 		ttl:          ttl,
+		logger:       logger,
 	}
 }
 
@@ -206,14 +209,16 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 		return nil, fmt.Errorf("user does not have access")
 	}
 
-	log.Printf("⚠️ [COLD] Access for user %s in thread %s not in Valkey, checking PostgreSQL", userID, threadID)
+	r.logger.Info("Cache miss for user access, querying PostgreSQL",
+		zap.String("user_id", userID),
+		zap.String("thread_id", threadID))
 
 	access, err := r.postgresRepo.GetUserAccess(ctx, threadID, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Printf("✅ [COLD] Access for user %s retrieved from PostgreSQL", userID)
+	r.logger.Info("Retrieved user access from PostgreSQL", zap.String("user_id", userID))
 
 	// Async write-back via worker pool - don't block the read operation
 	if shouldWriteBack && r.writeBackPool != nil {
@@ -221,11 +226,13 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 
-			log.Printf("🔄 [WRITE-BACK] Async caching access for user %s in thread %s", userID, threadID)
+			r.logger.Debug("Starting async cache write-back for user access",
+				zap.String("user_id", userID),
+				zap.String("thread_id", threadID))
 			if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err != nil {
-				log.Printf("❌ [WRITE-BACK] Failed to cache access: %v", err)
+				r.logger.Warn("Failed to cache user access", zap.String("user_id", userID), zap.Error(err))
 			} else {
-				log.Printf("✅ [WRITE-BACK] Access cached successfully for user %s", userID)
+				r.logger.Info("User access cached successfully", zap.String("user_id", userID))
 			}
 		})
 	}
@@ -261,14 +268,14 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, wr
 		return make(map[string]*interfaces.UserAccess), nil
 	}
 
-	log.Printf("⚠️ [COLD] Access for thread %s not in Valkey, checking PostgreSQL", threadID)
+	r.logger.Info("Cache miss for thread access, querying PostgreSQL", zap.String("thread_id", threadID))
 
 	result, err := r.postgresRepo.GetAllAccess(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Printf("✅ [COLD] Access for thread %s retrieved from PostgreSQL", threadID)
+	r.logger.Info("Retrieved thread access from PostgreSQL", zap.String("thread_id", threadID))
 
 	// Async write-back for all users via worker pool - don't block the read operation
 	if shouldWriteBack && len(result) > 0 && r.writeBackPool != nil {
@@ -276,16 +283,19 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, wr
 			writeBackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
-			log.Printf("🔄 [WRITE-BACK] Async caching access for %d users in thread %s", len(result), threadID)
+			r.logger.Debug("Starting async cache write-back for thread access",
+				zap.String("thread_id", threadID),
+				zap.Int("user_count", len(result)))
 			successCount := 0
 			for userID, access := range result {
-				if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err != nil {
-					log.Printf("⚠️ Async write-back failed for user %s access: %v", userID, err)
-				} else {
+				if err := r.writeAccessToValkey(writeBackCtx, threadID, userID, access); err == nil {
 					successCount++
 				}
 			}
-			log.Printf("✅ [WRITE-BACK] Cached %d/%d users successfully", successCount, len(result))
+			r.logger.Info("Thread access cached",
+				zap.String("thread_id", threadID),
+				zap.Int("success_count", successCount),
+				zap.Int("total_count", len(result)))
 		})
 	}
 
@@ -655,7 +665,9 @@ func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID
 		return &PermissionCheckResult{HasAccess: false}, nil
 	}
 
-	log.Printf("⚠️ [COLD] Permission check for user %s in thread %s not in Valkey, checking PostgreSQL", userID, threadID)
+	r.logger.Info("Cache miss for permission check, querying PostgreSQL",
+		zap.String("user_id", userID),
+		zap.String("thread_id", threadID))
 
 	access, err := r.postgresRepo.GetUserAccess(ctx, threadID, userID)
 	if err != nil {

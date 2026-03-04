@@ -205,7 +205,7 @@ export function StepDetailContent({
       </div>
 
       {/* Error/Success Message Display */}
-      {step.history && step.history.length > 0 && (step.history[0].metadata || step.history[0].error) && (
+      {step.history && step.history.length > 0 && step.history[0].metadata && (
         <div className={`rounded-lg border ${
           step.status === 'failed' ? 'bg-red-50/50 border-red-200' : 
           step.status === 'success' ? 'bg-green-50/50 border-green-200' : 
@@ -247,7 +247,7 @@ export function StepDetailContent({
                 'text-yellow-800'
               }`}>
                 {(() => {
-                  const messageData = step.history[0].metadata || step.history[0].error;
+                  const messageData = step.history[0].metadata;
                   if (!messageData) return null;
                   try {
                     const parsed = JSON.parse(messageData);

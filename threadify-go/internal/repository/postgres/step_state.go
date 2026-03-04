@@ -360,7 +360,6 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		// Parse payload JSON to extract context, duration, and status
 		var contextStr string
 		var duration int
-		var errorMsg string
 		var statusFromPayload string
 
 		if payload.Valid {
@@ -379,13 +378,6 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 				if statusVal, exists := payloadData["status"]; exists {
 					if statusStr, ok := statusVal.(string); ok {
 						statusFromPayload = statusStr
-					}
-				}
-				if statusFromPayload == "failed" || statusFromPayload == "error" {
-					if err, exists := payloadData["error"]; exists {
-						if errStr, ok := err.(string); ok {
-							errorMsg = errStr
-						}
 					}
 				}
 			}
@@ -440,7 +432,6 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			Duration:     duration,
 			StartedAt:    startedAtStr,
 			FinishedAt:   finishedAtStr,
-			Error:        errorMsg,
 			Metadata:     metadataStr,
 			Actor:        actorStr,
 			ActorService: actorServiceStr,

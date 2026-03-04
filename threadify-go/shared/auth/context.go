@@ -11,7 +11,5 @@ const (
 
 	CtxAuthSub = "authSub"
 
-	CtxClaims = "claims"
-
 	OwnerID = "ownerId"
 )

@@ -12,7 +12,7 @@ import ReactFlow, {
   Handle,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Clock, CheckCircle2, AlertCircle, Search, X, ChevronRight, AlertTriangle, Hash, Code, Copy, Check } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, Search, X, ChevronRight, AlertTriangle, Hash, Code, Copy, Check, Star } from 'lucide-react';
 import RightSidebar from './RightSidebar';
 
 interface ContractGraphViewProps {
@@ -87,7 +87,7 @@ function ContractNode({ data }: { data: any }) {
         {(isTerminal || isEntryPoint) && (
           <div className="absolute -top-2 -right-2 bg-blue-500 text-white rounded-full px-2 py-0.5 text-xs font-bold shadow-md flex items-center gap-1">
             {isTerminal && <CheckCircle2 className="w-3 h-3" />}
-            {isEntryPoint && '⭐'}
+            {isEntryPoint && <Star className="w-3 h-3 fill-white" />}
           </div>
         )}
 

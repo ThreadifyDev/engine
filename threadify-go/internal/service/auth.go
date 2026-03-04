@@ -15,7 +15,7 @@ import (
 	"github.com/threadify/engine/internal/workerpool"
 )
 
-const defaultCacheTTL = 1 * time.Hour
+const defaultCacheTTL = 3600 // 1 hour in seconds
 
 type UserInfo struct {
 	OwnerID   string `json:"ownerId"`
@@ -29,18 +29,29 @@ type cachedUserInfo struct {
 	expiresAt time.Time
 }
 
+// cachedRoles stores role names with expiration time.
+type cachedRoles struct {
+	roles     []string
+	expiresAt time.Time
+}
+
 type AuthService struct {
 	db            *pgxpool.Pool
-	cache         sync.Map // key: apiKeyHash -> *cachedUserInfo
+	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
+	rolesCache    sync.Map // key: userID:type   → *cachedRoles
 	cacheTTL      time.Duration
 	writeBackPool *workerpool.Pool
 	jwksVerifier  *sharedauth.JWKSVerifier
 	stopCleanup   chan struct{}
 }
 
-func NewAuthService() *AuthService {
+func NewAuthService(cacheTTLSeconds int) *AuthService {
+	ttl := time.Duration(cacheTTLSeconds) * time.Second
+	if cacheTTLSeconds <= 0 {
+		ttl = time.Duration(defaultCacheTTL) * time.Second
+	}
 	s := &AuthService{
-		cacheTTL:    defaultCacheTTL,
+		cacheTTL:    ttl,
 		stopCleanup: make(chan struct{}),
 	}
 	go s.cleanupExpiredCache()
@@ -76,6 +87,12 @@ func (s *AuthService) cleanupExpiredCache() {
 			s.cache.Range(func(key, value interface{}) bool {
 				if cached, ok := value.(*cachedUserInfo); ok && now.After(cached.expiresAt) {
 					s.cache.Delete(key)
+				}
+				return true
+			})
+			s.rolesCache.Range(func(key, value interface{}) bool {
+				if cached, ok := value.(*cachedRoles); ok && now.After(cached.expiresAt) {
+					s.rolesCache.Delete(key)
 				}
 				return true
 			})
@@ -174,11 +191,22 @@ func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sha
 	return s.jwksVerifier.Verify(ctx, tokenString)
 }
 
-func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string) ([]string, error) {
+func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string, jwtExpiry time.Time) ([]string, error) {
 	if s.db == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
 
+	cacheKey := principalID + ":" + principalType
+
+	// Fast path: serve from cache
+	if cached, ok := s.rolesCache.Load(cacheKey); ok {
+		if cr, ok := cached.(*cachedRoles); ok && time.Now().Before(cr.expiresAt) {
+			return cr.roles, nil
+		}
+		s.rolesCache.Delete(cacheKey)
+	}
+
+	// Slow path: query DB
 	rows, err := s.db.Query(ctx, `
 		SELECT role_name
 		FROM user_roles
@@ -201,6 +229,21 @@ func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, prin
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("row error fetching user roles: %w", err)
 	}
+
+	// Cap TTL to min(jwtExpiry, defaultCacheTTL) so roles never outlive the
+	// token that granted access. If jwtExpiry is zero (not provided), fall
+	// back to the default TTL.
+	ttl := s.cacheTTL
+	if !jwtExpiry.IsZero() {
+		if remaining := time.Until(jwtExpiry); remaining > 0 && remaining < ttl {
+			ttl = remaining
+		}
+	}
+
+	s.rolesCache.Store(cacheKey, &cachedRoles{
+		roles:     roles,
+		expiresAt: time.Now().Add(ttl),
+	})
 
 	return roles, nil
 }

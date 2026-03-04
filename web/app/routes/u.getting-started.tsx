@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
+import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
 
 export default function GettingStarted() {
@@ -151,7 +152,11 @@ export default function GettingStarted() {
                   onClick={() => copyToClipboard(apiKey)}
                   className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors whitespace-nowrap font-medium"
                 >
-                  {copied ? '✓ Copied!' : 'Copy'}
+                  {copied ? (
+                    <span className="flex items-center gap-1">
+                      <Check className="w-4 h-4" /> Copied!
+                    </span>
+                  ) : 'Copy'}
                 </button>
               </div>
             </>
