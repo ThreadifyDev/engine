@@ -854,6 +854,52 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS reference_id TEXT;
 	CREATE INDEX IF NOT EXISTS idx_outbox_reference_id ON outbox_events(reference_id);
+
+	-- Company subscription plans
+	CREATE TABLE IF NOT EXISTS company_plans (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL UNIQUE,
+		subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter',
+		billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
+		billing_start TIMESTAMP NOT NULL,
+		billing_end TIMESTAMP NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
+
+	-- Usage meters per billing cycle (decremental balance model)
+	CREATE TABLE IF NOT EXISTS usage_meters (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		billing_cycle_start TIMESTAMP NOT NULL,
+
+		-- Current balances (starts at max, decrements toward 0; can go negative for overage tiers)
+		bandwidth_ingress_balance BIGINT NOT NULL,
+		bandwidth_egress_balance BIGINT NOT NULL,
+		llm_credits_balance BIGINT NOT NULL,
+
+		-- Max limits (snapped from subscription tier at cycle start)
+		max_bandwidth_ingress BIGINT NOT NULL,
+		max_bandwidth_egress BIGINT NOT NULL,
+		max_team_seats INT NOT NULL,
+		max_contract_limit INT NOT NULL,
+		max_rate_limit INT NOT NULL,
+		max_payload_bytes BIGINT NOT NULL,
+		max_llm_credits BIGINT NOT NULL,
+		hot_storage_days INT NOT NULL DEFAULT 7,
+		cold_storage_days INT NOT NULL DEFAULT 0,
+		support VARCHAR(50) NOT NULL DEFAULT 'community',
+
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, billing_cycle_start),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

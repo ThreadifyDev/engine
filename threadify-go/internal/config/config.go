@@ -25,6 +25,7 @@ type Config struct {
 	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
 	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
 	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
+	Subscription       SubscriptionConfig       `yaml:"subscription" mapstructure:"subscription"`
 }
 
 // ServerConfig holds server configuration

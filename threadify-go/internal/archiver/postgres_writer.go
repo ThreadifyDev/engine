@@ -684,3 +684,59 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 	)
 	return nil
 }
+
+// SyncUsageMeters batch-syncs aggregated usage decrements from Valkey to PostgreSQL.
+// aggregated: map[company_id] -> map[meter_name] -> total_decrement_amount
+func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, aggregated map[string]map[string]int64) error {
+	if len(aggregated) == 0 {
+		return nil
+	}
+
+	// Map meter names to their database columns
+	meterColumns := map[string]string{
+		"bandwidth_ingress": "bandwidth_ingress_balance",
+		"bandwidth_egress":  "bandwidth_egress_balance",
+		"llm_credits":       "llm_credits_balance",
+	}
+
+	tx, err := w.db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin usage sync tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var totalUpdates int
+	for companyID, meters := range aggregated {
+		for meter, amount := range meters {
+			column, ok := meterColumns[meter]
+			if !ok {
+				w.logger.Warn("unknown meter type in usage sync",
+					zap.String("meter", meter),
+					zap.String("company_id", companyID),
+				)
+				continue
+			}
+
+			query := fmt.Sprintf(
+				`UPDATE usage_meters SET %s = %s - $1, updated_at = NOW()
+				 WHERE company_id = $2`,
+				column, column,
+			)
+
+			if _, err := tx.Exec(ctx, query, amount, companyID); err != nil {
+				return fmt.Errorf("sync usage meter %s for company %s: %w", meter, companyID, err)
+			}
+			totalUpdates++
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit usage sync tx: %w", err)
+	}
+
+	w.logger.Info("synced usage meters to postgres",
+		zap.Int("companies", len(aggregated)),
+		zap.Int("updates", totalUpdates),
+	)
+	return nil
+}

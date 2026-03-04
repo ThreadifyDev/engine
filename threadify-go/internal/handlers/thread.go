@@ -54,6 +54,7 @@ type WebSocketHandler struct {
 	invitationService    *service.InvitationTokenService
 	notificationConsumer *service.NotificationConsumer
 	notificationRouter   *NotificationRouter
+	planService          *service.PlanService
 	valkeyClient         interfaces.ValkeyClient
 	sessions             sync.Map
 	luaScriptManager     interfaces.LuaScriptManager
@@ -87,6 +88,7 @@ func NewWebSocketHandler(
 	invitationService *service.InvitationTokenService,
 	notificationConsumer *service.NotificationConsumer,
 	notificationRouter *NotificationRouter,
+	planService *service.PlanService,
 	valkeyClient interfaces.ValkeyClient,
 	luaScriptManager interfaces.LuaScriptManager,
 	rateLimitConfig *config.RateLimitConfig,
@@ -107,6 +109,7 @@ func NewWebSocketHandler(
 		invitationService:    invitationService,
 		notificationConsumer: notificationConsumer,
 		notificationRouter:   notificationRouter,
+		planService:          planService,
 		valkeyClient:         valkeyClient,
 		luaScriptManager:     luaScriptManager,
 		rateLimitConfig:      rateLimitConfig,
@@ -169,17 +172,20 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	msgBytes, _ := json.Marshal(msg)
 
 	if action != ActionConnect && session.companyID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
-			context.Background(),
-			session.companyID,
-			h.rateLimitConfig.PerUser.RequestsPerMinute,
-			h.rateLimitConfig.PerUser.WindowSeconds,
-		)
-		if err == nil && !allowed {
-			return models.ErrorResponse{
-				Action:  action,
-				Status:  StatusError,
-				Message: "Rate limit exceeded. Please slow down.",
+		meter, meterErr := h.planService.GetCurrentLimits(context.Background(), session.companyID)
+		if meterErr == nil && meter != nil && meter.MaxRateLimit > 0 {
+			allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
+				context.Background(),
+				session.companyID,
+				meter.MaxRateLimit*60,
+				h.rateLimitConfig.PerUser.WindowSeconds,
+			)
+			if err == nil && !allowed {
+				return models.ErrorResponse{
+					Action:  action,
+					Status:  StatusError,
+					Message: "Rate limit exceeded. Please slow down.",
+				}
 			}
 		}
 	}

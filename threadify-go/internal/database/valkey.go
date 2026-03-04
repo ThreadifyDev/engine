@@ -211,6 +211,16 @@ func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func()
 	return backoffv4.Retry(operation, backoffStrategy)
 }
 
+// DecrBy atomically decrements a key by the given value, returns new value
+func (v *ValkeyService) DecrBy(ctx context.Context, key string, value int64) (int64, error) {
+	return v.Client.DecrBy(ctx, key, value).Result()
+}
+
+// IncrBy atomically increments a key by the given value, returns new value
+func (v *ValkeyService) IncrBy(ctx context.Context, key string, value int64) (int64, error) {
+	return v.Client.IncrBy(ctx, key, value).Result()
+}
+
 // SAdd adds members to a SET
 func (v *ValkeyService) SAdd(ctx context.Context, key string, members ...interface{}) error {
 	return v.Client.SAdd(ctx, key, members...).Err()

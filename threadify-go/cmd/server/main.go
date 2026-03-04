@@ -123,6 +123,12 @@ func loadConfig() (*config.Config, error) {
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+
+	viper.SetConfigName("subscription")
+	if err := viper.MergeInConfig(); err != nil {
+		return nil, fmt.Errorf("merge subscription config: %w", err)
+	}
+
 	return config.LoadFromViper()
 }
 
@@ -240,6 +246,13 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	d.stepEventSvc = stepEventSvc
 
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
+
+	planRepo := postgres.NewPlanRepository(d.db.Pool)
+	planSvc := service.NewPlanService(planRepo, &cfg.Subscription, d.valkey, logger)
+	if natsArchival != nil {
+		planSvc.SetNATSPublisher(natsArchival)
+	}
+
 	contractSvc := service.NewContractService(d.db, logger)
 	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools, logger)
 	invitationSvc := service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
@@ -258,6 +271,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	wsHandler := handlers.NewWebSocketHandler(
 		threadSvc, stepEventSvc, invitationSvc,
 		threadSvc.GetNotificationConsumer(), notifRouter,
+		planSvc,
 		d.valkey, luaScriptManager,
 		&cfg.RateLimit, &cfg.WebSocket,
 		logger,
@@ -298,6 +312,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
 		middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit),
+		middleware.SubscriptionMiddleware(planSvc, luaScriptManager),
 		graphqlMiddleware(gqlHandler),
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
@@ -309,12 +324,18 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager))
 
 	contracts := v1.Group("/contracts")
 	contracts.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	{
 		contracts.GET("", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContracts)
-		contracts.POST("", middleware.ContractRBACMiddleware(rbacLoader, "contract.create"), contractHandler.CreateContract)
+		contracts.POST("",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.create"),
+			middleware.ContractQuotaMiddleware(planSvc, contractSvc),
+			middleware.PayloadSizeMiddleware(),
+			contractHandler.CreateContract,
+		)
 		contracts.POST("/preview", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.PreviewContract)
 		contracts.GET("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContract)
 		contracts.PUT("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.UpdateContract)

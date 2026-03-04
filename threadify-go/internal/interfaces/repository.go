@@ -39,6 +39,9 @@ type ValkeyClient interface {
 	// Lua script operations
 	ScriptLoad(ctx context.Context, script string) (string, error)
 	EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error)
+	// Atomic counter operations for usage metering
+	DecrBy(ctx context.Context, key string, value int64) (int64, error)
+	IncrBy(ctx context.Context, key string, value int64) (int64, error)
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
 	// Retry operations with exponential backoff

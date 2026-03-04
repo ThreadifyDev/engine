@@ -53,6 +53,10 @@ func NewContractService(db *database.PostgresDB, logger *zap.Logger) *ContractSe
 	}
 }
 
+func (s *ContractService) CountContractsByCompany(ctx context.Context, companyID string) (int, error) {
+	return s.repo.CountByCompany(ctx, companyID)
+}
+
 // PreviewContract validates YAML and builds a contract graph without persisting.
 func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
 	contract, validationResult := s.validator.Validate(yamlString)

@@ -204,6 +204,18 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 	return contracts, nil
 }
 
+func (r *ContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM contracts WHERE owner_id = $1 AND is_deleted = false`,
+		companyID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count contracts by company: %w", err)
+	}
+	return count, nil
+}
+
 func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
 	query := `INSERT INTO contract_versions (` + versionCols + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
