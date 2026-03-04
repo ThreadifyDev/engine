@@ -1,0 +1,34 @@
+subscription:
+  tiers:
+    starter:
+      bandwidth_ingress: 1000000           # 1M threads/mo
+      bandwidth_ingress_hard_cap: 1500000  # forced upgrade at 1.5M
+      bandwidth_egress: 10737418240        # 10 GB
+      bandwidth_egress_overage_cents_per_gb: 0  # $0.15/GB
+      team_seats: 1
+      seat_overage_cents_per_month: 1500   # $15/mo per additional seat
+      contract_limit: 3
+      rate_limit: 10                       # 10 TPS
+      max_payload_bytes: 524288            # 500 KB
+      hot_storage_days: 7
+      cold_storage_days: 0                 # no archival, purged after hot window
+      llm_credits: 0                       # pay-as-you-go via credits
+      support: community
+      overage_allowed: false               # hard stop on bandwidth ingress
+
+    growth:
+      bandwidth_ingress: 50000000          # 50M threads/mo
+      bandwidth_ingress_overage_cents_per_million: 50  # $0.50 per 1M additional
+      bandwidth_egress: 214748364800       # 200 GB
+      bandwidth_egress_overage_cents_per_gb: 10  # $0.10/GB
+      team_seats: 5
+      seat_overage_cents_per_month: 1500   # $15/mo per additional seat
+      contract_limit: 20
+      rate_limit: 1000                     # 1000 TPS
+      max_payload_bytes: 1048576           # 1 MB
+      hot_storage_days: 30
+      cold_storage_days: 365               # max 1yr retention
+      cold_storage_overage_cents_per_gb: 10  # $0.10/GB/mo
+      llm_credits: 0                       # pay-as-you-go add-on credits
+      support: email
+      overage_allowed: true                # metered overage on all balance meters

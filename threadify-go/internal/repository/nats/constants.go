@@ -7,6 +7,7 @@ const (
 	StreamThreadAccess      = "thread_access"
 	StreamThreadValidations = "thread_validations"
 	StreamStepState         = "step_state"
+	StreamUsageSync         = "usage_sync"
 	StreamOutboxTriggers    = "OUTBOX_TRIGGERS"
 
 	// Subject patterns and prefixes
@@ -17,6 +18,7 @@ const (
 	SubjectThreadAccess      = "access.thread"
 	SubjectThreadValidations = "validations.thread"
 	SubjectStepState         = "state.step"
+	SubjectUsageSync         = "usage.sync"
 	SubjectOutboxTrigger     = "outbox.trigger"
 
 	PrefixNotificationsUser = "notifications.user"

@@ -54,6 +54,11 @@ func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[stri
 	return p.publish(ctx, "state.step", event)
 }
 
+// PublishUsageSync publishes a usage meter decrement event for async DB sync
+func (p *ArchivalPublisher) PublishUsageSync(ctx context.Context, event map[string]interface{}) error {
+	return p.publish(ctx, "usage.sync", event)
+}
+
 // publish is the internal method that handles the actual NATS publish
 func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event map[string]interface{}) error {
 	// Add timestamp if not present

@@ -75,6 +75,7 @@ func (c *NATSConsumer) Start(ctx context.Context) error {
 		{"thread_metadata", "metadata.thread", c.processThreadMetadata},
 		{"thread_access", "access.thread", c.processThreadAccess},
 		{"thread_validations", "validations.thread", c.processThreadValidations},
+		{"usage_sync", "usage.sync", c.processUsageSync},
 	}
 
 	for _, consumer := range consumers {
@@ -363,4 +364,49 @@ func convertToStringMap(data map[string]interface{}) map[string]string {
 		result[k] = fmt.Sprintf("%v", v)
 	}
 	return result
+}
+
+func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Msg) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	start := time.Now()
+
+	// Aggregate decrements by (company_id, meter)
+	aggregated := make(map[string]map[string]int64)
+	var failed []jetstream.Msg
+
+	for _, msg := range msgs {
+		var data map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &data); err != nil {
+			c.logger.Error("failed to unmarshal usage sync message", zap.Error(err))
+			failed = append(failed, msg)
+			continue
+		}
+
+		companyID, _ := data["company_id"].(string)
+		meter, _ := data["meter"].(string)
+		amount, _ := data["amount"].(float64) // JSON numbers are float64
+
+		if companyID == "" || meter == "" {
+			failed = append(failed, msg)
+			continue
+		}
+
+		if _, ok := aggregated[companyID]; !ok {
+			aggregated[companyID] = make(map[string]int64)
+		}
+		aggregated[companyID][meter] += int64(amount)
+	}
+
+	c.nakFailed("usage_sync", failed)
+
+	if len(aggregated) > 0 {
+		if err := c.writer.SyncUsageMeters(ctx, aggregated); err != nil {
+			return err
+		}
+	}
+
+	c.logPerf("usage.sync", len(msgs), start)
+	return nil
 }
