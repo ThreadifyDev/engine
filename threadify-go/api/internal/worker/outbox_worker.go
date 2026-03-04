@@ -392,19 +392,16 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 	}
 	email, userID, source := fields[0], fields[1], fields[2]
 
-	w.logger.Info("outbox: migrating legacy user to Supabase",
+	w.logger.Debug("outbox: migrating legacy user to Supabase",
 		zap.String("user_id", userID),
-		zap.String("email", email),
 		zap.String("source", source),
 	)
 
-	// Get user details from database
 	user, err := w.userRepo.FindByEmail(email)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
 
-	// Check if already migrated
 	if user.AuthUserID != nil && *user.AuthUserID != "" {
 		w.logger.Info("outbox: user already migrated, skipping",
 			zap.String("user_id", userID),
@@ -413,62 +410,50 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return nil
 	}
 
-	// Generate a secure temporary password for Supabase registration
 	tempPassword := generateSecurePassword()
 
-	// Get full name
 	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}
-
-	// Create user in Supabase with temporary password
 	authUserID, err := w.authClient.RegisterUser(ctx, email, tempPassword, fullName, userID, user.CompanyID)
 	if err != nil {
 		return fmt.Errorf("register user in Supabase: %w", err)
 	}
 
-	// Update local user with auth_user_id
 	if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
 		return fmt.Errorf("update auth_user_id: %w", err)
 	}
 
-	w.logger.Info("outbox: legacy user migration completed",
+	w.logger.Debug("outbox: legacy user migration completed",
 		zap.String("user_id", userID),
 		zap.String("auth_user_id", authUserID),
 	)
 
-	// Send appropriate email based on source
-	if source == "forgot_password" {
-		// Generate password reset token for the newly created Supabase user
-		resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
-		if err != nil {
-			return fmt.Errorf("generate password reset token: %w", err)
-		}
+	return w.sendPostMigrationEmail(ctx, email, userID, source)
+}
 
-		// Send password reset email
-		if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
-			return fmt.Errorf("send password reset email: %w", err)
-		}
-
-		w.logger.Info("outbox: password reset email sent for migrated user",
-			zap.String("user_id", userID),
-			zap.String("email", email),
-		)
-	} else {
-		// For login source, OTP verification email is queued separately
-		w.logger.Info("outbox: migration completed, OTP email queued separately",
-			zap.String("user_id", userID),
-			zap.String("source", source),
-		)
+func (w *OutboxWorker) sendPostMigrationEmail(ctx context.Context, email, userID, source string) error {
+	if source != models.MigrationSourceForgotPassword {
+		return nil
 	}
 
+	resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+	if err != nil {
+		return fmt.Errorf("generate password reset token: %w", err)
+	}
+
+	if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
+		return fmt.Errorf("send password reset email: %w", err)
+	}
+
+	w.logger.Info("outbox: password reset email sent for migrated user",
+		zap.String("user_id", userID),
+	)
 	return nil
 }
 
-// generateSecurePassword generates a cryptographically secure random password
 func generateSecurePassword() string {
-	// Use two UUIDs for 64 characters of randomness
 	return utils.GenerateID() + utils.GenerateID()
 }
 

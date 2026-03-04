@@ -198,120 +198,18 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, err
 	}
 
-	// Try to authenticate with Supabase first
 	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
 	if err != nil {
-		// Check if this is an "invalid credentials" error - could be user doesn't exist in Supabase
-		if errors.Is(err, sharedauth.ErrAuthInvalidCredentials) {
-			// Check if user exists in local DB (legacy user)
-			localUser, dbErr := s.userRepo.FindByEmail(req.Email)
-			if dbErr == nil && localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
-				// Legacy user found - verify password and queue migration
-				s.logger.Info("login: legacy user detected, verifying password")
-
-				// Get stored password hash
-				passwordHash, err := s.userRepo.GetPasswordHash(req.Email)
-				if err != nil {
-					s.logger.Error("login: failed to get password hash for legacy user", zap.Error(err))
-					return nil, ErrInvalidCredentials
-				}
-
-				// Verify password against stored hash
-				if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-					// Password doesn't match
-					return nil, ErrInvalidCredentials
-				}
-
-				// Password verified - queue async migration (don't block login)
-				if err := s.queueLegacyUserMigration(localUser.ID, req.Email, "login"); err != nil {
-					s.logger.Error("login: failed to queue migration for legacy user",
-						zap.Error(err),
-						zap.String("user_id", localUser.ID),
-					)
-					// Don't fail login if queueing fails - user can try again
-				}
-
-				// Migration queued - proceed with OTP verification flow
-				// The outbox worker will create the Supabase user and send OTP email
-				s.logger.Info("login: migration queued, proceeding to OTP verification",
-					zap.String("user_id", localUser.ID),
-				)
-
-				// Queue verification email (OTP will be sent)
-				if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-					s.logger.Error("login: failed to queue verification email for legacy user",
-						zap.Error(err),
-						zap.String("user_id", localUser.ID),
-					)
-					return nil, fmt.Errorf("failed to send verification code")
-				}
-
-				// Return OTP required response
-				return &models.AuthResponse{
-					User:        localUser,
-					OTPRequired: true,
-					Message:     "A login code has been sent to your email.",
-				}, nil
-			}
-
-			// Not a legacy user, just invalid credentials
-			return nil, ErrInvalidCredentials
-		} else if errors.Is(err, sharedauth.ErrAuthRateLimit) {
-			// Rate limit error
-			return nil, ErrRateLimit
-		} else {
-			// Other auth errors
-			s.logger.Error("login: auth client returned error",
-				zap.Error(err),
-				zap.String("email", req.Email),
-				zap.String("error_type", fmt.Sprintf("%T", err)),
-			)
-			return nil, fmt.Errorf("authenticate: %w", err)
-		}
+		return s.handleAuthError(ctx, req, err)
 	}
 
-	// Authentication successful - get local user
 	localUser, err := s.userRepo.FindByEmail(req.Email)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
 
-	// Check email verification status
 	if localUser != nil && !localUser.EmailVerified {
-		s.logger.Info("login: email not verified, queuing verification email for onboarding",
-			zap.String("user_id", localUser.ID),
-		)
-
-		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-			s.logger.Error("login: failed to queue verification email",
-				zap.Error(err))
-			return nil, fmt.Errorf("failed to queue verification email")
-		}
-
-		return &models.AuthResponse{
-			User:                      localUser,
-			EmailVerificationRequired: true,
-			Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
-		}, nil
-	}
-
-	// Check email verification status
-	if localUser != nil && !localUser.EmailVerified {
-		s.logger.Info("login: email not verified, queuing verification email for onboarding",
-			zap.String("user_id", localUser.ID),
-		)
-
-		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-			s.logger.Error("login: failed to queue verification email",
-				zap.Error(err))
-			return nil, fmt.Errorf("failed to queue verification email")
-		}
-
-		return &models.AuthResponse{
-			User:                      localUser,
-			EmailVerificationRequired: true,
-			Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
-		}, nil
+		return s.handleUnverifiedEmail(localUser)
 	}
 
 	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
@@ -319,18 +217,103 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, err
 	}
 
-	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
+	return s.issueLoginOTP(ctx, user, req.Email)
+}
+
+func (s *AuthService) handleAuthError(ctx context.Context, req *models.LoginRequest, authErr error) (*models.AuthResponse, error) {
+	switch {
+	case errors.Is(authErr, sharedauth.ErrAuthInvalidCredentials):
+		return s.handleLegacyLogin(ctx, req)
+	case errors.Is(authErr, sharedauth.ErrAuthRateLimit):
+		return nil, ErrRateLimit
+	default:
+		s.logger.Error("login: auth client returned error",
+			zap.Error(authErr),
+			zap.String("error_type", fmt.Sprintf("%T", authErr)),
+		)
+		return nil, fmt.Errorf("authenticate: %w", authErr)
+	}
+}
+
+func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRequest) (*models.AuthResponse, error) {
+	localUser, dbErr := s.userRepo.FindByEmail(req.Email)
+	if dbErr != nil || localUser == nil || (localUser.AuthUserID != nil && strings.TrimSpace(*localUser.AuthUserID) != "") {
+		return nil, ErrInvalidCredentials
+	}
+
+	s.logger.Debug("login: legacy user detected, verifying password",
+		zap.String("user_id", localUser.ID),
+	)
+
+	passwordHash, err := s.userRepo.GetPasswordHash(req.Email)
+	if err != nil {
+		s.logger.Error("login: failed to get password hash for legacy user",
+			zap.Error(err),
+			zap.String("user_id", localUser.ID),
+		)
+		return nil, ErrInvalidCredentials
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+
+	if err := s.queueLegacyUserMigration(localUser.ID, req.Email, models.MigrationSourceLogin); err != nil {
+		s.logger.Error("login: failed to queue migration for legacy user",
+			zap.Error(err),
+			zap.String("user_id", localUser.ID),
+		)
+	}
+
+	s.logger.Debug("login: migration queued, proceeding to OTP verification",
+		zap.String("user_id", localUser.ID),
+	)
+
+	if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
+		s.logger.Error("login: failed to queue verification email for legacy user",
+			zap.Error(err),
+			zap.String("user_id", localUser.ID),
+		)
+		return nil, fmt.Errorf("failed to send verification code")
+	}
+
+	return &models.AuthResponse{
+		User:        localUser,
+		OTPRequired: true,
+		Message:     "A login code has been sent to your email.",
+	}, nil
+}
+
+func (s *AuthService) handleUnverifiedEmail(user *models.User) (*models.AuthResponse, error) {
+	s.logger.Debug("login: email not verified, queuing verification email",
+		zap.String("user_id", user.ID),
+	)
+
+	if err := s.queueVerificationEmail(user.ID, user.Email); err != nil {
+		s.logger.Error("login: failed to queue verification email", zap.Error(err))
+		return nil, fmt.Errorf("failed to queue verification email")
+	}
+
+	return &models.AuthResponse{
+		User:                      user,
+		EmailVerificationRequired: true,
+		Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
+	}, nil
+}
+
+func (s *AuthService) issueLoginOTP(ctx context.Context, user *models.User, email string) (*models.AuthResponse, error) {
+	otpCode, err := s.authClient.GenerateLoginOTP(ctx, email)
 	if err != nil {
 		s.logger.Error("login: failed to generate otp", zap.Error(err))
 		return nil, fmt.Errorf("failed to generate login verification code")
 	}
 
-	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
+	if err := s.emailSvc.SendLoginOTPEmail(ctx, email, otpCode); err != nil {
 		s.logger.Error("login: failed to send otp email", zap.Error(err))
 		return nil, fmt.Errorf("failed to send login verification email")
 	}
 
-	s.logger.Info("login: password verified, otp sent",
+	s.logger.Debug("login: otp sent",
 		zap.String("user_id", user.ID),
 	)
 
@@ -351,51 +334,50 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 		return fmt.Errorf("find user: %w", err)
 	}
 	if user == nil {
-		return nil
+		return nil // silently succeed — do not leak user existence
 	}
 
-	// Check if this is a legacy user (not migrated to Supabase)
 	if user.AuthUserID == nil || strings.TrimSpace(*user.AuthUserID) == "" {
-		s.logger.Info("forgot password: legacy user detected, queuing migration",
-			zap.String("user_id", user.ID),
-			zap.String("email", req.Email),
-		)
-
-		// Queue migration event - outbox worker will create Supabase user and send password reset email
-		if err := s.queueLegacyUserMigration(user.ID, req.Email, "forgot_password"); err != nil {
-			s.logger.Error("forgot password: failed to queue migration for legacy user",
-				zap.Error(err),
-				zap.String("user_id", user.ID),
-			)
-			return fmt.Errorf("failed to process password reset request")
-		}
-
-		// Migration queued successfully - user will receive password reset email from outbox worker
-		s.logger.Info("forgot password: migration queued, password reset email will be sent",
-			zap.String("user_id", user.ID),
-		)
-		return nil
+		return s.handleLegacyForgotPassword(user)
 	}
 
-	// User already migrated - proceed with normal password reset flow
-	token, err := s.authClient.GeneratePasswordResetToken(ctx, req.Email)
-	if err != nil {
-		s.logger.Error("forgot password: generate otp failed",
+	return s.issueForgotPasswordReset(ctx, req.Email)
+}
+
+func (s *AuthService) handleLegacyForgotPassword(user *models.User) error {
+	s.logger.Debug("forgot password: legacy user detected, queuing migration",
+		zap.String("user_id", user.ID),
+	)
+
+	if err := s.queueLegacyUserMigration(user.ID, user.Email, models.MigrationSourceForgotPassword); err != nil {
+		s.logger.Error("forgot password: failed to queue migration",
 			zap.Error(err),
+			zap.String("user_id", user.ID),
 		)
+		return fmt.Errorf("failed to process password reset request")
+	}
+
+	s.logger.Debug("forgot password: migration queued, reset email will follow",
+		zap.String("user_id", user.ID),
+	)
+	return nil
+}
+
+func (s *AuthService) issueForgotPasswordReset(ctx context.Context, email string) error {
+	token, err := s.authClient.GeneratePasswordResetToken(ctx, email)
+	if err != nil {
+		s.logger.Error("forgot password: failed to generate reset token", zap.Error(err))
 		if errors.Is(err, sharedauth.ErrAuthInvalidEmail) {
 			return ErrInvalidEmail
 		}
-		return nil // do not expose internal errors to caller
+		return nil
 	}
 	if token == "" {
 		return nil
 	}
 
-	if err := s.emailSvc.SendPasswordResetEmail(ctx, req.Email, token); err != nil {
-		s.logger.Error("forgot password: send email failed",
-			zap.Error(err),
-		)
+	if err := s.emailSvc.SendPasswordResetEmail(ctx, email, token); err != nil {
+		s.logger.Error("forgot password: failed to send reset email", zap.Error(err))
 		return fmt.Errorf("send password reset email: %w", err)
 	}
 
@@ -432,15 +414,9 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		return nil, fmt.Errorf("verify email token: %w", err)
 	}
 
-	user, err := s.userRepo.FindByAuthUserID(userInfo.Sub)
-	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		return nil, fmt.Errorf("find user by auth ID: %w", err)
-	}
-	if user == nil {
-		user, err = s.userRepo.FindByEmail(req.Email)
-		if err != nil {
-			return nil, ErrInvalidEmail
-		}
+	user, err := s.resolveVerifiedUser(userInfo.Sub, req.Email)
+	if err != nil {
+		return nil, err
 	}
 
 	wasAlreadyVerified := user.EmailVerified
@@ -453,25 +429,10 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	}
 	user.EmailVerified = true
 
-	s.logger.Info("verify email: email verified",
-		zap.String("user_id", user.ID),
-	)
+	s.logger.Info("verify email: email verified", zap.String("user_id", user.ID))
 
 	if !wasAlreadyVerified {
-		name := ""
-		if user.FullName != nil {
-			name = *user.FullName
-		}
-		go func() {
-			sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
-			defer cancel()
-			if err := s.emailSvc.SendWelcomeEmail(sendCtx, user.Email, name); err != nil {
-				s.logger.Error("verify email: failed to send welcome email",
-					zap.String("user_id", user.ID),
-					zap.Error(err),
-				)
-			}
-		}()
+		s.sendWelcomeEmailAsync(user)
 	}
 
 	return &models.AuthResponse{
@@ -479,6 +440,44 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		User:    user,
 		Message: "Email verified and logged in.",
 	}, nil
+}
+
+// resolveVerifiedUser looks up a user by Supabase subject (preferred) and
+// falls back to email lookup for accounts registered before auth_user_id was
+// populated.
+func (s *AuthService) resolveVerifiedUser(sub, email string) (*models.User, error) {
+	user, err := s.userRepo.FindByAuthUserID(sub)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+		return nil, fmt.Errorf("find user by auth ID: %w", err)
+	}
+	if user != nil {
+		return user, nil
+	}
+
+	user, err = s.userRepo.FindByEmail(email)
+	if err != nil {
+		return nil, ErrInvalidEmail
+	}
+	return user, nil
+}
+
+func (s *AuthService) sendWelcomeEmailAsync(user *models.User) {
+	var name string
+	if user.FullName != nil {
+		name = *user.FullName
+	}
+	userID := user.ID
+	email := user.Email
+	go func() {
+		sendCtx, cancel := context.WithTimeout(context.Background(), operationTimeout)
+		defer cancel()
+		if err := s.emailSvc.SendWelcomeEmail(sendCtx, email, name); err != nil {
+			s.logger.Error("verify email: failed to send welcome email",
+				zap.String("user_id", userID),
+				zap.Error(err),
+			)
+		}
+	}()
 }
 
 func (s *AuthService) Logout(ctx context.Context, token string) error {
@@ -592,54 +591,10 @@ func (s *AuthService) queueVerificationEmail(userID, email string) error {
 		s.outboxWorker.Trigger()
 	}
 
-	s.logger.Info("login: verification email queued via outbox",
+	s.logger.Debug("auth: verification email queued via outbox",
 		zap.String("user_id", userID),
 	)
 	return nil
-}
-
-func (s *AuthService) migrateLegacyUserToSupabase(ctx context.Context, user *models.User, password string) (string, error) {
-	// Get full name (handle nullable field)
-	fullName := ""
-	if user.FullName != nil {
-		fullName = *user.FullName
-	}
-
-	// Create user in Supabase with their existing password
-	authUserID, err := s.authClient.RegisterUser(
-		ctx,
-		user.Email,
-		password,
-		fullName,
-		user.ID,
-		user.CompanyID,
-	)
-	if err != nil {
-		// If user already exists in Supabase, try to find their ID
-		if errors.Is(err, sharedauth.ErrAuthUserAlreadyExists) {
-			s.logger.Info("legacy user migration: user exists in Supabase, fetching ID",
-				zap.String("email", user.Email),
-			)
-			authUserID, err = s.authClient.FindUserIDByEmail(ctx, user.Email)
-			if err != nil {
-				return "", fmt.Errorf("find existing Supabase user: %w", err)
-			}
-		} else {
-			return "", fmt.Errorf("register user in Supabase: %w", err)
-		}
-	}
-
-	// Update local user with auth_user_id
-	if err := s.userRepo.UpdateAuthUserID(user.ID, authUserID); err != nil {
-		return "", fmt.Errorf("update auth_user_id: %w", err)
-	}
-
-	s.logger.Info("legacy user migration: completed successfully",
-		zap.String("user_id", user.ID),
-		zap.String("auth_user_id", authUserID),
-	)
-
-	return authUserID, nil
 }
 
 func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.ResendVerificationEmailRequest) error {
@@ -673,7 +628,7 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.R
 		return err
 	}
 
-	s.logger.Info("resend verification email queued",
+	s.logger.Debug("resend verification email queued",
 		zap.String("user_id", user.ID),
 	)
 
