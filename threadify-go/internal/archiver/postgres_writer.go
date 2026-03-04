@@ -501,7 +501,7 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		"metadata": true,
 	}
 
-	const cols = 13
+	const cols = 14
 	placeholderRows := make([]string, 0, len(deduped))
 	values := make([]interface{}, 0, len(deduped)*cols)
 	for i, event := range deduped {
@@ -528,9 +528,14 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		placeholderRows = append(placeholderRows, "("+strings.Join(p, ", ")+")")
 
 		// Handle metadata (already JSON string from server)
+		metadataStr := event.Data["metadata"]
 		var metadataVal interface{} = nil
-		if metadata != "" {
-			metadataVal = metadata
+		if metadataStr != "" {
+			// Parse JSON string to ensure it's valid
+			var metadataJSON map[string]interface{}
+			if err := json.Unmarshal([]byte(metadataStr), &metadataJSON); err == nil {
+				metadataVal = metadataJSON
+			}
 		}
 
 		values = append(values,

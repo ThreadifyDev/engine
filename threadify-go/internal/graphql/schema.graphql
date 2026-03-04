@@ -40,10 +40,11 @@ type StepHistory {
   timestamp: String!
   status: String!
   context: String!
+  error: String
   duration: Int!
   startedAt: String
   finishedAt: String
-  error: String
+  metadata: String
   actor: String!
   actorService: String!
   companyId: String!

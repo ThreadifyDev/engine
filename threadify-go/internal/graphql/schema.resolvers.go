@@ -10,9 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
 	shderrors "threadify-go/shared/errors"
+	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/metrics"
@@ -295,11 +294,20 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 
 // ContractGraph is the resolver for the contractGraph field.
 func (r *queryResolver) ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error) {
+	r.logger.Info("ContractGraph resolver called",
+		zap.String("name", name),
+		zap.Any("version", version))
+
 	// Get user info from context for authentication check
-	ownerID, _, _, err := getUserInfoFromContext(ctx)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
+		r.logger.Error("Failed to get user info from context", zap.Error(err))
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
+
+	r.logger.Info("User authenticated for contract graph",
+		zap.String("company_id", companyID),
+		zap.String("contract_name", name))
 
 	// Handle null version - default to 0 (latest version)
 	ver := 0
@@ -307,12 +315,26 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 		ver = *version
 	}
 
+	r.logger.Info("Calling GetContractGraph",
+		zap.String("name", name),
+		zap.Int("version", ver),
+		zap.String("company_id", companyID))
+
 	// Use ContractValidationService to get contract graph with three-tier fallback
 	// version=0 will resolve to latest version automatically
-	graph, err := r.contractValidator.GetContractGraph(name, ver, ownerID)
+	graph, err := r.contractValidator.GetContractGraph(name, ver, companyID)
 	if err != nil {
+		r.logger.Error("GetContractGraph failed",
+			zap.String("name", name),
+			zap.Int("version", ver),
+			zap.String("company_id", companyID),
+			zap.Error(err))
 		return nil, apperrors.NewInternalError("Failed to load contract graph", err)
 	}
+
+	r.logger.Info("Contract graph loaded successfully",
+		zap.String("name", name),
+		zap.Int("version", ver))
 
 	// No additional access control needed - GetContractGraph now handles ownership validation
 	return graph, nil
@@ -428,6 +450,50 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	}
 
 	return status, nil
+}
+
+// Error is the resolver for the error field on StepHistory.
+// Extracts error message from metadata JSON when status is "failed" or "error".
+// Only reads from metadata field (SDK-controlled), not context (customer data).
+func (r *stepHistoryResolver) Error(ctx context.Context, obj *models.StepHistory) (*string, error) {
+	// Only extract error for failed/error statuses
+	if obj.Status != "failed" && obj.Status != "error" {
+		return nil, nil
+	}
+
+	// Extract from metadata field (SDK stores error here)
+	// We don't read from context as that contains customer data
+	if obj.Metadata == "" {
+		return nil, nil
+	}
+
+	var metadataData map[string]interface{}
+	if err := json.Unmarshal([]byte(obj.Metadata), &metadataData); err != nil {
+		return nil, nil
+	}
+
+	errorVal, ok := metadataData["error"]
+	if !ok {
+		return nil, nil
+	}
+
+	// Convert error value to string
+	switch v := errorVal.(type) {
+	case string:
+		return &v, nil
+	case map[string]interface{}:
+		// If error is an object, stringify it
+		errorJSON, err := json.Marshal(v)
+		if err != nil {
+			return nil, nil
+		}
+		errorStr := string(errorJSON)
+		return &errorStr, nil
+	default:
+		// For other types, convert to string
+		errorStr := fmt.Sprintf("%v", v)
+		return &errorStr, nil
+	}
 }
 
 // FirstSeenAt is the resolver for the firstSeenAt field.
@@ -851,6 +917,9 @@ func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
+// StepHistory returns generated.StepHistoryResolver implementation.
+func (r *Resolver) StepHistory() generated.StepHistoryResolver { return &stepHistoryResolver{r} }
+
 // StepStateInfo returns generated.StepStateInfoResolver implementation.
 func (r *Resolver) StepStateInfo() generated.StepStateInfoResolver { return &stepStateInfoResolver{r} }
 
@@ -875,6 +944,7 @@ type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+type stepHistoryResolver struct{ *Resolver }
 type stepStateInfoResolver struct{ *Resolver }
 type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }

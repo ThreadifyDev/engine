@@ -6,6 +6,18 @@ import { graphqlClient, type Thread } from '~/lib/graphql';
 import { api } from '~/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 import ThreadChat from '~/components/ThreadChat';
+import type { MetaFunction } from '@remix-run/node';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: 'Threads - Threadify' },
+    { name: 'description', content: 'Search and browse workflow execution threads' },
+  ];
+};
+
+export async function loader() {
+  return null;
+}
 
 type SearchMode = 'advanced' | 'chat';
 

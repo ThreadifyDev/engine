@@ -3,10 +3,10 @@ package valkey
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/threadify/engine/internal/models"
+	"go.uber.org/zap"
 )
 
 // extendAllThreadTTLs extends TTL on all thread-related keys when writing back from PostgreSQL
@@ -90,12 +90,12 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 		return 0, nil
 	}
 
-	log.Printf("[COLD] Completed steps count for thread %s not in Valkey, checking PostgreSQL", threadID)
+	r.logger.Info("Cache miss for completed steps count, querying PostgreSQL", zap.String("thread_id", threadID))
 
 	// Get completed steps from PostgreSQL
 	pgSteps, pgErr := r.postgresRepo.GetCompletedSteps(ctx, threadID)
 	if pgErr != nil {
-		log.Printf("[ERROR] Failed to get completed steps from PostgreSQL for thread %s: %v", threadID, pgErr)
+		r.logger.Error("Failed to get completed steps from PostgreSQL", zap.String("thread_id", threadID), zap.Error(pgErr))
 		return 0, pgErr
 	}
 
@@ -112,7 +112,7 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 				stepKey := step.StepName + ":unknown" // We don't have idempotency key from this query
 				score := float64(step.CompletedAt.Unix())
 				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
-					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
+					r.logger.Warn("Failed to write back step to cache", zap.Error(err))
 					return
 				}
 			}
@@ -120,14 +120,14 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 			// Set TTL
 			ttl := time.Duration(r.ttl) * time.Second
 			if err := r.valkey.Expire(writeCtx, currentStepsKey, ttl); err != nil {
-				log.Printf("[WARN] Failed to set TTL on current_steps: %v", err)
+				r.logger.Warn("Failed to set TTL on current_steps", zap.Error(err))
 			}
 
-			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", count, threadID)
+			r.logger.Info("Cached completed steps", zap.String("thread_id", threadID), zap.Int64("count", count))
 		})
 	}
 
-	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", count, threadID)
+	r.logger.Info("Retrieved completed steps from PostgreSQL", zap.String("thread_id", threadID), zap.Int64("count", count))
 	return count, nil
 }
 
@@ -151,12 +151,12 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 		return []string{}, nil
 	}
 
-	log.Printf("[COLD] Completed steps for thread %s not in Valkey, checking PostgreSQL", threadID)
+	r.logger.Info("Cache miss for completed steps, querying PostgreSQL", zap.String("thread_id", threadID))
 
 	// Get completed steps from PostgreSQL
 	pgSteps, pgErr := r.postgresRepo.GetCompletedSteps(ctx, threadID)
 	if pgErr != nil {
-		log.Printf("[ERROR] Failed to get completed steps from PostgreSQL for thread %s: %v", threadID, pgErr)
+		r.logger.Error("Failed to get completed steps from PostgreSQL", zap.String("thread_id", threadID), zap.Error(pgErr))
 		return []string{}, pgErr
 	}
 
@@ -179,7 +179,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 				stepKey := step.StepName + ":unknown"
 				score := float64(step.CompletedAt.Unix())
 				if err := r.valkey.ZAdd(writeCtx, currentStepsKey, score, stepKey); err != nil {
-					log.Printf("[WARN] Failed to write back step to Valkey: %v", err)
+					r.logger.Warn("Failed to write back step to cache", zap.Error(err))
 					return
 				}
 			}
@@ -187,15 +187,15 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 			// Set TTL
 			ttl := time.Duration(r.ttl) * time.Second
 			if err := r.valkey.Expire(writeCtx, currentStepsKey, ttl); err != nil {
-				log.Printf("[WARN] Failed to set TTL: %v", err)
+				r.logger.Warn("Failed to set TTL", zap.Error(err))
 				return
 			}
 
-			log.Printf("[WRITE-BACK] Cached %d completed steps for thread %s", len(stepNames), threadID)
+			r.logger.Info("Cached completed steps", zap.String("thread_id", threadID), zap.Int("count", len(stepNames)))
 		})
 	}
 
-	log.Printf("[COLD] Retrieved %d completed steps from PostgreSQL for thread %s", len(stepNames), threadID)
+	r.logger.Info("Retrieved completed steps from PostgreSQL", zap.String("thread_id", threadID), zap.Int("count", len(stepNames)))
 	return stepNames, nil
 }
 
@@ -245,14 +245,14 @@ func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, thread
 			// Use LastUpdatedAt timestamp for score
 			score := float64(step.LastUpdatedAt.Unix())
 			if err := r.valkey.ZAdd(ctx, currentStepsKey, score, step.StepName); err != nil {
-				log.Printf("⚠️ Failed to add step %s to sorted set: %v", step.StepName, err)
+				r.logger.Warn("Failed to add step to sorted set", zap.String("step_name", step.StepName), zap.Error(err))
 			}
 		}
 	}
 
 	// Set TTL on sorted set
 	if err := r.valkey.Expire(ctx, currentStepsKey, ttl); err != nil {
-		log.Printf("⚠️ Failed to set TTL on current_steps: %v", err)
+		r.logger.Warn("Failed to set TTL on current_steps", zap.Error(err))
 	}
 
 	return nil

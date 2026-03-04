@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
 import { api, type VerifyOTPData } from '~/lib/api';
+import Alert from '~/components/Alert';
 
 export default function VerifyOTP() {
   const navigate = useNavigate();
@@ -87,11 +88,7 @@ export default function VerifyOTP() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-black text-white px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
+          {error && <Alert type="error" message={error} />}
 
           <div>
             <label htmlFor="code" className="block text-sm font-medium text-black mb-1">

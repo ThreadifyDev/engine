@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,7 +211,7 @@ func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event 
 }
 
 func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
-	return map[string]interface{}{
+	activityValues := map[string]interface{}{
 		"type":            "step_recorded",
 		"threadId":        event.ThreadID,
 		"stepId":          fmt.Sprintf("%s:%s", event.StepName, event.IdempotencyKey),
@@ -227,8 +228,16 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 		"prevHash":        hashResult.OldHash,
 		"startedAt":       event.StartedAt,
 		"finishedAt":      event.FinishedAt,
-		"metadata":        event.Metadata,
 	}
+
+	// Add metadata if present (marshal to JSON string)
+	if event.Metadata != nil && len(event.Metadata) > 0 {
+		if metadataBytes, err := json.Marshal(event.Metadata); err == nil {
+			activityValues["metadata"] = string(metadataBytes)
+		}
+	}
+
+	return activityValues
 }
 
 func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {

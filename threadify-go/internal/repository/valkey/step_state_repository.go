@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
+	"go.uber.org/zap"
 )
 
 // parseTimestamp parses a timestamp string written by the engine.
@@ -37,25 +37,28 @@ type StepStateRepository struct {
 	scriptHashes map[string]string
 	postgresRepo *postgres.StepStateRepository // For PostgreSQL fallback
 	ttl          int                           // TTL in seconds for step keys
+	logger       *zap.Logger
 }
 
 // NewStepStateRepository creates a new step state repository
-func NewStepStateRepository(client interfaces.ValkeyClient, ttl int) interfaces.StepStateRepository {
+func NewStepStateRepository(client interfaces.ValkeyClient, ttl int, logger *zap.Logger) interfaces.StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
 		ttl:          ttl,
+		logger:       logger,
 	}
 	return repo
 }
 
 // NewStepStateRepositoryWithPostgres creates a new step state repository with PostgreSQL fallback
-func NewStepStateRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.StepStateRepository, ttl int) *StepStateRepository {
+func NewStepStateRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.StepStateRepository, ttl int, logger *zap.Logger) *StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
 		postgresRepo: postgresRepo,
 		ttl:          ttl,
+		logger:       logger,
 	}
 	return repo
 }
@@ -206,7 +209,9 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 
 	// Check if step state exists in Redis
 	if len(result) > 0 {
-		log.Printf("🎯 Cache HIT for step state %s:%s from Redis (active step)", stepName, idempotencyKey)
+		r.logger.Info("Cache hit for step state",
+			zap.String("step_name", stepName),
+			zap.String("idempotency_key", idempotencyKey))
 
 		// Parse hash fields into StepState
 		stepState := &models.StepStateInfo{
@@ -244,7 +249,9 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 		return stepState, nil
 	}
 
-	log.Printf("❌ Cache MISS for step state %s:%s - falling back to PostgreSQL (inactive step)", stepName, idempotencyKey)
+	r.logger.Info("Cache miss for step state, querying PostgreSQL",
+		zap.String("step_name", stepName),
+		zap.String("idempotency_key", idempotencyKey))
 
 	// Fallback to PostgreSQL if available (inactive/archived steps)
 	if r.postgresRepo == nil {
@@ -259,20 +266,25 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 
 	allSteps := stepsMap[threadID]
 	if allSteps == nil || len(allSteps) == 0 {
-		log.Printf("❌ No step states found in PostgreSQL: thread=%s", threadID)
+		r.logger.Debug("No step states found in PostgreSQL", zap.String("thread_id", threadID))
 		return nil, nil
 	}
 
 	// Find the requested step
 	for _, step := range allSteps {
 		if step.StepName == stepName && step.IdempotencyKey == idempotencyKey {
-			log.Printf("📥 Retrieved step state %s:%s from PostgreSQL (inactive step)", stepName, idempotencyKey)
+			r.logger.Info("Retrieved step state from PostgreSQL",
+				zap.String("step_name", stepName),
+				zap.String("idempotency_key", idempotencyKey))
 			// NO write-back - let async validator own Redis writes to prevent data conflicts
 			return step, nil
 		}
 	}
 
-	log.Printf("❌ Step state %s:%s not found in PostgreSQL for thread %s", stepName, idempotencyKey, threadID)
+	r.logger.Debug("Step state not found in PostgreSQL",
+		zap.String("step_name", stepName),
+		zap.String("idempotency_key", idempotencyKey),
+		zap.String("thread_id", threadID))
 	return nil, nil
 }
 
@@ -289,11 +301,17 @@ func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepNa
 
 	// Check if step state exists
 	if len(result) == 0 {
-		log.Printf("❌ Step state not found in Redis: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+		r.logger.Debug("Step state not found in cache",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.String("idempotency_key", idempotencyKey))
 		return nil, nil // Not found is expected for ephemeral data
 	}
 
-	log.Printf("🎯 Step state found in Redis: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+	r.logger.Debug("Step state found in cache",
+		zap.String("thread_id", threadID),
+		zap.String("step_name", stepName),
+		zap.String("idempotency_key", idempotencyKey))
 
 	// Parse hash fields into StepStateInfo
 	stepState := &models.StepStateInfo{
@@ -415,18 +433,20 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 		}
 
 		if hasData {
-			log.Printf("✅ [HOT] Found %d step states in Valkey for thread %s", len(steps), threadID)
+			r.logger.Info("Retrieved step states from cache",
+				zap.String("thread_id", threadID),
+				zap.Int("count", len(steps)))
 			return steps, nil
 		}
 	}
 
 	// Cold path: Fallback to PostgreSQL with batch query
 	if r.postgresRepo == nil {
-		log.Printf("⚠️ No steps in Valkey and no PostgreSQL fallback for thread %s", threadID)
+		r.logger.Debug("No steps in cache and no PostgreSQL fallback", zap.String("thread_id", threadID))
 		return []*models.StepStateInfo{}, nil
 	}
 
-	log.Printf("⚠️ [COLD] Steps not in Valkey for thread %s, querying PostgreSQL", threadID)
+	r.logger.Info("Cache miss for steps, querying PostgreSQL", zap.String("thread_id", threadID))
 
 	// Use batch query (single SQL query for all steps)
 	stepsMap, err := r.postgresRepo.GetStepsBatch(ctx, []string{threadID})
@@ -457,7 +477,9 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 		steps = filteredSteps
 	}
 
-	log.Printf("✅ [COLD] Retrieved %d step states from PostgreSQL for thread %s", len(steps), threadID)
+	r.logger.Info("Retrieved step states from PostgreSQL",
+		zap.String("thread_id", threadID),
+		zap.Int("count", len(steps)))
 	return steps, nil
 }
 
@@ -565,18 +587,23 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		}
 
 		if hasData {
-			log.Printf("✅ [HOT] Found %d permission-filtered step states in Valkey for thread %s, user %s", len(steps), threadID, userID)
+			r.logger.Info("Retrieved permission-filtered step states from cache",
+				zap.String("thread_id", threadID),
+				zap.String("user_id", userID),
+				zap.Int("count", len(steps)))
 			return steps, nil
 		}
 	}
 
 	// Cold path: Fallback to PostgreSQL with SQL-level permission filtering
 	if r.postgresRepo == nil {
-		log.Printf("⚠️ No steps in Valkey and no PostgreSQL fallback for thread %s", threadID)
+		r.logger.Debug("No steps in cache and no PostgreSQL fallback", zap.String("thread_id", threadID))
 		return []*models.StepStateInfo{}, nil
 	}
 
-	log.Printf("⚠️ [COLD] Steps not in Valkey for thread %s, querying PostgreSQL with permission check", threadID)
+	r.logger.Info("Cache miss for steps, querying PostgreSQL with permission check",
+		zap.String("thread_id", threadID),
+		zap.String("user_id", userID))
 
 	// Use SQL-level permission filtering
 	return r.postgresRepo.GetStepsWithPermissionCheck(ctx, threadID, userID, stepName, idempotencyKey, status)

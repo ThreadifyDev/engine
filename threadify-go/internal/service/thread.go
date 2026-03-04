@@ -391,6 +391,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		Timestamp:      finishedAtTime,
 		IdempotencyKey: req.IdempotencyKey,
 		ContentHash:    contentHash,
+		Metadata:       req.ThreadifyMetadata,
 	}
 
 	t = time.Now()

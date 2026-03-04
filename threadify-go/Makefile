@@ -19,13 +19,13 @@ generate-graphql: ## Generate GraphQL code from schema
 build: generate-graphql ## Build the server binary
 	@echo "Building server..."
 	@mkdir -p bin
-	go build -o bin/server cmd/server/main.go
+	go build -o bin/server ./cmd/server
 	@echo "✓ Binary created at bin/server"
 
 run: ## Run the server
 	@echo "Killing any process on port 8081..."
 	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
-	go build -o bin/server cmd/server/main.go
+	go build -o bin/server ./cmd/server/main.go ./cmd/server/mcp_server.go
 	./bin/server
 
 run-archiver: ## Build and run the archiver binary

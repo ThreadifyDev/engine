@@ -11,7 +11,6 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/utils"
@@ -19,7 +18,6 @@ import (
 
 type PreviewResponse struct {
 	Valid     bool     `json:"valid"`
-	Mermaid   string   `json:"mermaid,omitempty"`
 	Cytoscape string   `json:"cytoscape,omitempty"`
 	Errors    []string `json:"errors,omitempty"`
 }
@@ -33,31 +31,34 @@ func NewContractHandler(contractService *service.ContractService, logger *zap.Lo
 	return &ContractHandler{contractService: contractService, logger: logger}
 }
 
-// claimsOwnerID extracts ownerID from JWT claims stored in the gin context.
+// claimsOwnerID extracts ownerID from the gin context (set by AuthMiddleware).
 // Returns ("", false) and writes a JSON error if extraction fails.
 func claimsOwnerID(c *gin.Context) (string, bool) {
-	raw, _ := c.Get(sharedauth.CtxClaims)
-	claims, ok := raw.(jwt.MapClaims)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid claims format"})
+	ownerID, exists := c.Get(sharedauth.CtxUserID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return "", false
 	}
-	ownerID, ok := claims[sharedauth.OwnerID].(string)
+	ownerIDStr, ok := ownerID.(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid ownerId in claims"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid userID format"})
 		return "", false
 	}
-	return ownerID, true
+	return ownerIDStr, true
 }
 
-// companyIDFromRequestOrClaims resolves the company ID from the X-Company-ID
-// header, falling back to JWT claims.
-func companyIDFromRequestOrClaims(c *gin.Context, claims jwt.MapClaims) string {
+// companyIDFromRequestOrContext resolves the company ID from the X-Company-ID
+// header, falling back to the context (set by AuthMiddleware).
+func companyIDFromRequestOrContext(c *gin.Context) string {
 	if id := c.GetHeader("X-Company-ID"); id != "" {
 		return id
 	}
-	id, _ := claims[sharedauth.CtxCompanyID].(string)
-	return id
+	if companyID, exists := c.Get(sharedauth.CtxCompanyID); exists {
+		if id, ok := companyID.(string); ok {
+			return id
+		}
+	}
+	return ""
 }
 
 // recordContractMetrics records Prometheus metrics based on the service response code.
@@ -85,10 +86,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
-	raw, _ := c.Get(sharedauth.CtxClaims)
-	claims, _ := raw.(jwt.MapClaims)
-
-	companyID := companyIDFromRequestOrClaims(c, claims)
+	companyID := companyIDFromRequestOrContext(c)
 	if companyID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Company ID required"})
 		return
@@ -218,13 +216,12 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	mermaidCode := utils.ContractGraphToMermaid(contract.ContractName, graph)
 	cytoscapeJSON, err := utils.ContractGraphToCytoscapeJSON(contract.ContractName, graph)
 	if err != nil {
 		h.logger.Warn("failed to convert to Cytoscape", zap.Error(err))
-		c.JSON(http.StatusOK, PreviewResponse{Valid: true, Mermaid: mermaidCode})
+		c.JSON(http.StatusOK, PreviewResponse{Valid: true})
 		return
 	}
 
-	c.JSON(http.StatusOK, PreviewResponse{Valid: true, Mermaid: mermaidCode, Cytoscape: cytoscapeJSON})
+	c.JSON(http.StatusOK, PreviewResponse{Valid: true, Cytoscape: cytoscapeJSON})
 }

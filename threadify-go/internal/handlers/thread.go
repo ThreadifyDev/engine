@@ -168,10 +168,10 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 	msgBytes, _ := json.Marshal(msg)
 
-	if action != ActionConnect && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		allowed, err := h.luaScriptManager.CheckUserRateLimit(
+	if action != ActionConnect && session.companyID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
+		allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
 			context.Background(),
-			session.ownerID,
+			session.companyID,
 			h.rateLimitConfig.PerUser.RequestsPerMinute,
 			h.rateLimitConfig.PerUser.WindowSeconds,
 		)

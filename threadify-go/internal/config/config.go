@@ -8,6 +8,7 @@ type Config struct {
 	Postgres           PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
 	Redis              RedisConfig              `yaml:"redis" mapstructure:"redis"`
 	JWT                JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
+	Auth               AuthConfig               `yaml:"auth" mapstructure:"auth"`
 	Queue              QueueConfig              `yaml:"queue" mapstructure:"queue"`
 	ThreadActivities   ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
 	RateLimit          RateLimitConfig          `yaml:"rate_limit" mapstructure:"rate_limit"`
@@ -68,6 +69,11 @@ type JWTConfig struct {
 	Audience        string `yaml:"audience" mapstructure:"audience"`
 	Realm           string `yaml:"realm" mapstructure:"realm"`
 	ExpirationHours int    `yaml:"expiration_hours" mapstructure:"expiration_hours"`
+}
+
+// AuthConfig holds authentication service configuration
+type AuthConfig struct {
+	CacheTTLSeconds int `yaml:"cache_ttl_seconds" mapstructure:"cache_ttl_seconds"` // API key and roles cache TTL (default: 3600)
 }
 
 // QueueConfig holds queue configuration

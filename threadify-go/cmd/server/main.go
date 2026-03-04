@@ -183,7 +183,7 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 }
 
 func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
-	authSvc := service.NewAuthService()
+	authSvc := service.NewAuthService(cfg.Auth.CacheTTLSeconds)
 	if strings.TrimSpace(cfg.JWKS.URL) == "" {
 		logger.Fatal("jwks.url not configured — JWT authentication unavailable")
 	}
@@ -201,17 +201,17 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	cacheManager := service.NewCacheService(logger)
 
 	threadTTL := time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond
-	threadRepo := valkey.NewThreadRepository(d.valkey, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager)
+	threadRepo := valkey.NewThreadRepository(d.valkey, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager, logger)
 	threadRepo.SetWriteBackPool(d.workerPools.WriteBack)
 
 	contractTTL := time.Duration(cfg.Cache.ContractTTLMs) * time.Millisecond
 	stepEventTTL := time.Duration(cfg.Cache.StepEventTTLMs) * time.Millisecond
 
 	postgresStepRepo := postgres.NewStepStateRepository(d.db.Pool)
-	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(d.valkey, postgresStepRepo, int(stepEventTTL.Seconds()))
+	stepStateRepo := valkey.NewStepStateRepositoryWithPostgres(d.valkey, postgresStepRepo, int(stepEventTTL.Seconds()), logger)
 
 	postgresValidationRepo := postgres.NewValidationRepository(d.db.Pool)
-	validationRepo := valkey.NewValidationRepositoryWithPostgres(d.valkey, postgresValidationRepo)
+	validationRepo := valkey.NewValidationRepositoryWithPostgres(d.valkey, postgresValidationRepo, logger)
 
 	contractRepo := postgres.NewContractRepository(d.db.Pool)
 	refsRepo := postgres.NewThreadRefsRepository(d.db.Pool)
@@ -220,7 +220,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	notificationRepo := postgres.NewThreadNotificationRepository(d.db.Pool)
 	subStepRepo := postgres.NewSubStepRepository(d.db.Pool)
 
-	accessRepo := valkey.NewAccessRepository(d.valkey, int(threadTTL.Seconds()))
+	accessRepo := valkey.NewAccessRepository(d.valkey, int(threadTTL.Seconds()), logger)
 	accessRepo.SetRBACLoader(rbacLoader)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
 
@@ -296,17 +296,22 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
 	r.POST("/graphql",
-		middleware.DualAuthMiddleware(authSvc),
-		middleware.UserRateLimiter(luaScriptManager, &cfg.RateLimit),
+		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
+		middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit),
 		graphqlMiddleware(gqlHandler),
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
+	mcpGroup := r.Group("/mcp")
+	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
+	mcpGroup.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
+	mountMCPServer(mcpGroup, cfg, logger)
+
 	v1 := r.Group("/v1")
-	v1.Use(middleware.UserRateLimiter(luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
 
 	contracts := v1.Group("/contracts")
-	contracts.Use(middleware.ContractDualAuthMiddleware(authSvc))
+	contracts.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	{
 		contracts.GET("", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContracts)
 		contracts.POST("", middleware.ContractRBACMiddleware(rbacLoader, "contract.create"), contractHandler.CreateContract)

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
+import { Key, Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
+import Alert from '~/components/Alert';
 
 export default function APIKeys() {
   const navigate = useNavigate();
@@ -116,17 +118,13 @@ export default function APIKeys() {
 
         {/* Copy Success Notification */}
         {copySuccess && (
-          <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded shadow-lg z-50">
-            ✓ Copied to clipboard!
+          <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded shadow-lg z-50 flex items-center gap-2">
+            <Check className="w-4 h-4" /> Copied to clipboard!
           </div>
         )}
 
         {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-black text-white">
-            {error}
-          </div>
-        )}
+        {error && <Alert type="error" message={error} className="mb-6" />}
 
         {/* Create Button */}
         <div className="mb-6">
@@ -145,7 +143,11 @@ export default function APIKeys() {
           </div>
         ) : apiKeys.length === 0 ? (
           <div className="text-center py-16 border border-gray-200 rounded">
-            <div className="text-6xl mb-4">🔑</div>
+            <div className="flex justify-center mb-4">
+              <div className="rounded-full bg-gray-50 p-4">
+                <Key className="w-12 h-12 text-gray-400 stroke-[1.5]" />
+              </div>
+            </div>
             <h3 className="text-xl font-bold mb-2">No API keys yet</h3>
             <p className="text-gray-600 mb-6">
               Create your first API key to start using the Threadify API
@@ -219,7 +221,9 @@ export default function APIKeys() {
               {createdKey ? (
                 <div>
                   <div className="mb-6 p-4 border border-green-600 bg-green-50 rounded">
-                    <p className="text-green-800 font-semibold mb-2">✓ API Key Created!</p>
+                    <p className="text-green-800 font-semibold mb-2 flex items-center gap-1">
+                      <Check className="w-4 h-4" /> API Key Created!
+                    </p>
                     <p className="text-sm text-green-700 mb-4">
                       Copy this key now. You won't be able to see it again.
                     </p>

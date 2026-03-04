@@ -32,6 +32,7 @@ type ResolverRoot interface {
 	HashChainStatus() HashChainStatusResolver
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
+	StepHistory() StepHistoryResolver
 	StepStateInfo() StepStateInfoResolver
 	SubStep() SubStepResolver
 	Thread() ThreadResolver
@@ -288,6 +289,9 @@ type QueryResolver interface {
 	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
 	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
 	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
+}
+type StepHistoryResolver interface {
+	Error(ctx context.Context, obj *models.StepHistory) (*string, error)
 }
 type StepStateInfoResolver interface {
 	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
@@ -1520,11 +1524,11 @@ type StepHistory {
   timestamp: String!
   status: String!
   context: String!
+  error: String
   duration: Int!
   startedAt: String
   finishedAt: String
-  error: String # Deprecated: Use metadata instead
-  metadata: String # SDK metadata from threadify_metadata (message, etc.) - JSONB as string
+  metadata: String
   actor: String!
   actorService: String!
   companyId: String!
@@ -3870,14 +3874,14 @@ func (ec *executionContext) fieldContext_Query_stepHistory(ctx context.Context, 
 				return ec.fieldContext_StepHistory_status(ctx, field)
 			case "context":
 				return ec.fieldContext_StepHistory_context(ctx, field)
+			case "error":
+				return ec.fieldContext_StepHistory_error(ctx, field)
 			case "duration":
 				return ec.fieldContext_StepHistory_duration(ctx, field)
 			case "startedAt":
 				return ec.fieldContext_StepHistory_startedAt(ctx, field)
 			case "finishedAt":
 				return ec.fieldContext_StepHistory_finishedAt(ctx, field)
-			case "error":
-				return ec.fieldContext_StepHistory_error(ctx, field)
 			case "metadata":
 				return ec.fieldContext_StepHistory_metadata(ctx, field)
 			case "actor":
@@ -4360,6 +4364,35 @@ func (ec *executionContext) fieldContext_StepHistory_context(_ context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepHistory_error,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.StepHistory().Error(ctx, obj)
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepHistory_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepHistory",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _StepHistory_duration(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4435,35 +4468,6 @@ func (ec *executionContext) _StepHistory_finishedAt(ctx context.Context, field g
 }
 
 func (ec *executionContext) fieldContext_StepHistory_finishedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "StepHistory",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		ec.fieldContext_StepHistory_error,
-		func(ctx context.Context) (any, error) {
-			return obj.Error, nil
-		},
-		nil,
-		ec.marshalOString2string,
-		true,
-		false,
-	)
-}
-
-func (ec *executionContext) fieldContext_StepHistory_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StepHistory",
 		Field:      field,
@@ -5350,14 +5354,14 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 				return ec.fieldContext_StepHistory_status(ctx, field)
 			case "context":
 				return ec.fieldContext_StepHistory_context(ctx, field)
+			case "error":
+				return ec.fieldContext_StepHistory_error(ctx, field)
 			case "duration":
 				return ec.fieldContext_StepHistory_duration(ctx, field)
 			case "startedAt":
 				return ec.fieldContext_StepHistory_startedAt(ctx, field)
 			case "finishedAt":
 				return ec.fieldContext_StepHistory_finishedAt(ctx, field)
-			case "error":
-				return ec.fieldContext_StepHistory_error(ctx, field)
 			case "metadata":
 				return ec.fieldContext_StepHistory_metadata(ctx, field)
 			case "actor":
@@ -10220,55 +10224,86 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 		case "attempt":
 			out.Values[i] = ec._StepHistory_attempt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "timestamp":
 			out.Values[i] = ec._StepHistory_timestamp(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "status":
 			out.Values[i] = ec._StepHistory_status(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "context":
 			out.Values[i] = ec._StepHistory_context(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "error":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._StepHistory_error(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "duration":
 			out.Values[i] = ec._StepHistory_duration(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "startedAt":
 			out.Values[i] = ec._StepHistory_startedAt(ctx, field, obj)
 		case "finishedAt":
 			out.Values[i] = ec._StepHistory_finishedAt(ctx, field, obj)
-		case "error":
-			out.Values[i] = ec._StepHistory_error(ctx, field, obj)
 		case "metadata":
 			out.Values[i] = ec._StepHistory_metadata(ctx, field, obj)
 		case "actor":
 			out.Values[i] = ec._StepHistory_actor(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "actorService":
 			out.Values[i] = ec._StepHistory_actorService(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "companyId":
 			out.Values[i] = ec._StepHistory_companyId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "companyName":
 			out.Values[i] = ec._StepHistory_companyName(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "hash":
 			out.Values[i] = ec._StepHistory_hash(ctx, field, obj)

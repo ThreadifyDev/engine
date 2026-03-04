@@ -8,12 +8,12 @@ import (
 )
 
 func TestNewAuthService(t *testing.T) {
-	svc := service.NewAuthService("test-secret", "test-issuer", "test-audience", 24)
+	svc := service.NewAuthService(3600) // 1 hour cache TTL
 	assert.NotNil(t, svc)
 }
 
 func TestAuthService_VerifyToken_InvalidCases(t *testing.T) {
-	svc := service.NewAuthService("test-secret", "test-issuer", "test-audience", 24)
+	svc := service.NewAuthService(3600) // 1 hour cache TTL
 
 	result, err := svc.ValidateApiKey("api-key-123")
 	assert.Error(t, err)

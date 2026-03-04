@@ -35,7 +35,7 @@ export default function Alert({ type, message, details, className = '' }: AlertP
     <div className={`flex flex-col gap-3 px-4 py-3 rounded-lg ${styles.container} ${className}`}>
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 mt-0.5">{styles.icon}</div>
-        <div className="flex-1 text-sm font-medium">{message}</div>
+        <div className="flex-1 text-sm capitalize font-medium">{message}</div>
       </div>
       {details && details.length > 0 && (
         <ul className="ml-8 space-y-1 text-sm">

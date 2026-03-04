@@ -25,6 +25,7 @@ type TokenClaims struct {
 	Email         string
 	EmailVerified bool
 	Roles         []string
+	ExpiresAt     time.Time
 }
 
 type JWKSVerifier struct {
@@ -243,6 +244,18 @@ func extractClaims(c jwt.MapClaims) *TokenClaims {
 		Sub:           claimStr(c, "sub"),
 		Email:         claimStr(c, "email"),
 		EmailVerified: claimBool(c, "email_verified"),
+	}
+
+	// Parse exp claim into a concrete time.Time
+	if exp, ok := c["exp"]; ok {
+		switch v := exp.(type) {
+		case float64:
+			tc.ExpiresAt = time.Unix(int64(v), 0)
+		case json.Number:
+			if i, err := v.Int64(); err == nil {
+				tc.ExpiresAt = time.Unix(i, 0)
+			}
+		}
 	}
 
 	if meta := firstMeta(c); meta != nil {

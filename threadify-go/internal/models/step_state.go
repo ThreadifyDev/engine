@@ -52,7 +52,6 @@ type StepHistory struct {
 	Duration     int    `json:"duration"`
 	StartedAt    string `json:"startedAt,omitempty"`  // When step execution started
 	FinishedAt   string `json:"finishedAt,omitempty"` // When step execution finished
-	Error        string `json:"error,omitempty"`      // Deprecated: Use Metadata instead
 	Metadata     string `json:"metadata,omitempty"`   // SDK metadata from threadify_metadata (JSONB as string)
 	Actor        string `json:"actor"`                // User/owner who triggered this step
 	ActorService string `json:"actorService"`         // Service that executed this step

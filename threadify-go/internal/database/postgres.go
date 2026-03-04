@@ -221,11 +221,15 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		status TEXT,
 		started_at TIMESTAMP,
 		finished_at TIMESTAMP,
+		metadata JSONB,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
 	-- Migration: Add content_hash column if it doesn't exist (for existing databases)
 	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS content_hash TEXT;
+	
+	-- Migration: Add metadata column if it doesn't exist (for SDK metadata from threadify_metadata)
+	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS metadata JSONB;
 
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);
@@ -236,6 +240,11 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_prev_hash ON thread_activities(prev_hash);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_content_hash ON thread_activities(content_hash) WHERE content_hash IS NOT NULL;
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_status ON thread_activities(status);
+	
+	-- GIN index for metadata JSONB column (for efficient querying of SDK metadata)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_metadata_gin 
+		ON thread_activities USING gin(metadata) 
+		WHERE metadata IS NOT NULL;
 	
 	-- Composite indexes for actor-based thread queries (critical for GraphQL performance)
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_actor_thread 

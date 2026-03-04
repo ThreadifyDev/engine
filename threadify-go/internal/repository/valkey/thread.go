@@ -3,7 +3,6 @@ package valkey
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"github.com/threadify/engine/internal/workerpool"
+	"go.uber.org/zap"
 )
 
 // ThreadRepository handles thread storage in Valkey (Redis)
@@ -22,17 +22,19 @@ type ThreadRepository struct {
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
 	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
 	writeBackPool     *workerpool.Pool              // For async cache write-backs
+	logger            *zap.Logger
 }
 
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
 // PostgreSQL fallback is always required for production hot/cold architecture
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager) *ThreadRepository {
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) *ThreadRepository {
 	return &ThreadRepository{
 		valkey:            valkey,
 		ttl:               ttl,
 		postgresRepo:      postgresRepo,
 		stepStatePostgres: stepStatePostgres,
 		cacheManager:      cacheManager,
+		logger:            logger,
 	}
 }
 
@@ -84,7 +86,7 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 // Get retrieves a thread from Valkey (hot) or PostgreSQL (cold) with optional write-back
 // writeBack: if true, caches PostgreSQL data back to Valkey (defaults to false)
 func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
-	log.Printf("🔍 [REPO-DEBUG] Get called for thread: %s", threadID)
+	r.logger.Debug("Get thread called", zap.String("thread_id", threadID))
 
 	// Default writeBack to false
 	shouldWriteBack := false
@@ -93,23 +95,20 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack .
 	}
 
 	// Try Valkey first (hot data)
-	log.Printf("🔄 [REPO-DEBUG] Trying Valkey first...")
 	thread, err := r.getFromValkey(ctx, threadID)
-	log.Printf("📊 [REPO-DEBUG] getFromValkey result: thread=%v, err=%v", thread != nil, err)
 
 	if err == nil && thread != nil {
-		log.Printf("✅ [HOT] Thread %s from Valkey", threadID)
+		r.logger.Info("Thread retrieved from cache", zap.String("thread_id", threadID), zap.String("source", "valkey"))
 		return thread, nil
 	}
 
 	// Fallback to PostgreSQL (cold data)
-	log.Printf("🔄 [REPO-DEBUG] Checking if postgresRepo is nil: %v", r.postgresRepo == nil)
 	if r.postgresRepo == nil {
-		log.Printf("❌ [REPO-DEBUG] postgresRepo is nil, cannot fallback!")
+		r.logger.Error("PostgreSQL repository not configured, cannot fallback", zap.String("thread_id", threadID))
 		return nil, fmt.Errorf("thread not found: %s", threadID)
 	}
 
-	log.Printf("⚠️ [COLD] Thread %s not in Valkey, checking PostgreSQL", threadID)
+	r.logger.Info("Cache miss, querying PostgreSQL", zap.String("thread_id", threadID))
 
 	// REUSE: GetWithRefs already exists from GraphQL implementation
 	thread, err = r.postgresRepo.GetWithRefs(ctx, threadID)
@@ -117,7 +116,7 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack .
 		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
 	}
 
-	log.Printf(" [COLD] Thread %s from PostgreSQL", threadID)
+	r.logger.Info("Thread retrieved from PostgreSQL", zap.String("thread_id", threadID))
 
 	// Async write-back via worker pool using Save() for format consistency
 	// Don't block the read operation - write-back happens in background
@@ -127,11 +126,11 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack .
 			writeBackCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 
-			log.Printf(" [WRITE-BACK] Async caching thread %s to Valkey", threadID)
+			r.logger.Debug("Starting async cache write-back", zap.String("thread_id", threadID))
 			if err := r.Save(writeBackCtx, thread); err != nil {
-				log.Printf(" Async write-back failed for thread %s: %v", threadID, err)
+				r.logger.Warn("Async write-back failed", zap.String("thread_id", threadID), zap.Error(err))
 			} else {
-				log.Printf(" [WRITE-BACK] Thread %s cached successfully", threadID)
+				r.logger.Info("Thread cached successfully", zap.String("thread_id", threadID))
 			}
 		})
 	}
@@ -190,12 +189,6 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 	}
 
 	return thread, nil
-}
-
-// GetThreadWithCache is deprecated - use Get(ctx, threadID, false) instead
-// Kept for backward compatibility with GraphQL resolvers
-func (r *ThreadRepository) GetThreadWithCache(ctx context.Context, threadID string) (*models.Thread, error) {
-	return r.Get(ctx, threadID, false)
 }
 
 // Delete removes a thread from Valkey

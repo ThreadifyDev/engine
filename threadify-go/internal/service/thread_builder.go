@@ -111,11 +111,11 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	// accessRepo: raw Valkey access (no PostgreSQL fallback), used for direct thread ops.
 	// accessRepoWithPostgres: Valkey + PostgreSQL fallback, used for permission resolution.
-	accessRepo := valkey.NewAccessRepository(b.valkeyService, accessTTLSeconds)
+	accessRepo := valkey.NewAccessRepository(b.valkeyService, accessTTLSeconds, b.logger)
 	postgresAccessRepo := postgres.NewAccessRepository(b.db.Pool)
-	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(b.valkeyService, postgresAccessRepo, accessTTLSeconds)
+	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(b.valkeyService, postgresAccessRepo, accessTTLSeconds, b.logger)
 
-	stepStateRepo := valkey.NewStepStateRepository(b.valkeyService, stepStateTTLSeconds)
+	stepStateRepo := valkey.NewStepStateRepository(b.valkeyService, stepStateTTLSeconds, b.logger)
 	activityRepo := valkey.NewActivityRepository(b.valkeyService, b.natsArchivalPublisher, b.logger)
 
 	// --- Lua scripts ---

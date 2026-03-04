@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
+import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
@@ -402,7 +403,7 @@ export default function ServiceAccounts() {
                               {grouped.notifications.map((perm) => (
                                 <div key={perm.id} className="flex items-start gap-2">
                                   <div className="w-4 h-4 flex items-center justify-center bg-gray-100 rounded-sm mt-0.5">
-                                    <span className="text-xs text-gray-700">✓</span>
+                                    <Check className="w-3 h-3 text-gray-700" />
                                   </div>
                                   <div>
                                     <p className="font-medium text-sm text-gray-900">{perm.name}</p>
@@ -427,7 +428,7 @@ export default function ServiceAccounts() {
                               {grouped.ui.map((perm) => (
                                 <div key={perm.id} className="flex items-start gap-2">
                                   <div className="w-4 h-4 flex items-center justify-center bg-gray-100 rounded-sm mt-0.5">
-                                    <span className="text-xs text-gray-700">✓</span>
+                                    <Check className="w-3 h-3 text-gray-700" />
                                   </div>
                                   <div>
                                     <p className="font-medium text-sm text-gray-900">{perm.name}</p>
@@ -452,7 +453,7 @@ export default function ServiceAccounts() {
                               {grouped.api.map((perm) => (
                                 <div key={perm.id} className="flex items-start gap-2">
                                   <div className="w-4 h-4 flex items-center justify-center bg-gray-100 rounded-sm mt-0.5">
-                                    <span className="text-xs text-gray-700">✓</span>
+                                    <Check className="w-3 h-3 text-gray-700" />
                                   </div>
                                   <div>
                                     <p className="font-medium text-sm text-gray-900">{perm.name}</p>
@@ -477,7 +478,7 @@ export default function ServiceAccounts() {
                               {grouped.sdk.map((perm) => (
                                 <div key={perm.id} className="flex items-start gap-2">
                                   <div className="w-4 h-4 flex items-center justify-center bg-gray-100 rounded-sm mt-0.5">
-                                    <span className="text-xs text-gray-700">✓</span>
+                                    <Check className="w-3 h-3 text-gray-700" />
                                   </div>
                                   <div>
                                     <p className="font-medium text-sm text-gray-900">{perm.name}</p>
