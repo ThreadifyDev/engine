@@ -417,7 +417,7 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 	tempPassword := generateSecurePassword()
 
 	// Get full name
-	fullName := ""
+	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}

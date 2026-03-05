@@ -207,18 +207,12 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 			localUser, dbErr := s.userRepo.FindByEmail(req.Email)
 			if dbErr == nil && localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
 				// Legacy user found - verify password and queue migration
-				s.logger.Info("login: legacy user detected, verifying password",
-					zap.String("user_id", localUser.ID),
-					zap.String("email", req.Email),
-				)
+				s.logger.Info("login: legacy user detected, verifying password")
 
 				// Get stored password hash
 				passwordHash, err := s.userRepo.GetPasswordHash(req.Email)
 				if err != nil {
-					s.logger.Error("login: failed to get password hash for legacy user",
-						zap.Error(err),
-						zap.String("user_id", localUser.ID),
-					)
+					s.logger.Error("login: failed to get password hash for legacy user", zap.Error(err))
 					return nil, ErrInvalidCredentials
 				}
 
