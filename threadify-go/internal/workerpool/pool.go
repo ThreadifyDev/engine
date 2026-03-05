@@ -415,8 +415,6 @@ func (p *Pool) IsHealthy() bool {
 	return len(p.jobs) < (p.config.QueueSize * 80 / 100)
 }
 
-// Shutdown gracefully stops the pool, waiting for in-flight jobs to complete.
-// The context can be used to set a deadline for shutdown.
 func (p *Pool) Shutdown(ctx context.Context) error {
 	if p.stopped.Swap(true) {
 		return nil // Already stopped
@@ -425,7 +423,22 @@ func (p *Pool) Shutdown(ctx context.Context) error {
 	// Stop scaler
 	close(p.scalerQuit)
 
-	// Signal workers to stop
+	drainTicker := time.NewTicker(10 * time.Millisecond)
+	defer drainTicker.Stop()
+
+	for {
+		if len(p.jobs) == 0 && p.activeWorkers.Load() == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			close(p.quit)
+			return ctx.Err()
+		case <-drainTicker.C:
+		}
+	}
+
+	// Signal workers to exit once drained.
 	close(p.quit)
 
 	// Wait for workers to finish with timeout

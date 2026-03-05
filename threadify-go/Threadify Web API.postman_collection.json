@@ -1,0 +1,334 @@
+{
+  "info": {
+    "name": "Threadify Web API",
+    "_postman_id": "b2c7b9f1-4c3c-4c1a-9b45-0a5d9d3f8e12",
+    "description": "Web API endpoints for Threadify (Auth0-backed auth).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "access_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "GET /metrics",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/metrics", "host": ["{{baseUrl}}"], "path": ["metrics"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth (Public)",
+      "item": [
+        {
+          "name": "POST /api/auth/signup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"company_name\": \"Test Co\",\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Passw0rd!123456\",\n  \"full_name\": \"Test User\",\n  \"job_role\": \"Developer\",\n  \"industry\": \"software\",\n  \"company_size\": \"1-10\",\n  \"use_case\": \"testing\"\n}\n"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/signup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "signup"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/auth/login (stores access_token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login returns token', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('token');",
+                  "  pm.collectionVariables.set('access_token', json.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Passw0rd!123456\"\n}\n"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/auth/forgot-password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"testuser@example.com\"\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "forgot-password"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles (Public)",
+      "item": [
+        {
+          "name": "GET /api/roles",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/roles", "host": ["{{baseUrl}}"], "path": ["api", "roles"] }
+          }
+        },
+        {
+          "name": "GET /api/roles/:level",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/standard_account",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "standard_account"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User (Protected)",
+      "item": [
+        {
+          "name": "POST /api/user/profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"job_role\": \"Engineer\"\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/user/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user", "profile"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/user/mark-instrumentation-done",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/user/mark-instrumentation-done",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user", "mark-instrumentation-done"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Keys (Protected)",
+      "item": [
+        {
+          "name": "POST /api/api-keys",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My API Key\"\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "GET /api/api-keys",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/api-keys/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/api-keys/{{apiKeyId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "api-keys", "{{apiKeyId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service Accounts (Protected)",
+      "item": [
+        {
+          "name": "POST /api/service-accounts",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Bot\",\n  \"description\": \"Automation account\"\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts"]
+            }
+          }
+        },
+        {
+          "name": "GET /api/service-accounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts"]
+            }
+          }
+        },
+        {
+          "name": "GET /api/service-accounts/:id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/service-accounts/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Bot Updated\",\n  \"description\": \"Updated\"\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /api/service-accounts/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET /api/service-accounts/scopes/:scope/permissions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/service-accounts/scopes/{{scope}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "service-accounts", "scopes", "{{scope}}", "permissions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contracts Proxy (Protected)",
+      "item": [
+        {
+          "name": "GET /api/contracts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/contracts", "host": ["{{baseUrl}}"], "path": ["api", "contracts"] }
+          }
+        },
+        {
+          "name": "POST /api/contracts/preview",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"contract\": {}\n}\n" },
+            "url": {
+              "raw": "{{baseUrl}}/api/contracts/preview",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contracts", "preview"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "GraphQL Proxy (Protected)",
+      "item": [
+        {
+          "name": "POST /api/graphql",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"query { __typename }\",\n  \"variables\": {}\n}\n"
+            },
+            "url": { "raw": "{{baseUrl}}/api/graphql", "host": ["{{baseUrl}}"], "path": ["api", "graphql"] }
+          }
+        }
+      ]
+    }
+  ]
+}

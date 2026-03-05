@@ -12,18 +12,24 @@ func NewUserRoleRepository(db *sql.DB) *UserRoleRepository {
 	return &UserRoleRepository{db: db}
 }
 
-// AssignRoleToUser assigns a role to a user
 func (r *UserRoleRepository) AssignRoleToUser(userID, roleName, assignedBy string) error {
+	return r.AssignRoleToUserTx(r.db, userID, roleName, assignedBy)
+}
+
+type roleExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func (r *UserRoleRepository) AssignRoleToUserTx(execer roleExecer, userID, roleName, assignedBy string) error {
 	query := `
 		INSERT INTO user_roles (principal_id, principal_type, role_name, assigned_by)
 		VALUES ($1, 'user', $2, $3)
 		ON CONFLICT (principal_id, role_name) DO NOTHING
 	`
-	_, err := r.db.Exec(query, userID, roleName, assignedBy)
+	_, err := execer.Exec(query, userID, roleName, assignedBy)
 	return err
 }
 
-// GetUserRoles returns all role names for a user
 func (r *UserRoleRepository) GetUserRoles(userID string) ([]string, error) {
 	query := `
 		SELECT role_name 
@@ -48,7 +54,6 @@ func (r *UserRoleRepository) GetUserRoles(userID string) ([]string, error) {
 	return roles, rows.Err()
 }
 
-// RemoveRoleFromUser removes a role from a user
 func (r *UserRoleRepository) RemoveRoleFromUser(userID, roleName string) error {
 	query := `
 		DELETE FROM user_roles 
@@ -58,7 +63,6 @@ func (r *UserRoleRepository) RemoveRoleFromUser(userID, roleName string) error {
 	return err
 }
 
-// AssignRoleToServiceAccount assigns a role to a service account
 func (r *UserRoleRepository) AssignRoleToServiceAccount(serviceAccountID, roleName, assignedBy string) error {
 	query := `
 		INSERT INTO user_roles (principal_id, principal_type, role_name, assigned_by)
@@ -69,7 +73,6 @@ func (r *UserRoleRepository) AssignRoleToServiceAccount(serviceAccountID, roleNa
 	return err
 }
 
-// GetServiceAccountRoles returns all role names for a service account
 func (r *UserRoleRepository) GetServiceAccountRoles(serviceAccountID string) ([]string, error) {
 	query := `
 		SELECT role_name 

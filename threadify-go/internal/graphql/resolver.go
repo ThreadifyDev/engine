@@ -5,12 +5,8 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
+	"go.uber.org/zap"
 )
-
-// This file will not be regenerated automatically.
-//
-// It serves as dependency injection for your app, add any dependencies you require
-// here.
 
 type Resolver struct {
 	threadRepo          *valkey.ThreadRepository
@@ -26,9 +22,25 @@ type Resolver struct {
 	actorRepo           *postgres.ActorRepository              // For resolving actor names
 	notificationRepo    *postgres.ThreadNotificationRepository // For querying thread notifications
 	subStepRepo         *postgres.SubStepRepository            // For querying sub-steps
+	logger              *zap.Logger                            // Structured logger
 }
 
-func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.StepStateRepository, validationRepo *valkey.ValidationRepository, accessRepo *valkey.AccessRepository, threadAccessService *service.ThreadAccessService, contractValidator interfaces.ContractValidator, contractRepo *postgres.ContractRepository, refsRepo *postgres.ThreadRefsRepository, stepStatePostgres *postgres.StepStateRepository, activityRepo *postgres.ActivityRepository, actorRepo *postgres.ActorRepository, notificationRepo *postgres.ThreadNotificationRepository, subStepRepo *postgres.SubStepRepository) *Resolver {
+func NewResolver(
+	threadRepo *valkey.ThreadRepository,
+	stepStateRepo *valkey.StepStateRepository,
+	validationRepo *valkey.ValidationRepository,
+	accessRepo *valkey.AccessRepository,
+	threadAccessService *service.ThreadAccessService,
+	contractValidator interfaces.ContractValidator,
+	contractRepo *postgres.ContractRepository,
+	refsRepo *postgres.ThreadRefsRepository,
+	stepStatePostgres *postgres.StepStateRepository,
+	activityRepo *postgres.ActivityRepository,
+	actorRepo *postgres.ActorRepository,
+	notificationRepo *postgres.ThreadNotificationRepository,
+	subStepRepo *postgres.SubStepRepository,
+	logger *zap.Logger,
+) *Resolver {
 	return &Resolver{
 		threadRepo:          threadRepo,
 		stepStateRepo:       stepStateRepo,
@@ -43,5 +55,6 @@ func NewResolver(threadRepo *valkey.ThreadRepository, stepStateRepo *valkey.Step
 		actorRepo:           actorRepo,
 		notificationRepo:    notificationRepo,
 		subStepRepo:         subStepRepo,
+		logger:              logger,
 	}
 }

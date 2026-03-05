@@ -23,7 +23,7 @@ export interface StepHistory {
   duration: number;
   startedAt?: string;
   finishedAt?: string;
-  error?: string;
+  metadata?: string;
   actor: string;
   actorService: string;
   companyId: string;
@@ -80,7 +80,7 @@ export interface SubStep {
   stepId: string;
   name: string;
   status: string;
-  payload?: Record<string, any>;
+  payload?: string;
   recordedAt: string;
   createdAt: string;
 }
@@ -93,6 +93,8 @@ export interface StepStateInfo {
   retryCount: number;
   firstSeenAt: string;
   lastUpdatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
   latestStepID: string;
   previousStep?: string;
   actor?: string;
@@ -274,6 +276,8 @@ class GraphQLClient {
             retryCount
             firstSeenAt
             lastUpdatedAt
+            startedAt
+            finishedAt
             latestStepID
             previousStep
             actor
@@ -281,6 +285,9 @@ class GraphQLClient {
             latestContext
             hash
             prevHash
+            history(limit: 1) {
+              metadata
+            }
             subSteps {
               id
               threadId
@@ -405,7 +412,7 @@ class GraphQLClient {
           duration
           startedAt
           finishedAt
-          error
+          metadata
           actor
           actorService
           companyId
@@ -534,7 +541,7 @@ class GraphQLClient {
   }
 
   async getThreadsByRef(options: {
-    refKey: string;
+    refKey?: string; // Optional - if omitted, searches across all ref keys
     refValue: string;
     status?: string;
     limit?: number;
@@ -544,7 +551,7 @@ class GraphQLClient {
   }): Promise<{ threads: Thread[]; totalCount: number }> {
     const query = `
       query GetThreadsByRef(
-        $refKey: String!
+        $refKey: String
         $refValue: String!
         $status: String
         $limit: Int
@@ -617,10 +624,10 @@ class GraphQLClient {
             terminalSteps
           }
           transitions {
-            From
-            To
-            CanRetry
-            MaxRetries
+            from
+            to
+            canRetry
+            maxRetries
           }
           parties
         }
@@ -634,14 +641,18 @@ class GraphQLClient {
 
     const response = await this.request<{ contractGraph: any }>(query, variables);
     
-    // Convert nodes array back to map for our component
+    // Nodes might come as array or object depending on GraphQL schema
+    // If array, convert to map. If already object, leave as is.
     const contractGraph = response.contractGraph;
-    if (contractGraph?.graph?.nodes && Array.isArray(contractGraph.graph.nodes)) {
-      const nodesMap: Record<string, any> = {};
-      contractGraph.graph.nodes.forEach((node: any) => {
-        nodesMap[node.id] = node;
-      });
-      contractGraph.graph.nodes = nodesMap;
+    if (contractGraph?.graph?.nodes) {
+      if (Array.isArray(contractGraph.graph.nodes)) {
+        const nodesMap: Record<string, any> = {};
+        contractGraph.graph.nodes.forEach((node: any) => {
+          nodesMap[node.id] = node;
+        });
+        contractGraph.graph.nodes = nodesMap;
+      }
+      // If it's already an object/map, no conversion needed
     }
     
     return contractGraph;

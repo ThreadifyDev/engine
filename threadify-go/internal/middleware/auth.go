@@ -3,119 +3,116 @@ package middleware
 import (
 	"net/http"
 	"strings"
-	"threadify-go/shared/jwt"
+
+	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/service"
 )
 
-func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
+// AuthMode controls which credential types are accepted by AuthMiddleware.
+type AuthMode int
+
+const (
+	// AuthAPIKey accepts X-API-Key only.
+	AuthAPIKey AuthMode = 1 << iota
+	// AuthJWT accepts Bearer JWT only.
+	AuthJWT
+
+	// AuthDual accepts either X-API-Key or Bearer JWT (most common).
+	AuthDual = AuthAPIKey | AuthJWT
+)
+
+// AuthMiddleware is the single, unified authentication middleware for the Engine.
+//
+// Usage:
+//
+//	middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey)   // API key only (MCP)
+//	middleware.AuthMiddleware(authSvc, middleware.AuthJWT)      // JWT only
+//	middleware.AuthMiddleware(authSvc, middleware.AuthDual)     // either (GraphQL, contracts)
+func AuthMiddleware(authService *service.AuthService, mode AuthMode) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Bearer token required"})
-			c.Abort()
-			return
-		}
-
-		claims, err := authService.VerifyToken(tokenString)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-
-		c.Set("userID", claims["sub"])
-		c.Set("claims", claims)
-		c.Next()
-	}
-}
-
-// GraphQLAuthMiddleware validates API key for GraphQL requests
-func GraphQLAuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		apiKey := c.GetHeader("X-API-Key")
-		if apiKey == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "X-API-Key header required"})
-			c.Abort()
-			return
-		}
-
-		userInfo, err := authService.ValidateApiKey(apiKey)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
-			c.Abort()
-			return
-		}
-
-		// Store user info in Gin context
-		c.Set("ownerID", userInfo.OwnerID)
-		c.Set("companyID", userInfo.CompanyID)
-		c.Set("role", userInfo.Role)
-		c.Next()
-	}
-}
-
-// DualAuthMiddleware validates either API key (X-API-Key) or JWT Bearer token for GraphQL requests
-// Priority: API Key is checked first, then JWT if API Key is not present
-func DualAuthMiddleware(authService *service.AuthService, jwtValidator *jwt.Validator) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Try API Key authentication first
-		apiKey := c.GetHeader("X-API-Key")
-		if apiKey != "" {
-			userInfo, err := authService.ValidateApiKey(apiKey)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
-				c.Abort()
+		// ── API Key path ──────────────────────────────────────────────────────
+		if mode&AuthAPIKey != 0 {
+			if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
+				userInfo, err := authService.ValidateApiKey(apiKey)
+				if err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
+					c.Abort()
+					return
+				}
+				setAPIKeyContext(c, userInfo)
+				c.Next()
 				return
 			}
-
-			// Store user info in Gin context (from API key)
-			c.Set("ownerID", userInfo.OwnerID)
-			c.Set("companyID", userInfo.CompanyID)
-			c.Set("role", userInfo.Role)
-			c.Next()
-			return
 		}
 
-		// Try JWT authentication if no API Key
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Either X-API-Key or Authorization header required"})
-			c.Abort()
-			return
+		// ── JWT path ──────────────────────────────────────────────────────────
+		if mode&AuthJWT != 0 {
+			authHeader := c.GetHeader("Authorization")
+			if authHeader != "" {
+				token, err := sharedauth.ExtractBearerToken(authHeader)
+				if err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+					c.Abort()
+					return
+				}
+
+				claims, err := authService.VerifyToken(c.Request.Context(), token)
+				if err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+					c.Abort()
+					return
+				}
+
+				// Resolve application-level roles from database, capped to JWT lifetime
+				if dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user", claims.ExpiresAt); err == nil && len(dbRoles) > 0 {
+					claims.Roles = dbRoles
+				}
+
+				sharedauth.SetGinContextFromClaims(c, claims)
+				c.Next()
+				return
+			}
 		}
 
-		// Extract token from "Bearer <token>"
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format. Expected: Bearer <token>"})
-			c.Abort()
-			return
-		}
-
-		token := parts[1]
-
-		// Validate JWT token
-		claims, err := jwtValidator.ValidateToken(token)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired JWT token"})
-			c.Abort()
-			return
-		}
-
-		// Store user info in Gin context (from JWT)
-		// Map JWT claims to the same context keys used by API Key auth
-		c.Set("ownerID", claims.UserID)
-		c.Set("companyID", claims.CompanyID)
-		c.Set("role", strings.Join(claims.Roles, ",")) // Convert roles array to comma-separated string
-		c.Next()
+		// ── Nothing matched — build a clear error message ─────────────────────
+		c.JSON(http.StatusUnauthorized, gin.H{"error": unauthorizedMessage(mode)})
+		c.Abort()
 	}
+}
+
+func unauthorizedMessage(mode AuthMode) string {
+	switch mode {
+	case AuthAPIKey:
+		return "X-API-Key header required"
+	case AuthJWT:
+		return "Authorization header required"
+	default:
+		return "Either X-API-Key or Authorization header required"
+	}
+}
+
+// setAPIKeyContext populates the Gin context with identity fields from a
+// validated API key, matching the same keys used by the JWT path.
+func setAPIKeyContext(c *gin.Context, userInfo *service.UserInfo) {
+	roles := []string{}
+	if userInfo.Role != "" {
+		roles = []string{userInfo.Role}
+	}
+
+	c.Set(sharedauth.CtxUserID, userInfo.OwnerID)
+	c.Set(sharedauth.CtxCompanyID, userInfo.CompanyID)
+	c.Set(sharedauth.CtxRoles, roles)
+}
+
+func normalizeStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

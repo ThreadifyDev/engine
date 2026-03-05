@@ -32,18 +32,19 @@ type StartThreadResponse struct {
 }
 
 type RecordEventRequest struct {
-	Action         string            `json:"action"`
-	ThreadID       string            `json:"threadId"`
-	StepName       string            `json:"stepName"`
-	Type           string            `json:"type"`
-	StartedAt      string            `json:"startedAt"`
-	FinishedAt     string            `json:"finishedAt"`
-	Context        map[string]string `json:"context"`
-	Refs           map[string]string `json:"refs,omitempty"`
-	Status         string            `json:"status"`
-	ServiceName    string            `json:"serviceName,omitempty"`
-	IdempotencyKey string            `json:"idempotencyKey,omitempty"`
-	SubSteps       []SubStepRequest  `json:"subSteps,omitempty"`
+	Action            string                 `json:"action"`
+	ThreadID          string                 `json:"threadId"`
+	StepName          string                 `json:"stepName"`
+	Type              string                 `json:"type"`
+	StartedAt         string                 `json:"startedAt"`
+	FinishedAt        string                 `json:"finishedAt"`
+	Context           map[string]string      `json:"context"`
+	Refs              map[string]string      `json:"refs,omitempty"`
+	Status            string                 `json:"status"`
+	ServiceName       string                 `json:"serviceName,omitempty"`
+	IdempotencyKey    string                 `json:"idempotencyKey,omitempty"`
+	ThreadifyMetadata map[string]interface{} `json:"threadify_metadata,omitempty"` // SDK metadata from .success(), .failed(), .error() calls
+	SubSteps          []SubStepRequest       `json:"subSteps,omitempty"`
 }
 
 type RecordEventResponse struct {

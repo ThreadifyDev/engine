@@ -167,20 +167,6 @@ export default function Contracts() {
             <form onSubmit={handleUpload} className="p-6">
               <div className="mb-6">
                 <label className="block text-sm font-medium mb-2">
-                  Contract Name <span className="text-red-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={uploadForm.name}
-                  onChange={(e) => setUploadForm({ ...uploadForm, name: e.target.value })}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
-                  placeholder="e.g., order_fulfillment"
-                />
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">
                   YAML Contract <span className="text-red-600">*</span>
                 </label>
                 <YamlEditor

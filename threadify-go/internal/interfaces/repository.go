@@ -130,6 +130,8 @@ type StepStateSnapshot struct {
 	RetryCount     int    `json:"retry_count"`
 	FirstSeenAt    string `json:"first_seen_at"`
 	LastUpdatedAt  string `json:"last_updated_at"`
+	StartedAt      string `json:"started_at,omitempty"`  // When step execution started
+	FinishedAt     string `json:"finished_at,omitempty"` // When step execution finished
 	PreviousStep   string `json:"previous_step,omitempty"`
 	Actor          string `json:"actor,omitempty"`          // User who recorded this step
 	ActorService   string `json:"actor_service,omitempty"`  // Service that recorded this step
@@ -164,5 +166,5 @@ type ContractGraphRepository interface {
 // LuaScriptManager defines the interface for Lua script management
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
-	CheckUserRateLimit(ctx context.Context, userID string, requestsPerMinute int, windowSeconds int) (bool, error)
+	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
 }

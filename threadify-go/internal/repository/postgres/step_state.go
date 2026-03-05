@@ -45,6 +45,8 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			retry_count,
 			first_seen_at,
 			last_updated_at,
+			started_at,
+			finished_at,
 			previous_step,
 			actor,
 			actor_service,
@@ -63,7 +65,7 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 	stepsMap := make(map[string][]*models.StepStateInfo)
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor, actorService, latestContext sql.NullString
+		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -74,6 +76,8 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 			&step.RetryCount,
 			&step.FirstSeenAt,
 			&step.LastUpdatedAt,
+			&startedAt,
+			&finishedAt,
 			&previousStep,
 			&actor,
 			&actorService,
@@ -94,6 +98,12 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 		}
 		if latestContext.Valid {
 			step.LatestContext = latestContext.String
+		}
+		if startedAt.Valid {
+			step.StartedAt = &startedAt.String
+		}
+		if finishedAt.Valid {
+			step.FinishedAt = &finishedAt.String
 		}
 
 		stepsMap[step.ThreadID] = append(stepsMap[step.ThreadID], step)
@@ -129,6 +139,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			s.retry_count,
 			s.first_seen_at,
 			s.last_updated_at,
+			s.started_at,
+			s.finished_at,
 			s.previous_step,
 			s.actor,
 			s.actor_service,
@@ -172,7 +184,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	var steps []*models.StepStateInfo
 	for rows.Next() {
 		step := &models.StepStateInfo{}
-		var previousStep, actor, actorService, latestContext sql.NullString
+		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
 			&step.LatestStepID,
@@ -183,6 +195,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			&step.RetryCount,
 			&step.FirstSeenAt,
 			&step.LastUpdatedAt,
+			&startedAt,
+			&finishedAt,
 			&previousStep,
 			&actor,
 			&actorService,
@@ -203,6 +217,12 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		}
 		if latestContext.Valid {
 			step.LatestContext = latestContext.String
+		}
+		if startedAt.Valid {
+			step.StartedAt = &startedAt.String
+		}
+		if finishedAt.Valid {
+			step.FinishedAt = &finishedAt.String
 		}
 
 		steps = append(steps, step)
@@ -297,6 +317,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			ta_activity.actor_service,
 			ta_activity.started_at,
 			ta_activity.finished_at,
+			ta_activity.metadata,
 			t.company_id,
 			c.name as company_name,
 			ROW_NUMBER() OVER (ORDER BY ta_activity.recorded_at ASC) as attempt_number
@@ -326,11 +347,12 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		var actorServiceVal sql.NullString
 		var startedAtVal sql.NullTime
 		var finishedAtVal sql.NullTime
+		var metadataVal sql.NullString
 		var companyIdVal sql.NullString
 		var companyNameVal sql.NullString
 		var attemptNumber int
 
-		err := rows.Scan(&payload, &status, &recordedAt, &actorVal, &actorServiceVal, &startedAtVal, &finishedAtVal, &companyIdVal, &companyNameVal, &attemptNumber)
+		err := rows.Scan(&payload, &status, &recordedAt, &actorVal, &actorServiceVal, &startedAtVal, &finishedAtVal, &metadataVal, &companyIdVal, &companyNameVal, &attemptNumber)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan step history: %w", err)
 		}
@@ -338,7 +360,6 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		// Parse payload JSON to extract context, duration, and status
 		var contextStr string
 		var duration int
-		var errorMsg string
 		var statusFromPayload string
 
 		if payload.Valid {
@@ -357,13 +378,6 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 				if statusVal, exists := payloadData["status"]; exists {
 					if statusStr, ok := statusVal.(string); ok {
 						statusFromPayload = statusStr
-					}
-				}
-				if statusFromPayload == "failed" || statusFromPayload == "error" {
-					if err, exists := payloadData["error"]; exists {
-						if errStr, ok := err.(string); ok {
-							errorMsg = errStr
-						}
 					}
 				}
 			}
@@ -397,22 +411,28 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 		// Format timestamps
 		startedAtStr := ""
 		if startedAtVal.Valid {
-			startedAtStr = startedAtVal.Time.Format(time.RFC3339)
+			startedAtStr = startedAtVal.Time.Format(time.RFC3339Nano)
 		}
 		finishedAtStr := ""
 		if finishedAtVal.Valid {
-			finishedAtStr = finishedAtVal.Time.Format(time.RFC3339)
+			finishedAtStr = finishedAtVal.Time.Format(time.RFC3339Nano)
+		}
+
+		// Extract metadata
+		metadataStr := ""
+		if metadataVal.Valid {
+			metadataStr = metadataVal.String
 		}
 
 		stepHistory := models.StepHistory{
 			Attempt:      attemptNumber,
-			Timestamp:    recordedAt.Format(time.RFC3339),
+			Timestamp:    recordedAt.Format(time.RFC3339Nano),
 			Status:       statusValue,
 			Context:      contextStr,
 			Duration:     duration,
 			StartedAt:    startedAtStr,
 			FinishedAt:   finishedAtStr,
-			Error:        errorMsg,
+			Metadata:     metadataStr,
 			Actor:        actorStr,
 			ActorService: actorServiceStr,
 			CompanyId:    companyIdStr,

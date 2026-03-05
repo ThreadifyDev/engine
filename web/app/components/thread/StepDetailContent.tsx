@@ -16,8 +16,43 @@ import {
   AlertTriangle,
   Info,
   User,
+  Layers,
 } from 'lucide-react';
 import { graphqlClient, type StepStateInfo, type ValidationResultInfo } from '~/lib/graphql';
+
+// Calculate duration between two timestamps
+function calculateDuration(startTime?: string, endTime?: string): string | null {
+  if (!startTime || !endTime) return null;
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  const durationMs = end - start;
+  
+  if (durationMs < 0) return null;
+  if (durationMs === 0) return '< 1ms';
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60000) return `${(durationMs / 1000).toFixed(2)}s`;
+  if (durationMs < 3600000) return `${(durationMs / 60000).toFixed(2)}m`;
+  return `${(durationMs / 3600000).toFixed(2)}h`;
+}
+
+// Format a timestamp string in a human-readable format with milliseconds.
+// Accepts ISO 8601 with or without sub-second component.
+function formatTimestampMs(iso: string): string {
+  const d = new Date(iso);
+  const ms = d.getMilliseconds().toString().padStart(3, '0');
+  // Format: "Feb 20, 2026 at 5:48:09.732 PM"
+  const baseFormat = d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+  // Insert milliseconds before AM/PM
+  return baseFormat.replace(/(\d{2})\s+(AM|PM)/, `$1.${ms} $2`);
+}
 
 // Actor Section Component - Resolves actor ID to name
 function ActorSection({ actorId, actorService }: { actorId: string; actorService?: string }) {
@@ -66,7 +101,8 @@ export function StepDetailContent({
   onToggleContext,
   validations,
   onShowHistory,
-  onShowViolations
+  onShowViolations,
+  onShowSubState,
 }: { 
   step: StepStateInfo; 
   threadId: string; 
@@ -75,10 +111,12 @@ export function StepDetailContent({
   validations: ValidationResultInfo[];
   onShowHistory: (step: StepStateInfo) => void;
   onShowViolations?: (step: StepStateInfo) => void;
+  onShowSubState?: (subSteps: any[], stepName: string, stepStartedAt?: string) => void;
 }) {
   const [showValidations, setShowValidations] = useState(false);
   const [validationFilter, setValidationFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showErrorMessage, setShowErrorMessage] = useState(true);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -144,10 +182,16 @@ export function StepDetailContent({
           <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
             step.status === 'success' ? 'bg-green-100 text-green-800' :
             step.status === 'failed' ? 'bg-red-100 text-red-800' :
+            step.status === 'violated' ? 'bg-orange-100 text-orange-800' :
             step.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
             'bg-gray-100 text-gray-800'
           }`}>
             {step.status}
+          </span>
+
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-800`}>
+            <Clock className="w-3 h-3" />
+            {calculateDuration(step.startedAt, step.finishedAt)}
           </span>
           
           {/* Retry Count */}
@@ -160,6 +204,85 @@ export function StepDetailContent({
         </div>
       </div>
 
+      {/* Error/Success Message Display */}
+      {step.history && step.history.length > 0 && step.history[0].metadata && (
+        <div className={`rounded-lg border ${
+          step.status === 'failed' ? 'bg-red-50/50 border-red-200' : 
+          step.status === 'success' ? 'bg-green-50/50 border-green-200' : 
+          'bg-yellow-50/50 border-yellow-200'
+        }`}>
+          <button
+            onClick={() => setShowErrorMessage(!showErrorMessage)}
+            className="w-full p-4 text-left transition-colors hover:bg-black/5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {step.status === 'failed' ? (
+                  <XCircle className="w-4 h-4 text-red-600" />
+                ) : step.status === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                ) : (
+                  <Clock className="w-4 h-4 text-yellow-600" />
+                )}
+                <h5 className={`text-sm font-semibold ${
+                  step.status === 'failed' ? 'text-red-900' : 
+                  step.status === 'success' ? 'text-green-900' : 
+                  'text-yellow-900'
+                }`}>
+                  {step.status === 'failed' ? 'Error Message' : 
+                   step.status === 'success' ? 'Success Message' : 'Message'}
+                </h5>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${
+                showErrorMessage ? 'rotate-90' : ''
+              }`} />
+            </div>
+          </button>
+          
+          {showErrorMessage && (
+            <div className="px-4 pb-4">
+              <div className={`text-sm leading-relaxed ${
+                step.status === 'failed' ? 'text-red-800' : 
+                step.status === 'success' ? 'text-green-800' : 
+                'text-yellow-800'
+              }`}>
+                {(() => {
+                  const messageData = step.history[0].metadata;
+                  if (!messageData) return null;
+                  try {
+                    const parsed = JSON.parse(messageData);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                      if (parsed.message) {
+                        return (
+                          <div className="space-y-2">
+                            <p>{parsed.message}</p>
+                            {Object.keys(parsed).length > 1 && (
+                              <pre className="text-xs bg-white/50 p-2 rounded border border-current/20 overflow-x-auto font-mono mt-2">
+                                {JSON.stringify(parsed, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <pre className="text-xs bg-white/50 p-2 rounded border border-current/20 overflow-x-auto font-mono">
+                            {JSON.stringify(parsed, null, 2)}
+                          </pre>
+                        );
+                      }
+                    } else {
+                      return <p>{String(parsed)}</p>;
+                    }
+                  } catch {
+                    return <p>{messageData}</p>;
+                  }
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Timestamps */}
       <div className="space-y-3">
         <h5 className="font-bold text-gray-900 flex items-center gap-2">
@@ -171,14 +294,14 @@ export function StepDetailContent({
             <span className="text-gray-600">First Seen:</span>
             <div className="text-right">
               <div className="font-medium">{formatDistanceToNow(new Date(step.firstSeenAt), { addSuffix: true })}</div>
-              <div className="text-xs text-gray-500">{new Date(step.firstSeenAt).toLocaleString()}</div>
+              <div className="text-xs text-gray-500">{formatTimestampMs(step.firstSeenAt)}</div>
             </div>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Last Updated:</span>
             <div className="text-right">
               <div className="font-medium">{formatDistanceToNow(new Date(step.lastUpdatedAt), { addSuffix: true })}</div>
-              <div className="text-xs text-gray-500">{new Date(step.lastUpdatedAt).toLocaleString()}</div>
+              <div className="text-xs text-gray-500">{formatTimestampMs(step.lastUpdatedAt)}</div>
             </div>
           </div>
         </div>
@@ -250,11 +373,12 @@ export function StepDetailContent({
         </div>
       )}
 
-      {/* Context Data Toggle - Stripe style */}
-      <div className="border-t border-gray-200 pt-6">
+      {/* Action Buttons Section */}
+      <div className="border-t border-gray-200 pt-6 space-y-0">
+        {/* Show Context Data */}
         <button
           onClick={onToggleContext}
-          className="w-full text-left transition-colors group hover:bg-gray-50"
+          className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -270,7 +394,7 @@ export function StepDetailContent({
         </button>
 
         {showContext && step.latestContext && (
-          <div className="mt-3 space-y-3">
+          <div className="py-3 space-y-3">
             <div className="border border-gray-200 rounded-md p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-gray-600">Latest Context</span>
@@ -311,45 +435,70 @@ export function StepDetailContent({
         )}
 
         {showContext && !step.latestContext && (
-          <div className="mt-3 text-sm text-gray-500 italic">
+          <div className="py-3 text-sm text-gray-500 italic">
             No context data available
           </div>
         )}
-      </div>
 
-      {/* View History - Separate section */}
-      <div className="border-t border-gray-200 pt-6 space-y-2">
-        <button
-          onClick={() => onShowHistory(step)}
-          className="w-full text-left transition-colors group hover:bg-gray-50 rounded-lg"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-grey-900">
-                View Step History
-              </span>
-            </div>
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          </div>
-        </button>
-
-        {/* View Violation History - Only show for violated steps */}
-        {step.status === 'violated' && onShowViolations && (
+        {/* View Step History */}
+        <div className="border-t border-gray-200">
           <button
-            onClick={() => onShowViolations(step)}
-            className="w-full px-3 py-3 text-left transition-colors group hover:bg-gray-50 rounded-lg"
+            onClick={() => onShowHistory(step)}
+            className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-orange-600" />
+                <Clock className="w-4 h-4 text-gray-600" />
                 <span className="text-sm font-medium text-grey-900">
-                  View Violation History
+                  View Step History
                 </span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </div>
           </button>
+        </div>
+
+        {/* View Sub State */}
+        {step.subSteps && step.subSteps.length > 0 && onShowSubState && (
+          <div className="border-t border-gray-200">
+            <button
+              onClick={() => onShowSubState(step.subSteps!, step.stepName, step.startedAt)}
+              className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-gray-600" />
+                  <span className="text-sm font-medium text-grey-900">
+                    View Sub State
+                    {step.subSteps.length > 1 && (
+                      <span className="ml-1.5 text-xs text-gray-400">({step.subSteps.length})</span>
+                    )}
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </div>
+            </button>
+          </div>
+        )}
+
+        {/* View Violation History */}
+        {step.status === 'violated' && onShowViolations && (
+          <div className="border-t border-gray-200">
+            <button
+              onClick={() => onShowViolations(step)}
+              className="w-full py-3 text-left transition-colors group hover:bg-gray-50"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-orange-600" />
+                  <span className="text-sm font-medium text-grey-900">
+                    View Violation History
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </div>
+            </button>
+          </div>
         )}
       </div>
 

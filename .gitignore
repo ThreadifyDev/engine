@@ -38,12 +38,9 @@ gradle/wrapper/gradle-wrapper.jar
 .kotlin/
 threadify-go/baseline-5000-users-heap.pprof
 **.pprof
-threadify-go/archiver
-threadify-go/server
 threadify-go/go.mod
 threadify-go/go.sum
 start
-threadify-go/main
 test-app/node_modules/
 test-app/package-lock.json
 node_modules/
@@ -52,3 +49,8 @@ web/.gitt/**
 web/web/.gitt/**
 # web/**
 .env
+
+# Submodules (tracked via .gitmodules)
+threadify-sdk-go/
+threadify-sdk/
+threadify-sdk-python/

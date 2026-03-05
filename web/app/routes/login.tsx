@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from '@remix-run/react';
-import { api, type LoginData } from '~/lib/api';
+import { api, type LoginData, ValidationError } from '~/lib/api';
+import Alert, { type AlertType } from '~/components/Alert';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -8,20 +9,37 @@ export default function Login() {
     email: '',
     password: '',
   });
-  const [error, setError] = useState('');
+  const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setAlert(null);
     setLoading(true);
 
     try {
-      await api.login(formData);
-      // Navigate to OTP verification with email
-      navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}`);
+      const response = await api.login(formData);
+
+      if (response.email_verification_required) {
+        // User hasn't verified email — send them through the verification flow
+        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=signup`);
+      } else {
+        // Normal login — send them through the OTP flow
+        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=login`);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      if (err instanceof ValidationError) {
+        setAlert({
+          type: 'error',
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setAlert({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Login failed',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -47,11 +65,7 @@ export default function Login() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-black text-white px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
+          {alert && <Alert type={alert.type} message={alert.message} details={alert.details} />}
 
           <div className="space-y-4">
             {/* Email */}
@@ -66,7 +80,7 @@ export default function Login() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
                 placeholder="you@company.com"
               />
             </div>
@@ -88,7 +102,7 @@ export default function Login() {
                 required
                 value={formData.password}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
                 placeholder="Enter your password"
               />
             </div>

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"threadify-go/api/internal/service"
 	"threadify-go/shared/rbac"
@@ -33,7 +34,11 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(companyID, userID, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrServiceAccountNameRequired) || errors.Is(err, service.ErrInvalidRoleAPI) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
@@ -49,7 +54,7 @@ func (h *ServiceAccountHandler) ListServiceAccounts(c *gin.Context) {
 
 	serviceAccounts, err := h.serviceAccountService.ListServiceAccounts(companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
@@ -65,7 +70,11 @@ func (h *ServiceAccountHandler) GetServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.GetServiceAccount(id, companyID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrServiceAccountNotFound) || errors.Is(err, service.ErrUnauthorized) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
@@ -87,7 +96,11 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.UpdateServiceAccount(id, companyID, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrServiceAccountNotFound) || errors.Is(err, service.ErrUnauthorized) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
@@ -103,7 +116,11 @@ func (h *ServiceAccountHandler) DeleteServiceAccount(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := h.serviceAccountService.DeleteServiceAccount(id, companyID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrServiceAccountNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 

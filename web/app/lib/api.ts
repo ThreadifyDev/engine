@@ -11,6 +11,16 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export class ValidationError extends Error {
+  details?: Array<{ field: string; message: string }>;
+
+  constructor(message: string, details?: Array<{ field: string; message: string }>) {
+    super(message);
+    this.name = 'ValidationError';
+    this.details = details;
+  }
+}
+
 export interface SignupData {
   company_name: string;
   email: string;
@@ -29,7 +39,7 @@ export interface LoginData {
 
 export interface VerifyOTPData {
   email: string;
-  code: string;
+  token: string;
 }
 
 export interface ForgotPasswordData {
@@ -58,6 +68,13 @@ export interface User {
 export interface AuthResponse {
   token: string;
   user: User;
+  message?: string;
+}
+
+export interface LoginResponse {
+  user?: User;
+  otp_required?: boolean;
+  email_verification_required?: boolean;
   message?: string;
 }
 
@@ -121,16 +138,23 @@ class ApiClient {
 
     if (!response.ok) {
       const errorMessage = data.error || data.message || 'An error occurred';
-      
-      // Handle invalid token by logging out
-      if (errorMessage === 'Invalid token' || response.status === 401) {
+
+      // Handle invalid token by logging out (only for authenticated requests)
+      // Don't redirect on login failures (which also return 401)
+      const hasAuthHeader = headers['Authorization'];
+      if ((errorMessage === 'Invalid token' || response.status === 401) && hasAuthHeader) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('user');
           window.location.href = '/login';
         }
       }
-      
+
+      // If we have validation details, throw ValidationError
+      if (data.details && Array.isArray(data.details)) {
+        throw new ValidationError(errorMessage, data.details);
+      }
+
       throw new Error(errorMessage);
     }
 
@@ -144,8 +168,8 @@ class ApiClient {
     });
   }
 
-  async login(data: LoginData): Promise<{ message: string }> {
-    return this.request('/auth/login', {
+  async login(data: LoginData): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -180,10 +204,23 @@ class ApiClient {
     });
   }
 
-  logout() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('user');
+  async resendVerificationEmail(data: { email: string }): Promise<{ message: string }> {
+    return this.request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore backend errors — we still clear local state
+    } finally {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+      }
     }
   }
 
@@ -358,8 +395,8 @@ class ApiClient {
   }
 
   // API Key Management
-  async createAPIKey(data: { 
-    name: string; 
+  async createAPIKey(data: {
+    name: string;
     expires_in?: number;
     create_service_account?: boolean;
     service_account_role?: string;
@@ -394,10 +431,27 @@ class ApiClient {
     return this.delete(`/api-keys/${keyId}`);
   }
 
-  async getCodeSamples(codeType: string = 'basic_instrumentation'): Promise<{
-    code_type: string;
-    samples: Record<string, string>;
-  }> {
+  async chatAsk(message: string, conversationId?: string): Promise<{ answer: string }> {
+    return this.post('/chat/ask', { message, conversation_id: conversationId });
+  }
+
+  async getChatConversations(): Promise<{ conversations: any[] }> {
+    return this.request('/chat/conversations');
+  }
+
+  async getChatMessageHistory(conversationId: string) {
+    return this.request<{ messages: any[] }>(`/chat/conversations/${conversationId}`);
+  }
+
+  async deleteChatConversation(conversationId: string) {
+    return this.delete<{ message: string }>(`/chat/conversations/${conversationId}`);
+  }
+
+  async continueConversation(conversationId: string): Promise<{ conversation_id: string; title: string; parent_id: string }> {
+    return this.post(`/chat/conversations/${conversationId}/continue`, {});
+  }
+
+  async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
     return this.request(`/code-samples?codeType=${codeType}`);
   }
 }
