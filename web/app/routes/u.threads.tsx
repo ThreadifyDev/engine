@@ -52,7 +52,7 @@ export default function ThreadsPage() {
   const [searchMode, setSearchMode] = useState<SearchMode>('advanced');
   const [filters, setFilters] = useState<SearchFilters>({
     searchQuery: '',
-    refs: [],
+    refs: [{ key: '', value: '' }],
     timeRange: 'all',
   });
   
@@ -603,6 +603,57 @@ function AdvancedSearchFilters({
               </div>
             </div>
           )}
+
+          {/* Ref Key/Value Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <Hash className="inline w-4 h-4 mr-1" />
+              Filter by Reference
+            </label>
+            <div className="space-y-2">
+              {filters.refs.map((ref, index) => (
+                <div key={index} className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ref key (e.g., customer)"
+                    value={ref.key}
+                    onChange={(e) => updateRefFilter(index, 'key', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Ref value (e.g., customer@example.com)"
+                    value={ref.value}
+                    onChange={(e) => updateRefFilter(index, 'value', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  />
+                  {filters.refs.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRefFilter(index)}
+                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Remove reference"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  {index === filters.refs.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={addRefFilter}
+                      className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Add another reference"
+                    >
+                      <PlusCircle className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Search threads by external reference (e.g., Stripe payment ID, customer email)
+            </p>
+          </div>
 
           {/* Status Filter */}
           <div>

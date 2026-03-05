@@ -32,23 +32,63 @@ export default function Index() {
       <Nav />
 
       {/* Hero Section */}
-      <section className="bg-white text-black min-h-screen flex items-center">
-        <div className="max-w-7xl mx-auto px-6 py-20 w-full">
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
-            {/* Left: Hero Content */}
-            <div>
-              <div className="text-sm font-semibold tracking-wider mb-8">
-                Realtime Execution Graph
-              </div>
-              
-              <h1 className="text-6xl font-bold mb-8 leading-tight">
-                Every customer request tells a story.
+      <section className="relative bg-white text-black py-12 lg:py-16 overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-[0.03]">
+          <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="hexagons" x="0" y="0" width="100" height="87" patternUnits="userSpaceOnUse">
+                <path d="M50 0L93.3 25L93.3 62L50 87L6.7 62L6.7 25Z" fill="none" stroke="currentColor" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#hexagons)" />
+          </svg>
+        </div>
+        
+        {/* Thread/Node Icons */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-10 w-16 h-16 opacity-5">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3" fill="white" />
+            </svg>
+          </div>
+          <div className="absolute top-40 right-20 w-12 h-12 opacity-5">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3" fill="white" />
+            </svg>
+          </div>
+          <div className="absolute bottom-32 left-1/4 w-10 h-10 opacity-5">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3" fill="white" />
+            </svg>
+          </div>
+          <div className="absolute top-1/2 right-1/3 w-14 h-14 opacity-5">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="8" />
+              <circle cx="12" cy="12" r="3" fill="white" />
+            </svg>
+          </div>
+          {/* Connection lines */}
+          <svg className="absolute inset-0 w-full h-full opacity-5" xmlns="http://www.w3.org/2000/svg">
+            <line x1="10%" y1="20%" x2="80%" y2="40%" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" />
+            <line x1="25%" y1="60%" x2="70%" y2="50%" stroke="currentColor" strokeWidth="1" strokeDasharray="4 4" />
+          </svg>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-6 relative z-10">
+          <div className="grid lg:grid-cols-5 gap-8 items-center">
+            <div className="lg:col-span-2">
+              <h1 className="text-4xl lg:text-5xl font-bold mb-6 leading-tight">
+                Threadify is the layer
                 <br />
-                Turn it into intelligence.
+                your stack is missing.
               </h1>
 
-              <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Threadify captures how customer requests execute across your systems—as live execution graphs with complete business context. See what's happening, validate it's correct, and react with intelligence.
+              <p className="text-base lg:text-lg text-gray-600 mb-6 leading-relaxed">
+                Real-time execution graph infrastructure that tracks what your business process actually did — across every service, every team, every boundary.
               </p>
 
               <div className="flex gap-4">
@@ -59,124 +99,519 @@ export default function Index() {
                   View Docs
                 </a>
               </div>
-
-              <p className="text-xs text-gray-500 mt-8">
-                Real-time • Cryptographically verified
-              </p>
             </div>
 
-            {/* Right: Live Thread Demo */}
-            <div className="flex justify-center lg:justify-end">
-              <LiveThreadDemo />
+            {/* Video Placeholder - Now takes 3 columns */}
+            <div className="lg:col-span-3">
+              <div className="w-full">
+                <div className="relative aspect-video bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 rounded-2xl shadow-2xl overflow-hidden border border-gray-200">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-28 h-28 mx-auto mb-6 rounded-full bg-black/10 backdrop-blur-sm flex items-center justify-center hover:bg-black/20 transition cursor-pointer group">
+                        <svg className="w-12 h-12 text-gray-700 group-hover:scale-110 transition" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                        </svg>
+                      </div>
+                      <p className="text-gray-700 font-semibold text-xl">Watch Demo</p>
+                      <p className="text-sm text-gray-500 mt-2">See Threadify in action</p>
+                    </div>
+                  </div>
+                  {/* Decorative elements */}
+                  <div className="absolute top-8 right-8 w-40 h-40 bg-purple-300/30 rounded-full blur-3xl"></div>
+                  <div className="absolute bottom-8 left-8 w-48 h-48 bg-blue-300/30 rounded-full blur-3xl"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works Section - Scribe Style */}
-      <section className="bg-gradient-to-br from-purple-50 via-blue-50 to-white py-24 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-black mb-4">
-              Here's how Threadify works
-            </h2>
-            <p className="text-lg text-gray-600">
-              Hint: It's incredibly easy!
-            </p>
-          </div>
+      {/* See it for yourself tagline */}
+      <section className="bg-gray-50 py-12 px-6">
+        <div className="max-w-7xl mx-auto text-center">
+          <h2 className="text-2xl lg:text-3xl font-bold text-black">
+            See it for yourself
+          </h2>
+        </div>
+      </section>
 
-          <div className="grid lg:grid-cols-2 gap-16 items-start">
-            {/* Left: Steps */}
-            <div className="space-y-12">
-              {/* Step 1 */}
-              <div className="flex gap-6 items-start group cursor-pointer">
-                <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center relative">
-                    <div className="absolute inset-0 rounded-full bg-black animate-pulse opacity-75"></div>
-                    <div className="relative w-3 h-3 rounded-full bg-white"></div>
+      {/* Chapter 1 - The Blind Spot */}
+      <section className="relative bg-white py-24 px-6 overflow-hidden">
+        {/* Thread/Web Pattern Background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Web nodes */}
+          <div className="absolute top-10 left-20 w-3 h-3 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute top-32 left-40 w-2 h-2 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute top-20 right-32 w-3 h-3 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute top-48 right-20 w-2 h-2 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute bottom-40 left-32 w-3 h-3 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute bottom-20 right-40 w-2 h-2 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute top-1/2 left-1/4 w-2 h-2 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          <div className="absolute top-1/3 right-1/3 w-3 h-3 bg-gray-900 rounded-full opacity-[0.04]"></div>
+          
+          {/* Web connecting lines */}
+          <svg className="absolute inset-0 w-full h-full opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
+            <line x1="10%" y1="8%" x2="20%" y2="25%" stroke="currentColor" strokeWidth="1" />
+            <line x1="20%" y1="25%" x2="25%" y2="50%" stroke="currentColor" strokeWidth="1" />
+            <line x1="10%" y1="8%" x2="80%" y2="15%" stroke="currentColor" strokeWidth="1" />
+            <line x1="80%" y1="15%" x2="85%" y2="35%" stroke="currentColor" strokeWidth="1" />
+            <line x1="25%" y1="50%" x2="50%" y2="50%" stroke="currentColor" strokeWidth="1" />
+            <line x1="50%" y1="50%" x2="70%" y2="40%" stroke="currentColor" strokeWidth="1" />
+            <line x1="70%" y1="40%" x2="85%" y2="35%" stroke="currentColor" strokeWidth="1" />
+            <line x1="25%" y1="50%" x2="15%" y2="75%" stroke="currentColor" strokeWidth="1" />
+            <line x1="15%" y1="75%" x2="80%" y2="85%" stroke="currentColor" strokeWidth="1" />
+            <line x1="80%" y1="85%" x2="85%" y2="35%" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
+          </svg>
+        </div>
+        
+        <div className="max-w-7xl mx-auto relative z-10">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Terminal visualization */}
+            <div className="flex justify-center">
+              <div className="bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden font-mono text-sm w-full max-w-lg">
+                <div className="bg-gray-100 px-4 py-2 flex gap-2 items-center">
+                  <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                  <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                </div>
+                <div className="p-6 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <span className="text-green-600 flex-shrink-0">✓</span>
+                    <span className="text-gray-700 flex-1">authorize_payment($24/.50)</span>
+                    <span className="text-gray-500 text-xs flex-shrink-0">payment-svc · 142ms</span>
                   </div>
-                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-black mb-2">
-                    Step 1: Capture execution
-                  </h3>
-                  <p className="text-gray-600 leading-relaxed">
-                    Install our SDK and instrument your services. Every customer request becomes a live execution graph with complete business context.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 2 */}
-              <div className="flex gap-6 items-start group cursor-pointer">
-                <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-green-600 flex-shrink-0">✓</span>
+                    <span className="text-gray-700 flex-1">fraud_check()</span>
+                    <span className="text-gray-500 text-xs flex-shrink-0">risk-svc · 89ms</span>
                   </div>
-                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-black mb-2">
-                    Step 2: Validate business logic
-                  </h3>
-                  <p className="text-gray-600 leading-relaxed">
-                    Define contracts that ensure workflows follow the right process. Get notified when execution violates what should happen.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 3 */}
-              <div className="flex gap-6 items-start group cursor-pointer">
-                <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0">−</span>
+                    <span className="text-gray-400 flex-1">fulfill_order()</span>
+                    <span className="text-gray-400 text-xs flex-shrink-0">never recorded</span>
                   </div>
-                  <div className="absolute top-10 left-5 w-0.5 h-24 bg-gray-200"></div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-black mb-2">
-                    Step 3: Query and analyze
-                  </h3>
-                  <p className="text-gray-600 leading-relaxed">
-                    Ask questions about execution in natural language. Surface insights like "which request types are most expensive" or "where are workflows getting stuck"—without writing queries.
-                  </p>
-                </div>
-              </div>
-
-              {/* Step 4 */}
-              <div className="flex gap-6 items-start group cursor-pointer">
-                <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-                    <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400 flex-shrink-0">−</span>
+                    <span className="text-gray-400 flex-1">notify_customer()</span>
+                    <span className="text-gray-400 text-xs flex-shrink-0">never recorded</span>
                   </div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-semibold text-black mb-2">
-                    Step 4: React in real-time
-                  </h3>
-                  <p className="text-gray-600 leading-relaxed">
-                    Get notified when execution changes—violations, completions, state transitions. Your systems query the full thread before acting, turning blind automation into intelligent decisions.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Video Placeholder */}
-            <div className="sticky top-24">
-              <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-200">
-                <div className="h-[600px] bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/10 flex items-center justify-center">
-                      <svg className="w-10 h-10 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                      </svg>
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-start gap-2">
+                      <span className="text-yellow-600 flex-shrink-0">⚠</span>
+                      <span className="text-yellow-600 flex-1 text-xs">process went silent after step 2 · thread:order-8821</span>
                     </div>
-                    <p className="text-gray-500 font-medium">Video Placeholder</p>
-                    <p className="text-sm text-gray-400 mt-1">Step 1: Capture execution</p>
                   </div>
                 </div>
               </div>
             </div>
+
+            {/* Right: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 01 · THE BLIND SPOT
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                It returned 200.
+                <br />
+                The order never arrived.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  The payment API responded. No exceptions anywhere in the stack. Grafana is green. But fulfillment never ran — and nothing caught it because your tools were watching your infrastructure, not your business process.
+                </p>
+                <p>
+                  Threadify instruments the layer between your services. The business steps your logs were never designed to track.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Chapter 2 - Instrument & Discover */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Execution graph visualization */}
+            <div className="flex justify-center">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200 shadow-lg p-8 w-full max-w-md">
+                <div className="space-y-4">
+                  <div className="flex items-center">
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      create_account
+                      <div className="text-xs text-gray-600 mt-1">auth-svc</div>
+                    </div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="w-px h-6 bg-gray-300"></div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      verify_email
+                      <div className="text-xs text-gray-600 mt-1">comms-svc</div>
+                    </div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="w-px h-6 bg-gray-300"></div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      provision_workspace
+                      <div className="text-xs text-gray-600 mt-1">infra-svc</div>
+                    </div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="w-px h-6 bg-gray-300"></div>
+                  </div>
+                  <div className="ml-8 flex items-center">
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      assign_plan
+                      <div className="text-xs text-gray-600 mt-1">billing-svc</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 02 · INSTRUMENT & DISCOVER
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                Instrument once.
+                <br />
+                The graph emerges.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  No schema to define. No process documentation required. Wrap your business steps with the Threadify SDK and a live execution graph builds itself — across every service, in real time.
+                </p>
+                <p>
+                  Most teams discover their real process looks nothing like the Confluence doc. Now you know what it actually is.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Chapter 3 - Validate */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 03 · VALIDATE
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                Now you can see it.
+                <br />
+                Now you can validate it.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  Write a contract — define the correct sequence — and Threadify validates every execution against it in real time. The moment a step runs out of order, gets skipped, or violates a rule, you know instantly.
+                </p>
+                <p>
+                  Not from a batch job. Not from a customer ticket. The instant it happens.
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Contract validation visualization */}
+            <div className="flex justify-center">
+              <div className="bg-white rounded-lg border border-gray-200 shadow-lg p-8 w-full max-w-md">
+                <div className="space-y-6">
+                  <div className="border border-dashed border-gray-300 rounded p-4">
+                    <div className="text-xs text-gray-500 font-mono mb-2">contract.yml</div>
+                    <div className="space-y-1 text-sm font-mono text-gray-700">
+                      <div>steps:</div>
+                      <div className="ml-4">- kyc_check</div>
+                      <div className="ml-4">- approve_account</div>
+                      <div className="ml-4">- activate_card</div>
+                      <div className="ml-4">- notify_customer</div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="px-3 py-1.5 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono flex-1">
+                        kyc_check → approve_account
+                      </div>
+                      <span className="text-green-600 text-xs flex-shrink-0 mt-1.5">✓ sequence valid</span>
+                    </div>
+                    
+                    <div className="flex items-start gap-3">
+                      <div className="px-3 py-1.5 bg-red-100 border border-red-300 rounded text-red-700 text-sm font-mono flex-1">
+                        activate_card
+                      </div>
+                      <span className="text-red-600 text-xs flex-shrink-0 mt-1.5">✗ kyc_check skipped</span>
+                    </div>
+                    
+                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
+                      <div className="text-red-700 text-sm font-mono">
+                        violation detected
+                        <div className="text-xs text-gray-500 mt-1">thread:onboard-4421</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* AI Thought Section */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+            A THOUGHT
+          </div>
+          
+          <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+            Built it with AI?
+            <br />
+            Now make sure it actually works.
+          </h2>
+
+          <p className="text-xl text-gray-600 leading-relaxed max-w-2xl mx-auto mb-8">
+            Vibe coded apps run. They just don't always do what you think. Instrument with Threadify and see exactly what your AI-generated system is doing in production — before your users find out.
+          </p>
+
+          <button onClick={() => navigate('/signup')} className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition">
+            Validate Your AI App
+          </button>
+        </div>
+      </section>
+
+      {/* Chapter 4 - Cross-Boundary */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Cross-org visualization */}
+            <div className="flex justify-center">
+              <div className="space-y-4 w-full max-w-md">
+                <div className="border border-dashed border-gray-300 rounded-lg p-6 bg-white shadow-lg">
+                  <div className="text-xs text-gray-600 font-mono mb-4">your org</div>
+                  <div className="space-y-3">
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      place_order
+                      <div className="text-xs text-gray-600 mt-1">orders-svc</div>
+                    </div>
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      payment_captured
+                      <div className="text-xs text-gray-600 mt-1">payment-svc</div>
+                    </div>
+                    <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                      notify_customer
+                      <div className="text-xs text-gray-600 mt-1">comms-svc</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-dashed border-blue-300 rounded-lg p-6 bg-white shadow-lg">
+                  <div className="text-xs text-blue-600 font-mono mb-4">logistics partner</div>
+                  <div className="space-y-3">
+                    <div className="px-4 py-2 bg-blue-100 border border-blue-300 rounded text-blue-700 text-sm font-mono">
+                      fulfill_order
+                      <div className="text-xs text-gray-600 mt-1">warehouse-svc</div>
+                    </div>
+                    <div className="px-4 py-2 bg-blue-100 border border-blue-300 rounded text-blue-700 text-sm font-mono">
+                      dispatch_courier
+                      <div className="text-xs text-gray-600 mt-1">logistics-svc</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 04 · CROSS-BOUNDARY
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                Your process doesn't stop
+                <br />
+                at your API boundary.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  Invite a partner into the thread. Their services instrument their side. You get one shared execution graph across organizational boundaries — their steps and yours, in the same coherent timeline.
+                </p>
+                <p>
+                  No more "send me your logs." No more cross-company finger pointing. One thread. Full picture.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Chapter 5 - React */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 05 · REACT
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                Don't just watch it.
+                <br />
+                Take action on it.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  Wire up actions to process state. When a trial expires and payment fails, suspend the account and send a proactive message — automatically, the moment the process says so.
+                </p>
+                <p>
+                  Your system stops being reactive. It becomes context-aware.
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Reaction flow visualization */}
+            <div className="flex justify-center">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200 shadow-lg p-8 w-full max-w-md">
+                <div className="space-y-4">
+                  <div className="px-4 py-2 bg-yellow-100 border border-yellow-300 rounded text-yellow-700 text-sm font-mono">
+                    suspend_account()
+                    <div className="text-xs text-gray-600 mt-1">access blocked</div>
+                  </div>
+
+                  <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                    payment_failed
+                    <div className="text-xs text-gray-600 mt-1">billing-svc · stalled</div>
+                  </div>
+
+                  <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                    notify_customer()
+                    <div className="text-xs text-gray-600 mt-1">proactive message sent</div>
+                  </div>
+
+                  <div className="px-4 py-2 bg-cyan-100 border border-cyan-300 rounded text-cyan-700 text-sm font-mono">
+                    alert_oncall()
+                    <div className="text-xs text-gray-600 mt-1">pagerduty triggered</div>
+                  </div>
+
+                  <div className="px-4 py-2 bg-green-100 border border-green-300 rounded text-green-700 text-sm font-mono">
+                    your_system
+                    <div className="text-xs text-gray-600 mt-1">context-aware</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Chapter 6 - LLM Context */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left: LLM visualization */}
+            <div className="flex justify-center">
+              <div className="bg-white rounded-lg border border-gray-200 shadow-lg p-8 w-full max-w-md">
+                <div className="space-y-6">
+                  <div className="border border-dashed border-gray-300 rounded p-4">
+                    <div className="text-xs text-gray-500 font-mono mb-2">execution graph</div>
+                    <div className="space-y-2">
+                      <div className="text-sm font-mono text-gray-700 flex items-center gap-2">
+                        <span className="text-green-600">✓</span> place_order
+                      </div>
+                      <div className="text-sm font-mono text-gray-700 flex items-center gap-2">
+                        <span className="text-green-600">✓</span> fraud_check
+                      </div>
+                      <div className="text-sm font-mono text-gray-400 flex items-center gap-2">
+                        <span className="text-gray-400">−</span> fulfill_order
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded">
+                    <div className="text-xs text-blue-600 font-mono mb-2">llm agent</div>
+                    <div className="text-sm text-gray-700">
+                      "why did this order stall?"
+                      <div className="text-xs text-gray-500 mt-2">"fulfill_order never recorded after fraud_check passed"</div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="px-3 py-1.5 bg-green-100 border border-green-300 rounded text-green-700 text-xs font-mono">
+                      MCP
+                    </div>
+                    <div className="px-3 py-1.5 bg-green-600 rounded text-white text-xs font-mono">
+                      fix bug
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Story content */}
+            <div>
+              <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+                CHAPTER 06 · LLM CONTEXT
+              </div>
+              
+              <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+                Give your AI agents
+                <br />
+                full execution context.
+              </h2>
+
+              <div className="space-y-4 text-gray-600 leading-relaxed">
+                <p>
+                  Threadify's MCP server exposes your execution graph to any LLM agent. Instead of reasoning from raw logs, your agent sees exactly what the business process did — every step, every outcome, across every service involved.
+                </p>
+                <p>
+                  Ask it what happened. Ask it why it failed. Ask it what should happen next. It knows.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Final CTA Section */}
+      <section className="bg-white py-24 px-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="text-sm font-semibold tracking-wider mb-6 text-gray-600">
+            READY TO INSTRUMENT
+          </div>
+          
+          <h2 className="text-5xl font-bold mb-6 leading-tight text-black">
+            See your first execution graph
+            <br />
+            in under 5 minutes.
+          </h2>
+
+          <p className="text-xl text-gray-600 mb-12">
+            No schema · No contracts required · Just instrument and go
+          </p>
+
+          <div className="flex gap-4 justify-center">
+            <a href="https://docs.threadify.dev" target="_blank" rel="noopener noreferrer" className="px-6 py-3 bg-black text-white font-semibold rounded-lg hover:bg-gray-800 transition inline-block">
+              Read the Docs
+            </a>
+            <button onClick={() => navigate('/signup')} className="px-6 py-3 border border-gray-300 text-black font-semibold rounded-lg hover:border-gray-500 transition">
+              Get Started
+            </button>
           </div>
         </div>
       </section>
@@ -184,324 +619,62 @@ export default function Index() {
       {/* Use Cases Section */}
       <section className="bg-white py-24 px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Text Block (Inside Grid) */}
-            <div className="flex flex-col items-start pr-6 pt-0 h-full">
-              <div className="mb-6">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2.5 py-1.5 border border-gray-100 rounded inline-block">
-                  USE CASES
-                </span>
-              </div>
-              <h2 className="text-[2.5rem] font-bold text-black mb-4 leading-[1.15] tracking-tight">
-                Built for intelligent systems.
-              </h2>
-              <p className="text-gray-600 mb-6 leading-relaxed pr-4">
-                Turn execution into intelligence to answer questions instantly, prevent failures, and build smarter systems.
-              </p>
-              <button
-                onClick={() => navigate('/signup')} 
-                className="mt-auto w-max px-5 py-2.5 bg-[#4F46E5] text-white text-sm font-semibold rounded-lg hover:bg-[#4338CA] transition"
-              >
-                Try Threadify free
-              </button>
-            </div>
+          {/* Section Header/Tagline */}
+          <div className="text-center mb-16">
+            <h2 className="text-4xl lg:text-5xl font-bold text-black mb-4 leading-tight">
+              Built for intelligent systems.
+            </h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Turn execution into intelligence to answer questions instantly, prevent failures, and build smarter systems.
+            </p>
+          </div>
+
+          {/* Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
 
             {/* Card 1: Capture customer journeys */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-blue-950 overflow-hidden group-hover:scale-105 transition duration-700">
-                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at center, #60a5fa 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(to right, #60a5fa 1px, transparent 1px), linear-gradient(to bottom, #60a5fa 1px, transparent 1px)', backgroundSize: '96px 96px' }}></div>
-                <div className="absolute top-0 right-0 w-64 h-64 border-[2px] border-blue-400/30 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
-                <div className="absolute top-0 right-0 w-96 h-96 border-[2px] border-blue-400/20 rounded-full transform translate-x-1/2 -translate-y-1/2"></div>
-                <div className="absolute bottom-[-10%] right-[10%] w-64 h-64 bg-teal-400 rounded-full filter blur-[80px] opacity-50 group-hover:opacity-70 transition duration-700"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-blue-950 via-blue-950/60 to-transparent"></div>
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-5 border border-blue-100">
+              <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center mb-3">
+                <Route className="w-5 h-5 text-white" />
               </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <Route className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Capture customer journeys</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">Capture Customer Journeys</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">See exactly how your system delivers on every customer request, step by step across all services.</p>
             </div>
 
-            {/* Card 2: Identify business logic violations */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-slate-950 group-hover:scale-105 transition duration-700">
-                <div className="absolute inset-0 opacity-20 top-2" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #94a3b8 0, #94a3b8 1px, transparent 0, transparent 50%)', backgroundSize: '16px 16px' }}></div>
-                <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-60"></div>
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent opacity-60"></div>
-                <div className="absolute inset-0 bg-cyan-900/40 mix-blend-multiply"></div>
-                <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-cyan-500 rounded-full filter blur-[80px] opacity-40 group-hover:opacity-60 transition duration-700"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-slate-950/80"></div>
+            {/* Card 2: Catch business logic violations */}
+            <div className="bg-gradient-to-br from-cyan-50 to-blue-50 rounded-lg p-5 border border-cyan-100">
+              <div className="w-10 h-10 rounded-lg bg-cyan-500 flex items-center justify-center mb-3">
+                <ShieldCheck className="w-5 h-5 text-white" />
               </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <ShieldCheck className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Catch business logic violations</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">Catch Violations Instantly</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">Validate your execution workflow in real-time and catch business logic violations the moment they happen.</p>
             </div>
 
             {/* Card 3: Build context-aware systems */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-fuchsia-950 overflow-hidden group-hover:scale-105 transition duration-700">
-                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-pink-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform translate-x-1/4 -translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
-                <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-orange-500 rounded-full mix-blend-screen filter blur-[120px] opacity-60 transform -translate-x-1/4 translate-y-1/4 group-hover:opacity-80 transition duration-700"></div>
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxwYXRoIGQ9Ik0wIDBMMCA4TDggOEw4IDBaIiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTAgMEw0IDRMOCAwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC4wMykiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')] opacity-80"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-fuchsia-950 via-fuchsia-950/50 to-transparent"></div>
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-5 border border-purple-100">
+              <div className="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center mb-3">
+                <Brain className="w-5 h-5 text-white" />
               </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <Brain className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Build context-aware systems</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">Build Context-Aware Systems</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">React intelligently to violations and state changes with full awareness of what your process is doing.</p>
             </div>
 
             {/* Card 4: Resolve support tickets */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-indigo-950 group-hover:scale-105 transition duration-700 shadow-inner">
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }}></div>
-                <div className="absolute -top-20 -right-20 w-80 h-80 bg-fuchsia-600 rounded-full mix-blend-screen filter blur-[80px] opacity-70 group-hover:opacity-90 transition duration-700"></div>
-                <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-blue-600 rounded-full mix-blend-screen filter blur-[80px] opacity-70 group-hover:opacity-90 transition duration-700"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-indigo-950/90 to-transparent"></div>
+            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg p-5 border border-indigo-100">
+              <div className="w-10 h-10 rounded-lg bg-indigo-500 flex items-center justify-center mb-3">
+                <MessageSquare className="w-5 h-5 text-white" />
               </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <MessageSquare className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Resolve support tickets</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">Resolve Tickets Faster</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">Empower support teams to diagnose issues and answer questions without waiting for engineering.</p>
             </div>
 
             {/* Card 5: Analyze execution patterns */}
-            <div className="group relative overflow-hidden rounded-xl aspect-[4/3] cursor-pointer shadow-sm hover:shadow-md transition">
-              <div className="absolute inset-0 bg-emerald-950 group-hover:scale-105 transition duration-700">
-                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, #10b981 19px, #10b981 20px)' }}></div>
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(90deg, transparent 49%, #34d399 49%, #34d399 51%, transparent 51%)', backgroundSize: '60px 100%' }}></div>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-48 bg-emerald-400/30 filter blur-[60px] group-hover:bg-emerald-400/50 transition duration-700 transform rotate-12"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-emerald-950 via-emerald-950/80 to-transparent"></div>
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-5 border border-emerald-100">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center mb-3">
+                <Database className="w-5 h-5 text-white" />
               </div>
-              <div className="relative h-full p-6 flex justify-between items-end">
-                <div>
-                  <div className="w-8 h-8 rounded bg-indigo-500 flex items-center justify-center mb-3">
-                    <Database className="w-4 h-4 text-white" />
-                  </div>
-                  <h3 className="text-lg font-medium text-white">Analyze execution patterns</h3>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition">
-                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Grid */}
-      <section className="bg-gradient-to-b from-white to-gray-50 py-24 px-6">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-4xl font-light text-black mb-16">
-            Built for scale and intelligence
-          </h2>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-8">
-            {/* Feature 1 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <Zap className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    Ultra-low latency instrumentation
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <Link2 className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    Unified execution graphs
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <Lock className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    Immutable audit trails
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <Radio className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    Event-driven automation
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <MessageSquare className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    AI-powered queries
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="group cursor-pointer">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-black/5 group-hover:bg-black/10 transition-colors flex-shrink-0">
-                  <Clock className="w-4 h-4 text-black" />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-black group-hover:text-gray-700 transition-colors">
-                    Persistent workflow tracking
-                  </h3>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Problem Statements Section */}
-      <section className="bg-white py-24 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-medium text-black mb-3">
-              Is Threadify for me?
-            </h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
-              See if these pain points sound familiar
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Problem 1: Can't see execution */}
-            <div className="border border-gray-200 rounded-lg p-6 hover:border-blue-300 hover:shadow-lg transition-all group">
-              <div className="mb-4">
-                <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center mb-4 group-hover:bg-blue-100 transition">
-                  <Route className="w-6 h-6 text-blue-600" />
-                </div>
-                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
-                  Can't see how customer requests actually execute across your systems?
-                </h3>
-              </div>
-              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
-                How we solve this →
-              </a>
-            </div>
-
-            {/* Problem 2: Silent failures */}
-            <div className="border border-gray-200 rounded-lg p-6 hover:border-yellow-300 hover:shadow-lg transition-all group">
-              <div className="mb-4">
-                <div className="w-12 h-12 rounded-lg bg-yellow-50 flex items-center justify-center mb-4 group-hover:bg-yellow-100 transition">
-                  <svg className="w-6 h-6 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
-                  Do silent business logic failures cost you $10K each?
-                </h3>
-              </div>
-              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
-                How we solve this →
-              </a>
-            </div>
-
-            {/* Problem 3: AI agents */}
-            <div className="border border-gray-200 rounded-lg p-6 hover:border-purple-300 hover:shadow-lg transition-all group">
-              <div className="mb-4">
-                <div className="w-12 h-12 rounded-lg bg-purple-50 flex items-center justify-center mb-4 group-hover:bg-purple-100 transition">
-                  <Brain className="w-6 h-6 text-purple-600" />
-                </div>
-                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
-                  Are your AI agents making decisions without understanding the business process?
-                </h3>
-              </div>
-              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
-                How we solve this →
-              </a>
-            </div>
-
-            {/* Problem 4: Support questions */}
-            <div className="border border-gray-200 rounded-lg p-6 hover:border-indigo-300 hover:shadow-lg transition-all group">
-              <div className="mb-4">
-                <div className="w-12 h-12 rounded-lg bg-indigo-50 flex items-center justify-center mb-4 group-hover:bg-indigo-100 transition">
-                  <MessageSquare className="w-6 h-6 text-indigo-600" />
-                </div>
-                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
-                  Can't answer "what happened to this customer's request" in 30 seconds?
-                </h3>
-              </div>
-              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
-                How we solve this →
-              </a>
-            </div>
-
-            {/* Problem 5: Audit compliance */}
-            <div className="border border-gray-200 rounded-lg p-6 hover:border-green-300 hover:shadow-lg transition-all group">
-              <div className="mb-4">
-                <div className="w-12 h-12 rounded-lg bg-green-50 flex items-center justify-center mb-4 group-hover:bg-green-100 transition">
-                  <ShieldCheck className="w-6 h-6 text-green-600" />
-                </div>
-                <h3 className="text-lg font-medium text-black mb-3 leading-snug">
-                  Can't prove to auditors that business processes executed correctly?
-                </h3>
-              </div>
-              <a href="#" className="text-blue-600 hover:text-blue-700 text-sm font-medium inline-flex items-center gap-1">
-                How we solve this →
-              </a>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">Empower Your LLMs</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">Give your AI agents complete execution context so they can make better decisions for you.</p>
             </div>
           </div>
         </div>
