@@ -18,7 +18,6 @@ type TierLimits struct {
 	HotStorageDays                         int    `yaml:"hot_storage_days" mapstructure:"hot_storage_days"`
 	ColdStorageDays                        int    `yaml:"cold_storage_days" mapstructure:"cold_storage_days"`
 	ColdStorageOverageCentsPerGB           int    `yaml:"cold_storage_overage_cents_per_gb" mapstructure:"cold_storage_overage_cents_per_gb"`
-	LLMCredits                             int64  `yaml:"llm_credits" mapstructure:"llm_credits"`
 	Support                                string `yaml:"support" mapstructure:"support"`
 	OverageAllowed                         bool   `yaml:"overage_allowed" mapstructure:"overage_allowed"`
 }

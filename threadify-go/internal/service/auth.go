@@ -58,7 +58,6 @@ func NewAuthService(authRepo *postgres.AuthRepository, cacheTTLSeconds int) *Aut
 	return s
 }
 
-// Stop shuts down the background cache cleanup goroutine.
 func (s *AuthService) Stop() {
 	close(s.stopCleanup)
 }
@@ -97,8 +96,6 @@ func (s *AuthService) cleanupExpiredCache() {
 	}
 }
 
-// ValidateApiKey validates an API key token using a cache-aside pattern.
-// Cache hit → no DB query; cache miss or expired → query DB, warm cache.
 func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured

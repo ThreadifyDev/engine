@@ -66,20 +66,20 @@ func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *models.Usa
 	const query = `
 		INSERT INTO usage_meters (
 			id, company_id, billing_cycle_start,
-			bandwidth_ingress_balance, bandwidth_egress_balance, llm_credits_balance,
+			bandwidth_ingress_balance, bandwidth_egress_balance,
 			max_bandwidth_ingress, max_bandwidth_egress,
 			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes, max_llm_credits,
+			max_payload_bytes,
 			hot_storage_days, cold_storage_days, support,
 			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
 	`
 	_, err := r.pool.Exec(ctx, query,
 		meter.ID, meter.CompanyID, meter.BillingCycleStart,
-		meter.BandwidthIngressBalance, meter.BandwidthEgressBalance, meter.LLMCreditsBalance,
+		meter.BandwidthIngressBalance, meter.BandwidthEgressBalance,
 		meter.MaxBandwidthIngress, meter.MaxBandwidthEgress,
 		meter.MaxTeamSeats, meter.MaxContractLimit, meter.MaxRateLimit,
-		meter.MaxPayloadBytes, meter.MaxLLMCredits,
+		meter.MaxPayloadBytes,
 		meter.HotStorageDays, meter.ColdStorageDays, meter.Support,
 	)
 	if err != nil {
@@ -92,10 +92,10 @@ func (r *PlanRepository) FindCurrentUsageMeter(ctx context.Context, companyID st
 	meter := &models.UsageMeter{}
 	const query = `
 		SELECT id, company_id, billing_cycle_start,
-			bandwidth_ingress_balance, bandwidth_egress_balance, llm_credits_balance,
+			bandwidth_ingress_balance, bandwidth_egress_balance,
 			max_bandwidth_ingress, max_bandwidth_egress,
 			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes, max_llm_credits,
+			max_payload_bytes,
 			hot_storage_days, cold_storage_days, support,
 			created_at, updated_at
 		FROM usage_meters
@@ -105,10 +105,10 @@ func (r *PlanRepository) FindCurrentUsageMeter(ctx context.Context, companyID st
 	`
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
 		&meter.ID, &meter.CompanyID, &meter.BillingCycleStart,
-		&meter.BandwidthIngressBalance, &meter.BandwidthEgressBalance, &meter.LLMCreditsBalance,
+		&meter.BandwidthIngressBalance, &meter.BandwidthEgressBalance,
 		&meter.MaxBandwidthIngress, &meter.MaxBandwidthEgress,
 		&meter.MaxTeamSeats, &meter.MaxContractLimit, &meter.MaxRateLimit,
-		&meter.MaxPayloadBytes, &meter.MaxLLMCredits,
+		&meter.MaxPayloadBytes,
 		&meter.HotStorageDays, &meter.ColdStorageDays, &meter.Support,
 		&meter.CreatedAt, &meter.UpdatedAt,
 	)
@@ -172,23 +172,6 @@ func (r *PlanRepository) DecrementBandwidthEgress(ctx context.Context, companyID
 	err := r.pool.QueryRow(ctx, query, bytes, companyID).Scan(&newBalance)
 	if err != nil {
 		return 0, fmt.Errorf("decrement bandwidth egress: %w", err)
-	}
-	return newBalance, nil
-}
-
-// DecrementLLMCredits always decrements (pay-as-you-go on both tiers).
-func (r *PlanRepository) DecrementLLMCredits(ctx context.Context, companyID string, credits int64) (int64, error) {
-	var newBalance int64
-	const query = `
-		UPDATE usage_meters
-		SET llm_credits_balance = llm_credits_balance - $1, updated_at = NOW()
-		WHERE company_id = $2
-		  AND billing_cycle_start = (SELECT MAX(billing_cycle_start) FROM usage_meters WHERE company_id = $2)
-		RETURNING llm_credits_balance
-	`
-	err := r.pool.QueryRow(ctx, query, credits, companyID).Scan(&newBalance)
-	if err != nil {
-		return 0, fmt.Errorf("decrement llm credits: %w", err)
 	}
 	return newBalance, nil
 }
