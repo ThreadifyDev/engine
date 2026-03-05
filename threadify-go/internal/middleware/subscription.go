@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -18,8 +19,6 @@ const (
 	ctxSubscriptionTier = "subscriptionTier"
 )
 
-// GetUsageMeter retrieves the usage meter from the gin context.
-// Returns nil if no meter is set (unauthenticated or no subscription).
 func GetUsageMeter(c *gin.Context) *models.UsageMeter {
 	raw, exists := c.Get(ctxUsageMeter)
 	if !exists {
@@ -32,8 +31,6 @@ func GetUsageMeter(c *gin.Context) *models.UsageMeter {
 	return meter
 }
 
-// SubscriptionMiddleware loads the company's UsageMeter, enforces tenant rate limiting,
-// and sets the meter in the gin context for downstream middleware/handlers.
 func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.LuaScriptManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -57,6 +54,14 @@ func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.
 		// Load the full usage meter from PlanService (cached in Valkey)
 		meter, err := planSvc.GetCurrentLimits(c.Request.Context(), companyID)
 		if err != nil {
+			if errors.Is(err, service.ErrSubscriptionExpired) {
+				c.JSON(http.StatusPaymentRequired, gin.H{
+					"error":   "Subscription expired",
+					"message": "Your subscription has expired. Please renew to continue using this service.",
+				})
+				c.Abort()
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Subscription check failed",
 				"message": "Unable to verify subscription. Please try again.",
@@ -79,7 +84,7 @@ func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.
 			windowSeconds := 60
 
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Millisecond)
-			allowed, luaErr := luaScripts.CheckUserRateLimit(ctx, companyID, requestsPerMinute, windowSeconds)
+			allowed, luaErr := luaScripts.CheckCompanyRateLimit(ctx, companyID, requestsPerMinute, windowSeconds)
 			cancel()
 
 			if luaErr == nil && !allowed {
@@ -104,8 +109,6 @@ func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.
 	}
 }
 
-// IngressMiddleware decrements bandwidth ingress on every thread access (create + read).
-// Apply to thread/WS routes only.
 func IngressMiddleware(planSvc *service.PlanService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		companyIDRaw, exists := c.Get(sharedauth.CtxCompanyID)
@@ -133,8 +136,6 @@ func IngressMiddleware(planSvc *service.PlanService) gin.HandlerFunc {
 	}
 }
 
-// ContractQuotaMiddleware checks the company's contract limit before contract creation.
-// It uses ContractService to count existing contracts and the usage meter for the limit.
 func ContractQuotaMiddleware(planSvc *service.PlanService, contractSvc *service.ContractService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		companyIDRaw, exists := c.Get(sharedauth.CtxCompanyID)
@@ -172,8 +173,6 @@ func ContractQuotaMiddleware(planSvc *service.PlanService, contractSvc *service.
 	}
 }
 
-// PayloadSizeMiddleware checks Content-Length against the plan's MaxPayloadBytes.
-// Reads the limit from the usage meter already set in context by SubscriptionMiddleware.
 func PayloadSizeMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		meter := GetUsageMeter(c)

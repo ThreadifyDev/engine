@@ -696,7 +696,6 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, aggregated map[str
 	meterColumns := map[string]string{
 		"bandwidth_ingress": "bandwidth_ingress_balance",
 		"bandwidth_egress":  "bandwidth_egress_balance",
-		"llm_credits":       "llm_credits_balance",
 	}
 
 	tx, err := w.db.Pool.Begin(ctx)

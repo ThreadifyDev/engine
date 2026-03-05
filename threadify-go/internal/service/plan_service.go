@@ -18,11 +18,13 @@ import (
 
 const (
 	planCachePrefix = "plan:limits:"
-	planCacheTTL    = 30 * time.Second
+	planCacheTTL    = 5 * time.Minute
 
 	// Valkey key prefixes for real-time balance tracking
 	balanceKeyPrefix = "plan:balance:"
 )
+
+var ErrSubscriptionExpired = fmt.Errorf("subscription expired")
 
 // balanceKey returns the Valkey key for a specific meter balance
 func balanceKey(companyID, meter string) string {
@@ -41,20 +43,16 @@ func NewPlanService(
 	planRepo *postgres.PlanRepository,
 	subConfig *config.SubscriptionConfig,
 	valkeyClient interfaces.ValkeyClient,
+	natsPublisher *natsrepo.ArchivalPublisher,
 	logger *zap.Logger,
 ) *PlanService {
 	return &PlanService{
-		planRepo:     planRepo,
-		subConfig:    subConfig,
-		valkeyClient: valkeyClient,
-		logger:       logger,
+		planRepo:      planRepo,
+		subConfig:     subConfig,
+		valkeyClient:  valkeyClient,
+		natsPublisher: natsPublisher,
+		logger:        logger,
 	}
-}
-
-// SetNATSPublisher sets the NATS publisher for async usage sync.
-// Called after PlanService creation when NATS is available.
-func (s *PlanService) SetNATSPublisher(publisher *natsrepo.ArchivalPublisher) {
-	s.natsPublisher = publisher
 }
 
 func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle) error {
@@ -93,17 +91,16 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 		BillingCycleStart:       now,
 		BandwidthIngressBalance: limits.BandwidthIngress,
 		BandwidthEgressBalance:  limits.BandwidthEgress,
-		LLMCreditsBalance:       limits.LLMCredits,
 		MaxBandwidthIngress:     limits.BandwidthIngress,
 		MaxBandwidthEgress:      limits.BandwidthEgress,
 		MaxTeamSeats:            limits.TeamSeats,
 		MaxContractLimit:        limits.ContractLimit,
 		MaxRateLimit:            limits.RateLimit,
 		MaxPayloadBytes:         limits.MaxPayloadBytes,
-		MaxLLMCredits:           limits.LLMCredits,
 		HotStorageDays:          limits.HotStorageDays,
 		ColdStorageDays:         limits.ColdStorageDays,
 		Support:                 limits.Support,
+		BillingEnd:              billingEnd,
 	}
 
 	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
@@ -126,9 +123,8 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 // seedBalanceKeys sets initial balance values in Valkey for real-time decrement tracking
 func (s *PlanService) seedBalanceKeys(ctx context.Context, companyID string, meter *models.UsageMeter) {
 	balances := map[string]int64{
-		"ingress":     meter.BandwidthIngressBalance,
-		"egress":      meter.BandwidthEgressBalance,
-		"llm_credits": meter.LLMCreditsBalance,
+		"ingress": meter.BandwidthIngressBalance,
+		"egress":  meter.BandwidthEgressBalance,
 	}
 
 	for meterName, balance := range balances {
@@ -152,6 +148,10 @@ func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*
 	if err == nil && cached != "" {
 		var meter models.UsageMeter
 		if jsonErr := json.Unmarshal([]byte(cached), &meter); jsonErr == nil {
+			if !meter.BillingEnd.IsZero() && time.Now().After(meter.BillingEnd) {
+				s.invalidateCache(ctx, companyID)
+				return nil, ErrSubscriptionExpired
+			}
 			return &meter, nil
 		}
 	}
@@ -162,6 +162,15 @@ func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*
 	}
 	if meter == nil {
 		return nil, nil
+	}
+
+	// Stamp BillingEnd from the plan so it's cached with the meter
+	plan, planErr := s.GetCompanyPlan(ctx, companyID)
+	if planErr == nil && plan != nil {
+		meter.BillingEnd = plan.BillingEnd
+		if plan.IsExpired() {
+			return nil, ErrSubscriptionExpired
+		}
 	}
 
 	s.setCacheEntry(ctx, companyID, meter)
@@ -291,23 +300,8 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 	return nil
 }
 
-func (s *PlanService) DecrementLLMCredits(ctx context.Context, companyID string, credits int64) error {
-	key := balanceKey(companyID, "llm_credits")
-	_, err := s.valkeyClient.DecrBy(ctx, key, credits)
-	if err != nil {
-		return fmt.Errorf("decrement llm credits in valkey: %w", err)
-	}
-
-	s.publishUsageEvent(companyID, "llm_credits", credits)
-	return nil
-}
-
 // publishUsageEvent fires an async NATS event for the archiver to sync to PostgreSQL
 func (s *PlanService) publishUsageEvent(companyID, meter string, amount int64) {
-	if s.natsPublisher == nil {
-		return
-	}
-
 	event := map[string]interface{}{
 		"company_id": companyID,
 		"meter":      meter,
@@ -315,6 +309,61 @@ func (s *PlanService) publishUsageEvent(companyID, meter string, amount int64) {
 	}
 
 	s.natsPublisher.PublishAsync("usage.sync", event)
+}
+
+func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle) error {
+	limits := s.subConfig.GetTierLimits(string(tier))
+	if limits == nil {
+		return fmt.Errorf("unknown subscription tier: %s", tier)
+	}
+
+	now := time.Now().UTC()
+	var billingEnd time.Time
+	switch billingCycle {
+	case models.BillingCycleMonthly:
+		billingEnd = now.AddDate(0, 1, 0)
+	case models.BillingCycleYearly:
+		billingEnd = now.AddDate(1, 0, 0)
+	default:
+		return fmt.Errorf("unsupported billing cycle: %s", billingCycle)
+	}
+
+	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, now, billingEnd); err != nil {
+		return fmt.Errorf("renew subscription - update plan: %w", err)
+	}
+
+	meter := &models.UsageMeter{
+		ID:                      uuid.New().String(),
+		CompanyID:               companyID,
+		BillingCycleStart:       now,
+		BandwidthIngressBalance: limits.BandwidthIngress,
+		BandwidthEgressBalance:  limits.BandwidthEgress,
+		MaxBandwidthIngress:     limits.BandwidthIngress,
+		MaxBandwidthEgress:      limits.BandwidthEgress,
+		MaxTeamSeats:            limits.TeamSeats,
+		MaxContractLimit:        limits.ContractLimit,
+		MaxRateLimit:            limits.RateLimit,
+		MaxPayloadBytes:         limits.MaxPayloadBytes,
+		HotStorageDays:          limits.HotStorageDays,
+		ColdStorageDays:         limits.ColdStorageDays,
+		Support:                 limits.Support,
+		BillingEnd:              billingEnd,
+	}
+
+	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
+		return fmt.Errorf("renew subscription - create usage meter: %w", err)
+	}
+
+	s.seedBalanceKeys(ctx, companyID, meter)
+	s.invalidateCache(ctx, companyID)
+
+	s.logger.Info("renewed subscription",
+		zap.String("company_id", companyID),
+		zap.String("tier", string(tier)),
+		zap.String("billing_cycle", string(billingCycle)),
+	)
+
+	return nil
 }
 
 func (s *PlanService) InvalidatePlanCache(ctx context.Context, companyID string) {

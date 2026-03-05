@@ -172,10 +172,9 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 
 	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize, logger)
 	if err != nil {
-		logger.Warn("NATS unavailable — notifications and archival disabled", zap.Error(err))
-	} else {
-		d.natsPool = natsPool
+		logger.Fatal("NATS unavailable — required for usage metering", zap.Error(err))
 	}
+	d.natsPool = natsPool
 
 	d.workerPools = workerpool.NewPools(workerpool.NewPrometheusMetrics())
 	logger.Info("worker pools initialized",
@@ -230,12 +229,8 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	accessRepo.SetRBACLoader(rbacLoader)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
 
-	var natsArchival *natsrepo.ArchivalPublisher
-	var natsNotification *natsrepo.Publisher
-	if d.natsPool != nil {
-		natsArchival = natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
-		natsNotification = natsrepo.NewPublisher(d.natsPool.GetClient())
-	}
+	natsArchival := natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
+	natsNotification := natsrepo.NewPublisher(d.natsPool.GetClient())
 
 	stepEventSvc, err := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
 	if err != nil {
@@ -248,10 +243,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
 
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
-	planSvc := service.NewPlanService(planRepo, &cfg.Subscription, d.valkey, logger)
-	if natsArchival != nil {
-		planSvc.SetNATSPublisher(natsArchival)
-	}
+	planSvc := service.NewPlanService(planRepo, &cfg.Subscription, d.valkey, natsArchival, logger)
 
 	contractSvc := service.NewContractService(d.db, logger)
 	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools, logger)

@@ -12,7 +12,6 @@ subscription:
       max_payload_bytes: 524288            # 500 KB
       hot_storage_days: 7
       cold_storage_days: 0                 # no archival, purged after hot window
-      llm_credits: 0                       # pay-as-you-go via credits
       support: community
       overage_allowed: false               # hard stop on bandwidth ingress
 
@@ -29,6 +28,6 @@ subscription:
       hot_storage_days: 30
       cold_storage_days: 365               # max 1yr retention
       cold_storage_overage_cents_per_gb: 10  # $0.10/GB/mo
-      llm_credits: 0                       # pay-as-you-go add-on credits
       support: email
       overage_allowed: true                # metered overage on all balance meters
+

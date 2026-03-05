@@ -34,19 +34,22 @@ type UsageMeter struct {
 
 	BandwidthIngressBalance int64 `json:"bandwidthIngressBalance"`
 	BandwidthEgressBalance  int64 `json:"bandwidthEgressBalance"`
-	LLMCreditsBalance       int64 `json:"llmCreditsBalance"`
 
-	MaxBandwidthIngress int64  `json:"maxBandwidthIngress"`
-	MaxBandwidthEgress  int64  `json:"maxBandwidthEgress"`
-	MaxTeamSeats        int    `json:"maxTeamSeats"`
-	MaxContractLimit    int    `json:"maxContractLimit"`
-	MaxRateLimit        int    `json:"maxRateLimit"`
-	MaxPayloadBytes     int64  `json:"maxPayloadBytes"`
-	MaxLLMCredits       int64  `json:"maxLlmCredits"`
-	HotStorageDays      int    `json:"hotStorageDays"`
-	ColdStorageDays     int    `json:"coldStorageDays"`
-	Support             string `json:"support"`
+	MaxBandwidthIngress int64     `json:"maxBandwidthIngress"`
+	MaxBandwidthEgress  int64     `json:"maxBandwidthEgress"`
+	MaxTeamSeats        int       `json:"maxTeamSeats"`
+	MaxContractLimit    int       `json:"maxContractLimit"`
+	MaxRateLimit        int       `json:"maxRateLimit"`
+	MaxPayloadBytes     int64     `json:"maxPayloadBytes"`
+	HotStorageDays      int       `json:"hotStorageDays"`
+	ColdStorageDays     int       `json:"coldStorageDays"`
+	Support             string    `json:"support"`
+	BillingEnd          time.Time `json:"billingEnd"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (p *CompanyPlan) IsExpired() bool {
+	return time.Now().After(p.BillingEnd)
 }
