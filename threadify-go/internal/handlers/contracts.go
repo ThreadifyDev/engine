@@ -13,13 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/utils"
 )
 
 type PreviewResponse struct {
-	Valid     bool     `json:"valid"`
-	Cytoscape string   `json:"cytoscape,omitempty"`
-	Errors    []string `json:"errors,omitempty"`
+	Valid  bool     `json:"valid"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 type ContractHandler struct {
@@ -200,7 +198,7 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
+	_, _, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
 	if err != nil {
 		h.logger.Error("failed to preview contract", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})
@@ -216,12 +214,5 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	cytoscapeJSON, err := utils.ContractGraphToCytoscapeJSON(contract.ContractName, graph)
-	if err != nil {
-		h.logger.Warn("failed to convert to Cytoscape", zap.Error(err))
-		c.JSON(http.StatusOK, PreviewResponse{Valid: true})
-		return
-	}
-
-	c.JSON(http.StatusOK, PreviewResponse{Valid: true, Cytoscape: cytoscapeJSON})
+	c.JSON(http.StatusOK, PreviewResponse{Valid: true})
 }
