@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
+import Alert from '~/components/Alert';
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -111,11 +112,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && (
-              <div className="bg-black text-white px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+            {error && <Alert type="error" message={error} />}
 
             <div className="space-y-4">
               {/* Full Name */}
@@ -210,11 +207,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && (
-              <div className="bg-black text-white px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+            {error && <Alert type="error" message={error} />}
 
             <div className="space-y-4">
               {/* Industry */}

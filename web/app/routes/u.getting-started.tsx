@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
+import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
 
 export default function GettingStarted() {
@@ -133,7 +134,7 @@ export default function GettingStarted() {
               <button
                 onClick={handleCreateAPIKey}
                 disabled={creatingKey}
-                className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-3 bg-black rounded-lg text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {creatingKey ? 'Creating...' : 'Create API Key'}
               </button>
@@ -151,7 +152,11 @@ export default function GettingStarted() {
                   onClick={() => copyToClipboard(apiKey)}
                   className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors whitespace-nowrap font-medium"
                 >
-                  {copied ? '✓ Copied!' : 'Copy'}
+                  {copied ? (
+                    <span className="flex items-center gap-1">
+                      <Check className="w-4 h-4" /> Copied!
+                    </span>
+                  ) : 'Copy'}
                 </button>
               </div>
             </>
@@ -188,10 +193,36 @@ export default function GettingStarted() {
           <div className="p-4 bg-gray-50 border-t-2 border-black flex justify-end">
             <button
               onClick={() => copyToClipboard(codeWithKey)}
-              className="px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+              className="px-4 py-2 border-2 rounded-lg border-black hover:bg-black hover:text-white transition-colors font-medium"
             >
               Copy Code
             </button>
+          </div>
+        </div>
+
+        {/* LLM IDE Helper */}
+        <div className="mb-8 p-6 border-2 border-blue-600 bg-blue-50">
+          <div className="flex items-start gap-3 mb-3">
+            <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <div>
+              <h3 className="text-lg font-bold text-blue-900 mb-2">Building with an AI-Powered IDE?</h3>
+              <p className="text-sm text-blue-800 mb-3">
+                Give your AI assistant context about Threadify's SDK to accelerate development.
+              </p>
+              <a
+                href="/AI.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-4 py-2 bg-blue-800 rounded-lg text-white hover:bg-blue-900 transition-colors font-medium text-sm"
+              >
+                View AI Context Guide →
+              </a>
+              <p className="text-xs text-blue-700 mt-3">
+                Copy the guide and share it with Cursor, Windsurf, or any LLM-powered IDE for better code suggestions.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -200,7 +231,7 @@ export default function GettingStarted() {
           <button
             onClick={handleCheckInstrumentation}
             disabled={checkingInstrumentation || !hasApiKey}
-            className="px-8 py-4 bg-black text-white text-lg font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-4 bg-black text-white rounded-lg text-lg font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {checkingInstrumentation ? 'Checking...' : 'I\'ve Completed My First Instrumentation'}
           </button>

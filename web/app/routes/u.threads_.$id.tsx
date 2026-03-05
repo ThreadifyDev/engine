@@ -1,4 +1,4 @@
-import { useParams } from '@remix-run/react';
+import { useParams, useNavigate } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
 import { formatDistanceToNow } from 'date-fns';
@@ -29,19 +29,21 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import SideNav from '~/components/SideNav';
-import ThreadGraphView from '~/components/ThreadGraphViewReactFlow';
+import ThreadGraphView from '~/components/ThreadGraphView';
 import ThreadTimelineView from '~/components/ThreadTimelineView';
+import GanttTimelineView from '~/components/GanttTimelineView';
 import RightSidebar from '~/components/RightSidebar';
 import { ThreadHeader } from '~/components/thread/ThreadHeader';
 import { StepDetailContent } from '~/components/thread/StepDetailContent';
 import { ValidationResultsView } from '~/components/thread/ValidationResultsView';
 import { ParticipantsView } from '~/components/thread/ParticipantsView';
 import { StepHistoryContent } from '~/components/thread/StepHistoryContent';
+import { SubStateSidebar } from '~/components/thread/SubStateSidebar';
 import { CompactStepTimeline } from '~/components/thread/StepTimeline';
 import { StepValidationResultsView } from '~/components/thread/StepValidationResultsView';
 import { NotificationDetailView } from '~/components/thread/NotificationDetailView';
 
-type TabType = 'timeline' | 'graph';
+type TabType = 'timeline' | 'graph' | 'gantt';
 type SidebarView = 'step' | 'participants' | 'validations' | 'stepValidations' | 'step-violations' | null;
 
 // Helper function to calculate execution time from startedAt and finishedAt
@@ -60,6 +62,7 @@ function calculateExecutionTime(startedAt?: string, finishedAt?: string): string
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('timeline');
   const [sidebarView, setSidebarView] = useState<SidebarView>(null);
   const [selectedStep, setSelectedStep] = useState<StepStateInfo | null>(null);
@@ -69,6 +72,7 @@ export default function ThreadDetailPage() {
   const [selectedNotification, setSelectedNotification] = useState<ThreadNotification | null>(null);
   const [selectedStepForHistory, setSelectedStepForHistory] = useState<StepStateInfo | null>(null);
   const [selectedStepForViolations, setSelectedStepForViolations] = useState<StepStateInfo | null>(null);
+  const [selectedSubSteps, setSelectedSubSteps] = useState<{subSteps: any[], stepName: string, stepStartedAt?: string} | null>(null);
   
   const { data: thread, isLoading, error } = useQuery({
     queryKey: ['thread', id],
@@ -166,16 +170,20 @@ export default function ThreadDetailPage() {
               >
                 Timeline
               </button>
-              <button
-                onClick={() => setActiveTab('graph')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  activeTab === 'graph'
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                Graph
-              </button>
+              
+              {/* Only show Graph tab if thread has a contract */}
+              {/* {thread.contractName && (
+                <button
+                  onClick={() => setActiveTab('graph')}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'graph'
+                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                >
+                  Graph
+                </button>
+              )} */}
             </div>
             
             {/* Action Buttons */}
@@ -232,8 +240,16 @@ export default function ThreadDetailPage() {
           {/* Tab Content */}
           <div className="mt-6">
             {activeTab === 'timeline' && (
-              <ThreadTimelineView 
-                steps={thread.steps || []} 
+              // <ThreadTimelineView 
+              //   steps={thread.steps || []} 
+              //   threadStatus={thread.status}
+              //   onStepClick={(step) => {
+              //     setSelectedStep(step);
+              //     setSidebarView('step');
+              //   }}
+              // />
+              <GanttTimelineView
+                steps={thread.steps || []}
                 threadStatus={thread.status}
                 onStepClick={(step) => {
                   setSelectedStep(step);
@@ -242,14 +258,27 @@ export default function ThreadDetailPage() {
               />
             )}
             
-            {activeTab === 'graph' && (
+            {activeTab === 'graph' && thread.contractName && (
               <ThreadGraphView 
-                steps={thread.steps || []} 
+                steps={thread.steps || []}
+                contractName={thread.contractName}
+                contractVersion={thread.contractVersion}
                 onNodeClick={(step: StepStateInfo) => {
                   setSelectedStep(step);
                   setSidebarView('step');
                 }}
               />
+            )}
+            
+            {activeTab === 'graph' && !thread.contractName && (
+              <div className="flex items-center justify-center h-96 text-gray-500 border-2 border-gray-200 rounded-lg bg-gray-50">
+                <div className="text-center max-w-md">
+                  <p className="text-lg font-medium mb-2">Graph view is only available for threads with contracts</p>
+                  <p className="text-sm text-gray-400">
+                    Contracts define the flow structure that powers the graph visualization.
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -273,6 +302,9 @@ export default function ThreadDetailPage() {
               onToggleContext={() => setShowContext(!showContext)}
               validations={thread.validationResults || []}
               onShowHistory={(step) => setSelectedStepForHistory(step)}
+              onShowSubState={(subSteps, stepName, stepStartedAt) => {
+                setSelectedSubSteps({subSteps, stepName, stepStartedAt});
+              }}
               onShowViolations={(step) => {
                 setSelectedStepForViolations(step);
                 setPreviousView('step');
@@ -459,6 +491,17 @@ export default function ThreadDetailPage() {
           >
             <ParticipantsView threadId={id!} steps={thread.steps || []} stepHistory={allStepHistory} />
           </RightSidebar>
+        )}
+
+        {/* Sub State Sidebar - Nested overlay */}
+        {selectedSubSteps && (
+          <SubStateSidebar
+            subSteps={selectedSubSteps.subSteps}
+            stepName={selectedSubSteps.stepName}
+            stepStartedAt={selectedSubSteps.stepStartedAt}
+            onClose={() => setSelectedSubSteps(null)}
+            onBack={() => setSelectedSubSteps(null)}
+          />
         )}
       </main>
     </div>

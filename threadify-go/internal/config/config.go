@@ -8,6 +8,7 @@ type Config struct {
 	Postgres           PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
 	Redis              RedisConfig              `yaml:"redis" mapstructure:"redis"`
 	JWT                JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
+	Auth               AuthConfig               `yaml:"auth" mapstructure:"auth"`
 	Queue              QueueConfig              `yaml:"queue" mapstructure:"queue"`
 	ThreadActivities   ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
 	RateLimit          RateLimitConfig          `yaml:"rate_limit" mapstructure:"rate_limit"`
@@ -23,6 +24,7 @@ type Config struct {
 	BotScanner         BotScannerConfig         `yaml:"bot_scanner" mapstructure:"bot_scanner"`
 	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
 	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
+	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
 }
 
 // ServerConfig holds server configuration
@@ -67,6 +69,11 @@ type JWTConfig struct {
 	Audience        string `yaml:"audience" mapstructure:"audience"`
 	Realm           string `yaml:"realm" mapstructure:"realm"`
 	ExpirationHours int    `yaml:"expiration_hours" mapstructure:"expiration_hours"`
+}
+
+// AuthConfig holds authentication service configuration
+type AuthConfig struct {
+	CacheTTLSeconds int `yaml:"cache_ttl_seconds" mapstructure:"cache_ttl_seconds"` // API key and roles cache TTL (default: 3600)
 }
 
 // QueueConfig holds queue configuration
@@ -152,6 +159,7 @@ type NATSConfig struct {
 	ArchiverAckWaitSeconds     int    `yaml:"archiver_ack_wait_seconds" mapstructure:"archiver_ack_wait_seconds"`
 	NotificationsRetentionDays int    `yaml:"notifications_retention_days" mapstructure:"notifications_retention_days"`
 	DLQRetentionDays           int    `yaml:"dlq_retention_days" mapstructure:"dlq_retention_days"`
+	PoolSize                   int    `yaml:"pool_size" mapstructure:"pool_size"`
 }
 
 // NotificationSystemConfig holds notification system configuration
@@ -169,6 +177,7 @@ type ScopeConfig struct {
 // ArchiverConfig holds archiver configuration
 type ArchiverConfig struct {
 	Enabled         bool                    `yaml:"enabled" mapstructure:"enabled"`
+	MetricsPort     int                     `yaml:"metrics_port" mapstructure:"metrics_port"`
 	Buffers         map[string]BufferConfig `yaml:"buffers" mapstructure:"buffers"`
 	ActivityStreams ActivityStreamsConfig   `yaml:"activity_streams" mapstructure:"activity_streams"`
 	Retry           RetryConfig             `yaml:"retry" mapstructure:"retry"`
@@ -204,10 +213,12 @@ type RetryConfig struct {
 
 // StreamsConfig holds streams configuration
 type StreamsConfig struct {
-	ConsumerGroup  string        `yaml:"consumer_group" mapstructure:"consumer_group"`
-	BlockTimeoutMs int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
-	BatchSize      int           `yaml:"batch_size" mapstructure:"batch_size"`
-	BlockTimeout   time.Duration // Computed from BlockTimeoutMs
+	ConsumerGroup            string        `yaml:"consumer_group" mapstructure:"consumer_group"`
+	BlockTimeoutMs           int           `yaml:"block_timeout_ms" mapstructure:"block_timeout_ms"`
+	BatchSize                int           `yaml:"batch_size" mapstructure:"batch_size"`
+	StepStateFlushIntervalMs int           `yaml:"step_state_flush_interval_ms" mapstructure:"step_state_flush_interval_ms"`
+	BlockTimeout             time.Duration // Computed
+	StepStateFlushInterval   time.Duration // Computed
 }
 
 // SecurityConfig holds security configuration
@@ -256,4 +267,11 @@ type PoolConfig struct {
 // PerformanceConfig holds performance monitoring configuration
 type PerformanceConfig struct {
 	MonitoringEnabled bool `yaml:"monitoring_enabled" mapstructure:"monitoring_enabled"`
+}
+
+// JWKSSettings holds the JWKS endpoint configuration
+type JWKSSettings struct {
+	URL      string `yaml:"url" mapstructure:"url"`
+	Audience string `yaml:"audience" mapstructure:"audience"`
+	Issuer   string `yaml:"issuer" mapstructure:"issuer"`
 }

@@ -2,14 +2,23 @@ package postgres
 
 import (
 	"context"
-	"log"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
+	shderrors "threadify-go/shared/errors"
+
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/utils/errors"
 )
+
+// contractCols and versionCols are the canonical SELECT column lists,
+// kept in sync with the Scan calls below.
+const contractCols = `id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
+const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at`
 
 type ContractRepository struct {
 	pool *pgxpool.Pool
@@ -19,340 +28,251 @@ func NewContractRepository(pool *pgxpool.Pool) *ContractRepository {
 	return &ContractRepository{pool: pool}
 }
 
-func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
-	query := `
-		INSERT INTO contracts (id, name, description, content_hash, latest_version, owner_id, company_id, is_public, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, name, description, content_hash, latest_version, owner_id, company_id, is_public, is_deleted, created_at, updated_at
-	`
-
-	err := r.pool.QueryRow(ctx, query,
-		contract.ID, contract.Name, contract.Description, contract.ContentHash,
-		contract.LatestVersion, contract.OwnerID, contract.CompanyID, contract.IsPublic, contract.IsDeleted,
-		contract.CreatedAt, contract.UpdatedAt,
-	).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.CompanyID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
+// scanContract scans a standard contract row.
+func scanContract(row pgx.Row, c *models.Contract) error {
+	return row.Scan(
+		&c.ID, &c.Name, &c.Description, &c.ContentHash,
+		&c.LatestVersion, &c.OwnerID, &c.IsPublic, &c.IsDeleted,
+		&c.CreatedAt, &c.UpdatedAt,
 	)
+}
 
+// scanVersion scans a standard contract version row.
+func scanVersion(row pgx.Row, v *models.ContractVersion) error {
+	return row.Scan(
+		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash,
+		&v.ContractID, &v.CreatedBy, &v.Graph, &v.IsDeleted,
+		&v.CreatedAt, &v.UpdatedAt,
+	)
+}
+
+func contractErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return shderrors.ErrContractNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		// Code 23505 is unique_violation
+		if pgErr.Code == "23505" {
+			if strings.Contains(pgErr.ConstraintName, "idx_contracts_name_company_active") ||
+				strings.Contains(pgErr.ConstraintName, "unique_contract_name") ||
+				strings.Contains(pgErr.Message, "idx_contracts_name_company_active") {
+				return shderrors.ErrContractAlreadyExists
+			}
+		}
+	}
+	return fmt.Errorf("[CONTRACT_REPO_ERROR] %w", err)
+}
+
+func versionErr(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return shderrors.ErrContractNotFound
+	}
+	return fmt.Errorf("version error: %w", err)
+}
+
+func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
+	query := `INSERT INTO contracts (` + contractCols + `, company_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING ` + contractCols
+
+	err := scanContract(r.pool.QueryRow(ctx, query,
+		contract.ID, contract.Name, contract.Description, contract.ContentHash,
+		contract.LatestVersion, contract.OwnerID, contract.IsPublic, contract.IsDeleted,
+		contract.CreatedAt, contract.UpdatedAt, contract.CompanyID,
+	), contract)
 	if err != nil {
-		log.Printf("DB error in Create(name=%s): %v", contract.Name, err)
-		return errors.NewInternalError(errors.MsgInternalError, err)
+		return contractErr(err)
 	}
 
 	return nil
 }
 
-func (r *ContractRepository) Update(ctx context.Context, contractID string, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
-	query := `
-		UPDATE contracts 
-		SET description = $1, content_hash = $2, latest_version = $3, updated_at = $4
-		WHERE id = $5
-		RETURNING id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-	`
+func (r *ContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
+	query := `UPDATE contracts
+		SET description=$1, content_hash=$2, latest_version=$3, updated_at=$4
+		WHERE id=$5 AND is_deleted=false
+		RETURNING ` + contractCols
 
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, description, contentHash, latestVersion, updatedAt, contractID).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in Update(id=%s): %v", contractID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, description, contentHash, latestVersion, updatedAt, contractID), &c); err != nil {
+		return nil, contractErr(err)
 	}
-
-	return &contract, nil
+	return &c, nil
 }
 
-func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, contractName, companyID string) (*models.Contract, error) {
-	query := `
-		SELECT id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE name = $1 AND company_id = $2 AND is_deleted = false
-	`
-
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractName, companyID).Scan(
-		&contract.ID, &contract.Name, &contract.CompanyID, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in GetByNameAndCompany(name=%s, company=%s): %v", contractName, companyID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+func (r *ContractRepository) Get(ctx context.Context, id string) (*models.Contract, error) {
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE id = $1 AND is_deleted = false`
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, id), &c); err != nil {
+		return nil, contractErr(err)
 	}
+	return &c, nil
+}
 
-	return &contract, nil
+func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error) {
+	query := `SELECT id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
+		FROM contracts WHERE name=$1 AND company_id=$2 AND is_deleted=false`
+
+	var c models.Contract
+	err := r.pool.QueryRow(ctx, query, name, companyID).Scan(
+		&c.ID, &c.Name, &c.CompanyID, &c.Description, &c.ContentHash,
+		&c.LatestVersion, &c.OwnerID, &c.IsPublic, &c.IsDeleted,
+		&c.CreatedAt, &c.UpdatedAt,
+	)
+	if err != nil {
+		return nil, contractErr(err)
+	}
+	return &c, nil
 }
 
 func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
-	query := `
-		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE id = $1 AND owner_id = $2 AND is_deleted = false
-	`
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE id=$1 AND owner_id=$2 AND is_deleted=false`
 
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractID, ownerID).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in GetByIDAndOwner(id=%s, owner=%s): %v", contractID, ownerID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, contractID, ownerID), &c); err != nil {
+		return nil, contractErr(err)
 	}
-
-	return &contract, nil
+	return &c, nil
 }
 
 func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
-	query := `
-		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE id = $1 AND is_deleted = false
-	`
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE id=$1 AND is_deleted=false`
 
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractID).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in GetByID(id=%s): %v", contractID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, contractID), &c); err != nil {
+		return nil, contractErr(err)
 	}
-
-	return &contract, nil
+	return &c, nil
 }
 
-func (r *ContractRepository) GetByName(ctx context.Context, contractName string) (*models.Contract, error) {
-	query := `
-		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE name = $1 AND is_deleted = false
-	`
+func (r *ContractRepository) GetByName(ctx context.Context, name string) (*models.Contract, error) {
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE name=$1 AND is_deleted=false`
 
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractName).Scan(
-		&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-		&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-		&contract.CreatedAt, &contract.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in GetByName(name=%s): %v", contractName, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	var c models.Contract
+	if err := scanContract(r.pool.QueryRow(ctx, query, name), &c); err != nil {
+		return nil, contractErr(err)
 	}
-
-	return &contract, nil
+	return &c, nil
 }
 
-func (r *ContractRepository) GetByNameSlim(ctx context.Context, contractName string) (*models.Contract, error) {
-	query := `
-		SELECT id, name, latest_version, owner_id
-		FROM contracts WHERE name = $1 AND is_deleted = false
-	`
+func (r *ContractRepository) GetByNameSlim(ctx context.Context, name string) (*models.Contract, error) {
+	query := `SELECT id, name, latest_version, owner_id FROM contracts WHERE name=$1 AND is_deleted=false`
 
-	var contract models.Contract
-	err := r.pool.QueryRow(ctx, query, contractName).Scan(
-		&contract.ID, &contract.Name, &contract.LatestVersion, &contract.OwnerID,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractNotFound, err)
-		}
-		log.Printf("DB error in GetByNameSlim(name=%s): %v", contractName, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	var c models.Contract
+	if err := r.pool.QueryRow(ctx, query, name).Scan(&c.ID, &c.Name, &c.LatestVersion, &c.OwnerID); err != nil {
+		return nil, contractErr(err)
 	}
-
-	return &contract, nil
+	return &c, nil
 }
 
 func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error {
-	query := `UPDATE contracts SET is_deleted = true, updated_at = $1 WHERE id = $2`
-	_, err := r.pool.Exec(ctx, query, updatedAt, contractID)
+	_, err := r.pool.Exec(ctx,
+		`UPDATE contracts SET is_deleted=true, updated_at=$1 WHERE id=$2`,
+		updatedAt, contractID,
+	)
 	if err != nil {
-		log.Printf("DB error in SoftDelete(id=%s): %v", contractID, err)
-		return errors.NewInternalError(errors.MsgInternalError, err)
+		return contractErr(err)
 	}
 	return nil
 }
 
 func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
-	query := `
-		SELECT id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts 
-		WHERE owner_id = $1 AND is_deleted = false
-		ORDER BY created_at DESC
-	`
+	query := `SELECT ` + contractCols + `
+		FROM contracts WHERE owner_id=$1 AND is_deleted=false ORDER BY created_at DESC`
 
 	rows, err := r.pool.Query(ctx, query, ownerID)
 	if err != nil {
-		log.Printf("DB error in GetAllByOwner(owner=%s): %v", ownerID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		return nil, fmt.Errorf("query contracts by owner: %w", err)
 	}
 	defer rows.Close()
 
 	var contracts []*models.Contract
 	for rows.Next() {
-		var contract models.Contract
-		err := rows.Scan(
-			&contract.ID, &contract.Name, &contract.Description, &contract.ContentHash,
-			&contract.LatestVersion, &contract.OwnerID, &contract.IsPublic, &contract.IsDeleted,
-			&contract.CreatedAt, &contract.UpdatedAt,
-		)
-		if err != nil {
-			log.Printf("DB error scanning row in GetAllByOwner: %v", err)
-			return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		var c models.Contract
+		if err := scanContract(rows, &c); err != nil {
+			return nil, fmt.Errorf("scan contract: %w", err)
 		}
-		contracts = append(contracts, &contract)
+		contracts = append(contracts, &c)
 	}
-
 	if err := rows.Err(); err != nil {
-		log.Printf("DB error iterating rows in GetAllByOwner: %v", err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		return nil, fmt.Errorf("iterate contracts: %w", err)
 	}
-
 	return contracts, nil
 }
 
-// Contract Version operations
+func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
+	query := `INSERT INTO contract_versions (` + versionCols + `)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING ` + versionCols
 
-func (r *ContractRepository) CreateVersion(ctx context.Context, version *models.ContractVersion) error {
-	query := `
-		INSERT INTO contract_versions (id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
-	`
-
-	err := r.pool.QueryRow(ctx, query,
-		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
-		version.ContractID, version.CreatedBy, version.Graph, version.IsDeleted,
-		version.CreatedAt, version.UpdatedAt,
-	).Scan(
-		&version.ID, &version.Version, &version.Content, &version.YAMLContent, &version.ContentHash,
-		&version.ContractID, &version.CreatedBy, &version.Graph, &version.IsDeleted,
-		&version.CreatedAt, &version.UpdatedAt,
-	)
-
-	if err != nil {
-		log.Printf("DB error in CreateVersion(contractID=%s, version=%d): %v", version.ContractID, version.Version, err)
-		return errors.NewInternalError(errors.MsgInternalError, err)
+	if err := scanVersion(r.pool.QueryRow(ctx, query,
+		v.ID, v.Version, v.Content, v.YAMLContent, v.ContentHash,
+		v.ContractID, v.CreatedBy, v.Graph, v.IsDeleted,
+		v.CreatedAt, v.UpdatedAt,
+	), v); err != nil {
+		return versionErr(err)
 	}
-
 	return nil
 }
 
 func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
-	query := `
-		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
-		FROM contract_versions WHERE contract_id = $1 AND version = $2 AND is_deleted = false
-	`
+	query := `SELECT ` + versionCols + `
+		FROM contract_versions WHERE contract_id=$1 AND version=$2 AND is_deleted=false`
 
 	var v models.ContractVersion
-	err := r.pool.QueryRow(ctx, query, contractID, version).Scan(
-		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
-		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractVersionNotFound, err)
-		}
-		log.Printf("DB error in GetVersion(contractID=%s, version=%d): %v", contractID, version, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	if err := scanVersion(r.pool.QueryRow(ctx, query, contractID, version), &v); err != nil {
+		return nil, versionErr(err)
 	}
-
 	return &v, nil
 }
 
 func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
-	query := `
-		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
-		FROM contract_versions WHERE contract_id = $1 AND is_deleted = false
-		ORDER BY version DESC LIMIT 1
-	`
+	query := `SELECT ` + versionCols + `
+		FROM contract_versions WHERE contract_id=$1 AND is_deleted=false
+		ORDER BY version DESC LIMIT 1`
 
 	var v models.ContractVersion
-	err := r.pool.QueryRow(ctx, query, contractID).Scan(
-		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
-		&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, errors.NewNotFoundError(errors.MsgContractVersionNotFound, err)
-		}
-		log.Printf("DB error in GetLatestVersion(contractID=%s): %v", contractID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+	if err := scanVersion(r.pool.QueryRow(ctx, query, contractID), &v); err != nil {
+		return nil, versionErr(err)
 	}
-
 	return &v, nil
 }
 
 func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
-	query := `
-		SELECT id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at
-		FROM contract_versions 
-		WHERE contract_id = $1 AND is_deleted = false
-		ORDER BY version DESC
-	`
+	query := `SELECT ` + versionCols + `
+		FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC`
 
 	rows, err := r.pool.Query(ctx, query, contractID)
 	if err != nil {
-		log.Printf("DB error in GetAllVersions(contractID=%s): %v", contractID, err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		return nil, fmt.Errorf("query contract versions: %w", err)
 	}
 	defer rows.Close()
 
 	var versions []*models.ContractVersion
 	for rows.Next() {
 		var v models.ContractVersion
-		err := rows.Scan(
-			&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash, &v.ContractID,
-			&v.CreatedBy, &v.Graph, &v.IsDeleted, &v.CreatedAt, &v.UpdatedAt,
-		)
-		if err != nil {
-			log.Printf("DB error scanning row in GetAllVersions: %v", err)
-			return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		if err := scanVersion(rows, &v); err != nil {
+			return nil, fmt.Errorf("scan contract version: %w", err)
 		}
 		versions = append(versions, &v)
 	}
-
 	if err := rows.Err(); err != nil {
-		log.Printf("DB error iterating rows in GetAllVersions: %v", err)
-		return nil, errors.NewInternalError(errors.MsgInternalError, err)
+		return nil, fmt.Errorf("iterate versions: %w", err)
 	}
-
 	return versions, nil
 }
 
 func (r *ContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error {
-	query := `UPDATE contract_versions SET is_deleted = true, updated_at = $1 WHERE contract_id = $2 AND version = $3`
-	_, err := r.pool.Exec(ctx, query, updatedAt, contractID, version)
+	_, err := r.pool.Exec(ctx,
+		`UPDATE contract_versions SET is_deleted=true, updated_at=$1 WHERE contract_id=$2 AND version=$3`,
+		updatedAt, contractID, version,
+	)
 	if err != nil {
-		log.Printf("DB error in SoftDeleteVersion(contractID=%s, version=%d): %v", contractID, version, err)
-		return errors.NewInternalError(errors.MsgInternalError, err)
+		return fmt.Errorf("soft delete version: %w", err)
 	}
 	return nil
 }

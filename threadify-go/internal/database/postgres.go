@@ -14,22 +14,18 @@ type PostgresDB struct {
 func NewPostgresDB(connString string, maxConns int) (*PostgresDB, error) {
 	config, err := pgxpool.ParseConfig(connString)
 	if err != nil {
-		// Log internally but don't expose connection string details
-		fmt.Printf("Failed to parse database config: %v\n", err)
-		return nil, fmt.Errorf("failed to configure database connection")
+		return nil, fmt.Errorf("failed to configure database connection: %w", err)
 	}
 
 	config.MaxConns = int32(maxConns)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
-		fmt.Printf("Failed to create database pool: %v\n", err)
-		return nil, fmt.Errorf("failed to connect to database")
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	if err := pool.Ping(context.Background()); err != nil {
-		fmt.Printf("Failed to ping database: %v\n", err)
-		return nil, fmt.Errorf("failed to connect to database")
+		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
 	return &PostgresDB{Pool: pool}, nil
@@ -57,6 +53,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		email VARCHAR(255) UNIQUE NOT NULL,
 		company_id VARCHAR(255),
 		password_hash VARCHAR(255),
+		auth_user_id VARCHAR(255),
 		full_name VARCHAR(255),
 		job_role VARCHAR(255),
 		email_verified BOOLEAN DEFAULT FALSE,
@@ -67,7 +64,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-	);
+		);
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_user_id VARCHAR(255);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id) WHERE auth_user_id IS NOT NULL;
 	
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
@@ -129,7 +128,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
 		closed_at TIMESTAMP,
-		FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
@@ -152,13 +150,16 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		END IF;
 		
 		-- Add new constraint if it doesn't exist (references service_accounts)
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint 
-			WHERE conname = 'threads_owner_id_fkey'
-			AND confrelid = 'service_accounts'::regclass
-		) THEN
-			ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey 
-				FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+		-- IMPORTANT: to_regclass returns NULL if the table doesn't exist yet, avoiding errors on fresh DBs.
+		IF to_regclass('public.service_accounts') IS NOT NULL THEN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint 
+				WHERE conname = 'threads_owner_id_fkey'
+				AND confrelid = to_regclass('public.service_accounts')
+			) THEN
+				ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey 
+					FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+			END IF;
 		END IF;
 	END $$;
 
@@ -220,11 +221,15 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		status TEXT,
 		started_at TIMESTAMP,
 		finished_at TIMESTAMP,
+		metadata JSONB,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 
 	-- Migration: Add content_hash column if it doesn't exist (for existing databases)
 	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS content_hash TEXT;
+	
+	-- Migration: Add metadata column if it doesn't exist (for SDK metadata from threadify_metadata)
+	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS metadata JSONB;
 
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_thread_id ON thread_activities(thread_id, recorded_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_activity_type ON thread_activities(activity_type);
@@ -235,6 +240,11 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_prev_hash ON thread_activities(prev_hash);
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_content_hash ON thread_activities(content_hash) WHERE content_hash IS NOT NULL;
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_status ON thread_activities(status);
+	
+	-- GIN index for metadata JSONB column (for efficient querying of SDK metadata)
+	CREATE INDEX IF NOT EXISTS idx_thread_activities_metadata_gin 
+		ON thread_activities USING gin(metadata) 
+		WHERE metadata IS NOT NULL;
 	
 	-- Composite indexes for actor-based thread queries (critical for GraphQL performance)
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_actor_thread 
@@ -433,8 +443,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		name VARCHAR(255) NOT NULL,
 		status VARCHAR(50) NOT NULL,
 		payload JSONB,
-		recorded_at TIMESTAMP NOT NULL,
-		created_at TIMESTAMP DEFAULT NOW()
+		recorded_at TIMESTAMP(6) NOT NULL,
+		created_at TIMESTAMP(6) DEFAULT NOW()
 	);
 
 	-- Migration: Rename substep_name to name for existing databases
@@ -451,6 +461,32 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Drop FK constraint if it exists (for existing databases)
 	ALTER TABLE step_substeps DROP CONSTRAINT IF EXISTS step_substeps_thread_id_fkey;
 
+	-- Migration: Update timestamp columns to use microsecond precision
+	DO $$ 
+	BEGIN
+		-- Update recorded_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'step_substeps' 
+			AND column_name = 'recorded_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE step_substeps ALTER COLUMN recorded_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update created_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'step_substeps' 
+			AND column_name = 'created_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE step_substeps ALTER COLUMN created_at TYPE TIMESTAMP(6);
+		END IF;
+	END $$;
+
 	CREATE INDEX IF NOT EXISTS idx_substeps_step_id ON step_substeps(step_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_thread_id ON step_substeps(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_substeps_recorded_at ON step_substeps(recorded_at DESC);
@@ -466,11 +502,13 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		retry_count INT NOT NULL DEFAULT 0,    -- Number of retries
 		actor_service VARCHAR(255),      						-- actor service from step activities
 		latest_context JSONB,      												-- latest context from step activities
-		first_seen_at TIMESTAMP NOT NULL,      -- First time step was seen
-		last_updated_at TIMESTAMP NOT NULL,    -- Last update timestamp
+		first_seen_at TIMESTAMP(6) NOT NULL,      -- First time step was seen
+		last_updated_at TIMESTAMP(6) NOT NULL,    -- Last update timestamp
+		started_at TIMESTAMP(6),                  -- When step execution started
+		finished_at TIMESTAMP(6),                 -- When step execution finished
 		previous_step VARCHAR(255),            -- Previous step name for transition tracking
 		actor VARCHAR(255),                    -- User who recorded this step (for .own permission filtering)
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
 		UNIQUE(thread_id, step_name, idempotency_key)
 	);
 
@@ -480,6 +518,69 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Add actor_service and latest_context columns (migration for step state archival)
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS actor_service VARCHAR(255);
 	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS latest_context JSONB;
+	
+	-- Add started_at and finished_at columns (migration for timing data)
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS started_at TIMESTAMP(6);
+	ALTER TABLE thread_step_states ADD COLUMN IF NOT EXISTS finished_at TIMESTAMP(6);
+
+	-- Migration: Update existing timestamp columns to use microsecond precision
+	DO $$ 
+	BEGIN
+		-- Update first_seen_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'first_seen_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN first_seen_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update last_updated_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'last_updated_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN last_updated_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update started_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'started_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN started_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update finished_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'finished_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN finished_at TYPE TIMESTAMP(6);
+		END IF;
+
+		-- Update created_at column type
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = 'thread_step_states' 
+			AND column_name = 'created_at' 
+			AND data_type = 'timestamp without time zone'
+			AND datetime_precision IS DISTINCT FROM 6
+		) THEN
+			ALTER TABLE thread_step_states ALTER COLUMN created_at TYPE TIMESTAMP(6);
+		END IF;
+	END $$;
 
 	-- CRITICAL: GraphQL thread.steps() query - most common access pattern
 	CREATE INDEX IF NOT EXISTS idx_step_states_thread_step 
@@ -570,11 +671,16 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		code VARCHAR(255) NOT NULL,
 		expires_at TIMESTAMP NOT NULL,
 		verified BOOLEAN NOT NULL DEFAULT FALSE,
+		invalidated BOOLEAN NOT NULL DEFAULT FALSE,
+		attempt_count INTEGER NOT NULL DEFAULT 0,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+	ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS invalidated BOOLEAN NOT NULL DEFAULT FALSE;
+	ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
 
 	CREATE INDEX IF NOT EXISTS idx_otp_codes_email ON otp_codes(email);
 	CREATE INDEX IF NOT EXISTS idx_otp_codes_expires ON otp_codes(expires_at);
+	CREATE INDEX IF NOT EXISTS idx_otp_codes_active ON otp_codes(email, verified, invalidated, expires_at, created_at DESC);
 
 	-- Service accounts table (for API access)
 	CREATE TABLE IF NOT EXISTS service_accounts (
@@ -590,6 +696,22 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
 		FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 	);
+
+	-- Ensure threads.owner_id references service_accounts when possible.
+	-- (threads table may be created before service_accounts on fresh DB init)
+	DO $$
+	BEGIN
+		IF to_regclass('public.threads') IS NOT NULL AND to_regclass('public.service_accounts') IS NOT NULL THEN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conname = 'threads_owner_id_fkey'
+				AND confrelid = to_regclass('public.service_accounts')
+			) THEN
+				ALTER TABLE threads ADD CONSTRAINT threads_owner_id_fkey
+					FOREIGN KEY (owner_id) REFERENCES service_accounts(id) ON DELETE SET NULL;
+			END IF;
+		END IF;
+	END $$;
 
 	CREATE INDEX IF NOT EXISTS idx_service_accounts_company ON service_accounts(company_id);
 	CREATE INDEX IF NOT EXISTS idx_service_accounts_company_id ON service_accounts(company_id);
@@ -663,12 +785,77 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
 	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	-- Agent AI Chat tables
+	CREATE TABLE IF NOT EXISTS agent_conversations (
+		id VARCHAR(255) PRIMARY KEY,
+		user_id VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
+		title TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		updated_at TIMESTAMP NOT NULL
+	);
+
+	-- Add message_count and token_count columns if they don't exist
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='message_count') THEN
+			ALTER TABLE agent_conversations ADD COLUMN message_count INT DEFAULT 0;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='token_count') THEN
+			ALTER TABLE agent_conversations ADD COLUMN token_count INT DEFAULT 0;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='agent_conversations' AND column_name='parent_conversation_id') THEN
+			ALTER TABLE agent_conversations ADD COLUMN parent_conversation_id VARCHAR(255);
+		END IF;
+	END $$;
+
+	CREATE TABLE IF NOT EXISTS agent_messages (
+		id VARCHAR(255) PRIMARY KEY,
+		conversation_id VARCHAR(255) NOT NULL,
+		role VARCHAR(50) NOT NULL,
+		content TEXT,
+		tool_calls TEXT,
+		tool_call_id VARCHAR(255),
+		created_at TIMESTAMP NOT NULL,
+		FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS agent_context (
+		id VARCHAR(255) PRIMARY KEY,
+		conversation_id VARCHAR(255) NOT NULL,
+		context_key VARCHAR(255) NOT NULL,
+		context_value TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_conversations_user ON agent_conversations(user_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_context_conversation ON agent_context(conversation_id);
+
+	-- Outbox Pattern tables
+	CREATE TABLE IF NOT EXISTS outbox_events (
+		id UUID PRIMARY KEY,
+		type VARCHAR(255) NOT NULL,
+		payload BYTEA NOT NULL,
+		status VARCHAR(50) NOT NULL DEFAULT 'pending',
+		retry_count INT DEFAULT 0,
+		max_retries INT DEFAULT 5,
+		next_run_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		error_log TEXT,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_outbox_events_status_next_run 
+		ON outbox_events(status, next_run_at) 
+		WHERE status IN ('pending', 'failed');	
+
+	ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS reference_id TEXT;
+	CREATE INDEX IF NOT EXISTS idx_outbox_reference_id ON outbox_events(reference_id);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }

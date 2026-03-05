@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/models"
@@ -150,27 +152,43 @@ func (r *ActivityRepository) GetActivityLog(ctx context.Context, threadID string
 	return activities, nil
 }
 
-// VerifyActivityChain verifies the cryptographic integrity of a thread's activity log hash chain
-// Returns status with details about verification, including any tampering detected
+// activityRow holds the fields of a single step_recorded activity needed for chain verification.
+type activityRow struct {
+	hash        string
+	prevHash    string // empty string means genesis
+	threadID    string
+	stepUUID    string
+	stepName    string
+	contentHash string
+	recordedAt  time.Time
+}
+
+// VerifyActivityChain verifies the cryptographic integrity of a thread's activity log hash chain.
+//
+// IMPORTANT: it must NOT rely on recorded_at ordering to reconstruct chain sequence.
+// With concurrent writers, multiple rows can be committed within microseconds of each
+// other, meaning recorded_at order can differ from hash-chain order. Instead we load
+// all rows into a map keyed by hash and walk the chain by following prev_hash links
+// from the genesis event — exactly mirroring how the chain was originally built.
 func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID string) (*models.HashChainStatus, error) {
 	status := &models.HashChainStatus{
 		Verified:       true,
 		LastVerifiedAt: time.Now(),
 	}
 
+	// Load every step_recorded row for this thread.
 	query := `
 		SELECT 
 			hash, 
-			prev_hash, 
+			COALESCE(prev_hash, '') as prev_hash,
 			thread_id,
-			payload->>'step_uuid' as step_uuid,
-			payload->>'step_name' as step_name,
-			content_hash,
+			COALESCE(payload->>'step_uuid', '') as step_uuid,
+			COALESCE(payload->>'step_name', '') as step_name,
+			COALESCE(content_hash, '') as content_hash,
 			recorded_at
 		FROM thread_activities 
 		WHERE thread_id = $1 
 		AND activity_type = 'step_recorded'
-		ORDER BY recorded_at ASC
 	`
 
 	rows, err := r.pool.Query(ctx, query, threadID)
@@ -179,98 +197,114 @@ func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID s
 	}
 	defer rows.Close()
 
-	var prevHash string
-	eventCount := 0
+	// Build two maps:
+	//   byPrevHash  – keyed by prevHash so we can walk forward from ""
+	//   byHash      – keyed by hash for quick lookup / cycle detection
+	byPrevHash := make(map[string]*activityRow)
+	byHash := make(map[string]*activityRow)
+	totalRows := 0
 
 	for rows.Next() {
-		var storedHash, storedPrevHash, tid, stepUUID, stepName, contentHash sql.NullString
+		var storedHash, storedPrevHash, tid, stepUUID, stepName, contentHash string
 		var recordedAt time.Time
 
 		if err := rows.Scan(&storedHash, &storedPrevHash, &tid, &stepUUID, &stepName, &contentHash, &recordedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+		totalRows++
 
-		eventCount++
-
-		// Handle NULL values
-		if !storedHash.Valid || !tid.Valid {
-			continue
-		}
-
-		// Check hash format
-		if !strings.HasPrefix(storedHash.String, "hmac-sha256-") {
-			// Old format (sha256:...) - can't verify, mark as unverified
-			// No error, no brokenAt - just unverifiable
+		// Validate hash format early; if any row isn't the new HMAC format we
+		// can't verify the whole chain.
+		if !strings.HasPrefix(storedHash, "hmac-sha256-") {
 			status.Verified = false
-			status.TotalEvents = eventCount
+			status.TotalEvents = totalRows
 			return status, nil
 		}
 
-		// Parse version from new format (e.g., "hmac-sha256-v1:abc...")
-		parts := strings.Split(storedHash.String, ":")
-		if len(parts) != 2 {
-			status.Verified = false
-			status.TotalEvents = eventCount
-			return status, nil
+		row := &activityRow{
+			hash:        storedHash,
+			prevHash:    storedPrevHash,
+			threadID:    tid,
+			stepUUID:    stepUUID,
+			stepName:    stepName,
+			contentHash: contentHash,
+			recordedAt:  recordedAt,
 		}
-
-		version := strings.TrimPrefix(parts[0], "hmac-sha256-")
-		secret := r.config.Security.HashChainSecrets[version]
-
-		if secret == "" {
-			// Secret version not found - can't verify
-			status.Verified = false
-			status.TotalEvents = eventCount
-			return status, nil
-		}
-
-		// Recalculate HMAC with the secret for this version
-		h := hmac.New(sha256.New, []byte(secret))
-		hashData := fmt.Sprintf("%s:%s:%s:%s:%s:%s",
-			prevHash,
-			tid.String,
-			stepUUID.String,
-			stepName.String,
-			contentHash.String,
-			recordedAt.Format(time.RFC3339Nano))
-		h.Write([]byte(hashData))
-		expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
-
-		// Verify stored hash matches calculated hash
-		if storedHash.String != expectedHash {
-			// Actual tampering detected
-			status.Verified = false
-			status.BrokenAt = &recordedAt
-			errMsg := "Hash tampering detected"
-			status.Error = &errMsg
-			status.TotalEvents = eventCount
-			return status, nil
-		}
-
-		// Verify prev_hash links to previous event
-		prevHashStr := ""
-		if storedPrevHash.Valid {
-			prevHashStr = storedPrevHash.String
-		}
-
-		if prevHashStr != prevHash {
-			// Chain broken
-			status.Verified = false
-			status.BrokenAt = &recordedAt
-			errMsg := "Chain broken (missing/reordered event)"
-			status.Error = &errMsg
-			status.TotalEvents = eventCount
-			return status, nil
-		}
-
-		prevHash = storedHash.String
+		byPrevHash[storedPrevHash] = row
+		byHash[storedHash] = row
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows error: %w", err)
 	}
 
-	status.TotalEvents = eventCount
+	if totalRows == 0 {
+		status.TotalEvents = 0
+		return status, nil
+	}
+
+	// Walk the chain starting from the genesis event (prevHash == "").
+	prevHash := ""
+	eventCount := 0
+
+	for {
+		row, ok := byPrevHash[prevHash]
+		if !ok {
+			// No successor found. If we visited all rows the chain is complete;
+			// if not, some events are missing/disconnected.
+			break
+		}
+
+		eventCount++
+
+		// Validate secret version.
+		parts := strings.Split(row.hash, ":")
+		if len(parts) != 2 {
+			status.Verified = false
+			status.TotalEvents = eventCount
+			return status, nil
+		}
+		version := strings.TrimPrefix(parts[0], "hmac-sha256-")
+		secret := r.config.Security.HashChainSecrets[version]
+		if secret == "" {
+			status.Verified = false
+			status.TotalEvents = eventCount
+			return status, nil
+		}
+
+		// Recompute HMAC and compare.
+		h := hmac.New(sha256.New, []byte(secret))
+		hashData := fmt.Sprintf("%s:%s:%s:%s:%s:%s",
+			prevHash,
+			row.threadID,
+			row.stepUUID,
+			row.stepName,
+			row.contentHash,
+			row.recordedAt.UTC().Format(time.RFC3339Nano))
+		h.Write([]byte(hashData))
+		expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
+
+		if row.hash != expectedHash {
+			t := row.recordedAt
+			status.Verified = false
+			status.BrokenAt = &t
+			errMsg := "Hash tampering detected"
+			status.Error = &errMsg
+			status.TotalEvents = eventCount
+			return status, nil
+		}
+
+		prevHash = row.hash
+	}
+
+	// If we traversed fewer events than exist in the DB the chain has gaps.
+	if eventCount != totalRows {
+		status.Verified = false
+		errMsg := fmt.Sprintf("Chain incomplete: traversed %d of %d events (disconnected or duplicate prev_hash)", eventCount, totalRows)
+		status.Error = &errMsg
+	}
+
+	status.TotalEvents = totalRows
 	return status, nil
 }
 
@@ -344,7 +378,7 @@ func (r *ActivityRepository) VerifyStepHash(ctx context.Context, threadID, stepN
 		stepUUID.String,
 		storedStepName.String,
 		contentHash.String,
-		recordedAt.Format(time.RFC3339Nano))
+		recordedAt.UTC().Format(time.RFC3339Nano))
 	h.Write([]byte(hashData))
 	expectedHash := fmt.Sprintf("hmac-sha256-%s:%x", version, h.Sum(nil))
 
@@ -378,7 +412,7 @@ func (r *ActivityRepository) GetStepHashes(ctx context.Context, threadID, stepNa
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes: %w", err)
@@ -418,7 +452,7 @@ func (r *ActivityRepository) GetStepHashesByID(ctx context.Context, threadID, st
 		&storedHash, &storedPrevHash,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", nil // Step not found, return empty hashes
 		}
 		return "", "", fmt.Errorf("failed to query step hashes by ID: %w", err)

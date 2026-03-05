@@ -14,8 +14,8 @@ import (
 //go:embed lua/grant_or_update_access.lua
 var grantOrUpdateAccessScript string
 
-//go:embed lua/check_user_rate_limit.lua
-var checkUserRateLimitScript string
+//go:embed lua/check_company_rate_limit.lua
+var checkCompanyRateLimitScript string
 
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
@@ -35,8 +35,8 @@ func NewLuaScriptManager(valkeyClient interfaces.ValkeyClient) *LuaScriptManager
 // Should be called once during application startup
 func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	scripts := map[string]string{
-		"grant_or_update_access": grantOrUpdateAccessScript,
-		"check_user_rate_limit":  checkUserRateLimitScript,
+		"grant_or_update_access":   grantOrUpdateAccessScript,
+		"check_company_rate_limit": checkCompanyRateLimitScript,
 	}
 
 	for name, script := range scripts {
@@ -56,20 +56,19 @@ func (m *LuaScriptManager) GetScriptHash(name string) (string, bool) {
 	return hash, exists
 }
 
-// CheckUserRateLimit executes the check_user_rate_limit Lua script atomically
 // Returns true if request is allowed, false if rate limit exceeded
-func (m *LuaScriptManager) CheckUserRateLimit(
+func (m *LuaScriptManager) CheckCompanyRateLimit(
 	ctx context.Context,
-	userID string,
+	companyID string,
 	requestsPerMinute int,
 	windowSeconds int,
 ) (bool, error) {
-	scriptHash, exists := m.scriptHashes["check_user_rate_limit"]
+	scriptHash, exists := m.scriptHashes["check_company_rate_limit"]
 	if !exists {
-		return false, fmt.Errorf("script check_user_rate_limit not loaded")
+		return false, fmt.Errorf("script check_company_rate_limit not loaded")
 	}
 
-	key := fmt.Sprintf("ratelimit:user:%s", userID)
+	key := fmt.Sprintf("ratelimit:company:%s", companyID)
 	nowUnix := time.Now().Unix()
 	windowStart := nowUnix - int64(windowSeconds)
 	ttl := windowSeconds * 2 // TTL = 2x window for cleanup
@@ -84,7 +83,7 @@ func (m *LuaScriptManager) CheckUserRateLimit(
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
 	if err != nil {
-		return false, fmt.Errorf("failed to execute check_user_rate_limit: %w", err)
+		return false, fmt.Errorf("failed to execute check_company_rate_limit: %w", err)
 	}
 
 	// Result is 1 (allowed) or 0 (denied)

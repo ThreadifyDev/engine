@@ -14,6 +14,8 @@ type StepStateInfo struct {
 	RetryCount     int       `json:"retryCount"`
 	FirstSeenAt    time.Time `json:"firstSeenAt"`
 	LastUpdatedAt  time.Time `json:"lastUpdatedAt"`
+	StartedAt      *string   `json:"startedAt,omitempty"`  // When step execution started (pointer for optional field)
+	FinishedAt     *string   `json:"finishedAt,omitempty"` // When step execution finished (pointer for optional field)
 	LatestStepID   string    `json:"latestStepID"`
 	PreviousStep   string    `json:"previousStep"`  // "stepName:idempKey" or empty
 	Actor          string    `json:"actor"`         // User who recorded this step (for .own permission filtering)
@@ -50,11 +52,11 @@ type StepHistory struct {
 	Duration     int    `json:"duration"`
 	StartedAt    string `json:"startedAt,omitempty"`  // When step execution started
 	FinishedAt   string `json:"finishedAt,omitempty"` // When step execution finished
-	Error        string `json:"error,omitempty"`
-	Actor        string `json:"actor"`        // User/owner who triggered this step
-	ActorService string `json:"actorService"` // Service that executed this step
-	CompanyId    string `json:"companyId"`    // Company that owns the thread
-	CompanyName  string `json:"companyName"`  // Company name for display
+	Metadata     string `json:"metadata,omitempty"`   // SDK metadata from threadify_metadata (JSONB as string)
+	Actor        string `json:"actor"`                // User/owner who triggered this step
+	ActorService string `json:"actorService"`         // Service that executed this step
+	CompanyId    string `json:"companyId"`            // Company that owns the thread
+	CompanyName  string `json:"companyName"`          // Company name for display
 	Hash         string `json:"hash,omitempty"`
 	PrevHash     string `json:"prevHash,omitempty"`
 }

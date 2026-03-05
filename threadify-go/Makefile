@@ -1,6 +1,7 @@
 .PHONY: help build run test clean docker-up docker-down install lint fmt generate-graphql build-web-api build-web-ui build-docs push-web-api push-web-ui push-docs
 
-VERSION := $(shell git describe --tags --always)
+# Only match tags starting with 'v' to exclude SDK tags
+VERSION := $(shell git describe --tags --always --match "v*" 2>/dev/null || git rev-parse --short HEAD)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -18,13 +19,13 @@ generate-graphql: ## Generate GraphQL code from schema
 build: generate-graphql ## Build the server binary
 	@echo "Building server..."
 	@mkdir -p bin
-	go build -o bin/server cmd/server/main.go
+	go build -o bin/server ./cmd/server
 	@echo "✓ Binary created at bin/server"
 
 run: ## Run the server
 	@echo "Killing any process on port 8081..."
 	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
-	go build -o bin/server cmd/server/main.go
+	go build -o bin/server ./cmd/server/main.go ./cmd/server/mcp_server.go
 	./bin/server
 
 run-archiver: ## Build and run the archiver binary
@@ -41,7 +42,7 @@ build-api: ## Build the Web API binary
 	cd api && go build -o ../bin/api cmd/server/main.go
 	@echo "✓ Binary created at bin/api"
 
-run-api: ## Run the Web API server
+run-api: ## Run the Web API server (includes outbox worker in-process)
 	@echo "Killing any process on port 3001..."
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 	make build-api
@@ -67,7 +68,7 @@ clean: ## Clean build artifacts
 	rm -f coverage.out coverage.html
 
 docker-up: ## Start PostgreSQL and Redis
-	docker-compose up -d postgres redis
+	docker-compose up -d
 
 docker-down: ## Stop all containers
 	docker-compose down

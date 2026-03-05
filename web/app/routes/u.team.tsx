@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
+import Alert from '~/components/Alert';
 
 export default function Team() {
   const navigate = useNavigate();
@@ -85,11 +86,7 @@ export default function Team() {
           </button>
         </div>
 
-        {error && (
-          <div className="bg-black text-white px-4 py-3 mb-6">
-            {error}
-          </div>
-        )}
+        {error && <Alert type="error" message={error} className="mb-6" />}
 
         {loading ? (
           <div className="text-center py-12">

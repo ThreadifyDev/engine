@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,10 +21,31 @@ import (
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/utils"
 )
 
-// upgrader will be initialized with config values
+const (
+	ActionConnect           = "connect"
+	ActionStartThread       = "startThread"
+	ActionRecordThreadEvent = "recordThreadEvent"
+	ActionAddRefs           = "addRefs"
+	ActionCloseConnection   = "closeConnection"
+	ActionInviteParty       = "inviteParty"
+	ActionJoinThread        = "joinThread"
+	ActionAckNotification   = "ack_notification"
+	ActionSubscribe         = "subscribe"
+	ActionUnsubscribe       = "unsubscribe"
+	ActionCloseThread       = "closeThread"
+	ActionThreadEnd         = "threadEnd"
+)
+
+const (
+	StatusSuccess = "success"
+	StatusError   = "error"
+
+	ThreadStatusCancelled = string(models.ThreadStatusCancelled)
+	ThreadStatusCompleted = string(models.ThreadStatusCompleted)
+)
+
 var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
@@ -36,6 +59,7 @@ type WebSocketHandler struct {
 	luaScriptManager     interfaces.LuaScriptManager
 	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
+	logger               *zap.Logger
 }
 
 type WSSession struct {
@@ -44,27 +68,37 @@ type WSSession struct {
 	ownerID   string
 	companyID string
 	threadIDs []string
+	ctx       context.Context
 	mu        sync.Mutex
-	sendMu    sync.Mutex // Protects WebSocket writes
+	sendMu    sync.Mutex
 }
 
-// NotificationACKMessage represents a client ACK message
 type NotificationACKMessage struct {
 	Action         string `json:"action"`
 	NotificationID string `json:"notification_id"`
 	ThreadID       string `json:"thread_id"`
 	Processed      bool   `json:"processed"`
-	AckToken       string `json:"ackToken"` // Opaque token for stateless ACK (base64 encoded)
+	AckToken       string `json:"ackToken"`
 }
 
-func NewWebSocketHandler(threadService *service.ThreadService, stepEventService *service.StepEventService, invitationService *service.InvitationTokenService, notificationConsumer *service.NotificationConsumer, notificationRouter *NotificationRouter, valkeyClient interfaces.ValkeyClient, luaScriptManager interfaces.LuaScriptManager, rateLimitConfig *config.RateLimitConfig, websocketConfig *config.WebSocketConfig) *WebSocketHandler {
-	// Initialize upgrader with config values
+func NewWebSocketHandler(
+	threadService *service.ThreadService,
+	stepEventService *service.StepEventService,
+	invitationService *service.InvitationTokenService,
+	notificationConsumer *service.NotificationConsumer,
+	notificationRouter *NotificationRouter,
+	valkeyClient interfaces.ValkeyClient,
+	luaScriptManager interfaces.LuaScriptManager,
+	rateLimitConfig *config.RateLimitConfig,
+	websocketConfig *config.WebSocketConfig,
+	logger *zap.Logger,
+) *WebSocketHandler {
 	upgrader = websocket.Upgrader{
 		CheckOrigin:       func(r *http.Request) bool { return true },
 		HandshakeTimeout:  time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
 		ReadBufferSize:    websocketConfig.ReadBufferSize,
 		WriteBufferSize:   websocketConfig.WriteBufferSize,
-		EnableCompression: true, // Enable per-message compression (reduces bandwidth by 60-80%)
+		EnableCompression: true,
 	}
 
 	return &WebSocketHandler{
@@ -77,24 +111,22 @@ func NewWebSocketHandler(threadService *service.ThreadService, stepEventService 
 		luaScriptManager:     luaScriptManager,
 		rateLimitConfig:      rateLimitConfig,
 		websocketConfig:      websocketConfig,
+		logger:               logger,
 	}
 }
-
-// Helper function to check if threadID exists in slice
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println("Upgrade error:", err)
+		h.logger.Error("websocket upgrade error", zap.Error(err))
 		return
 	}
 	defer conn.Close()
 
-	// Generate unique session ID
-	sessionID := uuid.New().String()
 	session := &WSSession{
 		conn:      conn,
-		sessionID: sessionID,
+		sessionID: uuid.New().String(),
+		ctx:       c.Request.Context(),
 	}
 
 	for {
@@ -102,17 +134,11 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		if err := conn.ReadJSON(&msg); err != nil {
 			break
 		}
-
 		action, _ := msg["action"].(string)
-		response := h.handleMessage(action, msg, session)
-
-		// Use session.SendMessage for thread-safe writes
-		if err := session.SendMessage(response); err != nil {
+		if err := session.SendMessage(h.handleMessage(action, msg, session)); err != nil {
 			break
 		}
-
-		// Check if this was a close connection request
-		if action == "closeConnection" {
+		if action == ActionCloseConnection {
 			break
 		}
 	}
@@ -120,467 +146,275 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)
 		h.threadService.HandleClose(session.ownerID)
-
-		// Unsubscribe from all notifications (old consumer)
 		h.unsubscribeFromNotifications(session)
 
-		// Disconnect from notification router (delete consumer)
 		if h.notificationRouter != nil {
 			if err := h.notificationRouter.HandleDisconnect(session.sessionID); err != nil {
-				log.Printf("Failed to disconnect session %s: %v", session.sessionID, err)
+				h.logger.Warn("failed to disconnect notification session",
+					zap.String("session_id", session.sessionID), zap.Error(err))
 			}
 		}
 	}
 }
 
 func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
-	// Track WebSocket message handling latency
 	wsStart := perf.Now()
 	sessionID := session.sessionID
-	if sessionID == "" {
-		sessionID = "unknown"
-	}
-	perf.Log("[PERF] WebSocket START: action=%s | session=%s", action, sessionID)
 
 	defer func() {
 		duration := perf.Since(wsStart)
-		perf.Log("[PERF] WebSocket COMPLETE: action=%s | session=%s | duration=%v", action, sessionID, duration)
-
-		// Record metrics
 		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
 	}()
 
 	msgBytes, _ := json.Marshal(msg)
 
-	// Rate limit authenticated WebSocket messages (skip "connect" action)
-	if action != "connect" && session.ownerID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		rateLimitStart := perf.Now()
-		allowed, err := h.luaScriptManager.CheckUserRateLimit(
+	if action != ActionConnect && session.companyID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
+		allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
 			context.Background(),
-			session.ownerID,
+			session.companyID,
 			h.rateLimitConfig.PerUser.RequestsPerMinute,
 			h.rateLimitConfig.PerUser.WindowSeconds,
 		)
-		rateLimitDuration := perf.Since(rateLimitStart)
-		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | duration=%v | allowed=%t", action, sessionID, rateLimitDuration, allowed)
-
 		if err == nil && !allowed {
-			perf.Log("[PERF] WebSocket RATE_LIMIT_EXCEEDED: action=%s | session=%s", action, sessionID)
 			return models.ErrorResponse{
 				Action:  action,
-				Status:  "error",
+				Status:  StatusError,
 				Message: "Rate limit exceeded. Please slow down.",
 			}
 		}
-	} else {
-		perf.Log("[PERF] WebSocket RATE_LIMIT: action=%s | session=%s | SKIPPED", action, sessionID)
 	}
 
-	var response interface{}
 	switch action {
-	case "connect":
-		connectStart := perf.Now()
+	case ActionConnect:
 		var req models.ConnectRequest
-		json.Unmarshal(msgBytes, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
 		resp := h.threadService.HandleConnect(&req)
-		connectDuration := perf.Since(connectStart)
-		perf.Log("[PERF] WebSocket CONNECT: session=%s | duration=%v | success=%t", sessionID, connectDuration, resp.Status == "success")
 
-		if resp.Status == "success" {
+		if resp.Status == StatusSuccess {
 			session.mu.Lock()
 			session.ownerID = resp.OwnerID
 			session.companyID = resp.CompanyID
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session)
 
-			// Create NATS consumer and start push for this session
 			if h.notificationRouter != nil {
-				// Use client-specified maxInFlight with validation from config
 				maxInFlight := req.MaxInFlight
 				if maxInFlight < 1 || maxInFlight > h.websocketConfig.MaxInFlightMax {
 					maxInFlight = h.websocketConfig.MaxInFlightDefault
 				}
 				if err := h.notificationRouter.HandleConnect(session.sessionID, resp.OwnerID, maxInFlight, session.conn, &session.sendMu); err != nil {
-					// Failed to create session consumer (non-fatal)
-					perf.Log("[PERF] WebSocket NATS_SETUP_FAILED: session=%s | error=%v", sessionID, err)
-				} else {
-					perf.Log("[PERF] WebSocket NATS_SETUP: session=%s | success", sessionID)
+					perf.LogStructured("WebSocket NATS_SETUP_FAILED", zap.String("session", sessionID), zap.Error(err))
 				}
 			}
 		}
-		response = resp
+		return resp
 
-	case "startThread":
+	case ActionStartThread:
 		var req models.StartThreadRequest
-		json.Unmarshal(msgBytes, &req)
-		response = h.threadService.HandleStartThread(&req, session.ownerID, session.companyID)
-
-		// Add created thread to session's threadIDs
-		if startResp, ok := response.(*models.StartThreadResponse); ok && startResp.Status == "success" {
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		resp := h.threadService.HandleStartThread(session.ctx, &req, session.ownerID, session.companyID)
+		if resp.Status == StatusSuccess {
 			session.mu.Lock()
-			if !utils.Contains(session.threadIDs, startResp.ThreadID) {
-				session.threadIDs = append(session.threadIDs, startResp.ThreadID)
+			if !slices.Contains(session.threadIDs, resp.ThreadID) {
+				session.threadIDs = append(session.threadIDs, resp.ThreadID)
 			}
 			session.mu.Unlock()
-
-			// Record metrics
 			metrics.ThreadsCreated.Inc()
-			metrics.RequestsTotal.WithLabelValues("startThread", "success").Inc()
+			metrics.RequestsTotal.WithLabelValues(ActionStartThread, StatusSuccess).Inc()
 		} else {
-			metrics.RequestsTotal.WithLabelValues("startThread", "error").Inc()
+			metrics.RequestsTotal.WithLabelValues(ActionStartThread, StatusError).Inc()
 		}
+		return resp
 
-	case "recordThreadEvent":
+	case ActionRecordThreadEvent:
 		var req models.RecordEventRequest
-		json.Unmarshal(msgBytes, &req)
-		response = h.threadService.HandleRecordEvent(&req, session.ownerID, session.companyID)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.threadService.HandleRecordEvent(session.ctx, &req, session.ownerID, session.companyID)
 
-	case "addRefs":
+	case ActionAddRefs:
 		var req models.AddRefsRequest
-		json.Unmarshal(msgBytes, &req)
-		response = h.threadService.HandleAddRefs(&req, session.ownerID)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.threadService.HandleAddRefs(session.ctx, &req, session.ownerID)
 
-	case "closeConnection":
-		// Don't call HandleClose here - it will be called after loop exits
-		// Just return success response and let the loop break
-		response = &models.CloseConnectionResponse{
-			Action:  "closeConnection",
-			Status:  "success",
+	case ActionCloseConnection:
+		return &models.CloseConnectionResponse{
+			Action:  ActionCloseConnection,
+			Status:  StatusSuccess,
 			Message: "Connection will be closed",
 		}
 
-	case "inviteParty":
+	case ActionInviteParty:
 		var req models.InvitePartyRequest
-		json.Unmarshal(msgBytes, &req)
-		response = h.handleInviteParty(session, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.handleInviteParty(session, &req)
 
-	case "joinThread":
+	case ActionJoinThread:
 		var req models.JoinThreadRequest
-		json.Unmarshal(msgBytes, &req)
-		response = h.handleJoinThread(session, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.handleJoinThread(session, &req)
 
-	case "ack_notification":
+	case ActionAckNotification:
 		var ackMsg NotificationACKMessage
-		json.Unmarshal(msgBytes, &ackMsg)
-		response = h.handleNotificationAck(session, &ackMsg)
+		json.Unmarshal(msgBytes, &ackMsg) //nolint:errcheck
+		return h.handleNotificationAck(session, &ackMsg)
 
-	case "subscribe":
+	case ActionSubscribe:
 		var req struct {
-			Action     string   `json:"action"`
 			StepName   string   `json:"stepName"`
 			EventTypes []string `json:"eventTypes"`
 		}
-		json.Unmarshal(msgBytes, &req)
-		response = h.handleSubscribe(session, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.handleSubscribe(session, req.StepName)
 
-	case "unsubscribe":
+	case ActionUnsubscribe:
 		var req struct {
-			Action   string `json:"action"`
 			StepName string `json:"stepName"`
 		}
-		json.Unmarshal(msgBytes, &req)
-		response = h.handleUnsubscribe(session, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		if req.StepName == "" {
+			return models.ErrorResponse{Action: ActionUnsubscribe, Status: StatusError, Message: "Step name is required"}
+		}
+		return map[string]interface{}{"action": ActionUnsubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Unsubscribed from %s", req.StepName)}
 
-	case "closeThread", "threadEnd":
+	case ActionCloseThread, ActionThreadEnd:
 		var req struct {
-			Action   string `json:"action"`
 			ThreadID string `json:"threadId"`
 			Status   string `json:"status"`
 			Reason   string `json:"reason,omitempty"`
 		}
-		json.Unmarshal(msgBytes, &req)
-		response = h.handleThreadEnd(session, &req)
+		json.Unmarshal(msgBytes, &req) //nolint:errcheck
+		return h.handleThreadEnd(session, req.ThreadID, req.Status, req.Reason)
 
 	default:
-		response = models.ErrorResponse{
-			Action:  "error",
-			Status:  "error",
-			Message: "Unknown action: " + action,
-		}
+		return models.ErrorResponse{Action: StatusError, Status: StatusError, Message: "Unknown action: " + action}
 	}
-
-	// Request processed
-
-	return response
 }
 
 func (h *WebSocketHandler) handleInviteParty(session *WSSession, req *models.InvitePartyRequest) interface{} {
-	// Validate request action
-	if req.Action != "inviteParty" {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: "Invalid action",
-		}
+	if req.Action != ActionInviteParty {
+		return models.ErrorResponse{Action: ActionInviteParty, Status: StatusError, Message: "Invalid action"}
 	}
-
-	// Get thread IDs from session
 	session.mu.Lock()
 	threadIDs := make([]string, len(session.threadIDs))
 	copy(threadIDs, session.threadIDs)
 	session.mu.Unlock()
 
-	// Call service layer
-	response, err := h.threadService.HandleInviteParty(req, session.ownerID, session.companyID, threadIDs)
+	resp, err := h.threadService.HandleInviteParty(req, session.ownerID, session.companyID, threadIDs)
 	if err != nil {
-		return models.ErrorResponse{
-			Action:  "inviteParty",
-			Status:  "error",
-			Message: err.Error(),
-		}
+		return models.ErrorResponse{Action: ActionInviteParty, Status: StatusError, Message: err.Error()}
 	}
-
-	return response
+	return resp
 }
 
 func (h *WebSocketHandler) handleJoinThread(session *WSSession, req *models.JoinThreadRequest) interface{} {
-	// Validate request action
-	if req.Action != "joinThread" {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: "Invalid action",
-		}
+	if req.Action != ActionJoinThread {
+		return models.ErrorResponse{Action: ActionJoinThread, Status: StatusError, Message: "Invalid action"}
 	}
-
-	// Call service layer
-	response, err := h.threadService.HandleJoinThread(req, session.ownerID, session.companyID)
+	resp, err := h.threadService.HandleJoinThread(req, session.ownerID, session.companyID)
 	if err != nil {
-		return models.ErrorResponse{
-			Action:  "joinThread",
-			Status:  "error",
-			Message: err.Error(),
-		}
+		return models.ErrorResponse{Action: ActionJoinThread, Status: StatusError, Message: err.Error()}
 	}
-
-	// Update session with thread context (handler layer responsibility)
-	if response.Status == "success" {
+	if resp.Status == StatusSuccess {
 		session.mu.Lock()
-		session.threadIDs = append(session.threadIDs, response.ThreadID)
+		session.threadIDs = append(session.threadIDs, resp.ThreadID)
 		session.mu.Unlock()
 	}
-
-	return response
+	return resp
 }
 
-// unsubscribeFromNotifications unsubscribes a session from all thread notifications
 func (h *WebSocketHandler) unsubscribeFromNotifications(session *WSSession) {
 	if h.notificationConsumer == nil {
 		return
 	}
-
 	session.mu.Lock()
 	threadIDs := session.threadIDs
 	ownerID := session.ownerID
 	session.mu.Unlock()
 
-	// Unsubscribe from all threads
 	for _, threadID := range threadIDs {
 		if err := h.notificationConsumer.Unsubscribe(threadID, ownerID); err != nil {
-			// Failed to unsubscribe (non-fatal)
+			h.logger.Warn("failed to unsubscribe from thread notifications",
+				zap.String("thread_id", threadID), zap.String("owner_id", ownerID), zap.Error(err))
 		}
 	}
-
-	// Notification cleanup handled by NotificationRouter.HandleDisconnect
 }
 
-// handleSubscribe handles subscription requests from clients
-// Accepts stepName in format "stepName" or "contract@stepName"
-// Accepts eventTypes array: ["violation", "completed", "failed"] or empty for all
-func (h *WebSocketHandler) handleSubscribe(session *WSSession, req *struct {
-	Action     string   `json:"action"`
-	StepName   string   `json:"stepName"`
-	EventTypes []string `json:"eventTypes"`
-}) interface{} {
-	if req.StepName == "" {
-		return models.ErrorResponse{
-			Action:  "subscribe",
-			Status:  "error",
-			Message: "Step name is required",
-		}
+func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw string) interface{} {
+	if stepNameRaw == "" {
+		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: "Step name is required"}
 	}
-
 	if h.notificationRouter == nil {
-		return models.ErrorResponse{
-			Action:  "subscribe",
-			Status:  "error",
-			Message: "Notification router not available",
-		}
+		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: "Notification router not available"}
 	}
 
-	// Parse "contract@stepName" format
 	var contractName, stepName string
-	if strings.Contains(req.StepName, "@") {
-		parts := strings.SplitN(req.StepName, "@", 2)
+	if strings.Contains(stepNameRaw, "@") {
+		parts := strings.SplitN(stepNameRaw, "@", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return models.ErrorResponse{
-				Action:  "subscribe",
-				Status:  "error",
-				Message: "Invalid format. Use 'stepName' or 'contract@stepName'",
-			}
+			return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: "Invalid format. Use 'stepName' or 'contract@stepName'"}
 		}
-		contractName = parts[0]
-		stepName = parts[1]
+		contractName, stepName = parts[0], parts[1]
 	} else {
-		stepName = req.StepName
-		contractName = ""
+		stepName = stepNameRaw
 	}
 
-	// Call notification router to update FilterSubjects
 	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName); err != nil {
-		// Failed to subscribe session
-		return models.ErrorResponse{
-			Action:  "subscribe",
-			Status:  "error",
-			Message: fmt.Sprintf("Failed to subscribe: %v", err),
-		}
+		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: fmt.Sprintf("Failed to subscribe: %v", err)}
 	}
-
-	// Session subscribed to notifications
-
-	return map[string]interface{}{
-		"action":  "subscribe",
-		"status":  "success",
-		"message": fmt.Sprintf("Subscribed to %s", req.StepName),
-	}
+	return map[string]interface{}{"action": ActionSubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Subscribed to %s", stepNameRaw)}
 }
 
-// handleUnsubscribe handles unsubscribe requests from clients (internal cleanup)
-func (h *WebSocketHandler) handleUnsubscribe(session *WSSession, req *struct {
-	Action   string `json:"action"`
-	StepName string `json:"stepName"`
-}) interface{} {
-	if req.StepName == "" {
-		return models.ErrorResponse{
-			Action:  "unsubscribe",
-			Status:  "error",
-			Message: "Step name is required",
-		}
-	}
-
-	// Unsubscribe not implemented in MVP
-
-	return map[string]interface{}{
-		"action":  "unsubscribe",
-		"status":  "success",
-		"message": fmt.Sprintf("Unsubscribed from %s", req.StepName),
-	}
-}
-
-// handleNotificationAck handles ACK messages from clients
 func (h *WebSocketHandler) handleNotificationAck(session *WSSession, ackMsg *NotificationACKMessage) interface{} {
 	if h.notificationRouter == nil {
-		return models.ErrorResponse{
-			Action:  "ack_notification",
-			Status:  "error",
-			Message: "Notification router not available",
-		}
+		return models.ErrorResponse{Action: ActionAckNotification, Status: StatusError, Message: "Notification router not available"}
 	}
-
-	// Check if ackToken is provided (stateless ACK with opaque token)
 	if ackMsg.AckToken != "" {
-		// Stateless ACK using opaque token
 		if err := h.notificationRouter.HandleAck(ackMsg.AckToken); err != nil {
-			// Error handling ACK
-			return models.ErrorResponse{
-				Action:  "ack_notification",
-				Status:  "error",
-				Message: err.Error(),
-			}
+			return models.ErrorResponse{Action: ActionAckNotification, Status: StatusError, Message: err.Error()}
 		}
-		// ACKed notification
-	} else {
-		// Old ACK format (no ackToken)
 	}
-
-	// Return success response
 	return map[string]interface{}{
-		"action":          "ack_notification",
-		"status":          "success",
+		"action":          ActionAckNotification,
+		"status":          StatusSuccess,
 		"notification_id": ackMsg.NotificationID,
 	}
 }
 
-// handleThreadEnd handles thread end requests (cancel or complete)
-func (h *WebSocketHandler) handleThreadEnd(session *WSSession, req *struct {
-	Action   string `json:"action"`
-	ThreadID string `json:"threadId"`
-	Status   string `json:"status"`
-	Reason   string `json:"reason,omitempty"`
-}) interface{} {
-	// Validate request
-	if req.ThreadID == "" {
-		return models.ErrorResponse{
-			Action:  "threadEnd",
-			Status:  "error",
-			Message: "Thread ID is required",
-		}
+func (h *WebSocketHandler) handleThreadEnd(session *WSSession, threadID, status, reason string) interface{} {
+	if threadID == "" {
+		return models.ErrorResponse{Action: ActionThreadEnd, Status: StatusError, Message: "Thread ID is required"}
+	}
+	if status != "" && status != ThreadStatusCancelled && status != ThreadStatusCompleted {
+		return models.ErrorResponse{Action: ActionThreadEnd, Status: StatusError, Message: "Status must be 'cancelled' or 'completed'"}
 	}
 
-	// Status defaults to 'cancelled' in service layer if empty
-	status := req.Status
-
-	// Validate status if provided
-	if status != "" && status != "cancelled" && status != "completed" {
-		return models.ErrorResponse{
-			Action:  "threadEnd",
-			Status:  "error",
-			Message: "Status must be 'cancelled' or 'completed'",
-		}
-	}
-
-	// TODO: Check permissions (thread.end or thread.*)
-	// Permission check should be done via thread access - owner and participant roles have thread.end permission
-
-	// End the thread with current timestamp
-	recordedAt := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := h.threadService.EndThread(
-		ctx,
-		req.ThreadID,
-		session.ownerID,
-		"", // Service name - empty for user-initiated end
-		status,
-		req.Reason,
-		recordedAt,
-	)
-	if err != nil {
-		return models.ErrorResponse{
-			Action:  "threadEnd",
-			Status:  "error",
-			Message: "Failed to end thread: " + err.Error(),
-		}
+	recordedAt := time.Now()
+	if err := h.threadService.EndThread(ctx, threadID, session.ownerID, "", status, reason, recordedAt); err != nil {
+		return models.ErrorResponse{Action: ActionThreadEnd, Status: StatusError, Message: "Failed to end thread: " + err.Error()}
 	}
 
-	// Determine final status (defaults to cancelled if empty)
 	finalStatus := status
 	if finalStatus == "" {
-		finalStatus = "cancelled"
+		finalStatus = ThreadStatusCancelled
 	}
-
-	// Prepare timestamp field based on status
 	timestampField := "cancelledAt"
-	if finalStatus == "completed" {
+	if finalStatus == ThreadStatusCompleted {
 		timestampField = "completedAt"
 	}
 
-	// Send success response
-	response := map[string]interface{}{
-		"action":       "threadEnd",
-		"status":       "success",
-		"threadId":     req.ThreadID,
+	return map[string]interface{}{
+		"action":       ActionThreadEnd,
+		"status":       StatusSuccess,
+		"threadId":     threadID,
 		"threadStatus": finalStatus,
 		timestampField: recordedAt.Format(time.RFC3339),
 		"message":      "Thread " + finalStatus + " successfully",
 	}
-
-	return response
 }
 
-// SendMessage sends any message to the WebSocket client with mutex protection
-// This prevents concurrent write panics when multiple goroutines write to the same connection
 func (s *WSSession) SendMessage(message interface{}) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()

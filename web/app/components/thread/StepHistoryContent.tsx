@@ -140,12 +140,50 @@ export function StepHistoryContent({
                           </div>
                         )}
 
-                        {/* Error */}
-                        {item.error && (
+                        {/* Error/Success Message */}
+                        {item.metadata && (
                           <div>
-                            <div className="text-xs font-medium text-red-600 mb-1">Error</div>
-                            <div className="text-xs bg-red-50 text-red-900 p-2 rounded border border-red-200">
-                              {item.error}
+                            <div className={`text-xs font-medium mb-1 ${
+                              item.status === 'failed' ? 'text-red-600' : 
+                              item.status === 'success' ? 'text-green-600' : 
+                              'text-gray-600'
+                            }`}>
+                              {item.status === 'failed' ? 'Error Message' : 
+                               item.status === 'success' ? 'Success Message' : 'Message'}
+                            </div>
+                            <div className={`text-sm ${
+                              item.status === 'failed' ? 'text-red-700' : 
+                              item.status === 'success' ? 'text-green-700' : 
+                              'text-gray-700'
+                            }`}>
+                              {(() => {
+                                try {
+                                  const parsed = JSON.parse(item.metadata);
+                                  if (typeof parsed === 'object' && parsed !== null) {
+                                    if (parsed.message) {
+                                      return (
+                                        <div className="space-y-2">
+                                          <p>{parsed.message}</p>
+                                          {Object.keys(parsed).length > 1 && (
+                                            <pre className="text-xs bg-gray-50 p-2 rounded border border-gray-200 overflow-x-auto font-mono mt-2">
+                                              {JSON.stringify(parsed, null, 2)}
+                                            </pre>
+                                          )}
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <pre className="text-xs bg-gray-50 p-2 rounded border border-gray-200 overflow-x-auto font-mono">
+                                          {JSON.stringify(parsed, null, 2)}
+                                        </pre>
+                                      );
+                                    }
+                                  }
+                                  return String(parsed);
+                                } catch {
+                                  return item.metadata;
+                                }
+                              })()}
                             </div>
                           </div>
                         )}

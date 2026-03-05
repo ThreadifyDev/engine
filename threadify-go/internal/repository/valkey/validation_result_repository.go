@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
+	"go.uber.org/zap"
 )
 
 // ValidationRepository implements cache-aside pattern for validation results
@@ -37,20 +37,23 @@ type ValidationRepository struct {
 	postgresRepo  *postgres.ValidationRepository
 	ttl           time.Duration
 	writeBackPool *workerpool.Pool
+	logger        *zap.Logger
 }
 
-func NewValidationRepository(client interfaces.ValkeyClient) *ValidationRepository {
+func NewValidationRepository(client interfaces.ValkeyClient, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client: client,
-		ttl:    24 * time.Hour, // 24 hours TTL for validation results
+		ttl:    24 * time.Hour,
+		logger: logger,
 	}
 }
 
-func NewValidationRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.ValidationRepository) *ValidationRepository {
+func NewValidationRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.ValidationRepository, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client:       client,
 		postgresRepo: postgresRepo,
-		ttl:          24 * time.Hour, // 24 hours TTL for validation results
+		ttl:          24 * time.Hour,
+		logger:       logger,
 	}
 }
 
@@ -71,18 +74,24 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 	// Try Redis first
 	result, err := r.client.HGet(ctx, validationKey, "results")
 	if err == nil && result != "" {
-		log.Printf("🎯 Cache HIT for validation results: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+		r.logger.Info("Cache hit for validation results",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.String("idempotency_key", idempotencyKey))
 
 		// Parse JSON array from Redis
 		var validationResults []*models.ValidationResultInfo
 		if err := json.Unmarshal([]byte(result), &validationResults); err != nil {
-			log.Printf("❌ Failed to parse validation results from Redis: %v", err)
+			r.logger.Error("Failed to parse validation results from cache", zap.Error(err))
 		} else {
 			return validationResults, nil
 		}
 	}
 
-	log.Printf("🔍 Cache MISS for validation results: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+	r.logger.Info("Cache miss for validation results",
+		zap.String("thread_id", threadID),
+		zap.String("step_name", stepName),
+		zap.String("idempotency_key", idempotencyKey))
 
 	// Fallback to PostgreSQL
 	if r.postgresRepo == nil {
@@ -95,7 +104,10 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 	}
 
 	if len(validationResults) == 0 {
-		log.Printf("❌ No validation results found in PostgreSQL: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+		r.logger.Debug("No validation results found in PostgreSQL",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.String("idempotency_key", idempotencyKey))
 		return nil, nil
 	}
 
@@ -107,9 +119,12 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 			defer cancel()
 
 			if err := r.cacheValidationResults(writeCtx, validationKey, validationResults); err != nil {
-				log.Printf("❌ Failed to cache validation results: %v", err)
+				r.logger.Warn("Failed to cache validation results", zap.Error(err))
 			} else {
-				log.Printf("💾 Cached validation results to Redis: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+				r.logger.Info("Cached validation results",
+					zap.String("thread_id", threadID),
+					zap.String("step_name", stepName),
+					zap.String("idempotency_key", idempotencyKey))
 			}
 		})
 	}
@@ -176,7 +191,10 @@ func (r *ValidationRepository) InvalidateValidationResults(ctx context.Context, 
 		return fmt.Errorf("failed to invalidate validation results cache: %w", err)
 	}
 
-	log.Printf("🗑️ Invalidated validation results cache: thread=%s, step=%s:%s", threadID, stepName, idempotencyKey)
+	r.logger.Info("Invalidated validation results cache",
+		zap.String("thread_id", threadID),
+		zap.String("step_name", stepName),
+		zap.String("idempotency_key", idempotencyKey))
 	return nil
 }
 
@@ -193,7 +211,9 @@ func (r *ValidationRepository) InvalidateThreadValidationResults(ctx context.Con
 		if err := r.client.Del(ctx, keys...); err != nil {
 			return fmt.Errorf("failed to invalidate thread validation cache: %w", err)
 		}
-		log.Printf("🗑️ Invalidated %d validation result caches for thread: %s", len(keys), threadID)
+		r.logger.Info("Invalidated thread validation caches",
+			zap.String("thread_id", threadID),
+			zap.Int("count", len(keys)))
 	}
 
 	return nil
@@ -290,7 +310,9 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 		return nil, fmt.Errorf("no PostgreSQL repository configured for permission-filtered queries")
 	}
 
-	log.Printf("⚠️ [PERMISSION] User %s has .own access, using PostgreSQL for validation filtering", userID)
+	r.logger.Info("Using PostgreSQL for permission-filtered validation query",
+		zap.String("user_id", userID),
+		zap.String("thread_id", threadID))
 
 	// Use SQL-level permission filtering
 	return r.postgresRepo.GetValidationResultsWithPermissionCheck(ctx, threadID, userID, options)

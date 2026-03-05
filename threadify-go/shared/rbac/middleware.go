@@ -72,7 +72,9 @@ func RequirePermission(
 			}
 
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
-			go serviceAccountChecker.UpdateLastUsed(serviceAccountID)
+			// TODO: Move last_used_at tracking to NATS for async processing
+			// Currently commented out - spawns unbounded goroutines and data not actively used
+			// go serviceAccountChecker.UpdateLastUsed(serviceAccountID)
 		}
 
 		if !loader.CheckPermission(permissions, required) {
@@ -143,7 +145,9 @@ func RequireResourcePermission(
 			}
 
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
-			go serviceAccountChecker.UpdateLastUsed(serviceAccountID)
+			// TODO: Move last_used_at tracking to NATS for async processing
+			// Currently commented out - spawns unbounded goroutines and data not actively used
+			// go serviceAccountChecker.UpdateLastUsed(serviceAccountID)
 		}
 
 		// Check wildcard permission first

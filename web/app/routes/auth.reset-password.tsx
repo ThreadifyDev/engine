@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
+import { CheckCircle } from 'lucide-react';
 import { api } from '~/lib/api';
+import Alert from '~/components/Alert';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -109,7 +111,7 @@ export default function ResetPassword() {
             </h1>
             <div className="mt-8 bg-gray-50 border-2 border-black p-6">
               <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl text-white">✓</span>
+                <CheckCircle className="w-8 h-8 text-white" />
               </div>
               <h2 className="text-2xl font-bold text-black mb-2">Password Reset Successful</h2>
               <p className="text-sm text-gray-600 mb-6">
@@ -147,11 +149,7 @@ export default function ResetPassword() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-black text-white px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
+          {error && <Alert type="error" message={error} />}
 
           <div className="space-y-4">
             {/* New Password */}

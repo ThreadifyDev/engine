@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { api, type User } from '~/lib/api';
+import { CheckCircle, XCircle } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
 
 export default function Dashboard() {
@@ -56,22 +57,34 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
           <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Email Status</h3>
-            <p className="text-2xl font-bold text-gray-900">
-              {user.email_verified ? '✓ Verified' : '✗ Not Verified'}
+            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              {user.email_verified ? (
+                <><CheckCircle className="w-6 h-6 text-green-600" /> Verified</>
+              ) : (
+                <><XCircle className="w-6 h-6 text-red-600" /> Not Verified</>
+              )}
             </p>
           </div>
 
           <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Onboarding</h3>
-            <p className="text-2xl font-bold text-gray-900">
-              {user.onboarding_completed ? '✓ Complete' : 'Pending'}
+            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              {user.onboarding_completed ? (
+                <><CheckCircle className="w-6 h-6 text-green-600" /> Complete</>
+              ) : (
+                'Pending'
+              )}
             </p>
           </div>
 
           <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">First Instrumentation</h3>
-            <p className="text-2xl font-bold text-gray-900">
-              {user.first_instrumentation_done ? '✓ Done' : 'Not Started'}
+            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              {user.first_instrumentation_done ? (
+                <><CheckCircle className="w-6 h-6 text-green-600" /> Done</>
+              ) : (
+                'Not Started'
+              )}
             </p>
           </div>
         </div>

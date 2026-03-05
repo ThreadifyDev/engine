@@ -251,32 +251,47 @@ for _, thread := range threads {
 }
 ```
 
-### Get Archived Thread Data
+### Retrieve Thread Data
+
+**Recommended:** Use `GetCompleteData()` for efficiency (single query):
+
 ```go
-// Get thread from archive
+// Wait for archival (1-2 seconds)
+time.Sleep(2 * time.Second)
+
 thread, err := conn.GetThread(ctx, threadID)
 if err != nil {
     log.Fatal(err)
 }
 
-// Get steps for the thread
+// Get everything in one query (recommended)
+completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
+    StepHistoryLimit: 50,  // History per step
+    ValidationLimit:  10,  // Validation results
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Access: completeData.Steps, completeData.ValidationResults, etc.
+```
+
+**Alternative:** Separate queries (use only if you need partial data):
+
+```go
+thread, err := conn.GetThread(ctx, threadID)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Get steps only
 steps, err := thread.Steps(ctx, "order_placed", "", "success")
 if err != nil {
     log.Fatal(err)
 }
 
-// Get validation results
+// Get validations only
 validations, err := thread.ValidationResults(ctx, 10)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Get complete thread data with steps and validations
-completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
-    StepHistoryLimit: 50,
-    ValidationLimit:  10,
-    StepName:         "order_placed", // Optional filter
-})
 if err != nil {
     log.Fatal(err)
 }
