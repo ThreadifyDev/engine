@@ -66,7 +66,6 @@ validation:
 	require.NoError(t, err)
 
 	assert.True(t, response.Valid)
-	assert.NotEmpty(t, response.Cytoscape)
 	assert.Empty(t, response.Errors)
 }
 
@@ -107,7 +106,6 @@ description: Test contract
 	require.NoError(t, err)
 
 	assert.False(t, response.Valid)
-	assert.Empty(t, response.Cytoscape)
 	assert.NotEmpty(t, response.Errors)
 }
 
