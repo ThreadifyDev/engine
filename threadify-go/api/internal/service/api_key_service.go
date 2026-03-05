@@ -184,7 +184,9 @@ func (s *APIKeyService) ValidateAPIKey(key string) (*models.APIKey, error) {
 		return nil, ErrApiKeyExpiredAPI
 	}
 
-	go s.apiKeyRepo.UpdateLastUsed(apiKey.ID)
+	// TODO: Move last_used_at tracking to NATS for async processing
+	// Currently commented out - spawns unbounded goroutines and data not actively used
+	// go s.apiKeyRepo.UpdateLastUsed(apiKey.ID)
 
 	return apiKey, nil
 }

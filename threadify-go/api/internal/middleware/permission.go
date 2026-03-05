@@ -71,8 +71,9 @@ func RequirePermission(
 			// Get permissions from JSON config
 			permissions = permLoader.GetPermissionsForRoles(roleNames, "runtime_level")
 
-			// Update last used timestamp (async)
-			go serviceAccountRepo.UpdateLastUsed(serviceAccountID)
+			// TODO: Move last_used_at tracking to NATS for async processing
+			// Currently commented out - spawns unbounded goroutines and data not actively used
+			// go serviceAccountRepo.UpdateLastUsed(serviceAccountID)
 		}
 
 		// Check permission with wildcard matching
@@ -151,7 +152,9 @@ func RequireResourcePermission(
 			}
 
 			permissions = permLoader.GetPermissionsForRoles(roleNames, "runtime_level")
-			go serviceAccountRepo.UpdateLastUsed(serviceAccountID)
+			// TODO: Move last_used_at tracking to NATS for async processing
+			// Currently commented out - spawns unbounded goroutines and data not actively used
+			// go serviceAccountRepo.UpdateLastUsed(serviceAccountID)
 		}
 
 		// Check wildcard permission first (e.g., "contract.read.*")

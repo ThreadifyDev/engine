@@ -183,12 +183,12 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 }
 
 func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
-	authSvc := service.NewAuthService(cfg.Auth.CacheTTLSeconds)
+	authRepo := postgres.NewAuthRepository(d.db.Pool)
+	authSvc := service.NewAuthService(authRepo, cfg.Auth.CacheTTLSeconds)
 	if strings.TrimSpace(cfg.JWKS.URL) == "" {
 		logger.Fatal("jwks.url not configured — JWT authentication unavailable")
 	}
 	authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
-	authSvc.SetDB(d.db.Pool)
 	authSvc.SetWriteBackPool(d.workerPools.WriteBack)
 
 	rbacLoader, err := rbac.NewLoader("./shared/rbac/permissions.json", "./shared/rbac/roles.json")

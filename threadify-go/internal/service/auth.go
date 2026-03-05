@@ -4,14 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"sync"
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/metrics"
+	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
@@ -36,7 +35,7 @@ type cachedRoles struct {
 }
 
 type AuthService struct {
-	db            *pgxpool.Pool
+	authRepo      *postgres.AuthRepository
 	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
 	rolesCache    sync.Map // key: userID:type   → *cachedRoles
 	cacheTTL      time.Duration
@@ -45,12 +44,13 @@ type AuthService struct {
 	stopCleanup   chan struct{}
 }
 
-func NewAuthService(cacheTTLSeconds int) *AuthService {
+func NewAuthService(authRepo *postgres.AuthRepository, cacheTTLSeconds int) *AuthService {
 	ttl := time.Duration(cacheTTLSeconds) * time.Second
 	if cacheTTLSeconds <= 0 {
 		ttl = time.Duration(defaultCacheTTL) * time.Second
 	}
 	s := &AuthService{
+		authRepo:    authRepo,
 		cacheTTL:    ttl,
 		stopCleanup: make(chan struct{}),
 	}
@@ -65,11 +65,6 @@ func (s *AuthService) Stop() {
 
 func (s *AuthService) SetJWKSVerifier(v *sharedauth.JWKSVerifier) {
 	s.jwksVerifier = v
-}
-
-// SetDB sets the database connection for API key validation.
-func (s *AuthService) SetDB(db *pgxpool.Pool) {
-	s.db = db
 }
 
 // SetWriteBackPool sets the worker pool for async last_used_at updates.
@@ -105,7 +100,7 @@ func (s *AuthService) cleanupExpiredCache() {
 // ValidateApiKey validates an API key token using a cache-aside pattern.
 // Cache hit → no DB query; cache miss or expired → query DB, warm cache.
 func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
-	if s.db == nil {
+	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
 
@@ -138,50 +133,33 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*UserInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	query := `
-		SELECT
-			sa.id as owner_id,
-			sa.company_id,
-			COALESCE(ur.role_name, 'standard_service') as role,
-			ak.is_active,
-			ak.expires_at
-		FROM api_keys ak
-		JOIN service_accounts sa ON ak.service_account_id = sa.id
-		LEFT JOIN user_roles ur ON ur.principal_id = sa.id AND ur.principal_type = 'service_account'
-		WHERE ak.key_hash = $1
-		AND ak.is_active = true
-		AND sa.is_active = true
-		LIMIT 1
-	`
-
-	var userInfo UserInfo
-	var expiresAt *time.Time
-	var isActive bool
-
-	err := s.db.QueryRow(ctx, query, keyHash).Scan(
-		&userInfo.OwnerID,
-		&userInfo.CompanyID,
-		&userInfo.Role,
-		&isActive,
-		&expiresAt,
-	)
+	info, err := s.authRepo.ValidateAPIKey(ctx, keyHash)
 	if err != nil {
+		return nil, err
+	}
+	if info == nil {
 		return nil, ErrApiKeyInvalidOrInactive
 	}
 
-	if expiresAt != nil && expiresAt.Before(time.Now()) {
+	if info.ExpiresAt != nil && info.ExpiresAt.Before(time.Now()) {
 		return nil, ErrApiKeyExpired
 	}
 
-	if s.writeBackPool != nil {
-		s.writeBackPool.Submit(func(ctx context.Context) {
-			updateCtx, updateCancel := context.WithTimeout(ctx, 3*time.Second)
-			defer updateCancel()
-			s.db.Exec(updateCtx, `UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1`, keyHash)
-		})
-	}
+	// TODO: Consider moving last_used_at tracking to NATS for async processing
+	// Currently commented out as this data is not actively used
+	// if s.writeBackPool != nil {
+	// 	s.writeBackPool.Submit(func(ctx context.Context) {
+	// 		updateCtx, updateCancel := context.WithTimeout(ctx, 3*time.Second)
+	// 		defer updateCancel()
+	// 		s.authRepo.UpdateLastUsed(updateCtx, keyHash)
+	// 	})
+	// }
 
-	return &userInfo, nil
+	return &UserInfo{
+		OwnerID:   info.OwnerID,
+		CompanyID: info.CompanyID,
+		Role:      info.Role,
+	}, nil
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
@@ -192,7 +170,7 @@ func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sha
 }
 
 func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string, jwtExpiry time.Time) ([]string, error) {
-	if s.db == nil {
+	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
 
@@ -206,28 +184,10 @@ func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, prin
 		s.rolesCache.Delete(cacheKey)
 	}
 
-	// Slow path: query DB
-	rows, err := s.db.Query(ctx, `
-		SELECT role_name
-		FROM user_roles
-		WHERE principal_id = $1 AND principal_type = $2
-	`, principalID, principalType)
+	// Slow path: query DB via repository
+	roles, err := s.authRepo.GetUserRoles(ctx, principalID, principalType)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query user roles: %w", err)
-	}
-	defer rows.Close()
-
-	var roles []string
-	for rows.Next() {
-		var roleName string
-		if err := rows.Scan(&roleName); err != nil {
-			return nil, fmt.Errorf("failed to scan role name: %w", err)
-		}
-		roles = append(roles, roleName)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row error fetching user roles: %w", err)
+		return nil, err
 	}
 
 	// Cap TTL to min(jwtExpiry, defaultCacheTTL) so roles never outlive the
