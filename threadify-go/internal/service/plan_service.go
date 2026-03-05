@@ -62,14 +62,9 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 	}
 
 	now := time.Now().UTC()
-	var billingEnd time.Time
-	switch billingCycle {
-	case models.BillingCycleMonthly:
-		billingEnd = now.AddDate(0, 1, 0)
-	case models.BillingCycleYearly:
-		billingEnd = now.AddDate(1, 0, 0)
-	default:
-		return fmt.Errorf("unsupported billing cycle: %s", billingCycle)
+	billingEnd, err := computeBillingEnd(now, billingCycle)
+	if err != nil {
+		return err
 	}
 
 	plan := &models.CompanyPlan{
@@ -85,29 +80,12 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 		return fmt.Errorf("provision subscription - create plan: %w", err)
 	}
 
-	meter := &models.UsageMeter{
-		ID:                      uuid.New().String(),
-		CompanyID:               companyID,
-		BillingCycleStart:       now,
-		BandwidthIngressBalance: limits.BandwidthIngress,
-		BandwidthEgressBalance:  limits.BandwidthEgress,
-		MaxBandwidthIngress:     limits.BandwidthIngress,
-		MaxBandwidthEgress:      limits.BandwidthEgress,
-		MaxTeamSeats:            limits.TeamSeats,
-		MaxContractLimit:        limits.ContractLimit,
-		MaxRateLimit:            limits.RateLimit,
-		MaxPayloadBytes:         limits.MaxPayloadBytes,
-		HotStorageDays:          limits.HotStorageDays,
-		ColdStorageDays:         limits.ColdStorageDays,
-		Support:                 limits.Support,
-		BillingEnd:              billingEnd,
-	}
+	meter := newMeterFromLimits(companyID, now, billingEnd, limits)
 
 	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
 		return fmt.Errorf("provision subscription - create usage meter: %w", err)
 	}
 
-	// Seed Valkey balance keys for real-time tracking
 	s.seedBalanceKeys(ctx, companyID, meter)
 	s.setCacheEntry(ctx, companyID, meter)
 
@@ -318,37 +296,16 @@ func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, t
 	}
 
 	now := time.Now().UTC()
-	var billingEnd time.Time
-	switch billingCycle {
-	case models.BillingCycleMonthly:
-		billingEnd = now.AddDate(0, 1, 0)
-	case models.BillingCycleYearly:
-		billingEnd = now.AddDate(1, 0, 0)
-	default:
-		return fmt.Errorf("unsupported billing cycle: %s", billingCycle)
+	billingEnd, err := computeBillingEnd(now, billingCycle)
+	if err != nil {
+		return err
 	}
 
 	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, now, billingEnd); err != nil {
 		return fmt.Errorf("renew subscription - update plan: %w", err)
 	}
 
-	meter := &models.UsageMeter{
-		ID:                      uuid.New().String(),
-		CompanyID:               companyID,
-		BillingCycleStart:       now,
-		BandwidthIngressBalance: limits.BandwidthIngress,
-		BandwidthEgressBalance:  limits.BandwidthEgress,
-		MaxBandwidthIngress:     limits.BandwidthIngress,
-		MaxBandwidthEgress:      limits.BandwidthEgress,
-		MaxTeamSeats:            limits.TeamSeats,
-		MaxContractLimit:        limits.ContractLimit,
-		MaxRateLimit:            limits.RateLimit,
-		MaxPayloadBytes:         limits.MaxPayloadBytes,
-		HotStorageDays:          limits.HotStorageDays,
-		ColdStorageDays:         limits.ColdStorageDays,
-		Support:                 limits.Support,
-		BillingEnd:              billingEnd,
-	}
+	meter := newMeterFromLimits(companyID, now, billingEnd, limits)
 
 	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
 		return fmt.Errorf("renew subscription - create usage meter: %w", err)
@@ -364,6 +321,37 @@ func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, t
 	)
 
 	return nil
+}
+
+func computeBillingEnd(start time.Time, cycle models.BillingCycle) (time.Time, error) {
+	switch cycle {
+	case models.BillingCycleMonthly:
+		return start.AddDate(0, 1, 0), nil
+	case models.BillingCycleYearly:
+		return start.AddDate(1, 0, 0), nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported billing cycle: %s", cycle)
+	}
+}
+
+func newMeterFromLimits(companyID string, start, billingEnd time.Time, limits *config.TierLimits) *models.UsageMeter {
+	return &models.UsageMeter{
+		ID:                      uuid.New().String(),
+		CompanyID:               companyID,
+		BillingCycleStart:       start,
+		BandwidthIngressBalance: limits.BandwidthIngress,
+		BandwidthEgressBalance:  limits.BandwidthEgress,
+		MaxBandwidthIngress:     limits.BandwidthIngress,
+		MaxBandwidthEgress:      limits.BandwidthEgress,
+		MaxTeamSeats:            limits.TeamSeats,
+		MaxContractLimit:        limits.ContractLimit,
+		MaxRateLimit:            limits.RateLimit,
+		MaxPayloadBytes:         limits.MaxPayloadBytes,
+		HotStorageDays:          limits.HotStorageDays,
+		ColdStorageDays:         limits.ColdStorageDays,
+		Support:                 limits.Support,
+		BillingEnd:              billingEnd,
+	}
 }
 
 func (s *PlanService) InvalidatePlanCache(ctx context.Context, companyID string) {
