@@ -1,7 +1,15 @@
 import { useState } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, Link } from '@remix-run/react';
 import { api, type LoginData, ValidationError } from '~/lib/api';
 import Alert, { type AlertType } from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Login - Threadify" },
+    { name: "description", content: "Sign in to your Threadify account" },
+  ];
+};
 
 export default function Login() {
   const navigate = useNavigate();

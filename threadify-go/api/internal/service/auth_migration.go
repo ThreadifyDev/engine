@@ -69,10 +69,7 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, source string) err
 		s.outboxWorker.Trigger()
 	}
 
-	s.logger.Info("legacy user migration queued via outbox",
-		zap.String("user_id", userID),
-		zap.String("email", email),
-	)
+	s.logger.Info("legacy user migration queued via outbox")
 
 	return nil
 }

@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
 import { CheckCircle } from 'lucide-react';
 import { api } from '~/lib/api';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Reset Password - Threadify" },
+    { name: "description", content: "Set a new password for your Threadify account" },
+  ];
+};
 
 export default function ResetPassword() {
   const navigate = useNavigate();
