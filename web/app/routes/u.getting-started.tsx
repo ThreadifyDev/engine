@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Getting Started - Threadify" },
+    { name: "description", content: "Get started with Threadify" },
+  ];
+};
 
 export default function GettingStarted() {
   const navigate = useNavigate();
@@ -200,32 +208,6 @@ export default function GettingStarted() {
           </div>
         </div>
 
-        {/* LLM IDE Helper */}
-        <div className="mb-8 p-6 border-2 border-blue-600 bg-blue-50">
-          <div className="flex items-start gap-3 mb-3">
-            <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            <div>
-              <h3 className="text-lg font-bold text-blue-900 mb-2">Building with an AI-Powered IDE?</h3>
-              <p className="text-sm text-blue-800 mb-3">
-                Give your AI assistant context about Threadify's SDK to accelerate development.
-              </p>
-              <a
-                href="/AI.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block px-4 py-2 bg-blue-800 rounded-lg text-white hover:bg-blue-900 transition-colors font-medium text-sm"
-              >
-                View AI Context Guide →
-              </a>
-              <p className="text-xs text-blue-700 mt-3">
-                Copy the guide and share it with Cursor, Windsurf, or any LLM-powered IDE for better code suggestions.
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Check Instrumentation Button */}
         <div className="text-center">
           <button
@@ -241,6 +223,32 @@ export default function GettingStarted() {
               : 'Run the code above to create your first thread, then click this button to continue.'
             }
           </p>
+        </div>
+
+               {/* LLM IDE Helper */}
+        <div className="mb-8 p-6 border-2 border-gray-300 bg-gray-50">
+          <div className="flex items-start gap-3 mb-3">
+            <svg className="w-6 h-6 text-gray-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Building with an AI-Powered IDE?</h3>
+              <p className="text-sm text-gray-700 mb-3">
+                Give your AI assistant context about Threadify's SDK to accelerate development.
+              </p>
+              <a
+                href="/AI.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-4 py-2 bg-gray-800 rounded-lg text-white hover:bg-gray-900 transition-colors font-medium text-sm"
+              >
+                View AI Context Guide →
+              </a>
+              <p className="text-xs text-gray-600 mt-3">
+                Copy the guide and share it with Cursor, Windsurf, or any LLM-powered IDE for better code suggestions.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

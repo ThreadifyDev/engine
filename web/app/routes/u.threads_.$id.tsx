@@ -1,6 +1,14 @@
 import { useParams, useNavigate } from '@remix-run/react';
+import type { MetaFunction } from "@remix-run/node";
 import { useQuery } from '@tanstack/react-query';
 import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Thread Details - Threadify" },
+    { name: "description", content: "View thread execution details" },
+  ];
+};
 import { formatDistanceToNow } from 'date-fns';
 import {
   CheckCircle2,

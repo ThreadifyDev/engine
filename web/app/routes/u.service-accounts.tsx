@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import { useServiceAccounts, useCreateServiceAccount, useToggleServiceAccount, useDeleteServiceAccount } from '~/hooks/useServiceAccounts';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Service Accounts - Threadify" },
+    { name: "description", content: "Manage your service accounts" },
+  ];
+};
 
 const ROLE_COLORS: Record<string, string> = {
   standard_service: 'bg-blue-50 text-blue-700 border-blue-200 text-xs px-2 py-0.5 rounded-full',

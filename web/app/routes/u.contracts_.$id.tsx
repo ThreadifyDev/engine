@@ -1,9 +1,17 @@
 import { useState } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import SideNav from '~/components/SideNav';
 import YamlEditor from '~/components/YamlEditor';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Contract Details - Threadify" },
+    { name: "description", content: "View and manage contract details" },
+  ];
+};
 
 export default function ContractDetail() {
   const navigate = useNavigate();

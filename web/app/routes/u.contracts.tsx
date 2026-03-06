@@ -1,9 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Trash2 } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Contracts - Threadify" },
+    { name: "description", content: "Manage your workflow contracts" },
+  ];
+};
 
 export default function Contracts() {
   const navigate = useNavigate();

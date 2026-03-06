@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { api, type User } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Settings - Threadify" },
+    { name: "description", content: "Manage your account settings" },
+  ];
+};
 
 export default function Settings() {
   const navigate = useNavigate();
