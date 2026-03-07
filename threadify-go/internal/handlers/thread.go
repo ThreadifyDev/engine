@@ -171,16 +171,36 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 	msgBytes, _ := json.Marshal(msg)
 
-	if action != ActionConnect && session.companyID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		meter, meterErr := h.planService.GetCurrentLimits(context.Background(), session.companyID)
-		if meterErr == nil && meter != nil && meter.MaxRateLimit > 0 {
-			allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
+	if action != ActionConnect && session.companyID != "" {
+		meter, err := h.planService.GetCurrentLimits(context.Background(), session.companyID)
+		if err != nil || meter == nil {
+			return models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: "Active subscription required. Please check your billing status.",
+			}
+		}
+
+		if int64(len(msgBytes)) > meter.MaxPayloadBytes {
+			return models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: fmt.Sprintf("Payload size %d bytes exceeds your plan limit of %d bytes. Please upgrade your plan.", len(msgBytes), meter.MaxPayloadBytes),
+			}
+		}
+
+		if h.rateLimitConfig != nil && meter.MaxRateLimit > 0 {
+			windowSeconds := h.rateLimitConfig.WindowSeconds
+			if windowSeconds <= 0 {
+				windowSeconds = 60
+			}
+			allowed, rlErr := h.luaScriptManager.CheckCompanyRateLimit(
 				context.Background(),
 				session.companyID,
-				meter.MaxRateLimit*60,
-				h.rateLimitConfig.PerUser.WindowSeconds,
+				meter.MaxRateLimit*windowSeconds,
+				windowSeconds,
 			)
-			if err == nil && !allowed {
+			if rlErr == nil && !allowed {
 				return models.ErrorResponse{
 					Action:  action,
 					Status:  StatusError,
@@ -194,7 +214,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	case ActionConnect:
 		var req models.ConnectRequest
 		json.Unmarshal(msgBytes, &req) //nolint:errcheck
-		resp := h.threadService.HandleConnect(&req)
+		resp := h.threadService.HandleConnect(session.ctx, &req)
 
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()

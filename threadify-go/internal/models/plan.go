@@ -30,6 +30,7 @@ type CompanyPlan struct {
 type UsageMeter struct {
 	ID                string    `json:"id"`
 	CompanyID         string    `json:"companyId"`
+	SubscriptionTier  PlanTier  `json:"subscriptionTier"`
 	BillingCycleStart time.Time `json:"billingCycleStart"`
 
 	BandwidthIngressBalance int64 `json:"bandwidthIngressBalance"`

@@ -589,7 +589,6 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 
 		id := deterministicUUID(str("threadId"), str("stepId"), str("name"))
 
-		// Column 7 (recorded_at) is NOT NULL.
 		base := i * cols
 		p := make([]string, cols)
 		for j := range p {

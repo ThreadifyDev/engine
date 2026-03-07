@@ -52,6 +52,7 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
+	planService           *PlanService
 	valkeyClient          interfaces.ValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
@@ -73,6 +74,7 @@ func NewThreadService(
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
+	planService *PlanService,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -86,6 +88,7 @@ func NewThreadService(
 		WithNATSPublisher(natsPublisher).
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
+		WithPlanService(planService).
 		WithWorkerPools(workerPools).
 		WithLogger(logger).
 		Build()
@@ -99,7 +102,7 @@ func (s *ThreadService) GetNotificationConsumer() *NotificationConsumer {
 	return s.notificationConsumer
 }
 
-func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.ConnectResponse {
+func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse {
 	if req.ApiKey == "" {
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "API key is required"}
 	}
@@ -107,6 +110,17 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 	userInfo, err := s.authService.ValidateApiKey(req.ApiKey)
 	if err != nil {
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
+	}
+
+	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionExpired) {
+			return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "subscription expired"}
+		}
+		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to verify subscription"}
+	}
+	if meter == nil {
+		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "active subscription required"}
 	}
 
 	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
@@ -392,6 +406,18 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		IdempotencyKey: req.IdempotencyKey,
 		ContentHash:    contentHash,
 		Metadata:       req.ThreadifyMetadata,
+	}
+
+	totalToMeter := int64(len(req.SubSteps))
+	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed || req.Status == StepStatusError {
+		totalToMeter++
+	}
+
+	if companyID != "" && totalToMeter > 0 {
+		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
+			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
+			return errResp(err.Error())
+		}
 	}
 
 	t = time.Now()
@@ -718,6 +744,14 @@ func (s *ThreadService) EndThread(
 // GetThread retrieves a thread from cache, then Valkey, then PostgreSQL.
 func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
+		// Meter egress for cached thread retrieval
+		if thread.CompanyID != "" {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				s.planService.DecrementEgress(ctx, thread.CompanyID, 1024) // Appox 1KB for thread metadata
+			}()
+		}
 		return thread, nil
 	}
 
@@ -727,6 +761,14 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 	thread, err := s.repo.Get(ctx, threadID, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
+	}
+
+	if thread.CompanyID != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			s.planService.DecrementEgress(ctx, thread.CompanyID, 2048) // Appox 2KB for DB retrieval (full metadata)
+		}()
 	}
 
 	s.cacheManager.SetThread(threadID, thread)

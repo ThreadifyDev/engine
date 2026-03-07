@@ -21,7 +21,6 @@ type Config struct {
 	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
 	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
 	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
-	BotScanner         BotScannerConfig         `yaml:"bot_scanner" mapstructure:"bot_scanner"`
 	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
 	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
 	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
@@ -90,28 +89,11 @@ type ThreadActivitiesConfig struct {
 
 // RateLimitConfig holds rate limiting configuration
 type RateLimitConfig struct {
-	Enabled         bool            `yaml:"enabled" mapstructure:"enabled"`
-	CleanupInterval string          `yaml:"cleanup_interval" mapstructure:"cleanup_interval"`
-	PerIP           IPLimitConfig   `yaml:"per_ip" mapstructure:"per_ip"`
-	PerUser         UserLimitConfig `yaml:"per_user" mapstructure:"per_user"`
-}
-
-// IPLimitConfig holds per-IP rate limiting configuration
-type IPLimitConfig struct {
-	Enabled           bool `yaml:"enabled" mapstructure:"enabled"`
-	RequestsPerMinute int  `yaml:"requests_per_minute" mapstructure:"requests_per_minute"`
-	Burst             int  `yaml:"burst" mapstructure:"burst"`
-}
-
-// UserLimitConfig holds per-user rate limiting configuration
-type UserLimitConfig struct {
-	Enabled           bool `yaml:"enabled" mapstructure:"enabled"`
-	RequestsPerMinute int  `yaml:"requests_per_minute" mapstructure:"requests_per_minute"`
-	Burst             int  `yaml:"burst" mapstructure:"burst"`
-	WindowSeconds     int  `yaml:"window_seconds" mapstructure:"window_seconds"`
-	CacheSize         int  `yaml:"cache_size" mapstructure:"cache_size"`               // Max cached users per pod
-	CacheTTLSeconds   int  `yaml:"cache_ttl_seconds" mapstructure:"cache_ttl_seconds"` // Cache TTL
-	RedisTimeoutMs    int  `yaml:"redis_timeout_ms" mapstructure:"redis_timeout_ms"`   // Redis timeout in milliseconds
+	Enabled             bool `yaml:"enabled" mapstructure:"enabled"`
+	IPRateLimitEnabled  bool `yaml:"ip_rate_limit_enabled" mapstructure:"ip_rate_limit_enabled"`
+	IPRequestsPerWindow int  `yaml:"ip_requests_per_window" mapstructure:"ip_requests_per_window"`
+	WindowSeconds       int  `yaml:"window_seconds" mapstructure:"window_seconds"`
+	RedisTimeoutMs      int  `yaml:"redis_timeout_ms" mapstructure:"redis_timeout_ms"` // Valkey timeout in milliseconds
 }
 
 // CacheConfig holds cache configuration
@@ -120,6 +102,7 @@ type CacheConfig struct {
 	ThreadTTLMs    int `yaml:"thread_ttl_ms" mapstructure:"thread_ttl_ms"`         // Default: 18000000ms (5 hours, hot cache, PostgreSQL fallback)
 	StepEventTTLMs int `yaml:"step_event_ttl_ms" mapstructure:"step_event_ttl_ms"` // Default: 18000000ms (5 hours)
 	SessionTTLMs   int `yaml:"session_ttl_ms" mapstructure:"session_ttl_ms"`       // Default: 1800000ms (30 minutes, ephemeral, no persistence)
+	PlanTTLMs      int `yaml:"plan_ttl_ms" mapstructure:"plan_ttl_ms"`             // Default: 10000ms (10 seconds)
 }
 
 // InvitationsConfig holds invitation configuration
@@ -235,14 +218,6 @@ type WebSocketConfig struct {
 	WriteBufferSize         int `yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 	MaxInFlightMax          int `yaml:"max_in_flight_max" mapstructure:"max_in_flight_max"`
 	MaxInFlightDefault      int `yaml:"max_in_flight_default" mapstructure:"max_in_flight_default"`
-}
-
-// BotScannerConfig holds bot detection and prevention configuration
-type BotScannerConfig struct {
-	Enabled                bool `yaml:"enabled" mapstructure:"enabled"`
-	BlockKnownBots         bool `yaml:"block_known_bots" mapstructure:"block_known_bots"`
-	LogSuspicious          bool `yaml:"log_suspicious" mapstructure:"log_suspicious"`
-	CleanupIntervalMinutes int  `yaml:"cleanup_interval_minutes" mapstructure:"cleanup_interval_minutes"`
 }
 
 // WorkerPoolsConfig holds configuration for all worker pools

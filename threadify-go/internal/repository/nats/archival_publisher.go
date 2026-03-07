@@ -84,6 +84,11 @@ func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event m
 // PublishAsync publishes event asynchronously (fire-and-forget with error logging).
 // Intentional: uses detached context — this goroutine outlives any request lifecycle.
 func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interface{}) {
+	if subject == "" {
+		p.logger.Warn("skipped async NATS message - empty subject")
+		return
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -91,8 +96,11 @@ func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interf
 		if err := p.publish(ctx, subject, event); err != nil {
 			p.logger.Error("failed to publish async NATS message",
 				zap.String("subject", subject),
+				zap.String("company_id", fmt.Sprintf("%v", event["company_id"])),
 				zap.Error(err),
 			)
+		} else {
+			p.logger.Debug("published async NATS message", zap.String("subject", subject))
 		}
 	}()
 }
