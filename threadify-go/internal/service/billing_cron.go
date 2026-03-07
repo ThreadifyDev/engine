@@ -38,7 +38,6 @@ func NewBillingCron(
 }
 
 func (c *BillingCron) Start() error {
-	// Schedule to run once a day at midnight UTC
 	_, err := c.cron.AddFunc("0 0 * * *", func() {
 		ctx := context.Background()
 		c.runWithLock(ctx)
@@ -54,19 +53,34 @@ func (c *BillingCron) Start() error {
 }
 
 func (c *BillingCron) runWithLock(ctx context.Context) {
-	const lockKey = "cron:billing:lock"
-	const lockTTL = 23 * time.Hour // Lock for almost the whole day
+	lockKey := "cron:billing:lock:" + time.Now().UTC().Format("2006-01-02")
+	const lockTTL = 30 * time.Minute
 
-	// Try to acquire lock
 	success, err := c.valkeyClient.SetNX(ctx, lockKey, "locked", lockTTL)
 	if err != nil {
 		c.logger.Error("billing cron: failed to check distributed lock", zap.Error(err))
 		return
 	}
 	if !success {
-		// Another instance is already running/has run it today
 		return
 	}
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := c.valkeyClient.Expire(context.Background(), lockKey, lockTTL); err != nil {
+					c.logger.Error("billing cron: failed to renew lock heartbeat", zap.Error(err))
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
 
 	c.logger.Info("billing cron: acquired leader lock, starting daily run")
 	c.processAll(ctx)
@@ -83,7 +97,7 @@ type billingJob struct {
 	due         bool
 	periodStart time.Time
 	periodEnd   time.Time
-	isCycleEnd  bool
+	reason      models.SnapshotReason
 }
 
 func (c *BillingCron) processAll(ctx context.Context) {
@@ -103,7 +117,7 @@ func (c *BillingCron) processAll(ctx context.Context) {
 			continue
 		}
 
-		if err := c.billingService.SnapshotAndBill(ctx, plan.CompanyID, job.periodStart, job.periodEnd, job.isCycleEnd); err != nil {
+		if err := c.billingService.SnapshotAndBill(ctx, plan.CompanyID, job.periodStart, job.periodEnd, job.reason); err != nil {
 			c.logger.Error("billing cron: snapshot failed",
 				zap.String("company_id", plan.CompanyID),
 				zap.Error(err),
@@ -111,7 +125,7 @@ func (c *BillingCron) processAll(ctx context.Context) {
 			continue
 		}
 
-		if job.isCycleEnd {
+		if job.reason == models.SnapshotReasonMonthlyRenewal || job.reason == models.SnapshotReasonYearlyRenewal {
 			newStart := plan.BillingEnd
 			var newEnd time.Time
 			if plan.BillingCycle == models.BillingCycleMonthly {
@@ -119,7 +133,7 @@ func (c *BillingCron) processAll(ctx context.Context) {
 			} else {
 				newEnd = newStart.AddDate(1, 0, 0)
 			}
-			if err := c.planRepo.UpdatePlanTier(ctx, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle, newStart, newEnd); err != nil {
+			if err := c.planRepo.UpdatePlanTier(ctx, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle, plan.ExternalCustomerID, plan.ExternalSubscriptionID, newStart, newEnd); err != nil {
 				c.logger.Error("billing cron: failed to advance billing period",
 					zap.String("company_id", plan.CompanyID),
 					zap.Error(err),
@@ -139,40 +153,59 @@ func (c *BillingCron) processAll(ctx context.Context) {
 }
 
 func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now time.Time) billingJob {
-	if now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd) {
-		return billingJob{
-			due:         true,
-			periodStart: plan.BillingStart,
-			periodEnd:   plan.BillingEnd,
-			isCycleEnd:  true,
-		}
+	lastSnapshot, err := c.billingRepo.FindLatestSnapshot(ctx, plan.CompanyID)
+	if err != nil {
+		c.logger.Warn("billing cron: failed to find latest snapshot, skipping",
+			zap.String("company_id", plan.CompanyID),
+			zap.Error(err),
+		)
+		return billingJob{due: false}
 	}
 
-	if plan.BillingCycle == models.BillingCycleYearly {
-		lastSnapshot, err := c.billingRepo.FindLatestSnapshot(ctx, plan.CompanyID)
-		if err != nil {
-			c.logger.Warn("billing cron: failed to find latest snapshot, skipping",
-				zap.String("company_id", plan.CompanyID),
-				zap.Error(err),
-			)
-			return billingJob{due: false}
-		}
+	var lastPeriodEnd time.Time
+	if lastSnapshot != nil {
+		lastPeriodEnd = lastSnapshot.PeriodEnd
+	} else {
+		lastPeriodEnd = plan.BillingStart
+	}
 
-		var lastPeriodEnd time.Time
-		if lastSnapshot != nil {
-			lastPeriodEnd = lastSnapshot.PeriodEnd
-		} else {
-			lastPeriodEnd = plan.BillingStart
-		}
+	nextDue := lastPeriodEnd.AddDate(0, 1, 0)
 
-		nextDue := lastPeriodEnd.AddDate(0, 1, 0)
-		if now.After(nextDue) || now.Equal(nextDue) {
+	// Catch-all: If the base subscription cycle ends before a full month has elapsed
+	if now.Before(nextDue) {
+		if plan.BillingCycle == models.BillingCycleYearly && (now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd)) {
 			return billingJob{
 				due:         true,
 				periodStart: lastPeriodEnd,
-				periodEnd:   nextDue,
-				isCycleEnd:  false,
+				periodEnd:   plan.BillingEnd,
+				reason:      models.SnapshotReasonYearlyRenewal,
 			}
+		}
+		return billingJob{due: false}
+	}
+
+	// A full month has elapsed since the last usage snapshot
+	switch plan.BillingCycle {
+	case models.BillingCycleMonthly:
+		// Monthly plans always renew subscription + overage together
+		return billingJob{
+			due:         true,
+			periodStart: lastPeriodEnd,
+			periodEnd:   nextDue,
+			reason:      models.SnapshotReasonMonthlyRenewal,
+		}
+
+	case models.BillingCycleYearly:
+		isYearEnd := now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd)
+		reason := models.SnapshotReasonOverageOnly
+		if isYearEnd {
+			reason = models.SnapshotReasonYearlyRenewal
+		}
+		return billingJob{
+			due:         true,
+			periodStart: lastPeriodEnd,
+			periodEnd:   nextDue,
+			reason:      reason,
 		}
 	}
 

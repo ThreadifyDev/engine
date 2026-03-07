@@ -20,6 +20,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
@@ -294,17 +295,23 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// Add CORS middleware
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-API-Key", "Accept"}
+	corsConfig.ExposeHeaders = []string{"Content-Length"}
+	corsConfig.MaxAge = 12 * time.Hour
+	r.Use(cors.New(corsConfig))
+
 	r.Use(requestLogger(logger))
 	r.Use(middleware.IPRateLimitMiddleware(luaScriptManager, &cfg.RateLimit))
 	r.Use(middleware.PrometheusMiddleware())
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(d))
-	r.GET("/threads",
-		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit),
-		wsHandler.HandleWebSocket,
-	)
+	r.GET("/threads", wsHandler.HandleWebSocket)
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),

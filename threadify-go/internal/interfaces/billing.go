@@ -14,5 +14,5 @@ type InvoiceResult struct {
 type InvoiceProvider interface {
 	Name() string
 
-	CreateInvoice(ctx context.Context, snapshot *models.BillingSnapshot) (*InvoiceResult, error)
+	IssueOverage(ctx context.Context, snapshot *models.BillingSnapshot) (*InvoiceResult, error)
 }

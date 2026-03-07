@@ -20,10 +20,10 @@ func NewPlanRepository(pool *pgxpool.Pool) *PlanRepository {
 
 func (r *PlanRepository) CreatePlan(ctx context.Context, plan *models.CompanyPlan) error {
 	const query = `
-		INSERT INTO company_plans (id, company_id, subscription_tier, billing_cycle, billing_start, billing_end, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		INSERT INTO company_plans (id, company_id, subscription_tier, billing_cycle, external_customer_id, external_subscription_id, billing_start, billing_end, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 	`
-	_, err := r.pool.Exec(ctx, query, plan.ID, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle, plan.BillingStart, plan.BillingEnd)
+	_, err := r.pool.Exec(ctx, query, plan.ID, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle, plan.ExternalCustomerID, plan.ExternalSubscriptionID, plan.BillingStart, plan.BillingEnd)
 	if err != nil {
 		return fmt.Errorf("create company plan: %w", err)
 	}
@@ -33,11 +33,12 @@ func (r *PlanRepository) CreatePlan(ctx context.Context, plan *models.CompanyPla
 func (r *PlanRepository) FindPlanByCompanyID(ctx context.Context, companyID string) (*models.CompanyPlan, error) {
 	plan := &models.CompanyPlan{}
 	const query = `
-		SELECT id, company_id, subscription_tier, billing_cycle, billing_start, billing_end, created_at, updated_at
+		SELECT id, company_id, subscription_tier, billing_cycle, external_customer_id, external_subscription_id, billing_start, billing_end, created_at, updated_at
 		FROM company_plans WHERE company_id = $1
 	`
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
 		&plan.ID, &plan.CompanyID, &plan.SubscriptionTier, &plan.BillingCycle,
+		&plan.ExternalCustomerID, &plan.ExternalSubscriptionID,
 		&plan.BillingStart, &plan.BillingEnd, &plan.CreatedAt, &plan.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -49,13 +50,13 @@ func (r *PlanRepository) FindPlanByCompanyID(ctx context.Context, companyID stri
 	return plan, nil
 }
 
-func (r *PlanRepository) UpdatePlanTier(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, billingStart, billingEnd time.Time) error {
+func (r *PlanRepository) UpdatePlanTier(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustID, externalSubID string, billingStart, billingEnd time.Time) error {
 	const query = `
 		UPDATE company_plans
-		SET subscription_tier = $1, billing_cycle = $2, billing_start = $3, billing_end = $4, updated_at = NOW()
-		WHERE company_id = $5
+		SET subscription_tier = $1, billing_cycle = $2, external_customer_id = $3, external_subscription_id = $4, billing_start = $5, billing_end = $6, updated_at = NOW()
+		WHERE company_id = $7
 	`
-	_, err := r.pool.Exec(ctx, query, tier, billingCycle, billingStart, billingEnd, companyID)
+	_, err := r.pool.Exec(ctx, query, tier, billingCycle, externalCustID, externalSubID, billingStart, billingEnd, companyID)
 	if err != nil {
 		return fmt.Errorf("update plan tier: %w", err)
 	}
@@ -65,17 +66,17 @@ func (r *PlanRepository) UpdatePlanTier(ctx context.Context, companyID string, t
 func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *models.UsageMeter) error {
 	const query = `
 		INSERT INTO usage_meters (
-			id, company_id, billing_cycle_start,
+			id, company_id, subscription_tier, billing_cycle_start, billing_end,
 			bandwidth_ingress_balance, bandwidth_egress_balance,
 			max_bandwidth_ingress, max_bandwidth_egress,
 			max_team_seats, max_contract_limit, max_rate_limit,
 			max_payload_bytes,
 			hot_storage_days, cold_storage_days, support,
 			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
 	`
 	_, err := r.pool.Exec(ctx, query,
-		meter.ID, meter.CompanyID, meter.BillingCycleStart,
+		meter.ID, meter.CompanyID, string(meter.SubscriptionTier), meter.BillingCycleStart, meter.BillingEnd,
 		meter.BandwidthIngressBalance, meter.BandwidthEgressBalance,
 		meter.MaxBandwidthIngress, meter.MaxBandwidthEgress,
 		meter.MaxTeamSeats, meter.MaxContractLimit, meter.MaxRateLimit,
@@ -91,16 +92,15 @@ func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *models.Usa
 func (r *PlanRepository) FindCurrentUsageMeter(ctx context.Context, companyID string) (*models.UsageMeter, error) {
 	meter := &models.UsageMeter{}
 	const query = `
-		SELECT m.id, m.company_id, p.subscription_tier, m.billing_cycle_start,
+		SELECT m.id, m.company_id, m.subscription_tier, m.billing_cycle_start,
 			m.bandwidth_ingress_balance, m.bandwidth_egress_balance,
 			m.max_bandwidth_ingress, m.max_bandwidth_egress,
 			m.max_team_seats, m.max_contract_limit, m.max_rate_limit,
 			m.max_payload_bytes,
 			m.hot_storage_days, m.cold_storage_days, m.support,
-			p.billing_end,
+			m.billing_end,
 			m.created_at, m.updated_at
 		FROM usage_meters m
-		JOIN company_plans p ON m.company_id = p.company_id
 		WHERE m.company_id = $1
 		ORDER BY m.billing_cycle_start DESC
 		LIMIT 1

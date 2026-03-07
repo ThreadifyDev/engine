@@ -26,17 +26,17 @@ func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models
 
 	const query = `
 		INSERT INTO billing_snapshots (
-			id, company_id, tier, period_start, period_end, is_cycle_end,
-			ingress_balance_final, egress_balance_final,
-			max_ingress, max_egress,
-			line_items_json, total_cents,
-			provider_name, external_invoice_id,
-			consecutive_overage_count,
-			created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+id, company_id, tier, reason, period_start, period_end, is_cycle_end,
+ingress_balance_final, egress_balance_final,
+max_ingress, max_egress,
+line_items_json, total_cents,
+provider_name, external_invoice_id,
+consecutive_overage_count,
+created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
 	`
 	_, err = r.pool.Exec(ctx, query,
-		snapshot.ID, snapshot.CompanyID, snapshot.Tier,
+		snapshot.ID, snapshot.CompanyID, snapshot.Tier, snapshot.Reason,
 		snapshot.PeriodStart, snapshot.PeriodEnd, snapshot.IsCycleEnd,
 		snapshot.IngressBalanceFinal, snapshot.EgressBalanceFinal,
 		snapshot.MaxIngress, snapshot.MaxEgress,
@@ -52,7 +52,7 @@ func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models
 
 func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID string) (*models.BillingSnapshot, error) {
 	const query = `
-		SELECT id, company_id, tier, period_start, period_end, is_cycle_end,
+		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
 			ingress_balance_final, egress_balance_final,
 			max_ingress, max_egress,
 			line_items_json, total_cents,
@@ -68,7 +68,7 @@ func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID st
 
 func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string, limit int) ([]models.BillingSnapshot, error) {
 	const query = `
-		SELECT id, company_id, tier, period_start, period_end, is_cycle_end,
+		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
 			ingress_balance_final, egress_balance_final,
 			max_ingress, max_egress,
 			line_items_json, total_cents,
@@ -90,7 +90,7 @@ func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string,
 		var s models.BillingSnapshot
 		var lineItemsJSON []byte
 		err := rows.Scan(
-			&s.ID, &s.CompanyID, &s.Tier, &s.PeriodStart, &s.PeriodEnd, &s.IsCycleEnd,
+			&s.ID, &s.CompanyID, &s.Tier, &s.Reason, &s.PeriodStart, &s.PeriodEnd, &s.IsCycleEnd,
 			&s.IngressBalanceFinal, &s.EgressBalanceFinal,
 			&s.MaxIngress, &s.MaxEgress,
 			&lineItemsJSON, &s.TotalCents,
@@ -108,12 +108,28 @@ func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string,
 	return snapshots, rows.Err()
 }
 
+func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapshotID string, invoiceID string) error {
+	const query = `
+		UPDATE billing_snapshots
+		SET external_invoice_id = $1
+		WHERE id = $2
+	`
+	tag, err := r.pool.Exec(ctx, query, invoiceID, snapshotID)
+	if err != nil {
+		return fmt.Errorf("update snapshot invoice id: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("snapshot %s not found", snapshotID)
+	}
+	return nil
+}
+
 func (r *BillingRepository) scanSnapshot(ctx context.Context, query string, args ...interface{}) (*models.BillingSnapshot, error) {
 	var s models.BillingSnapshot
 	var lineItemsJSON []byte
 
 	err := r.pool.QueryRow(ctx, query, args...).Scan(
-		&s.ID, &s.CompanyID, &s.Tier, &s.PeriodStart, &s.PeriodEnd, &s.IsCycleEnd,
+		&s.ID, &s.CompanyID, &s.Tier, &s.Reason, &s.PeriodStart, &s.PeriodEnd, &s.IsCycleEnd,
 		&s.IngressBalanceFinal, &s.EgressBalanceFinal,
 		&s.MaxIngress, &s.MaxEgress,
 		&lineItemsJSON, &s.TotalCents,
