@@ -863,6 +863,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
 		billing_start TIMESTAMP NOT NULL,
 		billing_end TIMESTAMP NOT NULL,
+		external_customer_id VARCHAR(255) NOT NULL DEFAULT '',
+		external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
+		
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
@@ -870,11 +873,17 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
 
+	-- Add external_customer_id and external_subscription_id columns to company_plans
+	ALTER TABLE company_plans ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255) NOT NULL DEFAULT '';
+	ALTER TABLE company_plans ADD COLUMN IF NOT EXISTS external_subscription_id VARCHAR(255) NOT NULL DEFAULT '';
+
 	-- Usage meters per billing cycle (decremental balance model)
 	CREATE TABLE IF NOT EXISTS usage_meters (
 		id VARCHAR(255) PRIMARY KEY,
 		company_id VARCHAR(255) NOT NULL,
+		subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter',
 		billing_cycle_start TIMESTAMP NOT NULL,
+		billing_end TIMESTAMP NOT NULL,
 
 		-- Current balances (starts at max, decrements toward 0; can go negative for overage tiers)
 		bandwidth_ingress_balance BIGINT NOT NULL,
@@ -897,8 +906,12 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
+	-- Add subscription_tier and billing_end columns if they don't exist (for local development)
+	ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter';
+	ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS billing_end TIMESTAMP NOT NULL DEFAULT NOW();
 
+	CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
+	
 	-- Billing snapshots for overage invoicing
 	CREATE TABLE IF NOT EXISTS billing_snapshots (
 		id              VARCHAR(255) PRIMARY KEY,
@@ -916,6 +929,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 		line_items_json JSONB  NOT NULL DEFAULT '[]',
 		total_cents     BIGINT NOT NULL DEFAULT 0,
+		
+		reason TEXT,
 
 		provider_name        VARCHAR(50)  NOT NULL DEFAULT '',
 		external_invoice_id  VARCHAR(255) NOT NULL DEFAULT '',
@@ -930,8 +945,11 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
 		ON billing_snapshots(company_id, period_end DESC);
-	`
 
+	-- Add reason column to billing_snapshots
+	ALTER TABLE billing_snapshots ADD COLUMN IF NOT EXISTS reason TEXT;
+
+	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err
 }

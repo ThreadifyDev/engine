@@ -40,7 +40,7 @@ func NewBillingService(
 	}
 }
 
-func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, periodStart, periodEnd time.Time, isCycleEnd bool) error {
+func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, periodStart, periodEnd time.Time, reason models.SnapshotReason) error {
 	plan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
 	if err != nil {
 		return fmt.Errorf("find plan for billing: %w", err)
@@ -96,7 +96,8 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		Tier:                    plan.SubscriptionTier,
 		PeriodStart:             periodStart,
 		PeriodEnd:               periodEnd,
-		IsCycleEnd:              isCycleEnd,
+		Reason:                  reason,
+		IsCycleEnd:              reason == models.SnapshotReasonMonthlyRenewal || reason == models.SnapshotReasonYearlyRenewal,
 		IngressBalanceFinal:     meter.BandwidthIngressBalance,
 		EgressBalanceFinal:      meter.BandwidthEgressBalance,
 		MaxIngress:              meter.MaxBandwidthIngress,
@@ -113,7 +114,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 
 	// Send to invoice provider (Stripe, Paystack, NoOp, etc.)
 	if totalCents > 0 {
-		result, invoiceErr := s.invoiceProvider.CreateInvoice(ctx, snapshot)
+		result, invoiceErr := s.invoiceProvider.IssueOverage(ctx, snapshot)
 		if invoiceErr != nil {
 			s.logger.Error("invoice provider failed",
 				zap.String("company_id", companyID),
@@ -122,8 +123,14 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 				zap.Error(invoiceErr),
 			)
 			// Don't return error — snapshot is already persisted, invoice can be retried
-		} else if result != nil {
+		} else if result != nil && result.ExternalInvoiceID != "" {
 			snapshot.ExternalInvoiceID = result.ExternalInvoiceID
+			if repoErr := s.billingRepo.UpdateSnapshotInvoiceID(ctx, snapshot.ID, result.ExternalInvoiceID); repoErr != nil {
+				s.logger.Error("failed to update snapshot invoice ID",
+					zap.String("snapshot_id", snapshot.ID),
+					zap.Error(repoErr),
+				)
+			}
 		}
 	}
 
@@ -132,14 +139,12 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		zap.String("tier", string(plan.SubscriptionTier)),
 		zap.Int64("total_cents", totalCents),
 		zap.Int("consecutive_overage", consecutiveCount),
-		zap.Bool("cycle_end", isCycleEnd),
+		zap.String("reason", string(reason)),
 	)
 
-	// On cycle end: reset balances to max limits
-	if isCycleEnd {
-		if err := s.resetBalances(ctx, companyID, meter, tierCfg); err != nil {
-			return fmt.Errorf("reset balances on cycle end: %w", err)
-		}
+	// Reset balances on EVERY snapshot because usage quotas are strictly monthly
+	if err := s.resetBalances(ctx, companyID, meter, tierCfg); err != nil {
+		return fmt.Errorf("reset balances: %w", err)
 	}
 
 	return nil
@@ -222,7 +227,7 @@ func NewNoOpInvoiceProvider(logger *zap.Logger) *NoOpInvoiceProvider {
 
 func (p *NoOpInvoiceProvider) Name() string { return "noop" }
 
-func (p *NoOpInvoiceProvider) CreateInvoice(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
+func (p *NoOpInvoiceProvider) IssueOverage(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
 	p.logger.Info("invoice generated (no-op)",
 		zap.String("company_id", snapshot.CompanyID),
 		zap.String("snapshot_id", snapshot.ID),
@@ -249,7 +254,7 @@ func NewStripeInvoiceProvider(apiKey string, logger *zap.Logger) *StripeInvoiceP
 
 func (p *StripeInvoiceProvider) Name() string { return "stripe" }
 
-func (p *StripeInvoiceProvider) CreateInvoice(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
+func (p *StripeInvoiceProvider) IssueOverage(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
 	p.logger.Warn("stripe invoice provider not yet implemented",
 		zap.String("company_id", snapshot.CompanyID),
 		zap.Int64("total_cents", snapshot.TotalCents),
@@ -271,7 +276,7 @@ func NewPaystackInvoiceProvider(secretKey string, logger *zap.Logger) *PaystackI
 
 func (p *PaystackInvoiceProvider) Name() string { return "paystack" }
 
-func (p *PaystackInvoiceProvider) CreateInvoice(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
+func (p *PaystackInvoiceProvider) IssueOverage(_ context.Context, snapshot *models.BillingSnapshot) (*interfaces.InvoiceResult, error) {
 	p.logger.Warn("paystack invoice provider not yet implemented",
 		zap.String("company_id", snapshot.CompanyID),
 		zap.Int64("total_cents", snapshot.TotalCents),

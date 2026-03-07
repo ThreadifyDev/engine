@@ -2,13 +2,22 @@ package models
 
 import "time"
 
+type SnapshotReason string
+
+const (
+	SnapshotReasonOverageOnly    SnapshotReason = "overage_only"    // yearly mid-cycle
+	SnapshotReasonMonthlyRenewal SnapshotReason = "monthly_renewal" // monthly plan: sub + overage
+	SnapshotReasonYearlyRenewal  SnapshotReason = "yearly_renewal"  // end of 12-month period
+)
+
 type BillingSnapshot struct {
-	ID          string    `json:"id"`
-	CompanyID   string    `json:"companyId"`
-	Tier        PlanTier  `json:"tier"`
-	PeriodStart time.Time `json:"periodStart"`
-	PeriodEnd   time.Time `json:"periodEnd"`
-	IsCycleEnd  bool      `json:"isCycleEnd"` // true = full billing cycle end (triggers reset)
+	ID          string         `json:"id"`
+	CompanyID   string         `json:"companyId"`
+	Tier        PlanTier       `json:"tier"`
+	Reason      SnapshotReason `json:"reason"`
+	PeriodStart time.Time      `json:"periodStart"`
+	PeriodEnd   time.Time      `json:"periodEnd"`
+	IsCycleEnd  bool           `json:"isCycleEnd"` // true = full billing cycle end (triggers reset)
 
 	IngressBalanceFinal int64 `json:"ingressBalanceFinal"`
 	EgressBalanceFinal  int64 `json:"egressBalanceFinal"`

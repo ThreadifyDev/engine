@@ -17,14 +17,16 @@ const (
 )
 
 type CompanyPlan struct {
-	ID               string       `json:"id"`
-	CompanyID        string       `json:"companyId"`
-	SubscriptionTier PlanTier     `json:"subscriptionTier"`
-	BillingCycle     BillingCycle `json:"billingCycle"`
-	BillingStart     time.Time    `json:"billingStart"`
-	BillingEnd       time.Time    `json:"billingEnd"`
-	CreatedAt        time.Time    `json:"createdAt"`
-	UpdatedAt        time.Time    `json:"updatedAt"`
+	ID                     string       `json:"id"`
+	CompanyID              string       `json:"companyId"`
+	SubscriptionTier       PlanTier     `json:"subscriptionTier"`
+	BillingCycle           BillingCycle `json:"billingCycle"`
+	ExternalCustomerID     string       `json:"externalCustomerId"`
+	ExternalSubscriptionID string       `json:"externalSubscriptionId"`
+	BillingStart           time.Time    `json:"billingStart"`
+	BillingEnd             time.Time    `json:"billingEnd"`
+	CreatedAt              time.Time    `json:"createdAt"`
+	UpdatedAt              time.Time    `json:"updatedAt"`
 }
 
 type UsageMeter struct {

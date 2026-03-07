@@ -389,8 +389,17 @@ func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, t
 	if err != nil {
 		return err
 	}
+	existingPlan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
+	if err != nil {
+		return fmt.Errorf("renew subscription - check existing plan: %w", err)
+	}
+	var customerID, subID string
+	if existingPlan != nil {
+		customerID = existingPlan.ExternalCustomerID
+		subID = existingPlan.ExternalSubscriptionID
+	}
 
-	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, now, billingEnd); err != nil {
+	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, customerID, subID, now, billingEnd); err != nil {
 		return fmt.Errorf("renew subscription - update plan: %w", err)
 	}
 
