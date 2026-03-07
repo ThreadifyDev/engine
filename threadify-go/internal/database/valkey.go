@@ -95,6 +95,10 @@ func (v *ValkeyService) Set(ctx context.Context, key, value string, ttl time.Dur
 	return v.Client.Set(ctx, key, value, ttl).Err()
 }
 
+func (v *ValkeyService) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	return v.Client.SetNX(ctx, key, value, ttl).Result()
+}
+
 func (v *ValkeyService) Get(ctx context.Context, key string) (string, error) {
 	return v.Client.Get(ctx, key).Result()
 }

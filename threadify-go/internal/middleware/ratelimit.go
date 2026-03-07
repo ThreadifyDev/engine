@@ -1,69 +1,63 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/config"
-	"golang.org/x/time/rate"
+	"github.com/threadify/engine/internal/interfaces"
 )
 
-// IPRateLimiter implements per-IP rate limiting using token bucket algorithm
-type IPRateLimiter struct {
-	limiters map[string]*rate.Limiter
-	mu       sync.RWMutex
-	rate     rate.Limit
-	burst    int
-	enabled  bool
-}
-
-// NewIPRateLimiter creates a new IP-based rate limiter from config
-func NewIPRateLimiter(cfg *config.RateLimitConfig) *IPRateLimiter {
-	if cfg == nil || !cfg.PerIP.Enabled {
-		return &IPRateLimiter{enabled: false}
-	}
-
-	// Convert requests per minute to requests per second
-	rps := float64(cfg.PerIP.RequestsPerMinute) / 60.0
-
-	return &IPRateLimiter{
-		limiters: make(map[string]*rate.Limiter),
-		rate:     rate.Limit(rps),
-		burst:    cfg.PerIP.Burst,
-		enabled:  true,
-	}
-}
-
-func (rl *IPRateLimiter) getLimiter(key string) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	limiter, exists := rl.limiters[key]
-	if !exists {
-		limiter = rate.NewLimiter(rl.rate, rl.burst)
-		rl.limiters[key] = limiter
-	}
-
-	return limiter
-}
-
-func (rl *IPRateLimiter) Middleware() gin.HandlerFunc {
+func IPRateLimitMiddleware(luaScripts interfaces.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !rl.enabled {
+		// Skip for health and metrics
+		path := c.Request.URL.Path
+		if path == "/health" || path == "/metrics" {
 			c.Next()
 			return
 		}
 
-		// Use IP address as the rate limit key
-		key := c.ClientIP()
+		if !rateCfg.Enabled || !rateCfg.IPRateLimitEnabled {
+			c.Next()
+			return
+		}
 
-		limiter := rl.getLimiter(key)
-		if !limiter.Allow() {
+		ip := c.ClientIP()
+		if ip == "" {
+			c.Next()
+			return
+		}
+
+		windowSeconds := rateCfg.WindowSeconds
+		if windowSeconds <= 0 {
+			windowSeconds = 60
+		}
+		requestsPerWindow := rateCfg.IPRequestsPerWindow
+		if requestsPerWindow <= 0 {
+			requestsPerWindow = 100
+		}
+
+		redisTimeout := time.Duration(rateCfg.RedisTimeoutMs) * time.Millisecond
+		if redisTimeout <= 0 {
+			redisTimeout = 5 * time.Millisecond
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), redisTimeout)
+		defer cancel()
+
+		allowed, err := luaScripts.CheckIPRateLimit(ctx, ip, requestsPerWindow, windowSeconds)
+		if err != nil {
+			// On error, fail open to avoid blocking legitimate traffic
+			c.Next()
+			return
+		}
+
+		if !allowed {
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "Rate limit exceeded",
-				"message": "Too many requests from your IP. Please try again later.",
+				"error":   "Too many requests",
+				"message": "Rate limit exceeded. Please try again later.",
 			})
 			c.Abort()
 			return
@@ -71,18 +65,4 @@ func (rl *IPRateLimiter) Middleware() gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// Cleanup removes old limiters periodically
-func (rl *IPRateLimiter) Cleanup(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for range ticker.C {
-			rl.mu.Lock()
-			// Clear all limiters (simple approach)
-			// In production, you'd track last access time and only remove stale ones
-			rl.limiters = make(map[string]*rate.Limiter)
-			rl.mu.Unlock()
-		}
-	}()
 }

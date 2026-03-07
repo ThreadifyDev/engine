@@ -371,6 +371,7 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 		return nil
 	}
 	start := time.Now()
+	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
 
 	// Aggregate decrements by (company_id, meter)
 	aggregated := make(map[string]map[string]int64)

@@ -86,20 +86,16 @@ func main() {
 }
 
 type deps struct {
-	db           *database.PostgresDB
-	valkey       *database.ValkeyService
-	natsPool     *natsrepo.Pool
-	workerPools  *workerpool.Pools
-	stepEventSvc *service.StepEventService
-	notifRouter  *handlers.NotificationRouter
+	db             *database.PostgresDB
+	valkey         *database.ValkeyService
+	natsPool       *natsrepo.Pool
+	workerPools    *workerpool.Pools
+	serviceManager *service.ServiceManager
 }
 
 func (d *deps) close() {
-	if d.stepEventSvc != nil {
-		d.stepEventSvc.Stop()
-	}
-	if d.notifRouter != nil {
-		d.notifRouter.Stop()
+	if d.serviceManager != nil {
+		d.serviceManager.StopAll()
 	}
 	if d.natsPool != nil {
 		d.natsPool.Close()
@@ -228,25 +224,35 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	accessRepo := valkey.NewAccessRepository(d.valkey, int(threadTTL.Seconds()), logger)
 	accessRepo.SetRBACLoader(rbacLoader)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
+	if err := luaScriptManager.LoadScripts(context.Background()); err != nil {
+		logger.Fatal("failed to load lua scripts", zap.Error(err))
+	}
 
 	natsArchival := natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
 	natsNotification := natsrepo.NewPublisher(d.natsPool.GetClient())
+
+	sm := service.NewServiceManager(logger)
+	d.serviceManager = sm
 
 	stepEventSvc, err := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to create step event service", zap.Error(err))
 	}
-
-	stepEventSvc.Start()
-	d.stepEventSvc = stepEventSvc
+	sm.Register(stepEventSvc)
 
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
 
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
-	planSvc := service.NewPlanService(planRepo, &cfg.Subscription, d.valkey, natsArchival, logger)
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, natsArchival, logger, cfg.Cache.PlanTTLMs)
 
-	contractSvc := service.NewContractService(d.db, logger)
-	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools, logger)
+	billingRepo := postgres.NewBillingRepository(d.db.Pool)
+	invoiceProvider := service.NewNoOpInvoiceProvider(logger)
+	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, logger)
+	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
+	sm.Register(billingCron)
+
+	contractSvc := service.NewContractService(contractRepo, planSvc, logger)
+	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, planSvc, d.workerPools, logger)
 	invitationSvc := service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
 	contractHandler := handlers.NewContractHandler(contractSvc, logger)
@@ -257,7 +263,11 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		if err != nil {
 			logger.Fatal("failed to create notification router", zap.Error(err))
 		}
-		d.notifRouter = notifRouter
+		sm.Register(notifRouter)
+	}
+
+	if err := sm.StartAll(); err != nil {
+		logger.Fatal("failed to start background services", zap.Error(err))
 	}
 
 	wsHandler := handlers.NewWebSocketHandler(
@@ -281,51 +291,42 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	gqlHandler.Use(extension.FixedComplexityLimit(1000))
 	gqlHandler.Use(extension.Introspection{})
 
-	ipRateLimiter := middleware.NewIPRateLimiter(&cfg.RateLimit)
-	if cfg.RateLimit.CleanupInterval != "" {
-		if interval, err := time.ParseDuration(cfg.RateLimit.CleanupInterval); err == nil {
-			ipRateLimiter.Cleanup(interval)
-		}
-	}
-	botScanner := middleware.NewBotScanner(&cfg.BotScanner)
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(requestLogger(logger))
+	r.Use(middleware.IPRateLimitMiddleware(luaScriptManager, &cfg.RateLimit))
 	r.Use(middleware.PrometheusMiddleware())
-	r.Use(botScanner.Middleware())
-	r.Use(ipRateLimiter.Middleware())
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(d))
-	r.GET("/threads", wsHandler.HandleWebSocket)
+	r.GET("/threads",
+		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
+		middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit),
+		wsHandler.HandleWebSocket,
+	)
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit),
-		middleware.SubscriptionMiddleware(planSvc, luaScriptManager),
+		middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit),
 		graphqlMiddleware(gqlHandler),
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
+	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit))
 	mountMCPServer(mcpGroup, cfg, logger)
 
 	v1 := r.Group("/v1")
-	v1.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
-	v1.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager))
+	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
+	v1.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit))
 
 	contracts := v1.Group("/contracts")
-	contracts.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	{
 		contracts.GET("", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContracts)
 		contracts.POST("",
 			middleware.ContractRBACMiddleware(rbacLoader, "contract.create"),
-			middleware.ContractQuotaMiddleware(planSvc, contractSvc),
-			middleware.PayloadSizeMiddleware(),
 			contractHandler.CreateContract,
 		)
 		contracts.POST("/preview", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.PreviewContract)

@@ -34,6 +34,7 @@ type ThreadServiceBuilder struct {
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
+	planService           *PlanService
 	workerPools           *workerpool.Pools
 	logger                *zap.Logger
 }
@@ -85,6 +86,11 @@ func (b *ThreadServiceBuilder) WithNATSArchivalPublisher(publisher *natsrepo.Arc
 
 func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *ThreadServiceBuilder {
 	b.authService = authService
+	return b
+}
+
+func (b *ThreadServiceBuilder) WithPlanService(planService *PlanService) *ThreadServiceBuilder {
+	b.planService = planService
 	return b
 }
 
@@ -177,6 +183,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		invitationService:     NewInvitationTokenService(b.cfg.JWT.Secret, b.cfg.JWT.Issuer),
 		scopeResolver:         NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger),
 		notificationConsumer:  nil,
+		planService:           b.planService,
 		valkeyClient:          b.valkeyService,
 		luaScripts:            luaScripts,
 		natsArchivalPublisher: b.natsArchivalPublisher,

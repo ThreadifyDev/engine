@@ -10,6 +10,7 @@ import (
 // ValkeyClient defines the interface for Valkey operations
 type ValkeyClient interface {
 	Set(ctx context.Context, key, value string, ttl time.Duration) error
+	SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string) (string, error)
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
@@ -170,4 +171,7 @@ type ContractGraphRepository interface {
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
 	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
+	CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow int, windowSeconds int) (bool, error)
+	DecrementUsage(ctx context.Context, key string, amount int64, floor int64) (int64, int64, error)
+	CheckAndIncrQuota(ctx context.Context, key string, limit int, amount int) (int64, int64, error)
 }

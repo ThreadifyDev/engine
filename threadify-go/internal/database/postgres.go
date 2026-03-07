@@ -879,7 +879,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		-- Current balances (starts at max, decrements toward 0; can go negative for overage tiers)
 		bandwidth_ingress_balance BIGINT NOT NULL,
 		bandwidth_egress_balance BIGINT NOT NULL,
-		llm_credits_balance BIGINT NOT NULL,
 
 		-- Max limits (snapped from subscription tier at cycle start)
 		max_bandwidth_ingress BIGINT NOT NULL,
@@ -888,7 +887,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		max_contract_limit INT NOT NULL,
 		max_rate_limit INT NOT NULL,
 		max_payload_bytes BIGINT NOT NULL,
-		max_llm_credits BIGINT NOT NULL,
 		hot_storage_days INT NOT NULL DEFAULT 7,
 		cold_storage_days INT NOT NULL DEFAULT 0,
 		support VARCHAR(50) NOT NULL DEFAULT 'community',
@@ -900,6 +898,38 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
+
+	-- Billing snapshots for overage invoicing
+	CREATE TABLE IF NOT EXISTS billing_snapshots (
+		id              VARCHAR(255) PRIMARY KEY,
+		company_id      VARCHAR(255) NOT NULL,
+		tier            VARCHAR(50)  NOT NULL,
+		period_start    TIMESTAMPTZ  NOT NULL,
+		period_end      TIMESTAMPTZ  NOT NULL,
+		is_cycle_end    BOOLEAN      NOT NULL DEFAULT false,
+
+		ingress_balance_final  BIGINT NOT NULL,
+		egress_balance_final   BIGINT NOT NULL,
+
+		max_ingress     BIGINT NOT NULL,
+		max_egress      BIGINT NOT NULL,
+
+		line_items_json JSONB  NOT NULL DEFAULT '[]',
+		total_cents     BIGINT NOT NULL DEFAULT 0,
+
+		provider_name        VARCHAR(50)  NOT NULL DEFAULT '',
+		external_invoice_id  VARCHAR(255) NOT NULL DEFAULT '',
+
+		consecutive_overage_count INT NOT NULL DEFAULT 0,
+
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+		UNIQUE(company_id, period_end),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
+		ON billing_snapshots(company_id, period_end DESC);
 	`
 
 	_, err := db.Pool.Exec(ctx, schema)

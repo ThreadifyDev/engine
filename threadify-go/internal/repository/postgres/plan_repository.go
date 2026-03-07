@@ -91,25 +91,28 @@ func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *models.Usa
 func (r *PlanRepository) FindCurrentUsageMeter(ctx context.Context, companyID string) (*models.UsageMeter, error) {
 	meter := &models.UsageMeter{}
 	const query = `
-		SELECT id, company_id, billing_cycle_start,
-			bandwidth_ingress_balance, bandwidth_egress_balance,
-			max_bandwidth_ingress, max_bandwidth_egress,
-			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes,
-			hot_storage_days, cold_storage_days, support,
-			created_at, updated_at
-		FROM usage_meters
-		WHERE company_id = $1
-		ORDER BY billing_cycle_start DESC
+		SELECT m.id, m.company_id, p.subscription_tier, m.billing_cycle_start,
+			m.bandwidth_ingress_balance, m.bandwidth_egress_balance,
+			m.max_bandwidth_ingress, m.max_bandwidth_egress,
+			m.max_team_seats, m.max_contract_limit, m.max_rate_limit,
+			m.max_payload_bytes,
+			m.hot_storage_days, m.cold_storage_days, m.support,
+			p.billing_end,
+			m.created_at, m.updated_at
+		FROM usage_meters m
+		JOIN company_plans p ON m.company_id = p.company_id
+		WHERE m.company_id = $1
+		ORDER BY m.billing_cycle_start DESC
 		LIMIT 1
 	`
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
-		&meter.ID, &meter.CompanyID, &meter.BillingCycleStart,
+		&meter.ID, &meter.CompanyID, &meter.SubscriptionTier, &meter.BillingCycleStart,
 		&meter.BandwidthIngressBalance, &meter.BandwidthEgressBalance,
 		&meter.MaxBandwidthIngress, &meter.MaxBandwidthEgress,
 		&meter.MaxTeamSeats, &meter.MaxContractLimit, &meter.MaxRateLimit,
 		&meter.MaxPayloadBytes,
 		&meter.HotStorageDays, &meter.ColdStorageDays, &meter.Support,
+		&meter.BillingEnd,
 		&meter.CreatedAt, &meter.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -174,4 +177,28 @@ func (r *PlanRepository) DecrementBandwidthEgress(ctx context.Context, companyID
 		return 0, fmt.Errorf("decrement bandwidth egress: %w", err)
 	}
 	return newBalance, nil
+}
+
+func (r *PlanRepository) ListActivePlans(ctx context.Context) ([]models.CompanyPlan, error) {
+	const query = `
+		SELECT id, company_id, subscription_tier, billing_cycle, billing_start, billing_end, created_at, updated_at
+		FROM company_plans
+		ORDER BY billing_end ASC
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list active plans: %w", err)
+	}
+	defer rows.Close()
+
+	var plans []models.CompanyPlan
+	for rows.Next() {
+		var p models.CompanyPlan
+		if err := rows.Scan(&p.ID, &p.CompanyID, &p.SubscriptionTier, &p.BillingCycle,
+			&p.BillingStart, &p.BillingEnd, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan company plan: %w", err)
+		}
+		plans = append(plans, p)
+	}
+	return plans, rows.Err()
 }

@@ -59,3 +59,9 @@ type ContractValidator interface {
 	LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error)
 	GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error)
 }
+
+// BackgroundService defines the interface for services that run in the background.
+type BackgroundService interface {
+	Start() error
+	Stop() error
+}

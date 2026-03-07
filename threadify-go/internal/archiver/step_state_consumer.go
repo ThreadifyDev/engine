@@ -171,14 +171,13 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 	pending := c.buffer
 	c.buffer = make([]pendingStepState, 0, c.batchSize)
 
-	// Deduplicate: last write wins per (threadID, stepName, idempotencyKey)
 	type dedupKey struct{ threadID, stepName, idempKey string }
 	seen := make(map[dedupKey]int, len(pending))
 	deduped := make([]StepStateEvent, 0, len(pending))
 	for _, p := range pending {
 		k := dedupKey{p.event.ThreadID, p.event.StepName, p.event.IdempotencyKey}
 		if idx, ok := seen[k]; ok {
-			deduped[idx] = p.event // overwrite with newer event
+			deduped[idx] = p.event
 		} else {
 			seen[k] = len(deduped)
 			deduped = append(deduped, p.event)
@@ -217,7 +216,6 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 		return nil
 	}
 
-	// 14 bound params per row; created_at uses NOW() inline.
 	const numCols = 14
 	placeholderRows := make([]string, 0, len(events))
 	args := make([]interface{}, 0, len(events)*numCols)
@@ -228,7 +226,6 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 		for j := range cols {
 			cols[j] = fmt.Sprintf("$%d", base+j+1)
 		}
-		// created_at is the 15th column — supplied inline as NOW()
 		placeholderRows = append(placeholderRows, "("+strings.Join(cols, ", ")+", NOW())")
 
 		args = append(args,
@@ -238,14 +235,14 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 			e.IdempotencyKey,
 			e.Status,
 			e.RetryCount,
-			e.FirstSeenAt,
-			e.LastUpdatedAt,
-			e.StartedAt,
-			e.FinishedAt,
+			nullIfEmpty(e.FirstSeenAt),
+			nullIfEmpty(e.LastUpdatedAt),
+			nullIfEmpty(e.StartedAt),
+			nullIfEmpty(e.FinishedAt),
 			e.PreviousStep,
 			e.Actor,
 			e.ActorService,
-			e.LatestContext,
+			nullIfEmpty(e.LatestContext),
 		)
 	}
 
@@ -269,6 +266,13 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 		return fmt.Errorf("insert step states: %w", err)
 	}
 	return nil
+}
+
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (c *StepStateConsumer) Stop() {
