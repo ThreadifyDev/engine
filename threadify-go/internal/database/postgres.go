@@ -64,9 +64,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-		);
+	);
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_user_id VARCHAR(255);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id) WHERE auth_user_id IS NOT NULL;
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id ON users(auth_user_id) WHERE auth_user_id IS NOT NULL;
 	
 	CREATE TABLE IF NOT EXISTS contracts (
 		id UUID PRIMARY KEY,
@@ -82,7 +82,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		FOREIGN KEY (company_id) REFERENCES companies(id)
 	);
-
+	
 	-- Add company_id column if it doesn't exist (for existing databases)
 	ALTER TABLE contracts ADD COLUMN IF NOT EXISTS company_id VARCHAR(255);
 	
@@ -857,97 +857,90 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	-- Company subscription plans
 	CREATE TABLE IF NOT EXISTS company_plans (
-		id VARCHAR(255) PRIMARY KEY,
-		company_id VARCHAR(255) NOT NULL UNIQUE,
-		subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter',
-		billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
-		billing_start TIMESTAMP NOT NULL,
-		billing_end TIMESTAMP NOT NULL,
-		external_customer_id VARCHAR(255) NOT NULL DEFAULT '',
-		external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
-		
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-	);
+	id                       VARCHAR(255) PRIMARY KEY,
+	company_id               VARCHAR(255) NOT NULL UNIQUE,
+	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
+	billing_cycle            VARCHAR(20)  NOT NULL DEFAULT 'monthly',
+	billing_start            TIMESTAMP    NOT NULL,
+	billing_end              TIMESTAMP    NOT NULL,
+	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
+	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
+	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+	status                   VARCHAR(50)  NOT NULL DEFAULT 'active',
+	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
 
-	CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
+CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
 
-	-- Add external_customer_id and external_subscription_id columns to company_plans
-	ALTER TABLE company_plans ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255) NOT NULL DEFAULT '';
-	ALTER TABLE company_plans ADD COLUMN IF NOT EXISTS external_subscription_id VARCHAR(255) NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS usage_meters (
+	id                       VARCHAR(255) PRIMARY KEY,
+	company_id               VARCHAR(255) NOT NULL,
+	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
+	billing_cycle_start      TIMESTAMP    NOT NULL,
+	billing_end              TIMESTAMP    NOT NULL,
+	bandwidth_ingress_balance BIGINT      NOT NULL,
+	bandwidth_egress_balance  BIGINT      NOT NULL,
+	max_bandwidth_ingress    BIGINT       NOT NULL,
+	max_bandwidth_egress     BIGINT       NOT NULL,
+	max_team_seats           INT          NOT NULL,
+	max_contract_limit       INT          NOT NULL,
+	max_rate_limit           INT          NOT NULL,
+	max_payload_bytes        BIGINT       NOT NULL,
+	hot_storage_days         INT          NOT NULL DEFAULT 7,
+	cold_storage_days        INT          NOT NULL DEFAULT 0,
+	support                  VARCHAR(50)  NOT NULL DEFAULT 'community',
+	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+	UNIQUE(company_id, billing_cycle_start),
+	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
 
-	-- Usage meters per billing cycle (decremental balance model)
-	CREATE TABLE IF NOT EXISTS usage_meters (
-		id VARCHAR(255) PRIMARY KEY,
-		company_id VARCHAR(255) NOT NULL,
-		subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter',
-		billing_cycle_start TIMESTAMP NOT NULL,
-		billing_end TIMESTAMP NOT NULL,
+CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
 
-		-- Current balances (starts at max, decrements toward 0; can go negative for overage tiers)
-		bandwidth_ingress_balance BIGINT NOT NULL,
-		bandwidth_egress_balance BIGINT NOT NULL,
+CREATE TABLE IF NOT EXISTS billing_snapshots (
+	id                       VARCHAR(255) PRIMARY KEY,
+	company_id               VARCHAR(255) NOT NULL,
+	tier                     VARCHAR(50)  NOT NULL,
+	reason                   TEXT,
+	period_start             TIMESTAMPTZ  NOT NULL,
+	period_end               TIMESTAMPTZ  NOT NULL,
+	is_cycle_end             BOOLEAN      NOT NULL DEFAULT false,
+	ingress_balance_final    BIGINT       NOT NULL,
+	egress_balance_final     BIGINT       NOT NULL,
+	max_ingress              BIGINT       NOT NULL,
+	max_egress               BIGINT       NOT NULL,
+	line_items_json          JSONB        NOT NULL DEFAULT '[]',
+	total_cents              BIGINT       NOT NULL DEFAULT 0,
+	provider_name            VARCHAR(50)  NOT NULL DEFAULT '',
+	external_invoice_id      VARCHAR(255) NOT NULL DEFAULT '',
+	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
+	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
+	payment_status           VARCHAR(50)  NOT NULL DEFAULT 'no_charge',
+	consecutive_overage_count INT         NOT NULL DEFAULT 0,
+	created_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+	UNIQUE(company_id, period_end),
+	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+);
 
-		-- Max limits (snapped from subscription tier at cycle start)
-		max_bandwidth_ingress BIGINT NOT NULL,
-		max_bandwidth_egress BIGINT NOT NULL,
-		max_team_seats INT NOT NULL,
-		max_contract_limit INT NOT NULL,
-		max_rate_limit INT NOT NULL,
-		max_payload_bytes BIGINT NOT NULL,
-		hot_storage_days INT NOT NULL DEFAULT 7,
-		cold_storage_days INT NOT NULL DEFAULT 0,
-		support VARCHAR(50) NOT NULL DEFAULT 'community',
+CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
+	ON billing_snapshots(company_id, period_end DESC);
 
-		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		UNIQUE(company_id, billing_cycle_start),
-		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-	);
+CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
+	ON billing_snapshots(external_invoice_id)
+	WHERE external_invoice_id != '';
 
-	-- Add subscription_tier and billing_end columns if they don't exist (for local development)
-	ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(50) NOT NULL DEFAULT 'starter';
-	ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS billing_end TIMESTAMP NOT NULL DEFAULT NOW();
+CREATE TABLE IF NOT EXISTS usage_sync_events (
+	event_id     VARCHAR(255) PRIMARY KEY,
+	company_id   VARCHAR(255) NOT NULL,
+	meter        VARCHAR(64)  NOT NULL,
+	amount       BIGINT       NOT NULL,
+	occurred_at  TIMESTAMPTZ  NOT NULL,
+	processed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
 
-	CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
-	
-	-- Billing snapshots for overage invoicing
-	CREATE TABLE IF NOT EXISTS billing_snapshots (
-		id              VARCHAR(255) PRIMARY KEY,
-		company_id      VARCHAR(255) NOT NULL,
-		tier            VARCHAR(50)  NOT NULL,
-		period_start    TIMESTAMPTZ  NOT NULL,
-		period_end      TIMESTAMPTZ  NOT NULL,
-		is_cycle_end    BOOLEAN      NOT NULL DEFAULT false,
-
-		ingress_balance_final  BIGINT NOT NULL,
-		egress_balance_final   BIGINT NOT NULL,
-
-		max_ingress     BIGINT NOT NULL,
-		max_egress      BIGINT NOT NULL,
-
-		line_items_json JSONB  NOT NULL DEFAULT '[]',
-		total_cents     BIGINT NOT NULL DEFAULT 0,
-		
-		reason TEXT,
-
-		provider_name        VARCHAR(50)  NOT NULL DEFAULT '',
-		external_invoice_id  VARCHAR(255) NOT NULL DEFAULT '',
-
-		consecutive_overage_count INT NOT NULL DEFAULT 0,
-
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-		UNIQUE(company_id, period_end),
-		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
-		ON billing_snapshots(company_id, period_end DESC);
-
-	-- Add reason column to billing_snapshots
-	ALTER TABLE billing_snapshots ADD COLUMN IF NOT EXISTS reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_usage_sync_events_company_occurred
+	ON usage_sync_events(company_id, occurred_at DESC);
 
 	`
 	_, err := db.Pool.Exec(ctx, schema)

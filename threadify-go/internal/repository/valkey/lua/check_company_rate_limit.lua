@@ -1,4 +1,4 @@
--- check_user_rate_limit.lua
+-- check_company_rate_limit.lua
 -- Implements sliding window rate limiting for user requests
 --
 -- KEYS[1] = rate limit key (e.g., "ratelimit:user:user-123")

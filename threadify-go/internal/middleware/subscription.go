@@ -8,13 +8,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/service"
 
 	sharedauth "threadify-go/shared/auth"
 )
 
-func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
+func SubscriptionMiddleware(planSvc *service.PlanService, valkeyClient interfaces.ValkeyClient, luaScripts interfaces.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" {
@@ -31,6 +32,16 @@ func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.
 		companyID, ok := companyIDRaw.(string)
 		if !ok || companyID == "" {
 			c.Next()
+			return
+		}
+
+		suspendedKey := database.SuspendedPlanPrefix + companyID
+		if val, err := valkeyClient.Get(c.Request.Context(), suspendedKey); err == nil && val != "" {
+			c.JSON(http.StatusPaymentRequired, gin.H{
+				"error":   "Account suspended",
+				"message": "Your account has been suspended due to a failed payment. Please update your payment method.",
+			})
+			c.Abort()
 			return
 		}
 
@@ -84,7 +95,6 @@ func SubscriptionMiddleware(planSvc *service.PlanService, luaScripts interfaces.
 				c.Abort()
 				return
 			}
-			// On Lua/Redis error, fail open — don't block traffic
 		}
 
 		c.Next()

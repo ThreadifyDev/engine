@@ -10,47 +10,36 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
 
-const (
-	planCachePrefix = "plan:limits:"
-
-	// Valkey key prefixes for real-time balance tracking
-	balanceKeyPrefix       = "plan:balance:"
-	usageContractKeyPrefix = "plan:usage:contracts:"
-	usageUserKeyPrefix     = "plan:usage:users:"
-)
-
 var ErrSubscriptionExpired = fmt.Errorf("subscription expired")
 
-// balanceKey returns the Valkey key for a specific meter balance
 func balanceKey(companyID, meter string) string {
-	return balanceKeyPrefix + meter + ":" + companyID
+	return database.BalanceKeyPrefix + meter + ":" + companyID
 }
 
 func usageContractKey(companyID string) string {
-	return usageContractKeyPrefix + companyID
+	return database.UsageContractKeyPrefix + companyID
 }
 
 func usageUserKey(companyID string) string {
-	return usageUserKeyPrefix + companyID
+	return database.UsageUserKeyPrefix + companyID
 }
 
 type PlanService struct {
-	planRepo      *postgres.PlanRepository
-	contractRepo  *postgres.ContractRepository
-	actorRepo     *postgres.ActorRepository
-	subConfig     *config.SubscriptionConfig
-	valkeyClient  interfaces.ValkeyClient
-	luaScripts    interfaces.LuaScriptManager
-	natsPublisher *natsrepo.ArchivalPublisher
-	logger        *zap.Logger
-	cacheTTL      time.Duration
+	planRepo     *postgres.PlanRepository
+	contractRepo *postgres.ContractRepository
+	actorRepo    *postgres.ActorRepository
+	subConfig    *config.SubscriptionConfig
+	valkeyClient interfaces.ValkeyClient
+	luaScripts   interfaces.LuaScriptManager
+	logger       *zap.Logger
+	cacheTTL     time.Duration
 }
 
 func NewPlanService(
@@ -60,7 +49,6 @@ func NewPlanService(
 	subConfig *config.SubscriptionConfig,
 	valkeyClient interfaces.ValkeyClient,
 	luaScripts interfaces.LuaScriptManager,
-	natsPublisher *natsrepo.ArchivalPublisher,
 	logger *zap.Logger,
 	cacheTTLMs int,
 ) *PlanService {
@@ -70,15 +58,14 @@ func NewPlanService(
 	}
 
 	return &PlanService{
-		planRepo:      planRepo,
-		contractRepo:  contractRepo,
-		actorRepo:     actorRepo,
-		subConfig:     subConfig,
-		valkeyClient:  valkeyClient,
-		luaScripts:    luaScripts,
-		natsPublisher: natsPublisher,
-		logger:        logger,
-		cacheTTL:      ttl,
+		planRepo:     planRepo,
+		contractRepo: contractRepo,
+		actorRepo:    actorRepo,
+		subConfig:    subConfig,
+		valkeyClient: valkeyClient,
+		luaScripts:   luaScripts,
+		logger:       logger,
+		cacheTTL:     ttl,
 	}
 }
 
@@ -144,7 +131,7 @@ func (s *PlanService) GetCompanyPlan(ctx context.Context, companyID string) (*mo
 }
 
 func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*models.UsageMeter, error) {
-	cacheKey := planCachePrefix + companyID
+	cacheKey := database.PlanCachePrefix + companyID
 	cached, err := s.valkeyClient.Get(ctx, cacheKey)
 	if err == nil && cached != "" {
 		var meter models.UsageMeter
@@ -200,19 +187,24 @@ func (s *PlanService) CheckPayloadSize(ctx context.Context, companyID string, pa
 
 func (s *PlanService) IncrementUserCount(ctx context.Context, companyID string) {
 	key := usageUserKey(companyID)
-	if _, _, err := s.luaScripts.CheckAndIncrQuota(ctx, key, -1, 1); err != nil {
+	if _, err := s.valkeyClient.IncrBy(ctx, key, 1); err != nil {
 		s.logger.Error("failed to increment user count in valkey (fail-open)", zap.String("company_id", companyID), zap.Error(err))
 	}
 }
 
 func (s *PlanService) DecrementUserCount(ctx context.Context, companyID string) {
 	key := usageUserKey(companyID)
-	if _, err := s.valkeyClient.DecrBy(ctx, key, 1); err != nil {
+	_, allowed, err := s.luaScripts.DecrementUsage(ctx, key, 1, 0)
+	if err != nil {
 		s.logger.Error("failed to decrement user count in valkey (fail-open)", zap.String("company_id", companyID), zap.Error(err))
+		return
+	}
+	if allowed == -1 {
+		if setErr := s.valkeyClient.Set(ctx, key, "0", 0); setErr != nil {
+			s.logger.Error("failed to seed missing user count key in valkey", zap.String("company_id", companyID), zap.Error(setErr))
+		}
 	}
 }
-
-// Removed CheckContractQuota entirely to prevent split-call pattern in public API.
 
 func (s *PlanService) ClaimContractSlot(ctx context.Context, companyID string) (int, error) {
 	meter, err := s.GetCurrentLimits(ctx, companyID)
@@ -255,8 +247,25 @@ func (s *PlanService) ClaimContractSlot(ctx context.Context, companyID string) (
 
 func (s *PlanService) ReleaseContractSlot(ctx context.Context, companyID string) {
 	key := usageContractKey(companyID)
-	if _, err := s.valkeyClient.DecrBy(ctx, key, 1); err != nil {
+	_, allowed, err := s.luaScripts.DecrementUsage(ctx, key, 1, 0)
+	if err != nil {
 		s.logger.Error("failed to release contract slot in valkey", zap.String("company_id", companyID), zap.Error(err))
+		return
+	}
+
+	if allowed == -1 {
+		dbCount, dbErr := s.contractRepo.CountByCompany(ctx, companyID)
+		if dbErr != nil {
+			s.logger.Error("failed to seed missing contract usage key from database", zap.String("company_id", companyID), zap.Error(dbErr))
+			return
+		}
+		corrected := dbCount - 1
+		if corrected < 0 {
+			corrected = 0
+		}
+		if setErr := s.valkeyClient.Set(ctx, key, strconv.Itoa(corrected), 0); setErr != nil {
+			s.logger.Error("failed to set contract usage key in valkey", zap.String("company_id", companyID), zap.Error(setErr))
+		}
 	}
 }
 
@@ -265,8 +274,10 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 	if err != nil {
 		return fmt.Errorf("decrement ingress: %w", err)
 	}
+	if meter == nil {
+		return fmt.Errorf("no active subscription for company %s", companyID)
+	}
 
-	// Use tier config for floor calculation
 	floor := int64(-999999999999)
 	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
 	if tierLimits != nil && !tierLimits.OverageAllowed {
@@ -274,30 +285,27 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 	}
 
 	key := balanceKey(companyID, "ingress")
-	newBalance, allowed, err := s.luaScripts.DecrementUsage(ctx, key, count, floor)
+	newBalance, allowed, err := s.decrementUsageWithOutbox(ctx, key, count, floor, companyID, "bandwidth_ingress", meter.BillingCycleStart)
 	if err != nil {
 		s.logger.Error("failed to decrement ingress in valkey (fail-open)", zap.Error(err))
-		// Fail open: publish usage event and allow the request to proceed
-		s.publishUsageEvent(ctx, companyID, "bandwidth_ingress", count)
 		return nil
 	}
 
 	if allowed == -1 {
-		// Key missing, seed and retry one more time
 		s.logger.Info("ingress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
 		dbMeter, dbErr := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
 		if dbErr == nil && dbMeter != nil {
 			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthIngressBalance, 10), 0)
-			// Atomic retry
-			newBalance, allowed, err = s.luaScripts.DecrementUsage(ctx, key, count, floor)
+			newBalance, allowed, err = s.decrementUsageWithOutbox(ctx, key, count, floor, companyID, "bandwidth_ingress", meter.BillingCycleStart)
 			if err != nil {
-				s.publishUsageEvent(ctx, companyID, "bandwidth_ingress", count)
+				s.logger.Error("failed ingress decrement retry in valkey (fail-open)", zap.Error(err))
 				return nil
 			}
-			// Fall through to quota check after retry
 		} else {
-			// Seeding failed, publish and allow (extreme fail-open)
-			s.publishUsageEvent(ctx, companyID, "bandwidth_ingress", count)
+			s.logger.Error("failed to seed missing ingress balance key from database (fail-open)",
+				zap.String("company_id", companyID),
+				zap.Error(dbErr),
+			)
 			return nil
 		}
 	}
@@ -306,7 +314,6 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 		return fmt.Errorf("bandwidth ingress hard limit reached. Please upgrade your plan")
 	}
 
-	// Growth tier: log overage warning
 	if newBalance < 0 {
 		s.logger.Warn("bandwidth ingress overage",
 			zap.String("company_id", companyID),
@@ -314,37 +321,40 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 		)
 	}
 
-	s.publishUsageEvent(ctx, companyID, "bandwidth_ingress", count)
-
 	return nil
 }
 
-// DecrementEgress decrements bandwidth egress balance in Valkey.
 func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, bytes int64) error {
+	meter, err := s.GetCurrentLimits(ctx, companyID)
+	if err != nil {
+		return fmt.Errorf("decrement egress: %w", err)
+	}
+	if meter == nil {
+		return fmt.Errorf("no active subscription for company %s", companyID)
+	}
+
 	key := balanceKey(companyID, "egress")
-	// Always soft capped, floor is -Infinity (proxied by a very low number)
-	newBalance, allowed, err := s.luaScripts.DecrementUsage(ctx, key, bytes, -999999999999)
+	newBalance, allowed, err := s.decrementUsageWithOutbox(ctx, key, bytes, -999999999999, companyID, "bandwidth_egress", meter.BillingCycleStart)
 	if err != nil {
 		s.logger.Error("failed to decrement egress in valkey (fail-open)", zap.Error(err))
-		// Fail open
-		s.publishUsageEvent(ctx, companyID, "bandwidth_egress", bytes)
 		return nil
 	}
 
 	if allowed == -1 {
-		// Key missing, seed and retry once
 		s.logger.Info("egress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
 		dbMeter, dbErr := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
 		if dbErr == nil && dbMeter != nil {
 			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthEgressBalance, 10), 0)
-			newBalance, allowed, err = s.luaScripts.DecrementUsage(ctx, key, bytes, -999999999999)
+			newBalance, _, err = s.decrementUsageWithOutbox(ctx, key, bytes, -999999999999, companyID, "bandwidth_egress", meter.BillingCycleStart)
 			if err != nil {
-				s.publishUsageEvent(ctx, companyID, "bandwidth_egress", bytes)
+				s.logger.Error("failed egress decrement retry in valkey (fail-open)", zap.Error(err))
 				return nil
 			}
-			// Fall through to overage warning after retry
 		} else {
-			s.publishUsageEvent(ctx, companyID, "bandwidth_egress", bytes)
+			s.logger.Error("failed to seed missing egress balance key from database (fail-open)",
+				zap.String("company_id", companyID),
+				zap.Error(dbErr),
+			)
 			return nil
 		}
 	}
@@ -355,55 +365,55 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 			zap.Int64("balance", newBalance),
 		)
 	}
-
-	s.publishUsageEvent(ctx, companyID, "bandwidth_egress", bytes)
 	return nil
 }
 
-func (s *PlanService) publishUsageEvent(ctx context.Context, companyID, meter string, amount int64) {
-	_ = ctx // Accepted for future transactional outbox pattern
-	event := map[string]interface{}{
-		"company_id": companyID,
-		"meter":      meter,
-		"amount":     amount,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
+func (s *PlanService) decrementUsageWithOutbox(
+	ctx context.Context,
+	balanceKey string,
+	amount int64,
+	floor int64,
+	companyID, meter string,
+	billingCycleStart time.Time,
+) (int64, int64, error) {
+	eventID := uuid.NewString()
+
+	newBalance, allowed, _, err := s.luaScripts.DecrementUsageWithOutbox(
+		ctx,
+		balanceKey,
+		database.UsageOutboxStreamKey,
+		amount,
+		floor,
+		eventID,
+		companyID,
+		meter,
+		billingCycleStart,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("decrement usage with outbox: %w", err)
 	}
 
-	s.logger.Debug("publishing usage event",
-		zap.String("company_id", companyID),
-		zap.String("meter", meter),
-		zap.Int64("amount", amount),
-	)
-
-	s.natsPublisher.PublishAsync("usage.sync", event)
+	return newBalance, allowed, nil
 }
 
-func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle) error {
+func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, previousBillingEnd time.Time, externalCustomerID, externalSubscriptionID string) error {
 	limits := s.subConfig.GetTierLimits(string(tier))
 	if limits == nil {
 		return fmt.Errorf("unknown subscription tier: %s", tier)
 	}
 
-	now := time.Now().UTC()
-	billingEnd, err := computeBillingEnd(now, billingCycle)
+	newStart := previousBillingEnd
+	billingEnd, err := computeBillingEnd(newStart, billingCycle)
 	if err != nil {
 		return err
 	}
-	existingPlan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("renew subscription - check existing plan: %w", err)
-	}
-	var customerID, subID string
-	if existingPlan != nil {
-		customerID = existingPlan.ExternalCustomerID
-		subID = existingPlan.ExternalSubscriptionID
-	}
 
-	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, customerID, subID, now, billingEnd); err != nil {
+	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, externalCustomerID, externalSubscriptionID, newStart, billingEnd); err != nil {
 		return fmt.Errorf("renew subscription - update plan: %w", err)
 	}
 
-	meter := newMeterFromLimits(companyID, tier, now, billingEnd, limits)
+	meter := newMeterFromLimits(companyID, tier, newStart, billingEnd, limits)
 
 	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
 		return fmt.Errorf("renew subscription - create usage meter: %w", err)
@@ -418,6 +428,8 @@ func (s *PlanService) RenewSubscription(ctx context.Context, companyID string, t
 		zap.String("company_id", companyID),
 		zap.String("tier", string(tier)),
 		zap.String("billing_cycle", string(billingCycle)),
+		zap.Time("new_start", newStart),
+		zap.Time("billing_end", billingEnd),
 	)
 
 	return nil
@@ -465,7 +477,6 @@ func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, meter
 		s.logger.Warn("failed to marshal usage meter for cache", zap.Error(err))
 		return
 	}
-	// Add jitter (±10% of TTL) to prevent thundering herd
 	jitterRange := int64(s.cacheTTL / 5)
 	jitter := time.Duration(rand.Int63n(jitterRange)) - (time.Duration(jitterRange) / 2)
 	finalTTL := s.cacheTTL + jitter
@@ -474,19 +485,19 @@ func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, meter
 		timeToExpiry := time.Until(meter.BillingEnd)
 		if timeToExpiry < finalTTL {
 			if timeToExpiry <= 0 {
-				return // Don't cache expired stuff
+				return
 			}
 			finalTTL = timeToExpiry
 		}
 	}
 
-	if setErr := s.valkeyClient.Set(ctx, planCachePrefix+companyID, string(data), finalTTL); setErr != nil {
+	if setErr := s.valkeyClient.Set(ctx, database.PlanCachePrefix+companyID, string(data), finalTTL); setErr != nil {
 		s.logger.Warn("failed to set plan cache in valkey", zap.Error(setErr))
 	}
 }
 
 func (s *PlanService) invalidateCache(ctx context.Context, companyID string) {
-	if delErr := s.valkeyClient.Delete(ctx, planCachePrefix+companyID); delErr != nil {
+	if delErr := s.valkeyClient.Delete(ctx, database.PlanCachePrefix+companyID); delErr != nil {
 		s.logger.Warn("failed to invalidate plan cache in valkey", zap.Error(delErr))
 	}
 }

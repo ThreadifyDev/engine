@@ -269,7 +269,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 
 	t := time.Now()
-	thread, err := s.GetThread(req.ThreadID)
+	thread, err := s.getThread(req.ThreadID, false)
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "thread_fetch").Observe(time.Since(t).Seconds())
 	if err != nil {
 		return errResp("Thread not found: " + req.ThreadID)
@@ -471,7 +471,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	}
 	threadID := threadIDs[0]
 
-	thread, err := s.GetThread(threadID)
+	thread, err := s.getThread(threadID, false)
 	if err != nil {
 		return nil, shderrors.ErrThreadNotFound
 	}
@@ -530,7 +530,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 			req.Role = "participant"
 		}
 		var err error
-		thread, err = s.GetThread(req.ThreadID)
+		thread, err = s.getThread(req.ThreadID, false)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -550,7 +550,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 	if thread == nil {
 		var err error
-		thread, err = s.GetThread(threadID)
+		thread, err = s.getThread(threadID, false)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -742,10 +742,16 @@ func (s *ThreadService) EndThread(
 }
 
 // GetThread retrieves a thread from cache, then Valkey, then PostgreSQL.
+// Egress is metered by default for caller-visible read paths.
 func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
+	return s.getThread(threadID, true)
+}
+
+// getThread is an internal variant that can skip egress metering for write-only paths.
+func (s *ThreadService) getThread(threadID string, meterEgress bool) (*models.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
-		// Meter egress for cached thread retrieval
-		if thread.CompanyID != "" {
+		if meterEgress && thread.CompanyID != "" {
+			// Meter egress for cached thread retrieval
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
@@ -763,7 +769,7 @@ func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
 
-	if thread.CompanyID != "" {
+	if meterEgress && thread.CompanyID != "" {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

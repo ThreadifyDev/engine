@@ -25,6 +25,7 @@ type Config struct {
 	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
 	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
 	Subscription       SubscriptionConfig       `yaml:"subscription" mapstructure:"subscription"`
+	Billing            BillingConfig            `yaml:"billing" mapstructure:"billing"`
 }
 
 // ServerConfig holds server configuration
