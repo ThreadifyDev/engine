@@ -64,6 +64,7 @@ func (c *BillingCron) runWithLock(ctx context.Context) {
 	if !success {
 		return
 	}
+
 	done := make(chan struct{})
 	defer close(done)
 
@@ -125,31 +126,14 @@ func (c *BillingCron) processAll(ctx context.Context) {
 			continue
 		}
 
-		if job.reason == models.SnapshotReasonMonthlyRenewal || job.reason == models.SnapshotReasonYearlyRenewal {
-			newStart := plan.BillingEnd
-			var newEnd time.Time
-			if plan.BillingCycle == models.BillingCycleMonthly {
-				newEnd = newStart.AddDate(0, 1, 0)
-			} else {
-				newEnd = newStart.AddDate(1, 0, 0)
-			}
-			if err := c.planRepo.UpdatePlanTier(ctx, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle, plan.ExternalCustomerID, plan.ExternalSubscriptionID, newStart, newEnd); err != nil {
-				c.logger.Error("billing cron: failed to advance billing period",
-					zap.String("company_id", plan.CompanyID),
-					zap.Error(err),
-				)
-			}
-		}
-
 		processed++
 	}
 
-	if processed > 0 || skipped > 0 {
-		c.logger.Info("billing cron: daily run complete",
-			zap.Int("processed", processed),
-			zap.Int("skipped", skipped),
-		)
-	}
+	c.logger.Info("billing cron: daily run complete",
+		zap.Int("processed", processed),
+		zap.Int("skipped", skipped),
+		zap.Int("total", len(plans)),
+	)
 }
 
 func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now time.Time) billingJob {
@@ -171,7 +155,6 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 
 	nextDue := lastPeriodEnd.AddDate(0, 1, 0)
 
-	// Catch-all: If the base subscription cycle ends before a full month has elapsed
 	if now.Before(nextDue) {
 		if plan.BillingCycle == models.BillingCycleYearly && (now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd)) {
 			return billingJob{
@@ -184,10 +167,8 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 		return billingJob{due: false}
 	}
 
-	// A full month has elapsed since the last usage snapshot
 	switch plan.BillingCycle {
 	case models.BillingCycleMonthly:
-		// Monthly plans always renew subscription + overage together
 		return billingJob{
 			due:         true,
 			periodStart: lastPeriodEnd,

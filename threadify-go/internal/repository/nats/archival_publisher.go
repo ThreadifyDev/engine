@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -57,6 +58,37 @@ func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[stri
 // PublishUsageSync publishes a usage meter decrement event for async DB sync
 func (p *ArchivalPublisher) PublishUsageSync(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "usage.sync", event)
+}
+
+// PublishUsageSyncBatch publishes a batch of usage sync events in parallel
+func (p *ArchivalPublisher) PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	errPool := make(chan error, len(events))
+	var wg sync.WaitGroup
+
+	for _, event := range events {
+		wg.Add(1)
+		go func(e map[string]interface{}) {
+			defer wg.Done()
+			if err := p.PublishUsageSync(ctx, e); err != nil {
+				errPool <- err
+			}
+		}(event)
+	}
+
+	wg.Wait()
+	close(errPool)
+
+	for err := range errPool {
+		if err != nil {
+			return err // Return the first error encountered
+		}
+	}
+
+	return nil
 }
 
 // publish is the internal method that handles the actual NATS publish

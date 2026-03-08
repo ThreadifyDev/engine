@@ -244,11 +244,18 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
 
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
-	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, natsArchival, logger, cfg.Cache.PlanTTLMs)
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs)
+	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
+	sm.Register(usageOutboxRelay)
 
 	billingRepo := postgres.NewBillingRepository(d.db.Pool)
-	invoiceProvider := service.NewNoOpInvoiceProvider(logger)
-	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, logger)
+
+	invoiceProvider, err := service.NewInvoiceProvider(&cfg.Billing, logger)
+	if err != nil {
+		logger.Fatal("invalid billing provider configuration", zap.Error(err))
+	}
+
+	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, planSvc, logger)
 	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
 	sm.Register(billingCron)
 
@@ -315,19 +322,19 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit),
+		middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit),
 		graphqlMiddleware(gqlHandler),
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit))
+	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
 	mountMCPServer(mcpGroup, cfg, logger)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
-	v1.Use(middleware.SubscriptionMiddleware(planSvc, luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
 
 	contracts := v1.Group("/contracts")
 	{

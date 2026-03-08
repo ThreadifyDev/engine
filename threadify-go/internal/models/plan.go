@@ -24,6 +24,7 @@ type CompanyPlan struct {
 	ExternalCustomerID     string       `json:"externalCustomerId"`
 	ExternalSubscriptionID string       `json:"externalSubscriptionId"`
 	BillingStart           time.Time    `json:"billingStart"`
+	Status                 string       `json:"status"`
 	BillingEnd             time.Time    `json:"billingEnd"`
 	CreatedAt              time.Time    `json:"createdAt"`
 	UpdatedAt              time.Time    `json:"updatedAt"`

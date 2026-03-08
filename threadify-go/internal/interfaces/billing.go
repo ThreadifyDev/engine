@@ -13,6 +13,6 @@ type InvoiceResult struct {
 
 type InvoiceProvider interface {
 	Name() string
-
+	SkipInvoicing() bool
 	IssueOverage(ctx context.Context, snapshot *models.BillingSnapshot) (*InvoiceResult, error)
 }

@@ -173,5 +173,17 @@ type LuaScriptManager interface {
 	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
 	CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow int, windowSeconds int) (bool, error)
 	DecrementUsage(ctx context.Context, key string, amount int64, floor int64) (int64, int64, error)
+	DecrementUsageWithOutbox(
+		ctx context.Context,
+		balanceKey string,
+		streamKey string,
+		amount int64,
+		floor int64,
+		eventID string,
+		companyID string,
+		meter string,
+		billingCycleStart time.Time,
+		occurredAt time.Time,
+	) (int64, int64, string, error)
 	CheckAndIncrQuota(ctx context.Context, key string, limit int, amount int) (int64, int64, error)
 }

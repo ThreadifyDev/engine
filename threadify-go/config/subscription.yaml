@@ -1,10 +1,18 @@
+billing:
+  provider: noop
+  providers:
+    stripe:
+      secret_key: ""
+    paystack:
+      secret_key: ""
+
 subscription:
   tiers:
     starter:
       bandwidth_ingress: 1000000           # 1M steps/mo
       bandwidth_ingress_hard_cap: 1500000  # forced upgrade at 1.5M
       bandwidth_egress: 10737418240        # 10 GB
-      bandwidth_egress_overage_cents_per_gb: 0  # $0.15/GB
+      bandwidth_egress_overage_cents_per_gb: 15  # $0.15/GB
       team_seats: 1
       seat_overage_cents_per_month: 1500   # $15/mo per additional seat
       contract_limit: 3
@@ -30,4 +38,3 @@ subscription:
       cold_storage_overage_cents_per_gb: 10  # $0.10/GB/mo
       support: email
       overage_allowed: true                # metered overage on all balance meters
-

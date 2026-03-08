@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -175,7 +176,11 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 			}
 			BatchesProcessed.WithLabelValues(streamName, "error").Inc()
 			for _, msg := range batch {
-				msg.Nak()
+				if errors.Is(err, ErrThreadNotFound) {
+					msg.NakWithDelay(5 * time.Second)
+				} else {
+					msg.Nak()
+				}
 				RetryAttempts.WithLabelValues(streamName).Inc()
 			}
 		} else {
@@ -238,13 +243,9 @@ func (c *NATSConsumer) parseMsgs(streamName string, msgs []jetstream.Msg) ([]Str
 	return events, failed
 }
 
-func (c *NATSConsumer) nakFailed(streamName string, failed []jetstream.Msg) {
-	for _, msg := range failed {
-		msg.Nak()
-		RetryAttempts.WithLabelValues(streamName).Inc()
-	}
+func (c *NATSConsumer) logDroppedMalformed(streamName string, failed []jetstream.Msg) {
 	if len(failed) > 0 {
-		c.logger.Warn("nacked unparseable messages",
+		c.logger.Warn("dropping malformed messages from batch",
 			zap.String("stream", streamName),
 			zap.Int("count", len(failed)),
 		)
@@ -295,7 +296,7 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 		}
 	}
 
-	c.nakFailed("activity_log", failed)
+	c.logDroppedMalformed("activity_log", failed)
 
 	if len(events) > 0 {
 		if err := c.writer.WriteActivityLog(ctx, events); err != nil {
@@ -318,7 +319,7 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
-	c.nakFailed("thread_metadata", failed)
+	c.logDroppedMalformed("thread_metadata", failed)
 	err := c.writer.WriteThreadMetadata(ctx, events)
 	c.logPerf("metadata.thread", len(msgs), start)
 	return err
@@ -330,17 +331,14 @@ func (c *NATSConsumer) processThreadAccess(ctx context.Context, msgs []jetstream
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_access", msgs)
-	c.nakFailed("thread_access", failed)
+	c.logDroppedMalformed("thread_access", failed)
 	err := c.writer.WriteThreadAccess(ctx, events)
 	if errors.Is(err, ErrThreadNotFound) {
 		c.logger.Debug("thread access arrived before thread metadata, will retry",
 			zap.Int("count", len(msgs)),
 		)
-		for _, msg := range msgs {
-			msg.NakWithDelay(5 * time.Second)
-		}
 		c.logPerf("access.thread", len(msgs), start)
-		return nil
+		return err
 	}
 	c.logPerf("access.thread", len(msgs), start)
 	return err
@@ -352,7 +350,7 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_validations", msgs)
-	c.nakFailed("thread_validations", failed)
+	c.logDroppedMalformed("thread_validations", failed)
 	err := c.writer.WriteValidationResults(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
 	return err
@@ -373,41 +371,136 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 	start := time.Now()
 	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
 
-	// Aggregate decrements by (company_id, meter)
-	aggregated := make(map[string]map[string]int64)
-	var failed []jetstream.Msg
+	events := make([]UsageSyncEvent, 0, len(msgs))
+	validMsgs := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
 		var data map[string]interface{}
 		if err := json.Unmarshal(msg.Data(), &data); err != nil {
 			c.logger.Error("failed to unmarshal usage sync message", zap.Error(err))
-			failed = append(failed, msg)
+			_ = msg.Term()
 			continue
 		}
 
 		companyID, _ := data["company_id"].(string)
 		meter, _ := data["meter"].(string)
-		amount, _ := data["amount"].(float64) // JSON numbers are float64
 
 		if companyID == "" || meter == "" {
-			failed = append(failed, msg)
+			c.logger.Error("usage sync message missing required fields",
+				zap.String("company_id", companyID),
+				zap.String("meter", meter),
+			)
+			_ = msg.Term()
 			continue
 		}
 
-		if _, ok := aggregated[companyID]; !ok {
-			aggregated[companyID] = make(map[string]int64)
+		if _, ok := meterColumns[meter]; !ok {
+			c.logger.Error("usage sync message has unknown meter type", zap.String("meter", meter))
+			_ = msg.Term()
+			continue
 		}
-		aggregated[companyID][meter] += int64(amount)
+
+		amount, err := parseUsageAmount(data["amount"])
+		if err != nil || amount <= 0 {
+			c.logger.Error("invalid or non-positive usage amount in message",
+				zap.Any("amount", data["amount"]),
+				zap.Error(err),
+			)
+			_ = msg.Term()
+			continue
+		}
+
+		billingCycleStart, err := parseUsageTimestamp(data["billing_cycle_start"])
+		if err != nil || billingCycleStart.IsZero() {
+			c.logger.Error("missing or invalid billing_cycle_start in usage sync message",
+				zap.Any("billing_cycle_start", data["billing_cycle_start"]),
+				zap.Error(err),
+			)
+			_ = msg.Term()
+			continue
+		}
+
+		occurredAt, err := parseUsageTimestamp(data["timestamp"])
+		if err != nil || occurredAt.IsZero() {
+			c.logger.Error("missing or invalid timestamp in usage sync message",
+				zap.Any("timestamp", data["timestamp"]),
+				zap.Error(err),
+			)
+			_ = msg.Term()
+			continue
+		}
+
+		eventID, _ := data["event_id"].(string)
+		if eventID == "" {
+			if metadata, metaErr := msg.Metadata(); metaErr == nil {
+				eventID = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
+			}
+		}
+		if eventID == "" {
+			c.logger.Error("usage sync message has no resolvable event_id")
+			_ = msg.Term()
+			continue
+		}
+
+		events = append(events, UsageSyncEvent{
+			EventID:           eventID,
+			CompanyID:         companyID,
+			Meter:             meter,
+			Amount:            amount,
+			BillingCycleStart: billingCycleStart,
+			OccurredAt:        occurredAt,
+		})
+		validMsgs = append(validMsgs, msg)
 	}
 
-	c.nakFailed("usage_sync", failed)
+	if len(events) == 0 {
+		c.logPerf("usage.sync", len(msgs), start)
+		return nil
+	}
 
-	if len(aggregated) > 0 {
-		if err := c.writer.SyncUsageMeters(ctx, aggregated); err != nil {
-			return err
-		}
+	if err := c.writer.SyncUsageMeters(ctx, events); err != nil {
+		return err
+	}
+
+	for _, msg := range validMsgs {
+		_ = msg.Ack()
 	}
 
 	c.logPerf("usage.sync", len(msgs), start)
 	return nil
+}
+
+func parseUsageAmount(v interface{}) (int64, error) {
+	switch value := v.(type) {
+	case float64:
+		return int64(value), nil
+	case int64:
+		return value, nil
+	case int:
+		return int64(value), nil
+	case json.Number:
+		return value.Int64()
+	case string:
+		return strconv.ParseInt(value, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported amount type %T", v)
+	}
+}
+
+func parseUsageTimestamp(v interface{}) (time.Time, error) {
+	switch value := v.(type) {
+	case nil:
+		return time.Time{}, nil
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return time.Time{}, nil
+		}
+		t, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return t.UTC(), nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported timestamp type %T", v)
+	}
 }

@@ -4,6 +4,11 @@ type SubscriptionConfig struct {
 	Tiers map[string]TierLimits `yaml:"tiers" mapstructure:"tiers"`
 }
 
+type BillingConfig struct {
+	Provider  string                       `yaml:"provider" mapstructure:"provider"`
+	Providers map[string]map[string]string `yaml:"providers" mapstructure:"providers"`
+}
+
 type TierLimits struct {
 	BandwidthIngress                       int64  `yaml:"bandwidth_ingress" mapstructure:"bandwidth_ingress"`
 	BandwidthIngressHardCap                int64  `yaml:"bandwidth_ingress_hard_cap" mapstructure:"bandwidth_ingress_hard_cap"`

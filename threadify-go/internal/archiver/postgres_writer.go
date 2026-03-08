@@ -7,12 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/threadify/engine/internal/database"
 	"go.uber.org/zap"
 )
 
 var ErrThreadNotFound = errors.New("wait for thread metadata")
+
+var meterColumns = map[string]string{
+	"bandwidth_ingress": "bandwidth_ingress_balance",
+	"bandwidth_egress":  "bandwidth_egress_balance",
+}
+
+var meterUpdateQueries = map[string]string{
+	"bandwidth_ingress": `UPDATE usage_meters SET bandwidth_ingress_balance = bandwidth_ingress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
+	"bandwidth_egress":  `UPDATE usage_meters SET bandwidth_egress_balance = bandwidth_egress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
+}
 
 type PostgresWriter struct {
 	db     *database.PostgresDB
@@ -684,17 +696,9 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 	return nil
 }
 
-// SyncUsageMeters batch-syncs aggregated usage decrements from Valkey to PostgreSQL.
-// aggregated: map[company_id] -> map[meter_name] -> total_decrement_amount
-func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, aggregated map[string]map[string]int64) error {
-	if len(aggregated) == 0 {
+func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSyncEvent) error {
+	if len(events) == 0 {
 		return nil
-	}
-
-	// Map meter names to their database columns
-	meterColumns := map[string]string{
-		"bandwidth_ingress": "bandwidth_ingress_balance",
-		"bandwidth_egress":  "bandwidth_egress_balance",
 	}
 
 	tx, err := w.db.Pool.Begin(ctx)
@@ -703,38 +707,62 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, aggregated map[str
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var totalUpdates int
-	for companyID, meters := range aggregated {
-		for meter, amount := range meters {
-			column, ok := meterColumns[meter]
-			if !ok {
-				w.logger.Warn("unknown meter type in usage sync",
-					zap.String("meter", meter),
-					zap.String("company_id", companyID),
-				)
+	type aggregationKey struct {
+		CompanyID         string
+		Meter             string
+		BillingCycleStart time.Time
+	}
+	aggregated := make(map[aggregationKey]int64)
+	var duplicates int
+
+	for _, event := range events {
+		var insertedID string
+		err := tx.QueryRow(ctx, `
+			INSERT INTO usage_sync_events (event_id, company_id, meter, amount, occurred_at, processed_at)
+			VALUES ($1, $2, $3, $4, $5, NOW())
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_id
+		`, event.EventID, event.CompanyID, event.Meter, event.Amount, event.OccurredAt).Scan(&insertedID)
+
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				duplicates++
 				continue
 			}
+			return fmt.Errorf("persist usage sync event %s: %w", event.EventID, err)
+		}
 
-			query := fmt.Sprintf(
-				`UPDATE usage_meters SET %s = %s - $1, updated_at = NOW()
-				 WHERE company_id = $2`,
-				column, column,
+		key := aggregationKey{
+			CompanyID:         event.CompanyID,
+			Meter:             event.Meter,
+			BillingCycleStart: event.BillingCycleStart,
+		}
+		aggregated[key] += event.Amount
+	}
+
+	for key, totalAmount := range aggregated {
+		query := meterUpdateQueries[key.Meter]
+		tag, err := tx.Exec(ctx, query, totalAmount, key.CompanyID, key.BillingCycleStart)
+		if err != nil {
+			return fmt.Errorf("batch sync usage %s for company %s: %w", key.Meter, key.CompanyID, err)
+		}
+		if tag.RowsAffected() == 0 {
+			w.logger.Error("usage sync aggregation: no matching usage cycle found",
+				zap.String("company_id", key.CompanyID),
+				zap.String("meter", key.Meter),
+				zap.Time("billing_cycle_start", key.BillingCycleStart),
 			)
-
-			if _, err := tx.Exec(ctx, query, amount, companyID); err != nil {
-				return fmt.Errorf("sync usage meter %s for company %s: %w", meter, companyID, err)
-			}
-			totalUpdates++
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit usage sync tx: %w", err)
+		return fmt.Errorf("commit usage sync aggregation tx: %w", err)
 	}
 
-	w.logger.Info("synced usage meters to postgres",
-		zap.Int("companies", len(aggregated)),
-		zap.Int("updates", totalUpdates),
+	w.logger.Info("synced usage meters to postgres (aggregated)",
+		zap.Int("input_events", len(events)),
+		zap.Int("duplicates", duplicates),
+		zap.Int("batch_updates", len(aggregated)),
 	)
 	return nil
 }
