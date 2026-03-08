@@ -9,6 +9,7 @@ import (
 
 	sharedauth "threadify-go/shared/auth"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
@@ -35,6 +36,7 @@ type cachedRoles struct {
 }
 
 type AuthService struct {
+	db            *pgxpool.Pool
 	authRepo      *postgres.AuthRepository
 	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
 	rolesCache    sync.Map // key: userID:type   → *cachedRoles
