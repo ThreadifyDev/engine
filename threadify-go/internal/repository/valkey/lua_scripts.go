@@ -195,8 +195,8 @@ func (m *LuaScriptManager) DecrementUsageWithOutbox(
 		companyID,
 		meter,
 		amount,
-		billingCycleStart.UTC().Format(time.RFC3339),
-		occurredAt.UTC().Format(time.RFC3339),
+		billingCycleStart.UTC().Format(time.RFC3339Nano),
+		occurredAt.UTC().Format(time.RFC3339Nano),
 	}
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)

@@ -258,7 +258,7 @@ func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRe
 		return nil, ErrInvalidCredentials
 	}
 
-	if err := s.queueLegacyUserMigration(localUser.ID, req.Email, models.MigrationSourceLogin); err != nil {
+	if err := s.queueLegacyUserMigration(localUser.ID, req.Email, req.Password, models.MigrationSourceLogin); err != nil {
 		s.logger.Error("login: failed to queue migration for legacy user",
 			zap.Error(err),
 			zap.String("user_id", localUser.ID),
@@ -268,14 +268,6 @@ func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRe
 	s.logger.Debug("login: migration queued, proceeding to OTP verification",
 		zap.String("user_id", localUser.ID),
 	)
-
-	if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-		s.logger.Error("login: failed to queue verification email for legacy user",
-			zap.Error(err),
-			zap.String("user_id", localUser.ID),
-		)
-		return nil, fmt.Errorf("failed to send verification code")
-	}
 
 	return &models.AuthResponse{
 		User:        localUser,
@@ -349,7 +341,7 @@ func (s *AuthService) handleLegacyForgotPassword(user *models.User) error {
 		zap.String("user_id", user.ID),
 	)
 
-	if err := s.queueLegacyUserMigration(user.ID, user.Email, models.MigrationSourceForgotPassword); err != nil {
+	if err := s.queueLegacyUserMigration(user.ID, user.Email, "", models.MigrationSourceForgotPassword); err != nil {
 		s.logger.Error("forgot password: failed to queue migration",
 			zap.Error(err),
 			zap.String("user_id", user.ID),

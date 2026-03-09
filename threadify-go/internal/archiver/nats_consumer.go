@@ -495,7 +495,7 @@ func parseUsageTimestamp(v interface{}) (time.Time, error) {
 		if strings.TrimSpace(value) == "" {
 			return time.Time{}, nil
 		}
-		t, err := time.Parse(time.RFC3339, value)
+		t, err := time.Parse(time.RFC3339Nano, value)
 		if err != nil {
 			return time.Time{}, err
 		}

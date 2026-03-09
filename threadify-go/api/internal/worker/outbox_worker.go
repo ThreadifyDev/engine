@@ -386,11 +386,11 @@ func (w *OutboxWorker) handleSendPasswordResetEmail(ctx context.Context, data ma
 }
 
 func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[string]string) error {
-	fields, err := getFields(data, "email", "user_id", "source")
+	fields, err := getFields(data, "email", "user_id", "password", "source")
 	if err != nil {
 		return err
 	}
-	email, userID, source := fields[0], fields[1], fields[2]
+	email, userID, password, source := fields[0], fields[1], fields[2], fields[3]
 
 	w.logger.Debug("outbox: migrating legacy user to Supabase",
 		zap.String("user_id", userID),
@@ -410,13 +410,11 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return nil
 	}
 
-	tempPassword := generateSecurePassword()
-
 	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}
-	authUserID, err := w.authClient.RegisterUser(ctx, email, tempPassword, fullName, userID, user.CompanyID)
+	authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, user.CompanyID)
 	if err != nil {
 		return fmt.Errorf("register user in Supabase: %w", err)
 	}
@@ -435,6 +433,13 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 
 func (w *OutboxWorker) sendPostMigrationEmail(ctx context.Context, email, userID, source string) error {
 	if source != models.MigrationSourceForgotPassword {
+		token, err := w.authClient.GenerateLoginOTP(ctx, email)
+		if err != nil {
+			return fmt.Errorf("generate verification otp: %w", err)
+		}
+		if err := w.emailSvc.SendVerificationEmail(ctx, email, token); err != nil {
+			return fmt.Errorf("send verification email: %w", err)
+		}
 		return nil
 	}
 
@@ -451,10 +456,6 @@ func (w *OutboxWorker) sendPostMigrationEmail(ctx context.Context, email, userID
 		zap.String("user_id", userID),
 	)
 	return nil
-}
-
-func generateSecurePassword() string {
-	return utils.GenerateID() + utils.GenerateID()
 }
 
 func getFields(data map[string]string, keys ...string) ([]string, error) {

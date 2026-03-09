@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *AuthService) queueLegacyUserMigration(userID, email, source string) error {
+func (s *AuthService) queueLegacyUserMigration(userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
 	inflight, err := s.outboxRepo.ExistsPendingByReference(models.EventTypeMigrateLegacyUser, userID)
@@ -22,12 +22,16 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, source string) err
 		s.logger.Debug("migration already queued for user", zap.String("user_id", userID))
 		return nil
 	}
-
-	payload, err := json.Marshal(map[string]string{
+	data := map[string]string{
 		"email":   email,
 		"user_id": userID,
 		"source":  source,
-	})
+	}
+	if password != "" {
+		data["password"] = password
+	}
+
+	payload, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal migration event payload: %w", err)
 	}
