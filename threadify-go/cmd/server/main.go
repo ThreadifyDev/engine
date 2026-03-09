@@ -22,6 +22,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -244,7 +245,14 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
 
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
-	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs)
+
+	js, err := jetstream.New(d.natsPool.GetClient().Conn())
+	if err != nil {
+		logger.Fatal("failed to initialize jetstream", zap.Error(err))
+	}
+
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, &cfg.Batch, d.valkey, luaScriptManager, js, logger, cfg.Cache.PlanTTLMs)
+	sm.Register(planSvc)
 	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
 	sm.Register(usageOutboxRelay)
 

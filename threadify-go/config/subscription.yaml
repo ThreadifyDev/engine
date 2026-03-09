@@ -7,6 +7,8 @@ billing:
       secret_key: ""
 
 subscription:
+  batch_interval_ms: 5000
+  batch_channel_size: 10000
   tiers:
     starter:
       bandwidth_ingress: 1000000           # 1M steps/mo
