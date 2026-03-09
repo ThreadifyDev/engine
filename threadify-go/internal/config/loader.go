@@ -17,10 +17,18 @@ func LoadFromViper() (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	// Expand environment variables for PostgreSQL URL
+	cfg.Postgres.URL = expandEnv(cfg.Postgres.URL)
+
 	// Expand environment variables for JWKS configuration
 	cfg.JWKS.URL = expandEnv(cfg.JWKS.URL)
 	cfg.JWKS.Audience = expandEnv(cfg.JWKS.Audience)
 	cfg.JWKS.Issuer = expandEnv(cfg.JWKS.Issuer)
+
+	// Expand environment variables for hash chain secrets
+	for key, secret := range cfg.Security.HashChainSecrets {
+		cfg.Security.HashChainSecrets[key] = expandEnv(secret)
+	}
 
 	cfg.Archiver.Retry.InitialBackoff = time.Duration(cfg.Archiver.Retry.InitialBackoffMs) * time.Millisecond
 	cfg.Archiver.Retry.MaxBackoff = time.Duration(cfg.Archiver.Retry.MaxBackoffMs) * time.Millisecond

@@ -334,7 +334,7 @@ export default function ServiceAccounts() {
                     onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white"
                   >
-                    {roles.map((role) => (
+                    {(roles || []).map((role) => (
                       <option key={role.value} value={role.value}>
                         {role.label} - {role.description}
                       </option>

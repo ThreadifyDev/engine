@@ -66,7 +66,7 @@ func run(configPath string, logger *zap.Logger) error {
 	}
 	defer db.Close()
 
-	logger.Info("connected to postgres", zap.String("url", maskURL(cfg.Postgres.URL)))
+	// logger.Info("connected to postgres", zap.String("url", maskURL(cfg.Postgres.URL)))
 
 	if err := db.InitSchema(context.Background()); err != nil {
 		return fmt.Errorf("init schema: %w", err)
