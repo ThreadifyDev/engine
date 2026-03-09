@@ -718,9 +718,9 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 	for _, event := range events {
 		var insertedID string
 		err := tx.QueryRow(ctx, `
-			INSERT INTO usage_sync_events (event_id, company_id, meter, amount, occurred_at, processed_at)
-			VALUES ($1, $2, $3, $4, $5, NOW())
-			ON CONFLICT (event_id) DO NOTHING
+			INSERT INTO usage_sync_events (event_id, company_id, meter, amount, occurred_at, processed_at, status)
+			VALUES ($1, $2, $3, $4, $5, NOW(), 'processed')
+			ON CONFLICT (event_id, occurred_at) DO NOTHING
 			RETURNING event_id
 		`, event.EventID, event.CompanyID, event.Meter, event.Amount, event.OccurredAt).Scan(&insertedID)
 

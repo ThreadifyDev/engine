@@ -931,17 +931,17 @@ CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
 	WHERE external_invoice_id != '';
 
 CREATE TABLE IF NOT EXISTS usage_sync_events (
-	event_id     VARCHAR(255) PRIMARY KEY,
+	event_id     VARCHAR(255) NOT NULL,
 	company_id   VARCHAR(255) NOT NULL,
 	meter        VARCHAR(64)  NOT NULL,
 	amount       BIGINT       NOT NULL,
 	occurred_at  TIMESTAMPTZ  NOT NULL,
-	processed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_usage_sync_events_company_occurred
-	ON usage_sync_events(company_id, occurred_at DESC);
-
+	processed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+	status       VARCHAR(20)  NOT NULL DEFAULT 'processed',
+	PRIMARY KEY (event_id, occurred_at)
+) PARTITION BY RANGE (occurred_at);
+-- Partitions managed via pg_partman (monthly interval, 2-month retention).
+-- Run pg_partman maintenance to create new partitions.
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err
