@@ -70,23 +70,26 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 	}
 
 	ingressFinal := meter.BandwidthIngressBalance
-	if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)); ok {
-		ingressFinal = balance
-	} else {
-		s.logger.Warn("billing: using stale postgres ingress balance — live valkey counter unavailable",
-			zap.String("company_id", companyID),
-			zap.Int64("postgres_balance", ingressFinal),
-		)
-	}
-
 	egressFinal := meter.BandwidthEgressBalance
-	if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)); ok {
-		egressFinal = balance
-	} else {
-		s.logger.Warn("billing: using stale postgres egress balance — live valkey counter unavailable",
-			zap.String("company_id", companyID),
-			zap.Int64("postgres_balance", egressFinal),
-		)
+
+	if !tierCfg.OverageAllowed {
+		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)); ok {
+			ingressFinal = balance
+		} else {
+			s.logger.Warn("billing: using stale postgres ingress balance — live valkey counter unavailable",
+				zap.String("company_id", companyID),
+				zap.Int64("postgres_balance", ingressFinal),
+			)
+		}
+
+		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)); ok {
+			egressFinal = balance
+		} else {
+			s.logger.Warn("billing: using stale postgres egress balance — live valkey counter unavailable",
+				zap.String("company_id", companyID),
+				zap.Int64("postgres_balance", egressFinal),
+			)
+		}
 	}
 
 	meterForBilling := *meter

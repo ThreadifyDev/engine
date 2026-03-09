@@ -155,8 +155,11 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 
 	nextDue := lastPeriodEnd.AddDate(0, 1, 0)
 
-	if now.Before(nextDue) {
-		if plan.BillingCycle == models.BillingCycleYearly && (now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd)) {
+	gracePeriod := 15 * time.Minute
+	safeToBillThreshold := nextDue.Add(gracePeriod)
+
+	if now.Before(safeToBillThreshold) {
+		if plan.BillingCycle == models.BillingCycleYearly && now.After(plan.BillingEnd.Add(gracePeriod)) {
 			return billingJob{
 				due:         true,
 				periodStart: lastPeriodEnd,
@@ -177,7 +180,7 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 		}
 
 	case models.BillingCycleYearly:
-		isYearEnd := now.After(plan.BillingEnd) || now.Equal(plan.BillingEnd)
+		isYearEnd := now.After(plan.BillingEnd.Add(gracePeriod))
 		reason := models.SnapshotReasonOverageOnly
 		if isYearEnd {
 			reason = models.SnapshotReasonYearlyRenewal

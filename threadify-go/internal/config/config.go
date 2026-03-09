@@ -26,6 +26,7 @@ type Config struct {
 	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
 	Subscription       SubscriptionConfig       `yaml:"subscription" mapstructure:"subscription"`
 	Billing            BillingConfig            `yaml:"billing" mapstructure:"billing"`
+	Batch              BatchConfig              `yaml:"batch" mapstructure:"batch"`
 }
 
 // ServerConfig holds server configuration
@@ -251,4 +252,9 @@ type JWKSSettings struct {
 	URL      string `yaml:"url" mapstructure:"url"`
 	Audience string `yaml:"audience" mapstructure:"audience"`
 	Issuer   string `yaml:"issuer" mapstructure:"issuer"`
+}
+
+type BatchConfig struct {
+	IntervalMs  int `yaml:"interval_ms" mapstructure:"interval_ms"`
+	ChannelSize int `yaml:"channel_size" mapstructure:"channel_size"`
 }
