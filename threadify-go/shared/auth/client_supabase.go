@@ -469,10 +469,6 @@ type supabaseListUsersResponse struct {
 	} `json:"users"`
 }
 
-// -----------------------------------------------------------------------------
-// Error codes & helpers
-// -----------------------------------------------------------------------------
-
 const (
 	supabaseCodeInvalidCredentials     = "invalid_credentials"
 	supabaseCodeBadJWT                 = "bad_jwt"
@@ -484,8 +480,8 @@ const (
 	supabaseCodeInvalidEmail           = "invalid_email"
 	supabaseCodeOverEmailSendRateLimit = "over_email_send_rate_limit"
 	supabaseCodeBadToken               = "bad_token"
-	supabaseCodeOTPExpired             = "otp_expired"  // token used after expiry
-	supabaseCodeOTPDisabled            = "otp_disabled" // token already consumed / invalid
+	supabaseCodeOTPExpired             = "otp_expired"
+	supabaseCodeOTPDisabled            = "otp_disabled"
 )
 
 type supabaseHTTPError struct {
@@ -501,9 +497,6 @@ func (e *supabaseHTTPError) Error() string {
 	return fmt.Sprintf("supabase HTTP %d: %s", e.StatusCode, e.Body)
 }
 
-// newSupabaseHTTPError parses the stable "error_code" field from Supabase's
-// JSON error body. Note: Supabase uses "error_code" (string) for the error
-// identifier and "code" (integer) for the HTTP status — do not confuse them.
 func newSupabaseHTTPError(statusCode int, body string) *supabaseHTTPError {
 	e := &supabaseHTTPError{StatusCode: statusCode, Body: body}
 	var parsed struct {

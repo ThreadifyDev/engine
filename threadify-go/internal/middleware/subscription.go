@@ -11,8 +11,13 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/service"
+	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
+)
+
+const (
+	defaultTimeout = 5 * time.Second
 )
 
 func SubscriptionMiddleware(planSvc *service.PlanService, valkeyClient interfaces.ValkeyClient, luaScripts interfaces.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
@@ -98,5 +103,39 @@ func SubscriptionMiddleware(planSvc *service.PlanService, valkeyClient interface
 		}
 
 		c.Next()
+	}
+}
+
+func EgressMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		companyIDRaw, exists := c.Get(sharedauth.CtxCompanyID)
+		if !exists {
+			return
+		}
+		companyID, ok := companyIDRaw.(string)
+		if !ok || companyID == "" {
+			return
+		}
+
+		size := int64(c.Writer.Size())
+		if size <= 0 {
+			return
+		}
+
+		go func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					logger.Error("egress middleware: panic in egress decrement",
+						zap.Any("recover", rec),
+						zap.String("company_id", companyID),
+					)
+				}
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+			defer cancel()
+			planSvc.DecrementEgress(ctx, companyID, size)
+		}()
 	}
 }

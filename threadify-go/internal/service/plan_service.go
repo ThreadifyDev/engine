@@ -269,6 +269,48 @@ func (s *PlanService) ReleaseContractSlot(ctx context.Context, companyID string)
 	}
 }
 
+func (s *PlanService) CheckIngressQuota(ctx context.Context, companyID string, count int64) error {
+	meter, err := s.GetCurrentLimits(ctx, companyID)
+	if err != nil {
+		return fmt.Errorf("check ingress: %w", err)
+	}
+	if meter == nil {
+		return fmt.Errorf("no active subscription for company %s", companyID)
+	}
+
+	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
+	if tierLimits == nil || tierLimits.OverageAllowed {
+		return nil
+	}
+
+	key := balanceKey(companyID, "ingress")
+	val, err := s.valkeyClient.Get(ctx, key)
+	if err != nil {
+		s.logger.Warn("check ingress balance failed in valkey (fail-open)", zap.Error(err))
+		return nil
+	}
+
+	if val == "" {
+		return nil
+	}
+
+	balance, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		s.logger.Warn("failed to parse ingress balance (fail-open)", zap.Error(err))
+		return nil
+	}
+
+	hardCapFloor := tierLimits.BandwidthIngress - tierLimits.BandwidthIngressHardCap
+	if hardCapFloor < 0 {
+		hardCapFloor = 0
+	}
+	if balance-count < hardCapFloor {
+		return fmt.Errorf("bandwidth ingress hard limit reached. Please upgrade your plan")
+	}
+
+	return nil
+}
+
 func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
 	meter, err := s.GetCurrentLimits(ctx, companyID)
 	if err != nil {

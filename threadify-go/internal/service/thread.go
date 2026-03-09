@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -269,7 +270,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 
 	t := time.Now()
-	thread, err := s.getThread(req.ThreadID, false)
+	thread, err := s.getThread(req.ThreadID)
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "thread_fetch").Observe(time.Since(t).Seconds())
 	if err != nil {
 		return errResp("Thread not found: " + req.ThreadID)
@@ -295,15 +296,18 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 
 	idempotencyKey := req.IdempotencyKey
 	if idempotencyKey == "" {
-		idempotencyKey = contentHash
-		s.logger.Debug("auto-generated idempotency key from context hash", zap.String("key", idempotencyKey))
+		// Scoped to thread + step + content to prevent broad collisions
+		hashInput := fmt.Sprintf("%s:%s:%s", req.ThreadID, req.StepName, contentHash)
+		hash := sha256.Sum256([]byte(hashInput))
+		idempotencyKey = fmt.Sprintf("sha256:%x", hash)
+		s.logger.Debug("auto-generated idempotency key", zap.String("key", idempotencyKey))
 	}
 
 	if idempotencyKey != "" {
 		idempCtx, idempCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer idempCancel()
 		t = time.Now()
 		existingStatus, err := s.repo.GetStepStatus(idempCtx, req.ThreadID, req.StepName, req.Status, idempotencyKey, true)
+		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
 			if existingStatus == ThreadStatusCompleted || existingStatus == StepStatusSuccess {
@@ -384,6 +388,11 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 
 	finishedAtTime, err := time.Parse(time.RFC3339Nano, req.FinishedAt)
 	if err != nil {
+		s.logger.Warn("failed to parse FinishedAt, falling back to time.Now()",
+			zap.String("thread_id", req.ThreadID),
+			zap.String("finished_at", req.FinishedAt),
+			zap.Error(err),
+		)
 		finishedAtTime = time.Now()
 	}
 
@@ -409,13 +418,12 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 
 	totalToMeter := int64(len(req.SubSteps))
-	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed || req.Status == StepStatusError {
+	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed {
 		totalToMeter++
 	}
 
-	if companyID != "" && totalToMeter > 0 {
-		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
-			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
+	if totalToMeter > 0 {
+		if err := s.planService.CheckIngressQuota(ctx, companyID, totalToMeter); err != nil {
 			return errResp(err.Error())
 		}
 	}
@@ -426,10 +434,18 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_event_process").Observe(time.Since(t).Seconds())
 
+	if totalToMeter > 0 {
+		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
+			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
+			return errResp(err.Error())
+		}
+	}
+
 	if len(req.Refs) > 0 {
 		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer refsCancel()
-		if err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs); err != nil {
+		err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs)
+		refsCancel()
+		if err != nil {
 			s.logger.Warn("failed to store refs", zap.String("thread", req.ThreadID), zap.Error(err))
 		} else {
 			s.logger.Info("stored refs", zap.Int("count", len(req.Refs)), zap.String("thread", req.ThreadID))
@@ -471,7 +487,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	}
 	threadID := threadIDs[0]
 
-	thread, err := s.getThread(threadID, false)
+	thread, err := s.getThread(threadID)
 	if err != nil {
 		return nil, shderrors.ErrThreadNotFound
 	}
@@ -530,7 +546,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 			req.Role = "participant"
 		}
 		var err error
-		thread, err = s.getThread(req.ThreadID, false)
+		thread, err = s.getThread(req.ThreadID)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -550,7 +566,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 	if thread == nil {
 		var err error
-		thread, err = s.getThread(threadID, false)
+		thread, err = s.getThread(threadID)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -744,20 +760,12 @@ func (s *ThreadService) EndThread(
 // GetThread retrieves a thread from cache, then Valkey, then PostgreSQL.
 // Egress is metered by default for caller-visible read paths.
 func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
-	return s.getThread(threadID, true)
+	return s.getThread(threadID)
 }
 
 // getThread is an internal variant that can skip egress metering for write-only paths.
-func (s *ThreadService) getThread(threadID string, meterEgress bool) (*models.Thread, error) {
+func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
-		if meterEgress && thread.CompanyID != "" {
-			// Meter egress for cached thread retrieval
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				s.planService.DecrementEgress(ctx, thread.CompanyID, 1024) // Appox 1KB for thread metadata
-			}()
-		}
 		return thread, nil
 	}
 
@@ -767,14 +775,6 @@ func (s *ThreadService) getThread(threadID string, meterEgress bool) (*models.Th
 	thread, err := s.repo.Get(ctx, threadID, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
-	}
-
-	if meterEgress && thread.CompanyID != "" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			s.planService.DecrementEgress(ctx, thread.CompanyID, 2048) // Appox 2KB for DB retrieval (full metadata)
-		}()
 	}
 
 	s.cacheManager.SetThread(threadID, thread)
