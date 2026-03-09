@@ -152,6 +152,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		return errResp("Role is required when contract name is provided")
 	}
 
+	if err := s.planService.CheckIngressQuota(ctx, companyID, 1); err != nil {
+		return errResp("Cannot start thread: " + err.Error())
+	}
+
 	var contractVersion int
 	var parsedContractName, contractUUID string
 
@@ -239,6 +243,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	s.cacheManager.SetThread(threadID, thread)
 	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
+
+	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
+		s.logger.Warn("failed to decrement ingress for thread creation", zap.String("company_id", companyID), zap.Error(err))
+	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 
