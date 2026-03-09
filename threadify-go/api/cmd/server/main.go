@@ -205,7 +205,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 	agentRepo := repository.NewAgentRepository(db)
 
-	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)
+	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader, logger)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
 
 	return &appHandlers{

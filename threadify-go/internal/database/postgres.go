@@ -36,6 +36,14 @@ func (db *PostgresDB) Close() {
 }
 
 func (db *PostgresDB) InitSchema(ctx context.Context) error {
+	// Acquire a PostgreSQL session-level advisory lock so concurrent processes
+	// (server + archiver) don't race to execute the same DDL simultaneously.
+	// Key 1 is arbitrary but must be the same across all callers.
+	const lockKey = 1
+	if _, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+		return fmt.Errorf("failed to acquire schema lock: %w", err)
+	}
+	defer db.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
 	schema := `
 	-- Shared tables (also created by Web API for independence)
 	CREATE TABLE IF NOT EXISTS companies (
@@ -102,7 +110,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		yaml_content TEXT,
 		content_hash VARCHAR(64) NOT NULL,
 		contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
-		created_by VARCHAR(255) NOT NULL DEFAULT 'Martins Joseph',
+		created_by VARCHAR(255) NOT NULL DEFAULT '',
 		graph JSONB,
 		is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -222,8 +230,22 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		started_at TIMESTAMP,
 		finished_at TIMESTAMP,
 		metadata JSONB,
-		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 	);
+
+	-- Migration: Add foreign key constraint to thread_activities if it doesn't exist
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'thread_activities_thread_id_fkey'
+		) THEN
+			ALTER TABLE thread_activities 
+				ADD CONSTRAINT thread_activities_thread_id_fkey 
+				FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE;
+		END IF;
+	END $$;
 
 	-- Migration: Add content_hash column if it doesn't exist (for existing databases)
 	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS content_hash TEXT;
@@ -744,7 +766,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- User roles table (for RBAC)
 	-- Engine uses principal_id/principal_type for polymorphism (users + service accounts)
 	CREATE TABLE IF NOT EXISTS user_roles (
-		id VARCHAR(255),
 		principal_id VARCHAR(255) NOT NULL,
 		principal_type VARCHAR(50) NOT NULL DEFAULT 'user',
 		role_name VARCHAR(100) NOT NULL,
@@ -752,6 +773,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		assigned_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (principal_id, role_name)
 	);
+	ALTER TABLE user_roles DROP COLUMN IF EXISTS id;
 
 	CREATE INDEX IF NOT EXISTS idx_user_roles_principal ON user_roles(principal_id);
 	CREATE INDEX IF NOT EXISTS idx_user_roles_type ON user_roles(principal_type);

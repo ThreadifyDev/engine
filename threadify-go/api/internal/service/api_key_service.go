@@ -6,6 +6,8 @@ import (
 	"threadify-go/api/internal/utils"
 	"threadify-go/shared/rbac"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const defaultServiceAccountRole = "standard_service"
@@ -15,6 +17,7 @@ type APIKeyService struct {
 	serviceAccountRepo *repository.ServiceAccountRepository
 	userRoleRepo       *repository.UserRoleRepository
 	rbacLoader         *rbac.Loader
+	logger             *zap.Logger
 }
 
 func NewAPIKeyService(
@@ -22,12 +25,14 @@ func NewAPIKeyService(
 	serviceAccountRepo *repository.ServiceAccountRepository,
 	userRoleRepo *repository.UserRoleRepository,
 	rbacLoader *rbac.Loader,
+	logger *zap.Logger,
 ) *APIKeyService {
 	return &APIKeyService{
 		apiKeyRepo:         apiKeyRepo,
 		serviceAccountRepo: serviceAccountRepo,
 		userRoleRepo:       userRoleRepo,
 		rbacLoader:         rbacLoader,
+		logger:             logger,
 	}
 }
 
@@ -46,17 +51,28 @@ type CreateAPIKeyResponse struct {
 }
 
 func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
+	s.logger.Info("CreateAPIKey called",
+		zap.String("userID", userID),
+		zap.String("companyID", companyID),
+		zap.String("name", req.Name))
+
 	if req.Name == "" {
+		s.logger.Error("API key name is required")
 		return nil, ErrApiKeyNameRequired
 	}
 
+	s.logger.Info("Resolving service account")
 	serviceAccountID, err := s.resolveServiceAccount(userID, companyID, req)
 	if err != nil {
+		s.logger.Error("Failed to resolve service account", zap.Error(err))
 		return nil, err
 	}
+	s.logger.Info("Service account resolved", zap.Stringp("serviceAccountID", serviceAccountID))
 
+	s.logger.Info("Generating API key")
 	key, err := utils.GenerateAPIKey()
 	if err != nil {
+		s.logger.Error("Failed to generate API key", zap.Error(err))
 		return nil, err
 	}
 
@@ -88,10 +104,13 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 		CreatedAt:        time.Now(),
 	}
 
+	s.logger.Info("Creating API key in database", zap.String("apiKeyID", apiKey.ID))
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
+		s.logger.Error("Failed to create API key in database", zap.Error(err), zap.String("apiKeyID", apiKey.ID))
 		return nil, err
 	}
 
+	s.logger.Info("API key created successfully", zap.String("apiKeyID", apiKey.ID))
 	return &CreateAPIKeyResponse{
 		Key:       key,
 		KeyPrefix: keyPrefix,
@@ -102,12 +121,21 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 // resolveServiceAccount returns the service account ID to associate with the
 // new API key, creating one if necessary.
 func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *CreateAPIKeyRequest) (*string, error) {
+	s.logger.Info("Resolving service account",
+		zap.Stringp("serviceAccountID", req.ServiceAccountID),
+		zap.Bool("createServiceAccount", req.CreateServiceAccount))
+
 	if req.ServiceAccountID != nil {
+		s.logger.Info("Using existing service account", zap.String("serviceAccountID", *req.ServiceAccountID))
 		sa, err := s.serviceAccountRepo.FindByID(*req.ServiceAccountID)
 		if err != nil || sa == nil {
+			s.logger.Error("Service account not found", zap.Error(err), zap.Stringp("serviceAccountID", req.ServiceAccountID))
 			return nil, ErrServiceAccountNotFound
 		}
 		if sa.CompanyID != companyID {
+			s.logger.Error("Service account company mismatch",
+				zap.String("expectedCompanyID", companyID),
+				zap.String("actualCompanyID", sa.CompanyID))
 			return nil, ErrUnauthorizedCompany
 		}
 		return req.ServiceAccountID, nil
@@ -117,10 +145,14 @@ func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *Cre
 	if req.CreateServiceAccount && req.ServiceAccountRole != nil {
 		role = *req.ServiceAccountRole
 	}
+	s.logger.Info("Using role", zap.String("role", role))
 
 	if req.CreateServiceAccount {
+		s.logger.Info("Validating role against RBAC")
 		apiLevelRoles := s.rbacLoader.GetRolesByLevel("api_level")
+		s.logger.Info("Available api_level roles", zap.Any("roles", apiLevelRoles))
 		if _, exists := apiLevelRoles[role]; !exists {
+			s.logger.Error("Invalid role not found in api_level roles", zap.String("role", role))
 			return nil, ErrInvalidServiceAccountRole
 		}
 	}
@@ -129,6 +161,7 @@ func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *Cre
 	if !req.CreateServiceAccount {
 		name += " (auto-generated)"
 	}
+	s.logger.Info("Creating service account", zap.String("name", name))
 
 	sa := &models.ServiceAccount{
 		ID:        utils.GenerateID(),
@@ -140,14 +173,19 @@ func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *Cre
 		UpdatedAt: time.Now(),
 	}
 
+	s.logger.Info("Inserting service account into database", zap.String("serviceAccountID", sa.ID))
 	if err := s.serviceAccountRepo.Create(sa); err != nil {
+		s.logger.Error("Failed to create service account in database", zap.Error(err), zap.String("serviceAccountID", sa.ID))
 		return nil, err
 	}
 
+	s.logger.Info("Assigning role to service account", zap.String("role", role), zap.String("serviceAccountID", sa.ID))
 	if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, role, userID); err != nil {
+		s.logger.Error("Failed to assign role to service account", zap.Error(err), zap.String("role", role), zap.String("serviceAccountID", sa.ID))
 		return nil, ErrFailedToAssignRole
 	}
 
+	s.logger.Info("Service account created successfully", zap.String("serviceAccountID", sa.ID))
 	return &sa.ID, nil
 }
 

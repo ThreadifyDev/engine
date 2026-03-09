@@ -3,7 +3,7 @@ server:
   host: 0.0.0.0
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
+  url: "$POSTGRES_URL:postgres://td_engine:tdtdtd@threadify_storage:5432/threadify?sslmode=disable"
   max_connections: 25
   max_idle_connections: 5
 

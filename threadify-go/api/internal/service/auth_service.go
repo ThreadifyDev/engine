@@ -223,27 +223,12 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 				}
 
 				// Password verified - queue async migration (don't block login)
-				if err := s.queueLegacyUserMigration(localUser.ID, req.Email, "login"); err != nil {
+				if err := s.queueLegacyUserMigration(localUser.ID, req.Email, req.Password, "login"); err != nil {
 					s.logger.Error("login: failed to queue migration for legacy user",
 						zap.Error(err),
 						zap.String("user_id", localUser.ID),
 					)
 					// Don't fail login if queueing fails - user can try again
-				}
-
-				// Migration queued - proceed with OTP verification flow
-				// The outbox worker will create the Supabase user and send OTP email
-				s.logger.Info("login: migration queued, proceeding to OTP verification",
-					zap.String("user_id", localUser.ID),
-				)
-
-				// Queue verification email (OTP will be sent)
-				if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-					s.logger.Error("login: failed to queue verification email for legacy user",
-						zap.Error(err),
-						zap.String("user_id", localUser.ID),
-					)
-					return nil, fmt.Errorf("failed to send verification code")
 				}
 
 				// Return OTP required response
@@ -270,55 +255,7 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		}
 	}
 
-	// Authentication successful - get local user
-	localUser, err := s.userRepo.FindByEmail(req.Email)
-	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		return nil, fmt.Errorf("find user: %w", err)
-	}
-
-	// Check email verification status
-	if localUser != nil && !localUser.EmailVerified {
-		s.logger.Info("login: email not verified, queuing verification email for onboarding",
-			zap.String("user_id", localUser.ID),
-		)
-
-		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-			s.logger.Error("login: failed to queue verification email",
-				zap.Error(err))
-			return nil, fmt.Errorf("failed to queue verification email")
-		}
-
-		return &models.AuthResponse{
-			User:                      localUser,
-			EmailVerificationRequired: true,
-			Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
-		}, nil
-	}
-
-	// Check email verification status
-	if localUser != nil && !localUser.EmailVerified {
-		s.logger.Info("login: email not verified, queuing verification email for onboarding",
-			zap.String("user_id", localUser.ID),
-		)
-
-		if err := s.queueVerificationEmail(localUser.ID, req.Email); err != nil {
-			s.logger.Error("login: failed to queue verification email",
-				zap.Error(err))
-			return nil, fmt.Errorf("failed to queue verification email")
-		}
-
-		return &models.AuthResponse{
-			User:                      localUser,
-			EmailVerificationRequired: true,
-			Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
-		}, nil
-	}
-
-	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
-	if err != nil {
-		return nil, err
-	}
-
+	// For login source, OTP verification email is queued separately
 	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
 	if err != nil {
 		s.logger.Error("login: failed to generate otp", zap.Error(err))
@@ -330,12 +267,8 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, fmt.Errorf("failed to send login verification email")
 	}
 
-	s.logger.Info("login: password verified, otp sent",
-		zap.String("user_id", user.ID),
-	)
-
 	return &models.AuthResponse{
-		User:        user,
+		Email:       userInfo.Email,
 		OTPRequired: true,
 		Message:     "A login code has been sent to your email.",
 	}, nil
@@ -362,7 +295,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 		)
 
 		// Queue migration event - outbox worker will create Supabase user and send password reset email
-		if err := s.queueLegacyUserMigration(user.ID, req.Email, "forgot_password"); err != nil {
+		if err := s.queueLegacyUserMigration(user.ID, req.Email, generateSecurePassword(), "forgot_password"); err != nil {
 			s.logger.Error("forgot password: failed to queue migration for legacy user",
 				zap.Error(err),
 				zap.String("user_id", user.ID),
@@ -400,6 +333,12 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 	}
 
 	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword() string {
+	// Use two UUIDs for 64 characters of randomness
+	return utils.GenerateID() + utils.GenerateID()
 }
 
 func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswordRequest) error {

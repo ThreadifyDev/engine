@@ -13,7 +13,7 @@ import (
 
 // queueLegacyUserMigration queues a migration event for a legacy user
 // source: "login" or "forgot_password" - determines which email to send after migration
-func (s *AuthService) queueLegacyUserMigration(userID, email, source string) error {
+func (s *AuthService) queueLegacyUserMigration(userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
 	// Check if migration already queued
@@ -28,9 +28,10 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, source string) err
 
 	// Payload contains email, user_id, and source (no password data)
 	payload, err := json.Marshal(map[string]string{
-		"email":   email,
-		"user_id": userID,
-		"source":  source, // "login" or "forgot_password"
+		"email":    email,
+		"user_id":  userID,
+		"password": password,
+		"source":   source, // "login" or "forgot_password"
 	})
 	if err != nil {
 		return fmt.Errorf("marshal migration event payload: %w", err)

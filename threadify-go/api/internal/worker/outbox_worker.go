@@ -386,13 +386,13 @@ func (w *OutboxWorker) handleSendPasswordResetEmail(ctx context.Context, data ma
 }
 
 func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[string]string) error {
-	fields, err := getFields(data, "email", "user_id", "source")
+	fields, err := getFields(data, "email", "user_id", "password", "source")
 	if err != nil {
 		return err
 	}
-	email, userID, source := fields[0], fields[1], fields[2]
+	email, userID, password, source := fields[0], fields[1], fields[2], fields[3]
 
-	w.logger.Info("outbox: migrating legacy user to Supabase",
+	w.logger.Debug("outbox: migrating legacy user to Supabase",
 		zap.String("user_id", userID),
 		zap.String("email", email),
 		zap.String("source", source),
@@ -413,17 +413,14 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return nil
 	}
 
-	// Generate a secure temporary password for Supabase registration
-	tempPassword := generateSecurePassword()
-
 	// Get full name
 	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}
 
-	// Create user in Supabase with temporary password
-	authUserID, err := w.authClient.RegisterUser(ctx, email, tempPassword, fullName, userID, user.CompanyID)
+	// Create user in Supabase with password
+	authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, user.CompanyID)
 	if err != nil {
 		return fmt.Errorf("register user in Supabase: %w", err)
 	}
@@ -457,19 +454,19 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		)
 	} else {
 		// For login source, OTP verification email is queued separately
-		w.logger.Info("outbox: migration completed, OTP email queued separately",
-			zap.String("user_id", userID),
-			zap.String("source", source),
-		)
+		otpCode, err := w.authClient.GenerateLoginOTP(ctx, email)
+		if err != nil {
+			w.logger.Error("outbox: failed to generate otp", zap.Error(err))
+			return fmt.Errorf("failed to generate login verification code")
+		}
+
+		if err := w.emailSvc.SendLoginOTPEmail(ctx, email, otpCode); err != nil {
+			w.logger.Error("outbox: failed to send otp email", zap.Error(err))
+			return fmt.Errorf("failed to send login verification email")
+		}
 	}
 
 	return nil
-}
-
-// generateSecurePassword generates a cryptographically secure random password
-func generateSecurePassword() string {
-	// Use two UUIDs for 64 characters of randomness
-	return utils.GenerateID() + utils.GenerateID()
 }
 
 func getFields(data map[string]string, keys ...string) ([]string, error) {
