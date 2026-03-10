@@ -7,12 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/threadify/engine/internal/database"
 	"go.uber.org/zap"
 )
 
 var ErrThreadNotFound = errors.New("wait for thread metadata")
+
+var meterColumns = map[string]string{
+	"bandwidth_ingress": "bandwidth_ingress_balance",
+	"bandwidth_egress":  "bandwidth_egress_balance",
+}
+
+var meterUpdateQueries = map[string]string{
+	"bandwidth_ingress": `UPDATE usage_meters SET bandwidth_ingress_balance = bandwidth_ingress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
+	"bandwidth_egress":  `UPDATE usage_meters SET bandwidth_egress_balance = bandwidth_egress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
+}
 
 type PostgresWriter struct {
 	db     *database.PostgresDB
@@ -589,7 +601,6 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 
 		id := deterministicUUID(str("threadId"), str("stepId"), str("name"))
 
-		// Column 7 (recorded_at) is NOT NULL.
 		base := i * cols
 		p := make([]string, cols)
 		for j := range p {
@@ -681,6 +692,77 @@ func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []Stre
 	w.logger.Info("wrote step state events",
 		zap.Int("total", len(events)),
 		zap.Int("unique", len(seen)),
+	)
+	return nil
+}
+
+func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSyncEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	tx, err := w.db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin usage sync tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	type aggregationKey struct {
+		CompanyID         string
+		Meter             string
+		BillingCycleStart time.Time
+	}
+	aggregated := make(map[aggregationKey]int64)
+	var duplicates int
+
+	for _, event := range events {
+		var insertedID string
+		err := tx.QueryRow(ctx, `
+			INSERT INTO usage_sync_events (event_id, company_id, meter, amount, occurred_at, processed_at, status)
+			VALUES ($1, $2, $3, $4, $5, NOW(), 'processed')
+			ON CONFLICT (event_id, occurred_at) DO NOTHING
+			RETURNING event_id
+		`, event.EventID, event.CompanyID, event.Meter, event.Amount, event.OccurredAt).Scan(&insertedID)
+
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				duplicates++
+				continue
+			}
+			return fmt.Errorf("persist usage sync event %s: %w", event.EventID, err)
+		}
+
+		key := aggregationKey{
+			CompanyID:         event.CompanyID,
+			Meter:             event.Meter,
+			BillingCycleStart: event.BillingCycleStart,
+		}
+		aggregated[key] += event.Amount
+	}
+
+	for key, totalAmount := range aggregated {
+		query := meterUpdateQueries[key.Meter]
+		tag, err := tx.Exec(ctx, query, totalAmount, key.CompanyID, key.BillingCycleStart)
+		if err != nil {
+			return fmt.Errorf("batch sync usage %s for company %s: %w", key.Meter, key.CompanyID, err)
+		}
+		if tag.RowsAffected() == 0 {
+			w.logger.Error("usage sync aggregation: no matching usage cycle found",
+				zap.String("company_id", key.CompanyID),
+				zap.String("meter", key.Meter),
+				zap.Time("billing_cycle_start", key.BillingCycleStart),
+			)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit usage sync aggregation tx: %w", err)
+	}
+
+	w.logger.Info("synced usage meters to postgres (aggregated)",
+		zap.Int("input_events", len(events)),
+		zap.Int("duplicates", duplicates),
+		zap.Int("batch_updates", len(aggregated)),
 	)
 	return nil
 }

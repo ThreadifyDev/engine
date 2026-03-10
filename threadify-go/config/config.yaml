@@ -47,23 +47,10 @@ thread_activities:
 
 rate_limit:
   enabled: true
-  cleanup_interval: "1h"
-  
-  # Per-IP rate limiting (in-memory, per-pod)
-  per_ip:
-    enabled: false
-    requests_per_minute: 60
-    burst: 10
-  
-  # Per-user rate limiting (Redis, global across pods)
-  per_user:
-    enabled: true
-    requests_per_minute: 1000
-    burst: 50
-    window_seconds: 60
-    cache_size: 50000           # Max users cached per pod (for 50k+ users)
-    cache_ttl_seconds: 2        # Cache decisions for 2 seconds
-    redis_timeout_ms: 3         # Redis timeout in milliseconds (fail-open if exceeded)
+  ip_rate_limit_enabled: true
+  ip_requests_per_window: 100
+  window_seconds: 60
+  redis_timeout_ms: 5         # Valkey timeout in milliseconds (fail-open if exceeded)
 
 # WebSocket configuration
 websocket:
@@ -73,18 +60,13 @@ websocket:
   max_in_flight_max: 100      # Maximum allowed maxInFlight per client
   max_in_flight_default: 10   # Default maxInFlight if not specified
 
-# Bot scanner configuration
-bot_scanner:
-  enabled: false
-  block_known_bots: true       # Block requests from known bot user-agents
-  log_suspicious: false        # Log suspicious activity (set false to reduce log clutter)
-  cleanup_interval_minutes: 30 # How often to clean up old tracking data
 
 cache:
   contract_ttl_ms: 18000000    # Contract data expires after 5 hours (hot cache, PostgreSQL fallback)
   thread_ttl_ms: 18000000      # Thread data expires after 5 hours (hot cache, PostgreSQL fallback)
   step_event_ttl_ms: 18000000  # Step events expire after 5 hours (hot cache, PostgreSQL fallback)
   session_ttl_ms: 1800000      # WebSocket session expires after 30 minutes (short-lived, no persistence)
+  plan_ttl_ms: 10000           # Plan cache expires after 10s (fail safe short config)
   
   # LRU cache sizes for in-memory caching
   lru:
@@ -107,7 +89,7 @@ thread_access:
   buffer_size: 100            # Channel buffer size for async writes
 
 logging:
-  level: info
+  level: debug
 
 # Performance monitoring configuration
 performance:

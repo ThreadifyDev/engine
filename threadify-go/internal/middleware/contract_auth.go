@@ -33,7 +33,6 @@ func ContractRBACMiddleware(rbacLoader *rbac.Loader, permission string) gin.Hand
 			return
 		}
 
-		// Replace :id placeholder with actual contract ID from URL if present
 		actualPermission := permission
 		if contractID := c.Param("id"); contractID != "" {
 			actualPermission = fmt.Sprintf("contract.%s.%s",

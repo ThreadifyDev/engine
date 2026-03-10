@@ -22,7 +22,8 @@ type Resolver struct {
 	actorRepo           *postgres.ActorRepository              // For resolving actor names
 	notificationRepo    *postgres.ThreadNotificationRepository // For querying thread notifications
 	subStepRepo         *postgres.SubStepRepository            // For querying sub-steps
-	logger              *zap.Logger                            // Structured logger
+	planService         *service.PlanService
+	logger              *zap.Logger
 }
 
 func NewResolver(
@@ -39,6 +40,7 @@ func NewResolver(
 	actorRepo *postgres.ActorRepository,
 	notificationRepo *postgres.ThreadNotificationRepository,
 	subStepRepo *postgres.SubStepRepository,
+	planService *service.PlanService,
 	logger *zap.Logger,
 ) *Resolver {
 	return &Resolver{
@@ -55,6 +57,7 @@ func NewResolver(
 		actorRepo:           actorRepo,
 		notificationRepo:    notificationRepo,
 		subStepRepo:         subStepRepo,
+		planService:         planService,
 		logger:              logger,
 	}
 }

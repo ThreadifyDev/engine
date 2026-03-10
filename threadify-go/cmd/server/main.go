@@ -20,7 +20,9 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -86,20 +88,16 @@ func main() {
 }
 
 type deps struct {
-	db           *database.PostgresDB
-	valkey       *database.ValkeyService
-	natsPool     *natsrepo.Pool
-	workerPools  *workerpool.Pools
-	stepEventSvc *service.StepEventService
-	notifRouter  *handlers.NotificationRouter
+	db             *database.PostgresDB
+	valkey         *database.ValkeyService
+	natsPool       *natsrepo.Pool
+	workerPools    *workerpool.Pools
+	serviceManager *service.ServiceManager
 }
 
 func (d *deps) close() {
-	if d.stepEventSvc != nil {
-		d.stepEventSvc.Stop()
-	}
-	if d.notifRouter != nil {
-		d.notifRouter.Stop()
+	if d.serviceManager != nil {
+		d.serviceManager.StopAll()
 	}
 	if d.natsPool != nil {
 		d.natsPool.Close()
@@ -123,6 +121,12 @@ func loadConfig() (*config.Config, error) {
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+
+	viper.SetConfigName("subscription")
+	if err := viper.MergeInConfig(); err != nil {
+		return nil, fmt.Errorf("merge subscription config: %w", err)
+	}
+
 	return config.LoadFromViper()
 }
 
@@ -166,10 +170,9 @@ func initDependencies(cfg *config.Config, logger *zap.Logger) (*deps, error) {
 
 	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize, logger)
 	if err != nil {
-		logger.Warn("NATS unavailable — notifications and archival disabled", zap.Error(err))
-	} else {
-		d.natsPool = natsPool
+		logger.Fatal("NATS unavailable — required for usage metering", zap.Error(err))
 	}
+	d.natsPool = natsPool
 
 	d.workerPools = workerpool.NewPools(workerpool.NewPrometheusMetrics())
 	logger.Info("worker pools initialized",
@@ -223,25 +226,49 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	accessRepo := valkey.NewAccessRepository(d.valkey, int(threadTTL.Seconds()), logger)
 	accessRepo.SetRBACLoader(rbacLoader)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
-
-	var natsArchival *natsrepo.ArchivalPublisher
-	var natsNotification *natsrepo.Publisher
-	if d.natsPool != nil {
-		natsArchival = natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
-		natsNotification = natsrepo.NewPublisher(d.natsPool.GetClient())
+	if err := luaScriptManager.LoadScripts(context.Background()); err != nil {
+		logger.Fatal("failed to load lua scripts", zap.Error(err))
 	}
+
+	natsArchival := natsrepo.NewArchivalPublisher(d.natsPool.GetClient(), logger)
+	natsNotification := natsrepo.NewPublisher(d.natsPool.GetClient())
+
+	sm := service.NewServiceManager(logger)
+	d.serviceManager = sm
 
 	stepEventSvc, err := service.NewStepEventService(d.valkey, threadRepo, natsArchival, cfg, logger)
 	if err != nil {
 		logger.Fatal("failed to create step event service", zap.Error(err))
 	}
-
-	stepEventSvc.Start()
-	d.stepEventSvc = stepEventSvc
+	sm.Register(stepEventSvc)
 
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
-	contractSvc := service.NewContractService(d.db, logger)
-	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, d.workerPools, logger)
+
+	planRepo := postgres.NewPlanRepository(d.db.Pool)
+
+	js, err := jetstream.New(d.natsPool.GetClient().Conn())
+	if err != nil {
+		logger.Fatal("failed to initialize jetstream", zap.Error(err))
+	}
+
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, &cfg.Batch, d.valkey, luaScriptManager, js, logger, cfg.Cache.PlanTTLMs)
+	sm.Register(planSvc)
+	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
+	sm.Register(usageOutboxRelay)
+
+	billingRepo := postgres.NewBillingRepository(d.db.Pool)
+
+	invoiceProvider, err := service.NewInvoiceProvider(&cfg.Billing, logger)
+	if err != nil {
+		logger.Fatal("invalid billing provider configuration", zap.Error(err))
+	}
+
+	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, planSvc, logger)
+	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
+	sm.Register(billingCron)
+
+	contractSvc := service.NewContractService(contractRepo, planSvc, logger)
+	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, planSvc, d.workerPools, logger)
 	invitationSvc := service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
 	contractHandler := handlers.NewContractHandler(contractSvc, logger)
@@ -252,12 +279,17 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		if err != nil {
 			logger.Fatal("failed to create notification router", zap.Error(err))
 		}
-		d.notifRouter = notifRouter
+		sm.Register(notifRouter)
+	}
+
+	if err := sm.StartAll(); err != nil {
+		logger.Fatal("failed to start background services", zap.Error(err))
 	}
 
 	wsHandler := handlers.NewWebSocketHandler(
 		threadSvc, stepEventSvc, invitationSvc,
 		threadSvc.GetNotificationConsumer(), notifRouter,
+		planSvc,
 		d.valkey, luaScriptManager,
 		&cfg.RateLimit, &cfg.WebSocket,
 		logger,
@@ -268,6 +300,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		threadAccessSvc, threadSvc.GetContractValidator(), contractRepo,
 		refsRepo, postgresStepRepo, activityRepo, actorRepo,
 		notificationRepo, subStepRepo,
+		planSvc,
 		logger,
 	)
 
@@ -275,21 +308,22 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	gqlHandler.Use(extension.FixedComplexityLimit(1000))
 	gqlHandler.Use(extension.Introspection{})
 
-	ipRateLimiter := middleware.NewIPRateLimiter(&cfg.RateLimit)
-	if cfg.RateLimit.CleanupInterval != "" {
-		if interval, err := time.ParseDuration(cfg.RateLimit.CleanupInterval); err == nil {
-			ipRateLimiter.Cleanup(interval)
-		}
-	}
-	botScanner := middleware.NewBotScanner(&cfg.BotScanner)
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// Add CORS middleware
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-API-Key", "Accept"}
+	corsConfig.ExposeHeaders = []string{"Content-Length"}
+	corsConfig.MaxAge = 12 * time.Hour
+	r.Use(cors.New(corsConfig))
+
 	r.Use(requestLogger(logger))
+	r.Use(middleware.IPRateLimitMiddleware(luaScriptManager, &cfg.RateLimit))
 	r.Use(middleware.PrometheusMiddleware())
-	r.Use(botScanner.Middleware())
-	r.Use(ipRateLimiter.Middleware())
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(d))
@@ -297,24 +331,30 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit),
+		middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit),
+		middleware.EgressMiddleware(planSvc, logger),
 		graphqlMiddleware(gqlHandler),
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
+	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
+	mcpGroup.Use(middleware.EgressMiddleware(planSvc, logger))
 	mountMCPServer(mcpGroup, cfg, logger)
 
 	v1 := r.Group("/v1")
-	v1.Use(middleware.CompanyRateLimiter(luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
+	v1.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.EgressMiddleware(planSvc, logger))
 
 	contracts := v1.Group("/contracts")
-	contracts.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	{
 		contracts.GET("", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContracts)
-		contracts.POST("", middleware.ContractRBACMiddleware(rbacLoader, "contract.create"), contractHandler.CreateContract)
+		contracts.POST("",
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.create"),
+			contractHandler.CreateContract,
+		)
 		contracts.POST("/preview", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.PreviewContract)
 		contracts.GET("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContract)
 		contracts.PUT("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.UpdateContract)

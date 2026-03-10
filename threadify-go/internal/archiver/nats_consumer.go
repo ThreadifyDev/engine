@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,6 +76,7 @@ func (c *NATSConsumer) Start(ctx context.Context) error {
 		{"thread_metadata", "metadata.thread", c.processThreadMetadata},
 		{"thread_access", "access.thread", c.processThreadAccess},
 		{"thread_validations", "validations.thread", c.processThreadValidations},
+		{"usage_sync", "usage.sync", c.processUsageSync},
 	}
 
 	for _, consumer := range consumers {
@@ -174,7 +176,11 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 			}
 			BatchesProcessed.WithLabelValues(streamName, "error").Inc()
 			for _, msg := range batch {
-				msg.Nak()
+				if errors.Is(err, ErrThreadNotFound) {
+					msg.NakWithDelay(5 * time.Second)
+				} else {
+					msg.Nak()
+				}
 				RetryAttempts.WithLabelValues(streamName).Inc()
 			}
 		} else {
@@ -237,13 +243,9 @@ func (c *NATSConsumer) parseMsgs(streamName string, msgs []jetstream.Msg) ([]Str
 	return events, failed
 }
 
-func (c *NATSConsumer) nakFailed(streamName string, failed []jetstream.Msg) {
-	for _, msg := range failed {
-		msg.Nak()
-		RetryAttempts.WithLabelValues(streamName).Inc()
-	}
+func (c *NATSConsumer) logDroppedMalformed(streamName string, failed []jetstream.Msg) {
 	if len(failed) > 0 {
-		c.logger.Warn("nacked unparseable messages",
+		c.logger.Warn("dropping malformed messages from batch",
 			zap.String("stream", streamName),
 			zap.Int("count", len(failed)),
 		)
@@ -294,7 +296,7 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 		}
 	}
 
-	c.nakFailed("activity_log", failed)
+	c.logDroppedMalformed("activity_log", failed)
 
 	if len(events) > 0 {
 		if err := c.writer.WriteActivityLog(ctx, events); err != nil {
@@ -317,7 +319,7 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
-	c.nakFailed("thread_metadata", failed)
+	c.logDroppedMalformed("thread_metadata", failed)
 	err := c.writer.WriteThreadMetadata(ctx, events)
 	c.logPerf("metadata.thread", len(msgs), start)
 	return err
@@ -329,17 +331,14 @@ func (c *NATSConsumer) processThreadAccess(ctx context.Context, msgs []jetstream
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_access", msgs)
-	c.nakFailed("thread_access", failed)
+	c.logDroppedMalformed("thread_access", failed)
 	err := c.writer.WriteThreadAccess(ctx, events)
 	if errors.Is(err, ErrThreadNotFound) {
 		c.logger.Debug("thread access arrived before thread metadata, will retry",
 			zap.Int("count", len(msgs)),
 		)
-		for _, msg := range msgs {
-			msg.NakWithDelay(5 * time.Second)
-		}
 		c.logPerf("access.thread", len(msgs), start)
-		return nil
+		return err
 	}
 	c.logPerf("access.thread", len(msgs), start)
 	return err
@@ -351,7 +350,7 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	}
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_validations", msgs)
-	c.nakFailed("thread_validations", failed)
+	c.logDroppedMalformed("thread_validations", failed)
 	err := c.writer.WriteValidationResults(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
 	return err
@@ -363,4 +362,174 @@ func convertToStringMap(data map[string]interface{}) map[string]string {
 		result[k] = fmt.Sprintf("%v", v)
 	}
 	return result
+}
+
+func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Msg) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	start := time.Now()
+	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
+
+	events := make([]UsageSyncEvent, 0, len(msgs)*4)
+	validMsgs := make([]jetstream.Msg, 0, len(msgs))
+
+	for _, msg := range msgs {
+		var dataArray []map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &dataArray); err != nil {
+			c.logger.Error("failed to unmarshal usage sync batch message", zap.Error(err))
+			_ = msg.Term()
+			continue
+		}
+
+		if len(dataArray) == 0 {
+			c.logger.Warn("usage sync message contains empty array")
+			_ = msg.Term()
+			continue
+		}
+
+		msgEvents, ok := c.parseBatchEvents(msg, dataArray)
+		if !ok {
+			_ = msg.Term()
+			continue
+		}
+
+		events = append(events, msgEvents...)
+		validMsgs = append(validMsgs, msg)
+	}
+
+	if len(events) == 0 {
+		c.logPerf("usage.sync", len(msgs), start)
+		return nil
+	}
+
+	if err := c.writer.SyncUsageMeters(ctx, events); err != nil {
+		return err
+	}
+
+	for _, msg := range validMsgs {
+		_ = msg.Ack()
+	}
+
+	c.logPerf("usage.sync", len(msgs), start)
+	return nil
+}
+
+func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[string]interface{}) ([]UsageSyncEvent, bool) {
+	events := make([]UsageSyncEvent, 0, len(dataArray))
+	seqFallback := ""
+
+	for i, data := range dataArray {
+		companyID, _ := data["company_id"].(string)
+		meter, _ := data["meter"].(string)
+
+		if companyID == "" || meter == "" {
+			c.logger.Error("usage sync event missing required fields",
+				zap.Int("index", i),
+				zap.String("company_id", companyID),
+				zap.String("meter", meter),
+			)
+			return nil, false
+		}
+
+		if _, ok := meterUpdateQueries[meter]; !ok {
+			c.logger.Error("usage sync event has unknown meter type",
+				zap.Int("index", i),
+				zap.String("meter", meter),
+			)
+			return nil, false
+		}
+
+		amount, err := parseUsageAmount(data["amount"])
+		if err != nil || amount <= 0 {
+			c.logger.Error("invalid or non-positive usage amount in event",
+				zap.Int("index", i),
+				zap.Any("amount", data["amount"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		billingCycleStart, err := parseUsageTimestamp(data["billing_cycle_start"])
+		if err != nil || billingCycleStart.IsZero() {
+			c.logger.Error("missing or invalid billing_cycle_start in event",
+				zap.Int("index", i),
+				zap.Any("billing_cycle_start", data["billing_cycle_start"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		occurredAt, err := parseUsageTimestamp(data["timestamp"])
+		if err != nil || occurredAt.IsZero() {
+			c.logger.Error("missing or invalid timestamp in event",
+				zap.Int("index", i),
+				zap.Any("timestamp", data["timestamp"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		eventID, _ := data["event_id"].(string)
+		if eventID == "" {
+			if seqFallback == "" {
+				if metadata, metaErr := msg.Metadata(); metaErr == nil {
+					seqFallback = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
+				}
+			}
+			if seqFallback != "" {
+				eventID = fmt.Sprintf("%s:%d", seqFallback, i)
+			}
+		}
+		if eventID == "" {
+			c.logger.Error("usage sync event has no resolvable event_id", zap.Int("index", i))
+			return nil, false
+		}
+
+		events = append(events, UsageSyncEvent{
+			EventID:           eventID,
+			CompanyID:         companyID,
+			Meter:             meter,
+			Amount:            amount,
+			BillingCycleStart: billingCycleStart,
+			OccurredAt:        occurredAt,
+		})
+	}
+
+	return events, true
+}
+
+func parseUsageAmount(v interface{}) (int64, error) {
+	switch value := v.(type) {
+	case float64:
+		return int64(value), nil
+	case int64:
+		return value, nil
+	case int:
+		return int64(value), nil
+	case json.Number:
+		return value.Int64()
+	case string:
+		return strconv.ParseInt(value, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported amount type %T", v)
+	}
+}
+
+func parseUsageTimestamp(v interface{}) (time.Time, error) {
+	switch value := v.(type) {
+	case nil:
+		return time.Time{}, nil
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return time.Time{}, nil
+		}
+		t, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return t.UTC(), nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported timestamp type %T", v)
+	}
 }

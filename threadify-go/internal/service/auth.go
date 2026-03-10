@@ -9,6 +9,7 @@ import (
 
 	sharedauth "threadify-go/shared/auth"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
@@ -35,6 +36,7 @@ type cachedRoles struct {
 }
 
 type AuthService struct {
+	db            *pgxpool.Pool
 	authRepo      *postgres.AuthRepository
 	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
 	rolesCache    sync.Map // key: userID:type   → *cachedRoles
@@ -58,7 +60,6 @@ func NewAuthService(authRepo *postgres.AuthRepository, cacheTTLSeconds int) *Aut
 	return s
 }
 
-// Stop shuts down the background cache cleanup goroutine.
 func (s *AuthService) Stop() {
 	close(s.stopCleanup)
 }
@@ -97,8 +98,6 @@ func (s *AuthService) cleanupExpiredCache() {
 	}
 }
 
-// ValidateApiKey validates an API key token using a cache-aside pattern.
-// Cache hit → no DB query; cache miss or expired → query DB, warm cache.
 func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured

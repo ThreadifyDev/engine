@@ -789,14 +789,14 @@ func extractStepName(previousStep string) string {
 	return ""
 }
 
-// marshalContext serialises a context map to a JSON string, returning "" on failure or empty input.
+// marshalContext serialises a context map to a JSON string, returning "{}" on empty input or error.
 func marshalContext(ctx map[string]string) string {
 	if len(ctx) == 0 {
-		return ""
+		return "{}"
 	}
 	b, err := json.Marshal(ctx)
 	if err != nil {
-		return ""
+		return "{}"
 	}
 	return string(b)
 }
