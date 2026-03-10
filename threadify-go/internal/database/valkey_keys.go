@@ -18,4 +18,7 @@ const (
 
 	// SuspendedPlanPrefix is the prefix for suspended plans due to payment failure
 	SuspendedPlanPrefix = "plan:suspended:"
+
+	// UsageSyncSubject is the NATS subject for synchronizing usage events
+	UsageSyncSubject = "usage.sync"
 )
