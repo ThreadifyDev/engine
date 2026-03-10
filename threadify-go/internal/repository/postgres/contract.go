@@ -16,8 +16,8 @@ import (
 )
 
 // contractCols and versionCols are the canonical SELECT column lists,
-// kept in sync with the Scan calls below.
-const contractCols = `id, name, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
+// kept in sync with the Scan calls in scanContract and scanVersion.
+const contractCols = `id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
 const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at`
 
 type ContractRepository struct {
@@ -31,7 +31,7 @@ func NewContractRepository(pool *pgxpool.Pool) *ContractRepository {
 // scanContract scans a standard contract row.
 func scanContract(row pgx.Row, c *models.Contract) error {
 	return row.Scan(
-		&c.ID, &c.Name, &c.Description, &c.ContentHash,
+		&c.ID, &c.Name, &c.CompanyID, &c.Description, &c.ContentHash,
 		&c.LatestVersion, &c.OwnerID, &c.IsPublic, &c.IsDeleted,
 		&c.CreatedAt, &c.UpdatedAt,
 	)
@@ -54,41 +54,36 @@ func contractErr(err error) error {
 		return shderrors.ErrContractNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		// Code 23505 is unique_violation
-		if pgErr.Code == "23505" {
-			if strings.Contains(pgErr.ConstraintName, "idx_contracts_name_company_active") ||
-				strings.Contains(pgErr.ConstraintName, "unique_contract_name") ||
-				strings.Contains(pgErr.Message, "idx_contracts_name_company_active") {
-				return shderrors.ErrContractAlreadyExists
-			}
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if strings.Contains(pgErr.ConstraintName, "idx_contracts_name_company_active") ||
+			strings.Contains(pgErr.ConstraintName, "unique_contract_name") ||
+			strings.Contains(pgErr.Message, "idx_contracts_name_company_active") {
+			return shderrors.ErrContractAlreadyExists
 		}
 	}
-	return fmt.Errorf("[CONTRACT_REPO_ERROR] %w", err)
+	return fmt.Errorf("contract repo: %w", err)
 }
 
 func versionErr(err error) error {
+	if err == nil {
+		return nil
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return shderrors.ErrContractNotFound
 	}
-	return fmt.Errorf("version error: %w", err)
+	return fmt.Errorf("version repo: %w", err)
 }
 
 func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
-	query := `INSERT INTO contracts (` + contractCols + `, company_id)
+	query := `INSERT INTO contracts (` + contractCols + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING ` + contractCols
 
-	err := scanContract(r.pool.QueryRow(ctx, query,
-		contract.ID, contract.Name, contract.Description, contract.ContentHash,
+	return contractErr(scanContract(r.pool.QueryRow(ctx, query,
+		contract.ID, contract.Name, contract.CompanyID, contract.Description, contract.ContentHash,
 		contract.LatestVersion, contract.OwnerID, contract.IsPublic, contract.IsDeleted,
-		contract.CreatedAt, contract.UpdatedAt, contract.CompanyID,
-	), contract)
-	if err != nil {
-		return contractErr(err)
-	}
-
-	return nil
+		contract.CreatedAt, contract.UpdatedAt,
+	), contract))
 }
 
 func (r *ContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
@@ -105,65 +100,64 @@ func (r *ContractRepository) Update(ctx context.Context, contractID, description
 }
 
 func (r *ContractRepository) Get(ctx context.Context, id string) (*models.Contract, error) {
-	query := `SELECT ` + contractCols + ` FROM contracts WHERE id = $1 AND is_deleted = false`
 	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, id), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND is_deleted=false`, id,
+	), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
 func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error) {
-	query := `SELECT id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at
-		FROM contracts WHERE name=$1 AND company_id=$2 AND is_deleted=false`
-
 	var c models.Contract
-	err := r.pool.QueryRow(ctx, query, name, companyID).Scan(
-		&c.ID, &c.Name, &c.CompanyID, &c.Description, &c.ContentHash,
-		&c.LatestVersion, &c.OwnerID, &c.IsPublic, &c.IsDeleted,
-		&c.CreatedAt, &c.UpdatedAt,
-	)
-	if err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE name=$1 AND company_id=$2 AND is_deleted=false`,
+		name, companyID,
+	), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
 func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
-	query := `SELECT ` + contractCols + ` FROM contracts WHERE id=$1 AND owner_id=$2 AND is_deleted=false`
-
 	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, contractID, ownerID), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND owner_id=$2 AND is_deleted=false`,
+		contractID, ownerID,
+	), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
 func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
-	query := `SELECT ` + contractCols + ` FROM contracts WHERE id=$1 AND is_deleted=false`
-
 	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, contractID), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND is_deleted=false`, contractID,
+	), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
 func (r *ContractRepository) GetByName(ctx context.Context, name string) (*models.Contract, error) {
-	query := `SELECT ` + contractCols + ` FROM contracts WHERE name=$1 AND is_deleted=false`
-
 	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, name), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE name=$1 AND is_deleted=false`, name,
+	), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
+// GetByNameSlim returns a partially-populated Contract (id, name, latest_version, owner_id only).
+// Do not use where a full Contract is expected.
 func (r *ContractRepository) GetByNameSlim(ctx context.Context, name string) (*models.Contract, error) {
-	query := `SELECT id, name, latest_version, owner_id FROM contracts WHERE name=$1 AND is_deleted=false`
-
 	var c models.Contract
-	if err := r.pool.QueryRow(ctx, query, name).Scan(&c.ID, &c.Name, &c.LatestVersion, &c.OwnerID); err != nil {
+	if err := r.pool.QueryRow(ctx,
+		`SELECT id, name, latest_version, owner_id FROM contracts WHERE name=$1 AND is_deleted=false`, name,
+	).Scan(&c.ID, &c.Name, &c.LatestVersion, &c.OwnerID); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
@@ -174,17 +168,14 @@ func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, 
 		`UPDATE contracts SET is_deleted=true, updated_at=$1 WHERE id=$2`,
 		updatedAt, contractID,
 	)
-	if err != nil {
-		return contractErr(err)
-	}
-	return nil
+	return contractErr(err)
 }
 
 func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
-	query := `SELECT ` + contractCols + `
-		FROM contracts WHERE owner_id=$1 AND is_deleted=false ORDER BY created_at DESC`
-
-	rows, err := r.pool.Query(ctx, query, ownerID)
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+contractCols+` FROM contracts WHERE owner_id=$1 AND is_deleted=false ORDER BY created_at DESC`,
+		ownerID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query contracts by owner: %w", err)
 	}
@@ -204,49 +195,55 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 	return contracts, nil
 }
 
+func (r *ContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
+	var count int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM contracts WHERE company_id=$1 AND is_deleted=false`, companyID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count contracts by company: %w", err)
+	}
+	return count, nil
+}
+
 func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
 	query := `INSERT INTO contract_versions (` + versionCols + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING ` + versionCols
 
-	if err := scanVersion(r.pool.QueryRow(ctx, query,
+	return versionErr(scanVersion(r.pool.QueryRow(ctx, query,
 		v.ID, v.Version, v.Content, v.YAMLContent, v.ContentHash,
 		v.ContractID, v.CreatedBy, v.Graph, v.IsDeleted,
 		v.CreatedAt, v.UpdatedAt,
-	), v); err != nil {
-		return versionErr(err)
-	}
-	return nil
+	), v))
 }
 
 func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
-	query := `SELECT ` + versionCols + `
-		FROM contract_versions WHERE contract_id=$1 AND version=$2 AND is_deleted=false`
-
 	var v models.ContractVersion
-	if err := scanVersion(r.pool.QueryRow(ctx, query, contractID, version), &v); err != nil {
+	if err := scanVersion(r.pool.QueryRow(ctx,
+		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND version=$2 AND is_deleted=false`,
+		contractID, version,
+	), &v); err != nil {
 		return nil, versionErr(err)
 	}
 	return &v, nil
 }
 
 func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
-	query := `SELECT ` + versionCols + `
-		FROM contract_versions WHERE contract_id=$1 AND is_deleted=false
-		ORDER BY version DESC LIMIT 1`
-
 	var v models.ContractVersion
-	if err := scanVersion(r.pool.QueryRow(ctx, query, contractID), &v); err != nil {
+	if err := scanVersion(r.pool.QueryRow(ctx,
+		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC LIMIT 1`,
+		contractID,
+	), &v); err != nil {
 		return nil, versionErr(err)
 	}
 	return &v, nil
 }
 
 func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
-	query := `SELECT ` + versionCols + `
-		FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC`
-
-	rows, err := r.pool.Query(ctx, query, contractID)
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC`,
+		contractID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query contract versions: %w", err)
 	}

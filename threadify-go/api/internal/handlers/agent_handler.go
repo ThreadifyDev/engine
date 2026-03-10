@@ -324,10 +324,6 @@ type ThreadConnection {
   totalCount: Int!
 }
 
-CRITICAL: threadsByRef and threads queries return ThreadConnection, NOT Thread directly!
-Always query: { threads { ... } totalCount } - NOT just { id status }
-✅ CORRECT: threadsByRef(refValue: "x") { threads { id status } totalCount }
-❌ WRONG: threadsByRef(refValue: "x") { id status }
 
 type StepStateInfo {
   stepName: String!

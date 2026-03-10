@@ -47,20 +47,8 @@ thread_activities:
   batch_timeout_ms: 1000
 
 rate_limit:
-  enabled: true
-  cleanup_interval: "1h"
-  per_ip:
-    enabled: false
-    requests_per_minute: 60
-    burst: 10
-  per_user:
-    enabled: true
-    requests_per_minute: 1000
-    burst: 50
-    window_seconds: 60
-    cache_size: 50000
-    cache_ttl_seconds: 2
-    redis_timeout_ms: 3
+  window_seconds: 60
+  redis_timeout_ms: 3
 
 websocket:
   handshake_timeout_seconds: 10
@@ -78,8 +66,9 @@ bot_scanner:
 cache:
   contract_ttl_ms: 18000000
   thread_ttl_ms: 18000000
-  step_event_ttl_ms: 18000000
-  session_ttl_ms: 1800000
+  step_event_ttl_ms: 18000000  # Step events expire after 5 hours (hot cache, PostgreSQL fallback)
+  session_ttl_ms: 1800000      # WebSocket session expires after 30 minutes (short-lived, no persistence)
+  plan_ttl_ms: 10000           # Plan cache expires after 10s (fail safe short config)
   lru:
     contract_cache_size: 1000
     thread_cache_size: 10000

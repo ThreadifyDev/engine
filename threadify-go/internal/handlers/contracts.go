@@ -45,18 +45,20 @@ func claimsOwnerID(c *gin.Context) (string, bool) {
 	return ownerIDStr, true
 }
 
-// companyIDFromRequestOrContext resolves the company ID from the X-Company-ID
-// header, falling back to the context (set by AuthMiddleware).
-func companyIDFromRequestOrContext(c *gin.Context) string {
-	if id := c.GetHeader("X-Company-ID"); id != "" {
-		return id
-	}
+// companyIDFromContext resolves company ID from authenticated context.
+func companyIDFromContext(c *gin.Context) (string, error) {
+	var contextID string
 	if companyID, exists := c.Get(sharedauth.CtxCompanyID); exists {
 		if id, ok := companyID.(string); ok {
-			return id
+			contextID = id
 		}
 	}
-	return ""
+
+	if contextID == "" {
+		return "", fmt.Errorf("company id missing from authentication context")
+	}
+
+	return contextID, nil
 }
 
 // recordContractMetrics records Prometheus metrics based on the service response code.
@@ -84,9 +86,9 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
-	companyID := companyIDFromRequestOrContext(c)
-	if companyID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Company ID required"})
+	companyID, err := companyIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

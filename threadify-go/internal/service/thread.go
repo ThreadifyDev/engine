@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -52,6 +53,7 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
+	planService           *PlanService
 	valkeyClient          interfaces.ValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
@@ -73,6 +75,7 @@ func NewThreadService(
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
+	planService *PlanService,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -86,6 +89,7 @@ func NewThreadService(
 		WithNATSPublisher(natsPublisher).
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
+		WithPlanService(planService).
 		WithWorkerPools(workerPools).
 		WithLogger(logger).
 		Build()
@@ -99,7 +103,7 @@ func (s *ThreadService) GetNotificationConsumer() *NotificationConsumer {
 	return s.notificationConsumer
 }
 
-func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.ConnectResponse {
+func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse {
 	if req.ApiKey == "" {
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "API key is required"}
 	}
@@ -107,6 +111,17 @@ func (s *ThreadService) HandleConnect(req *models.ConnectRequest) *models.Connec
 	userInfo, err := s.authService.ValidateApiKey(req.ApiKey)
 	if err != nil {
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
+	}
+
+	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionExpired) {
+			return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "subscription expired"}
+		}
+		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to verify subscription"}
+	}
+	if meter == nil {
+		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "active subscription required"}
 	}
 
 	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
@@ -135,6 +150,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	}
 	if req.ContractName != "" && req.Role == "" {
 		return errResp("Role is required when contract name is provided")
+	}
+
+	if err := s.planService.CheckIngressQuota(ctx, companyID, 1); err != nil {
+		return errResp("Cannot start thread: " + err.Error())
 	}
 
 	var contractVersion int
@@ -225,6 +244,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
+	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
+		s.logger.Warn("failed to decrement ingress for thread creation", zap.String("company_id", companyID), zap.Error(err))
+	}
+
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 
 	return &models.StartThreadResponse{
@@ -255,7 +278,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 
 	t := time.Now()
-	thread, err := s.GetThread(req.ThreadID)
+	thread, err := s.getThread(req.ThreadID)
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "thread_fetch").Observe(time.Since(t).Seconds())
 	if err != nil {
 		return errResp("Thread not found: " + req.ThreadID)
@@ -281,15 +304,18 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 
 	idempotencyKey := req.IdempotencyKey
 	if idempotencyKey == "" {
-		idempotencyKey = contentHash
-		s.logger.Debug("auto-generated idempotency key from context hash", zap.String("key", idempotencyKey))
+		// Scoped to thread + step + content to prevent broad collisions
+		hashInput := fmt.Sprintf("%s:%s:%s", req.ThreadID, req.StepName, contentHash)
+		hash := sha256.Sum256([]byte(hashInput))
+		idempotencyKey = fmt.Sprintf("sha256:%x", hash)
+		s.logger.Debug("auto-generated idempotency key", zap.String("key", idempotencyKey))
 	}
 
 	if idempotencyKey != "" {
 		idempCtx, idempCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer idempCancel()
 		t = time.Now()
 		existingStatus, err := s.repo.GetStepStatus(idempCtx, req.ThreadID, req.StepName, req.Status, idempotencyKey, true)
+		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
 			if existingStatus == ThreadStatusCompleted || existingStatus == StepStatusSuccess {
@@ -370,6 +396,11 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 
 	finishedAtTime, err := time.Parse(time.RFC3339Nano, req.FinishedAt)
 	if err != nil {
+		s.logger.Warn("failed to parse FinishedAt, falling back to time.Now()",
+			zap.String("thread_id", req.ThreadID),
+			zap.String("finished_at", req.FinishedAt),
+			zap.Error(err),
+		)
 		finishedAtTime = time.Now()
 	}
 
@@ -394,16 +425,35 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		Metadata:       req.ThreadifyMetadata,
 	}
 
+	totalToMeter := int64(len(req.SubSteps))
+	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed {
+		totalToMeter++
+	}
+
+	if totalToMeter > 0 {
+		if err := s.planService.CheckIngressQuota(ctx, companyID, totalToMeter); err != nil {
+			return errResp(err.Error())
+		}
+	}
+
 	t = time.Now()
 	if err := s.stepEventService.RecordStepEventDirect(ctx, stepEvent, ownerID, serviceName, req.SubSteps); err != nil {
 		return errResp("failed to process step event")
 	}
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_event_process").Observe(time.Since(t).Seconds())
 
+	if totalToMeter > 0 {
+		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
+			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
+			return errResp(err.Error())
+		}
+	}
+
 	if len(req.Refs) > 0 {
 		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer refsCancel()
-		if err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs); err != nil {
+		err := s.repo.AddRefs(refsCtx, req.ThreadID, req.Refs)
+		refsCancel()
+		if err != nil {
 			s.logger.Warn("failed to store refs", zap.String("thread", req.ThreadID), zap.Error(err))
 		} else {
 			s.logger.Info("stored refs", zap.Int("count", len(req.Refs)), zap.String("thread", req.ThreadID))
@@ -445,7 +495,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	}
 	threadID := threadIDs[0]
 
-	thread, err := s.GetThread(threadID)
+	thread, err := s.getThread(threadID)
 	if err != nil {
 		return nil, shderrors.ErrThreadNotFound
 	}
@@ -504,7 +554,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 			req.Role = "participant"
 		}
 		var err error
-		thread, err = s.GetThread(req.ThreadID)
+		thread, err = s.getThread(req.ThreadID)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -524,7 +574,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 
 	if thread == nil {
 		var err error
-		thread, err = s.GetThread(threadID)
+		thread, err = s.getThread(threadID)
 		if err != nil {
 			return nil, shderrors.ErrThreadNotFound
 		}
@@ -716,7 +766,13 @@ func (s *ThreadService) EndThread(
 }
 
 // GetThread retrieves a thread from cache, then Valkey, then PostgreSQL.
+// Egress is metered by default for caller-visible read paths.
 func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
+	return s.getThread(threadID)
+}
+
+// getThread is an internal variant that can skip egress metering for write-only paths.
+func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
 		return thread, nil
 	}

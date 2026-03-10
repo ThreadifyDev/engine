@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -54,6 +55,42 @@ func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[stri
 	return p.publish(ctx, "state.step", event)
 }
 
+// PublishUsageSync publishes a usage meter decrement event for async DB sync
+func (p *ArchivalPublisher) PublishUsageSync(ctx context.Context, event map[string]interface{}) error {
+	return p.publish(ctx, "usage.sync", event)
+}
+
+// PublishUsageSyncBatch publishes a batch of usage sync events in parallel
+func (p *ArchivalPublisher) PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	errPool := make(chan error, len(events))
+	var wg sync.WaitGroup
+
+	for _, event := range events {
+		wg.Add(1)
+		go func(e map[string]interface{}) {
+			defer wg.Done()
+			if err := p.PublishUsageSync(ctx, e); err != nil {
+				errPool <- err
+			}
+		}(event)
+	}
+
+	wg.Wait()
+	close(errPool)
+
+	for err := range errPool {
+		if err != nil {
+			return err // Return the first error encountered
+		}
+	}
+
+	return nil
+}
+
 // publish is the internal method that handles the actual NATS publish
 func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event map[string]interface{}) error {
 	// Add timestamp if not present
@@ -79,6 +116,11 @@ func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event m
 // PublishAsync publishes event asynchronously (fire-and-forget with error logging).
 // Intentional: uses detached context — this goroutine outlives any request lifecycle.
 func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interface{}) {
+	if subject == "" {
+		p.logger.Warn("skipped async NATS message - empty subject")
+		return
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -86,8 +128,11 @@ func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interf
 		if err := p.publish(ctx, subject, event); err != nil {
 			p.logger.Error("failed to publish async NATS message",
 				zap.String("subject", subject),
+				zap.String("company_id", fmt.Sprintf("%v", event["company_id"])),
 				zap.Error(err),
 			)
+		} else {
+			p.logger.Debug("published async NATS message", zap.String("subject", subject))
 		}
 	}()
 }

@@ -44,6 +44,9 @@ const (
 
 	ThreadStatusCancelled = string(models.ThreadStatusCancelled)
 	ThreadStatusCompleted = string(models.ThreadStatusCompleted)
+
+	defaultWebSocketReadLimitBytes = int64(2 * 1024 * 1024) // 2MB safety cap before auth/plan resolution
+	readLimitOverheadBytes         = int64(64 * 1024)       // JSON envelope overhead allowance
 )
 
 var upgrader websocket.Upgrader
@@ -54,6 +57,7 @@ type WebSocketHandler struct {
 	invitationService    *service.InvitationTokenService
 	notificationConsumer *service.NotificationConsumer
 	notificationRouter   *NotificationRouter
+	planService          *service.PlanService
 	valkeyClient         interfaces.ValkeyClient
 	sessions             sync.Map
 	luaScriptManager     interfaces.LuaScriptManager
@@ -87,6 +91,7 @@ func NewWebSocketHandler(
 	invitationService *service.InvitationTokenService,
 	notificationConsumer *service.NotificationConsumer,
 	notificationRouter *NotificationRouter,
+	planService *service.PlanService,
 	valkeyClient interfaces.ValkeyClient,
 	luaScriptManager interfaces.LuaScriptManager,
 	rateLimitConfig *config.RateLimitConfig,
@@ -107,6 +112,7 @@ func NewWebSocketHandler(
 		invitationService:    invitationService,
 		notificationConsumer: notificationConsumer,
 		notificationRouter:   notificationRouter,
+		planService:          planService,
 		valkeyClient:         valkeyClient,
 		luaScriptManager:     luaScriptManager,
 		rateLimitConfig:      rateLimitConfig,
@@ -122,6 +128,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(defaultWebSocketReadLimitBytes)
 
 	session := &WSSession{
 		conn:      conn,
@@ -130,12 +137,28 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	for {
-		var msg map[string]interface{}
-		if err := conn.ReadJSON(&msg); err != nil {
+		messageType, msgBytes, err := conn.ReadMessage()
+		if err != nil {
 			break
 		}
+		if messageType != websocket.TextMessage {
+			continue
+		}
+
+		var msg map[string]interface{}
+		if err := json.Unmarshal(msgBytes, &msg); err != nil {
+			if sendErr := session.SendMessage(models.ErrorResponse{
+				Action:  StatusError,
+				Status:  StatusError,
+				Message: "Invalid JSON payload",
+			}); sendErr != nil {
+				break
+			}
+			continue
+		}
+
 		action, _ := msg["action"].(string)
-		if err := session.SendMessage(h.handleMessage(action, msg, session)); err != nil {
+		if err := session.SendMessage(h.handleMessage(action, msg, msgBytes, session)); err != nil {
 			break
 		}
 		if action == ActionCloseConnection {
@@ -157,7 +180,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 }
 
-func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, session *WSSession) interface{} {
+func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, msgBytes []byte, session *WSSession) interface{} {
 	wsStart := perf.Now()
 	sessionID := session.sessionID
 
@@ -166,20 +189,56 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
 	}()
 
-	msgBytes, _ := json.Marshal(msg)
-
-	if action != ActionConnect && session.companyID != "" && h.rateLimitConfig != nil && h.rateLimitConfig.PerUser.Enabled {
-		allowed, err := h.luaScriptManager.CheckCompanyRateLimit(
-			context.Background(),
-			session.companyID,
-			h.rateLimitConfig.PerUser.RequestsPerMinute,
-			h.rateLimitConfig.PerUser.WindowSeconds,
-		)
-		if err == nil && !allowed {
+	if action != ActionConnect && session.companyID != "" {
+		checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
+		meter, err := h.planService.GetCurrentLimits(checkCtx, session.companyID)
+		cancel()
+		if err != nil || meter == nil {
 			return models.ErrorResponse{
 				Action:  action,
 				Status:  StatusError,
-				Message: "Rate limit exceeded. Please slow down.",
+				Message: "Active subscription required. Please check your billing status.",
+			}
+		}
+
+		if int64(len(msgBytes)) > meter.MaxPayloadBytes {
+			return models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: fmt.Sprintf("Payload size %d bytes exceeds your plan limit of %d bytes. Please upgrade your plan.", len(msgBytes), meter.MaxPayloadBytes),
+			}
+		}
+
+		if h.rateLimitConfig != nil && meter.MaxRateLimit > 0 && h.luaScriptManager != nil {
+			windowSeconds := h.rateLimitConfig.WindowSeconds
+			if windowSeconds <= 0 {
+				windowSeconds = 60
+			}
+
+			redisTimeout := time.Duration(h.rateLimitConfig.RedisTimeoutMs) * time.Millisecond
+			if redisTimeout <= 0 {
+				redisTimeout = 5 * time.Millisecond
+			}
+			rlCtx, rlCancel := context.WithTimeout(session.ctx, redisTimeout)
+			allowed, rlErr := h.luaScriptManager.CheckCompanyRateLimit(
+				rlCtx,
+				session.companyID,
+				meter.MaxRateLimit*windowSeconds,
+				windowSeconds,
+			)
+			rlCancel()
+			if rlErr != nil {
+				h.logger.Warn("company rate-limit check failed; failing open",
+					zap.String("company_id", session.companyID),
+					zap.String("action", action),
+					zap.Error(rlErr),
+				)
+			} else if !allowed {
+				return models.ErrorResponse{
+					Action:  action,
+					Status:  StatusError,
+					Message: "Rate limit exceeded. Please slow down.",
+				}
 			}
 		}
 	}
@@ -188,7 +247,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 	case ActionConnect:
 		var req models.ConnectRequest
 		json.Unmarshal(msgBytes, &req) //nolint:errcheck
-		resp := h.threadService.HandleConnect(&req)
+		resp := h.threadService.HandleConnect(session.ctx, &req)
 
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()
@@ -196,6 +255,18 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			session.companyID = resp.CompanyID
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session)
+
+			// Tighten read limit after auth using plan payload limits.
+			checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
+			meter, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
+			cancel()
+			if meterErr == nil && meter != nil && meter.MaxPayloadBytes > 0 {
+				connLimit := meter.MaxPayloadBytes + readLimitOverheadBytes
+				if connLimit < 1 {
+					connLimit = defaultWebSocketReadLimitBytes
+				}
+				session.conn.SetReadLimit(connLimit)
+			}
 
 			if h.notificationRouter != nil {
 				maxInFlight := req.MaxInFlight
@@ -286,7 +357,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		return h.handleThreadEnd(session, req.ThreadID, req.Status, req.Reason)
 
 	default:
-		return models.ErrorResponse{Action: StatusError, Status: StatusError, Message: "Unknown action: " + action}
+		return models.ErrorResponse{Action: action, Status: StatusError, Message: "Unknown action: " + action}
 	}
 }
 

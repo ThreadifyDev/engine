@@ -10,6 +10,7 @@ import (
 // ValkeyClient defines the interface for Valkey operations
 type ValkeyClient interface {
 	Set(ctx context.Context, key, value string, ttl time.Duration) error
+	SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string) (string, error)
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
@@ -39,6 +40,9 @@ type ValkeyClient interface {
 	// Lua script operations
 	ScriptLoad(ctx context.Context, script string) (string, error)
 	EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error)
+	// Atomic counter operations for usage metering
+	DecrBy(ctx context.Context, key string, value int64) (int64, error)
+	IncrBy(ctx context.Context, key string, value int64) (int64, error)
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
 	// Retry operations with exponential backoff
@@ -167,4 +171,19 @@ type ContractGraphRepository interface {
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
 	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
+	CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow int, windowSeconds int) (bool, error)
+	DecrementUsage(ctx context.Context, key string, amount int64, floor int64) (int64, int64, error)
+	DecrementUsageWithOutbox(
+		ctx context.Context,
+		balanceKey string,
+		streamKey string,
+		amount int64,
+		floor int64,
+		eventID string,
+		companyID string,
+		meter string,
+		billingCycleStart time.Time,
+		occurredAt time.Time,
+	) (int64, int64, string, error)
+	CheckAndIncrQuota(ctx context.Context, key string, limit int, amount int) (int64, int64, error)
 }

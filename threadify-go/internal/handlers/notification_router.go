@@ -338,8 +338,13 @@ func (r *NotificationRouter) HandleAck(ackToken string) error {
 	return nil
 }
 
-func (r *NotificationRouter) Stop() {
+func (r *NotificationRouter) Start() error {
+	return nil
+}
+
+func (r *NotificationRouter) Stop() error {
 	r.cancel()
+	return nil
 }
 
 // SendMessage is the only method that should be used for WebSocket writes.

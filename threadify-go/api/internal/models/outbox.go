@@ -15,6 +15,9 @@ const (
 	EventTypeSendVerificationEmail  = "send_verification_email"
 	EventTypeSendPasswordResetEmail = "send_password_reset_email"
 	EventTypeMigrateLegacyUser      = "migrate_legacy_user"
+
+	MigrationSourceLogin          = "login"
+	MigrationSourceForgotPassword = "forgot_password"
 )
 
 type OutboxEvent struct {

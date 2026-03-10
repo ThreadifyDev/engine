@@ -95,6 +95,10 @@ func (v *ValkeyService) Set(ctx context.Context, key, value string, ttl time.Dur
 	return v.Client.Set(ctx, key, value, ttl).Err()
 }
 
+func (v *ValkeyService) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	return v.Client.SetNX(ctx, key, value, ttl).Result()
+}
+
 func (v *ValkeyService) Get(ctx context.Context, key string) (string, error) {
 	return v.Client.Get(ctx, key).Result()
 }
@@ -209,6 +213,16 @@ func (v *ValkeyService) ExecuteWithBackoff(ctx context.Context, operation func()
 	backoffStrategy.MaxElapsedTime = 500 * time.Millisecond
 
 	return backoffv4.Retry(operation, backoffStrategy)
+}
+
+// DecrBy atomically decrements a key by the given value, returns new value
+func (v *ValkeyService) DecrBy(ctx context.Context, key string, value int64) (int64, error) {
+	return v.Client.DecrBy(ctx, key, value).Result()
+}
+
+// IncrBy atomically increments a key by the given value, returns new value
+func (v *ValkeyService) IncrBy(ctx context.Context, key string, value int64) (int64, error) {
+	return v.Client.IncrBy(ctx, key, value).Result()
 }
 
 // SAdd adds members to a SET
