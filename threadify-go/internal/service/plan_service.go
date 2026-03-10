@@ -15,7 +15,6 @@ import (
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
@@ -54,6 +53,7 @@ type PlanService struct {
 	cacheTTL        time.Duration
 	usageBatchChan  chan usageDecrement
 	stopBatcherChan chan struct{}
+	stopBatcherOnce sync.Once
 	batcherWg       sync.WaitGroup
 }
 
@@ -103,7 +103,9 @@ func (s *PlanService) Start() error {
 }
 
 func (s *PlanService) Stop() error {
-	close(s.stopBatcherChan)
+	s.stopBatcherOnce.Do(func() {
+		close(s.stopBatcherChan)
+	})
 	s.batcherWg.Wait()
 	s.logger.Info("plan service gracefully stopped")
 	return nil
@@ -532,66 +534,78 @@ func (s *PlanService) startUsageBatcher() {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		now := time.Now().UTC()
 
-		var natsFailed []usageDecrement
-
+		// Build flat array — one entry per company+meter aggregated over the flush interval
+		events := make([]map[string]interface{}, 0, len(batch))
 		for _, dec := range batch {
-			eventID := uuid.NewString()
-			payload, err := json.Marshal(map[string]interface{}{
-				"event_id":            eventID,
+			events = append(events, map[string]interface{}{
+				"event_id":            uuid.NewString(),
 				"company_id":          dec.CompanyID,
 				"meter":               dec.Meter,
 				"amount":              dec.Amount,
 				"billing_cycle_start": dec.BillingCycleStart.Format(time.RFC3339),
-				"timestamp":           time.Now().UTC().Format(time.RFC3339),
+				"timestamp":           now.Format(time.RFC3339),
 			})
-			if err != nil {
-				s.logger.Error("failed to marshal usage batch event",
-					zap.String("company_id", dec.CompanyID),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			if _, err := s.js.Publish(ctx, natsrepo.SubjectUsageSync, payload); err != nil {
-				s.logger.Warn("NATS publish failed, falling back to valkey outbox",
-					zap.String("company_id", dec.CompanyID),
-					zap.String("meter", dec.Meter),
-					zap.Error(err),
-				)
-				natsFailed = append(natsFailed, dec)
-			}
 		}
 
-		for _, dec := range natsFailed {
-			_, _, _, valkeyErr := s.luaScripts.DecrementUsageWithOutbox(
-				ctx,
-				balanceKey(dec.CompanyID, dec.Meter),
-				database.UsageOutboxStreamKey,
-				dec.Amount,
-				-999999999999,
-				uuid.NewString(),
-				dec.CompanyID,
-				dec.Meter,
-				dec.BillingCycleStart,
-				time.Now().UTC(),
+		payloadBytes, err := json.Marshal(events)
+		if err != nil {
+			s.logger.Error("failed to marshal batched usage payload", zap.Error(err))
+			clear(batch)
+			return
+		}
+
+		// Single NATS publish for the entire batch — explicit cancel, not defer
+		natsCtx, natsCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, natsErr := s.js.Publish(natsCtx, database.UsageSyncSubject, payloadBytes)
+		natsCancel()
+
+		if natsErr != nil {
+			s.logger.Warn("NATS batch publish failed, falling back to valkey outbox",
+				zap.Int("events", len(batch)),
+				zap.Error(natsErr),
 			)
-			if valkeyErr != nil {
-				s.logger.Error("valkey outbox fallback also failed, usage event lost",
-					zap.String("company_id", dec.CompanyID),
-					zap.String("meter", dec.Meter),
-					zap.Int64("amount", dec.Amount),
-					zap.Error(valkeyErr),
+
+			// Fresh context for Valkey — not shared with the failed NATS context
+			valkeyCtx, valkeyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+
+			var valkeyFailed int
+			for _, dec := range batch {
+				_, _, _, valkeyErr := s.luaScripts.DecrementUsageWithOutbox(
+					valkeyCtx,
+					balanceKey(dec.CompanyID, dec.Meter),
+					database.UsageOutboxStreamKey,
+					dec.Amount,
+					-999999999999,
+					uuid.NewString(),
+					dec.CompanyID,
+					dec.Meter,
+					dec.BillingCycleStart,
+					now,
 				)
+				if valkeyErr != nil {
+					valkeyFailed++
+					s.logger.Error("valkey outbox fallback failed, usage event lost",
+						zap.String("company_id", dec.CompanyID),
+						zap.String("meter", dec.Meter),
+						zap.Int64("amount", dec.Amount),
+						zap.Error(valkeyErr),
+					)
+				}
 			}
+			valkeyCancel()
+
+			s.logger.Debug("flushed usage batch via valkey fallback",
+				zap.Int("valkey_ok", len(batch)-valkeyFailed),
+				zap.Int("lost", valkeyFailed),
+			)
+		} else {
+			s.logger.Debug("flushed usage batch to NATS",
+				zap.Int("events", len(events)),
+			)
 		}
 
-		s.logger.Debug("flushed usage batch",
-			zap.Int("nats_ok", len(batch)-len(natsFailed)),
-			zap.Int("valkey_fallback", len(natsFailed)),
-		)
 		clear(batch)
 	}
 

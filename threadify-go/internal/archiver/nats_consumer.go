@@ -371,85 +371,30 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 	start := time.Now()
 	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
 
-	events := make([]UsageSyncEvent, 0, len(msgs))
+	events := make([]UsageSyncEvent, 0, len(msgs)*4)
 	validMsgs := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
-		var data map[string]interface{}
-		if err := json.Unmarshal(msg.Data(), &data); err != nil {
-			c.logger.Error("failed to unmarshal usage sync message", zap.Error(err))
+		var dataArray []map[string]interface{}
+		if err := json.Unmarshal(msg.Data(), &dataArray); err != nil {
+			c.logger.Error("failed to unmarshal usage sync batch message", zap.Error(err))
 			_ = msg.Term()
 			continue
 		}
 
-		companyID, _ := data["company_id"].(string)
-		meter, _ := data["meter"].(string)
-
-		if companyID == "" || meter == "" {
-			c.logger.Error("usage sync message missing required fields",
-				zap.String("company_id", companyID),
-				zap.String("meter", meter),
-			)
+		if len(dataArray) == 0 {
+			c.logger.Warn("usage sync message contains empty array")
 			_ = msg.Term()
 			continue
 		}
 
-		if _, ok := meterColumns[meter]; !ok {
-			c.logger.Error("usage sync message has unknown meter type", zap.String("meter", meter))
+		msgEvents, ok := c.parseBatchEvents(msg, dataArray)
+		if !ok {
 			_ = msg.Term()
 			continue
 		}
 
-		amount, err := parseUsageAmount(data["amount"])
-		if err != nil || amount <= 0 {
-			c.logger.Error("invalid or non-positive usage amount in message",
-				zap.Any("amount", data["amount"]),
-				zap.Error(err),
-			)
-			_ = msg.Term()
-			continue
-		}
-
-		billingCycleStart, err := parseUsageTimestamp(data["billing_cycle_start"])
-		if err != nil || billingCycleStart.IsZero() {
-			c.logger.Error("missing or invalid billing_cycle_start in usage sync message",
-				zap.Any("billing_cycle_start", data["billing_cycle_start"]),
-				zap.Error(err),
-			)
-			_ = msg.Term()
-			continue
-		}
-
-		occurredAt, err := parseUsageTimestamp(data["timestamp"])
-		if err != nil || occurredAt.IsZero() {
-			c.logger.Error("missing or invalid timestamp in usage sync message",
-				zap.Any("timestamp", data["timestamp"]),
-				zap.Error(err),
-			)
-			_ = msg.Term()
-			continue
-		}
-
-		eventID, _ := data["event_id"].(string)
-		if eventID == "" {
-			if metadata, metaErr := msg.Metadata(); metaErr == nil {
-				eventID = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
-			}
-		}
-		if eventID == "" {
-			c.logger.Error("usage sync message has no resolvable event_id")
-			_ = msg.Term()
-			continue
-		}
-
-		events = append(events, UsageSyncEvent{
-			EventID:           eventID,
-			CompanyID:         companyID,
-			Meter:             meter,
-			Amount:            amount,
-			BillingCycleStart: billingCycleStart,
-			OccurredAt:        occurredAt,
-		})
+		events = append(events, msgEvents...)
 		validMsgs = append(validMsgs, msg)
 	}
 
@@ -468,6 +413,90 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 
 	c.logPerf("usage.sync", len(msgs), start)
 	return nil
+}
+
+func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[string]interface{}) ([]UsageSyncEvent, bool) {
+	events := make([]UsageSyncEvent, 0, len(dataArray))
+	seqFallback := ""
+
+	for i, data := range dataArray {
+		companyID, _ := data["company_id"].(string)
+		meter, _ := data["meter"].(string)
+
+		if companyID == "" || meter == "" {
+			c.logger.Error("usage sync event missing required fields",
+				zap.Int("index", i),
+				zap.String("company_id", companyID),
+				zap.String("meter", meter),
+			)
+			return nil, false
+		}
+
+		if _, ok := meterUpdateQueries[meter]; !ok {
+			c.logger.Error("usage sync event has unknown meter type",
+				zap.Int("index", i),
+				zap.String("meter", meter),
+			)
+			return nil, false
+		}
+
+		amount, err := parseUsageAmount(data["amount"])
+		if err != nil || amount <= 0 {
+			c.logger.Error("invalid or non-positive usage amount in event",
+				zap.Int("index", i),
+				zap.Any("amount", data["amount"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		billingCycleStart, err := parseUsageTimestamp(data["billing_cycle_start"])
+		if err != nil || billingCycleStart.IsZero() {
+			c.logger.Error("missing or invalid billing_cycle_start in event",
+				zap.Int("index", i),
+				zap.Any("billing_cycle_start", data["billing_cycle_start"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		occurredAt, err := parseUsageTimestamp(data["timestamp"])
+		if err != nil || occurredAt.IsZero() {
+			c.logger.Error("missing or invalid timestamp in event",
+				zap.Int("index", i),
+				zap.Any("timestamp", data["timestamp"]),
+				zap.Error(err),
+			)
+			return nil, false
+		}
+
+		eventID, _ := data["event_id"].(string)
+		if eventID == "" {
+			if seqFallback == "" {
+				if metadata, metaErr := msg.Metadata(); metaErr == nil {
+					seqFallback = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
+				}
+			}
+			if seqFallback != "" {
+				eventID = fmt.Sprintf("%s:%d", seqFallback, i)
+			}
+		}
+		if eventID == "" {
+			c.logger.Error("usage sync event has no resolvable event_id", zap.Int("index", i))
+			return nil, false
+		}
+
+		events = append(events, UsageSyncEvent{
+			EventID:           eventID,
+			CompanyID:         companyID,
+			Meter:             meter,
+			Amount:            amount,
+			BillingCycleStart: billingCycleStart,
+			OccurredAt:        occurredAt,
+		})
+	}
+
+	return events, true
 }
 
 func parseUsageAmount(v interface{}) (int64, error) {
@@ -495,7 +524,7 @@ func parseUsageTimestamp(v interface{}) (time.Time, error) {
 		if strings.TrimSpace(value) == "" {
 			return time.Time{}, nil
 		}
-		t, err := time.Parse(time.RFC3339Nano, value)
+		t, err := time.Parse(time.RFC3339, value)
 		if err != nil {
 			return time.Time{}, err
 		}
