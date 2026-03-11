@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,20 +40,15 @@ type usageDecrement struct {
 }
 
 type PlanService struct {
-	planRepo        *postgres.PlanRepository
-	contractRepo    *postgres.ContractRepository
-	actorRepo       *postgres.ActorRepository
-	subConfig       *config.SubscriptionConfig
-	batchCfg        *config.BatchConfig
-	valkeyClient    interfaces.ValkeyClient
-	luaScripts      interfaces.LuaScriptManager
-	js              jetstream.JetStream
-	logger          *zap.Logger
-	cacheTTL        time.Duration
-	usageBatchChan  chan usageDecrement
-	stopBatcherChan chan struct{}
-	stopBatcherOnce sync.Once
-	batcherWg       sync.WaitGroup
+	planRepo     *postgres.PlanRepository
+	contractRepo *postgres.ContractRepository
+	actorRepo    *postgres.ActorRepository
+	subConfig    *config.SubscriptionConfig
+	valkeyClient interfaces.ValkeyClient
+	luaScripts   interfaces.LuaScriptManager
+	js           jetstream.JetStream
+	logger       *zap.Logger
+	cacheTTL     time.Duration
 }
 
 func NewPlanService(
@@ -62,7 +56,6 @@ func NewPlanService(
 	contractRepo *postgres.ContractRepository,
 	actorRepo *postgres.ActorRepository,
 	subConfig *config.SubscriptionConfig,
-	batchCfg *config.BatchConfig,
 	valkeyClient interfaces.ValkeyClient,
 	luaScripts interfaces.LuaScriptManager,
 	js jetstream.JetStream,
@@ -74,44 +67,30 @@ func NewPlanService(
 		ttl = time.Duration(cacheTTLMs) * time.Millisecond
 	}
 
-	chanSize := 10000
-	if batchCfg != nil && batchCfg.ChannelSize > 0 {
-		chanSize = batchCfg.ChannelSize
-	}
-
 	return &PlanService{
-		planRepo:        planRepo,
-		contractRepo:    contractRepo,
-		actorRepo:       actorRepo,
-		subConfig:       subConfig,
-		batchCfg:        batchCfg,
-		valkeyClient:    valkeyClient,
-		luaScripts:      luaScripts,
-		js:              js,
-		logger:          logger,
-		cacheTTL:        ttl,
-		usageBatchChan:  make(chan usageDecrement, chanSize),
-		stopBatcherChan: make(chan struct{}),
+		planRepo:     planRepo,
+		contractRepo: contractRepo,
+		actorRepo:    actorRepo,
+		subConfig:    subConfig,
+		valkeyClient: valkeyClient,
+		luaScripts:   luaScripts,
+		js:           js,
+		logger:       logger,
+		cacheTTL:     ttl,
 	}
 }
 
 func (s *PlanService) Start() error {
-	s.batcherWg.Add(1)
-	go s.startUsageBatcher()
-	s.logger.Info("plan service background batcher started")
+	s.logger.Info("plan service started")
 	return nil
 }
 
 func (s *PlanService) Stop() error {
-	s.stopBatcherOnce.Do(func() {
-		close(s.stopBatcherChan)
-	})
-	s.batcherWg.Wait()
 	s.logger.Info("plan service gracefully stopped")
 	return nil
 }
 
-func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle) error {
+func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
 	limits := s.subConfig.GetTierLimits(string(tier))
 	if limits == nil {
 		return fmt.Errorf("unknown subscription tier: %s", tier)
@@ -124,12 +103,14 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 	}
 
 	plan := &models.CompanyPlan{
-		ID:               uuid.New().String(),
-		CompanyID:        companyID,
-		SubscriptionTier: tier,
-		BillingCycle:     billingCycle,
-		BillingStart:     now,
-		BillingEnd:       billingEnd,
+		ID:                     uuid.New().String(),
+		CompanyID:              companyID,
+		SubscriptionTier:       tier,
+		BillingCycle:           billingCycle,
+		ExternalCustomerID:     externalCustomerID,
+		ExternalSubscriptionID: externalSubscriptionID,
+		BillingStart:           now,
+		BillingEnd:             billingEnd,
 	}
 
 	if err := s.planRepo.CreatePlan(ctx, plan); err != nil {
@@ -364,17 +345,22 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 
 	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
 	if tierLimits != nil && tierLimits.OverageAllowed {
-		select {
-		case s.usageBatchChan <- usageDecrement{
-			CompanyID:         companyID,
-			Meter:             "bandwidth_ingress",
-			Amount:            count,
-			BillingCycleStart: meter.BillingCycleStart,
-		}:
-		default:
-			s.logger.Warn("usage batch channel full, dropping ingress event",
+		eventID := uuid.NewString()
+		eventData := map[string]interface{}{
+			"event_id":            eventID,
+			"company_id":          companyID,
+			"meter":               "bandwidth_ingress",
+			"amount":              strconv.FormatInt(count, 10),
+			"billing_cycle_start": meter.BillingCycleStart.Unix(),
+			"timestamp":           time.Now().UTC().Unix(),
+		}
+
+		_, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData)
+		if err != nil {
+			s.logger.Error("failed to write overage ingress event to outbox (fail-open)",
 				zap.String("company_id", companyID),
 				zap.Int64("amount", count),
+				zap.Error(err),
 			)
 		}
 		return nil
@@ -436,17 +422,22 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 
 	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
 	if tierLimits != nil && tierLimits.OverageAllowed {
-		select {
-		case s.usageBatchChan <- usageDecrement{
-			CompanyID:         companyID,
-			Meter:             "bandwidth_egress",
-			Amount:            bytes,
-			BillingCycleStart: meter.BillingCycleStart,
-		}:
-		default:
-			s.logger.Warn("usage batch channel full, dropping egress event",
+		eventID := uuid.NewString()
+		eventData := map[string]interface{}{
+			"event_id":            eventID,
+			"company_id":          companyID,
+			"meter":               "bandwidth_egress",
+			"amount":              strconv.FormatInt(bytes, 10),
+			"billing_cycle_start": meter.BillingCycleStart.Unix(),
+			"timestamp":           time.Now().UTC().Unix(),
+		}
+
+		_, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData)
+		if err != nil {
+			s.logger.Error("failed to write overage egress event to outbox (fail-open)",
 				zap.String("company_id", companyID),
 				zap.Int64("amount", bytes),
+				zap.Error(err),
 			)
 		}
 		return nil
@@ -514,121 +505,6 @@ func (s *PlanService) decrementUsageWithOutbox(
 	}
 
 	return newBalance, allowed, nil
-}
-
-func (s *PlanService) startUsageBatcher() {
-	defer s.batcherWg.Done()
-
-	intervalMs := 5000
-	if s.batchCfg != nil && s.batchCfg.IntervalMs > 0 {
-		intervalMs = s.batchCfg.IntervalMs
-	}
-
-	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
-	defer ticker.Stop()
-
-	batch := make(map[string]usageDecrement)
-
-	flush := func() {
-		if len(batch) == 0 {
-			return
-		}
-
-		now := time.Now().UTC()
-
-		// Build flat array — one entry per company+meter aggregated over the flush interval
-		events := make([]map[string]interface{}, 0, len(batch))
-		for _, dec := range batch {
-			events = append(events, map[string]interface{}{
-				"event_id":            uuid.NewString(),
-				"company_id":          dec.CompanyID,
-				"meter":               dec.Meter,
-				"amount":              dec.Amount,
-				"billing_cycle_start": dec.BillingCycleStart.Format(time.RFC3339),
-				"timestamp":           now.Format(time.RFC3339),
-			})
-		}
-
-		payloadBytes, err := json.Marshal(events)
-		if err != nil {
-			s.logger.Error("failed to marshal batched usage payload", zap.Error(err))
-			clear(batch)
-			return
-		}
-
-		// Single NATS publish for the entire batch — explicit cancel, not defer
-		natsCtx, natsCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, natsErr := s.js.Publish(natsCtx, database.UsageSyncSubject, payloadBytes)
-		natsCancel()
-
-		if natsErr != nil {
-			s.logger.Warn("NATS batch publish failed, falling back to valkey outbox",
-				zap.Int("events", len(batch)),
-				zap.Error(natsErr),
-			)
-
-			// Fresh context for Valkey — not shared with the failed NATS context
-			valkeyCtx, valkeyCancel := context.WithTimeout(context.Background(), 15*time.Second)
-
-			var valkeyFailed int
-			for _, dec := range batch {
-				_, _, _, valkeyErr := s.luaScripts.DecrementUsageWithOutbox(
-					valkeyCtx,
-					balanceKey(dec.CompanyID, dec.Meter),
-					database.UsageOutboxStreamKey,
-					dec.Amount,
-					-999999999999,
-					uuid.NewString(),
-					dec.CompanyID,
-					dec.Meter,
-					dec.BillingCycleStart,
-					now,
-				)
-				if valkeyErr != nil {
-					valkeyFailed++
-					s.logger.Error("valkey outbox fallback failed, usage event lost",
-						zap.String("company_id", dec.CompanyID),
-						zap.String("meter", dec.Meter),
-						zap.Int64("amount", dec.Amount),
-						zap.Error(valkeyErr),
-					)
-				}
-			}
-			valkeyCancel()
-
-			s.logger.Debug("flushed usage batch via valkey fallback",
-				zap.Int("valkey_ok", len(batch)-valkeyFailed),
-				zap.Int("lost", valkeyFailed),
-			)
-		} else {
-			s.logger.Debug("flushed usage batch to NATS",
-				zap.Int("events", len(events)),
-			)
-		}
-
-		clear(batch)
-	}
-
-	for {
-		select {
-		case <-s.stopBatcherChan:
-			s.logger.Info("flushing final usage batch before shutdown")
-			flush()
-			return
-
-		case <-ticker.C:
-			flush()
-
-		case dec := <-s.usageBatchChan:
-			key := fmt.Sprintf("%s|%s|%d", dec.CompanyID, dec.Meter, dec.BillingCycleStart.Unix())
-			if existing, ok := batch[key]; ok {
-				existing.Amount += dec.Amount
-				batch[key] = existing
-			} else {
-				batch[key] = dec
-			}
-		}
-	}
 }
 
 func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, previousBillingEnd time.Time, externalCustomerID, externalSubscriptionID string) error {

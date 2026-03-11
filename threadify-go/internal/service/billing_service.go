@@ -70,26 +70,23 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 	}
 
 	ingressFinal := meter.BandwidthIngressBalance
+	if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)); ok {
+		ingressFinal = balance
+	} else {
+		s.logger.Warn("billing: using stale postgres ingress balance — live valkey counter unavailable",
+			zap.String("company_id", companyID),
+			zap.Int64("postgres_balance", ingressFinal),
+		)
+	}
+
 	egressFinal := meter.BandwidthEgressBalance
-
-	if !tierCfg.OverageAllowed {
-		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)); ok {
-			ingressFinal = balance
-		} else {
-			s.logger.Warn("billing: using stale postgres ingress balance — live valkey counter unavailable",
-				zap.String("company_id", companyID),
-				zap.Int64("postgres_balance", ingressFinal),
-			)
-		}
-
-		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)); ok {
-			egressFinal = balance
-		} else {
-			s.logger.Warn("billing: using stale postgres egress balance — live valkey counter unavailable",
-				zap.String("company_id", companyID),
-				zap.Int64("postgres_balance", egressFinal),
-			)
-		}
+	if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)); ok {
+		egressFinal = balance
+	} else {
+		s.logger.Warn("billing: using stale postgres egress balance — live valkey counter unavailable",
+			zap.String("company_id", companyID),
+			zap.Int64("postgres_balance", egressFinal),
+		)
 	}
 
 	meterForBilling := *meter
@@ -171,7 +168,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		if invoiceErr != nil {
 			newStatus := models.PaymentStatusFailed
 			if reason == models.SnapshotReasonOverageOnly {
-				s.logger.Error("immediate overage invoice failed — stripe webhook will handle suspension",
+				s.logger.Error("immediate overage invoice failed — webhook will handle suspension",
 					zap.String("company_id", companyID),
 					zap.String("snapshot_id", snapshot.ID),
 					zap.Error(invoiceErr),
@@ -191,7 +188,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 				)
 			}
 			snapshot.PaymentStatus = newStatus
-		} else if result == nil || strings.TrimSpace(result.ExternalInvoiceID) == "" {
+		} else if reason == models.SnapshotReasonOverageOnly && (result == nil || strings.TrimSpace(result.ExternalInvoiceID) == "") {
 			newStatus := models.PaymentStatusFailed
 			if repoErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, newStatus); repoErr != nil {
 				s.logger.Error("failed to persist missing-invoice failure status",
@@ -200,7 +197,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 				)
 			}
 			snapshot.PaymentStatus = newStatus
-			s.logger.Error("invoice provider returned success without external invoice ID",
+			s.logger.Error("overage invoice returned success without external invoice ID",
 				zap.String("company_id", companyID),
 				zap.String("snapshot_id", snapshot.ID),
 				zap.String("provider", s.invoiceProvider.Name()),
@@ -249,6 +246,10 @@ func (s *BillingService) RenewAndReset(ctx context.Context, companyID string, sn
 	}
 
 	return nil
+}
+
+func (s *BillingService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
+	return s.planSvc.ProvisionSubscription(ctx, companyID, tier, billingCycle, externalCustomerID, externalSubscriptionID)
 }
 
 func (s *BillingService) readBalanceFromValkey(ctx context.Context, key string) (int64, bool) {
@@ -307,7 +308,7 @@ func (s *BillingService) resetBalances(ctx context.Context, companyID string, ti
 }
 
 func (s *BillingService) SuspendCompany(ctx context.Context, companyID string) error {
-	key := database.SuspendedPlanPrefix + companyID
+	key := fmt.Sprintf("plan:suspended:%s", companyID)
 	if err := s.valkeyClient.Set(ctx, key, "1", 0); err != nil {
 		return fmt.Errorf("suspend company: %w", err)
 	}
@@ -316,7 +317,7 @@ func (s *BillingService) SuspendCompany(ctx context.Context, companyID string) e
 }
 
 func (s *BillingService) LiftSuspension(ctx context.Context, companyID string) error {
-	key := database.SuspendedPlanPrefix + companyID
+	key := fmt.Sprintf("plan:suspended:%s", companyID)
 	if err := s.valkeyClient.Delete(ctx, key); err != nil {
 		return fmt.Errorf("lift suspension: %w", err)
 	}
