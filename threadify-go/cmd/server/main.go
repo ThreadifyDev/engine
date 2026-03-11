@@ -251,7 +251,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		logger.Fatal("failed to initialize jetstream", zap.Error(err))
 	}
 
-	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, &cfg.Batch, d.valkey, luaScriptManager, js, logger, cfg.Cache.PlanTTLMs)
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, js, logger, cfg.Cache.PlanTTLMs)
 	sm.Register(planSvc)
 	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
 	sm.Register(usageOutboxRelay)
@@ -266,6 +266,12 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, planSvc, logger)
 	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
 	sm.Register(billingCron)
+
+	webhookProvider, err := service.NewWebhookProvider(&cfg.Billing, logger)
+	if err != nil {
+		logger.Fatal("invalid webhook provider configuration", zap.Error(err))
+	}
+	webhookHandler := handlers.NewWebhookHandler(webhookProvider, billingSvc, logger)
 
 	contractSvc := service.NewContractService(contractRepo, planSvc, logger)
 	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, planSvc, d.workerPools, logger)
@@ -327,6 +333,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(d))
+	r.POST("/webhook", webhookHandler.HandleWebhook)
 	r.GET("/threads", wsHandler.HandleWebSocket)
 
 	r.POST("/graphql",

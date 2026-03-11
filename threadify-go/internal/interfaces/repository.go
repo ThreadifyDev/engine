@@ -45,6 +45,8 @@ type ValkeyClient interface {
 	IncrBy(ctx context.Context, key string, value int64) (int64, error)
 	// Pipeline operations
 	Pipeline() ValkeyPipeline
+	// Stream operations
+	XAdd(ctx context.Context, stream string, id string, values interface{}) (string, error)
 	// Retry operations with exponential backoff
 	ExecuteWithBackoff(ctx context.Context, operation func() error) error
 }

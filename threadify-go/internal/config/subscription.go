@@ -5,8 +5,9 @@ type SubscriptionConfig struct {
 }
 
 type BillingConfig struct {
-	Provider  string                       `yaml:"provider" mapstructure:"provider"`
-	Providers map[string]map[string]string `yaml:"providers" mapstructure:"providers"`
+	Provider      string                       `yaml:"provider" mapstructure:"provider"`
+	Providers     map[string]map[string]string `yaml:"providers" mapstructure:"providers"`
+	WebhookSecret string                       `yaml:"webhook_secret" mapstructure:"webhook_secret"`
 }
 
 type TierLimits struct {

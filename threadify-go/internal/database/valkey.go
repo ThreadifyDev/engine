@@ -240,6 +240,15 @@ func (v *ValkeyService) SRem(ctx context.Context, key string, members ...interfa
 	return v.Client.SRem(ctx, key, members...).Err()
 }
 
+// XAdd adds an entry to a stream
+func (v *ValkeyService) XAdd(ctx context.Context, stream string, id string, values interface{}) (string, error) {
+	return v.Client.XAdd(ctx, &redis.XAddArgs{
+		Stream: stream,
+		ID:     id,
+		Values: values,
+	}).Result()
+}
+
 // RedisPipeline implements the ValkeyPipeline interface
 type RedisPipeline struct {
 	pipe redis.Pipeliner
