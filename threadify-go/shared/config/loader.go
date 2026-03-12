@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -65,17 +66,17 @@ func (s *SubscriptionConfig) GetTierLimits(tierName string) *TierLimits {
 	return &limits
 }
 
+type TierPrice struct {
+	PriceID string `yaml:"price_id" mapstructure:"price_id"`
+}
+
 type BillingConfig struct {
 	SecretKey     string               `yaml:"secret_key" mapstructure:"secret_key"`
 	Provider      string               `yaml:"provider" mapstructure:"provider"`
-	TierPrices    map[string]TierPrice `yaml:"tier_prices"    mapstructure:"tier_prices"`
+	TierPrices    map[string]TierPrice `yaml:"tier_prices" mapstructure:"tier_prices"`
 	WebhookSecret string               `yaml:"webhook_secret" mapstructure:"webhook_secret"`
-	SuccessURL    string               `yaml:"success_url"`
-	CancelURL     string               `yaml:"cancel_url"`
-}
-
-type TierPrice struct {
-	PriceID string `yaml:"price_id" mapstructure:"price_id"`
+	SuccessURL    string               `yaml:"success_url" mapstructure:"success_url"`
+	CancelURL     string               `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
 func (b *BillingConfig) GetProviderParams(tier string) (map[string]interface{}, error) {
@@ -83,9 +84,7 @@ func (b *BillingConfig) GetProviderParams(tier string) (map[string]interface{}, 
 	if !ok || tp.PriceID == "" {
 		return nil, fmt.Errorf("no price configured for tier %q", tier)
 	}
-	return map[string]interface{}{
-		"price_id": tp.PriceID,
-	}, nil
+	return map[string]interface{}{"price_id": tp.PriceID}, nil
 }
 
 type Config struct {
@@ -149,68 +148,96 @@ type Config struct {
 	} `yaml:"web_api"`
 }
 
-// Load reads and parses config.yaml with environment variable expansion
 func Load(path string) (*Config, error) {
+	cfg, err := parseYAML[Config](path)
+	if err != nil {
+		return nil, err
+	}
+
+	subPath := filepath.Join(filepath.Dir(path), "subscription.yaml")
+	if _, err := os.Stat(subPath); err == nil {
+		if err := mergeYAML(subPath, cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse subscription config: %w", err)
+		}
+	}
+
+	cfg.expandEnvVars()
+	return cfg, nil
+}
+
+func (c *Config) expandEnvVars() {
+	expand := expandEnv
+
+	c.Postgres.URL = expand(c.Postgres.URL)
+
+	c.Redis.Host = expand(c.Redis.Host)
+	c.Redis.Password = expand(c.Redis.Password)
+
+	c.NATS.URL = expand(c.NATS.URL)
+	c.NATS.ClusterID = expand(c.NATS.ClusterID)
+	c.NATS.ClientID = expand(c.NATS.ClientID)
+	c.NATS.StreamName = expand(c.NATS.StreamName)
+
+	c.Supabase.URL = expand(c.Supabase.URL)
+	c.Supabase.PublishableKey = expand(c.Supabase.PublishableKey)
+	c.Supabase.SecretKey = expand(c.Supabase.SecretKey)
+
+	c.JWKS.URL = expand(c.JWKS.URL)
+	c.JWKS.Audience = expand(c.JWKS.Audience)
+	c.JWKS.Issuer = expand(c.JWKS.Issuer)
+
+	c.Billing.SecretKey = expand(c.Billing.SecretKey)
+	c.Billing.WebhookSecret = expand(c.Billing.WebhookSecret)
+	c.Billing.SuccessURL = expand(c.Billing.SuccessURL)
+	c.Billing.CancelURL = expand(c.Billing.CancelURL)
+	c.Billing.Provider = expand(c.Billing.Provider)
+	for name, tp := range c.Billing.TierPrices {
+		tp.PriceID = expand(tp.PriceID)
+		c.Billing.TierPrices[name] = tp
+	}
+
+	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)
+	c.WebAPI.OutboxEncryptionKey = expand(c.WebAPI.OutboxEncryptionKey)
+	c.WebAPI.OpenAIAPIKey = expand(c.WebAPI.OpenAIAPIKey)
+	c.WebAPI.Email.PlunkAPIKey = expand(c.WebAPI.Email.PlunkAPIKey)
+	c.WebAPI.Email.PlunkFromEmail = expand(c.WebAPI.Email.PlunkFromEmail)
+	c.WebAPI.Email.PlunkAPIURL = expand(c.WebAPI.Email.PlunkAPIURL)
+	c.WebAPI.ThreadifyEngine.URL = expand(c.WebAPI.ThreadifyEngine.URL)
+	c.WebAPI.ThreadifyEngine.GraphQLURL = expand(c.WebAPI.ThreadifyEngine.GraphQLURL)
+
+	for name, tier := range c.Subscription.Tiers {
+		tier.Support = expand(tier.Support)
+		c.Subscription.Tiers[name] = tier
+	}
+}
+
+func parseYAML[T any](path string) (*T, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
 	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	var v T
+	if err := yaml.Unmarshal(data, &v); err != nil {
+		return nil, fmt.Errorf("failed to parse config file %q: %w", path, err)
 	}
+	return &v, nil
+}
 
-	// Postgres config
-	cfg.Postgres.URL = expandEnv(cfg.Postgres.URL)
-
-	// Redis config
-	cfg.Redis.Host = expandEnv(cfg.Redis.Host)
-	cfg.Redis.Password = expandEnv(cfg.Redis.Password)
-
-	// NATS config
-	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
-	cfg.NATS.ClusterID = expandEnv(cfg.NATS.ClusterID)
-	cfg.NATS.ClientID = expandEnv(cfg.NATS.ClientID)
-	cfg.NATS.StreamName = expandEnv(cfg.NATS.StreamName)
-
-	// WebAPI config
-	cfg.WebAPI.FrontendURL = expandEnv(cfg.WebAPI.FrontendURL)
-	cfg.WebAPI.OutboxEncryptionKey = expandEnv(cfg.WebAPI.OutboxEncryptionKey)
-	cfg.WebAPI.Email.PlunkAPIKey = expandEnv(cfg.WebAPI.Email.PlunkAPIKey)
-	cfg.WebAPI.Email.PlunkFromEmail = expandEnv(cfg.WebAPI.Email.PlunkFromEmail)
-	cfg.WebAPI.Email.PlunkAPIURL = expandEnv(cfg.WebAPI.Email.PlunkAPIURL)
-	cfg.WebAPI.ThreadifyEngine.URL = expandEnv(cfg.WebAPI.ThreadifyEngine.URL)
-	cfg.WebAPI.ThreadifyEngine.GraphQLURL = expandEnv(cfg.WebAPI.ThreadifyEngine.GraphQLURL)
-	cfg.WebAPI.OpenAIAPIKey = expandEnv(cfg.WebAPI.OpenAIAPIKey)
-
-	// Supabase config
-	cfg.Supabase.URL = expandEnv(cfg.Supabase.URL)
-	cfg.Supabase.PublishableKey = expandEnv(cfg.Supabase.PublishableKey)
-	cfg.Supabase.SecretKey = expandEnv(cfg.Supabase.SecretKey)
-
-	// JWKS config
-	cfg.JWKS.URL = expandEnv(cfg.JWKS.URL)
-	cfg.JWKS.Audience = expandEnv(cfg.JWKS.Audience)
-	cfg.JWKS.Issuer = expandEnv(cfg.JWKS.Issuer)
-
-	return &cfg, nil
+func mergeYAML(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read %q: %w", path, err)
+	}
+	return yaml.Unmarshal(data, v)
 }
 
 func expandEnv(value string) string {
 	if !strings.HasPrefix(value, "$") {
 		return value
 	}
-
-	parts := strings.SplitN(value[1:], ":", 2)
-	envVar := parts[0]
-	defaultVal := ""
-	if len(parts) == 2 {
-		defaultVal = parts[1]
+	name, def, _ := strings.Cut(value[1:], ":")
+	if v := os.Getenv(name); v != "" {
+		return v
 	}
-
-	if val := os.Getenv(envVar); val != "" {
-		return val
-	}
-	return defaultVal
+	return def
 }

@@ -1,14 +1,14 @@
 billing:
-  provider: noop
-  webhook_secret: ""
+  provider: stripe
+  webhook_secret: "whsec_39a7f1c3d6fb6e5a638d8fa1d65d7b4589696b7067bbb7c14363e98cf1705848"
   success_url: "http://localhost:3000/success"
   cancel_url: "http://localhost:3000/cancel"
   tier_prices:
     starter:
-      price_id: "price_123"
+      price_id: "price_1TA9pB8bW3V5oRkWW4AeMsiL"
     growth:
       price_id: "price_456"
-  secret_key: ""
+  secret_key: "sk_test_51TA9lg8bW3V5oRkWnrbloHeHpj1M847ZTaKeBi3DV4FUXFAGPmUFICekeQPjDfVIj4S3Vll9xJueuQQMXnALqtpx000WWSnW5r"
 
 subscription:
   tiers:

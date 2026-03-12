@@ -34,7 +34,7 @@ func NewBillingHandler(
 
 type CreateCheckoutSessionRequest struct {
 	Tier         string `json:"tier"         binding:"required"`
-	BillingCycle string `json:"billingCycle" binding:"required"`
+	BillingCycle string `json:"billing_cycle" binding:"required"`
 }
 
 type CreateCheckoutSessionResponse struct {
