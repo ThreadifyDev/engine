@@ -76,3 +76,7 @@ go.work.sum
 # Go coverage
 coverage.txt
 coverage.out
+
+threadify-go/api/server
+threadify-go/cmd/server
+threadify-go/bin/*

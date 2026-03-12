@@ -67,7 +67,8 @@ func (s *SubscriptionConfig) GetTierLimits(tierName string) *TierLimits {
 }
 
 type TierPrice struct {
-	PriceID string `yaml:"price_id" mapstructure:"price_id"`
+	MonthlyPriceID string `yaml:"monthly_price_id" mapstructure:"monthly_price_id"`
+	YearlyPriceID  string `yaml:"yearly_price_id" mapstructure:"yearly_price_id"`
 }
 
 type BillingConfig struct {
@@ -79,12 +80,26 @@ type BillingConfig struct {
 	CancelURL     string               `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
-func (b *BillingConfig) GetProviderParams(tier string) (map[string]interface{}, error) {
+func (b *BillingConfig) GetProviderParams(tier, billingCycle string) (map[string]string, error) {
 	tp, ok := b.TierPrices[tier]
-	if !ok || tp.PriceID == "" {
+	if !ok {
 		return nil, fmt.Errorf("no price configured for tier %q", tier)
 	}
-	return map[string]interface{}{"price_id": tp.PriceID}, nil
+
+	priceIDs := map[string]string{
+		"monthly": tp.MonthlyPriceID,
+		"yearly":  tp.YearlyPriceID,
+	}
+
+	priceID, ok := priceIDs[billingCycle]
+	if !ok {
+		return nil, fmt.Errorf("invalid billing cycle: %q", billingCycle)
+	}
+	if priceID == "" {
+		return nil, fmt.Errorf("no price ID configured for tier %q and cycle %q", tier, billingCycle)
+	}
+
+	return map[string]string{"price_id": priceID}, nil
 }
 
 type Config struct {
@@ -192,7 +207,8 @@ func (c *Config) expandEnvVars() {
 	c.Billing.CancelURL = expand(c.Billing.CancelURL)
 	c.Billing.Provider = expand(c.Billing.Provider)
 	for name, tp := range c.Billing.TierPrices {
-		tp.PriceID = expand(tp.PriceID)
+		tp.MonthlyPriceID = expand(tp.MonthlyPriceID)
+		tp.YearlyPriceID = expand(tp.YearlyPriceID)
 		c.Billing.TierPrices[name] = tp
 	}
 

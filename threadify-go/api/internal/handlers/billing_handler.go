@@ -61,14 +61,14 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		return
 	}
 
-	providerParams, err := h.billingConfig.GetProviderParams(req.Tier)
+	providerParams, err := h.billingConfig.GetProviderParams(req.Tier, req.BillingCycle)
 	if err != nil {
-		h.logger.Error("missing provider params for tier",
+		h.logger.Warn("invalid checkout params",
 			zap.String("tier", req.Tier),
 			zap.String("billing_cycle", req.BillingCycle),
 			zap.Error(err),
 		)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "billing configuration error"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 

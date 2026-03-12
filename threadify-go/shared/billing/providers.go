@@ -19,7 +19,7 @@ type CheckoutSessionParams struct {
 	BillingCycle   string
 	SuccessURL     string
 	CancelURL      string
-	ProviderParams map[string]interface{}
+	ProviderParams map[string]string
 }
 
 type InvoiceProvider interface {
@@ -125,16 +125,11 @@ func (p *StripeBillingProvider) CreateCheckoutSession(params *CheckoutSessionPar
 		return "", errors.New("stripe: missing stripe_price_id in ProviderParams")
 	}
 
-	priceID, ok := priceIDVal.(string)
-	if !ok || priceID == "" {
-		return "", errors.New("stripe: invalid stripe_price_id in ProviderParams")
-	}
-
 	stripeParams := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(priceID),
+				Price:    stripe.String(priceIDVal),
 				Quantity: stripe.Int64(1),
 			},
 		},
@@ -221,16 +216,23 @@ func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*
 			return nil, fmt.Errorf("stripe: unmarshal %s: %w", event.Type, err)
 		}
 
-		customerID := ""
+		var (
+			customerID, subID string
+		)
+
 		if inv.Customer != nil {
 			customerID = inv.Customer.ID
 		}
+		if inv.Parent != nil && inv.Parent.SubscriptionDetails != nil && inv.Parent.SubscriptionDetails.Subscription != nil {
+			subID = inv.Parent.SubscriptionDetails.Subscription.ID
+		}
 
 		return &WebhookEvent{
-			Type:               string(event.Type),
-			ExternalInvoiceID:  inv.ID,
-			ExternalCustomerID: customerID,
-			AttemptCount:       inv.AttemptCount,
+			Type:                   string(event.Type),
+			ExternalInvoiceID:      inv.ID,
+			ExternalCustomerID:     customerID,
+			ExternalSubscriptionID: subID,
+			AttemptCount:           inv.AttemptCount,
 		}, nil
 
 	case stripeEventSubscriptionDeleted:
@@ -256,7 +258,10 @@ func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*
 			return nil, fmt.Errorf("stripe: unmarshal %s: %w", event.Type, err)
 		}
 
-		customerID, subID := "", ""
+		var (
+			customerID, subID string
+		)
+
 		if cs.Customer != nil {
 			customerID = cs.Customer.ID
 		}
