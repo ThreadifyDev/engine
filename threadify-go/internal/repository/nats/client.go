@@ -35,6 +35,10 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 
 	c := &Client{conn: nc, js: js, cfg: cfg, logger: logger}
 
+	return c, nil
+}
+
+func (c *Client) InitStreams() error {
 	steps := []struct {
 		fn  func() error
 		msg string
@@ -46,12 +50,10 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 	}
 	for _, step := range steps {
 		if err := step.fn(); err != nil {
-			nc.Close()
-			return nil, fmt.Errorf("%s: %w", step.msg, err)
+			return fmt.Errorf("%s: %w", step.msg, err)
 		}
 	}
-
-	return c, nil
+	return nil
 }
 
 // ensureStream creates or updates a JetStream stream.

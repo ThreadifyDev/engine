@@ -138,6 +138,12 @@ func (r *UsageOutboxRelay) run() {
 	}
 }
 
+type aggregateKey struct {
+	companyID         string
+	meter             string
+	billingCycleStart string
+}
+
 func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -154,13 +160,23 @@ func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration)
 		return 0, err
 	}
 
-	var batchEvents []map[string]interface{}
-	var batchIDs []string
+	type bucket struct {
+		companyID         string
+		meter             string
+		billingCycleStart string
+		amount            int64
+		eventID           string
+		timestamp         string
+	}
+
+	window := make(map[aggregateKey]*bucket)
+	var allIDs []string
 	var poisonIDs []string
 
 	for _, stream := range streams {
 		for _, msg := range stream.Messages {
 			r.warnIfStale(msg.ID)
+			allIDs = append(allIDs, msg.ID)
 
 			event, ok := mapUsageOutboxEvent(msg.Values)
 			if !ok {
@@ -172,8 +188,43 @@ func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration)
 				continue
 			}
 
-			batchEvents = append(batchEvents, event)
-			batchIDs = append(batchIDs, msg.ID)
+			companyID, _ := event[fieldCompanyID].(string)
+			meter, _ := event[fieldMeter].(string)
+			billingCycleStart, _ := event[fieldBillingCycleStart].(string)
+			timestamp, _ := event[fieldTimestamp].(string)
+
+			rawAmount := event[fieldAmount]
+			amount, err := parseRelayAmount(rawAmount)
+			if err != nil || amount <= 0 {
+				poisonIDs = append(poisonIDs, msg.ID)
+				r.logger.Warn("dropping usage outbox message with invalid amount",
+					zap.String("stream_id", msg.ID),
+					zap.Any("amount", rawAmount),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			key := aggregateKey{
+				companyID:         companyID,
+				meter:             meter,
+				billingCycleStart: billingCycleStart,
+			}
+
+			if b, exists := window[key]; exists {
+				b.amount += amount
+				b.timestamp = timestamp
+			} else {
+				eventID, _ := event[fieldEventID].(string)
+				window[key] = &bucket{
+					companyID:         companyID,
+					meter:             meter,
+					billingCycleStart: billingCycleStart,
+					amount:            amount,
+					eventID:           eventID,
+					timestamp:         timestamp,
+				}
+			}
 		}
 	}
 
@@ -183,27 +234,61 @@ func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration)
 		poisonCancel()
 	}
 
-	if len(batchEvents) == 0 {
+	if len(window) == 0 {
 		return 0, nil
 	}
 
+	aggregated := make([]map[string]interface{}, 0, len(window))
+	for _, b := range window {
+		aggregated = append(aggregated, map[string]interface{}{
+			fieldEventID:           b.eventID,
+			fieldCompanyID:         b.companyID,
+			fieldMeter:             b.meter,
+			fieldAmount:            b.amount,
+			fieldBillingCycleStart: b.billingCycleStart,
+			fieldTimestamp:         b.timestamp,
+		})
+	}
+
+	r.logger.Debug("usage outbox relay: aggregated batch",
+		zap.Int("raw_events", len(allIDs)-len(poisonIDs)),
+		zap.Int("aggregated_buckets", len(aggregated)),
+		zap.Int("poison_dropped", len(poisonIDs)),
+	)
+
 	pubCtx, pubCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	publishErr := r.natsPublisher.PublishUsageSyncBatch(pubCtx, batchEvents)
+	publishErr := r.natsPublisher.PublishUsageSyncBatch(pubCtx, aggregated)
 	pubCancel()
 
 	if publishErr != nil {
 		return 0, fmt.Errorf("publish usage batch to NATS: %w", publishErr)
 	}
 
-	ackCtx, ackCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	ackErr := r.valkey.Client.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, batchIDs...).Err()
-	ackCancel()
-
-	if ackErr != nil {
-		return 0, fmt.Errorf("ack usage outbox messages: %w", ackErr)
+	validIDs := make([]string, 0, len(allIDs)-len(poisonIDs))
+	poisonSet := make(map[string]struct{}, len(poisonIDs))
+	for _, id := range poisonIDs {
+		poisonSet[id] = struct{}{}
+	}
+	for _, id := range allIDs {
+		if _, isPoison := poisonSet[id]; !isPoison {
+			validIDs = append(validIDs, id)
+		}
 	}
 
-	return len(batchEvents), nil
+	if len(validIDs) > 0 {
+		ackCtx, ackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ackErr := r.valkey.Client.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, validIDs...).Err()
+		ackCancel()
+
+		if ackErr != nil {
+			r.logger.Warn("failed to ACK processed outbox entries — may be redelivered",
+				zap.Int("count", len(validIDs)),
+				zap.Error(ackErr),
+			)
+		}
+	}
+
+	return len(aggregated), nil
 }
 
 func (r *UsageOutboxRelay) warnIfStale(msgID string) {
@@ -241,4 +326,21 @@ func mapUsageOutboxEvent(values map[string]interface{}) (map[string]interface{},
 	}
 
 	return event, true
+}
+
+func parseRelayAmount(v interface{}) (int64, error) {
+	switch value := v.(type) {
+	case string:
+		var n int64
+		if _, err := fmt.Sscanf(value, "%d", &n); err != nil {
+			return 0, fmt.Errorf("parse amount string %q: %w", value, err)
+		}
+		return n, nil
+	case int64:
+		return value, nil
+	case float64:
+		return int64(value), nil
+	default:
+		return 0, fmt.Errorf("unsupported amount type %T", v)
+	}
 }

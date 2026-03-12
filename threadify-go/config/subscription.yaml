@@ -1,11 +1,14 @@
 billing:
   provider: noop
   webhook_secret: ""
-  providers:
-    stripe:
-      secret_key: ""
-    paystack:
-      secret_key: ""
+  success_url: "http://localhost:3000/success"
+  cancel_url: "http://localhost:3000/cancel"
+  tier_prices:
+    starter:
+      price_id: "price_123"
+    growth:
+      price_id: "price_456"
+  secret_key: ""
 
 subscription:
   tiers:

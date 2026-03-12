@@ -32,6 +32,62 @@ type NATSConfig struct {
 	AckWaitSeconds int    `yaml:"ack_wait_seconds"`
 }
 
+type TierLimits struct {
+	BandwidthIngress                       int64  `yaml:"bandwidth_ingress" mapstructure:"bandwidth_ingress"`
+	BandwidthIngressHardCap                int64  `yaml:"bandwidth_ingress_hard_cap" mapstructure:"bandwidth_ingress_hard_cap"`
+	BandwidthIngressOverageCentsPerMillion int    `yaml:"bandwidth_ingress_overage_cents_per_million" mapstructure:"bandwidth_ingress_overage_cents_per_million"`
+	BandwidthEgress                        int64  `yaml:"bandwidth_egress" mapstructure:"bandwidth_egress"`
+	BandwidthEgressOverageCentsPerGB       int    `yaml:"bandwidth_egress_overage_cents_per_gb" mapstructure:"bandwidth_egress_overage_cents_per_gb"`
+	TeamSeats                              int    `yaml:"team_seats" mapstructure:"team_seats"`
+	SeatOverageCentsPerMonth               int    `yaml:"seat_overage_cents_per_month" mapstructure:"seat_overage_cents_per_month"`
+	ContractLimit                          int    `yaml:"contract_limit" mapstructure:"contract_limit"`
+	RateLimit                              int    `yaml:"rate_limit" mapstructure:"rate_limit"`
+	MaxPayloadBytes                        int64  `yaml:"max_payload_bytes" mapstructure:"max_payload_bytes"`
+	HotStorageDays                         int    `yaml:"hot_storage_days" mapstructure:"hot_storage_days"`
+	ColdStorageDays                        int    `yaml:"cold_storage_days" mapstructure:"cold_storage_days"`
+	ColdStorageOverageCentsPerGB           int    `yaml:"cold_storage_overage_cents_per_gb" mapstructure:"cold_storage_overage_cents_per_gb"`
+	Support                                string `yaml:"support" mapstructure:"support"`
+	OverageAllowed                         bool   `yaml:"overage_allowed" mapstructure:"overage_allowed"`
+}
+
+type SubscriptionConfig struct {
+	Tiers map[string]TierLimits `yaml:"tiers" mapstructure:"tiers"`
+}
+
+func (s *SubscriptionConfig) GetTierLimits(tierName string) *TierLimits {
+	if s == nil || s.Tiers == nil {
+		return nil
+	}
+	limits, ok := s.Tiers[tierName]
+	if !ok {
+		return nil
+	}
+	return &limits
+}
+
+type BillingConfig struct {
+	SecretKey     string               `yaml:"secret_key" mapstructure:"secret_key"`
+	Provider      string               `yaml:"provider" mapstructure:"provider"`
+	TierPrices    map[string]TierPrice `yaml:"tier_prices"    mapstructure:"tier_prices"`
+	WebhookSecret string               `yaml:"webhook_secret" mapstructure:"webhook_secret"`
+	SuccessURL    string               `yaml:"success_url"`
+	CancelURL     string               `yaml:"cancel_url"`
+}
+
+type TierPrice struct {
+	PriceID string `yaml:"price_id" mapstructure:"price_id"`
+}
+
+func (b *BillingConfig) GetProviderParams(tier string) (map[string]interface{}, error) {
+	tp, ok := b.TierPrices[tier]
+	if !ok || tp.PriceID == "" {
+		return nil, fmt.Errorf("no price configured for tier %q", tier)
+	}
+	return map[string]interface{}{
+		"price_id": tp.PriceID,
+	}, nil
+}
+
 type Config struct {
 	Postgres struct {
 		URL                string `yaml:"url"`
@@ -56,10 +112,12 @@ type Config struct {
 		DB       int    `yaml:"db"`
 	} `yaml:"redis"`
 
-	AuthProvider string           `yaml:"auth_provider"`
-	Supabase     SupabaseSettings `yaml:"supabase"`
-	JWKS         JWKSSettings     `yaml:"jwks"`
-	NATS         NATSConfig       `yaml:"nats"`
+	AuthProvider string             `yaml:"auth_provider"`
+	Supabase     SupabaseSettings   `yaml:"supabase"`
+	JWKS         JWKSSettings       `yaml:"jwks"`
+	NATS         NATSConfig         `yaml:"nats"`
+	Billing      BillingConfig      `yaml:"billing"`
+	Subscription SubscriptionConfig `yaml:"subscription"`
 
 	WebAPI struct {
 		Enabled             bool   `yaml:"enabled"`

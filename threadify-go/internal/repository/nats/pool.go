@@ -35,6 +35,18 @@ func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error
 		pool.clients[i] = client
 	}
 
+	initClient, err := NewClient(cfg, logger)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("create NATS init client: %w", err)
+	}
+	defer initClient.Close()
+
+	if err := initClient.InitStreams(); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("initialize NATS streams: %w", err)
+	}
+
 	logger.Info("created NATS pool", zap.Int("connections", size))
 	return pool, nil
 }

@@ -370,14 +370,13 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 	}
 	start := time.Now()
 	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
-
 	events := make([]UsageSyncEvent, 0, len(msgs)*4)
 	validMsgs := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
 		var dataArray []map[string]interface{}
 		if err := json.Unmarshal(msg.Data(), &dataArray); err != nil {
-			c.logger.Error("failed to unmarshal usage sync batch message", zap.Error(err))
+			c.logger.Error("failed to unmarshal usage sync message", zap.Error(err))
 			_ = msg.Term()
 			continue
 		}

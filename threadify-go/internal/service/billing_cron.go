@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/robfig/cron/v3"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
@@ -98,7 +100,7 @@ type billingJob struct {
 	due         bool
 	periodStart time.Time
 	periodEnd   time.Time
-	reason      models.SnapshotReason
+	reason      billing.SnapshotReason
 }
 
 func (c *BillingCron) processAll(ctx context.Context) {
@@ -159,31 +161,31 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 	safeToBillThreshold := nextDue.Add(gracePeriod)
 
 	if now.Before(safeToBillThreshold) {
-		if plan.BillingCycle == models.BillingCycleYearly && now.After(plan.BillingEnd.Add(gracePeriod)) {
+		if plan.BillingCycle == billing.BillingCycleYearly && now.After(plan.BillingEnd.Add(gracePeriod)) {
 			return billingJob{
 				due:         true,
 				periodStart: lastPeriodEnd,
 				periodEnd:   plan.BillingEnd,
-				reason:      models.SnapshotReasonYearlyRenewal,
+				reason:      billing.SnapshotReasonYearlyRenewal,
 			}
 		}
 		return billingJob{due: false}
 	}
 
 	switch plan.BillingCycle {
-	case models.BillingCycleMonthly:
+	case billing.BillingCycleMonthly:
 		return billingJob{
 			due:         true,
 			periodStart: lastPeriodEnd,
 			periodEnd:   nextDue,
-			reason:      models.SnapshotReasonMonthlyRenewal,
+			reason:      billing.SnapshotReasonMonthlyRenewal,
 		}
 
-	case models.BillingCycleYearly:
+	case billing.BillingCycleYearly:
 		isYearEnd := now.After(plan.BillingEnd.Add(gracePeriod))
-		reason := models.SnapshotReasonOverageOnly
+		reason := billing.SnapshotReasonOverageOnly
 		if isYearEnd {
-			reason = models.SnapshotReasonYearlyRenewal
+			reason = billing.SnapshotReasonYearlyRenewal
 		}
 		return billingJob{
 			due:         true,
