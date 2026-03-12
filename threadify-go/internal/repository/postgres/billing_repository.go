@@ -139,6 +139,23 @@ func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapsho
 	return nil
 }
 
+func (r *BillingRepository) FindPendingSnapshotBySubscriptionID(ctx context.Context, externalSubscriptionID string) (*billing.BillingSnapshot, error) {
+	const query = `
+		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
+			ingress_balance_final, egress_balance_final,
+			max_ingress, max_egress,
+			line_items_json, total_cents,
+			provider_name, external_invoice_id,
+			external_customer_id, external_subscription_id, payment_status,
+			consecutive_overage_count, created_at
+		FROM billing_snapshots
+		WHERE external_subscription_id = $1 AND payment_status = $2
+		ORDER BY period_end DESC
+		LIMIT 1
+	`
+	return r.scanSnapshot(r.pool.QueryRow(ctx, query, externalSubscriptionID, string(billing.PaymentStatusPending)))
+}
+
 func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billing.PaymentStatus) error {
 	const query = `
 		UPDATE billing_snapshots
@@ -160,6 +177,16 @@ func (r *BillingRepository) MarkSnapshotPaidByInvoiceID(ctx context.Context, ext
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
 	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusPaid), externalInvoiceID)
+	return err
+}
+
+func (r *BillingRepository) MarkSnapshotPaidByID(ctx context.Context, snapshotID string, externalInvoiceID string) error {
+	const query = `
+		UPDATE billing_snapshots 
+		SET payment_status = $1, external_invoice_id = $2 
+		WHERE id = $3
+	`
+	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusPaid), externalInvoiceID, snapshotID)
 	return err
 }
 

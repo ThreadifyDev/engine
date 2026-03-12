@@ -22,9 +22,11 @@ const (
 )
 
 type BillingWebhookService interface {
+	LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error
 	MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error
 	MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error
 	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
+	FindPendingSnapshotBySubscriptionID(ctx context.Context, externalSubscriptionID string) (*billing.BillingSnapshot, error)
 	RenewAndReset(ctx context.Context, companyID string, snapshot *billing.BillingSnapshot) error
 	LiftSuspension(ctx context.Context, companyID string) error
 	SuspendCompany(ctx context.Context, companyID string) error
@@ -103,21 +105,27 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 		return
 	}
 
-	if err := h.billingSvc.MarkSnapshotPaid(ctx, event.ExternalInvoiceID); err != nil {
-		h.logger.Error("webhook: failed to mark snapshot paid",
+	snapshot, err := h.billingSvc.FindSnapshotByInvoiceID(ctx, event.ExternalInvoiceID)
+	if err != nil {
+		h.logger.Error("webhook: failed to find snapshot by invoice",
 			zap.String("invoice_id", event.ExternalInvoiceID),
 			zap.Error(err),
 		)
 		return
 	}
 
-	snapshot, err := h.billingSvc.FindSnapshotByInvoiceID(ctx, event.ExternalInvoiceID)
-	if err != nil {
-		h.logger.Error("webhook: failed to find snapshot",
-			zap.String("invoice_id", event.ExternalInvoiceID),
-			zap.Error(err),
+	if snapshot == nil && event.ExternalSubscriptionID != "" {
+		h.logger.Debug("webhook: invoice.paid has no matching invoice link, trying subscription fallback",
+			zap.String("subscription_id", event.ExternalSubscriptionID),
 		)
-		return
+		snapshot, err = h.billingSvc.FindPendingSnapshotBySubscriptionID(ctx, event.ExternalSubscriptionID)
+		if err != nil {
+			h.logger.Error("webhook: failed to find pending snapshot by subscription",
+				zap.String("subscription_id", event.ExternalSubscriptionID),
+				zap.Error(err),
+			)
+			return
+		}
 	}
 
 	if snapshot == nil {
@@ -125,6 +133,27 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 			zap.String("invoice_id", event.ExternalInvoiceID),
 		)
 		return
+	}
+
+	if snapshot.ExternalInvoiceID == "" {
+		h.logger.Info("webhook: linking orphan snapshot to paid invoice",
+			zap.String("snapshot_id", snapshot.ID),
+			zap.String("invoice_id", event.ExternalInvoiceID),
+		)
+		if err := h.billingSvc.LinkAndMarkSnapshotPaid(ctx, snapshot.ID, event.ExternalInvoiceID); err != nil {
+			h.logger.Error("webhook: failed to link and mark snapshot paid",
+				zap.String("snapshot_id", snapshot.ID),
+				zap.String("invoice_id", event.ExternalInvoiceID),
+				zap.Error(err),
+			)
+		}
+	} else {
+		if err := h.billingSvc.MarkSnapshotPaid(ctx, event.ExternalInvoiceID); err != nil {
+			h.logger.Error("webhook: failed to mark snapshot paid (via invoice id)",
+				zap.String("invoice_id", event.ExternalInvoiceID),
+				zap.Error(err),
+			)
+		}
 	}
 
 	if err := h.billingSvc.LiftSuspension(ctx, snapshot.CompanyID); err != nil {

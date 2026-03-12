@@ -5,9 +5,11 @@ billing:
   cancel_url: "http://localhost:3000/cancel"
   tier_prices:
     starter:
-      price_id: "price_1TA9pB8bW3V5oRkWW4AeMsiL"
+      monthly_price_id: "price_1TA9pB8bW3V5oRkWW4AeMsiL"
+      yearly_price_id: "price_starter_yearly_placeholder"
     growth:
-      price_id: "price_456"
+      monthly_price_id: "price_456"
+      yearly_price_id: "price_growth_yearly_placeholder"
   secret_key: "sk_test_51TA9lg8bW3V5oRkWnrbloHeHpj1M847ZTaKeBi3DV4FUXFAGPmUFICekeQPjDfVIj4S3Vll9xJueuQQMXnALqtpx000WWSnW5r"
 
 subscription:

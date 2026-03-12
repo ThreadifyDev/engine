@@ -344,13 +344,11 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
 	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
-	mcpGroup.Use(middleware.EgressMiddleware(planSvc, logger))
 	mountMCPServer(mcpGroup, cfg, logger)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	v1.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
-	v1.Use(middleware.EgressMiddleware(planSvc, logger))
 
 	contracts := v1.Group("/contracts")
 	{

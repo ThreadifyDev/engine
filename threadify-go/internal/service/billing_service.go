@@ -342,6 +342,10 @@ func (s *BillingService) MarkSnapshotPaid(ctx context.Context, externalInvoiceID
 	return s.billingRepo.MarkSnapshotPaidByInvoiceID(ctx, externalInvoiceID)
 }
 
+func (s *BillingService) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
+	return s.billingRepo.MarkSnapshotPaidByID(ctx, snapshotID, externalInvoiceID)
+}
+
 func (s *BillingService) MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotFailedByInvoiceID(ctx, externalInvoiceID)
 }
@@ -352,6 +356,10 @@ func (s *BillingService) GetCompanyIDByExternalCustomerID(ctx context.Context, e
 
 func (s *BillingService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
 	return s.billingRepo.FindSnapshotByInvoiceID(ctx, externalInvoiceID)
+}
+
+func (s *BillingService) FindPendingSnapshotBySubscriptionID(ctx context.Context, externalSubscriptionID string) (*billing.BillingSnapshot, error) {
+	return s.billingRepo.FindPendingSnapshotBySubscriptionID(ctx, externalSubscriptionID)
 }
 
 func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLimits) []billing.InvoiceLineItem {

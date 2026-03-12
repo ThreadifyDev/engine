@@ -161,7 +161,12 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 	safeToBillThreshold := nextDue.Add(gracePeriod)
 
 	if now.Before(safeToBillThreshold) {
+		c.logger.Debug("billing cron: skipped, threshold not reached",
+			zap.String("now", now.Format(time.RFC3339)),
+			zap.String("threshold", safeToBillThreshold.Format(time.RFC3339)),
+		)
 		if plan.BillingCycle == billing.BillingCycleYearly && now.After(plan.BillingEnd.Add(gracePeriod)) {
+			c.logger.Debug("billing cron: yearly threshold reached early?")
 			return billingJob{
 				due:         true,
 				periodStart: lastPeriodEnd,
@@ -171,6 +176,12 @@ func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now t
 		}
 		return billingJob{due: false}
 	}
+
+	c.logger.Debug("billing cron: past threshold, evaluating cycle",
+		zap.String("cycle", string(plan.BillingCycle)),
+		zap.String("now", now.Format(time.RFC3339)),
+		zap.String("threshold", safeToBillThreshold.Format(time.RFC3339)),
+	)
 
 	switch plan.BillingCycle {
 	case billing.BillingCycleMonthly:
