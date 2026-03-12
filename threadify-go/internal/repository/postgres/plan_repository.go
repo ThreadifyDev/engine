@@ -5,10 +5,27 @@ import (
 	"fmt"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/models"
 )
+
+type UpdatePlanParams struct {
+	CompanyID      string
+	Tier           billing.PlanTier
+	BillingCycle   billing.BillingCycle
+	ExternalCustID string
+	ExternalSubID  string
+	BillingStart   time.Time
+	BillingEnd     time.Time
+}
+
+type RenewUsageMeterParams struct {
+	UpdatePlanParams
+	Meter *models.UsageMeter
+}
 
 type PlanRepository struct {
 	pool *pgxpool.Pool
@@ -66,13 +83,21 @@ func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, ex
 	return companyID, nil
 }
 
-func (r *PlanRepository) UpdatePlanTier(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustID, externalSubID string, billingStart, billingEnd time.Time) error {
+func (r *PlanRepository) UpdatePlanTier(ctx context.Context, params UpdatePlanParams) error {
 	const query = `
 		UPDATE company_plans
 		SET subscription_tier = $1, billing_cycle = $2, external_customer_id = $3, external_subscription_id = $4, billing_start = $5, billing_end = $6, updated_at = NOW()
 		WHERE company_id = $7
 	`
-	_, err := r.pool.Exec(ctx, query, tier, billingCycle, externalCustID, externalSubID, billingStart, billingEnd, companyID)
+	_, err := r.pool.Exec(ctx, query,
+		params.Tier,
+		params.BillingCycle,
+		params.ExternalCustID,
+		params.ExternalSubID,
+		params.BillingStart,
+		params.BillingEnd,
+		params.CompanyID,
+	)
 	if err != nil {
 		return fmt.Errorf("update plan tier: %w", err)
 	}
@@ -119,7 +144,7 @@ func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *models.Usa
 	return nil
 }
 
-func (r *PlanRepository) RenewUsageMeter(ctx context.Context, companyID string, tier models.PlanTier, cycle models.BillingCycle, extCustID, extSubID string, newStart, newEnd time.Time, meter *models.UsageMeter) error {
+func (r *PlanRepository) RenewUsageMeter(ctx context.Context, params RenewUsageMeterParams) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -131,7 +156,15 @@ func (r *PlanRepository) RenewUsageMeter(ctx context.Context, companyID string, 
 		SET subscription_tier = $1, billing_cycle = $2, external_customer_id = $3, external_subscription_id = $4, billing_start = $5, billing_end = $6, updated_at = NOW()
 		WHERE company_id = $7
 	`
-	if _, err := tx.Exec(ctx, updatePlan, tier, cycle, extCustID, extSubID, newStart, newEnd, companyID); err != nil {
+	if _, err := tx.Exec(ctx, updatePlan,
+		params.Tier,
+		params.BillingCycle,
+		params.ExternalCustID,
+		params.ExternalSubID,
+		params.BillingStart,
+		params.BillingEnd,
+		params.CompanyID,
+	); err != nil {
 		return fmt.Errorf("renew: update plan: %w", err)
 	}
 
@@ -147,12 +180,22 @@ func (r *PlanRepository) RenewUsageMeter(ctx context.Context, companyID string, 
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
 	`
 	if _, err := tx.Exec(ctx, insertMeter,
-		meter.ID, meter.CompanyID, string(meter.SubscriptionTier), meter.BillingCycleStart, meter.BillingEnd,
-		meter.BandwidthIngressBalance, meter.BandwidthEgressBalance,
-		meter.MaxBandwidthIngress, meter.MaxBandwidthEgress,
-		meter.MaxTeamSeats, meter.MaxContractLimit, meter.MaxRateLimit,
-		meter.MaxPayloadBytes,
-		meter.HotStorageDays, meter.ColdStorageDays, meter.Support,
+		params.Meter.ID,
+		params.Meter.CompanyID,
+		string(params.Meter.SubscriptionTier),
+		params.Meter.BillingCycleStart,
+		params.Meter.BillingEnd,
+		params.Meter.BandwidthIngressBalance,
+		params.Meter.BandwidthEgressBalance,
+		params.Meter.MaxBandwidthIngress,
+		params.Meter.MaxBandwidthEgress,
+		params.Meter.MaxTeamSeats,
+		params.Meter.MaxContractLimit,
+		params.Meter.MaxRateLimit,
+		params.Meter.MaxPayloadBytes,
+		params.Meter.HotStorageDays,
+		params.Meter.ColdStorageDays,
+		params.Meter.Support,
 	); err != nil {
 		return fmt.Errorf("renew: insert meter: %w", err)
 	}

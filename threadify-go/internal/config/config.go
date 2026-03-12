@@ -1,32 +1,36 @@
 package config
 
-import "time"
+import (
+	"time"
+
+	sharedconfig "threadify-go/shared/config"
+)
 
 // Config represents the complete application configuration
 type Config struct {
-	Server             ServerConfig             `yaml:"server" mapstructure:"server"`
-	Postgres           PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
-	Redis              RedisConfig              `yaml:"redis" mapstructure:"redis"`
-	JWT                JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
-	Auth               AuthConfig               `yaml:"auth" mapstructure:"auth"`
-	Queue              QueueConfig              `yaml:"queue" mapstructure:"queue"`
-	ThreadActivities   ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
-	RateLimit          RateLimitConfig          `yaml:"rate_limit" mapstructure:"rate_limit"`
-	Cache              CacheConfig              `yaml:"cache" mapstructure:"cache"`
-	Invitations        InvitationsConfig        `yaml:"invitations" mapstructure:"invitations"`
-	Logging            LoggingConfig            `yaml:"logging" mapstructure:"logging"`
-	Timeouts           TimeoutsConfig           `yaml:"timeouts" mapstructure:"timeouts"`
-	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
-	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
-	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
-	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
-	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
-	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
-	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
-	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
-	Subscription       SubscriptionConfig       `yaml:"subscription" mapstructure:"subscription"`
-	Billing            BillingConfig            `yaml:"billing" mapstructure:"billing"`
-	Batch              BatchConfig              `yaml:"batch" mapstructure:"batch"`
+	Server             ServerConfig                    `yaml:"server" mapstructure:"server"`
+	Postgres           PostgresConfig                  `yaml:"postgres" mapstructure:"postgres"`
+	Redis              RedisConfig                     `yaml:"redis" mapstructure:"redis"`
+	JWT                JWTConfig                       `yaml:"jwt" mapstructure:"jwt"`
+	Auth               AuthConfig                      `yaml:"auth" mapstructure:"auth"`
+	Queue              QueueConfig                     `yaml:"queue" mapstructure:"queue"`
+	ThreadActivities   ThreadActivitiesConfig          `yaml:"thread_activities" mapstructure:"thread_activities"`
+	RateLimit          RateLimitConfig                 `yaml:"rate_limit" mapstructure:"rate_limit"`
+	Cache              CacheConfig                     `yaml:"cache" mapstructure:"cache"`
+	Invitations        InvitationsConfig               `yaml:"invitations" mapstructure:"invitations"`
+	Logging            LoggingConfig                   `yaml:"logging" mapstructure:"logging"`
+	Timeouts           TimeoutsConfig                  `yaml:"timeouts" mapstructure:"timeouts"`
+	NotificationSystem NotificationSystemConfig        `yaml:"notification_system" mapstructure:"notification_system"`
+	Archiver           ArchiverConfig                  `yaml:"archiver" mapstructure:"archiver"`
+	NATS               NATSConfig                      `yaml:"nats" mapstructure:"nats"`
+	Security           SecurityConfig                  `yaml:"security" mapstructure:"security"`
+	WebSocket          WebSocketConfig                 `yaml:"websocket" mapstructure:"websocket"`
+	WorkerPools        WorkerPoolsConfig               `yaml:"worker_pools" mapstructure:"worker_pools"`
+	Performance        PerformanceConfig               `yaml:"performance" mapstructure:"performance"`
+	JWKS               JWKSSettings                    `yaml:"jwks" mapstructure:"jwks"`
+	Subscription       sharedconfig.SubscriptionConfig `yaml:"subscription" mapstructure:"subscription"`
+	Billing            sharedconfig.BillingConfig      `yaml:"billing" mapstructure:"billing"`
+	Batch              BatchConfig                     `yaml:"batch" mapstructure:"batch"`
 }
 
 // ServerConfig holds server configuration

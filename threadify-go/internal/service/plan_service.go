@@ -8,8 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/google/uuid"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
@@ -32,13 +33,6 @@ func usageUserKey(companyID string) string {
 	return database.UsageUserKeyPrefix + companyID
 }
 
-type usageDecrement struct {
-	CompanyID         string
-	Meter             string
-	Amount            int64
-	BillingCycleStart time.Time
-}
-
 type PlanService struct {
 	planRepo     *postgres.PlanRepository
 	contractRepo *postgres.ContractRepository
@@ -46,7 +40,6 @@ type PlanService struct {
 	subConfig    *config.SubscriptionConfig
 	valkeyClient interfaces.ValkeyClient
 	luaScripts   interfaces.LuaScriptManager
-	js           jetstream.JetStream
 	logger       *zap.Logger
 	cacheTTL     time.Duration
 }
@@ -58,7 +51,6 @@ func NewPlanService(
 	subConfig *config.SubscriptionConfig,
 	valkeyClient interfaces.ValkeyClient,
 	luaScripts interfaces.LuaScriptManager,
-	js jetstream.JetStream,
 	logger *zap.Logger,
 	cacheTTLMs int,
 ) *PlanService {
@@ -74,7 +66,6 @@ func NewPlanService(
 		subConfig:    subConfig,
 		valkeyClient: valkeyClient,
 		luaScripts:   luaScripts,
-		js:           js,
 		logger:       logger,
 		cacheTTL:     ttl,
 	}
@@ -90,7 +81,7 @@ func (s *PlanService) Stop() error {
 	return nil
 }
 
-func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
+func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
 	limits := s.subConfig.GetTierLimits(string(tier))
 	if limits == nil {
 		return fmt.Errorf("unknown subscription tier: %s", tier)
@@ -334,6 +325,31 @@ func (s *PlanService) CheckIngressQuota(ctx context.Context, companyID string, c
 	return nil
 }
 
+func (s *PlanService) writeUsageToOutbox(
+	ctx context.Context,
+	companyID, meter string,
+	amount int64,
+	billingCycleStart time.Time,
+) {
+	eventData := map[string]interface{}{
+		fieldEventID:           uuid.NewString(),
+		fieldCompanyID:         companyID,
+		fieldMeter:             meter,
+		fieldAmount:            strconv.FormatInt(amount, 10),
+		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339),
+		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if _, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
+		s.logger.Error("failed to write usage event to outbox (fail-open)",
+			zap.String("company_id", companyID),
+			zap.String("meter", meter),
+			zap.Int64("amount", amount),
+			zap.Error(err),
+		)
+	}
+}
+
 func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
 	meter, err := s.GetCurrentLimits(ctx, companyID)
 	if err != nil {
@@ -345,24 +361,7 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 
 	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
 	if tierLimits != nil && tierLimits.OverageAllowed {
-		eventID := uuid.NewString()
-		eventData := map[string]interface{}{
-			"event_id":            eventID,
-			"company_id":          companyID,
-			"meter":               "bandwidth_ingress",
-			"amount":              strconv.FormatInt(count, 10),
-			"billing_cycle_start": meter.BillingCycleStart.Unix(),
-			"timestamp":           time.Now().UTC().Unix(),
-		}
-
-		_, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData)
-		if err != nil {
-			s.logger.Error("failed to write overage ingress event to outbox (fail-open)",
-				zap.String("company_id", companyID),
-				zap.Int64("amount", count),
-				zap.Error(err),
-			)
-		}
+		s.writeUsageToOutbox(ctx, companyID, "bandwidth_ingress", count, meter.BillingCycleStart)
 		return nil
 	}
 
@@ -422,24 +421,7 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 
 	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
 	if tierLimits != nil && tierLimits.OverageAllowed {
-		eventID := uuid.NewString()
-		eventData := map[string]interface{}{
-			"event_id":            eventID,
-			"company_id":          companyID,
-			"meter":               "bandwidth_egress",
-			"amount":              strconv.FormatInt(bytes, 10),
-			"billing_cycle_start": meter.BillingCycleStart.Unix(),
-			"timestamp":           time.Now().UTC().Unix(),
-		}
-
-		_, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData)
-		if err != nil {
-			s.logger.Error("failed to write overage egress event to outbox (fail-open)",
-				zap.String("company_id", companyID),
-				zap.Int64("amount", bytes),
-				zap.Error(err),
-			)
-		}
+		s.writeUsageToOutbox(ctx, companyID, "bandwidth_egress", bytes, meter.BillingCycleStart)
 		return nil
 	}
 
@@ -507,7 +489,7 @@ func (s *PlanService) decrementUsageWithOutbox(
 	return newBalance, allowed, nil
 }
 
-func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, previousBillingEnd time.Time, externalCustomerID, externalSubscriptionID string) error {
+func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, previousBillingEnd time.Time, externalCustomerID, externalSubscriptionID string) error {
 	limits := s.subConfig.GetTierLimits(string(tier))
 	if limits == nil {
 		return fmt.Errorf("unknown subscription tier: %s", tier)
@@ -519,14 +501,23 @@ func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, compa
 		return err
 	}
 
-	if err := s.planRepo.UpdatePlanTier(ctx, companyID, tier, billingCycle, externalCustomerID, externalSubscriptionID, newStart, billingEnd); err != nil {
-		return fmt.Errorf("renew subscription - update plan: %w", err)
-	}
-
 	meter := newMeterFromLimits(companyID, tier, newStart, billingEnd, limits)
 
-	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
-		return fmt.Errorf("renew subscription - create usage meter: %w", err)
+	renewParams := postgres.RenewUsageMeterParams{
+		UpdatePlanParams: postgres.UpdatePlanParams{
+			CompanyID:      companyID,
+			Tier:           tier,
+			BillingCycle:   billingCycle,
+			ExternalCustID: externalCustomerID,
+			ExternalSubID:  externalSubscriptionID,
+			BillingStart:   newStart,
+			BillingEnd:     billingEnd,
+		},
+		Meter: meter,
+	}
+
+	if err := s.planRepo.RenewUsageMeter(ctx, renewParams); err != nil {
+		return fmt.Errorf("renew subscription: %w", err)
 	}
 
 	if err := s.seedBalanceKeys(ctx, companyID, meter); err != nil {
@@ -545,18 +536,18 @@ func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, compa
 	return nil
 }
 
-func computeBillingEnd(start time.Time, cycle models.BillingCycle) (time.Time, error) {
+func computeBillingEnd(start time.Time, cycle billing.BillingCycle) (time.Time, error) {
 	switch cycle {
-	case models.BillingCycleMonthly:
+	case billing.BillingCycleMonthly:
 		return start.AddDate(0, 1, 0), nil
-	case models.BillingCycleYearly:
+	case billing.BillingCycleYearly:
 		return start.AddDate(1, 0, 0), nil
 	default:
 		return time.Time{}, fmt.Errorf("unsupported billing cycle: %s", cycle)
 	}
 }
 
-func newMeterFromLimits(companyID string, tier models.PlanTier, start, billingEnd time.Time, limits *config.TierLimits) *models.UsageMeter {
+func newMeterFromLimits(companyID string, tier billing.PlanTier, start, billingEnd time.Time, limits *config.TierLimits) *models.UsageMeter {
 	return &models.UsageMeter{
 		ID:                      uuid.New().String(),
 		CompanyID:               companyID,

@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"threadify-go/shared/billing"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
 )
 
 var ErrSnapshotAlreadyExists = fmt.Errorf("billing snapshot already exists for this period")
@@ -20,7 +21,7 @@ func NewBillingRepository(pool *pgxpool.Pool) *BillingRepository {
 	return &BillingRepository{pool: pool}
 }
 
-func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models.BillingSnapshot) error {
+func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *billing.BillingSnapshot) error {
 	lineItemsJSON, err := json.Marshal(snapshot.LineItems)
 	if err != nil {
 		return fmt.Errorf("marshal line items: %w", err)
@@ -58,7 +59,7 @@ func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models
 	return nil
 }
 
-func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID string) (*models.BillingSnapshot, error) {
+func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID string) (*billing.BillingSnapshot, error) {
 	const query = `
 		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
 			ingress_balance_final, egress_balance_final,
@@ -75,7 +76,7 @@ func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID st
 	return r.scanSnapshot(r.pool.QueryRow(ctx, query, companyID))
 }
 
-func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error) {
+func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
 	const query = `
 		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
 			ingress_balance_final, egress_balance_final,
@@ -91,7 +92,7 @@ func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externa
 	return r.scanSnapshot(r.pool.QueryRow(ctx, query, externalInvoiceID))
 }
 
-func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string, limit int) ([]models.BillingSnapshot, error) {
+func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string, limit int) ([]billing.BillingSnapshot, error) {
 	const query = `
 		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
 			ingress_balance_final, egress_balance_final,
@@ -111,7 +112,7 @@ func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string,
 	}
 	defer rows.Close()
 
-	var snapshots []models.BillingSnapshot
+	var snapshots []billing.BillingSnapshot
 	for rows.Next() {
 		s, err := r.scanSnapshot(rows)
 		if err != nil {
@@ -138,7 +139,7 @@ func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapsho
 	return nil
 }
 
-func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status models.PaymentStatus) error {
+func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billing.PaymentStatus) error {
 	const query = `
 		UPDATE billing_snapshots
 		SET payment_status = $1
@@ -158,7 +159,7 @@ func (r *BillingRepository) MarkSnapshotPaidByInvoiceID(ctx context.Context, ext
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(models.PaymentStatusPaid), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusPaid), externalInvoiceID)
 	return err
 }
 
@@ -166,7 +167,7 @@ func (r *BillingRepository) MarkSnapshotFailedByInvoiceID(ctx context.Context, e
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(models.PaymentStatusFailed), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusFailed), externalInvoiceID)
 	return err
 }
 
@@ -174,8 +175,8 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-func (r *BillingRepository) scanSnapshot(row scannable) (*models.BillingSnapshot, error) {
-	var s models.BillingSnapshot
+func (r *BillingRepository) scanSnapshot(row scannable) (*billing.BillingSnapshot, error) {
+	var s billing.BillingSnapshot
 	var lineItemsJSON []byte
 
 	err := row.Scan(

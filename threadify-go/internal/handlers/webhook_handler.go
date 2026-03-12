@@ -5,9 +5,10 @@ import (
 	"io"
 	"net/http"
 
+	"threadify-go/shared/billing"
+
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -23,13 +24,13 @@ const (
 type BillingWebhookService interface {
 	MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error
 	MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error
-	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error)
-	RenewAndReset(ctx context.Context, companyID string, snapshot *models.BillingSnapshot) error
+	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
+	RenewAndReset(ctx context.Context, companyID string, snapshot *billing.BillingSnapshot) error
 	LiftSuspension(ctx context.Context, companyID string) error
 	SuspendCompany(ctx context.Context, companyID string) error
 	CancelPlan(ctx context.Context, companyID string) error
 	GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
-	ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustomerID, externalSubscriptionID string) error
+	ProvisionSubscription(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, externalCustomerID, externalSubscriptionID string) error
 }
 
 type WebhookHandler struct {
@@ -96,7 +97,7 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"received": true})
 }
 
-func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *interfaces.WebhookEvent) {
+func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.WebhookEvent) {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.paid missing invoice ID")
 		return
@@ -157,7 +158,7 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *interface
 	)
 }
 
-func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *interfaces.WebhookEvent) {
+func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *billing.WebhookEvent) {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.payment_failed missing invoice ID")
 		return
@@ -210,7 +211,7 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 	)
 }
 
-func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event *interfaces.WebhookEvent) {
+func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event *billing.WebhookEvent) {
 	if event.ExternalCustomerID == "" {
 		h.logger.Warn("webhook: subscription.deleted missing customer ID")
 		return
@@ -248,7 +249,7 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event *i
 	)
 }
 
-func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *interfaces.WebhookEvent) {
+func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *billing.WebhookEvent) {
 	if event.CompanyID == "" || event.Tier == "" {
 		h.logger.Error("webhook: checkout.session.completed missing required metadata",
 			zap.String("customer_id", event.ExternalCustomerID),
@@ -256,12 +257,12 @@ func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, eve
 		return
 	}
 
-	cycle := models.BillingCycleMonthly
-	if event.BillingCycle == string(models.BillingCycleYearly) {
-		cycle = models.BillingCycleYearly
+	cycle := billing.BillingCycleMonthly
+	if event.BillingCycle == string(billing.BillingCycleYearly) {
+		cycle = billing.BillingCycleYearly
 	}
 
-	tier := models.PlanTier(event.Tier)
+	tier := billing.PlanTier(event.Tier)
 
 	err := h.billingSvc.ProvisionSubscription(
 		ctx,

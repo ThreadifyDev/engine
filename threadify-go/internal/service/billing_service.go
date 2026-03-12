@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
@@ -47,7 +49,7 @@ func NewBillingService(
 	}
 }
 
-func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, periodStart, periodEnd time.Time, reason models.SnapshotReason) error {
+func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, periodStart, periodEnd time.Time, reason billing.SnapshotReason) error {
 	plan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
 	if err != nil {
 		return fmt.Errorf("find plan for billing: %w", err)
@@ -118,14 +120,14 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		}
 	}
 
-	isCycleEnd := reason == models.SnapshotReasonMonthlyRenewal || reason == models.SnapshotReasonYearlyRenewal
+	isCycleEnd := reason == billing.SnapshotReasonMonthlyRenewal || reason == billing.SnapshotReasonYearlyRenewal
 
-	paymentStatus := models.PaymentStatusNoCharge
+	paymentStatus := billing.PaymentStatusNoCharge
 	if totalCents > 0 && !s.invoiceProvider.SkipInvoicing() {
-		paymentStatus = models.PaymentStatusPending
+		paymentStatus = billing.PaymentStatusPending
 	}
 
-	snapshot := &models.BillingSnapshot{
+	snapshot := &billing.BillingSnapshot{
 		ID:                      uuid.New().String(),
 		CompanyID:               companyID,
 		Tier:                    plan.SubscriptionTier,
@@ -151,7 +153,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 	}
 
 	if totalCents > 0 && !s.invoiceProvider.SkipInvoicing() {
-		result, invoiceErr := s.invoiceProvider.IssueOverage(ctx, snapshot)
+		result, invoiceErr := s.invoiceProvider.IssueOverage(snapshot)
 
 		if result != nil && result.ExternalInvoiceID != "" {
 			snapshot.ExternalInvoiceID = result.ExternalInvoiceID
@@ -166,8 +168,8 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		}
 
 		if invoiceErr != nil {
-			newStatus := models.PaymentStatusFailed
-			if reason == models.SnapshotReasonOverageOnly {
+			newStatus := billing.PaymentStatusFailed
+			if reason == billing.SnapshotReasonOverageOnly {
 				s.logger.Error("immediate overage invoice failed — webhook will handle suspension",
 					zap.String("company_id", companyID),
 					zap.String("snapshot_id", snapshot.ID),
@@ -188,8 +190,8 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 				)
 			}
 			snapshot.PaymentStatus = newStatus
-		} else if reason == models.SnapshotReasonOverageOnly && (result == nil || strings.TrimSpace(result.ExternalInvoiceID) == "") {
-			newStatus := models.PaymentStatusFailed
+		} else if reason == billing.SnapshotReasonOverageOnly && (result == nil || strings.TrimSpace(result.ExternalInvoiceID) == "") {
+			newStatus := billing.PaymentStatusFailed
 			if repoErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, newStatus); repoErr != nil {
 				s.logger.Error("failed to persist missing-invoice failure status",
 					zap.String("snapshot_id", snapshot.ID),
@@ -214,7 +216,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 		zap.String("payment_status", string(snapshot.PaymentStatus)),
 	)
 
-	if reason == models.SnapshotReasonOverageOnly {
+	if reason == billing.SnapshotReasonOverageOnly {
 		if err := s.resetBalances(ctx, companyID, tierCfg); err != nil {
 			return fmt.Errorf("reset balances: %w", err)
 		}
@@ -223,7 +225,7 @@ func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, 
 	return nil
 }
 
-func (s *BillingService) RenewAndReset(ctx context.Context, companyID string, snapshot *models.BillingSnapshot) error {
+func (s *BillingService) RenewAndReset(ctx context.Context, companyID string, snapshot *billing.BillingSnapshot) error {
 	plan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
 	if err != nil {
 		return fmt.Errorf("renew and reset: find plan: %w", err)
@@ -248,7 +250,7 @@ func (s *BillingService) RenewAndReset(ctx context.Context, companyID string, sn
 	return nil
 }
 
-func (s *BillingService) ProvisionSubscription(ctx context.Context, companyID string, tier models.PlanTier, billingCycle models.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
+func (s *BillingService) ProvisionSubscription(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
 	return s.planSvc.ProvisionSubscription(ctx, companyID, tier, billingCycle, externalCustomerID, externalSubscriptionID)
 }
 
@@ -348,12 +350,12 @@ func (s *BillingService) GetCompanyIDByExternalCustomerID(ctx context.Context, e
 	return s.planRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
 }
 
-func (s *BillingService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error) {
+func (s *BillingService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
 	return s.billingRepo.FindSnapshotByInvoiceID(ctx, externalInvoiceID)
 }
 
-func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLimits) []models.InvoiceLineItem {
-	var items []models.InvoiceLineItem
+func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLimits) []billing.InvoiceLineItem {
+	var items []billing.InvoiceLineItem
 
 	if meter.BandwidthIngressBalance < 0 && tierCfg.BandwidthIngressOverageCentsPerMillion > 0 {
 		overage := -meter.BandwidthIngressBalance
@@ -361,7 +363,7 @@ func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLim
 		if overage%1_000_000 > 0 {
 			millions++
 		}
-		items = append(items, models.InvoiceLineItem{
+		items = append(items, billing.InvoiceLineItem{
 			Meter:       "bandwidth_ingress",
 			OverageQty:  overage,
 			UnitLabel:   "per 1M requests",
@@ -377,7 +379,7 @@ func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLim
 		if overage%gb > 0 {
 			gbs++
 		}
-		items = append(items, models.InvoiceLineItem{
+		items = append(items, billing.InvoiceLineItem{
 			Meter:       "bandwidth_egress",
 			OverageQty:  overage,
 			UnitLabel:   "per GB",

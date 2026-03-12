@@ -8,6 +8,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/interfaces"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -36,6 +37,7 @@ type ThreadServiceBuilder struct {
 	authService           *AuthService
 	planService           *PlanService
 	workerPools           *workerpool.Pools
+	cacheManager          interfaces.CacheManager
 	logger                *zap.Logger
 }
 
@@ -99,6 +101,11 @@ func (b *ThreadServiceBuilder) WithWorkerPools(pools *workerpool.Pools) *ThreadS
 	return b
 }
 
+func (b *ThreadServiceBuilder) WithCacheManager(cm interfaces.CacheManager) *ThreadServiceBuilder {
+	b.cacheManager = cm
+	return b
+}
+
 func (b *ThreadServiceBuilder) WithLogger(logger *zap.Logger) *ThreadServiceBuilder {
 	b.logger = logger
 	return b
@@ -156,7 +163,10 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	// --- Services ---
 
-	cacheService := NewCacheService(b.logger)
+	cacheService := b.cacheManager
+	if cacheService == nil {
+		cacheService = NewCacheService(b.logger)
+	}
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader, b.logger)
 	validationService := NewValidationService(b.valkeyService, b.threadRepo)
 	notificationService := NewNotificationService(

@@ -76,6 +76,7 @@ func NewThreadService(
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
 	planService *PlanService,
+	cacheManager interfaces.CacheManager,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -90,6 +91,7 @@ func NewThreadService(
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
 		WithPlanService(planService).
+		WithCacheManager(cacheManager).
 		WithWorkerPools(workerPools).
 		WithLogger(logger).
 		Build()
@@ -920,6 +922,7 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 		"contractId":      contractID,
 		"contractName":    thread.ContractName,
 		"contractVersion": contractVersion,
+		"status":          string(thread.Status),
 		"error":           "",
 		"startedAt":       thread.StartedAt.Format(time.RFC3339),
 	}); err != nil {

@@ -1,35 +1,14 @@
 package interfaces
 
 import (
-	"context"
-
-	"github.com/threadify/engine/internal/models"
+	"threadify-go/shared/billing"
 )
 
-type InvoiceResult struct {
-	ExternalInvoiceID string
-	ProviderName      string
-}
-
 type InvoiceProvider interface {
-	Name() string
-	SkipInvoicing() bool
-	IssueOverage(ctx context.Context, snapshot *models.BillingSnapshot) (*InvoiceResult, error)
-}
-
-type WebhookEvent struct {
-	Type                   string
-	ExternalInvoiceID      string
-	ExternalCustomerID     string
-	ExternalSubscriptionID string
-	AttemptCount           int64
-	CompanyID              string
-	Tier                   string
-	BillingCycle           string
+	billing.CheckoutSessionProvider
+	billing.InvoiceProvider
 }
 
 type WebhookProvider interface {
-	Name() string
-	SignatureHeader() string
-	VerifyAndParse(body []byte, signature string) (*WebhookEvent, error)
+	billing.WebhookProvider
 }

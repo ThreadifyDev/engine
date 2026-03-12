@@ -26,6 +26,7 @@ import (
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/worker"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/billing"
 	"threadify-go/shared/config"
 	"threadify-go/shared/logger"
 	"threadify-go/shared/nats"
@@ -99,9 +100,10 @@ func main() {
 }
 
 type services struct {
-	natsClient   *nats.Client
-	authService  *service.AuthService
-	workerCancel context.CancelFunc
+	natsClient      *nats.Client
+	authService     *service.AuthService
+	invoiceProvider billing.BillingProvider
+	workerCancel    context.CancelFunc
 }
 
 func (s *services) close() {
@@ -178,10 +180,16 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		logger.Warn("JWKS URL not configured — token verification disabled")
 	}
 
+	invoiceProvider, err := billing.InitializeProvider(cfg.Billing)
+	if err != nil {
+		return nil, fmt.Errorf("init billing provider: %w", err)
+	}
+
 	return &services{
-		natsClient:   natsClient,
-		authService:  authSvc,
-		workerCancel: workerCancel,
+		natsClient:      natsClient,
+		authService:     authSvc,
+		invoiceProvider: invoiceProvider,
+		workerCancel:    workerCancel,
 	}, nil
 }
 
@@ -195,6 +203,7 @@ type appHandlers struct {
 	contractProxy  *handlers.ContractProxyHandler
 	graphqlProxy   *handlers.GraphQLProxyHandler
 	agent          *handlers.AgentHandler
+	billing        *handlers.BillingHandler
 }
 
 func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
@@ -224,6 +233,12 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 			cfg.WebAPI.Agent.MaxMessages,
 			cfg.WebAPI.Agent.MaxTokens,
 			cfg.WebAPI.Agent.SummaryMaxTokens,
+			logger,
+		),
+		billing: handlers.NewBillingHandler(
+			svcs.invoiceProvider,
+			&cfg.Subscription,
+			&cfg.Billing,
 			logger,
 		),
 	}
@@ -305,6 +320,11 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	api.GET("/chat/conversations/:id", h.agent.GetConversation)
 	api.POST("/chat/conversations/:id/continue", h.agent.ContinueConversation)
 	api.DELETE("/chat/conversations/:id", h.agent.DeleteConversation)
+
+	billing := api.Group("/billing")
+	{
+		billing.POST("/checkout", h.billing.CreateCheckoutSession)
+	}
 
 	return r
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/billing"
 	"threadify-go/shared/logger"
 	"threadify-go/shared/rbac"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -246,35 +246,32 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
 
-	js, err := jetstream.New(d.natsPool.GetClient().Conn())
-	if err != nil {
-		logger.Fatal("failed to initialize jetstream", zap.Error(err))
-	}
-
-	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, js, logger, cfg.Cache.PlanTTLMs)
+	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs)
 	sm.Register(planSvc)
 	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
 	sm.Register(usageOutboxRelay)
 
 	billingRepo := postgres.NewBillingRepository(d.db.Pool)
 
-	invoiceProvider, err := service.NewInvoiceProvider(&cfg.Billing, logger)
+	billingProvider, err := billing.InitializeProvider(cfg.Billing)
 	if err != nil {
-		logger.Fatal("invalid billing provider configuration", zap.Error(err))
+		logger.Fatal("failed to initialize billing provider", zap.Error(err))
 	}
 
-	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, invoiceProvider, planSvc, logger)
+	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, billingProvider, planSvc, logger)
 	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
 	sm.Register(billingCron)
 
-	webhookProvider, err := service.NewWebhookProvider(&cfg.Billing, logger)
-	if err != nil {
-		logger.Fatal("invalid webhook provider configuration", zap.Error(err))
-	}
-	webhookHandler := handlers.NewWebhookHandler(webhookProvider, billingSvc, logger)
+	webhookHandler := handlers.NewWebhookHandler(billingProvider, billingSvc, logger)
 
 	contractSvc := service.NewContractService(contractRepo, planSvc, logger)
-	threadSvc := service.NewThreadService(cfg, d.db, d.valkey, stepEventSvc, threadRepo, int(contractTTL.Seconds()), natsNotification, natsArchival, authSvc, planSvc, d.workerPools, logger)
+	threadSvc := service.NewThreadService(cfg,
+		d.db, d.valkey, stepEventSvc,
+		threadRepo, int(contractTTL.Seconds()),
+		natsNotification, natsArchival,
+		authSvc, planSvc, cacheManager,
+		d.workerPools, logger,
+	)
 	invitationSvc := service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
 	contractHandler := handlers.NewContractHandler(contractSvc, logger)

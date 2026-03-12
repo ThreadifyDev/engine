@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -55,57 +54,40 @@ func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[stri
 	return p.publish(ctx, "state.step", event)
 }
 
-// PublishUsageSync publishes a usage meter decrement event for async DB sync
-func (p *ArchivalPublisher) PublishUsageSync(ctx context.Context, event map[string]interface{}) error {
-	return p.publish(ctx, "usage.sync", event)
-}
-
-// PublishUsageSyncBatch publishes a batch of usage sync events in parallel
+// PublishUsageSyncBatch publishes a batch of usage sync events as a single NATS message
 func (p *ArchivalPublisher) PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	errPool := make(chan error, len(events))
-	var wg sync.WaitGroup
-
+	// Add timestamps to each event if missing
+	now := time.Now().Format(time.RFC3339)
 	for _, event := range events {
-		wg.Add(1)
-		go func(e map[string]interface{}) {
-			defer wg.Done()
-			if err := p.PublishUsageSync(ctx, e); err != nil {
-				errPool <- err
-			}
-		}(event)
-	}
-
-	wg.Wait()
-	close(errPool)
-
-	for err := range errPool {
-		if err != nil {
-			return err // Return the first error encountered
+		if _, exists := event["timestamp"]; !exists {
+			event["timestamp"] = now
 		}
 	}
 
-	return nil
+	return p.publishData(ctx, "usage.sync", events)
 }
 
-// publish is the internal method that handles the actual NATS publish
+// publish is the internal method that handles the actual NATS publish for a single event
 func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event map[string]interface{}) error {
 	// Add timestamp if not present
 	if _, exists := event["timestamp"]; !exists {
 		event["timestamp"] = time.Now().Format(time.RFC3339)
 	}
+	return p.publishData(ctx, subject, event)
+}
 
-	// Marshal to JSON
-	data, err := json.Marshal(event)
+// publishData marshals and publishes arbitrary data to NATS JetStream
+func (p *ArchivalPublisher) publishData(ctx context.Context, subject string, data interface{}) error {
+	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
+		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	// Publish to NATS JetStream
-	_, err = p.client.JetStream().Publish(subject, data, nats.Context(ctx))
+	_, err = p.client.JetStream().Publish(subject, jsonData, nats.Context(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to publish to NATS subject %s: %w", subject, err)
 	}
