@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
 import { api, type VerifyOTPData } from '~/lib/api';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Verify OTP - Threadify" },
+    { name: "description", content: "Verify your email with the one-time password" },
+  ];
+};
 
 export default function VerifyOTP() {
   const navigate = useNavigate();

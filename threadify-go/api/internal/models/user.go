@@ -81,6 +81,7 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
+	Email                     string `json:"email,omitempty"`
 	Token                     string `json:"token,omitempty"`
 	User                      *User  `json:"user,omitempty"`
 	OTPRequired               bool   `json:"otp_required"`

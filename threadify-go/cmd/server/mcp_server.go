@@ -95,7 +95,11 @@ func mustRegister(name string, err error, logger *zap.Logger) {
 
 func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) {
 	mcpTransport := mcptransport.NewGinTransport()
-	mcpSrv := mcp.NewServer(mcpTransport)
+	mcpSrv := mcp.NewServer(
+		mcpTransport,
+		mcp.WithName("threadify"),
+		mcp.WithVersion("1.0.0"),
+	)
 	port := cfg.Server.Port
 
 	// Threadify MCP Server

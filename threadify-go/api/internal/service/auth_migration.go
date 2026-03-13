@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// queueLegacyUserMigration queues a migration event for a legacy user
+// source: "login" or "forgot_password" - determines which email to send after migration
 func (s *AuthService) queueLegacyUserMigration(userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
@@ -22,16 +24,14 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 		s.logger.Debug("migration already queued for user", zap.String("user_id", userID))
 		return nil
 	}
-	data := map[string]string{
-		"email":   email,
-		"user_id": userID,
-		"source":  source,
-	}
-	if password != "" {
-		data["password"] = password
-	}
 
-	payload, err := json.Marshal(data)
+	// Payload contains email, user_id, password, and source
+	payload, err := json.Marshal(map[string]string{
+		"email":    email,
+		"user_id":  userID,
+		"password": password,
+		"source":   source, // "login" or "forgot_password"
+	})
 	if err != nil {
 		return fmt.Errorf("marshal migration event payload: %w", err)
 	}
@@ -63,10 +63,7 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 		s.outboxWorker.Trigger()
 	}
 
-	s.logger.Debug("legacy user migration queued via outbox",
-		zap.String("user_id", userID),
-		zap.String("email", email),
-	)
+	s.logger.Info("legacy user migration queued via outbox")
 
 	return nil
 }

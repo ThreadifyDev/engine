@@ -200,101 +200,61 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 
 	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
 	if err != nil {
-		return s.handleAuthError(ctx, req, err)
+		// Check if this is an "invalid credentials" error - could be user doesn't exist in Supabase
+		if errors.Is(err, sharedauth.ErrAuthInvalidCredentials) {
+			// Check if user exists in local DB (legacy user)
+			localUser, dbErr := s.userRepo.FindByEmail(req.Email)
+			if dbErr == nil && localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
+				// Legacy user found - verify password and queue migration
+				s.logger.Info("login: legacy user detected, verifying password")
+
+				// Get stored password hash
+				passwordHash, err := s.userRepo.GetPasswordHash(req.Email)
+				if err != nil {
+					s.logger.Error("login: failed to get password hash for legacy user", zap.Error(err))
+					return nil, ErrInvalidCredentials
+				}
+
+				// Verify password against stored hash
+				if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+					// Password doesn't match
+					return nil, ErrInvalidCredentials
+				}
+
+				// Password verified - queue async migration (don't block login)
+				if err := s.queueLegacyUserMigration(localUser.ID, req.Email, req.Password, "login"); err != nil {
+					s.logger.Error("login: failed to queue migration for legacy user",
+						zap.Error(err),
+						zap.String("user_id", localUser.ID),
+					)
+					// Don't fail login if queueing fails - user can try again
+				}
+
+				// Return OTP required response
+				return &models.AuthResponse{
+					User:        localUser,
+					OTPRequired: true,
+					Message:     "A login code has been sent to your email.",
+				}, nil
+			}
+
+			// Not a legacy user, just invalid credentials
+			return nil, ErrInvalidCredentials
+		} else if errors.Is(err, sharedauth.ErrAuthRateLimit) {
+			// Rate limit error
+			return nil, ErrRateLimit
+		} else {
+			// Other auth errors
+			s.logger.Error("login: auth client returned error",
+				zap.Error(err),
+				zap.String("error_type", fmt.Sprintf("%T", err)),
+			)
+			return nil, fmt.Errorf("authenticate: %w", err)
+		}
 	}
 
-	localUser, err := s.userRepo.FindByEmail(req.Email)
-	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		return nil, fmt.Errorf("find user: %w", err)
-	}
-
-	if localUser != nil && !localUser.EmailVerified {
-		return s.handleUnverifiedEmail(localUser)
-	}
-
-	user, err := s.resolveUserFromAuthIdentity(req.Email, userInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.issueLoginOTP(ctx, user, req.Email)
-}
-
-func (s *AuthService) handleAuthError(ctx context.Context, req *models.LoginRequest, authErr error) (*models.AuthResponse, error) {
-	switch {
-	case errors.Is(authErr, sharedauth.ErrAuthInvalidCredentials):
-		return s.handleLegacyLogin(ctx, req)
-	case errors.Is(authErr, sharedauth.ErrAuthRateLimit):
-		return nil, ErrRateLimit
-	default:
-		s.logger.Error("login: auth client returned error",
-			zap.Error(authErr),
-			zap.String("error_type", fmt.Sprintf("%T", authErr)),
-		)
-		return nil, fmt.Errorf("authenticate: %w", authErr)
-	}
-}
-
-func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRequest) (*models.AuthResponse, error) {
-	localUser, dbErr := s.userRepo.FindByEmail(req.Email)
-	if dbErr != nil || localUser == nil || (localUser.AuthUserID != nil && strings.TrimSpace(*localUser.AuthUserID) != "") {
-		return nil, ErrInvalidCredentials
-	}
-
-	s.logger.Debug("login: legacy user detected, verifying password",
-		zap.String("user_id", localUser.ID),
-	)
-
-	passwordHash, err := s.userRepo.GetPasswordHash(req.Email)
-	if err != nil {
-		s.logger.Error("login: failed to get password hash for legacy user",
-			zap.Error(err),
-			zap.String("user_id", localUser.ID),
-		)
-		return nil, ErrInvalidCredentials
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	if err := s.queueLegacyUserMigration(localUser.ID, req.Email, req.Password, models.MigrationSourceLogin); err != nil {
-		s.logger.Error("login: failed to queue migration for legacy user",
-			zap.Error(err),
-			zap.String("user_id", localUser.ID),
-		)
-	}
-
-	s.logger.Debug("login: migration queued, proceeding to OTP verification",
-		zap.String("user_id", localUser.ID),
-	)
-
-	return &models.AuthResponse{
-		User:        localUser,
-		OTPRequired: true,
-		Message:     "A login code has been sent to your email.",
-	}, nil
-}
-
-func (s *AuthService) handleUnverifiedEmail(user *models.User) (*models.AuthResponse, error) {
-	s.logger.Debug("login: email not verified, queuing verification email",
-		zap.String("user_id", user.ID),
-	)
-
-	if err := s.queueVerificationEmail(user.ID, user.Email); err != nil {
-		s.logger.Error("login: failed to queue verification email", zap.Error(err))
-		return nil, fmt.Errorf("failed to queue verification email")
-	}
-
-	return &models.AuthResponse{
-		User:                      user,
-		EmailVerificationRequired: true,
-		Message:                   "Please verify your email to complete setup. A verification code has been sent to your email.",
-	}, nil
-}
-
-func (s *AuthService) issueLoginOTP(ctx context.Context, user *models.User, email string) (*models.AuthResponse, error) {
-	otpCode, err := s.authClient.GenerateLoginOTP(ctx, email)
+	// For login source, OTP verification email is queued separately
+	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
 	if err != nil {
 		s.logger.Error("login: failed to generate otp", zap.Error(err))
 		return nil, fmt.Errorf("failed to generate login verification code")
@@ -305,12 +265,8 @@ func (s *AuthService) issueLoginOTP(ctx context.Context, user *models.User, emai
 		return nil, fmt.Errorf("failed to send login verification email")
 	}
 
-	s.logger.Debug("login: otp sent",
-		zap.String("user_id", user.ID),
-	)
-
 	return &models.AuthResponse{
-		User:        user,
+		Email:       userInfo.Email,
 		OTPRequired: true,
 		Message:     "A login code has been sent to your email.",
 	}, nil
@@ -341,7 +297,7 @@ func (s *AuthService) handleLegacyForgotPassword(user *models.User) error {
 		zap.String("user_id", user.ID),
 	)
 
-	if err := s.queueLegacyUserMigration(user.ID, user.Email, "", models.MigrationSourceForgotPassword); err != nil {
+	if err := s.queueLegacyUserMigration(user.ID, user.Email, generateSecurePassword(), "forgot_password"); err != nil {
 		s.logger.Error("forgot password: failed to queue migration",
 			zap.Error(err),
 			zap.String("user_id", user.ID),
@@ -374,6 +330,12 @@ func (s *AuthService) issueForgotPasswordReset(ctx context.Context, email string
 	}
 
 	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword() string {
+	// Use two UUIDs for 64 characters of randomness
+	return utils.GenerateID() + utils.GenerateID()
 }
 
 func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswordRequest) error {

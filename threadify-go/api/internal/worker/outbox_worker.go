@@ -185,6 +185,12 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleMigrateLegacyUser(ctx, data)
+	case models.EventTypeSendTeamInvitation:
+		w.logger.Debug("outbox: dispatching send-team-invitation",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleSendTeamInvitation(ctx, data)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.Type)
 	}
@@ -410,10 +416,13 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return nil
 	}
 
+	// Get full name
 	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}
+
+	// Create user in Supabase with password
 	authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, user.CompanyID)
 	if err != nil {
 		return fmt.Errorf("register user in Supabase: %w", err)
@@ -428,32 +437,58 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		zap.String("auth_user_id", authUserID),
 	)
 
-	return w.sendPostMigrationEmail(ctx, email, userID, source)
+	// Send appropriate email based on source
+	if source == "forgot_password" {
+		// Generate password reset token for the newly created Supabase user
+		resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+		if err != nil {
+			return fmt.Errorf("generate password reset token: %w", err)
+		}
+
+		// Send password reset email
+		if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
+			return fmt.Errorf("send password reset email: %w", err)
+		}
+
+		w.logger.Info("outbox: password reset email sent for migrated user",
+			zap.String("user_id", userID),
+			zap.String("email", email),
+		)
+	} else {
+		// For login source, OTP verification email is queued separately
+		otpCode, err := w.authClient.GenerateLoginOTP(ctx, email)
+		if err != nil {
+			w.logger.Error("outbox: failed to generate otp", zap.Error(err))
+			return fmt.Errorf("failed to generate login verification code")
+		}
+
+		if err := w.emailSvc.SendLoginOTPEmail(ctx, email, otpCode); err != nil {
+			w.logger.Error("outbox: failed to send otp email", zap.Error(err))
+			return fmt.Errorf("failed to send login verification email")
+		}
+	}
+
+	return nil
 }
 
-func (w *OutboxWorker) sendPostMigrationEmail(ctx context.Context, email, userID, source string) error {
-	if source != models.MigrationSourceForgotPassword {
-		token, err := w.authClient.GenerateLoginOTP(ctx, email)
-		if err != nil {
-			return fmt.Errorf("generate verification otp: %w", err)
-		}
-		if err := w.emailSvc.SendVerificationEmail(ctx, email, token); err != nil {
-			return fmt.Errorf("send verification email: %w", err)
-		}
-		return nil
-	}
-
-	resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+func (w *OutboxWorker) handleSendTeamInvitation(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "email", "role", "invite_link")
 	if err != nil {
-		return fmt.Errorf("generate password reset token: %w", err)
+		return err
+	}
+	email, role, inviteLink := fields[0], fields[1], fields[2]
+
+	w.logger.Debug("outbox: sending team invitation email",
+		zap.String("email", email),
+		zap.String("role", role),
+	)
+
+	if err := w.emailSvc.SendTeamInvitationEmail(ctx, email, role, inviteLink); err != nil {
+		return fmt.Errorf("send team invitation email: %w", err)
 	}
 
-	if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
-		return fmt.Errorf("send password reset email: %w", err)
-	}
-
-	w.logger.Info("outbox: password reset email sent for migrated user",
-		zap.String("user_id", userID),
+	w.logger.Info("outbox: team invitation email sent",
+		zap.String("email", email),
 	)
 	return nil
 }

@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Team - Threadify" },
+    { name: "description", content: "Manage your team members" },
+  ];
+};
 
 export default function Team() {
   const navigate = useNavigate();
