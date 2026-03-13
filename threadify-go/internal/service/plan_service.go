@@ -14,7 +14,6 @@ import (
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
@@ -93,7 +92,7 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 		return err
 	}
 
-	plan := &models.CompanyPlan{
+	plan := &billing.CompanyPlan{
 		ID:                     uuid.New().String(),
 		CompanyID:              companyID,
 		SubscriptionTier:       tier,
@@ -128,7 +127,7 @@ func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID strin
 	return nil
 }
 
-func (s *PlanService) seedBalanceKeys(ctx context.Context, companyID string, meter *models.UsageMeter) error {
+func (s *PlanService) seedBalanceKeys(ctx context.Context, companyID string, meter *billing.UsageMeter) error {
 	ingressKey := balanceKey(companyID, "ingress")
 	if err := s.valkeyClient.Set(ctx, ingressKey, strconv.FormatInt(meter.BandwidthIngressBalance, 10), 0); err != nil {
 		return fmt.Errorf("seed ingress balance: %w", err)
@@ -140,15 +139,15 @@ func (s *PlanService) seedBalanceKeys(ctx context.Context, companyID string, met
 	return nil
 }
 
-func (s *PlanService) GetCompanyPlan(ctx context.Context, companyID string) (*models.CompanyPlan, error) {
-	return s.planRepo.FindPlanByCompanyID(ctx, companyID)
+func (s *PlanService) GetCompanyPlan(ctx context.Context, companyID string) (*billing.CompanyPlan, error) {
+	return s.planRepo.GetCompanyPlan(ctx, companyID)
 }
 
-func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*models.UsageMeter, error) {
+func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*billing.UsageMeter, error) {
 	cacheKey := database.PlanCachePrefix + companyID
 	cached, err := s.valkeyClient.Get(ctx, cacheKey)
 	if err == nil && cached != "" {
-		var meter models.UsageMeter
+		var meter billing.UsageMeter
 		if jsonErr := json.Unmarshal([]byte(cached), &meter); jsonErr == nil {
 			if !meter.BillingEnd.IsZero() && time.Now().After(meter.BillingEnd) {
 				s.invalidateCache(ctx, companyID)
@@ -158,7 +157,7 @@ func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*
 		}
 	}
 
-	meter, err := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
+	meter, err := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
 	if err != nil {
 		return nil, fmt.Errorf("get current limits: %w", err)
 	}
@@ -379,7 +378,7 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 
 	if allowed == -1 {
 		s.logger.Info("ingress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
-		dbMeter, dbErr := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
+		dbMeter, dbErr := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
 		if dbErr == nil && dbMeter != nil {
 			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthIngressBalance, 10), 0)
 			newBalance, allowed, err = s.decrementUsageWithOutbox(ctx, key, count, floor, companyID, "bandwidth_ingress", meter.BillingCycleStart)
@@ -434,7 +433,7 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 
 	if allowed == -1 {
 		s.logger.Info("egress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
-		dbMeter, dbErr := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
+		dbMeter, dbErr := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
 		if dbErr == nil && dbMeter != nil {
 			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthEgressBalance, 10), 0)
 			newBalance, _, err = s.decrementUsageWithOutbox(ctx, key, bytes, -999999999999, companyID, "bandwidth_egress", meter.BillingCycleStart)
@@ -547,8 +546,8 @@ func computeBillingEnd(start time.Time, cycle billing.BillingCycle) (time.Time, 
 	}
 }
 
-func newMeterFromLimits(companyID string, tier billing.PlanTier, start, billingEnd time.Time, limits *config.TierLimits) *models.UsageMeter {
-	return &models.UsageMeter{
+func newMeterFromLimits(companyID string, tier billing.PlanTier, start, billingEnd time.Time, limits *config.TierLimits) *billing.UsageMeter {
+	return &billing.UsageMeter{
 		ID:                      uuid.New().String(),
 		CompanyID:               companyID,
 		SubscriptionTier:        tier,
@@ -572,7 +571,7 @@ func (s *PlanService) InvalidatePlanCache(ctx context.Context, companyID string)
 	s.invalidateCache(ctx, companyID)
 }
 
-func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, meter *models.UsageMeter) {
+func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, meter *billing.UsageMeter) {
 	data, err := json.Marshal(meter)
 	if err != nil {
 		s.logger.Warn("failed to marshal usage meter for cache", zap.Error(err))

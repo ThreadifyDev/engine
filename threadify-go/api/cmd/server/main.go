@@ -213,9 +213,11 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 	agentRepo := repository.NewAgentRepository(db)
+	planRepo := repository.NewPlanRepository(db)
 
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
+	billingSvc := billing.NewBillingService(svcs.invoiceProvider, planRepo, &cfg.Subscription, &cfg.Billing, logger)
 
 	return &appHandlers{
 		auth:           handlers.NewAuthHandler(svcs.authService),
@@ -236,9 +238,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 			logger,
 		),
 		billing: handlers.NewBillingHandler(
-			svcs.invoiceProvider,
-			&cfg.Subscription,
-			&cfg.Billing,
+			billingSvc,
 			logger,
 		),
 	}
@@ -323,7 +323,10 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 
 	billing := api.Group("/billing")
 	{
+		billing.GET("/plan", h.billing.GetCurrentPlan)
+		billing.GET("/tiers", h.billing.GetTiers)
 		billing.POST("/checkout", h.billing.CreateCheckoutSession)
+		billing.POST("/cancel", h.billing.CancelSubscription)
 	}
 
 	return r
