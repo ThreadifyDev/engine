@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Key, Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "API Keys - Threadify" },
+    { name: "description", content: "Manage your API keys" },
+  ];
+};
 
 export default function APIKeys() {
   const navigate = useNavigate();

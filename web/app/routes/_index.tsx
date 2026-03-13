@@ -32,7 +32,7 @@ export default function Index() {
       <Nav />
 
       {/* Hero Section */}
-      <section className="relative bg-white text-black py-12 lg:py-16 overflow-hidden">
+      <section className="relative bg-white text-black py-40 lg:py-50 overflow-hidden">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-[0.03]">
           <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
@@ -127,10 +127,10 @@ export default function Index() {
       </section>
 
       {/* See it for yourself tagline */}
-      <section className="bg-gray-50 py-12 px-6">
+      <section className="py-12 px-6">
         <div className="max-w-7xl mx-auto text-center">
           <h2 className="text-2xl lg:text-3xl font-bold text-black">
-            See it for yourself
+            Here's a quick story
           </h2>
         </div>
       </section>

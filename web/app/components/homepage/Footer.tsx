@@ -23,6 +23,14 @@ export default function Footer() {
               Documentation
             </a>
             <a 
+              href="https://docs.threadify.dev/core-concepts/mcp-integration" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-sm text-gray-600 hover:text-black transition-colors"
+            >
+              MCP Server
+            </a>
+            <a 
               href="/AI.md" 
               target="_blank"
               rel="noopener noreferrer"

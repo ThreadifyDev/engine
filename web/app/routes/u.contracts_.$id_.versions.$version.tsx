@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import { graphqlClient } from '~/lib/graphql';
 import SideNav from '~/components/SideNav';
 import ContractGraphView from '~/components/ContractGraphView';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Contract Version - Threadify" },
+    { name: "description", content: "View contract version details" },
+  ];
+};
 
 type TabType = 'diagram' | 'yaml';
 
