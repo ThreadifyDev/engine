@@ -124,18 +124,15 @@ func EgressMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.Hand
 			return
 		}
 
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					logger.Error("egress middleware: panic in egress decrement",
-						zap.Any("recover", rec),
-						zap.String("company_id", companyID),
-					)
-				}
-			}()
-			ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-			defer cancel()
-			planSvc.DecrementEgress(ctx, companyID, size)
-		}()
+		ctx, cancel := context.WithTimeout(c.Request.Context(), defaultTimeout)
+		defer cancel()
+
+		if err := planSvc.DecrementEgress(ctx, companyID, size); err != nil {
+			logger.Error("egress middleware: egress decrement failed",
+				zap.Error(err),
+				zap.String("company_id", companyID),
+			)
+		}
 	}
 }
+

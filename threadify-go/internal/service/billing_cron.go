@@ -8,7 +8,6 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
@@ -55,8 +54,11 @@ func (c *BillingCron) Start() error {
 }
 
 func (c *BillingCron) runWithLock(ctx context.Context) {
-	lockKey := "cron:billing:lock:" + time.Now().UTC().Format("2006-01-02")
-	const lockTTL = 30 * time.Minute
+	// Use a unique lock key per cron execution interval (every 5 minutes)
+	// Truncate to the nearest 5-minute interval for the lock key
+	lockTime := time.Now().UTC().Truncate(5 * time.Minute)
+	lockKey := "cron:billing:lock:" + lockTime.Format("2006-01-02T15:04:05Z")
+	const lockTTL = 10 * time.Minute
 
 	success, err := c.valkeyClient.SetNX(ctx, lockKey, "locked", lockTTL)
 	if err != nil {
@@ -138,7 +140,7 @@ func (c *BillingCron) processAll(ctx context.Context) {
 	)
 }
 
-func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now time.Time) billingJob {
+func (c *BillingCron) isDue(ctx context.Context, plan *billing.CompanyPlan, now time.Time) billingJob {
 	lastSnapshot, err := c.billingRepo.FindLatestSnapshot(ctx, plan.CompanyID)
 	if err != nil {
 		c.logger.Warn("billing cron: failed to find latest snapshot, skipping",
