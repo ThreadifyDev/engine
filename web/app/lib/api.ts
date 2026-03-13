@@ -454,6 +454,29 @@ class ApiClient {
   async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
     return this.request(`/code-samples?codeType=${codeType}`);
   }
+
+  async createBillingCheckout(): Promise<{ checkoutUrl: string }> {
+    return this.request('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        tier: 'starter',
+        billing_cycle: 'monthly',
+      }),
+    });
+  }
+
+  async sendTeamInvitation(data: { email: string; role: string }): Promise<{
+    success: boolean;
+    invitationId?: string;
+    expiresAt?: number;
+    message?: string;
+    error?: string;
+  }> {
+    return this.request('/team/invitations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 export const api = new ApiClient(API_BASE_URL);

@@ -778,6 +778,27 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_user_roles_principal ON user_roles(principal_id);
 	CREATE INDEX IF NOT EXISTS idx_user_roles_type ON user_roles(principal_type);
 
+	-- Team invitations table
+	CREATE TABLE IF NOT EXISTS team_invitations (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		email VARCHAR(255) NOT NULL,
+		role VARCHAR(50) NOT NULL,
+		invited_by VARCHAR(255) NOT NULL,
+		status VARCHAR(50) NOT NULL,
+		token VARCHAR(500) UNIQUE NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		accepted_at TIMESTAMP,
+		accepted_by_user_id VARCHAR(255),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+		FOREIGN KEY (invited_by) REFERENCES users(id),
+		FOREIGN KEY (accepted_by_user_id) REFERENCES users(id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_company_email ON team_invitations(company_id, email);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON team_invitations(token);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_status_expires ON team_invitations(status, expires_at);
+
 	-- ========================================
 	-- TRIGGERS FOR AUTO-UPDATED TIMESTAMPS
 	-- ========================================
