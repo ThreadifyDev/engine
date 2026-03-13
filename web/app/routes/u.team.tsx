@@ -20,6 +20,7 @@ export default function Team() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'member' });
   const [inviting, setInviting] = useState(false);
+  const [checkingOutBilling, setCheckingOutBilling] = useState(false);
 
   useEffect(() => {
     // Check authentication
@@ -52,11 +53,20 @@ export default function Team() {
     setError('');
 
     try {
-      // TODO: Implement invite API endpoint
-      alert(`Invite sent to ${inviteForm.email} as ${inviteForm.role}`);
-      setShowInviteModal(false);
-      setInviteForm({ email: '', role: 'member' });
-      fetchTeamMembers();
+      const response = await api.sendTeamInvitation({
+        email: inviteForm.email,
+        role: inviteForm.role,
+      });
+
+      if (response.success) {
+        setShowInviteModal(false);
+        setInviteForm({ email: '', role: 'member' });
+        fetchTeamMembers();
+        // Show success message (could be replaced with a toast notification)
+        alert(`Invitation sent to ${inviteForm.email}`);
+      } else {
+        setError(response.error || 'Failed to send invitation');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send invite');
     } finally {
@@ -76,6 +86,21 @@ export default function Team() {
     }
   };
 
+  const handleBillingCheckout = async () => {
+    try {
+      setCheckingOutBilling(true);
+      setError('');
+      const data = await api.createBillingCheckout();
+      if (data.checkoutUrl) {
+        window.open(data.checkoutUrl, '_blank');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open billing checkout');
+    } finally {
+      setCheckingOutBilling(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="p-8">
@@ -86,12 +111,21 @@ export default function Team() {
               Manage your team and invite new members
             </p>
           </div>
-          <button
-            onClick={() => setShowInviteModal(true)}
-            className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
-          >
-            Invite Member
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleBillingCheckout}
+              disabled={checkingOutBilling}
+              className="px-6 py-3 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {checkingOutBilling ? 'Loading...' : 'Update Billing'}
+            </button>
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
+            >
+              Invite Member
+            </button>
+          </div>
         </div>
 
         {error && <Alert type="error" message={error} className="mb-6" />}

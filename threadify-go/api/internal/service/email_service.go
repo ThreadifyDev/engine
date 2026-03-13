@@ -117,6 +117,22 @@ func (s *EmailService) SendPasswordResetEmail(ctx context.Context, email, resetT
 	})
 }
 
+func (s *EmailService) SendTeamInvitationEmail(ctx context.Context, email, role, inviteLink string) error {
+	body, err := s.render("team_invitation.html", emailData{
+		ActionURL:   inviteLink,
+		FrontendURL: s.frontendURL,
+		Year:        time.Now().Year(),
+	})
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, plunkEmailRequest{
+		To:      email,
+		Subject: "You're invited to join Threadify",
+		Body:    body,
+	})
+}
+
 func (s *EmailService) render(templateName string, data emailData) (string, error) {
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, templateName, data); err != nil {

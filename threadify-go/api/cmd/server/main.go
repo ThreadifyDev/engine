@@ -204,6 +204,7 @@ type appHandlers struct {
 	graphqlProxy   *handlers.GraphQLProxyHandler
 	agent          *handlers.AgentHandler
 	billing        *handlers.BillingHandler
+	teamInvitation *handlers.TeamInvitationHandler
 }
 
 func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
@@ -213,9 +214,18 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	apiKeyRepo := repository.NewAPIKeyRepository(db)
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 	agentRepo := repository.NewAgentRepository(db)
+	teamInvitationRepo := repository.NewTeamInvitationRepository(db)
+	outboxRepo := repository.NewOutboxRepository(db)
 
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader, logger)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
+	teamInvitationSvc := service.NewTeamInvitationService(
+		teamInvitationRepo,
+		outboxRepo,
+		cfg.WebAPI.OutboxEncryptionKey,
+		cfg.WebAPI.FrontendURL,
+		logger,
+	)
 
 	return &appHandlers{
 		auth:           handlers.NewAuthHandler(svcs.authService),
@@ -241,6 +251,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 			&cfg.Billing,
 			logger,
 		),
+		teamInvitation: handlers.NewTeamInvitationHandler(teamInvitationSvc, logger),
 	}
 }
 
@@ -283,6 +294,11 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	{
 		user.POST("/profile", h.user.UpdateProfile)
 		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
+	}
+
+	team := api.Group("/team")
+	{
+		team.POST("/invitations", h.teamInvitation.SendInvitation)
 	}
 
 	requirePerm := func(perm string) gin.HandlerFunc {
