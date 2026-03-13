@@ -103,6 +103,8 @@ type services struct {
 	natsClient      *nats.Client
 	authService     *service.AuthService
 	invoiceProvider billing.BillingProvider
+	outboxRepo      *repository.OutboxRepository
+	outboxTrigger   service.OutboxWorkerTrigger
 	workerCancel    context.CancelFunc
 }
 
@@ -189,6 +191,8 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		natsClient:      natsClient,
 		authService:     authSvc,
 		invoiceProvider: invoiceProvider,
+		outboxRepo:      outboxRepo,
+		outboxTrigger:   outboxTrigger,
 		workerCancel:    workerCancel,
 	}, nil
 }
@@ -215,14 +219,14 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 	agentRepo := repository.NewAgentRepository(db)
 	teamInvitationRepo := repository.NewTeamInvitationRepository(db)
-	outboxRepo := repository.NewOutboxRepository(db)
 	planRepo := repository.NewPlanRepository(db)
 
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader, logger)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
 	teamInvitationSvc := service.NewTeamInvitationService(
 		teamInvitationRepo,
-		outboxRepo,
+		svcs.outboxRepo,
+		svcs.outboxTrigger,
 		cfg.WebAPI.OutboxEncryptionKey,
 		cfg.WebAPI.FrontendURL,
 		logger,

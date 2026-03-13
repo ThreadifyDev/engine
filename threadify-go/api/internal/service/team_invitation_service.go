@@ -9,12 +9,14 @@ import (
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
+
 	"go.uber.org/zap"
 )
 
 type TeamInvitationService struct {
 	invitationRepo *repository.TeamInvitationRepository
 	outboxRepo     *repository.OutboxRepository
+	outboxWorker   OutboxWorkerTrigger
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
@@ -23,6 +25,7 @@ type TeamInvitationService struct {
 func NewTeamInvitationService(
 	invitationRepo *repository.TeamInvitationRepository,
 	outboxRepo *repository.OutboxRepository,
+	outboxWorker OutboxWorkerTrigger,
 	encryptionKey string,
 	frontendURL string,
 	logger *zap.Logger,
@@ -31,6 +34,7 @@ func NewTeamInvitationService(
 	return &TeamInvitationService{
 		invitationRepo: invitationRepo,
 		outboxRepo:     outboxRepo,
+		outboxWorker:   outboxWorker,
 		encryptionKey:  key,
 		frontendURL:    frontendURL,
 		logger:         logger,
@@ -127,6 +131,11 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 
 	if err := s.outboxRepo.Create(event); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
+	}
+
+	// Trigger outbox worker to process immediately
+	if s.outboxWorker != nil {
+		s.outboxWorker.Trigger()
 	}
 
 	return nil
