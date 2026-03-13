@@ -258,7 +258,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		logger.Fatal("failed to initialize billing provider", zap.Error(err))
 	}
 
-	billingSvc := service.NewBillingService(planRepo, billingRepo, &cfg.Subscription, d.valkey, billingProvider, planSvc, logger)
+	billingSvc := service.NewBillingService(billingProvider, planRepo, billingRepo, &cfg.Subscription, &cfg.Billing, d.valkey, planSvc, logger)
 	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
 	sm.Register(billingCron)
 
