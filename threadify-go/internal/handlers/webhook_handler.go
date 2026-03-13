@@ -17,7 +17,7 @@ const (
 
 	eventInvoicePaid              = "invoice.paid"
 	eventInvoicePaymentFailed     = "invoice.payment_failed"
-	eventSubscriptionDeleted      = "subscription.deleted"
+	eventSubscriptionDeleted      = "customer.subscription.deleted"
 	eventCheckoutSessionCompleted = "checkout.session.completed"
 )
 
@@ -129,6 +129,22 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 	}
 
 	if snapshot == nil {
+		if event.ExternalCustomerID != "" {
+			companyID, err := h.billingSvc.GetCompanyIDByExternalCustomerID(ctx, event.ExternalCustomerID)
+			if err == nil && companyID != "" {
+				if liftErr := h.billingSvc.LiftSuspension(ctx, companyID); liftErr != nil {
+					h.logger.Error("webhook: failed to lift suspension without snapshot",
+						zap.String("company_id", companyID),
+						zap.Error(liftErr),
+					)
+				} else {
+					h.logger.Info("webhook: invoice.paid lifted suspension without snapshot",
+						zap.String("company_id", companyID),
+						zap.String("invoice_id", event.ExternalInvoiceID),
+					)
+				}
+			}
+		}
 		h.logger.Debug("webhook: invoice.paid has no matching snapshot, skipping",
 			zap.String("invoice_id", event.ExternalInvoiceID),
 		)
@@ -271,7 +287,7 @@ func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event *b
 		return
 	}
 
-	h.logger.Warn("webhook: subscription deleted — plan cancelled",
+	h.logger.Info("webhook: subscription deleted — plan cancelled",
 		zap.String("provider", h.provider.Name()),
 		zap.String("company_id", companyID),
 		zap.String("subscription_id", event.ExternalSubscriptionID),

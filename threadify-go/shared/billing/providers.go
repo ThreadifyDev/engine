@@ -8,9 +8,7 @@ import (
 	"threadify-go/shared/config"
 
 	stripe "github.com/stripe/stripe-go/v82"
-	"github.com/stripe/stripe-go/v82/checkout/session"
-	"github.com/stripe/stripe-go/v82/invoice"
-	"github.com/stripe/stripe-go/v82/invoiceitem"
+	"github.com/stripe/stripe-go/v82/client"
 )
 
 type CheckoutSessionParams struct {
@@ -42,6 +40,7 @@ type BillingProvider interface {
 	CheckoutSessionProvider
 	InvoiceProvider
 	WebhookProvider
+	CancelSubscription(subscriptionID string) error
 }
 
 type ProviderFactory interface {
@@ -85,6 +84,10 @@ func (p *NoOpBillingProvider) VerifyAndParse(_ []byte, _ string) (*WebhookEvent,
 	return nil, nil
 }
 
+func (p *NoOpBillingProvider) CancelSubscription(_ string) error {
+	return nil
+}
+
 const (
 	stripeSignatureHeader           = "Stripe-Signature"
 	stripeEventInvoicePaid          = "invoice.paid"
@@ -100,18 +103,14 @@ const (
 type StripeBillingProvider struct {
 	apiKey        string
 	webhookSecret string
-	sessionClient session.Client
-	invoiceClient invoice.Client
-	itemClient    invoiceitem.Client
+	api           *client.API
 }
 
-func NewStripeBillingProvider(apiKey, webhookSecret string, backend stripe.Backend) BillingProvider {
+func NewStripeBillingProvider(apiKey, webhookSecret string, _ stripe.Backend) BillingProvider {
 	return &StripeBillingProvider{
 		apiKey:        apiKey,
 		webhookSecret: webhookSecret,
-		sessionClient: session.Client{B: backend, Key: apiKey},
-		invoiceClient: invoice.Client{B: backend, Key: apiKey},
-		itemClient:    invoiceitem.Client{B: backend, Key: apiKey},
+		api:           client.New(apiKey, nil),
 	}
 }
 
@@ -142,7 +141,7 @@ func (p *StripeBillingProvider) CreateCheckoutSession(params *CheckoutSessionPar
 		CancelURL:  stripe.String(params.CancelURL),
 	}
 
-	stripeSession, err := p.sessionClient.New(stripeParams)
+	stripeSession, err := p.api.CheckoutSessions.New(stripeParams)
 	if err != nil {
 		return "", fmt.Errorf("stripe: checkout session: %w", err)
 	}
@@ -150,30 +149,17 @@ func (p *StripeBillingProvider) CreateCheckoutSession(params *CheckoutSessionPar
 	return stripeSession.URL, nil
 }
 
+func (p *StripeBillingProvider) CancelSubscription(subscriptionID string) error {
+	_, err := p.api.Subscriptions.Cancel(subscriptionID, nil)
+	if err != nil {
+		return fmt.Errorf("stripe: cancel subscription: %w", err)
+	}
+	return nil
+}
+
 func (p *StripeBillingProvider) IssueOverage(snapshot *BillingSnapshot) (*InvoiceResult, error) {
 	if snapshot.ExternalCustomerID == "" {
 		return nil, errors.New("stripe: missing external_customer_id on billing snapshot")
-	}
-
-	for _, item := range snapshot.LineItems {
-		desc := fmt.Sprintf("Threadify overage: %s (%s)", item.Meter, item.UnitLabel)
-		params := &stripe.InvoiceItemParams{
-			Customer:    stripe.String(snapshot.ExternalCustomerID),
-			Amount:      stripe.Int64(item.AmountCents),
-			Currency:    stripe.String("usd"),
-			Description: stripe.String(desc),
-		}
-		params.AddMetadata("snapshot_id", snapshot.ID)
-		params.AddMetadata("meter", item.Meter)
-		params.AddMetadata("overage_qty", fmt.Sprintf("%d", item.OverageQty))
-
-		if snapshot.ExternalSubscriptionID != "" {
-			params.Subscription = stripe.String(snapshot.ExternalSubscriptionID)
-		}
-
-		if _, err := p.itemClient.New(params); err != nil {
-			return nil, fmt.Errorf("stripe: create invoice item for %s: %w", item.Meter, err)
-		}
 	}
 
 	if snapshot.Reason == SnapshotReasonOverageOnly {
@@ -189,9 +175,34 @@ func (p *StripeBillingProvider) IssueOverage(snapshot *BillingSnapshot) (*Invoic
 		invParams.AddMetadata("snapshot_id", snapshot.ID)
 		invParams.AddMetadata("company_id", snapshot.CompanyID)
 
-		inv, err := p.invoiceClient.New(invParams)
+		inv, err := p.api.Invoices.New(invParams)
 		if err != nil {
 			return nil, fmt.Errorf("stripe: create overage invoice: %w", err)
+		}
+
+		for _, item := range snapshot.LineItems {
+			desc := fmt.Sprintf("Threadify overage: %s (%s)", item.Meter, item.UnitLabel)
+			params := &stripe.InvoiceItemParams{
+				Customer:    stripe.String(snapshot.ExternalCustomerID),
+				Invoice:     stripe.String(inv.ID),
+				Amount:      stripe.Int64(item.AmountCents),
+				Currency:    stripe.String("usd"),
+				Description: stripe.String(desc),
+			}
+			params.AddMetadata("snapshot_id", snapshot.ID)
+			params.AddMetadata("meter", item.Meter)
+			params.AddMetadata("overage_qty", fmt.Sprintf("%d", item.OverageQty))
+
+			if _, err := p.api.InvoiceItems.New(params); err != nil {
+				return nil, fmt.Errorf("stripe: create invoice item for %s: %w", item.Meter, err)
+			}
+		}
+
+		finalParams := &stripe.InvoiceFinalizeInvoiceParams{}
+		finalParams.AutoAdvance = stripe.Bool(true)
+		_, err = p.api.Invoices.FinalizeInvoice(inv.ID, finalParams)
+		if err != nil {
+			return nil, fmt.Errorf("stripe: finalize overage invoice: %w", err)
 		}
 
 		return &InvoiceResult{
@@ -202,7 +213,6 @@ func (p *StripeBillingProvider) IssueOverage(snapshot *BillingSnapshot) (*Invoic
 
 	return &InvoiceResult{ExternalInvoiceID: "", ProviderName: "stripe"}, nil
 }
-
 func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*WebhookEvent, error) {
 	event, err := stripe.ConstructEvent(body, signature, p.webhookSecret, stripe.WithIgnoreAPIVersionMismatch())
 	if err != nil {
