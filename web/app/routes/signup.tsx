@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
-import { useNavigate, Link } from '@remix-run/react';
+import { useNavigate, Link, useSearchParams } from '@remix-run/react';
 import { api, type SignupData, ValidationError } from '~/lib/api';
 import Alert, { type AlertType } from '~/components/Alert';
 
@@ -13,6 +13,7 @@ export const meta: MetaFunction = () => {
 
 export default function Signup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [formData, setFormData] = useState<SignupData>({
     company_name: '',
     email: '',
@@ -25,6 +26,38 @@ export default function Signup() {
   });
   const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [invitationToken, setInvitationToken] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string>('');
+  const [loadingInvitation, setLoadingInvitation] = useState(false);
+
+  useEffect(() => {
+    const token = searchParams.get('token');
+    const email = searchParams.get('email');
+    
+    if (token) {
+      setInvitationToken(token);
+      setLoadingInvitation(true);
+      
+      // Fetch invitation details using API client
+      api.validateInvitation(token)
+        .then(data => {
+          if (data.company_name) {
+            setCompanyName(data.company_name);
+            setFormData(prev => ({ ...prev, company_name: data.company_name }));
+          }
+          if (email) {
+            setFormData(prev => ({ ...prev, email }));
+          }
+        })
+        .catch(() => {
+          setAlert({
+            type: 'error',
+            message: 'Invalid or expired invitation link',
+          });
+        })
+        .finally(() => setLoadingInvitation(false));
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +65,11 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      await api.signup(formData);
+      const signupData = { ...formData };
+      if (invitationToken) {
+        signupData.invitation_token = invitationToken;
+      }
+      await api.signup(signupData);
       // Navigate to OTP verification with email
       navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}`);
     } catch (err) {
@@ -65,9 +102,13 @@ export default function Signup() {
           <h1 className="text-4xl font-bold text-black" style={{ fontFamily: 'Block, monospace' }}>
             Threadify
           </h1>
-          <h2 className="mt-6 text-3xl font-bold text-black">Create your account</h2>
+          <h2 className="mt-6 text-3xl font-bold text-black">
+            {invitationToken ? `Join ${companyName || 'the team'}` : 'Create your account'}
+          </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Turn customer requests into intelligence
+            {invitationToken 
+              ? 'Complete your account setup to join the team' 
+              : 'Turn customer requests into intelligence'}
           </p>
         </div>
 
@@ -76,23 +117,35 @@ export default function Signup() {
           {alert && <Alert type={alert.type} message={alert.message} details={alert.details} />}
 
           <div className="space-y-4">
-            {/* Company Name */}
-            <div>
-              <label htmlFor="company_name" className="block text-sm font-medium text-black mb-1">
-                Company Name <span className="text-red-600">*</span>
-              </label>
-              <input
-                id="company_name"
-                name="company_name"
-                type="text"
-                required
-                minLength={2}
-                value={formData.company_name}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
-                placeholder="Acme Corp"
-              />
-            </div>
+            {/* Company Name - conditionally shown/disabled */}
+            {!invitationToken && (
+              <div>
+                <label htmlFor="company_name" className="block text-sm font-medium text-black mb-1">
+                  Company Name <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="company_name"
+                  name="company_name"
+                  type="text"
+                  required
+                  minLength={2}
+                  value={formData.company_name}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  placeholder="Acme Corp"
+                />
+              </div>
+            )}
+            {invitationToken && companyName && (
+              <div>
+                <label className="block text-sm font-medium text-black mb-1">
+                  Company
+                </label>
+                <div className="w-full px-4 py-3 border-2 rounded-lg border-gray-300 bg-gray-50 text-gray-700">
+                  {companyName}
+                </div>
+              </div>
+            )}
 
             {/* Email */}
             <div>
@@ -135,10 +188,10 @@ export default function Signup() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || loadingInvitation}
             className="w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? (invitationToken ? 'Joining team...' : 'Creating account...') : (invitationToken ? 'Join Team' : 'Create Account')}
           </button>
 
           {/* Login Link */}

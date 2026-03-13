@@ -22,7 +22,7 @@ export class ValidationError extends Error {
 }
 
 export interface SignupData {
-  company_name: string;
+  company_name?: string;
   email: string;
   password: string;
   full_name: string;
@@ -30,6 +30,7 @@ export interface SignupData {
   industry?: string;
   company_size?: string;
   use_case?: string;
+  invitation_token?: string;
 }
 
 export interface LoginData {
@@ -344,6 +345,13 @@ class ApiClient {
     });
   }
 
+  async validateInvitation(token: string): Promise<{ company_name: string; email: string }> {
+    return this.request('/team/invitation/validate', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
   async listServiceAccounts(): Promise<any> {
     return this.request('/service-accounts');
   }
@@ -455,13 +463,84 @@ class ApiClient {
     return this.request(`/code-samples?codeType=${codeType}`);
   }
 
-  async createBillingCheckout(): Promise<{ checkoutUrl: string }> {
+  async createBillingCheckout(tier: string, billingCycle: string): Promise<{ checkout_url: string }> {
     return this.request('/billing/checkout', {
       method: 'POST',
       body: JSON.stringify({
-        tier: 'starter',
-        billing_cycle: 'monthly',
+        tier,
+        billing_cycle: billingCycle,
       }),
+    });
+  }
+
+  async getCurrentPlan(): Promise<{
+    plan: {
+      id: string;
+      company_id: string;
+      subscription_tier: string;
+      billing_cycle: string;
+      status: string;
+      billing_start: string;
+      billing_end: string;
+      created_at: string;
+      updated_at: string;
+    } | null;
+    usage_meter: {
+      id: string;
+      company_id: string;
+      subscription_tier: string;
+      billing_cycle_start: string;
+      billing_end: string;
+      bandwidth_ingress_balance: number;
+      bandwidth_egress_balance: number;
+      max_bandwidth_ingress: number;
+      max_bandwidth_egress: number;
+      max_team_seats: number;
+      max_contract_limit: number;
+      max_rate_limit: number;
+      max_payload_bytes: number;
+      hot_storage_days: number;
+      cold_storage_days: number;
+      support: string;
+      created_at: string;
+      updated_at: string;
+    } | null;
+  }> {
+    return this.request('/billing/plan');
+  }
+
+  async getTiers(): Promise<{
+    tiers: Array<{
+      name: string;
+      limits: {
+        bandwidth_ingress: number;
+        bandwidth_ingress_hard_cap: number;
+        bandwidth_ingress_overage_cents_per_million: number;
+        bandwidth_egress: number;
+        bandwidth_egress_overage_cents_per_gb: number;
+        team_seats: number;
+        seat_overage_cents_per_month: number;
+        contract_limit: number;
+        rate_limit: number;
+        max_payload_bytes: number;
+        hot_storage_days: number;
+        cold_storage_days: number;
+        cold_storage_overage_cents_per_gb: number;
+        support: string;
+        overage_allowed: boolean;
+      };
+      monthly_price_id: string;
+      yearly_price_id: string;
+      monthly_price_cents: number;
+      yearly_price_cents: number;
+    }>;
+  }> {
+    return this.request('/billing/tiers');
+  }
+
+  async cancelSubscription(): Promise<{ message: string }> {
+    return this.request('/billing/cancel', {
+      method: 'POST',
     });
   }
 

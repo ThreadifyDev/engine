@@ -67,15 +67,17 @@ func (s *SubscriptionConfig) GetTierLimits(tierName string) *TierLimits {
 }
 
 type TierPrice struct {
-	MonthlyPriceID string `yaml:"monthly_price_id" mapstructure:"monthly_price_id"`
-	YearlyPriceID  string `yaml:"yearly_price_id" mapstructure:"yearly_price_id"`
+	MonthlyPriceID    string `yaml:"monthly_price_id" mapstructure:"monthly_price_id"`
+	YearlyPriceID     string `yaml:"yearly_price_id" mapstructure:"yearly_price_id"`
+	MonthlyPriceCents int    `yaml:"monthly_price_cents" mapstructure:"monthly_price_cents"`
+	YearlyPriceCents  int    `yaml:"yearly_price_cents" mapstructure:"yearly_price_cents"`
 }
 
 type BillingConfig struct {
-	SecretKey             string               `yaml:"secret_key" mapstructure:"secret_key"`
-	Provider              string               `yaml:"provider" mapstructure:"provider"`
-	TierPrices            map[string]TierPrice `yaml:"tier_prices" mapstructure:"tier_prices"`
-	WebhookSecret         string               `yaml:"webhook_secret" mapstructure:"webhook_secret"`
+	SecretKey     string               `yaml:"secret_key" mapstructure:"secret_key"`
+	Provider      string               `yaml:"provider" mapstructure:"provider"`
+	TierPrices    map[string]TierPrice `yaml:"tier_prices" mapstructure:"tier_prices"`
+	WebhookSecret string               `yaml:"webhook_secret" mapstructure:"webhook_secret"`
 	SuccessURL    string               `yaml:"success_url" mapstructure:"success_url"`
 	CancelURL     string               `yaml:"cancel_url" mapstructure:"cancel_url"`
 }

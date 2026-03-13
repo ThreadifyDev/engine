@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate, useSearchParams } from '@remix-run/react';
 import { api, type User } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
+import BillingCard from '~/components/BillingCard';
+import TierSelectionModal from '~/components/TierSelectionModal';
 
 export const meta: MetaFunction = () => {
   return [
@@ -14,11 +16,13 @@ export const meta: MetaFunction = () => {
 
 export default function Settings() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'company'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing'>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showTierModal, setShowTierModal] = useState(false);
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
@@ -50,7 +54,13 @@ export default function Settings() {
       });
       // Company info would come from a separate API call
     }
-  }, [navigate]);
+
+    // Check for tab query parameter
+    const tab = searchParams.get('tab');
+    if (tab === 'billing' || tab === 'profile' || tab === 'company') {
+      setActiveTab(tab);
+    }
+  }, [navigate, searchParams]);
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +115,16 @@ export default function Settings() {
               }`}
             >
               Company
+            </button>
+            <button
+              onClick={() => setActiveTab('billing')}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === 'billing'
+                  ? 'border-b-4 border-black -mb-0.5'
+                  : 'text-gray-600 hover:text-black'
+              }`}
+            >
+              Billing
             </button>
           </div>
         </div>
@@ -269,6 +289,20 @@ export default function Settings() {
               {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </form>
+        )}
+
+        {/* Billing Tab */}
+        {activeTab === 'billing' && (
+          <div>
+            <BillingCard onUpgrade={() => setShowTierModal(true)} />
+            
+            {/* Tier Selection Modal */}
+            <TierSelectionModal
+              isOpen={showTierModal}
+              onClose={() => setShowTierModal(false)}
+              currentTier={user?.subscription_tier}
+            />
+          </div>
         )}
       </div>
     </AppLayout>
