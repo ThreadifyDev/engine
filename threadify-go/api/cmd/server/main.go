@@ -173,7 +173,8 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), nats.SubjectOutboxTrigger, logger)
 	}
 
-	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey, logger)
+	teamInvitationRepo := repository.NewTeamInvitationRepository(db)
+	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, teamInvitationRepo, outboxTrigger, encryptionKey, logger)
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
@@ -255,7 +256,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 			billingSvc,
 			logger,
 		),
-		teamInvitation: handlers.NewTeamInvitationHandler(teamInvitationSvc, logger),
+		teamInvitation: handlers.NewTeamInvitationHandler(teamInvitationSvc, companyRepo, logger),
 	}
 }
 
@@ -303,6 +304,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	team := api.Group("/team")
 	{
 		team.POST("/invitations", h.teamInvitation.SendInvitation)
+		team.POST("/invitation/validate", h.teamInvitation.ValidateInvitation)
 	}
 
 	requirePerm := func(perm string) gin.HandlerFunc {

@@ -25,6 +25,8 @@ subscription:
       rate_limit: 10                       # 10 TPS
       max_payload_bytes: 524288            # 500 KB
       hot_storage_days: 7
+      monthly_price_cents: 2900            # $29/mo
+      yearly_price_cents: 29000            # $290/yr
       cold_storage_days: 0                 # no archival, purged after hot window
       support: community
       overage_allowed: false               # hard stop on bandwidth ingress
@@ -40,6 +42,8 @@ subscription:
       rate_limit: 1000                     # 1000 TPS
       max_payload_bytes: 1048576           # 1 MB
       hot_storage_days: 30
+      monthly_price_cents: 9900            # $99/mo
+      yearly_price_cents: 99000            # $990/yr
       cold_storage_days: 365               # max 1yr retention
       cold_storage_overage_cents_per_gb: 10  # $0.10/GB/mo
       support: email

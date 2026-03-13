@@ -100,8 +100,22 @@ func ValidateSignupRequest(req *models.SignupRequest) error {
 	req.Email = normalizeEmail(req.Email)
 	validateEmail("email", req.Email, b)
 
+	// Company name is required UNLESS invitation token is provided
 	req.CompanyName = strings.TrimSpace(req.CompanyName)
-	validateCompanyName(req.CompanyName, b)
+	hasInvitationToken := req.InvitationToken != nil && strings.TrimSpace(*req.InvitationToken) != ""
+
+	if !hasInvitationToken {
+		validateCompanyName(req.CompanyName, b)
+	} else if req.CompanyName != "" {
+		// If invitation token is provided and company name is also provided, validate it
+		validateCompanyName(req.CompanyName, b)
+	}
+
+	// Ensure at least one of company_name or invitation_token is provided
+	if req.CompanyName == "" && !hasInvitationToken {
+		b.add("company_name", "Either company name or invitation token is required")
+	}
+
 	validatePassword(req.Password, b)
 
 	req.FullName = normalizeOptionalText("full_name", req.FullName, maxFullNameLen, namePattern, b)

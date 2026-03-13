@@ -55,10 +55,12 @@ type TierLimitsResponse struct {
 }
 
 type TierResponse struct {
-	Name           string             `json:"name"`
-	Limits         TierLimitsResponse `json:"limits"`
-	MonthlyPriceID string             `json:"monthly_price_id"`
-	YearlyPriceID  string             `json:"yearly_price_id"`
+	Name              string             `json:"name"`
+	Limits            TierLimitsResponse `json:"limits"`
+	MonthlyPriceID    string             `json:"monthly_price_id"`
+	YearlyPriceID     string             `json:"yearly_price_id"`
+	MonthlyPriceCents int                `json:"monthly_price_cents"`
+	YearlyPriceCents  int                `json:"yearly_price_cents"`
 }
 
 func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
@@ -238,8 +240,10 @@ func (h *BillingHandler) GetTiers(c *gin.Context) {
 				Support:                                tier.Support,
 				OverageAllowed:                         tier.OverageAllowed,
 			},
-			MonthlyPriceID: priceInfo.MonthlyPriceID,
-			YearlyPriceID:  priceInfo.YearlyPriceID,
+			MonthlyPriceID:    priceInfo.MonthlyPriceID,
+			YearlyPriceID:     priceInfo.YearlyPriceID,
+			MonthlyPriceCents: priceInfo.MonthlyPriceCents,
+			YearlyPriceCents:  priceInfo.YearlyPriceCents,
 		})
 	}
 

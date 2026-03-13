@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -30,7 +31,13 @@ func NewTeamInvitationService(
 	frontendURL string,
 	logger *zap.Logger,
 ) *TeamInvitationService {
-	key := []byte(encryptionKey)
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		logger.Error("failed to decode outbox encryption key", zap.Error(err))
+		// Fallback to raw bytes if hex decoding fails
+		key = []byte(encryptionKey)
+	}
+
 	return &TeamInvitationService{
 		invitationRepo: invitationRepo,
 		outboxRepo:     outboxRepo,

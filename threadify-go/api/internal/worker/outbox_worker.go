@@ -432,6 +432,15 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return fmt.Errorf("update auth_user_id: %w", err)
 	}
 
+	// Clear password_hash after successful migration
+	if err := w.userRepo.ClearPasswordHash(userID); err != nil {
+		w.logger.Error("outbox: failed to clear password hash after migration",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
+		// Don't fail the migration - password_hash will be cleared on next login attempt
+	}
+
 	w.logger.Debug("outbox: legacy user migration completed",
 		zap.String("user_id", userID),
 		zap.String("auth_user_id", authUserID),

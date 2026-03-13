@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,15 +13,18 @@ import (
 
 type TeamInvitationHandler struct {
 	invitationSvc *service.TeamInvitationService
+	companyRepo   *repository.CompanyRepository
 	logger        *zap.Logger
 }
 
 func NewTeamInvitationHandler(
 	invitationSvc *service.TeamInvitationService,
+	companyRepo *repository.CompanyRepository,
 	logger *zap.Logger,
 ) *TeamInvitationHandler {
 	return &TeamInvitationHandler{
 		invitationSvc: invitationSvc,
+		companyRepo:   companyRepo,
 		logger:        logger,
 	}
 }
@@ -46,7 +50,7 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 	}
 
 	// Get user from context (set by auth middleware)
-	userID, exists := c.Get("user_id")
+	userID, exists := c.Get("userID")
 	if !exists {
 		h.logger.Warn("unauthorized team invitation request")
 		c.JSON(http.StatusUnauthorized, SendInvitationResponse{
@@ -56,9 +60,9 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 		return
 	}
 
-	companyID, exists := c.Get("company_id")
+	companyID, exists := c.Get("companyID")
 	if !exists {
-		h.logger.Warn("company_id not found in context")
+		h.logger.Warn("companyID not found in context")
 		c.JSON(http.StatusUnauthorized, SendInvitationResponse{
 			Success: false,
 			Error:   "Unauthorized",
@@ -99,5 +103,49 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 		InvitationID: invitation.ID,
 		ExpiresAt:    invitation.ExpiresAt.Unix(),
 		Message:      "Invitation sent successfully",
+	})
+}
+
+type ValidateInvitationRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+
+type ValidateInvitationResponse struct {
+	CompanyName string `json:"company_name"`
+	Email       string `json:"email"`
+}
+
+// ValidateInvitation handles POST /api/team/invitation/validate
+func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
+	var req ValidateInvitationRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	// Validate token and get invitation
+	invitation, err := h.invitationSvc.ValidateToken(req.Token)
+	if err != nil {
+		h.logger.Warn("invalid invitation token",
+			zap.String("token", req.Token),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get company name
+	company, err := h.companyRepo.FindByID(invitation.CompanyID)
+	if err != nil {
+		h.logger.Error("failed to get company",
+			zap.String("company_id", invitation.CompanyID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve company information"})
+		return
+	}
+
+	c.JSON(http.StatusOK, ValidateInvitationResponse{
+		CompanyName: company.Name,
+		Email:       invitation.Email,
 	})
 }

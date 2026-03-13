@@ -32,17 +32,18 @@ type OutboxWorkerTrigger interface {
 }
 
 type AuthService struct {
-	db            *sql.DB
-	userRepo      *repository.UserRepository
-	companyRepo   *repository.CompanyRepository
-	userRoleRepo  *repository.UserRoleRepository
-	outboxRepo    *repository.OutboxRepository
-	emailSvc      *EmailService
-	authClient    sharedauth.AuthClient
-	jwksVerifier  *sharedauth.JWKSVerifier
-	outboxWorker  OutboxWorkerTrigger
-	encryptionKey []byte
-	logger        *zap.Logger
+	db             *sql.DB
+	userRepo       *repository.UserRepository
+	companyRepo    *repository.CompanyRepository
+	userRoleRepo   *repository.UserRoleRepository
+	outboxRepo     *repository.OutboxRepository
+	invitationRepo *repository.TeamInvitationRepository
+	emailSvc       *EmailService
+	authClient     sharedauth.AuthClient
+	jwksVerifier   *sharedauth.JWKSVerifier
+	outboxWorker   OutboxWorkerTrigger
+	encryptionKey  []byte
+	logger         *zap.Logger
 }
 
 func NewAuthService(
@@ -50,6 +51,7 @@ func NewAuthService(
 	emailSvc *EmailService,
 	authClient sharedauth.AuthClient,
 	outboxRepo *repository.OutboxRepository,
+	invitationRepo *repository.TeamInvitationRepository,
 	outboxWorker OutboxWorkerTrigger,
 	encryptionKey string,
 	logger *zap.Logger,
@@ -62,16 +64,17 @@ func NewAuthService(
 	}
 
 	return &AuthService{
-		db:            db,
-		userRepo:      repository.NewUserRepository(db),
-		companyRepo:   repository.NewCompanyRepository(db),
-		userRoleRepo:  repository.NewUserRoleRepository(db),
-		outboxRepo:    outboxRepo,
-		emailSvc:      emailSvc,
-		authClient:    authClient,
-		outboxWorker:  outboxWorker,
-		encryptionKey: key,
-		logger:        logger,
+		db:             db,
+		userRepo:       repository.NewUserRepository(db),
+		companyRepo:    repository.NewCompanyRepository(db),
+		userRoleRepo:   repository.NewUserRoleRepository(db),
+		outboxRepo:     outboxRepo,
+		invitationRepo: invitationRepo,
+		emailSvc:       emailSvc,
+		authClient:     authClient,
+		outboxWorker:   outboxWorker,
+		encryptionKey:  key,
+		logger:         logger,
 	}
 }
 
@@ -95,15 +98,53 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	}
 
 	now := time.Now()
-	company := &models.Company{
-		ID:        utils.GenerateID(),
-		Name:      strings.TrimSpace(req.CompanyName),
-		Industry:  req.Industry,
-		Size:      req.CompanySize,
-		UseCase:   req.UseCase,
-		CreatedAt: now,
-		UpdatedAt: now,
+	var company *models.Company
+	var invitation *models.TeamInvitation
+	var userRole string = "standard_account"
+
+	// Check if signing up via invitation
+	if req.InvitationToken != nil && *req.InvitationToken != "" {
+		// Validate and get invitation
+		inv, err := s.invitationRepo.GetByToken(*req.InvitationToken)
+		if err != nil {
+			s.logger.Error("failed to get invitation", zap.Error(err))
+			return fmt.Errorf("invalid invitation token")
+		}
+		if inv == nil {
+			return fmt.Errorf("invitation not found")
+		}
+		if inv.Status != "pending" {
+			return fmt.Errorf("invitation already used or expired")
+		}
+		if time.Now().After(inv.ExpiresAt) {
+			return fmt.Errorf("invitation has expired")
+		}
+		if !strings.EqualFold(inv.Email, req.Email) {
+			return fmt.Errorf("email does not match invitation")
+		}
+
+		// Get existing company
+		company, err = s.companyRepo.FindByID(inv.CompanyID)
+		if err != nil {
+			s.logger.Error("failed to get company", zap.Error(err))
+			return fmt.Errorf("company not found")
+		}
+
+		invitation = inv
+		userRole = inv.Role
+	} else {
+		// Creating new company
+		company = &models.Company{
+			ID:        utils.GenerateID(),
+			Name:      strings.TrimSpace(req.CompanyName),
+			Industry:  req.Industry,
+			Size:      req.CompanySize,
+			UseCase:   req.UseCase,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
 	}
+
 	user := &models.User{
 		ID:        utils.GenerateID(),
 		CompanyID: company.ID,
@@ -126,18 +167,30 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	if err := s.companyRepo.CreateTx(tx, company); err != nil {
-		return fmt.Errorf("create company: %w", err)
+	// Only create company if not joining via invitation
+	if invitation == nil {
+		if err := s.companyRepo.CreateTx(tx, company); err != nil {
+			return fmt.Errorf("create company: %w", err)
+		}
 	}
+
 	if err := s.userRepo.CreateTx(tx, user); err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
-	if err := s.userRoleRepo.AssignRoleToUserTx(tx, user.ID, "standard_account", "system"); err != nil {
+	if err := s.userRoleRepo.AssignRoleToUserTx(tx, user.ID, userRole, "system"); err != nil {
 		return fmt.Errorf("assign default role: %w", err)
 	}
 	if err := s.outboxRepo.CreateTx(tx, outboxEvent); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
 	}
+
+	// Mark invitation as accepted if applicable
+	if invitation != nil {
+		if err := s.invitationRepo.MarkAcceptedTx(tx, invitation.ID, user.ID); err != nil {
+			return fmt.Errorf("mark invitation accepted: %w", err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
@@ -198,13 +251,19 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, err
 	}
 
+	// Get local user first (needed for both legacy check and password_hash cleanup)
+	localUser, dbErr := s.userRepo.FindByEmail(req.Email)
+	if dbErr != nil && !errors.Is(dbErr, serror.ErrUserNotFound) {
+		s.logger.Error("login: failed to find user", zap.Error(dbErr))
+		return nil, fmt.Errorf("failed to authenticate")
+	}
+
 	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
 	if err != nil {
 		// Check if this is an "invalid credentials" error - could be user doesn't exist in Supabase
 		if errors.Is(err, sharedauth.ErrAuthInvalidCredentials) {
 			// Check if user exists in local DB (legacy user)
-			localUser, dbErr := s.userRepo.FindByEmail(req.Email)
-			if dbErr == nil && localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
+			if localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
 				// Legacy user found - verify password and queue migration
 				s.logger.Info("login: legacy user detected, verifying password")
 
@@ -253,6 +312,26 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		}
 	}
 
+	// Successful Supabase login - check if password_hash needs clearing
+	if localUser != nil {
+		// Check if password_hash exists (indicates user was migrated but hash not cleared)
+		passwordHash, hashErr := s.userRepo.GetPasswordHash(req.Email)
+		if hashErr == nil && passwordHash != "" {
+			// Clear password_hash since user is now fully migrated
+			if clearErr := s.userRepo.ClearPasswordHash(localUser.ID); clearErr != nil {
+				s.logger.Error("login: failed to clear password hash after successful Supabase login",
+					zap.Error(clearErr),
+					zap.String("user_id", localUser.ID),
+				)
+				// Don't fail login - just log the error
+			} else {
+				s.logger.Debug("login: cleared password_hash for migrated user",
+					zap.String("user_id", localUser.ID),
+				)
+			}
+		}
+	}
+
 	// For login source, OTP verification email is queued separately
 	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
 	if err != nil {
@@ -260,7 +339,7 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, fmt.Errorf("failed to generate login verification code")
 	}
 
-	if err := s.emailSvc.SendLoginOTPEmail(ctx, email, otpCode); err != nil {
+	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
 		s.logger.Error("login: failed to send otp email", zap.Error(err))
 		return nil, fmt.Errorf("failed to send login verification email")
 	}
@@ -272,6 +351,7 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	}, nil
 }
 
+// @TODO - We should switch this to resetPassword as forgotPassword should not be resetting the user's account
 func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPasswordRequest) error {
 	if err := validation.ValidateForgotPasswordRequest(req); err != nil {
 		return err

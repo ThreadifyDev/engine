@@ -65,14 +65,15 @@ type APIKey struct {
 // Request/Response DTOs
 
 type SignupRequest struct {
-	CompanyName string  `json:"company_name" binding:"required,min=2,max=255"`
-	Email       string  `json:"email" binding:"required,email"`
-	Password    string  `json:"password" binding:"required,min=12,max=128"`
-	FullName    string  `json:"full_name"`
-	JobRole     string  `json:"job_role"`
-	Industry    *string `json:"industry"`
-	CompanySize *string `json:"company_size"`
-	UseCase     *string `json:"use_case"`
+	CompanyName     string  `json:"company_name"`
+	Email           string  `json:"email" binding:"required,email"`
+	Password        string  `json:"password" binding:"required,min=12,max=128"`
+	FullName        string  `json:"full_name"`
+	JobRole         string  `json:"job_role"`
+	Industry        *string `json:"industry"`
+	CompanySize     *string `json:"company_size"`
+	UseCase         *string `json:"use_case"`
+	InvitationToken *string `json:"invitation_token"`
 }
 
 type LoginRequest struct {

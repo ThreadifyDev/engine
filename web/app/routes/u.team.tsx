@@ -21,6 +21,7 @@ export default function Team() {
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'member' });
   const [inviting, setInviting] = useState(false);
   const [checkingOutBilling, setCheckingOutBilling] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     // Check authentication
@@ -51,6 +52,7 @@ export default function Team() {
     e.preventDefault();
     setInviting(true);
     setError('');
+    setSuccessMessage('');
 
     try {
       const response = await api.sendTeamInvitation({
@@ -61,9 +63,8 @@ export default function Team() {
       if (response.success) {
         setShowInviteModal(false);
         setInviteForm({ email: '', role: 'member' });
+        setSuccessMessage(`Invitation sent to ${inviteForm.email}`);
         fetchTeamMembers();
-        // Show success message (could be replaced with a toast notification)
-        alert(`Invitation sent to ${inviteForm.email}`);
       } else {
         setError(response.error || 'Failed to send invitation');
       }
@@ -75,30 +76,19 @@ export default function Team() {
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm('Are you sure you want to remove this team member?')) return;
+    if (!window.confirm('Are you sure you want to remove this team member?')) return;
 
     try {
       // TODO: Implement remove member API endpoint
-      alert('Member removed');
+      setSuccessMessage('Member removed successfully');
       fetchTeamMembers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove member');
     }
   };
 
-  const handleBillingCheckout = async () => {
-    try {
-      setCheckingOutBilling(true);
-      setError('');
-      const data = await api.createBillingCheckout();
-      if (data.checkoutUrl) {
-        window.open(data.checkoutUrl, '_blank');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open billing checkout');
-    } finally {
-      setCheckingOutBilling(false);
-    }
+  const handleBillingClick = () => {
+    navigate('/u/settings?tab=billing');
   };
 
   return (
@@ -113,11 +103,10 @@ export default function Team() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={handleBillingCheckout}
-              disabled={checkingOutBilling}
-              className="px-6 py-3 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleBillingClick}
+              className="px-6 py-3 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
             >
-              {checkingOutBilling ? 'Loading...' : 'Update Billing'}
+              Update Billing
             </button>
             <button
               onClick={() => setShowInviteModal(true)}
@@ -129,6 +118,7 @@ export default function Team() {
         </div>
 
         {error && <Alert type="error" message={error} className="mb-6" />}
+        {successMessage && <Alert type="success" message={successMessage} className="mb-6" />}
 
         {loading ? (
           <div className="text-center py-12">

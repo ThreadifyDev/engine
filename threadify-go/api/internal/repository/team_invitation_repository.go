@@ -115,12 +115,22 @@ func (r *TeamInvitationRepository) GetByID(id string) (*models.TeamInvitation, e
 
 // MarkAccepted marks an invitation as accepted
 func (r *TeamInvitationRepository) MarkAccepted(invitationID, userID string) error {
+	return r.MarkAcceptedTx(nil, invitationID, userID)
+}
+
+// MarkAcceptedTx marks an invitation as accepted within a transaction
+func (r *TeamInvitationRepository) MarkAcceptedTx(tx *sql.Tx, invitationID, userID string) error {
 	const query = `
 		UPDATE team_invitations
 		SET status = $1, accepted_at = NOW(), accepted_by_user_id = $2
 		WHERE id = $3
 	`
-	_, err := r.db.Exec(query, "accepted", userID, invitationID)
+	var execer teamInvitationExecer = r.db
+	if tx != nil {
+		execer = tx
+	}
+
+	_, err := execer.Exec(query, "accepted", userID, invitationID)
 	if err != nil {
 		return fmt.Errorf("mark invitation accepted: %w", err)
 	}
