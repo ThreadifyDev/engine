@@ -1,11 +1,10 @@
 import { useNavigate, useSearchParams } from '@remix-run/react';
 import { useState, useEffect } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight, MessageSquare, Send, User, Bot, Sparkles, PlusCircle, MessageCircle } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 import { api } from '~/lib/api';
 import { formatDistanceToNow } from 'date-fns';
-import ThreadChat from '~/components/ThreadChat';
 import type { MetaFunction } from '@remix-run/node';
 
 export const meta: MetaFunction = () => {
@@ -18,8 +17,6 @@ export const meta: MetaFunction = () => {
 export async function loader() {
   return null;
 }
-
-type SearchMode = 'advanced' | 'chat';
 
 interface RefFilter {
   key: string;
@@ -49,7 +46,6 @@ export default function ThreadsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const [searchMode, setSearchMode] = useState<SearchMode>('advanced');
   const [filters, setFilters] = useState<SearchFilters>({
     searchQuery: '',
     refs: [{ key: '', value: '' }],
@@ -66,7 +62,6 @@ export default function ThreadsPage() {
 
   // Restore search state from URL params on mount
   useEffect(() => {
-    const mode = searchParams.get('mode') as SearchMode;
     const page = searchParams.get('page');
     const searchQuery = searchParams.get('q');
     const contractName = searchParams.get('contract');
@@ -77,33 +72,24 @@ export default function ThreadsPage() {
     const refKey = searchParams.get('refKey');
     const refValue = searchParams.get('refValue');
 
-    if (mode) setSearchMode(mode);
     if (page) setCurrentPage(parseInt(page));
 
-    if (mode === 'advanced') {
-      const restoredFilters: SearchFilters = {
-        searchQuery: searchQuery || '',
-        refs: refKey && refValue ? [{ key: refKey, value: refValue }] : [],
-        timeRange: (timeRange as any) || 'all',
-        threadId,
-        contractName,
-        contractVersion: contractVersion ? parseInt(contractVersion) : undefined,
-        status,
-      };
-      setFilters(restoredFilters);
-    }
+    const restoredFilters: SearchFilters = {
+      searchQuery: searchQuery || '',
+      refs: refKey && refValue ? [{ key: refKey, value: refValue }] : [],
+      timeRange: (timeRange as any) || 'all',
+      threadId,
+      contractName,
+      contractVersion: contractVersion ? parseInt(contractVersion) : undefined,
+      status,
+    };
+    setFilters(restoredFilters);
   }, []);
 
   // Re-execute search when URL params change (after initial mount)
   useEffect(() => {
-    const mode = searchParams.get('mode') as SearchMode;
     const page = parseInt(searchParams.get('page') || '1');
-
-    if (!mode) return;
-
-    if (mode === 'advanced') {
-      performAdvancedSearch(page);
-    }
+    performAdvancedSearch(page);
   }, [searchParams]);
 
   const parseSearchQuery = (query: string): ParsedSearch => {
@@ -341,41 +327,8 @@ export default function ThreadsPage() {
           <h1 className="text-2xl font-bold text-black">Threads</h1>
         </div>
 
-        {/* Compact Search Mode Toggle */}
-        <div className="mb-4 inline-flex rounded-lg border border-gray-200 bg-white p-1">
-          <button
-            onClick={() => setSearchMode('advanced')}
-            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              searchMode === 'advanced'
-                ? 'bg-gray-900 text-white shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Advanced Search
-          </button>
-          <button
-            onClick={() => setSearchMode('chat')}
-            className={`cursor-pointer px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-1.5 ${
-              searchMode === 'chat'
-                ? 'bg-gray-900 text-white shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            AI Assistant
-          </button>
-        </div>
-
-        {/* AI Chat Interface */}
-        {searchMode === 'chat' && (
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm h-[600px] flex flex-col">
-            <ThreadChat />
-          </div>
-        )}
-
         {/* Advanced Search */}
-        {searchMode === 'advanced' && (
-          <div>
+        <div>
             <AdvancedSearchFilters
               filters={filters}
               onChange={setFilters}
@@ -415,7 +368,6 @@ export default function ThreadsPage() {
               )}
             </div>
           </div>
-        )}
       </div>
     </AppLayout>
   );

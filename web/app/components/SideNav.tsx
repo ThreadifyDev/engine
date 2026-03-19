@@ -10,7 +10,8 @@ import {
   Key,
   Bot,
   Users,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 import { api } from '~/lib/api';
 
@@ -42,6 +43,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
+    { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/api-keys', label: 'API Keys', icon: Key },
     { path: '/u/service-accounts', label: 'Service Accounts', icon: Bot },
     { path: '/u/team', label: 'Team', icon: Users },
