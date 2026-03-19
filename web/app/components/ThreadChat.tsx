@@ -51,6 +51,8 @@ export default function ThreadChat() {
   const [previewData, setPreviewData] = useState<{ yaml: string, response: any } | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isCreatingContract, setIsCreatingContract] = useState(false);
+  const [editedYaml, setEditedYaml] = useState<string>('');
+  const [isUpdatingPreview, setIsUpdatingPreview] = useState(false);
   const [activeTab, setActiveTab] = useState<'diagram' | 'yaml'>('diagram');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -443,32 +445,21 @@ export default function ThreadChat() {
   };
 
   const handleCreateContract = async () => {
-    if (!previewData || previewData.response?.Errors?.length > 0) return;
+    if (!previewData || previewData.response?.errors?.length > 0) return;
     
     setIsCreatingContract(true);
     try {
-      const token = localStorage.getItem('auth_token');
-      const apiUrl = (window as any).__ENV__?.API_URL || 'http://localhost:3001';
-      
-      const response = await fetch(`${apiUrl}/api/v1/contracts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: previewData.yaml,
+      const result = await api.createContract({
+        name: previewData.response?.contract?.contract_name || 'unnamed_contract',
+        yaml: previewData.yaml,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.message || 'Failed to create contract');
-      }
       
       alert('Contract created successfully!');
       setIsPreviewOpen(false);
       setPreviewData(null);
       
     } catch (err: any) {
+      console.error('Create contract error:', err);
       alert(err.message || 'An error occurred while creating the contract');
     } finally {
       setIsCreatingContract(false);
@@ -476,7 +467,7 @@ export default function ThreadChat() {
   };
 
   return (
-    <div className="flex h-screen relative overflow-hidden">
+    <div className="flex h-full relative overflow-hidden">
       {/* Chat Area - Takes 60% width when preview is open, full width when closed */}
       <div className={`flex flex-col h-full transition-all duration-300 ${isPreviewOpen ? 'w-3/5 border-r border-gray-200' : 'w-full'}`}>
         {/* Header with Custom Conversation Dropdown */}
@@ -988,13 +979,6 @@ export default function ThreadChat() {
           {activeTab === 'diagram' && (
             <div className="h-full">
               {(() => {
-                console.log('[RENDER] previewData.response:', previewData.response);
-                console.log('[RENDER] Has errors?', previewData.response?.errors);
-                console.log('[RENDER] Has graph?', previewData.response?.graph);
-                console.log('[RENDER] Graph structure:', previewData.response?.graph);
-                console.log('[RENDER] Contract structure:', previewData.response?.contract);
-                console.log('[RENDER] Full response keys:', previewData.response ? Object.keys(previewData.response) : 'null');
-                
                 if (previewData.response?.errors && previewData.response.errors.length > 0) {
                   return (
                     <div className="flex items-center justify-center h-full bg-white text-red-500 text-sm">
@@ -1010,7 +994,6 @@ export default function ThreadChat() {
                     transitions: previewData.response.graph.transitions,
                     parties: previewData.response.graph.parties,
                   };
-                  console.log('[RENDER] Passing to ContractGraphView:', unwrappedData);
                   return (
                     <div className="h-full w-full">
                       <ContractGraphView
@@ -1025,7 +1008,7 @@ export default function ThreadChat() {
                 
                 return (
                   <div className="flex items-center justify-center h-full bg-white text-gray-500 text-sm">
-                    No graph data available. Check console for details.
+                    No graph data available.
                   </div>
                 );
               })()}
@@ -1033,21 +1016,59 @@ export default function ThreadChat() {
           )}
 
           {activeTab === 'yaml' && (
-            <div className="h-full p-4 relative">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(previewData.yaml);
-                  setCopiedThreadId('yaml-copy');
-                  setTimeout(() => setCopiedThreadId(null), 2000);
-                }}
-                className="absolute top-6 right-6 p-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded shadow-sm transition-colors"
-                title="Copy YAML"
-              >
-                {copiedThreadId === 'yaml-copy' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-              <pre className="h-full bg-gray-900 text-gray-100 p-4 rounded-lg overflow-auto text-xs font-mono">
-                {previewData.yaml}
-              </pre>
+            <div className="h-full flex flex-col">
+              <div className="flex items-center justify-between p-3 bg-gray-50 border-b border-gray-200">
+                <span className="text-xs font-medium text-gray-700">Edit YAML and click Update to preview changes</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(editedYaml || previewData.yaml);
+                      setCopiedThreadId('yaml-copy');
+                      setTimeout(() => setCopiedThreadId(null), 2000);
+                    }}
+                    className="p-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                    title="Copy YAML"
+                  >
+                    {copiedThreadId === 'yaml-copy' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setIsUpdatingPreview(true);
+                      try {
+                        const yamlContent = editedYaml || previewData.yaml;
+                        const result = await api.previewContract({ yaml: yamlContent });
+                        setPreviewData({
+                          yaml: yamlContent,
+                          response: result,
+                        });
+                        setActiveTab('diagram');
+                      } catch (err) {
+                        console.error('Preview error:', err);
+                        alert(`Failed to update preview: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                      } finally {
+                        setIsUpdatingPreview(false);
+                      }
+                    }}
+                    disabled={isUpdatingPreview}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded transition-colors disabled:opacity-50"
+                  >
+                    {isUpdatingPreview ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Code className="w-3.5 h-3.5" />
+                        Update Preview
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={editedYaml || previewData.yaml}
+                onChange={(e) => setEditedYaml(e.target.value)}
+                className="flex-1 bg-gray-900 text-gray-100 p-4 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                spellCheck={false}
+              />
             </div>
           )}
         </div>
@@ -1056,8 +1077,8 @@ export default function ThreadChat() {
         <div className="p-4 bg-white border-t border-gray-200 shadow-sm flex justify-end">
           <button
             onClick={handleCreateContract}
-            disabled={isCreatingContract || (previewData.response?.Errors && previewData.response.Errors.length > 0)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            disabled={isCreatingContract || (previewData.response?.errors && previewData.response.errors.length > 0)}
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-600 bg-gray-100 text-black text-sm font-medium rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             {isCreatingContract ? (
               <Loader2 className="w-4 h-4 animate-spin" />
