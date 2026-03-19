@@ -30,7 +30,9 @@ func AuthAccessTokenAuth(authService *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user")
+		// Use AuthUserID (Supabase auth_user_id) for RBAC role lookups
+		// UserID is the internal Threadify user ID for database operations
+		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.AuthUserID, "user")
 		if err == nil && len(dbRoles) > 0 {
 			claims.Roles = dbRoles
 		}

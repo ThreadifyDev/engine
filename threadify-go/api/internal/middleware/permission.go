@@ -17,11 +17,11 @@ func RequirePermission(
 	required string, // e.g., "contract.read.*" or "thread.write"
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.GetString("userID")
+		authUserID := c.GetString("authUserID")
 		serviceAccountID := c.GetString("serviceAccountID")
 
 		// Check authentication
-		if userID == "" && serviceAccountID == "" {
+		if authUserID == "" && serviceAccountID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 			c.Abort()
 			return
@@ -29,9 +29,9 @@ func RequirePermission(
 
 		var permissions []string
 
-		if userID != "" {
-			// User authentication - load roles from DB and get permissions from JSON
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+		if authUserID != "" {
+			// User authentication - load roles from DB using authUserID (Supabase auth_user_id)
+			roleNames, err := userRoleRepo.GetUserRoles(authUserID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
@@ -103,11 +103,11 @@ func RequireResourcePermission(
 	resourceParam string, // URL parameter name, e.g., "id"
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := c.GetString("userID")
+		authUserID := c.GetString("authUserID")
 		serviceAccountID := c.GetString("serviceAccountID")
 
 		// Check authentication
-		if userID == "" && serviceAccountID == "" {
+		if authUserID == "" && serviceAccountID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 			c.Abort()
 			return
@@ -115,9 +115,9 @@ func RequireResourcePermission(
 
 		var permissions []string
 
-		if userID != "" {
-			// User authentication
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+		if authUserID != "" {
+			// User authentication - load roles from DB using authUserID (Supabase auth_user_id)
+			roleNames, err := userRoleRepo.GetUserRoles(authUserID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()

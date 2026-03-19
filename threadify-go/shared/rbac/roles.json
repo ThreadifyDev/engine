@@ -10,7 +10,10 @@
         "contract.create",
         "contract.update.*",
         "serviceaccount.*",
-        "query.execution.*"
+        "query.execution.*",
+        "member.invite",
+        "member.remove",
+        "member.view"
       ]
     }
   },

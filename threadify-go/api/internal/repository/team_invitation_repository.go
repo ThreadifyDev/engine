@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"threadify-go/api/internal/models"
 )
@@ -137,6 +138,54 @@ func (r *TeamInvitationRepository) MarkAcceptedTx(tx *sql.Tx, invitationID, user
 	return nil
 }
 
+// UpdateStatus updates the status of an invitation
+func (r *TeamInvitationRepository) UpdateStatus(invitationID, status string) error {
+	const query = `
+		UPDATE team_invitations
+		SET status = $1
+		WHERE id = $2
+	`
+	_, err := r.db.Exec(query, status, invitationID)
+	if err != nil {
+		return fmt.Errorf("update invitation status: %w", err)
+	}
+	return nil
+}
+
+// Delete removes an invitation
+func (r *TeamInvitationRepository) Delete(invitationID string) error {
+	return r.DeleteTx(nil, invitationID)
+}
+
+// DeleteTx removes an invitation within a transaction
+func (r *TeamInvitationRepository) DeleteTx(tx *sql.Tx, invitationID string) error {
+	const query = `DELETE FROM team_invitations WHERE id = $1`
+	var execer teamInvitationExecer = r.db
+	if tx != nil {
+		execer = tx
+	}
+
+	_, err := execer.Exec(query, invitationID)
+	if err != nil {
+		return fmt.Errorf("delete invitation: %w", err)
+	}
+	return nil
+}
+
+// RefreshInvitation updates the token and expiry date for an existing invitation
+func (r *TeamInvitationRepository) RefreshInvitation(invitationID, newToken string, expiresAt time.Time) error {
+	const query = `
+		UPDATE team_invitations
+		SET token = $1, expires_at = $2
+		WHERE id = $3
+	`
+	_, err := r.db.Exec(query, newToken, expiresAt, invitationID)
+	if err != nil {
+		return fmt.Errorf("refresh invitation: %w", err)
+	}
+	return nil
+}
+
 // GetPendingByCompanyAndEmail retrieves pending invitations for a company and email
 func (r *TeamInvitationRepository) GetPendingByCompanyAndEmail(companyID, email string) (*models.TeamInvitation, error) {
 	const query = `
@@ -174,7 +223,7 @@ func (r *TeamInvitationRepository) ListByCompany(companyID string) ([]*models.Te
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
-		WHERE company_id = $1
+		WHERE company_id = $1 AND status = 'pending'
 		ORDER BY created_at DESC
 	`
 	rows, err := r.db.Query(query, companyID)

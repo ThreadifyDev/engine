@@ -115,6 +115,21 @@ type ValidateInvitationResponse struct {
 	Email       string `json:"email"`
 }
 
+type InvitationListItem struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	InvitedBy string `json:"invited_by"`
+	Token     string `json:"token"`
+	ExpiresAt int64  `json:"expires_at"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type ListInvitationsResponse struct {
+	Invitations []InvitationListItem `json:"invitations"`
+}
+
 // ValidateInvitation handles POST /api/team/invitation/validate
 func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 	var req ValidateInvitationRequest
@@ -147,5 +162,183 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 	c.JSON(http.StatusOK, ValidateInvitationResponse{
 		CompanyName: company.Name,
 		Email:       invitation.Email,
+	})
+}
+
+// ListInvitations handles GET /api/team/invitations
+// Requires member.view permission
+func (h *TeamInvitationHandler) ListInvitations(c *gin.Context) {
+	companyID, exists := c.Get("companyID")
+	if !exists {
+		h.logger.Warn("companyID not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Get invitations for company
+	invitations, err := h.invitationSvc.ListByCompany(companyID.(string))
+	if err != nil {
+		h.logger.Error("failed to list invitations",
+			zap.String("company_id", companyID.(string)),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve invitations"})
+		return
+	}
+
+	// Convert to response format
+	response := ListInvitationsResponse{
+		Invitations: make([]InvitationListItem, 0, len(invitations)),
+	}
+
+	for _, inv := range invitations {
+		response.Invitations = append(response.Invitations, InvitationListItem{
+			ID:        inv.ID,
+			Email:     inv.Email,
+			Role:      inv.Role,
+			Status:    inv.Status,
+			InvitedBy: inv.InvitedBy,
+			Token:     inv.Token,
+			ExpiresAt: inv.ExpiresAt.Unix(),
+			CreatedAt: inv.CreatedAt.Unix(),
+		})
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// ResendInvitation handles POST /api/team/invitations/:id/resend
+// Requires member.invite permission
+func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
+	invitationID := c.Param("id")
+	if invitationID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation ID is required"})
+		return
+	}
+
+	companyID, exists := c.Get("companyID")
+	if !exists {
+		h.logger.Warn("companyID not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Get existing invitation
+	invitation, err := h.invitationSvc.GetByID(invitationID)
+	if err != nil || invitation == nil {
+		h.logger.Error("invitation not found",
+			zap.String("invitation_id", invitationID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invitation not found"})
+		return
+	}
+
+	// Verify invitation belongs to user's company
+	if invitation.CompanyID != companyID.(string) {
+		h.logger.Warn("unauthorized access to invitation",
+			zap.String("invitation_id", invitationID),
+			zap.String("company_id", companyID.(string)),
+		)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Only resend pending invitations
+	if invitation.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Can only resend pending invitations"})
+		return
+	}
+
+	// Refresh the existing invitation (update token and expiry)
+	refreshedInvitation, err := h.invitationSvc.RefreshInvitation(
+		c.Request.Context(),
+		invitation,
+		7*24*time.Hour,
+	)
+	if err != nil {
+		h.logger.Error("failed to resend invitation",
+			zap.String("email", invitation.Email),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resend invitation"})
+		return
+	}
+
+	h.logger.Info("invitation resent",
+		zap.String("email", invitation.Email),
+		zap.String("invitation_id", refreshedInvitation.ID),
+	)
+
+	c.JSON(http.StatusOK, SendInvitationResponse{
+		Success:      true,
+		InvitationID: refreshedInvitation.ID,
+		ExpiresAt:    refreshedInvitation.ExpiresAt.Unix(),
+		Message:      "Invitation resent successfully",
+	})
+}
+
+// CancelInvitation handles DELETE /api/team/invitations/:id
+// Requires member.invite permission
+func (h *TeamInvitationHandler) CancelInvitation(c *gin.Context) {
+	invitationID := c.Param("id")
+	if invitationID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation ID is required"})
+		return
+	}
+
+	companyID, exists := c.Get("companyID")
+	if !exists {
+		h.logger.Warn("companyID not found in context")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Get existing invitation
+	invitation, err := h.invitationSvc.GetByID(invitationID)
+	if err != nil || invitation == nil {
+		h.logger.Error("invitation not found",
+			zap.String("invitation_id", invitationID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invitation not found"})
+		return
+	}
+
+	// Verify invitation belongs to user's company
+	if invitation.CompanyID != companyID.(string) {
+		h.logger.Warn("unauthorized access to invitation",
+			zap.String("invitation_id", invitationID),
+			zap.String("company_id", companyID.(string)),
+		)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Only cancel pending invitations
+	if invitation.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Can only cancel pending invitations"})
+		return
+	}
+
+	// Cancel the invitation (update status to cancelled)
+	err = h.invitationSvc.CancelInvitation(c.Request.Context(), invitationID)
+	if err != nil {
+		h.logger.Error("failed to cancel invitation",
+			zap.String("invitation_id", invitationID),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invitation"})
+		return
+	}
+
+	h.logger.Info("invitation cancelled",
+		zap.String("invitation_id", invitationID),
+		zap.String("email", invitation.Email),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Invitation cancelled successfully",
 	})
 }

@@ -228,6 +228,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 		teamInvitationRepo,
 		svcs.outboxRepo,
 		svcs.outboxTrigger,
+		userRepo,
 		cfg.WebAPI.OutboxEncryptionKey,
 		cfg.WebAPI.FrontendURL,
 		logger,
@@ -237,7 +238,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	return &appHandlers{
 		auth:           handlers.NewAuthHandler(svcs.authService),
 		user:           handlers.NewUserHandler(userRepo, companyRepo, apiKeySvc),
-		apiKey:         handlers.NewAPIKeyHandler(apiKeySvc),
+		apiKey:         handlers.NewAPIKeyHandler(apiKeySvc, userRepo),
 		serviceAccount: handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
 		role:           handlers.NewRoleHandler(rbacLoader),
 		codeSamples:    handlers.NewCodeSamplesHandler("./code_samples"),
@@ -245,8 +246,10 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 		graphqlProxy:   handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
 		agent: handlers.NewAgentHandler(
 			cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+			cfg.WebAPI.ThreadifyEngine.URL,
 			cfg.WebAPI.OpenAIAPIKey,
 			agentRepo,
+			userRepo,
 			cfg.WebAPI.Agent.MaxMessages,
 			cfg.WebAPI.Agent.MaxTokens,
 			cfg.WebAPI.Agent.SummaryMaxTokens,
@@ -289,6 +292,9 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
 
+	// Public invitation validation endpoint (no auth required for signup flow)
+	r.POST("/api/team/invitation/validate", h.teamInvitation.ValidateInvitation)
+
 	userRoleRepo := repository.NewUserRoleRepository(db)
 	serviceAccountRepo := repository.NewServiceAccountRepository(db)
 
@@ -297,18 +303,22 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 
 	user := api.Group("/user")
 	{
+		user.GET("/profile", h.user.GetProfile)
 		user.POST("/profile", h.user.UpdateProfile)
 		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
 	}
 
-	team := api.Group("/team")
-	{
-		team.POST("/invitations", h.teamInvitation.SendInvitation)
-		team.POST("/invitation/validate", h.teamInvitation.ValidateInvitation)
-	}
-
 	requirePerm := func(perm string) gin.HandlerFunc {
 		return rbac.RequirePermission(rbacLoader, userRoleRepo, serviceAccountRepo, perm)
+	}
+
+	team := api.Group("/team")
+	{
+		team.GET("/members", requirePerm("member.view"), h.user.ListTeamMembers)
+		team.POST("/invitations", requirePerm("member.invite"), h.teamInvitation.SendInvitation)
+		team.GET("/invitations", requirePerm("member.view"), h.teamInvitation.ListInvitations)
+		team.POST("/invitations/:id/resend", requirePerm("member.invite"), h.teamInvitation.ResendInvitation)
+		team.DELETE("/invitations/:id", requirePerm("member.invite"), h.teamInvitation.CancelInvitation)
 	}
 
 	api.POST("/api-keys", requirePerm("apikey.create"), h.apiKey.CreateAPIKey)

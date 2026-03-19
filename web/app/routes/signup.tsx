@@ -31,7 +31,7 @@ export default function Signup() {
   const [loadingInvitation, setLoadingInvitation] = useState(false);
 
   useEffect(() => {
-    const token = searchParams.get('token');
+    const token = searchParams.get('invitation_token');
     const email = searchParams.get('email');
     
     if (token) {
@@ -45,7 +45,9 @@ export default function Signup() {
             setCompanyName(data.company_name);
             setFormData(prev => ({ ...prev, company_name: data.company_name }));
           }
-          if (email) {
+          if (data.email) {
+            setFormData(prev => ({ ...prev, email: data.email }));
+          } else if (email) {
             setFormData(prev => ({ ...prev, email }));
           }
         })
@@ -159,7 +161,12 @@ export default function Signup() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
+                disabled={!!invitationToken}
+                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 ${
+                  invitationToken 
+                    ? 'border-gray-300 bg-gray-50 text-gray-700 cursor-not-allowed' 
+                    : 'border-black focus:ring-black'
+                }`}
                 placeholder="you@company.com"
               />
             </div>

@@ -32,14 +32,14 @@ func (r *AgentRepository) CreateConversationWithParent(conv *models.AgentConvers
 	return err
 }
 
-func (r *AgentRepository) GetConversations(userID string) ([]models.AgentConversation, error) {
+func (r *AgentRepository) GetConversations(companyID string) ([]models.AgentConversation, error) {
 	query := `SELECT id, user_id, company_id, title, message_count, token_count, created_at, updated_at 
 	          FROM agent_conversations 
-	          WHERE user_id = $1 
+	          WHERE company_id = $1 
 	          ORDER BY updated_at DESC 
 	          LIMIT 50`
 
-	rows, err := r.db.Query(query, userID)
+	rows, err := r.db.Query(query, companyID)
 	if err != nil {
 		return nil, err
 	}

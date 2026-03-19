@@ -87,16 +87,6 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return err
 	}
 
-	existing, err := s.userRepo.FindByEmail(req.Email)
-	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-		s.logger.Error("failed to check existing user", zap.Error(err))
-		return fmt.Errorf("check existing user: %w", err)
-	}
-	if existing != nil {
-		s.logger.Warn("user already exists")
-		return ErrUserAlreadyExists
-	}
-
 	now := time.Now()
 	var company *models.Company
 	var invitation *models.TeamInvitation
@@ -119,9 +109,6 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		if time.Now().After(inv.ExpiresAt) {
 			return fmt.Errorf("invitation has expired")
 		}
-		if !strings.EqualFold(inv.Email, req.Email) {
-			return fmt.Errorf("email does not match invitation")
-		}
 
 		// Get existing company
 		company, err = s.companyRepo.FindByID(inv.CompanyID)
@@ -132,7 +119,32 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 
 		invitation = inv
 		userRole = inv.Role
+
+		// Override email from invitation token (don't trust frontend)
+		req.Email = inv.Email
+
+		// Check if user already exists (using email from invitation)
+		existing, err := s.userRepo.FindByEmail(req.Email)
+		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+			s.logger.Error("failed to check existing user", zap.Error(err))
+			return fmt.Errorf("check existing user: %w", err)
+		}
+		if existing != nil {
+			s.logger.Warn("user already exists")
+			return ErrUserAlreadyExists
+		}
 	} else {
+		// Regular signup - check if user already exists
+		existing, err := s.userRepo.FindByEmail(req.Email)
+		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+			s.logger.Error("failed to check existing user", zap.Error(err))
+			return fmt.Errorf("check existing user: %w", err)
+		}
+		if existing != nil {
+			s.logger.Warn("user already exists")
+			return ErrUserAlreadyExists
+		}
+
 		// Creating new company
 		company = &models.Company{
 			ID:        utils.GenerateID(),
@@ -145,6 +157,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		}
 	}
 
+	// New user signup (either regular or invitation-based)
 	user := &models.User{
 		ID:        utils.GenerateID(),
 		CompanyID: company.ID,
@@ -184,10 +197,10 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return fmt.Errorf("create outbox event: %w", err)
 	}
 
-	// Mark invitation as accepted if applicable
+	// Delete invitation after successful signup
 	if invitation != nil {
-		if err := s.invitationRepo.MarkAcceptedTx(tx, invitation.ID, user.ID); err != nil {
-			return fmt.Errorf("mark invitation accepted: %w", err)
+		if err := s.invitationRepo.DeleteTx(tx, invitation.ID); err != nil {
+			return fmt.Errorf("delete invitation: %w", err)
 		}
 	}
 

@@ -18,6 +18,7 @@ type TeamInvitationService struct {
 	invitationRepo *repository.TeamInvitationRepository
 	outboxRepo     *repository.OutboxRepository
 	outboxWorker   OutboxWorkerTrigger
+	userRepo       *repository.UserRepository
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
@@ -27,6 +28,7 @@ func NewTeamInvitationService(
 	invitationRepo *repository.TeamInvitationRepository,
 	outboxRepo *repository.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
+	userRepo *repository.UserRepository,
 	encryptionKey string,
 	frontendURL string,
 	logger *zap.Logger,
@@ -42,6 +44,7 @@ func NewTeamInvitationService(
 		invitationRepo: invitationRepo,
 		outboxRepo:     outboxRepo,
 		outboxWorker:   outboxWorker,
+		userRepo:       userRepo,
 		encryptionKey:  key,
 		frontendURL:    frontendURL,
 		logger:         logger,
@@ -54,6 +57,12 @@ func (s *TeamInvitationService) SendInvitation(
 	companyID, email, role, invitedBy string,
 	expiryDuration time.Duration,
 ) (*models.TeamInvitation, error) {
+	// Check if user already exists
+	existingUser, err := s.userRepo.FindByEmail(email)
+	if err == nil && existingUser != nil {
+		return nil, fmt.Errorf("user with email %s already has an account", email)
+	}
+
 	// Generate invitation token
 	token := utils.GenerateID()
 	invitationID := utils.GenerateID()
@@ -180,7 +189,46 @@ func (s *TeamInvitationService) GetByCompanyAndEmail(companyID, email string) (*
 	return s.invitationRepo.GetPendingByCompanyAndEmail(companyID, email)
 }
 
+// GetByID retrieves an invitation by ID
+func (s *TeamInvitationService) GetByID(invitationID string) (*models.TeamInvitation, error) {
+	return s.invitationRepo.GetByID(invitationID)
+}
+
 // ListByCompany retrieves all invitations for a company
 func (s *TeamInvitationService) ListByCompany(companyID string) ([]*models.TeamInvitation, error) {
 	return s.invitationRepo.ListByCompany(companyID)
+}
+
+// CancelInvitation cancels a pending invitation
+func (s *TeamInvitationService) CancelInvitation(ctx context.Context, invitationID string) error {
+	return s.invitationRepo.UpdateStatus(invitationID, "cancelled")
+}
+
+// RefreshInvitation updates an existing invitation with a new token and expiry, and resends the email
+func (s *TeamInvitationService) RefreshInvitation(ctx context.Context, invitation *models.TeamInvitation, duration time.Duration) (*models.TeamInvitation, error) {
+	// Generate new token
+	newToken := utils.GenerateID()
+	expiresAt := time.Now().Add(duration)
+
+	// Update invitation in database
+	err := s.invitationRepo.RefreshInvitation(invitation.ID, newToken, expiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh invitation: %w", err)
+	}
+
+	// Update invitation object
+	invitation.Token = newToken
+	invitation.ExpiresAt = expiresAt
+
+	// Queue email via outbox (reuse existing method)
+	if err := s.queueInvitationEmail(ctx, invitation); err != nil {
+		s.logger.Error("failed to queue invitation email",
+			zap.String("invitation_id", invitation.ID),
+			zap.String("email", invitation.Email),
+			zap.Error(err),
+		)
+		// Don't fail the refresh if email queueing fails
+	}
+
+	return invitation, nil
 }

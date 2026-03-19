@@ -66,6 +66,41 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	return user, nil
 }
 
+func (r *UserRepository) ListByCompanyID(companyID string) ([]*models.User, error) {
+	const query = `
+        SELECT id, company_id, email, auth_user_id, full_name, job_role,
+            email_verified, onboarding_completed, first_instrumentation_done,
+            created_at, updated_at, last_login_at
+        FROM users WHERE company_id = $1
+        ORDER BY created_at ASC
+    `
+	rows, err := r.db.Query(query, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("list users by company: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		user := &models.User{}
+		if err := rows.Scan(
+			&user.ID, &user.CompanyID, &user.Email, &user.AuthUserID,
+			&user.FullName, &user.JobRole, &user.EmailVerified,
+			&user.OnboardingCompleted, &user.FirstInstrumentationDone,
+			&user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users: %w", err)
+	}
+
+	return users, nil
+}
+
 func (r *UserRepository) FindByID(id string) (*models.User, error) {
 	user := &models.User{}
 	const query = `

@@ -16,8 +16,10 @@ import (
 )
 
 type PreviewResponse struct {
-	Valid  bool     `json:"valid"`
-	Errors []string `json:"errors,omitempty"`
+	Valid    bool        `json:"valid"`
+	Errors   []string    `json:"errors,omitempty"`
+	Graph    interface{} `json:"graph,omitempty"`
+	Contract interface{} `json:"contract,omitempty"`
 }
 
 type ContractHandler struct {
@@ -200,7 +202,7 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	_, _, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
+	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
 	if err != nil {
 		h.logger.Error("failed to preview contract", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})
@@ -216,5 +218,9 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, PreviewResponse{Valid: true})
+	c.JSON(http.StatusOK, PreviewResponse{
+		Valid:    true,
+		Graph:    graph,
+		Contract: contract,
+	})
 }

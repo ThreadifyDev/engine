@@ -27,6 +27,7 @@ export default function Onboarding() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [skipCompanyStep, setSkipCompanyStep] = useState(false);
 
   useEffect(() => {
     // Redirect if not authenticated
@@ -35,15 +36,42 @@ export default function Onboarding() {
       return;
     }
 
+    const user = api.getStoredUser();
+    
     // Redirect if already onboarded
     if (user?.onboarding_completed) {
       navigate('/u/dashboard');
+      return;
     }
-  }, [navigate, user]);
+    
+    // Check if user joined via invitation (company info already exists)
+    // Only run once on mount
+    const checkCompanyStatus = async () => {
+      try {
+        const response = await api.getUserProfile();
+        
+        // Backend now returns { company: { details_completed: boolean } }
+        if (response.company?.details_completed) {
+          setSkipCompanyStep(true);
+        }
+      } catch (err) {
+        // If we can't check, default to showing both steps
+        console.error('Failed to check company status:', err);
+      }
+    };
+    
+    checkCompanyStatus();
+  }, [navigate]); // Only run on mount and when navigate changes
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
-    setStep(2);
+    
+    // If company step should be skipped, submit directly
+    if (skipCompanyStep) {
+      handleSubmit(e);
+    } else {
+      setStep(2);
+    }
   };
 
   const handleBack = () => {
@@ -57,13 +85,17 @@ export default function Onboarding() {
 
     try {
       // Prepare data - use "Other" text if selected, otherwise use dropdown value
-      const profileData = {
+      const profileData: any = {
         full_name: formData.full_name,
         job_role: formData.job_role === 'Other' ? formData.job_role_other : formData.job_role,
-        industry: formData.industry === 'Other' ? formData.industry_other : formData.industry,
-        company_size: formData.company_size,
-        use_case: formData.use_case === 'Other' ? formData.use_case_other : formData.use_case,
       };
+      
+      // Only include company data if we're not skipping the company step
+      if (!skipCompanyStep) {
+        profileData.industry = formData.industry === 'Other' ? formData.industry_other : formData.industry;
+        profileData.company_size = formData.company_size;
+        profileData.use_case = formData.use_case === 'Other' ? formData.use_case_other : formData.use_case;
+      }
 
       // Call API to update profile
       const response = await api.updateProfile(profileData);

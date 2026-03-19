@@ -140,8 +140,8 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 		}
 	}
 
-	// Validate max_duration in validation section
-	if !v.isValidDuration(contract.Validation.MaxDuration) {
+	// Validate max_duration in validation section (optional field)
+	if contract.Validation.MaxDuration != "" && !v.isValidDuration(contract.Validation.MaxDuration) {
 		errors = append(errors, ValidationError{
 			Field:   "validation.max_duration",
 			Message: "Invalid duration format. Use: s, ms, us, m, h, or d (e.g., '2s', '3d')",

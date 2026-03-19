@@ -34,32 +34,38 @@ type ChatRequest struct {
 }
 
 type AgentHandler struct {
-	threadifyEngineURL string
-	httpClient         *http.Client
-	openaiClient       *openai.Client
-	agentRepo          *repository.AgentRepository
-	maxMessages        int
-	maxTokens          int
-	summaryMaxTokens   int
-	logger             *zap.Logger
+	engineGraphQLURL string
+	engineBaseURL    string
+	httpClient       *http.Client
+	openaiClient     *openai.Client
+	agentRepo        *repository.AgentRepository
+	userRepo         *repository.UserRepository
+	maxMessages      int
+	maxTokens        int
+	summaryMaxTokens int
+	logger           *zap.Logger
 }
 
 func NewAgentHandler(
-	threadifyEngineURL string,
+	engineGraphQLURL string,
+	engineBaseURL string,
 	apiKey string,
 	agentRepo *repository.AgentRepository,
+	userRepo *repository.UserRepository,
 	maxMessages, maxTokens, summaryMaxTokens int,
 	logger *zap.Logger,
 ) *AgentHandler {
 	return &AgentHandler{
-		threadifyEngineURL: threadifyEngineURL,
-		httpClient:         &http.Client{Timeout: 30 * time.Second},
-		openaiClient:       openai.NewClient(apiKey),
-		agentRepo:          agentRepo,
-		maxMessages:        maxMessages,
-		maxTokens:          maxTokens,
-		summaryMaxTokens:   summaryMaxTokens,
-		logger:             logger,
+		engineGraphQLURL: engineGraphQLURL,
+		engineBaseURL:    engineBaseURL,
+		httpClient:       &http.Client{Timeout: 30 * time.Second},
+		openaiClient:     openai.NewClient(apiKey),
+		agentRepo:        agentRepo,
+		userRepo:         userRepo,
+		maxMessages:      maxMessages,
+		maxTokens:        maxTokens,
+		summaryMaxTokens: summaryMaxTokens,
+		logger:           logger,
 	}
 }
 
@@ -74,7 +80,7 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", h.threadifyEngineURL, bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequest("POST", h.engineGraphQLURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +103,70 @@ func (h *AgentHandler) executeGraphQL(authHeader, query string, variables map[st
 	return string(respBody), nil
 }
 
-// Chat handles natural language queries related to thread analysis
+// classifyIntent asks a lightweight LLM model to classify the intent of the user's message
+func (h *AgentHandler) classifyIntent(message string, history []*models.AgentMessage) string {
+	systemPrompt := `You are an intent router for Threadify. Your job is to classify the user's request into one of two categories:
+1. "contract_builder": The user wants to design, create, update, or preview a workflow contract/YAML. 
+   Keywords: contract, workflow, YAML, yaml, builder, create flow, preview.
+   IMPORTANT: If user wants to "create contract FROM thread" or "generate contract from execution", route to contract_builder.
+2. "thread_analyzer": The user wants to query, analyze, debug, or look up existing execution threads or customer requests.
+   Keywords: thread, execution, failed step, order, customer, find thread, analyze.
+   IMPORTANT: Only use this if user wants to analyze/query threads WITHOUT creating a contract.
+
+Respond with ONLY the exact string "contract_builder" or "thread_analyzer". No other text.`
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		},
+	}
+
+	// Add the last 3 user/assistant messages for context (skip tool messages and empty content)
+	startIdx := len(history) - 3
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	for i := startIdx; i < len(history); i++ {
+		// Skip tool messages and messages with empty content
+		if history[i].Role == "tool" || history[i].Content == "" {
+			continue
+		}
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    history[i].Role,
+			Content: history[i].Content,
+		})
+	}
+
+	// Add current message
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: message,
+	})
+
+	req := openai.ChatCompletionRequest{
+		Model:       "gpt-4o-mini", // Fast model for routing
+		Messages:    messages,
+		Temperature: 0.1,
+		MaxTokens:   10,
+	}
+
+	resp, err := h.openaiClient.CreateChatCompletion(context.Background(), req)
+	if err != nil {
+		h.logger.Error("failed to classify intent, defaulting to thread_analyzer", zap.Error(err))
+		return "thread_analyzer"
+	}
+
+	intent := resp.Choices[0].Message.Content
+	if intent == "contract_builder" || intent == "thread_analyzer" {
+		return intent
+	}
+
+	return "thread_analyzer" // Default fallback
+}
+
+// classifyIntent asks a lightweight LLM model to classify the intent of the user's message
+// Chat handles natural language queries related to thread analysis and contract building
 func (h *AgentHandler) Chat(c *gin.Context) {
 	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
@@ -144,6 +213,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 
 	convID := chatReq.ConversationID
 	isNewConversation := false
+	var err error
 
 	if convID == "" {
 		convID = uuid.New().String()
@@ -152,7 +222,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		if len(title) > 30 {
 			title = title[:30] + "..."
 		}
-		err := h.agentRepo.CreateConversation(&models.AgentConversation{
+		err = h.agentRepo.CreateConversation(&models.AgentConversation{
 			ID:        convID,
 			UserID:    userID.(string),
 			CompanyID: companyID.(string),
@@ -164,10 +234,24 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	} else {
 		// verify existence + permission by loading messages
 		// we should actually check if companyID matches
+		convs, err := h.agentRepo.GetConversations(companyID.(string))
+		if err == nil {
+			owns := false
+			for _, conv := range convs {
+				if conv.ID == convID {
+					owns = true
+					break
+				}
+			}
+			if !owns {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to continue this conversation"})
+				return
+			}
+		}
 	}
 
 	// Save the user's message
-	err := h.agentRepo.AddMessage(&models.AgentMessage{
+	err = h.agentRepo.AddMessage(&models.AgentMessage{
 		ID:             uuid.New().String(),
 		ConversationID: convID,
 		Role:           "user",
@@ -177,12 +261,118 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		h.logger.Error("failed to save user message", zap.Error(err))
 	}
 
-	// 1. Initial State (LangGraph pattern) -> Loading History vs Fresh
-	// Build skill-specific system prompt
-	var roleDescription string
-	switch chatReq.Skill {
-	case "support":
-		roleDescription = `You are a Customer Support AI for Threadify. Your goal is to help support teams quickly diagnose and resolve customer issues.
+	var historyMessages []*models.AgentMessage
+	if !isNewConversation {
+		historyMessages, _ = h.agentRepo.GetMessages(convID)
+	}
+
+	// Determine intent using a fast LLM classification
+	intent := h.classifyIntent(chatReq.Message, historyMessages)
+
+	// Build skill-specific system prompt based on intent
+	var systemPromptContent string
+	var tools []openai.Tool
+
+	if intent == "contract_builder" {
+		systemPromptContent = `You are the Threadify Contract Builder AI. Your goal is to help users design, write, and refine workflow contracts in YAML format.
+
+FOCUS:
+- Understand the user's business process requirements
+- Generate valid Threadify Contract YAML
+- Refine existing YAML based on user feedback
+- Explain contract rules when asked
+
+CRITICAL RESPONSE RULES (MUST FOLLOW):
+- WARNING: NEVER EVER return YAML content directly in your text response to the user
+- WARNING: NEVER include YAML in markdown code blocks in your response
+- REQUIRED: ALWAYS call the 'preview_contract' tool immediately after generating YAML
+- REQUIRED: The preview_contract tool will automatically open a visual side panel for the user
+- REQUIRED: After calling preview_contract, provide ONLY a brief 1-2 sentence summary
+- GOOD EXAMPLE: "I've updated the contract to assign shipping steps to Sendy. The preview shows 8 steps with 2 parties."
+- BAD EXAMPLE: Including any YAML text or code blocks in your message
+- If validation errors occur, call preview_contract again with the corrected YAML
+- IMPORTANT: The user CANNOT see YAML in chat - they ONLY see it in the preview panel via the tool call
+
+CONTRACT SCHEMA RULES:
+1. Every contract must have: contract_name, version (int), description, parties (list of strings), steps (list).
+2. Steps must have: id, owner (must be in parties), type (managed, external, human_in_loop).
+3. Optional step fields: timeout (e.g., '5m', '30s'), business_context (required/optional lists of fields).
+4. Entry points: Must specify 'entry_points' list referencing valid step IDs.
+5. Transitions: list of objects with 'from' (string), 'to' (list of strings), 'max_retries' (optional int).
+6. Terminal steps: Must specify 'terminal_steps' list referencing valid step IDs.
+
+EXAMPLE YAML:
+contract_name: simple_order
+version: 1
+description: A simple order flow
+entry_points: [order_placed]
+parties: [merchant]
+steps:
+  - id: order_placed
+    owner: merchant
+    type: managed
+  - id: order_shipped
+    owner: merchant
+    type: managed
+transitions:
+  - from: order_placed
+    to: [order_shipped]
+terminal_steps: [order_shipped]
+
+CREATING CONTRACTS FROM THREADS:
+When user asks to "create contract from thread X":
+1. Call execute_graphql to fetch thread data: query { thread(id: "X") { steps { stepName actor } } }
+2. Extract unique step names and actors from the response
+3. Generate a contract YAML with those steps in execution order
+4. Call preview_contract with the generated YAML
+`
+		tools = []openai.Tool{
+			{
+				Type: openai.ToolTypeFunction,
+				Function: &openai.FunctionDefinition{
+					Name:        "preview_contract",
+					Description: "Preview and validate a Threadify Contract YAML. This will render the contract graphically for the user.",
+					Parameters: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"yaml_content": {
+								"type": "string",
+								"description": "The complete, raw YAML string of the contract to preview. Do not wrap in markdown quotes."
+							}
+						},
+						"required": ["yaml_content"]
+					}`),
+				},
+			},
+			{
+				Type: openai.ToolTypeFunction,
+				Function: &openai.FunctionDefinition{
+					Name:        "execute_graphql",
+					Description: "Execute a GraphQL query to fetch thread data for contract generation. Use this when creating contracts from existing thread executions.",
+					Parameters: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "The GraphQL query string to fetch thread data"
+							},
+							"variables": {
+								"type": "object",
+								"description": "Optional variables for the GraphQL query"
+							}
+						},
+						"required": ["query"]
+					}`),
+				},
+			},
+		}
+
+	} else {
+		// Default: thread_analyzer
+		var roleDescription string
+		switch chatReq.Skill {
+		case "support":
+			roleDescription = `You are a Customer Support AI for Threadify. Your goal is to help support teams quickly diagnose and resolve customer issues.
 
 FOCUS:
 - Find the root cause of customer-reported problems
@@ -194,8 +384,8 @@ RESPONSE STYLE:
 - Customer-friendly language
 - Clear problem identification
 - Actionable troubleshooting steps`
-	case "operations":
-		roleDescription = `You are an Operations AI for Threadify. Your goal is to monitor workflow execution and identify operational issues.
+		case "operations":
+			roleDescription = `You are an Operations AI for Threadify. Your goal is to monitor workflow execution and identify operational issues.
 
 FOCUS:
 - Workflow reliability and completion rates
@@ -207,8 +397,8 @@ RESPONSE STYLE:
 - Process-oriented and actionable
 - Highlight anomalies and trends
 - Include metrics and counts`
-	case "business":
-		roleDescription = `You are a Business Intelligence AI for Threadify. Your goal is to provide insights and analytics on workflow performance.
+		case "business":
+			roleDescription = `You are a Business Intelligence AI for Threadify. Your goal is to provide insights and analytics on workflow performance.
 
 FOCUS:
 - Success rates and conversion metrics
@@ -220,13 +410,11 @@ RESPONSE STYLE:
 - Business-oriented language
 - Quantitative insights
 - Strategic recommendations`
-	default:
-		roleDescription = `You are Threadify's thread analyzer. Analyze execution threads using GraphQL queries.`
-	}
+		default:
+			roleDescription = `You are Threadify's thread analyzer. Analyze execution threads using GraphQL queries.`
+		}
 
-	systemPrompt := openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleSystem,
-		Content: roleDescription + `
+		systemPromptContent = roleDescription + `
 
 WORKFLOW:
 1. User asks about threads → call execute_graphql tool
@@ -427,7 +615,57 @@ IMPORTANT:
 - ALWAYS wrap queries in "query { }"
 - Tool results contain the data you need - analyze them
 - Never output raw JSON - always summarize
-- Use save_context to remember important findings`,
+- Use save_context to remember important findings`
+
+		tools = []openai.Tool{
+			{
+				Type: openai.ToolTypeFunction,
+				Function: &openai.FunctionDefinition{
+					Name:        "execute_graphql",
+					Description: "Execute a GraphQL query against the Threadify Engine to retrieve thread execution data",
+					Parameters: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "The GraphQL query string"
+							},
+							"variables": {
+								"type": "object",
+								"description": "Optional variables for the GraphQL query"
+							}
+						},
+						"required": ["query"]
+					}`),
+				},
+			},
+			{
+				Type: openai.ToolTypeFunction,
+				Function: &openai.FunctionDefinition{
+					Name:        "save_context",
+					Description: "Save important context/summary for future reference in this conversation. Use this to remember key findings, thread IDs, or analysis results.",
+					Parameters: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"key": {
+								"type": "string",
+								"description": "A short key describing what this context is (e.g., 'analyzed_thread', 'failed_threads_summary')"
+							},
+							"value": {
+								"type": "string",
+								"description": "The context value to save (e.g., thread ID, summary of findings)"
+							}
+						},
+						"required": ["key", "value"]
+					}`),
+				},
+			},
+		}
+	}
+
+	systemPrompt := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: systemPromptContent,
 	}
 
 	messages := []openai.ChatCompletionMessage{systemPrompt}
@@ -474,50 +712,7 @@ IMPORTANT:
 	}
 
 	// Define the GraphQL execution tool based on LangGraph Tool Calling specification
-	tools := []openai.Tool{
-		{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        "execute_graphql",
-				Description: "Execute a GraphQL query against the Threadify Engine to retrieve thread execution data",
-				Parameters: json.RawMessage(`{
-					"type": "object",
-					"properties": {
-						"query": {
-							"type": "string",
-							"description": "The GraphQL query string"
-						},
-						"variables": {
-							"type": "object",
-							"description": "Optional variables for the GraphQL query"
-						}
-					},
-					"required": ["query"]
-				}`),
-			},
-		},
-		{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        "save_context",
-				Description: "Save important context/summary for future reference in this conversation. Use this to remember key findings, thread IDs, or analysis results.",
-				Parameters: json.RawMessage(`{
-					"type": "object",
-					"properties": {
-						"key": {
-							"type": "string",
-							"description": "A short key describing what this context is (e.g., 'analyzed_thread', 'failed_threads_summary')"
-						},
-						"value": {
-							"type": "string",
-							"description": "The context value to save (e.g., thread ID, summary of findings)"
-						}
-					},
-					"required": ["key", "value"]
-				}`),
-			},
-		},
-	}
+	// Note: We use the dynamic tools array populated above.
 
 	// SSE Header setup
 	c.Writer.Header().Set(service.HeaderContentType, eventStreamContentType)
@@ -530,7 +725,7 @@ IMPORTANT:
 	// 2. The loop (LangGraph edge condition loop)
 	for i := 0; i < 3; i++ { // limit recursion depth
 		req := openai.ChatCompletionRequest{
-			Model:    "gpt-4o-mini",
+			Model:    "gpt-4o",
 			Messages: messages,
 			Tools:    tools,
 			Stream:   true,
@@ -617,7 +812,85 @@ IMPORTANT:
 			c.Writer.Flush()
 
 			// Tool node layer executes logic
-			if currentToolName == "execute_graphql" {
+			if currentToolName == "preview_contract" {
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
+					h.logger.Error("tool args parsing error", zap.Error(err))
+					break
+				}
+
+				yamlContent, _ := args["yaml_content"].(string)
+
+				h.logger.Info("executing preview_contract tool call")
+
+				// Send the preview to the engine
+				req, err := http.NewRequest("POST", h.engineBaseURL+"/v1/contracts/preview", bytes.NewBuffer([]byte(yamlContent)))
+				if err != nil {
+					h.logger.Error("failed to create preview request", zap.Error(err))
+					break
+				}
+				req.Header.Set(service.HeaderAuthorization, authHeader)
+				req.Header.Set(service.HeaderContentType, "text/plain")
+
+				resp, err := h.httpClient.Do(req)
+				var engineOutput string
+				if err != nil {
+					engineOutput = fmt.Sprintf("{\"error\": \"%v\"}", err)
+				} else {
+					defer resp.Body.Close()
+					respBody, _ := io.ReadAll(resp.Body)
+					engineOutput = string(respBody)
+				}
+
+				// Add tool result to messages
+				toolResultMsg := openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					Content:    engineOutput,
+					ToolCallID: currentToolId,
+				}
+				messages = append(messages, toolResultMsg)
+
+				// Save tool call to DB
+				toolCallJSON, _ := json.Marshal([]openai.ToolCall{
+					{
+						ID:   currentToolId,
+						Type: openai.ToolTypeFunction,
+						Function: openai.FunctionCall{
+							Name:      currentToolName,
+							Arguments: currentToolArgs,
+						},
+					},
+				})
+				tcStr := string(toolCallJSON)
+
+				_ = h.agentRepo.AddMessage(&models.AgentMessage{
+					ID:             uuid.New().String(),
+					ConversationID: convID,
+					Role:           "assistant",
+					Content:        "",
+					ToolCalls:      &tcStr,
+				})
+
+				_ = h.agentRepo.AddMessage(&models.AgentMessage{
+					ID:             uuid.New().String(),
+					ConversationID: convID,
+					Role:           "tool",
+					Content:        engineOutput,
+					ToolCallID:     &currentToolId,
+				})
+
+				// Send tool call info to frontend via SSE for the side-panel
+				toolCallData := map[string]string{
+					"yaml":     yamlContent,
+					"response": engineOutput,
+				}
+				toolCallDataJSON, _ := json.Marshal(toolCallData)
+				c.SSEvent("contract_preview", string(toolCallDataJSON))
+				c.Writer.Flush()
+
+				continue
+
+			} else if currentToolName == "execute_graphql" {
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
 					h.logger.Error("tool args parsing error", zap.Error(err))
@@ -800,15 +1073,15 @@ IMPORTANT:
 
 // GetConversations lists recent conversations for a user
 func (h *AgentHandler) GetConversations(c *gin.Context) {
-	userID, exists := c.Get("userID")
+	companyID, exists := c.Get("companyID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	convs, err := h.agentRepo.GetConversations(userID.(string))
+	convs, err := h.agentRepo.GetConversations(companyID.(string))
 	if err != nil {
-		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("userID", userID.(string)))
+		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("companyID", companyID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -819,22 +1092,31 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 // GetConversation returns a specific conversation history
 func (h *AgentHandler) GetConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, exists := c.Get("userID")
+	companyID, exists := c.Get("companyID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	// Quick authorization - ensure user owns the conversation
-	convs, err := h.agentRepo.GetConversations(userID.(string))
+	// Quick authorization - ensure company owns the conversation
+	convs, err := h.agentRepo.GetConversations(companyID.(string))
 	if err != nil {
-		h.logger.Error("failed to load conversations for authorization", zap.Error(err), zap.String("userID", userID.(string)))
+		h.logger.Error("failed to load conversations for authorization", zap.Error(err), zap.String("companyID", companyID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation history"})
 		return
 	}
 
+	h.logger.Info("loaded conversations for authorization check",
+		zap.String("companyID", companyID.(string)),
+		zap.String("requestedConvID", convID),
+		zap.Int("totalConversations", len(convs)))
+
 	owns := false
 	for _, conv := range convs {
+		h.logger.Debug("checking conversation",
+			zap.String("convID", conv.ID),
+			zap.String("convCompanyID", conv.CompanyID),
+			zap.String("convUserID", conv.UserID))
 		if conv.ID == convID {
 			owns = true
 			break
@@ -842,7 +1124,7 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 	}
 
 	if !owns {
-		h.logger.Warn("user attempted to access unauthorized conversation", zap.String("userID", userID.(string)), zap.String("conversationID", convID))
+		h.logger.Warn("user attempted to access unauthorized conversation", zap.String("companyID", companyID.(string)), zap.String("conversationID", convID))
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
 		return
 	}
@@ -871,8 +1153,8 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 		return
 	}
 
-	// Verify user owns the parent conversation
-	convs, err := h.agentRepo.GetConversations(userID.(string))
+	// Verify company owns the parent conversation
+	convs, err := h.agentRepo.GetConversations(companyID.(string))
 	if err != nil {
 		h.logger.Error("failed to load conversations for parent verification", zap.Error(err), zap.String("userID", userID.(string)))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
@@ -918,10 +1200,10 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	var summary string
 	if len(conversationHistory) > 0 {
 		summaryReq := openai.ChatCompletionRequest{
-			Model: "gpt-4o-mini",
+			Model: "gpt-4o",
 			Messages: []openai.ChatCompletionMessage{
 				{
-					Role:    "system",
+					Role:    openai.ChatMessageRoleSystem,
 					Content: "You are a helpful assistant that creates concise summaries of conversations. Preserve all important facts, decisions, code snippets, thread IDs, technical details, and context. Be comprehensive but concise.",
 				},
 				{

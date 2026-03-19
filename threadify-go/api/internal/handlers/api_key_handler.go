@@ -3,25 +3,40 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
 
 type APIKeyHandler struct {
 	apiKeyService *service.APIKeyService
+	userRepo      *repository.UserRepository
 }
 
-func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
+func NewAPIKeyHandler(apiKeyService *service.APIKeyService, userRepo *repository.UserRepository) *APIKeyHandler {
 	return &APIKeyHandler{
 		apiKeyService: apiKeyService,
+		userRepo:      userRepo,
 	}
 }
 
 // CreateAPIKey generates a new API key
 func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
-	userID, _ := c.Get("userID")
+	authUserID, _ := c.Get("authUserID")
 	companyID, _ := c.Get("companyID")
+
+	// Look up user by auth_user_id to get internal ID
+	user, err := h.userRepo.FindByAuthUserID(authUserID.(string))
+	if err != nil {
+		if errors.Is(err, serror.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		return
+	}
 
 	var req service.CreateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -29,7 +44,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	response, err := h.apiKeyService.CreateAPIKey(userID.(string), companyID.(string), &req)
+	response, err := h.apiKeyService.CreateAPIKey(user.ID, companyID.(string), &req)
 	if err != nil {
 		if errors.Is(err, service.ErrApiKeyNameRequired) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

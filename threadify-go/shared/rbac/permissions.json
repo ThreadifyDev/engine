@@ -85,6 +85,21 @@
       "is_wildcard": true
     },
     {
+      "name": "member.invite",
+      "description": "Invite members to the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.remove",
+      "description": "Remove members from the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.view",
+      "description": "View members in the organization",
+      "is_wildcard": false
+    },
+    {
       "name": "serviceaccount.create",
       "description": "Create service accounts",
       "is_wildcard": false
