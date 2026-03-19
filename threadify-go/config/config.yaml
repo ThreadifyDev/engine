@@ -245,7 +245,7 @@ web_api:
   # AI Agent conversation limits
   agent:
     max_messages: 100    # Maximum messages per conversation
-    max_tokens: 1000  # Maximum tokens per conversation (1M tokens)
+    max_tokens: 100000  # Maximum tokens per conversation (100K tokens)
     summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency

@@ -53,7 +53,8 @@ func ExtractBearerToken(authHeader string) (string, error) {
 }
 
 func SetGinContextFromClaims(c *gin.Context, claims *TokenClaims) {
-	c.Set(CtxUserID, claims.UserID)
+	c.Set(CtxUserID, claims.UserID)         // Internal Threadify user ID
+	c.Set(CtxAuthUserID, claims.AuthUserID) // Supabase auth_user_id (for RBAC)
 	c.Set(CtxCompanyID, claims.CompanyID)
 	c.Set(CtxEmail, claims.Email)
 	c.Set(CtxRoles, claims.Roles)

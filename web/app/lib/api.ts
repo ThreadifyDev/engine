@@ -271,6 +271,18 @@ class ApiClient {
     });
   }
 
+  async getUserProfile(): Promise<{ user: User; company: any }> {
+    return this.request('/user/profile', {
+      method: 'GET',
+    });
+  }
+
+  async getTeamMembers(): Promise<{ members: User[] }> {
+    return this.request('/team/members', {
+      method: 'GET',
+    });
+  }
+
   // Contract Management (proxy to ThreadifyEngine)
   async getAllContracts(): Promise<any> {
     return this.request('/contracts');
@@ -554,6 +566,42 @@ class ApiClient {
     return this.request('/team/invitations', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async listInvitations(): Promise<{
+    invitations: Array<{
+      id: string;
+      email: string;
+      role: string;
+      status: string;
+      invited_by: string;
+      expires_at: number;
+      created_at: number;
+    }>;
+  }> {
+    return this.request('/team/invitations');
+  }
+
+  async resendInvitation(invitationId: string): Promise<{
+    success: boolean;
+    invitationId?: string;
+    expiresAt?: number;
+    message?: string;
+    error?: string;
+  }> {
+    return this.request(`/team/invitations/${invitationId}/resend`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelInvitation(invitationId: string): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }> {
+    return this.request(`/team/invitations/${invitationId}`, {
+      method: 'DELETE',
     });
   }
 }

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check } from 'lucide-react';
+import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, Plus, X, AlertTriangle } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
+import ContractGraphView from './ContractGraphView';
 
 interface Message {
   id: string;
@@ -14,6 +15,10 @@ interface Message {
   relatedToolCall?: {
     query: string;
     response: string;
+  };
+  contractPreview?: {
+    yaml: string;
+    response: any;
   };
 }
 
@@ -41,6 +46,13 @@ export default function ThreadChat() {
   const [limitError, setLimitError] = useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [copiedThreadId, setCopiedThreadId] = useState<string | null>(null);
+  
+  // Contract Preview State
+  const [previewData, setPreviewData] = useState<{ yaml: string, response: any } | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isCreatingContract, setIsCreatingContract] = useState(false);
+  const [activeTab, setActiveTab] = useState<'diagram' | 'yaml'>('diagram');
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -107,11 +119,21 @@ export default function ThreadChat() {
           if (prevMsg?.role === 'tool' && prevPrevMsg?.role === 'assistant' && prevPrevMsg.tool_calls) {
             try {
               const toolCalls = JSON.parse(prevPrevMsg.tool_calls);
-              if (toolCalls && toolCalls[0]?.function?.name === 'execute_graphql') {
-                const args = JSON.parse(toolCalls[0].function.arguments);
+              const toolCall = toolCalls?.[0];
+              
+              if (toolCall?.function?.name === 'execute_graphql') {
+                const args = JSON.parse(toolCall.function.arguments);
                 processedMsg.relatedToolCall = {
                   query: args.query || '',
                   response: prevMsg.content || '',
+                };
+              } else if (toolCall?.function?.name === 'preview_contract') {
+                // Reconstruct contract preview from tool call
+                const args = JSON.parse(toolCall.function.arguments);
+                const engineResponse = JSON.parse(prevMsg.content || '{}');
+                processedMsg.contractPreview = {
+                  yaml: args.yaml_content || '',
+                  response: engineResponse,
                 };
               }
             } catch (e) {
@@ -141,6 +163,8 @@ export default function ThreadChat() {
     setTokenCount(0);
     setMessageCount(0);
     setLimitError(null);
+    setPreviewData(null);
+    setIsPreviewOpen(false);
     
     // Clear last conversation from localStorage
     localStorage.removeItem('lastConversationId');
@@ -371,6 +395,30 @@ export default function ThreadChat() {
                 } catch (e) {
                   // Ignore parsing errors
                 }
+              } else if (currentEvent === 'contract_preview') {
+                try {
+                  const previewCallData = JSON.parse(data.trim());
+                  console.log('[CONTRACT_PREVIEW] Raw data:', previewCallData);
+                  const engineResponse = JSON.parse(previewCallData.response);
+                  console.log('[CONTRACT_PREVIEW] Parsed engine response:', engineResponse);
+                  
+                  const contractData = {
+                    yaml: previewCallData.yaml,
+                    response: engineResponse
+                  };
+                  
+                  setPreviewData(contractData);
+                  setIsPreviewOpen(true);
+                  
+                  // Store contract preview in the assistant message for later viewing
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === assistantMessageId 
+                      ? { ...msg, contractPreview: contractData }
+                      : msg
+                  ));
+                } catch (e) {
+                  console.error('[CONTRACT_PREVIEW] Parse error:', e);
+                }
               } else if (currentEvent === 'done') {
                 // Stream complete
                 break;
@@ -394,10 +442,45 @@ export default function ThreadChat() {
     }
   };
 
+  const handleCreateContract = async () => {
+    if (!previewData || previewData.response?.Errors?.length > 0) return;
+    
+    setIsCreatingContract(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const apiUrl = (window as any).__ENV__?.API_URL || 'http://localhost:3001';
+      
+      const response = await fetch(`${apiUrl}/api/v1/contracts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: previewData.yaml,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.message || 'Failed to create contract');
+      }
+      
+      alert('Contract created successfully!');
+      setIsPreviewOpen(false);
+      setPreviewData(null);
+      
+    } catch (err: any) {
+      alert(err.message || 'An error occurred while creating the contract');
+    } finally {
+      setIsCreatingContract(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header with Custom Conversation Dropdown */}
-      <div className="border-b border-gray-200 px-4 py-3 bg-white">
+    <div className="flex h-screen relative overflow-hidden">
+      {/* Chat Area - Takes 60% width when preview is open, full width when closed */}
+      <div className={`flex flex-col h-full transition-all duration-300 ${isPreviewOpen ? 'w-3/5 border-r border-gray-200' : 'w-full'}`}>
+        {/* Header with Custom Conversation Dropdown */}
+        <div className="border-b border-gray-200 px-4 py-3 bg-white">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             {/* <Bot className="w-5 h-5 text-gray-900" /> */}
@@ -527,11 +610,14 @@ export default function ThreadChat() {
                 {message.role === 'assistant' ? (
                   <ReactMarkdown
                     components={{
-                      code: ({ node, inline, children, ...props }) => {
+                      code: ({ node, className, children, ...props }) => {
                         const text = String(children);
                         const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
                         
-                        if (inline && uuidRegex.test(text)) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        const isInline = !match && !text.includes('\n');
+                        
+                        if (isInline && uuidRegex.test(text)) {
                           return (
                             <a
                               href={`/u/threads/${text.trim()}`}
@@ -544,7 +630,7 @@ export default function ThreadChat() {
                           );
                         }
                         
-                        return inline ? (
+                        return isInline ? (
                           <code className="bg-gray-200 px-1 rounded" {...props}>{children}</code>
                         ) : (
                           <code className="block bg-gray-200 p-2 rounded" {...props}>{children}</code>
@@ -663,28 +749,42 @@ export default function ThreadChat() {
                 )}
               </div>
               
-              {/* Timestamp and View GraphQL Query Button */}
+              {/* Timestamp and Action Buttons */}
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs opacity-60">
                   {message.timestamp.toLocaleTimeString()}
                 </p>
-                {message.relatedToolCall && (
-                  <button
-                    onClick={() => {
-                      const newExpanded = new Set(expandedQueries);
-                      if (newExpanded.has(message.id)) {
-                        newExpanded.delete(message.id);
-                      } else {
-                        newExpanded.add(message.id);
-                      }
-                      setExpandedQueries(newExpanded);
-                    }}
-                    className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 transition-colors"
-                  >
-                    <Code className="w-3 h-3" />
-                    {expandedQueries.has(message.id) ? 'Hide' : 'View'} Query
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {message.contractPreview && (
+                    <button
+                      onClick={() => {
+                        setPreviewData(message.contractPreview!);
+                        setIsPreviewOpen(true);
+                      }}
+                      className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-800 transition-colors font-medium"
+                    >
+                      <Code className="w-3 h-3" />
+                      View Contract
+                    </button>
+                  )}
+                  {message.relatedToolCall && (
+                    <button
+                      onClick={() => {
+                        const newExpanded = new Set(expandedQueries);
+                        if (newExpanded.has(message.id)) {
+                          newExpanded.delete(message.id);
+                        } else {
+                          newExpanded.add(message.id);
+                        }
+                        setExpandedQueries(newExpanded);
+                      }}
+                      className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 transition-colors"
+                    >
+                      <Code className="w-3 h-3" />
+                      {expandedQueries.has(message.id) ? 'Hide' : 'View'} Query
+                    </button>
+                  )}
+                </div>
               </div>
               
               {/* Expandable Query Section */}
@@ -822,5 +922,153 @@ export default function ThreadChat() {
         </form>
       </div>
     </div>
+
+    {/* Right Panel: Contract Preview */}
+    {isPreviewOpen && previewData && (
+      <div className="w-2/5 h-full flex flex-col bg-gray-50 border-l border-gray-200 overflow-hidden animate-in slide-in-from-right-8 duration-300">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2">
+            <Code className="w-5 h-5 text-gray-600" />
+            <h2 className="text-sm font-semibold text-gray-900">Contract Preview</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPreviewOpen(false)}
+              className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700 transition-colors"
+              title="Close preview"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        
+        {/* Validation Errors Banner */}
+        {previewData.response?.errors && previewData.response.errors.length > 0 && (
+          <div className="bg-red-50 border-b border-red-200 p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="text-sm font-medium text-red-800">Validation Errors</h3>
+                <ul className="mt-1 text-xs text-red-700 list-disc list-inside pl-4 space-y-0.5">
+                  {previewData.response.errors.map((err: any, idx: number) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Headers */}
+        <div className="flex border-b border-gray-200 bg-white">
+          <button
+            onClick={() => setActiveTab('diagram')}
+            className={`px-4 py-2.5 text-xs font-medium transition-colors ${
+              activeTab === 'diagram'
+                ? 'text-gray-900 border-b-2 border-gray-900'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Graph Preview
+          </button>
+          <button
+            onClick={() => setActiveTab('yaml')}
+            className={`px-4 py-2.5 text-xs font-medium transition-colors ${
+              activeTab === 'yaml'
+                ? 'text-gray-900 border-b-2 border-gray-900'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            YAML Source
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'diagram' && (
+            <div className="h-full">
+              {(() => {
+                console.log('[RENDER] previewData.response:', previewData.response);
+                console.log('[RENDER] Has errors?', previewData.response?.errors);
+                console.log('[RENDER] Has graph?', previewData.response?.graph);
+                console.log('[RENDER] Graph structure:', previewData.response?.graph);
+                console.log('[RENDER] Contract structure:', previewData.response?.contract);
+                console.log('[RENDER] Full response keys:', previewData.response ? Object.keys(previewData.response) : 'null');
+                
+                if (previewData.response?.errors && previewData.response.errors.length > 0) {
+                  return (
+                    <div className="flex items-center justify-center h-full bg-white text-red-500 text-sm">
+                      Cannot render graph due to validation errors.
+                    </div>
+                  );
+                }
+                
+                if (previewData.response?.graph) {
+                  // Unwrap nested graph structure: response.graph.graph -> response.graph
+                  const unwrappedData = {
+                    graph: previewData.response.graph.graph || previewData.response.graph,
+                    transitions: previewData.response.graph.transitions,
+                    parties: previewData.response.graph.parties,
+                  };
+                  console.log('[RENDER] Passing to ContractGraphView:', unwrappedData);
+                  return (
+                    <div className="h-full w-full">
+                      <ContractGraphView
+                        key={JSON.stringify(unwrappedData.graph.nodes)}
+                        contractName="Preview"
+                        version={1}
+                        graphData={unwrappedData}
+                      />
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="flex items-center justify-center h-full bg-white text-gray-500 text-sm">
+                    No graph data available. Check console for details.
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {activeTab === 'yaml' && (
+            <div className="h-full p-4 relative">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(previewData.yaml);
+                  setCopiedThreadId('yaml-copy');
+                  setTimeout(() => setCopiedThreadId(null), 2000);
+                }}
+                className="absolute top-6 right-6 p-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded shadow-sm transition-colors"
+                title="Copy YAML"
+              >
+                {copiedThreadId === 'yaml-copy' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+              <pre className="h-full bg-gray-900 text-gray-100 p-4 rounded-lg overflow-auto text-xs font-mono">
+                {previewData.yaml}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 bg-white border-t border-gray-200 shadow-sm flex justify-end">
+          <button
+            onClick={handleCreateContract}
+            disabled={isCreatingContract || (previewData.response?.Errors && previewData.response.Errors.length > 0)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+          >
+            {isCreatingContract ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
+            Create Contract
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
   );
 }
