@@ -23,6 +23,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -247,7 +248,6 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	planRepo := postgres.NewPlanRepository(d.db.Pool)
 
 	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs)
-	sm.Register(planSvc)
 	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
 	sm.Register(usageOutboxRelay)
 
@@ -259,7 +259,13 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	}
 
 	billingSvc := service.NewBillingService(billingProvider, planRepo, billingRepo, &cfg.Subscription, &cfg.Billing, d.valkey, planSvc, logger)
-	billingCron := service.NewBillingCron(planRepo, billingRepo, billingSvc, d.valkey, logger)
+
+	js, err := jetstream.New(d.natsPool.GetClient().Conn())
+	if err != nil {
+		logger.Fatal("failed to initialize NATS JetStream for billing", zap.Error(err))
+	}
+
+	billingCron := service.NewBillingCron(billingSvc, d.valkey, js, logger)
 	sm.Register(billingCron)
 
 	webhookHandler := handlers.NewWebhookHandler(billingProvider, billingSvc, logger)
@@ -335,7 +341,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit),
+		middleware.CreditUsageMiddleware(planSvc, d.valkey, logger),
 		middleware.EgressMiddleware(planSvc, logger),
 		graphqlMiddleware(gqlHandler),
 	)
@@ -343,12 +349,13 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
+	mcpGroup.Use(middleware.CreditUsageMiddleware(planSvc, d.valkey, logger))
 	mountMCPServer(mcpGroup, cfg, logger)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
-	v1.Use(middleware.SubscriptionMiddleware(planSvc, d.valkey, luaScriptManager, &cfg.RateLimit))
+	v1.Use(middleware.CreditUsageMiddleware(planSvc, d.valkey, logger))
+	v1.Use(middleware.EgressMiddleware(planSvc, logger))
 
 	contracts := v1.Group("/contracts")
 	{

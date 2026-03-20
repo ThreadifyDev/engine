@@ -1,34 +1,36 @@
 package serror
 
-import "errors"
+import (
+	"net/http"
+)
 
 // API-level sentinel errors.
 var (
-	ErrUserAlreadyExists            = errors.New("user with this email already exists")
-	ErrInvalidCredentials           = errors.New("invalid email or password")
-	ErrInvalidEmail                 = errors.New("invalid email address")
-	ErrAccountStillProvisioning     = errors.New("account is still being set up, please try again shortly")
-	ErrPasswordResetRequired        = errors.New("please use 'Forgot Password' to set up your account")
-	ErrJwtVerificationNotConfigured = errors.New("JWT verification not configured")
-	ErrExpiredToken                 = errors.New("token has expired")
-	ErrInvalidToken                 = errors.New("invalid or already used token")
-	ErrRateLimit                    = errors.New("too many requests, please try again later")
+	ErrUserAlreadyExists            = NewDomainError("user with this email already exists", http.StatusConflict)
+	ErrInvalidCredentials           = NewDomainError("invalid email or password", http.StatusUnauthorized)
+	ErrInvalidEmail                 = NewDomainError("invalid email address", http.StatusBadRequest)
+	ErrAccountStillProvisioning     = NewDomainError("account is still being set up, please try again shortly", http.StatusServiceUnavailable)
+	ErrPasswordResetRequired        = NewDomainError("please use 'Forgot Password' to set up your account", http.StatusUnauthorized)
+	ErrJwtVerificationNotConfigured = NewDomainError("JWT verification not configured", http.StatusInternalServerError)
+	ErrExpiredToken                 = NewDomainError("token has expired", http.StatusUnauthorized)
+	ErrInvalidToken                 = NewDomainError("invalid or already used token", http.StatusUnauthorized)
+	ErrRateLimit                    = NewDomainError("too many requests, please try again later", http.StatusTooManyRequests)
 
 	// API Key errors
-	ErrApiKeyNameRequired        = errors.New("API key name is required")
-	ErrInvalidServiceAccountRole = errors.New("invalid service account role: must be from api_level")
-	ErrServiceAccountNotFound    = errors.New("service account not found")
-	ErrUnauthorizedCompany       = errors.New("unauthorized: service account belongs to different company")
-	ErrFailedToAssignRole        = errors.New("failed to assign role to service account")
-	ErrApiKeyNotFound            = errors.New("API key not found")
-	ErrUnauthorized              = errors.New("unauthorized")
-	ErrInvalidApiKey             = errors.New("invalid API key")
-	ErrApiKeyRevoked             = errors.New("API key has been revoked")
-	ErrApiKeyExpiredAPI          = errors.New("API key has expired")
-	ErrInternalServerError       = errors.New("internal server error")
+	ErrApiKeyNameRequired        = NewDomainError("API key name is required", http.StatusBadRequest)
+	ErrInvalidServiceAccountRole = NewDomainError("invalid service account role: must be from api_level", http.StatusBadRequest)
+	ErrServiceAccountNotFound    = NewDomainError("service account not found", http.StatusNotFound)
+	ErrUnauthorizedCompany       = NewDomainError("unauthorized: service account belongs to different company", http.StatusForbidden)
+	ErrFailedToAssignRole        = NewDomainError("failed to assign role to service account", http.StatusInternalServerError)
+	ErrApiKeyNotFound            = NewDomainError("API key not found", http.StatusNotFound)
+	ErrUnauthorized              = NewDomainError("unauthorized", http.StatusUnauthorized)
+	ErrInvalidApiKey             = NewDomainError("invalid API key", http.StatusUnauthorized)
+	ErrApiKeyRevoked             = NewDomainError("API key has been revoked", http.StatusUnauthorized)
+	ErrApiKeyExpiredAPI          = NewDomainError("API key has expired", http.StatusUnauthorized)
+	ErrInternalServerError       = NewDomainError("internal server error", http.StatusInternalServerError)
 
 	// Service Account errors
-	ErrServiceAccountNameRequired = errors.New("service account name is required")
-	ErrInvalidRoleAPI             = errors.New("invalid role: must be 'standard_service' or 'reader'")
-	ErrUserNotFound               = errors.New("user not found")
+	ErrServiceAccountNameRequired = NewDomainError("service account name is required", http.StatusBadRequest)
+	ErrInvalidRoleAPI             = NewDomainError("invalid role: must be 'standard_service' or 'reader'", http.StatusBadRequest)
+	ErrUserNotFound               = NewDomainError("user not found", http.StatusNotFound)
 )

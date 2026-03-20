@@ -18,14 +18,11 @@ var grantOrUpdateAccessScript string
 //go:embed lua/check_company_rate_limit.lua
 var checkCompanyRateLimitScript string
 
-//go:embed lua/decrement_usage.lua
-var decrementUsageScript string
+//go:embed lua/decrement_credit_with_autotopup.lua
+var decrementCreditWithAutoTopupScript string
 
-//go:embed lua/decrement_usage_with_outbox.lua
-var decrementUsageWithOutboxScript string
-
-//go:embed lua/check_and_incr_quota.lua
-var checkAndIncrQuotaScript string
+//go:embed lua/get_and_reset_charged.lua
+var getAndResetChargedScript string
 
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
@@ -41,15 +38,14 @@ func NewLuaScriptManager(valkeyClient interfaces.ValkeyClient) *LuaScriptManager
 	}
 }
 
-// LoadScripts loads all Lua scripts into Valkey and stores their SHA hashes
-// Should be called once during application startup
+// LoadScripts loads all Lua scripts into Valkey and stores their SHA hashes.
+// Must be called once during application startup before any script is invoked.
 func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	scripts := map[string]string{
-		"grant_or_update_access":      grantOrUpdateAccessScript,
-		"check_company_rate_limit":    checkCompanyRateLimitScript,
-		"decrement_usage":             decrementUsageScript,
-		"decrement_usage_with_outbox": decrementUsageWithOutboxScript,
-		"check_and_incr_quota":        checkAndIncrQuotaScript,
+		"grant_or_update_access":          grantOrUpdateAccessScript,
+		"check_company_rate_limit":        checkCompanyRateLimitScript,
+		"decrement_credit_with_autotopup": decrementCreditWithAutoTopupScript,
+		"get_and_reset_charged":           getAndResetChargedScript,
 	}
 
 	for name, script := range scripts {
@@ -63,17 +59,38 @@ func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 	return nil
 }
 
-// GetScriptHash returns the SHA hash for a loaded script
+// GetScriptHash returns the SHA hash for a loaded script.
 func (m *LuaScriptManager) GetScriptHash(name string) (string, bool) {
 	hash, exists := m.scriptHashes[name]
 	return hash, exists
 }
 
-// Returns true if request is allowed, false if rate limit exceeded
+// CheckCompanyRateLimit returns true if the request is allowed, false if rate limited.
 func (m *LuaScriptManager) CheckCompanyRateLimit(
 	ctx context.Context,
 	companyID string,
-	requestsPerMinute int,
+	requestsPerWindow int,
+	windowSeconds int,
+) (bool, error) {
+	return m.checkRateLimit(ctx, fmt.Sprintf("ratelimit:company:%s", companyID), requestsPerWindow, windowSeconds)
+}
+
+// CheckIPRateLimit returns true if the request is allowed, false if rate limited.
+func (m *LuaScriptManager) CheckIPRateLimit(
+	ctx context.Context,
+	ip string,
+	requestsPerWindow int,
+	windowSeconds int,
+) (bool, error) {
+	return m.checkRateLimit(ctx, fmt.Sprintf("ratelimit:ip:%s", ip), requestsPerWindow, windowSeconds)
+}
+
+// checkRateLimit is the shared implementation for company and IP rate limiting.
+// Both use the same sliding-window Lua script; only the key prefix differs.
+func (m *LuaScriptManager) checkRateLimit(
+	ctx context.Context,
+	key string,
+	requestsPerWindow int,
 	windowSeconds int,
 ) (bool, error) {
 	scriptHash, exists := m.scriptHashes["check_company_rate_limit"]
@@ -81,174 +98,132 @@ func (m *LuaScriptManager) CheckCompanyRateLimit(
 		return false, fmt.Errorf("script check_company_rate_limit not loaded")
 	}
 
-	key := fmt.Sprintf("ratelimit:company:%s", companyID)
 	nowNano := time.Now().UnixNano()
-	windowStartNano := nowNano - (int64(windowSeconds) * time.Second.Nanoseconds())
-	ttl := windowSeconds * 2 // TTL = 2x window for cleanup (EXPIRE takes seconds)
+	windowStartNano := nowNano - int64(windowSeconds)*int64(time.Second)
+	ttl := windowSeconds * 2 // TTL = 2× window so Valkey auto-cleans stale entries
 
-	keys := []string{key}
-	args := []interface{}{
-		nowNano,
-		windowStartNano,
-		requestsPerMinute,
-		ttl,
-	}
-
-	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
-	if err != nil {
-		return false, fmt.Errorf("failed to execute check_company_rate_limit: %w", err)
-	}
-
-	// Result is 1 (allowed) or 0 (denied)
-	if allowed, ok := result.(int64); ok {
-		return allowed == 1, nil
-	}
-
-	return false, fmt.Errorf("unexpected result type from script: %T", result)
-}
-
-// CheckIPRateLimit returns true if request is allowed, false if rate limit exceeded
-func (m *LuaScriptManager) CheckIPRateLimit(
-	ctx context.Context,
-	ip string,
-	requestsPerWindow int,
-	windowSeconds int,
-) (bool, error) {
-	scriptHash, exists := m.scriptHashes["check_company_rate_limit"] // Use same logic script
-	if !exists {
-		return false, fmt.Errorf("script check_company_rate_limit not loaded")
-	}
-
-	key := fmt.Sprintf("ratelimit:ip:%s", ip)
-	nowNano := time.Now().UnixNano()
-	windowStartNano := nowNano - (int64(windowSeconds) * time.Second.Nanoseconds())
-	ttl := windowSeconds * 2 // TTL = 2x window for cleanup
-
-	keys := []string{key}
-	args := []interface{}{
+	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash,
+		[]string{key},
 		nowNano,
 		windowStartNano,
 		requestsPerWindow,
 		ttl,
-	}
-
-	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
+	)
 	if err != nil {
-		return false, fmt.Errorf("failed to execute check_ip_rate_limit: %w", err)
+		return false, fmt.Errorf("failed to execute rate limit script: %w", err)
 	}
 
-	// Result is 1 (allowed) or 0 (denied)
-	if allowed, ok := result.(int64); ok {
-		return allowed == 1, nil
+	allowed, ok := result.(int64)
+	if !ok {
+		return false, fmt.Errorf("unexpected result type from rate limit script: %T", result)
 	}
-
-	return false, fmt.Errorf("unexpected result type from script: %T", result)
+	return allowed == 1, nil
 }
 
-// DecrementUsage decrements a balance key with a floor check.
-// Returns: newBalance, allowed (1 if allowed, 0 if denied, -1 if key missing), error
-func (m *LuaScriptManager) DecrementUsage(ctx context.Context, key string, amount int64, floor int64) (int64, int64, error) {
-	scriptHash, exists := m.scriptHashes["decrement_usage"]
-	if !exists {
-		return 0, 0, fmt.Errorf("script decrement_usage not loaded")
-	}
-
-	keys := []string{key}
-	args := []interface{}{amount, floor}
-
-	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to execute decrement_usage: %w", err)
-	}
-
-	if res, ok := result.([]interface{}); ok && len(res) == 2 {
-		return res[0].(int64), res[1].(int64), nil
-	}
-
-	return 0, 0, fmt.Errorf("unexpected result type from decrement_usage: %T", result)
-}
-
-// DecrementUsageWithOutbox decrements a balance key with a floor check and appends a usage outbox stream event.
-// Returns: newBalance, allowed (1 allowed, 0 denied, -1 key missing, -2 invalid value), streamID, error
-func (m *LuaScriptManager) DecrementUsageWithOutbox(
+// DecrementCreditWithAutoTopup atomically debits credits, optionally triggers a
+// topup request, and appends outbox events — all in a single Lua call.
+func (m *LuaScriptManager) DecrementCreditWithAutoTopup(
 	ctx context.Context,
-	balanceKey string,
-	streamKey string,
-	amount int64,
-	floor int64,
-	eventID string,
-	companyID string,
-	meter string,
-	billingCycleStart time.Time,
-	occurredAt time.Time,
-) (int64, int64, string, error) {
-	scriptHash, exists := m.scriptHashes["decrement_usage_with_outbox"]
+	params *interfaces.DebitParams,
+) (interfaces.DebitResult, error) {
+	scriptHash, exists := m.scriptHashes["decrement_credit_with_autotopup"]
 	if !exists {
-		return 0, 0, "", fmt.Errorf("script decrement_usage_with_outbox not loaded")
+		return interfaces.DebitResult{}, fmt.Errorf("script decrement_credit_with_autotopup not loaded")
 	}
 
-	keys := []string{balanceKey, streamKey}
+	keys := []string{
+		params.BalanceKey,
+		params.ChargedKey,
+		params.StreamKey,
+		params.PendingKey,
+	}
 	args := []interface{}{
-		amount,
-		floor,
-		eventID,
-		companyID,
-		meter,
-		amount,
-		billingCycleStart.UTC().Format(time.RFC3339Nano),
-		occurredAt.UTC().Format(time.RFC3339Nano),
+		params.Cost,
+		params.MinBalance,
+		params.TopupAmount,
+		params.MaxMonthly,
+		params.SpendEventID,
+		params.TopupEventID,
+		params.CompanyID,
+		params.BillingCycleStart.UTC().Format(time.RFC3339Nano),
+		params.OccurredAt.UTC().Format(time.RFC3339Nano),
+		boolToIntString(params.AllowTopup),
 	}
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("failed to execute decrement_usage_with_outbox: %w", err)
+		return interfaces.DebitResult{}, fmt.Errorf("failed to execute decrement_credit_with_autotopup: %w", err)
 	}
 
 	res, ok := result.([]interface{})
-	if !ok || len(res) < 3 {
-		return 0, 0, "", fmt.Errorf("unexpected result type from decrement_usage_with_outbox: %T", result)
+	if !ok || len(res) < 5 {
+		return interfaces.DebitResult{}, fmt.Errorf("unexpected result shape from decrement_credit_with_autotopup: got %T len=%d", result, func() int {
+			if ok {
+				return len(res)
+			}
+			return -1
+		}())
 	}
 
-	newBalance, err := parseLuaInt64Value(res[0])
+	newBalance, err := parseLuaInt64(res[0])
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("parse new balance: %w", err)
+		return interfaces.DebitResult{}, fmt.Errorf("parse new_balance: %w", err)
 	}
-	allowed, err := parseLuaInt64Value(res[1])
+	allowed, err := parseLuaInt64(res[1])
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("parse allowed flag: %w", err)
+		return interfaces.DebitResult{}, fmt.Errorf("parse allowed: %w", err)
 	}
-	streamID, err := parseLuaStringValue(res[2])
+	spendStreamID, err := parseLuaString(res[2])
 	if err != nil {
-		return 0, 0, "", fmt.Errorf("parse stream id: %w", err)
+		return interfaces.DebitResult{}, fmt.Errorf("parse spend_stream_id: %w", err)
+	}
+	topupStreamID, err := parseLuaString(res[3])
+	if err != nil {
+		return interfaces.DebitResult{}, fmt.Errorf("parse topup_stream_id: %w", err)
+	}
+	topupApplied, err := parseLuaInt64(res[4])
+	if err != nil {
+		return interfaces.DebitResult{}, fmt.Errorf("parse topup_applied: %w", err)
 	}
 
-	return newBalance, allowed, streamID, nil
+	return interfaces.DebitResult{
+		NewBalance:    newBalance,
+		Allowed:       allowed,
+		SpendStreamID: spendStreamID,
+		TopupStreamID: topupStreamID,
+		TopupApplied:  topupApplied,
+	}, nil
 }
 
-// CheckAndIncrQuota checks if a counter is under the limit and increments it.
-// Returns: newCount, allowed (1 if allowed, 0 if denied, -1 if key missing), error
-func (m *LuaScriptManager) CheckAndIncrQuota(ctx context.Context, key string, limit int, amount int) (int64, int64, error) {
-	scriptHash, exists := m.scriptHashes["check_and_incr_quota"]
+func (m *LuaScriptManager) GetAndResetCharged(ctx context.Context, balanceKey, chargedKey string) (balance int64, charged int64, err error) {
+	scriptHash, exists := m.scriptHashes["get_and_reset_charged"]
 	if !exists {
-		return 0, 0, fmt.Errorf("script check_and_incr_quota not loaded")
+		return 0, 0, fmt.Errorf("script get_and_reset_charged not loaded")
 	}
 
-	keys := []string{key}
-	args := []interface{}{limit, amount}
-
-	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
+	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, []string{balanceKey, chargedKey})
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to execute check_and_incr_quota: %w", err)
+		return 0, 0, fmt.Errorf("failed to execute get_and_reset_charged: %w", err)
 	}
 
-	if res, ok := result.([]interface{}); ok && len(res) == 2 {
-		return res[0].(int64), res[1].(int64), nil
+	res, ok := result.([]interface{})
+	if !ok || len(res) < 2 {
+		return 0, 0, fmt.Errorf("unexpected result shape from get_and_reset_charged: %T", result)
 	}
 
-	return 0, 0, fmt.Errorf("unexpected result type from check_and_incr_quota: %T", result)
+	balance, err = parseLuaInt64(res[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse balance: %w", err)
+	}
+	charged, err = parseLuaInt64(res[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse charged: %w", err)
+	}
+
+	return balance, charged, nil
 }
 
-func parseLuaInt64Value(v interface{}) (int64, error) {
+func parseLuaInt64(v interface{}) (int64, error) {
 	switch t := v.(type) {
 	case int64:
 		return t, nil
@@ -257,23 +232,15 @@ func parseLuaInt64Value(v interface{}) (int64, error) {
 	case float64:
 		return int64(t), nil
 	case string:
-		parsed, err := strconv.ParseInt(t, 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
+		return strconv.ParseInt(t, 10, 64)
 	case []byte:
-		parsed, err := strconv.ParseInt(string(t), 10, 64)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
+		return strconv.ParseInt(string(t), 10, 64)
 	default:
-		return 0, fmt.Errorf("unsupported lua numeric type: %T", v)
+		return 0, fmt.Errorf("unsupported type for int64: %T", v)
 	}
 }
 
-func parseLuaStringValue(v interface{}) (string, error) {
+func parseLuaString(v interface{}) (string, error) {
 	switch t := v.(type) {
 	case string:
 		return t, nil
@@ -282,6 +249,13 @@ func parseLuaStringValue(v interface{}) (string, error) {
 	case nil:
 		return "", nil
 	default:
-		return "", fmt.Errorf("unsupported lua string type: %T", v)
+		return "", fmt.Errorf("unsupported type for string: %T", v)
 	}
+}
+
+func boolToIntString(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }

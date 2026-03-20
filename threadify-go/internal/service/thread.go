@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -45,7 +46,7 @@ type ThreadService struct {
 	stepEventService      interfaces.StepEventProcessor
 	cacheManager          interfaces.CacheManager
 	connectionMgr         interfaces.ConnectionManager
-	contractValidator     interfaces.ContractValidator
+	contractValidator     interfaces.ContractGraphValidator
 	authService           *AuthService
 	accessService         *ThreadAccessService
 	validationService     *ValidationService
@@ -53,7 +54,7 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
-	planService           *PlanService
+	planService           interfaces.PlanService
 	valkeyClient          interfaces.ValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
@@ -75,7 +76,7 @@ func NewThreadService(
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
-	planService *PlanService,
+	planService interfaces.PlanService,
 	cacheManager interfaces.CacheManager,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
@@ -117,7 +118,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 
 	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
 	if err != nil {
-		if errors.Is(err, ErrSubscriptionExpired) {
+		if errors.Is(err, ErrNoAccount) {
 			return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "subscription expired"}
 		}
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to verify subscription"}
@@ -154,7 +155,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		return errResp("Role is required when contract name is provided")
 	}
 
-	if err := s.planService.CheckIngressQuota(ctx, companyID, 1); err != nil {
+	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
 		return errResp("Cannot start thread: " + err.Error())
 	}
 
@@ -246,10 +247,6 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
-	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
-		s.logger.Warn("failed to decrement ingress for thread creation", zap.String("company_id", companyID), zap.Error(err))
-	}
-
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 
 	return &models.StartThreadResponse{
@@ -277,6 +274,16 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 	if err := validateRecordEventRequest(req); err != nil {
 		return errResp(err.Error())
+	}
+
+	account, err := s.planService.GetCurrentLimits(ctx, companyID)
+	if err != nil {
+		return errResp("Failed to verify subscription: " + err.Error())
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	if err := s.planService.CheckPayloadSize(ctx, account, int64(len(reqBytes))); err != nil {
+		return errResp("PAYLOAD_TOO_LARGE: " + err.Error())
 	}
 
 	t := time.Now()
@@ -427,15 +434,8 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		Metadata:       req.ThreadifyMetadata,
 	}
 
-	totalToMeter := int64(len(req.SubSteps))
-	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed {
-		totalToMeter++
-	}
-
-	if totalToMeter > 0 {
-		if err := s.planService.CheckIngressQuota(ctx, companyID, totalToMeter); err != nil {
-			return errResp(err.Error())
-		}
+	if err := s.planService.DecrementIngress(ctx, companyID, int64(len(reqBytes))); err != nil {
+		return errResp("Insufficient credit: " + err.Error())
 	}
 
 	t = time.Now()
@@ -443,13 +443,6 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		return errResp("failed to process step event")
 	}
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_event_process").Observe(time.Since(t).Seconds())
-
-	if totalToMeter > 0 {
-		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
-			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
-			return errResp(err.Error())
-		}
-	}
 
 	if len(req.Refs) > 0 {
 		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -860,7 +853,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
 }
 
-func (s *ThreadService) GetContractValidator() interfaces.ContractValidator {
+func (s *ThreadService) GetContractValidator() interfaces.ContractGraphValidator {
 	return s.contractValidator
 }
 

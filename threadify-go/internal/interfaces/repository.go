@@ -4,8 +4,55 @@ import (
 	"context"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/threadify/engine/internal/models"
 )
+
+type PlanRepository interface {
+	GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error)
+	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
+	SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error
+	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
+	ListCompaniesForRollover(ctx context.Context) (map[string]string, error)
+	CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error
+	DisableAutoTopup(ctx context.Context, companyID string) error
+	UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error
+}
+
+type ContractRepository interface {
+	Create(ctx context.Context, contract *models.Contract) error
+	Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error)
+	Get(ctx context.Context, id string) (*models.Contract, error)
+	GetByID(ctx context.Context, contractID string) (*models.Contract, error)
+	GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error)
+	GetByName(ctx context.Context, name string) (*models.Contract, error)
+	GetByNameSlim(ctx context.Context, name string) (*models.Contract, error)
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
+	GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error)
+	CountByCompany(ctx context.Context, companyID string) (int, error)
+	SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error
+
+	CreateVersion(ctx context.Context, v *models.ContractVersion) error
+	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
+	GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error)
+	GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error)
+	SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error
+}
+
+type ActorRepository interface {
+	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
+}
+
+type BillingRepository interface {
+	CreateSnapshot(ctx context.Context, snapshot *billing.BillingSnapshot) error
+	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
+	UpdateSnapshotInvoiceID(ctx context.Context, snapshotID string, invoiceID string) error
+	UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billing.PaymentStatus) error
+	MarkSnapshotPaidByInvoiceID(ctx context.Context, externalInvoiceID string) error
+	MarkSnapshotPaidByID(ctx context.Context, snapshotID string, externalInvoiceID string) error
+	MarkSnapshotFailedByInvoiceID(ctx context.Context, externalInvoiceID string) error
+}
 
 // ValkeyClient defines the interface for Valkey operations
 type ValkeyClient interface {
@@ -15,6 +62,7 @@ type ValkeyClient interface {
 	Delete(ctx context.Context, key string) error
 	Exists(ctx context.Context, key string) (bool, error)
 	Keys(ctx context.Context, pattern string) ([]string, error)
+	MGet(ctx context.Context, keys ...string) (map[string]string, error)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
 	Del(ctx context.Context, keys ...string) error
 	TTL(ctx context.Context, key string) (time.Duration, error)
@@ -169,23 +217,35 @@ type ContractGraphRepository interface {
 	Exists(ctx context.Context, contractName string, version int, companyID string) (bool, error)
 }
 
-// LuaScriptManager defines the interface for Lua script management
+type DebitParams struct {
+	BalanceKey        string
+	ChargedKey        string
+	PendingKey        string
+	StreamKey         string
+	Cost              int64
+	MinBalance        int64
+	TopupAmount       int64
+	MaxMonthly        int64
+	AllowTopup        bool
+	SpendEventID      string
+	TopupEventID      string
+	CompanyID         string
+	BillingCycleStart time.Time
+	OccurredAt        time.Time
+}
+
+type DebitResult struct {
+	NewBalance    int64
+	Allowed       int64
+	SpendStreamID string
+	TopupStreamID string
+	TopupApplied  int64
+}
+
 type LuaScriptManager interface {
 	GetScriptHash(name string) (string, bool)
 	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
 	CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow int, windowSeconds int) (bool, error)
-	DecrementUsage(ctx context.Context, key string, amount int64, floor int64) (int64, int64, error)
-	DecrementUsageWithOutbox(
-		ctx context.Context,
-		balanceKey string,
-		streamKey string,
-		amount int64,
-		floor int64,
-		eventID string,
-		companyID string,
-		meter string,
-		billingCycleStart time.Time,
-		occurredAt time.Time,
-	) (int64, int64, string, error)
-	CheckAndIncrQuota(ctx context.Context, key string, limit int, amount int) (int64, int64, error)
+	DecrementCreditWithAutoTopup(ctx context.Context, params *DebitParams) (DebitResult, error)
+	GetAndResetCharged(ctx context.Context, balanceKey, chargedKey string) (int64, int64, error)
 }

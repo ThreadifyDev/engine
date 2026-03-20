@@ -19,6 +19,7 @@ const (
 	SubjectThreadValidations = "validations.thread"
 	SubjectStepState         = "state.step"
 	SubjectUsageSync         = "usage.sync"
+	SubjectCreditTopup       = "credit.topup"
 	SubjectOutboxTrigger     = "outbox.trigger"
 
 	PrefixNotificationsUser = "notifications.user"

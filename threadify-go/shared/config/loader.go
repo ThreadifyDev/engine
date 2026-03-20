@@ -33,73 +33,25 @@ type NATSConfig struct {
 	AckWaitSeconds int    `yaml:"ack_wait_seconds"`
 }
 
-type TierLimits struct {
-	BandwidthIngress                       int64  `yaml:"bandwidth_ingress" mapstructure:"bandwidth_ingress" json:"bandwidth_ingress"`
-	BandwidthIngressHardCap                int64  `yaml:"bandwidth_ingress_hard_cap" mapstructure:"bandwidth_ingress_hard_cap" json:"bandwidth_ingress_hard_cap"`
-	BandwidthIngressOverageCentsPerMillion int    `yaml:"bandwidth_ingress_overage_cents_per_million" mapstructure:"bandwidth_ingress_overage_cents_per_million" json:"bandwidth_ingress_overage_cents_per_million"`
-	BandwidthEgress                        int64  `yaml:"bandwidth_egress" mapstructure:"bandwidth_egress" json:"bandwidth_egress"`
-	BandwidthEgressOverageCentsPerGB       int    `yaml:"bandwidth_egress_overage_cents_per_gb" mapstructure:"bandwidth_egress_overage_cents_per_gb" json:"bandwidth_egress_overage_cents_per_gb"`
-	TeamSeats                              int    `yaml:"team_seats" mapstructure:"team_seats" json:"team_seats"`
-	SeatOverageCentsPerMonth               int    `yaml:"seat_overage_cents_per_month" mapstructure:"seat_overage_cents_per_month" json:"seat_overage_cents_per_month"`
-	ContractLimit                          int    `yaml:"contract_limit" mapstructure:"contract_limit" json:"contract_limit"`
-	RateLimit                              int    `yaml:"rate_limit" mapstructure:"rate_limit" json:"rate_limit"`
-	MaxPayloadBytes                        int64  `yaml:"max_payload_bytes" mapstructure:"max_payload_bytes" json:"max_payload_bytes"`
-	HotStorageDays                         int    `yaml:"hot_storage_days" mapstructure:"hot_storage_days" json:"hot_storage_days"`
-	ColdStorageDays                        int    `yaml:"cold_storage_days" mapstructure:"cold_storage_days" json:"cold_storage_days"`
-	ColdStorageOverageCentsPerGB           int    `yaml:"cold_storage_overage_cents_per_gb" mapstructure:"cold_storage_overage_cents_per_gb" json:"cold_storage_overage_cents_per_gb"`
-	Support                                string `yaml:"support" mapstructure:"support" json:"support"`
-	OverageAllowed                         bool   `yaml:"overage_allowed" mapstructure:"overage_allowed" json:"overage_allowed"`
+type CreditConfig struct {
+	IngressCostMillicents  int64 `yaml:"ingress_cost_millicents" mapstructure:"ingress_cost_millicents" json:"ingress_cost_millicents"`
+	EgressCostMillicents   int64 `yaml:"egress_cost_millicents" mapstructure:"egress_cost_millicents" json:"egress_cost_millicents"`
+	SeatCostMillicents     int64 `yaml:"seat_cost_millicents" mapstructure:"seat_cost_millicents" json:"seat_cost_millicents"`
+	ContractCostMillicents int64 `yaml:"contract_cost_millicents" mapstructure:"contract_cost_millicents" json:"contract_cost_millicents"`
+	RateLimitTPS           int64 `yaml:"rate_limit_tps" mapstructure:"rate_limit_tps" json:"rate_limit_tps"`
+	PayloadLimitBytes      int64 `yaml:"payload_limit_bytes" mapstructure:"payload_limit_bytes" json:"payload_limit_bytes"`
 }
 
 type SubscriptionConfig struct {
-	Tiers map[string]TierLimits `yaml:"tiers" mapstructure:"tiers"`
-}
-
-func (s *SubscriptionConfig) GetTierLimits(tierName string) *TierLimits {
-	if s == nil || s.Tiers == nil {
-		return nil
-	}
-	limits, ok := s.Tiers[tierName]
-	if !ok {
-		return nil
-	}
-	return &limits
-}
-
-type TierPrice struct {
-	MonthlyPriceID string `yaml:"monthly_price_id" mapstructure:"monthly_price_id"`
-	YearlyPriceID  string `yaml:"yearly_price_id" mapstructure:"yearly_price_id"`
+	Credit CreditConfig `yaml:"credit" mapstructure:"credit"`
 }
 
 type BillingConfig struct {
-	SecretKey             string               `yaml:"secret_key" mapstructure:"secret_key"`
-	Provider              string               `yaml:"provider" mapstructure:"provider"`
-	TierPrices            map[string]TierPrice `yaml:"tier_prices" mapstructure:"tier_prices"`
-	WebhookSecret         string               `yaml:"webhook_secret" mapstructure:"webhook_secret"`
-	SuccessURL    string               `yaml:"success_url" mapstructure:"success_url"`
-	CancelURL     string               `yaml:"cancel_url" mapstructure:"cancel_url"`
-}
-
-func (b *BillingConfig) GetProviderParams(tier, billingCycle string) (map[string]string, error) {
-	tp, ok := b.TierPrices[tier]
-	if !ok {
-		return nil, fmt.Errorf("no price configured for tier %q", tier)
-	}
-
-	priceIDs := map[string]string{
-		"monthly": tp.MonthlyPriceID,
-		"yearly":  tp.YearlyPriceID,
-	}
-
-	priceID, ok := priceIDs[billingCycle]
-	if !ok {
-		return nil, fmt.Errorf("invalid billing cycle: %q", billingCycle)
-	}
-	if priceID == "" {
-		return nil, fmt.Errorf("no price ID configured for tier %q and cycle %q", tier, billingCycle)
-	}
-
-	return map[string]string{"price_id": priceID}, nil
+	SecretKey     string `yaml:"secret_key" mapstructure:"secret_key"`
+	Provider      string `yaml:"provider" mapstructure:"provider"`
+	WebhookSecret string `yaml:"webhook_secret" mapstructure:"webhook_secret"`
+	SuccessURL    string `yaml:"success_url" mapstructure:"success_url"`
+	CancelURL     string `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
 type Config struct {
@@ -203,14 +155,7 @@ func (c *Config) expandEnvVars() {
 
 	c.Billing.SecretKey = expand(c.Billing.SecretKey)
 	c.Billing.WebhookSecret = expand(c.Billing.WebhookSecret)
-	c.Billing.SuccessURL = expand(c.Billing.SuccessURL)
-	c.Billing.CancelURL = expand(c.Billing.CancelURL)
 	c.Billing.Provider = expand(c.Billing.Provider)
-	for name, tp := range c.Billing.TierPrices {
-		tp.MonthlyPriceID = expand(tp.MonthlyPriceID)
-		tp.YearlyPriceID = expand(tp.YearlyPriceID)
-		c.Billing.TierPrices[name] = tp
-	}
 
 	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)
 	c.WebAPI.OutboxEncryptionKey = expand(c.WebAPI.OutboxEncryptionKey)
@@ -221,10 +166,6 @@ func (c *Config) expandEnvVars() {
 	c.WebAPI.ThreadifyEngine.URL = expand(c.WebAPI.ThreadifyEngine.URL)
 	c.WebAPI.ThreadifyEngine.GraphQLURL = expand(c.WebAPI.ThreadifyEngine.GraphQLURL)
 
-	for name, tier := range c.Subscription.Tiers {
-		tier.Support = expand(tier.Support)
-		c.Subscription.Tiers[name] = tier
-	}
 }
 
 func parseYAML[T any](path string) (*T, error) {

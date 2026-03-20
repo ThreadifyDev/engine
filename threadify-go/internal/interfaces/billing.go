@@ -5,7 +5,6 @@ import (
 )
 
 type InvoiceProvider interface {
-	billing.CheckoutSessionProvider
 	billing.InvoiceProvider
 }
 
