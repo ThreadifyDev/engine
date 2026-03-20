@@ -9,33 +9,67 @@ import (
 	"time"
 
 	"threadify-go/shared/billing"
+	"threadify-go/shared/database"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
 
-var ErrSubscriptionExpired = fmt.Errorf("subscription expired")
+var ErrInsufficientCredit = fmt.Errorf("insufficient credit balance")
 
-func balanceKey(companyID, meter string) string {
-	return database.BalanceKeyPrefix + meter + ":" + companyID
+var ErrNoAccount = fmt.Errorf("no active credit account")
+
+type creditSeed struct {
+	BalanceMillicents          int64
+	MinBalanceMillicents       int64
+	MaxMonthlyChargeMillicents int64
+	AutoTopupMillicents        int64
+	MonthlyChargedMillicents   int64
+	RateLimitTPS               int64
+	PayloadLimitBytes          int64
 }
 
-func usageContractKey(companyID string) string {
-	return database.UsageContractKeyPrefix + companyID
+type CachedPlan struct {
+	Account *billing.CreditAccount `json:"account"`
 }
 
-func usageUserKey(companyID string) string {
-	return database.UsageUserKeyPrefix + companyID
+func newCreditAccount(companyID string, start time.Time, creditCfg *config.CreditConfig, seed *creditSeed) *billing.CreditAccount {
+	account := &billing.CreditAccount{
+		ID:                uuid.New().String(),
+		CompanyID:         companyID,
+		BillingCycleStart: start,
+	}
+
+	if seed != nil {
+		account.CreditBalanceMillicents = seed.BalanceMillicents
+		account.CreditMinBalanceMillicents = seed.MinBalanceMillicents
+		account.CreditMaxMonthlyChargeMillicents = seed.MaxMonthlyChargeMillicents
+		account.CreditAutoTopupMillicents = seed.AutoTopupMillicents
+		account.CreditMonthlyChargedMillicents = seed.MonthlyChargedMillicents
+		account.RateLimitTPS = seed.RateLimitTPS
+		account.PayloadLimitBytes = seed.PayloadLimitBytes
+	}
+
+	return account
+}
+
+func nextBillingCycle(cycleStart, now time.Time) (time.Time, bool) {
+	next := cycleStart.AddDate(0, 1, 0)
+	if now.Before(next) {
+		return time.Time{}, false
+	}
+	for !now.Before(next.AddDate(0, 1, 0)) {
+		next = next.AddDate(0, 1, 0)
+	}
+	return next, true
 }
 
 type PlanService struct {
-	planRepo     *postgres.PlanRepository
-	contractRepo *postgres.ContractRepository
-	actorRepo    *postgres.ActorRepository
+	planRepo     interfaces.PlanRepository
+	contractRepo interfaces.ContractRepository
+	actorRepo    interfaces.ActorRepository
 	subConfig    *config.SubscriptionConfig
 	valkeyClient interfaces.ValkeyClient
 	luaScripts   interfaces.LuaScriptManager
@@ -44,9 +78,9 @@ type PlanService struct {
 }
 
 func NewPlanService(
-	planRepo *postgres.PlanRepository,
-	contractRepo *postgres.ContractRepository,
-	actorRepo *postgres.ActorRepository,
+	planRepo interfaces.PlanRepository,
+	contractRepo interfaces.ContractRepository,
+	actorRepo interfaces.ActorRepository,
 	subConfig *config.SubscriptionConfig,
 	valkeyClient interfaces.ValkeyClient,
 	luaScripts interfaces.LuaScriptManager,
@@ -70,255 +104,237 @@ func NewPlanService(
 	}
 }
 
-func (s *PlanService) Start() error {
-	s.logger.Info("plan service started")
-	return nil
-}
+func (s *PlanService) ProvisionSubscription(
+	ctx context.Context,
+	companyID, externalCustomerID string,
+	initialAmount, maxMonthly int64,
+) error {
+	s.logger.Debug("Provisioning subscription",
+		zap.String("company_id", companyID),
+		zap.String("external_customer_id", externalCustomerID),
+		zap.Int64("initial_amount", initialAmount),
+		zap.Int64("max_monthly", maxMonthly),
+	)
 
-func (s *PlanService) Stop() error {
-	s.logger.Info("plan service gracefully stopped")
-	return nil
-}
-
-func (s *PlanService) ProvisionSubscription(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, externalCustomerID, externalSubscriptionID string) error {
-	limits := s.subConfig.GetTierLimits(string(tier))
-	if limits == nil {
-		return fmt.Errorf("unknown subscription tier: %s", tier)
+	if maxMonthly > 0 && maxMonthly < initialAmount {
+		maxMonthly = initialAmount
 	}
-
 	now := time.Now().UTC()
-	billingEnd, err := computeBillingEnd(now, billingCycle)
-	if err != nil {
-		return err
+
+	if err := s.planRepo.SetExternalCustomerID(ctx, companyID, externalCustomerID); err != nil {
+		return fmt.Errorf("provision subscription - set external customer id: %w", err)
 	}
 
-	plan := &billing.CompanyPlan{
-		ID:                     uuid.New().String(),
-		CompanyID:              companyID,
-		SubscriptionTier:       tier,
-		BillingCycle:           billingCycle,
-		ExternalCustomerID:     externalCustomerID,
-		ExternalSubscriptionID: externalSubscriptionID,
-		BillingStart:           now,
-		BillingEnd:             billingEnd,
+	creditCfg := &s.subConfig.Credit
+	minBalance := initialAmount / 5
+
+	seed := &creditSeed{
+		BalanceMillicents:          initialAmount,
+		AutoTopupMillicents:        initialAmount,
+		MaxMonthlyChargeMillicents: maxMonthly,
+		MinBalanceMillicents:       minBalance,
+		RateLimitTPS:               creditCfg.RateLimitTPS,
+		PayloadLimitBytes:          creditCfg.PayloadLimitBytes,
+	}
+	account := newCreditAccount(companyID, now, creditCfg, seed)
+
+	if err := s.planRepo.CreateCreditAccount(ctx, account); err != nil {
+		return fmt.Errorf("provision subscription - create credit account: %w", err)
 	}
 
-	if err := s.planRepo.CreatePlan(ctx, plan); err != nil {
-		return fmt.Errorf("provision subscription - create plan: %w", err)
+	if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
+		s.logger.Warn("failed to seed valkey keys on provision (will lazy-seed on first debit)",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 	}
-
-	meter := newMeterFromLimits(companyID, tier, now, billingEnd, limits)
-
-	if err := s.planRepo.CreateUsageMeter(ctx, meter); err != nil {
-		return fmt.Errorf("provision subscription - create usage meter: %w", err)
-	}
-
-	if err := s.seedBalanceKeys(ctx, companyID, meter); err != nil {
-		return fmt.Errorf("provision subscription - seed balances: %w", err)
-	}
-	s.setCacheEntry(ctx, companyID, meter)
 
 	s.logger.Info("provisioned subscription",
 		zap.String("company_id", companyID),
-		zap.String("tier", string(tier)),
-		zap.String("billing_cycle", string(billingCycle)),
+		zap.Time("billing_start", now),
 	)
 
 	return nil
 }
 
-func (s *PlanService) seedBalanceKeys(ctx context.Context, companyID string, meter *billing.UsageMeter) error {
-	ingressKey := balanceKey(companyID, "ingress")
-	if err := s.valkeyClient.Set(ctx, ingressKey, strconv.FormatInt(meter.BandwidthIngressBalance, 10), 0); err != nil {
-		return fmt.Errorf("seed ingress balance: %w", err)
-	}
-	egressKey := balanceKey(companyID, "egress")
-	if err := s.valkeyClient.Set(ctx, egressKey, strconv.FormatInt(meter.BandwidthEgressBalance, 10), 0); err != nil {
-		return fmt.Errorf("seed egress balance: %w", err)
+func (s *PlanService) seedCreditKeys(ctx context.Context, companyID string, account *billing.CreditAccount) error {
+	keys := billing.KeysFor(companyID)
+
+	s.logger.Debug("seeding credit keys in valkey",
+		zap.String("company_id", companyID),
+		zap.Int64("balance", account.CreditBalanceMillicents),
+		zap.Int64("charged", account.CreditMonthlyChargedMillicents),
+	)
+
+	pipe := s.valkeyClient.Pipeline()
+	pipe.Set(ctx, keys.Balance, strconv.FormatInt(account.CreditBalanceMillicents, 10), 0)
+	pipe.Set(ctx, keys.Charged, strconv.FormatInt(account.CreditMonthlyChargedMillicents, 10), 0)
+	pipe.Del(ctx, keys.Pending)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("seed credit keys: %w", err)
 	}
 	return nil
 }
 
-func (s *PlanService) GetCompanyPlan(ctx context.Context, companyID string) (*billing.CompanyPlan, error) {
-	return s.planRepo.GetCompanyPlan(ctx, companyID)
+func (s *PlanService) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
+	return s.planRepo.GetExternalCustomerID(ctx, companyID)
 }
 
-func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*billing.UsageMeter, error) {
-	cacheKey := database.PlanCachePrefix + companyID
-	cached, err := s.valkeyClient.Get(ctx, cacheKey)
-	if err == nil && cached != "" {
-		var meter billing.UsageMeter
-		if jsonErr := json.Unmarshal([]byte(cached), &meter); jsonErr == nil {
-			if !meter.BillingEnd.IsZero() && time.Now().After(meter.BillingEnd) {
-				s.invalidateCache(ctx, companyID)
-				return nil, ErrSubscriptionExpired
-			}
-			return &meter, nil
-		}
+func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	if cached := s.getCacheEntry(ctx, companyID); cached != nil {
+		return cached.Account, nil
 	}
 
-	meter, err := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
+	account, err := s.planRepo.GetCreditAccount(ctx, companyID)
 	if err != nil {
-		return nil, fmt.Errorf("get current limits: %w", err)
+		return nil, fmt.Errorf("get credit account: %w", err)
 	}
-	if meter == nil {
-		return nil, nil
-	}
-
-	if !meter.BillingEnd.IsZero() && time.Now().After(meter.BillingEnd) {
-		return nil, ErrSubscriptionExpired
+	if account == nil {
+		return nil, ErrNoAccount
 	}
 
-	s.setCacheEntry(ctx, companyID, meter)
-	return meter, nil
+	s.setCacheEntry(ctx, companyID, &CachedPlan{Account: account})
+	return account, nil
 }
 
-func (s *PlanService) GetRateLimit(ctx context.Context, companyID string) (int, error) {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
-	if err != nil {
-		return 0, err
-	}
-	if meter == nil {
-		return 0, nil
-	}
-	return meter.MaxRateLimit, nil
+func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	return s.getCurrentAccount(ctx, companyID)
 }
 
-func (s *PlanService) CheckPayloadSize(ctx context.Context, companyID string, payloadBytes int64) error {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("check payload size: %w", err)
-	}
-	if meter == nil {
-		return fmt.Errorf("no active subscription for company %s", companyID)
-	}
-	if payloadBytes > meter.MaxPayloadBytes {
-		return fmt.Errorf("payload size %d bytes exceeds limit of %d bytes. Please upgrade your plan", payloadBytes, meter.MaxPayloadBytes)
+func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error {
+	limit := account.PayloadLimitBytes
+	if limit > 0 && payloadBytes > limit {
+		return fmt.Errorf("payload too large: %d bytes exceeds limit of %d bytes", payloadBytes, limit)
 	}
 	return nil
 }
 
-func (s *PlanService) IncrementUserCount(ctx context.Context, companyID string) {
-	key := usageUserKey(companyID)
-	if _, err := s.valkeyClient.IncrBy(ctx, key, 1); err != nil {
-		s.logger.Error("failed to increment user count in valkey (fail-open)", zap.String("company_id", companyID), zap.Error(err))
+func (s *PlanService) CheckRateLimit(ctx context.Context, account *billing.CreditAccount) (bool, error) {
+	tps := account.RateLimitTPS
+	if tps <= 0 {
+		return true, nil
+	}
+
+	allowed, err := s.luaScripts.CheckCompanyRateLimit(ctx, account.CompanyID, int(tps), 1)
+	if err != nil {
+		s.logger.Error("rate limit script failure",
+			zap.Error(err),
+			zap.String("company_id", account.CompanyID),
+		)
+		return true, fmt.Errorf("check rate limit: %w", err)
+	}
+
+	return allowed, nil
+}
+
+func (s *PlanService) calculateCost(meter string, amount int64) int64 {
+	if s == nil || s.subConfig == nil || amount <= 0 {
+		return 0
+	}
+
+	cfg := s.subConfig.Credit
+	switch meter {
+	case MeterBandwidthIngress:
+		return amount * cfg.IngressCostMillicents
+	case MeterBandwidthEgress:
+		return amount * cfg.EgressCostMillicents
+	case MeterContractCreate:
+		return amount * cfg.ContractCostMillicents
+	case MeterContractVersionCreate:
+		return amount * cfg.ContractCostMillicents
+	case MeterSeatCreate:
+		return amount * cfg.SeatCostMillicents
+	default:
+		return 0
 	}
 }
 
-func (s *PlanService) DecrementUserCount(ctx context.Context, companyID string) {
-	key := usageUserKey(companyID)
-	_, allowed, err := s.luaScripts.DecrementUsage(ctx, key, 1, 0)
-	if err != nil {
-		s.logger.Error("failed to decrement user count in valkey (fail-open)", zap.String("company_id", companyID), zap.Error(err))
-		return
-	}
-	if allowed == -1 {
-		if setErr := s.valkeyClient.Set(ctx, key, "0", 0); setErr != nil {
-			s.logger.Error("failed to seed missing user count key in valkey", zap.String("company_id", companyID), zap.Error(setErr))
-		}
-	}
+func (s *PlanService) invokeDebit(ctx context.Context, params *interfaces.DebitParams) (interfaces.DebitResult, error) {
+	return s.luaScripts.DecrementCreditWithAutoTopup(ctx, params)
 }
 
-func (s *PlanService) ClaimContractSlot(ctx context.Context, companyID string) (int, error) {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
+func (s *PlanService) chargeWithAccount(ctx context.Context, account *billing.CreditAccount, meter string, amount int64, allowTopup bool) error {
+	cost := s.calculateCost(meter, amount)
+	s.logger.Info("cost decrementing", zap.Any("meter", meter), zap.Any("cost", cost), zap.Any("amount", amount))
+	if cost <= 0 {
+		return nil
+	}
+
+	if err := s.debitCredits(ctx, account.CompanyID, cost, account, allowTopup); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMillicents int64, account *billing.CreditAccount, allowTopup bool) error {
+	if costMillicents <= 0 {
+		return nil
+	}
+
+	keys := billing.KeysFor(companyID)
+
+	spendEventID := uuid.NewString()
+	topupEventID := uuid.NewString()
+
+	minBalance := account.CreditMinBalanceMillicents
+	topupAmount := account.CreditAutoTopupMillicents
+	maxMonthly := account.CreditMaxMonthlyChargeMillicents
+	now := time.Now().UTC()
+
+	params := &interfaces.DebitParams{
+		BalanceKey:        keys.Balance,
+		ChargedKey:        keys.Charged,
+		PendingKey:        keys.Pending,
+		StreamKey:         database.UsageOutboxStreamKey,
+		Cost:              costMillicents,
+		MinBalance:        minBalance,
+		TopupAmount:       topupAmount,
+		MaxMonthly:        maxMonthly,
+		AllowTopup:        allowTopup,
+		SpendEventID:      spendEventID,
+		TopupEventID:      topupEventID,
+		CompanyID:         companyID,
+		BillingCycleStart: account.BillingCycleStart,
+		OccurredAt:        now,
+	}
+
+	result, err := s.invokeDebit(ctx, params)
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("invoke debit: %w", err)
 	}
 
-	if meter.MaxContractLimit == -1 {
-		count, _, err := s.luaScripts.CheckAndIncrQuota(ctx, usageContractKey(companyID), -1, 1)
-		return int(count), err
+	if result.Allowed == 0 {
+		return ErrInsufficientCredit
 	}
-
-	key := usageContractKey(companyID)
-	count, allowed, err := s.luaScripts.CheckAndIncrQuota(ctx, key, meter.MaxContractLimit, 1)
-	if err != nil {
-		return 0, fmt.Errorf("valkey error during slot claim: %w", err)
-	}
-
-	if allowed == -1 {
-		dbCount, dbErr := s.contractRepo.CountByCompany(ctx, companyID)
-		if dbErr != nil {
-			return 0, fmt.Errorf("seed failed: %w", dbErr)
+	if result.Allowed == -1 {
+		if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
+			return fmt.Errorf("seed credit keys: %w", err)
 		}
-		s.valkeyClient.Set(ctx, key, strconv.Itoa(dbCount), 0)
-		count, allowed, err = s.luaScripts.CheckAndIncrQuota(ctx, key, meter.MaxContractLimit, 1)
+		result, err = s.invokeDebit(ctx, params)
 		if err != nil {
-			return 0, err
+			return fmt.Errorf("retry invoke debit: %w", err)
 		}
-		if allowed == -1 {
-			return 0, fmt.Errorf("contract claim failed: valkey unrecoverable missing key")
+		if result.Allowed == -1 {
+			return fmt.Errorf("credit key missing after seed (company: %s)", companyID)
 		}
-	}
-
-	if allowed == 0 {
-		return int(count), fmt.Errorf("contract limit reached (%d/%d)", count, meter.MaxContractLimit)
-	}
-
-	return int(count), nil
-}
-
-func (s *PlanService) ReleaseContractSlot(ctx context.Context, companyID string) {
-	key := usageContractKey(companyID)
-	_, allowed, err := s.luaScripts.DecrementUsage(ctx, key, 1, 0)
-	if err != nil {
-		s.logger.Error("failed to release contract slot in valkey", zap.String("company_id", companyID), zap.Error(err))
-		return
-	}
-
-	if allowed == -1 {
-		dbCount, dbErr := s.contractRepo.CountByCompany(ctx, companyID)
-		if dbErr != nil {
-			s.logger.Error("failed to seed missing contract usage key from database", zap.String("company_id", companyID), zap.Error(dbErr))
-			return
-		}
-		corrected := dbCount - 1
-		if corrected < 0 {
-			corrected = 0
-		}
-		if setErr := s.valkeyClient.Set(ctx, key, strconv.Itoa(corrected), 0); setErr != nil {
-			s.logger.Error("failed to set contract usage key in valkey", zap.String("company_id", companyID), zap.Error(setErr))
+		if result.Allowed == 0 {
+			return ErrInsufficientCredit
 		}
 	}
-}
 
-func (s *PlanService) CheckIngressQuota(ctx context.Context, companyID string, count int64) error {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("check ingress: %w", err)
-	}
-	if meter == nil {
-		return fmt.Errorf("no active subscription for company %s", companyID)
+	if result.TopupApplied == 1 {
+		s.logger.Info("auto-topup triggered and applied",
+			zap.String("company_id", companyID),
+			zap.String("event_id", result.TopupStreamID))
 	}
 
-	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
-	if tierLimits == nil || tierLimits.OverageAllowed {
-		return nil
-	}
-
-	key := balanceKey(companyID, "ingress")
-	val, err := s.valkeyClient.Get(ctx, key)
-	if err != nil {
-		s.logger.Warn("check ingress balance failed in valkey (fail-open)", zap.Error(err))
-		return nil
-	}
-
-	if val == "" {
-		return nil
-	}
-
-	balance, err := strconv.ParseInt(val, 10, 64)
-	if err != nil {
-		s.logger.Warn("failed to parse ingress balance (fail-open)", zap.Error(err))
-		return nil
-	}
-
-	hardCapFloor := tierLimits.BandwidthIngress - tierLimits.BandwidthIngressHardCap
-	if hardCapFloor < 0 {
-		hardCapFloor = 0
-	}
-	if balance-count < hardCapFloor {
-		return fmt.Errorf("bandwidth ingress hard limit reached. Please upgrade your plan")
+	if result.NewBalance < 0 {
+		s.logger.Warn("credit balance negative after debit",
+			zap.String("company_id", companyID),
+			zap.Int64("balance_millicents", result.NewBalance),
+		)
 	}
 
 	return nil
@@ -335,8 +351,8 @@ func (s *PlanService) writeUsageToOutbox(
 		fieldCompanyID:         companyID,
 		fieldMeter:             meter,
 		fieldAmount:            strconv.FormatInt(amount, 10),
-		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339),
-		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339),
+		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339Nano),
+		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	if _, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
@@ -349,255 +365,211 @@ func (s *PlanService) writeUsageToOutbox(
 	}
 }
 
-func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
+func (s *PlanService) HasSufficientBalance(ctx context.Context, companyID string, meter string, amount int64) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
 	if err != nil {
-		return fmt.Errorf("decrement ingress: %w", err)
+		return err
 	}
-	if meter == nil {
-		return fmt.Errorf("no active subscription for company %s", companyID)
-	}
+	cost := s.calculateCost(meter, amount)
 
-	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
-	if tierLimits != nil && tierLimits.OverageAllowed {
-		s.writeUsageToOutbox(ctx, companyID, "bandwidth_ingress", count, meter.BillingCycleStart)
-		return nil
-	}
-
-	floor := int64(-999999999999)
-	if tierLimits != nil {
-		floor = tierLimits.BandwidthIngress - tierLimits.BandwidthIngressHardCap
-	}
-
-	key := balanceKey(companyID, "ingress")
-	newBalance, allowed, err := s.decrementUsageWithOutbox(ctx, key, count, floor, companyID, "bandwidth_ingress", meter.BillingCycleStart)
-	if err != nil {
-		s.logger.Error("failed to decrement ingress in valkey (fail-open)", zap.Error(err))
-		return nil
-	}
-
-	if allowed == -1 {
-		s.logger.Info("ingress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
-		dbMeter, dbErr := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
-		if dbErr == nil && dbMeter != nil {
-			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthIngressBalance, 10), 0)
-			newBalance, allowed, err = s.decrementUsageWithOutbox(ctx, key, count, floor, companyID, "bandwidth_ingress", meter.BillingCycleStart)
-			if err != nil {
-				s.logger.Error("failed ingress decrement retry in valkey (fail-open)", zap.Error(err))
-				return nil
-			}
-		} else {
-			s.logger.Error("failed to seed missing ingress balance key from database (fail-open)",
-				zap.String("company_id", companyID),
-				zap.Error(dbErr),
-			)
-			return nil
-		}
-	}
-
-	if allowed == 0 {
-		return fmt.Errorf("bandwidth ingress hard limit reached. Please upgrade your plan")
-	}
-
-	if newBalance < 0 {
-		s.logger.Warn("bandwidth ingress overage",
-			zap.String("company_id", companyID),
-			zap.Int64("balance", newBalance),
-		)
-	}
-
-	return nil
-}
-
-func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, bytes int64) error {
-	meter, err := s.GetCurrentLimits(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("decrement egress: %w", err)
-	}
-	if meter == nil {
-		return fmt.Errorf("no active subscription for company %s", companyID)
-	}
-
-	tierLimits := s.subConfig.GetTierLimits(string(meter.SubscriptionTier))
-	if tierLimits != nil && tierLimits.OverageAllowed {
-		s.writeUsageToOutbox(ctx, companyID, "bandwidth_egress", bytes, meter.BillingCycleStart)
-		return nil
-	}
-
-	key := balanceKey(companyID, "egress")
-	newBalance, allowed, err := s.decrementUsageWithOutbox(ctx, key, bytes, -999999999999, companyID, "bandwidth_egress", meter.BillingCycleStart)
-	if err != nil {
-		s.logger.Error("failed to decrement egress in valkey (fail-open)", zap.Error(err))
-		return nil
-	}
-
-	if allowed == -1 {
-		s.logger.Info("egress balance key missing in valkey, seeding from DB", zap.String("company_id", companyID))
-		dbMeter, dbErr := s.planRepo.GetCurrentUsageMeter(ctx, companyID)
-		if dbErr == nil && dbMeter != nil {
-			s.valkeyClient.Set(ctx, key, strconv.FormatInt(dbMeter.BandwidthEgressBalance, 10), 0)
-			newBalance, _, err = s.decrementUsageWithOutbox(ctx, key, bytes, -999999999999, companyID, "bandwidth_egress", meter.BillingCycleStart)
-			if err != nil {
-				s.logger.Error("failed egress decrement retry in valkey (fail-open)", zap.Error(err))
-				return nil
-			}
-		} else {
-			s.logger.Error("failed to seed missing egress balance key from database (fail-open)",
-				zap.String("company_id", companyID),
-				zap.Error(dbErr),
-			)
-			return nil
-		}
-	}
-
-	if newBalance < 0 {
-		s.logger.Warn("bandwidth egress overage",
-			zap.String("company_id", companyID),
-			zap.Int64("balance", newBalance),
-		)
-	}
-	return nil
-}
-
-func (s *PlanService) decrementUsageWithOutbox(
-	ctx context.Context,
-	balanceKey string,
-	amount int64,
-	floor int64,
-	companyID, meter string,
-	billingCycleStart time.Time,
-) (int64, int64, error) {
-	eventID := uuid.NewString()
-
-	newBalance, allowed, _, err := s.luaScripts.DecrementUsageWithOutbox(
-		ctx,
-		balanceKey,
-		database.UsageOutboxStreamKey,
-		amount,
-		floor,
-		eventID,
-		companyID,
-		meter,
-		billingCycleStart,
-		time.Now().UTC(),
-	)
-	if err != nil {
-		return 0, 0, fmt.Errorf("decrement usage with outbox: %w", err)
-	}
-
-	return newBalance, allowed, nil
-}
-
-func (s *PlanService) RenewSubscriptionFromBillingEnd(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, previousBillingEnd time.Time, externalCustomerID, externalSubscriptionID string) error {
-	limits := s.subConfig.GetTierLimits(string(tier))
-	if limits == nil {
-		return fmt.Errorf("unknown subscription tier: %s", tier)
-	}
-
-	newStart := previousBillingEnd
-	billingEnd, err := computeBillingEnd(newStart, billingCycle)
+	keys := billing.KeysFor(companyID)
+	vals, err := s.valkeyClient.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
 	if err != nil {
 		return err
 	}
 
-	meter := newMeterFromLimits(companyID, tier, newStart, billingEnd, limits)
+	balance, _ := strconv.ParseInt(vals[keys.Balance], 10, 64)
+	charged, _ := strconv.ParseInt(vals[keys.Charged], 10, 64)
+	pending, _ := strconv.ParseInt(vals[keys.Pending], 10, 64)
 
-	renewParams := postgres.RenewUsageMeterParams{
-		UpdatePlanParams: postgres.UpdatePlanParams{
-			CompanyID:      companyID,
-			Tier:           tier,
-			BillingCycle:   billingCycle,
-			ExternalCustID: externalCustomerID,
-			ExternalSubID:  externalSubscriptionID,
-			BillingStart:   newStart,
-			BillingEnd:     billingEnd,
-		},
-		Meter: meter,
+	newBalance := balance - cost
+
+	if newBalance >= 0 {
+		return nil
 	}
 
-	if err := s.planRepo.RenewUsageMeter(ctx, renewParams); err != nil {
-		return fmt.Errorf("renew subscription: %w", err)
+	if acc.CreditAutoTopupMillicents <= 0 || acc.CreditMaxMonthlyChargeMillicents <= 0 {
+		return fmt.Errorf("insufficient balance")
 	}
 
-	if err := s.seedBalanceKeys(ctx, companyID, meter); err != nil {
-		return fmt.Errorf("renew subscription - seed balances: %w", err)
+	cushion := pending
+	if cushion <= 0 {
+		if (charged + acc.CreditAutoTopupMillicents) <= acc.CreditMaxMonthlyChargeMillicents {
+			cushion = acc.CreditAutoTopupMillicents
+		}
 	}
-	s.invalidateCache(ctx, companyID)
 
-	s.logger.Info("renewed subscription",
-		zap.String("company_id", companyID),
-		zap.String("tier", string(tier)),
-		zap.String("billing_cycle", string(billingCycle)),
-		zap.Time("new_start", newStart),
-		zap.Time("billing_end", billingEnd),
-	)
+	if (newBalance + cushion) < 0 {
+		return fmt.Errorf("insufficient balance (monthly cap reached or cost too high)")
+	}
 
 	return nil
 }
 
-func computeBillingEnd(start time.Time, cycle billing.BillingCycle) (time.Time, error) {
-	switch cycle {
-	case billing.BillingCycleMonthly:
-		return start.AddDate(0, 1, 0), nil
-	case billing.BillingCycleYearly:
-		return start.AddDate(1, 0, 0), nil
-	default:
-		return time.Time{}, fmt.Errorf("unsupported billing cycle: %s", cycle)
+func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
 	}
+	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	return s.chargeWithAccount(ctx, acc, MeterBandwidthIngress, count, allowTopup)
 }
 
-func newMeterFromLimits(companyID string, tier billing.PlanTier, start, billingEnd time.Time, limits *config.TierLimits) *billing.UsageMeter {
-	return &billing.UsageMeter{
-		ID:                      uuid.New().String(),
-		CompanyID:               companyID,
-		SubscriptionTier:        tier,
-		BillingCycleStart:       start,
-		BandwidthIngressBalance: limits.BandwidthIngress,
-		BandwidthEgressBalance:  limits.BandwidthEgress,
-		MaxBandwidthIngress:     limits.BandwidthIngress,
-		MaxBandwidthEgress:      limits.BandwidthEgress,
-		MaxTeamSeats:            limits.TeamSeats,
-		MaxContractLimit:        limits.ContractLimit,
-		MaxRateLimit:            limits.RateLimit,
-		MaxPayloadBytes:         limits.MaxPayloadBytes,
-		HotStorageDays:          limits.HotStorageDays,
-		ColdStorageDays:         limits.ColdStorageDays,
-		Support:                 limits.Support,
-		BillingEnd:              billingEnd,
+func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, bytes int64) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
 	}
+	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	return s.chargeWithAccount(ctx, acc, MeterBandwidthEgress, bytes, allowTopup)
+}
+
+func (s *PlanService) ChargeContract(ctx context.Context, companyID string) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
+	}
+	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	return s.chargeWithAccount(ctx, acc, MeterContractCreate, 1, allowTopup)
+}
+
+func (s *PlanService) ChargeContractVersion(ctx context.Context, companyID string) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
+	}
+	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	return s.chargeWithAccount(ctx, acc, MeterContractVersionCreate, 1, allowTopup)
+}
+
+func (s *PlanService) ProcessRollovers(ctx context.Context) error {
+	lockKey := database.CreditRolloverLockKey
+	lockValue := uuid.NewString()
+	lockTTL := 15 * time.Minute
+	if s.valkeyClient != nil {
+		acquired, err := s.valkeyClient.SetNX(ctx, lockKey, lockValue, lockTTL)
+		if err != nil {
+			s.logger.Warn("failed to acquire rollover lock (continuing without lock)", zap.Error(err))
+		} else if !acquired {
+			s.logger.Info("rollover already in progress; skipping")
+			return nil
+		}
+		defer func() {
+			current, err := s.valkeyClient.Get(ctx, lockKey)
+			if err != nil {
+				return
+			}
+			if current == lockValue {
+				_ = s.valkeyClient.Delete(ctx, lockKey)
+			}
+		}()
+	} else {
+		s.logger.Warn("valkey unavailable; rollover lock disabled")
+	}
+
+	companies, err := s.planRepo.ListCompaniesForRollover(ctx)
+	if err != nil {
+		return fmt.Errorf("list companies for rollover: %w", err)
+	}
+
+	now := time.Now().UTC()
+	for companyID, extCustID := range companies {
+
+		account, err := s.planRepo.GetCreditAccount(ctx, companyID)
+		if err != nil {
+			s.logger.Error("failed to get account for rollover", zap.String("company_id", companyID), zap.Error(err))
+			continue
+		}
+		if account == nil {
+			continue
+		}
+
+		nextCycle, due := nextBillingCycle(account.BillingCycleStart, now)
+		if !due {
+			continue
+		}
+
+		s.logger.Info("performing monthly rollover",
+			zap.String("company_id", companyID),
+			zap.Time("old_cycle_start", account.BillingCycleStart),
+			zap.Time("new_cycle_start", nextCycle),
+		)
+
+		liveBalance := account.CreditBalanceMillicents
+		finalCharged := account.CreditMonthlyChargedMillicents
+		keys := billing.KeysFor(companyID)
+
+		if s.valkeyClient != nil && s.luaScripts != nil {
+			fetchedBalance, fetchedCharged, err := s.luaScripts.GetAndResetCharged(ctx, keys.Balance, keys.Charged)
+			if err != nil {
+				s.logger.Error("rollover atomic fetch failed; skipping company to avoid stale rollover",
+					zap.String("company_id", companyID),
+					zap.Error(err),
+				)
+				continue
+			}
+			liveBalance = fetchedBalance
+			finalCharged = fetchedCharged
+		}
+
+		if err := s.planRepo.UpdateMonthlyCharged(ctx, account.ID, finalCharged); err != nil {
+			s.logger.Warn("failed to update old account with final charged amount",
+				zap.String("company_id", companyID),
+				zap.Error(err),
+			)
+		}
+
+		newAccount := &billing.CreditAccount{
+			ID:                               uuid.New().String(),
+			CompanyID:                        companyID,
+			ExternalCustomerID:               extCustID,
+			BillingCycleStart:                nextCycle,
+			CreditBalanceMillicents:          liveBalance,
+			CreditMinBalanceMillicents:       account.CreditMinBalanceMillicents,
+			CreditMaxMonthlyChargeMillicents: account.CreditMaxMonthlyChargeMillicents,
+			CreditAutoTopupMillicents:        account.CreditAutoTopupMillicents,
+			CreditMonthlyChargedMillicents:   0,
+			RateLimitTPS:                     account.RateLimitTPS,
+			PayloadLimitBytes:                account.PayloadLimitBytes,
+		}
+
+		if err := s.planRepo.CreateCreditAccount(ctx, newAccount); err != nil {
+			s.logger.Error("failed to renew credit account in repo", zap.String("company_id", companyID), zap.Error(err))
+			continue
+		}
+		s.InvalidatePlanCache(ctx, companyID)
+	}
+
+	return nil
 }
 
 func (s *PlanService) InvalidatePlanCache(ctx context.Context, companyID string) {
-	s.invalidateCache(ctx, companyID)
+	err := s.valkeyClient.Delete(ctx, database.PlanCachePrefix+companyID)
+	if err != nil {
+		s.logger.Warn("failed to invalidate plan cache", zap.String("company_id", companyID), zap.Error(err))
+	}
 }
 
-func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, meter *billing.UsageMeter) {
-	data, err := json.Marshal(meter)
+func (s *PlanService) getCacheEntry(ctx context.Context, companyID string) *CachedPlan {
+	cached, err := s.valkeyClient.Get(ctx, database.PlanCachePrefix+companyID)
+	if err != nil || cached == "" {
+		return nil
+	}
+	var cp CachedPlan
+	if err := json.Unmarshal([]byte(cached), &cp); err != nil {
+		return nil
+	}
+	return &cp
+}
+
+func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, cp *CachedPlan) {
+	data, err := json.Marshal(cp)
 	if err != nil {
-		s.logger.Warn("failed to marshal usage meter for cache", zap.Error(err))
 		return
 	}
-	jitterRange := int64(s.cacheTTL / 5)
-	jitter := time.Duration(rand.Int63n(jitterRange)) - (time.Duration(jitterRange) / 2)
-	finalTTL := s.cacheTTL + jitter
-
-	if !meter.BillingEnd.IsZero() {
-		timeToExpiry := time.Until(meter.BillingEnd)
-		if timeToExpiry < finalTTL {
-			if timeToExpiry <= 0 {
-				return
-			}
-			finalTTL = timeToExpiry
-		}
+	ttl := s.cacheTTL
+	if jitterRange := int64(ttl / 5); jitterRange > 0 {
+		ttl += time.Duration(rand.Int63n(jitterRange*2)) - time.Duration(jitterRange)
 	}
-
-	if setErr := s.valkeyClient.Set(ctx, database.PlanCachePrefix+companyID, string(data), finalTTL); setErr != nil {
-		s.logger.Warn("failed to set plan cache in valkey", zap.Error(setErr))
-	}
-}
-
-func (s *PlanService) invalidateCache(ctx context.Context, companyID string) {
-	if delErr := s.valkeyClient.Delete(ctx, database.PlanCachePrefix+companyID); delErr != nil {
-		s.logger.Warn("failed to invalidate plan cache in valkey", zap.Error(delErr))
-	}
+	_ = s.valkeyClient.Set(ctx, database.PlanCachePrefix+companyID, string(data), ttl)
 }

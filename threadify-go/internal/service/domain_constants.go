@@ -40,3 +40,23 @@ const (
 	ActivityTypeValidationResult = "validation_result"
 	ActorServiceRuleEngine       = "rule_engine"
 )
+
+const (
+	MeterBandwidthIngress      = "bandwidth_ingress"
+	MeterBandwidthEgress       = "bandwidth_egress"
+	MeterContractCreate        = "contract_create"
+	MeterContractVersionCreate = "contract_version_create"
+	MeterSeatCreate             = "seat_create"
+	MeterCreditSpend            = "credit_spend"
+	MeterCreditTopup            = "credit_topup"
+	MeterCreditTopupRequest     = "credit_topup_request"
+)
+
+const (
+	fieldEventID           = "event_id"
+	fieldCompanyID         = "company_id"
+	fieldMeter             = "meter"
+	fieldAmount            = "amount"
+	fieldBillingCycleStart = "billing_cycle_start"
+	fieldTimestamp         = "timestamp"
+)

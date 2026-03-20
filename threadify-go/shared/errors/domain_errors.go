@@ -14,3 +14,29 @@ var (
 	ErrActivityLogNotFound   = errors.New("activity log not found")
 	ErrContractAlreadyExists = errors.New("contract already exists")
 )
+
+type DomainError struct {
+	Message string
+	Code    int
+}
+
+func (e *DomainError) Error() string {
+	return e.Message
+}
+
+func IsDomainError(err error) bool {
+	var de *DomainError
+	return errors.As(err, &de)
+}
+
+func GetDomainError(err error) *DomainError {
+	var de *DomainError
+	if errors.As(err, &de) {
+		return de
+	}
+	return nil
+}
+
+func NewDomainError(msg string, code int) error {
+	return &DomainError{Message: msg, Code: code}
+}

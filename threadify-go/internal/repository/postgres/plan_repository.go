@@ -3,28 +3,11 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"threadify-go/shared/billing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-type UpdatePlanParams struct {
-	CompanyID      string
-	Tier           billing.PlanTier
-	BillingCycle   billing.BillingCycle
-	ExternalCustID string
-	ExternalSubID  string
-	BillingStart   time.Time
-	BillingEnd     time.Time
-}
-
-type RenewUsageMeterParams struct {
-	UpdatePlanParams
-	Meter *billing.UsageMeter
-}
 
 type PlanRepository struct {
 	pool *pgxpool.Pool
@@ -34,239 +17,136 @@ func NewPlanRepository(pool *pgxpool.Pool) *PlanRepository {
 	return &PlanRepository{pool: pool}
 }
 
-func (r *PlanRepository) CreatePlan(ctx context.Context, plan *billing.CompanyPlan) error {
+func (r *PlanRepository) GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
 	const query = `
-		INSERT INTO company_plans (id, company_id, subscription_tier, billing_cycle, external_customer_id, external_subscription_id, billing_start, billing_end, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-		ON CONFLICT (company_id) DO UPDATE SET
-			subscription_tier = EXCLUDED.subscription_tier,
-			billing_cycle = EXCLUDED.billing_cycle,
-			external_customer_id = EXCLUDED.external_customer_id,
-			external_subscription_id = EXCLUDED.external_subscription_id,
-			billing_start = EXCLUDED.billing_start,
-			billing_end = EXCLUDED.billing_end,
-			status = EXCLUDED.status,
-			updated_at = NOW()
-	`
-	status := plan.Status
-	if status == "" {
-		status = billing.StatusActive
-	}
-	_, err := r.pool.Exec(ctx, query,
-		plan.ID, plan.CompanyID, plan.SubscriptionTier, plan.BillingCycle,
-		plan.ExternalCustomerID, plan.ExternalSubscriptionID,
-		plan.BillingStart, plan.BillingEnd,
-		status,
-	)
-	if err != nil {
-		return fmt.Errorf("upsert company plan: %w", err)
-	}
-	return nil
-}
-
-func (r *PlanRepository) GetCompanyPlan(ctx context.Context, companyID string) (*billing.CompanyPlan, error) {
-	const query = `
-		SELECT id, company_id, subscription_tier, billing_cycle, external_customer_id, external_subscription_id, billing_start, billing_end, status, created_at, updated_at
-		FROM company_plans WHERE company_id = $1
-	`
-	plan := &billing.CompanyPlan{}
-	err := r.pool.QueryRow(ctx, query, companyID).Scan(
-		&plan.ID, &plan.CompanyID, &plan.SubscriptionTier, &plan.BillingCycle,
-		&plan.ExternalCustomerID, &plan.ExternalSubscriptionID,
-		&plan.BillingStart, &plan.BillingEnd, &plan.Status,
-		&plan.CreatedAt, &plan.UpdatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get company plan: %w", err)
-	}
-	return plan, nil
-}
-
-func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
-	const query = `
-		SELECT company_id FROM company_plans WHERE external_customer_id = $1 LIMIT 1
-	`
-	var companyID string
-	err := r.pool.QueryRow(ctx, query, externalCustomerID).Scan(&companyID)
-	if err == pgx.ErrNoRows {
-		return "", fmt.Errorf("no company found for external customer %s", externalCustomerID)
-	}
-	if err != nil {
-		return "", fmt.Errorf("find company by external customer: %w", err)
-	}
-	return companyID, nil
-}
-
-func (r *PlanRepository) MarkPlanCancelled(ctx context.Context, companyID string) error {
-	const query = `
-		UPDATE company_plans SET status = $1, updated_at = NOW() WHERE company_id = $2
-	`
-	_, err := r.pool.Exec(ctx, query, billing.StatusCancelled, companyID)
-	if err != nil {
-		return fmt.Errorf("mark plan cancelled: %w", err)
-	}
-	return nil
-}
-
-func (r *PlanRepository) CreateUsageMeter(ctx context.Context, meter *billing.UsageMeter) error {
-	const query = `
-		INSERT INTO usage_meters (
-			id, company_id, subscription_tier, billing_cycle_start, billing_end,
-			bandwidth_ingress_balance, bandwidth_egress_balance,
-			max_bandwidth_ingress, max_bandwidth_egress,
-			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes,
-			hot_storage_days, cold_storage_days, support,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
-	`
-	_, err := r.pool.Exec(ctx, query,
-		meter.ID, meter.CompanyID, string(meter.SubscriptionTier), meter.BillingCycleStart, meter.BillingEnd,
-		meter.BandwidthIngressBalance, meter.BandwidthEgressBalance,
-		meter.MaxBandwidthIngress, meter.MaxBandwidthEgress,
-		meter.MaxTeamSeats, meter.MaxContractLimit, meter.MaxRateLimit,
-		meter.MaxPayloadBytes,
-		meter.HotStorageDays, meter.ColdStorageDays, meter.Support,
-	)
-	if err != nil {
-		return fmt.Errorf("create usage meter: %w", err)
-	}
-	return nil
-}
-
-func (r *PlanRepository) RenewUsageMeter(ctx context.Context, params RenewUsageMeterParams) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	const updatePlan = `
-		UPDATE company_plans
-		SET subscription_tier = $1, billing_cycle = $2, external_customer_id = $3, external_subscription_id = $4, billing_start = $5, billing_end = $6, updated_at = NOW()
-		WHERE company_id = $7
-	`
-	if _, err := tx.Exec(ctx, updatePlan,
-		params.Tier,
-		params.BillingCycle,
-		params.ExternalCustID,
-		params.ExternalSubID,
-		params.BillingStart,
-		params.BillingEnd,
-		params.CompanyID,
-	); err != nil {
-		return fmt.Errorf("renew: update plan: %w", err)
-	}
-
-	const insertMeter = `
-		INSERT INTO usage_meters (
-			id, company_id, subscription_tier, billing_cycle_start, billing_end,
-			bandwidth_ingress_balance, bandwidth_egress_balance,
-			max_bandwidth_ingress, max_bandwidth_egress,
-			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes,
-			hot_storage_days, cold_storage_days, support,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
-	`
-	if _, err := tx.Exec(ctx, insertMeter,
-		params.Meter.ID,
-		params.Meter.CompanyID,
-		string(params.Meter.SubscriptionTier),
-		params.Meter.BillingCycleStart,
-		params.Meter.BillingEnd,
-		params.Meter.BandwidthIngressBalance,
-		params.Meter.BandwidthEgressBalance,
-		params.Meter.MaxBandwidthIngress,
-		params.Meter.MaxBandwidthEgress,
-		params.Meter.MaxTeamSeats,
-		params.Meter.MaxContractLimit,
-		params.Meter.MaxRateLimit,
-		params.Meter.MaxPayloadBytes,
-		params.Meter.HotStorageDays,
-		params.Meter.ColdStorageDays,
-		params.Meter.Support,
-	); err != nil {
-		return fmt.Errorf("renew: insert meter: %w", err)
-	}
-
-	return tx.Commit(ctx)
-}
-
-func (r *PlanRepository) GetCurrentUsageMeter(ctx context.Context, companyID string) (*billing.UsageMeter, error) {
-	meter := &billing.UsageMeter{}
-	const query = `
-		SELECT m.id, m.company_id, m.subscription_tier, m.billing_cycle_start,
-			m.bandwidth_ingress_balance, m.bandwidth_egress_balance,
-			m.max_bandwidth_ingress, m.max_bandwidth_egress,
-			m.max_team_seats, m.max_contract_limit, m.max_rate_limit,
-			m.max_payload_bytes,
-			m.hot_storage_days, m.cold_storage_days, m.support,
-			m.billing_end,
-			m.created_at, m.updated_at
-		FROM usage_meters m
-		WHERE m.company_id = $1
-		ORDER BY m.billing_cycle_start DESC
+		SELECT 
+			ca.id, ca.company_id, ca.billing_cycle_start,
+			ca.credit_balance_millicents, ca.credit_min_balance_millicents, ca.credit_max_monthly_charge_millicents,
+			ca.credit_auto_topup_millicents, ca.credit_monthly_charged_millicents, ca.rate_limit_tps, ca.payload_limit_bytes,
+			ca.created_at, ca.updated_at,
+			c.external_customer_id
+		FROM credit_accounts ca
+		JOIN companies c ON c.id = ca.company_id
+		WHERE ca.company_id = $1
+		ORDER BY ca.billing_cycle_start DESC, ca.created_at DESC
 		LIMIT 1
 	`
+	account := &billing.CreditAccount{}
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
-		&meter.ID, &meter.CompanyID, &meter.SubscriptionTier, &meter.BillingCycleStart,
-		&meter.BandwidthIngressBalance, &meter.BandwidthEgressBalance,
-		&meter.MaxBandwidthIngress, &meter.MaxBandwidthEgress,
-		&meter.MaxTeamSeats, &meter.MaxContractLimit, &meter.MaxRateLimit,
-		&meter.MaxPayloadBytes,
-		&meter.HotStorageDays, &meter.ColdStorageDays, &meter.Support,
-		&meter.BillingEnd,
-		&meter.CreatedAt, &meter.UpdatedAt,
+		&account.ID, &account.CompanyID, &account.BillingCycleStart,
+		&account.CreditBalanceMillicents, &account.CreditMinBalanceMillicents, &account.CreditMaxMonthlyChargeMillicents,
+		&account.CreditAutoTopupMillicents, &account.CreditMonthlyChargedMillicents,
+		&account.RateLimitTPS, &account.PayloadLimitBytes,
+		&account.CreatedAt, &account.UpdatedAt,
+		&account.ExternalCustomerID,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get current usage meter: %w", err)
+		return nil, fmt.Errorf("get credit account: %w", err)
 	}
-	return meter, nil
+	return account, nil
 }
 
-func (r *PlanRepository) ResetMeterBalances(ctx context.Context, meterID string, ingress, egress int64) error {
-	const query = `
-		UPDATE usage_meters
-		SET bandwidth_ingress_balance = $1, bandwidth_egress_balance = $2, updated_at = NOW()
-		WHERE id = $3
-	`
-	_, err := r.pool.Exec(ctx, query, ingress, egress, meterID)
+func (r *PlanRepository) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
+	const query = `SELECT external_customer_id FROM companies WHERE id = $1`
+	var externalID string
+	err := r.pool.QueryRow(ctx, query, companyID).Scan(&externalID)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get external customer id: %w", err)
+	}
+	return externalID, nil
+}
+
+func (r *PlanRepository) SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error {
+	const query = `UPDATE companies SET external_customer_id = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.pool.Exec(ctx, query, externalCustomerID, companyID)
 	return err
 }
 
-func (r *PlanRepository) ListActivePlans(ctx context.Context) ([]billing.CompanyPlan, error) {
+func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
+	const query = `SELECT id FROM companies WHERE external_customer_id = $1 LIMIT 1`
+	var id string
+	err := r.pool.QueryRow(ctx, query, externalCustomerID).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+func (r *PlanRepository) ListCompaniesForRollover(ctx context.Context) (map[string]string, error) {
 	const query = `
-		SELECT id, company_id, subscription_tier, billing_cycle, billing_start, billing_end,
-		       external_customer_id, external_subscription_id, status, created_at, updated_at
-		FROM company_plans
-		WHERE status = 'active'
-		ORDER BY billing_end ASC
+		SELECT DISTINCT c.id, COALESCE(c.external_customer_id, '')
+		FROM companies c
+		WHERE EXISTS (
+			SELECT 1 FROM credit_accounts ca WHERE ca.company_id = c.id
+		)
 	`
 	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list active plans: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 
-	var plans []billing.CompanyPlan
+	companies := make(map[string]string)
 	for rows.Next() {
-		var p billing.CompanyPlan
-		if err := rows.Scan(
-			&p.ID, &p.CompanyID, &p.SubscriptionTier, &p.BillingCycle,
-			&p.BillingStart, &p.BillingEnd,
-			&p.ExternalCustomerID, &p.ExternalSubscriptionID, &p.Status,
-			&p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan company plan: %w", err)
+		var id, extID string
+		if err := rows.Scan(&id, &extID); err != nil {
+			return nil, err
 		}
-		plans = append(plans, p)
+		companies[id] = extID
 	}
-	return plans, rows.Err()
+	return companies, rows.Err()
+}
+
+func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error {
+	const query = `
+		INSERT INTO credit_accounts (
+			id, company_id, billing_cycle_start,
+			credit_balance_millicents, credit_min_balance_millicents, credit_max_monthly_charge_millicents,
+			credit_auto_topup_millicents, credit_monthly_charged_millicents,
+			rate_limit_tps, payload_limit_bytes,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+	`
+	_, err := r.pool.Exec(ctx, query,
+		account.ID, account.CompanyID, account.BillingCycleStart,
+		account.CreditBalanceMillicents, account.CreditMinBalanceMillicents, account.CreditMaxMonthlyChargeMillicents,
+		account.CreditAutoTopupMillicents, account.CreditMonthlyChargedMillicents,
+		account.RateLimitTPS, account.PayloadLimitBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("create credit account: %w", err)
+	}
+	return nil
+}
+
+func (r *PlanRepository) DisableAutoTopup(ctx context.Context, companyID string) error {
+	const query = `
+		WITH latest AS (
+			SELECT id
+			FROM credit_accounts
+			WHERE company_id = $1
+			ORDER BY billing_cycle_start DESC, created_at DESC
+			LIMIT 1
+		)
+		UPDATE credit_accounts
+		SET
+			credit_max_monthly_charge_millicents = 0,
+			credit_auto_topup_millicents         = 0,
+			updated_at                           = NOW()
+		WHERE id = (SELECT id FROM latest)
+	`
+	_, err := r.pool.Exec(ctx, query, companyID)
+	return err
+}
+
+func (r *PlanRepository) UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error {
+	const query = `UPDATE credit_accounts SET credit_monthly_charged_millicents = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.pool.Exec(ctx, query, amount, id)
+	return err
 }

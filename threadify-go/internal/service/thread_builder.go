@@ -35,7 +35,7 @@ type ThreadServiceBuilder struct {
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
-	planService           *PlanService
+	planService           interfaces.PlanService
 	workerPools           *workerpool.Pools
 	cacheManager          interfaces.CacheManager
 	logger                *zap.Logger
@@ -91,7 +91,7 @@ func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *Thread
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithPlanService(planService *PlanService) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithPlanService(planService interfaces.PlanService) *ThreadServiceBuilder {
 	b.planService = planService
 	return b
 }

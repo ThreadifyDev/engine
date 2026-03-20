@@ -14,8 +14,8 @@ import (
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -24,9 +24,9 @@ import (
 // status code mapping to the handler layer.
 
 type ContractService struct {
-	repo      *postgres.ContractRepository
-	planSvc   *PlanService
-	validator *validator.ContractValidator
+	repo      interfaces.ContractRepository
+	planSvc   interfaces.PlanService
+	validator interfaces.ContractValidator
 	logger    *zap.Logger
 }
 
@@ -41,7 +41,7 @@ type ContractWithOwnershipResponse struct {
 	IsOwner         bool                    `json:"isOwner"`
 }
 
-func NewContractService(repo *postgres.ContractRepository, planSvc *PlanService, logger *zap.Logger) *ContractService {
+func NewContractService(repo interfaces.ContractRepository, planSvc interfaces.PlanService, logger *zap.Logger) *ContractService {
 	return &ContractService{
 		repo:      repo,
 		planSvc:   planSvc,
@@ -103,16 +103,12 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	}
 
 	if s.planSvc != nil {
-		if _, err := s.planSvc.ClaimContractSlot(ctx, companyID); err != nil {
-			s.logger.Warn("contract slot claim denied", zap.String("company_id", companyID), zap.Error(err))
-			return 403, map[string]string{"message": err.Error()}
+		if err := s.planSvc.HasSufficientBalance(ctx, companyID, MeterContractCreate, 1); err != nil {
+			return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
 		}
 	}
 
 	if err := s.repo.Create(ctx, contractModel); err != nil {
-		if s.planSvc != nil {
-			s.planSvc.ReleaseContractSlot(ctx, companyID) // Rollback
-		}
 		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
 			return 400, map[string]string{"message": "Contract with this name already exists"}
 		}
@@ -143,7 +139,10 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		return 500, map[string]string{"message": "Failed to create contract version"}
 	}
 
-	// Quota claimed above
+	if err := s.planSvc.ChargeContract(ctx, companyID); err != nil {
+		s.logger.Error("charge contract failed", zap.String("company_id", companyID), zap.Error(err))
+		return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
+	}
 
 	return 200, ContractResponse{
 		Contract:        contractModel,
@@ -183,8 +182,6 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 400, map[string]string{"message": "Contract content has not changed"}
 	}
 
-	// nextVersion is always existingContract.LatestVersion+1 regardless of contract.Version,
-	// since the DB is the source of truth for sequential versioning.
 	nextVersion := existingContract.LatestVersion + 1
 	now := time.Now()
 
@@ -210,6 +207,11 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		IsDeleted:   false,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+	}
+
+	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
+		s.logger.Error("charge contract version failed", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
+		return 402, map[string]string{"message": "Payment Required: Insufficient credits to update contract"}
 	}
 
 	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {
@@ -262,11 +264,6 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 
 	if err := s.repo.SoftDelete(ctx, contractID, time.Now()); err != nil {
 		return 500, map[string]string{"message": "Failed to delete contract"}
-	}
-
-	// Decrement cached contract count
-	if s.planSvc != nil {
-		s.planSvc.ReleaseContractSlot(ctx, contract.CompanyID)
 	}
 
 	return 200, map[string]string{"message": "Contract deleted successfully"}

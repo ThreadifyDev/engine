@@ -14,7 +14,7 @@ type Resolver struct {
 	validationRepo      *valkey.ValidationRepository
 	accessRepo          *valkey.AccessRepository // For permission checks (hot path)
 	threadAccessService *service.ThreadAccessService
-	contractValidator   interfaces.ContractValidator
+	contractValidator    interfaces.ContractGraphValidator
 	contractRepo        *postgres.ContractRepository
 	refsRepo            *postgres.ThreadRefsRepository         // For batch loading refs
 	stepStatePostgres   *postgres.StepStateRepository          // For batch loading steps
@@ -22,7 +22,7 @@ type Resolver struct {
 	actorRepo           *postgres.ActorRepository              // For resolving actor names
 	notificationRepo    *postgres.ThreadNotificationRepository // For querying thread notifications
 	subStepRepo         *postgres.SubStepRepository            // For querying sub-steps
-	planService         *service.PlanService
+	planService         interfaces.PlanService
 	logger              *zap.Logger
 }
 
@@ -32,7 +32,7 @@ func NewResolver(
 	validationRepo *valkey.ValidationRepository,
 	accessRepo *valkey.AccessRepository,
 	threadAccessService *service.ThreadAccessService,
-	contractValidator interfaces.ContractValidator,
+	contractValidator interfaces.ContractGraphValidator,
 	contractRepo *postgres.ContractRepository,
 	refsRepo *postgres.ThreadRefsRepository,
 	stepStatePostgres *postgres.StepStateRepository,
@@ -40,7 +40,7 @@ func NewResolver(
 	actorRepo *postgres.ActorRepository,
 	notificationRepo *postgres.ThreadNotificationRepository,
 	subStepRepo *postgres.SubStepRepository,
-	planService *service.PlanService,
+	planService interfaces.PlanService,
 	logger *zap.Logger,
 ) *Resolver {
 	return &Resolver{

@@ -16,4 +16,6 @@ const (
 	CtxClaims = "claims"
 
 	CtxOwnerID = "ownerId"
+
+	CtxCreditAccount = "creditAccount"
 )
