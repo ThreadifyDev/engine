@@ -18,13 +18,14 @@ type User struct {
 }
 
 type Company struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Industry  *string   `json:"industry,omitempty"`
-	Size      *string   `json:"size,omitempty"` // small, medium, large, enterprise
-	UseCase   *string   `json:"use_case,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	ExternalCustomerID string    `json:"-"`
+	Industry           *string   `json:"industry,omitempty"`
+	Size               *string   `json:"size,omitempty"` // small, medium, large, enterprise
+	UseCase            *string   `json:"use_case,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type ServiceAccount struct {

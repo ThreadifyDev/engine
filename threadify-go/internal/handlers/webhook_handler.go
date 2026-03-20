@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"threadify-go/shared/billing"
 
@@ -15,10 +17,11 @@ import (
 const (
 	maxWebhookBodyBytes = 65536
 
-	eventInvoicePaid              = "invoice.paid"
-	eventInvoicePaymentFailed     = "invoice.payment_failed"
-	eventSubscriptionDeleted      = "customer.subscription.deleted"
-	eventCheckoutSessionCompleted = "checkout.session.completed"
+	eventInvoicePaid          = "invoice.paid"
+	eventInvoicePaymentFailed = "invoice.payment_failed"
+	eventCheckoutCompleted    = "checkout.session.completed"
+
+	maxPaymentAttempts = int64(4)
 )
 
 type BillingWebhookService interface {
@@ -26,13 +29,10 @@ type BillingWebhookService interface {
 	MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error
 	MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error
 	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
-	FindPendingSnapshotBySubscriptionID(ctx context.Context, externalSubscriptionID string) (*billing.BillingSnapshot, error)
-	RenewAndReset(ctx context.Context, companyID string, snapshot *billing.BillingSnapshot) error
-	LiftSuspension(ctx context.Context, companyID string) error
-	SuspendCompany(ctx context.Context, companyID string) error
-	CancelPlan(ctx context.Context, companyID string) error
-	GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
-	ProvisionSubscription(ctx context.Context, companyID string, tier billing.PlanTier, billingCycle billing.BillingCycle, externalCustomerID, externalSubscriptionID string) error
+	ApplyCreditTopup(ctx context.Context, snapshot *billing.BillingSnapshot) error
+	ClearCreditTopupPending(ctx context.Context, companyID string) error
+	DisableAutoTopup(ctx context.Context, companyID string) error
+	ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount, maxMonthly int64) error
 }
 
 type WebhookHandler struct {
@@ -74,21 +74,23 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 	}
 
 	if event == nil {
+		h.logger.Debug("webhook: verified but no event returned",
+			zap.String("provider", h.provider.Name()),
+		)
 		c.JSON(http.StatusOK, gin.H{"received": true})
 		return
 	}
 
 	ctx := c.Request.Context()
+	var handlerErr error
 
 	switch event.Type {
 	case eventInvoicePaid:
-		h.handleInvoicePaid(ctx, event)
+		handlerErr = h.handleInvoicePaid(ctx, event)
 	case eventInvoicePaymentFailed:
-		h.handleInvoicePaymentFailed(ctx, event)
-	case eventSubscriptionDeleted:
-		h.handleSubscriptionDeleted(ctx, event)
-	case eventCheckoutSessionCompleted:
-		h.handleCheckoutSessionCompleted(ctx, event)
+		handlerErr = h.handleInvoicePaymentFailed(ctx, event)
+	case eventCheckoutCompleted:
+		handlerErr = h.handleCheckoutSessionCompleted(ctx, event)
 	default:
 		h.logger.Debug("webhook: unhandled event type",
 			zap.String("provider", h.provider.Name()),
@@ -96,59 +98,34 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 		)
 	}
 
+	if handlerErr != nil {
+		h.logger.Error("webhook: processing failed",
+			zap.String("type", event.Type),
+			zap.Error(handlerErr),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal processing error"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"received": true})
 }
 
-func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.WebhookEvent) {
+func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.WebhookEvent) error {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.paid missing invoice ID")
-		return
+		return nil
 	}
 
 	snapshot, err := h.billingSvc.FindSnapshotByInvoiceID(ctx, event.ExternalInvoiceID)
 	if err != nil {
-		h.logger.Error("webhook: failed to find snapshot by invoice",
-			zap.String("invoice_id", event.ExternalInvoiceID),
-			zap.Error(err),
-		)
-		return
-	}
-
-	if snapshot == nil && event.ExternalSubscriptionID != "" {
-		h.logger.Debug("webhook: invoice.paid has no matching invoice link, trying subscription fallback",
-			zap.String("subscription_id", event.ExternalSubscriptionID),
-		)
-		snapshot, err = h.billingSvc.FindPendingSnapshotBySubscriptionID(ctx, event.ExternalSubscriptionID)
-		if err != nil {
-			h.logger.Error("webhook: failed to find pending snapshot by subscription",
-				zap.String("subscription_id", event.ExternalSubscriptionID),
-				zap.Error(err),
-			)
-			return
-		}
+		return fmt.Errorf("find snapshot by invoice: %w", err)
 	}
 
 	if snapshot == nil {
-		if event.ExternalCustomerID != "" {
-			companyID, err := h.billingSvc.GetCompanyIDByExternalCustomerID(ctx, event.ExternalCustomerID)
-			if err == nil && companyID != "" {
-				if liftErr := h.billingSvc.LiftSuspension(ctx, companyID); liftErr != nil {
-					h.logger.Error("webhook: failed to lift suspension without snapshot",
-						zap.String("company_id", companyID),
-						zap.Error(liftErr),
-					)
-				} else {
-					h.logger.Info("webhook: invoice.paid lifted suspension without snapshot",
-						zap.String("company_id", companyID),
-						zap.String("invoice_id", event.ExternalInvoiceID),
-					)
-				}
-			}
-		}
-		h.logger.Debug("webhook: invoice.paid has no matching snapshot, skipping",
+		h.logger.Warn("webhook: invoice.paid has no matching snapshot, skipping",
 			zap.String("invoice_id", event.ExternalInvoiceID),
 		)
-		return
+		return nil
 	}
 
 	if snapshot.ExternalInvoiceID == "" {
@@ -157,180 +134,124 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 			zap.String("invoice_id", event.ExternalInvoiceID),
 		)
 		if err := h.billingSvc.LinkAndMarkSnapshotPaid(ctx, snapshot.ID, event.ExternalInvoiceID); err != nil {
-			h.logger.Error("webhook: failed to link and mark snapshot paid",
-				zap.String("snapshot_id", snapshot.ID),
-				zap.String("invoice_id", event.ExternalInvoiceID),
-				zap.Error(err),
-			)
+			return fmt.Errorf("link and mark snapshot paid: %w", err)
 		}
 	} else {
 		if err := h.billingSvc.MarkSnapshotPaid(ctx, event.ExternalInvoiceID); err != nil {
-			h.logger.Error("webhook: failed to mark snapshot paid (via invoice id)",
-				zap.String("invoice_id", event.ExternalInvoiceID),
-				zap.Error(err),
-			)
+			return fmt.Errorf("mark snapshot paid: %w", err)
 		}
 	}
 
-	if err := h.billingSvc.LiftSuspension(ctx, snapshot.CompanyID); err != nil {
-		h.logger.Error("webhook: failed to lift suspension",
-			zap.String("company_id", snapshot.CompanyID),
-			zap.Error(err),
-		)
-		return
-	}
-
-	if snapshot.IsCycleEnd {
-		if err := h.billingSvc.RenewAndReset(ctx, snapshot.CompanyID, snapshot); err != nil {
-			h.logger.Error("webhook: failed to renew and reset after cycle-end payment",
-				zap.String("company_id", snapshot.CompanyID),
-				zap.String("snapshot_id", snapshot.ID),
-				zap.Error(err),
-			)
-			return
+	if strings.HasPrefix(string(snapshot.Reason), string(billing.SnapshotReasonCreditTopup)) {
+		if err := h.billingSvc.ApplyCreditTopup(ctx, snapshot); err != nil {
+			return fmt.Errorf("apply credit topup: %w", err)
 		}
-		h.logger.Info("webhook: cycle renewed after payment",
-			zap.String("company_id", snapshot.CompanyID),
-			zap.String("snapshot_id", snapshot.ID),
-		)
 	}
 
 	h.logger.Info("webhook: invoice paid processed",
 		zap.String("provider", h.provider.Name()),
 		zap.String("invoice_id", event.ExternalInvoiceID),
 		zap.String("company_id", snapshot.CompanyID),
-		zap.Bool("cycle_end", snapshot.IsCycleEnd),
 	)
+
+	return nil
 }
 
-func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *billing.WebhookEvent) {
+func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *billing.WebhookEvent) error {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.payment_failed missing invoice ID")
-		return
+		return nil
 	}
 
 	if err := h.billingSvc.MarkSnapshotFailed(ctx, event.ExternalInvoiceID); err != nil {
-		h.logger.Error("webhook: failed to mark snapshot failed",
+		return fmt.Errorf("mark snapshot failed: %w", err)
+	}
+
+	snapshot, err := h.billingSvc.FindSnapshotByInvoiceID(ctx, event.ExternalInvoiceID)
+	if err != nil {
+		return fmt.Errorf("find snapshot for failed invoice: %w", err)
+	}
+	if snapshot == nil {
+		h.logger.Warn("webhook: invoice.payment_failed has no matching snapshot",
 			zap.String("invoice_id", event.ExternalInvoiceID),
-			zap.Error(err),
 		)
-		return
+		return nil
+	}
+
+	companyID := snapshot.CompanyID
+
+	if clearErr := h.billingSvc.ClearCreditTopupPending(ctx, companyID); clearErr != nil {
+		h.logger.Error("webhook: failed to clear credit topup pending (fail-open)",
+			zap.String("company_id", companyID),
+			zap.String("invoice_id", event.ExternalInvoiceID),
+			zap.Error(clearErr),
+		)
+	}
+
+	if event.AttemptCount >= maxPaymentAttempts {
+		if err := h.billingSvc.DisableAutoTopup(ctx, companyID); err != nil {
+			return fmt.Errorf("disable auto-topup after final payment failure: %w", err)
+		}
+		h.logger.Warn("webhook: final payment attempt failed — auto-topup disabled",
+			zap.String("provider", h.provider.Name()),
+			zap.String("company_id", companyID),
+			zap.String("invoice_id", event.ExternalInvoiceID),
+			zap.Int64("attempt_count", event.AttemptCount),
+		)
+	} else {
+		h.logger.Warn("webhook: payment failed, will retry",
+			zap.String("provider", h.provider.Name()),
+			zap.String("company_id", companyID),
+			zap.String("invoice_id", event.ExternalInvoiceID),
+			zap.Int64("attempt_count", event.AttemptCount),
+			zap.Int64("max_attempts", maxPaymentAttempts),
+		)
+	}
+
+	return nil
+}
+
+func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *billing.WebhookEvent) error {
+	companyID := event.Metadata["company_id"]
+	if companyID == "" {
+		h.logger.Warn("webhook: checkout.session.completed missing company_id in metadata")
+		return nil
 	}
 
 	if event.ExternalCustomerID == "" {
-		h.logger.Warn("webhook: invoice.payment_failed missing customer ID, cannot suspend",
-			zap.String("invoice_id", event.ExternalInvoiceID),
-		)
-		return
-	}
-
-	companyID, err := h.billingSvc.GetCompanyIDByExternalCustomerID(ctx, event.ExternalCustomerID)
-	if err != nil {
-		h.logger.Error("webhook: failed to resolve company from customer",
-			zap.String("customer_id", event.ExternalCustomerID),
-			zap.Error(err),
-		)
-		return
-	}
-
-	if companyID == "" {
-		h.logger.Warn("webhook: no company found for customer",
-			zap.String("customer_id", event.ExternalCustomerID),
-		)
-		return
-	}
-
-	if err := h.billingSvc.SuspendCompany(ctx, companyID); err != nil {
-		h.logger.Error("webhook: failed to suspend company",
+		h.logger.Warn("webhook: checkout.session.completed missing customer ID",
 			zap.String("company_id", companyID),
-			zap.Error(err),
 		)
-		return
+		return nil
 	}
 
-	h.logger.Warn("webhook: payment failed — company suspended",
-		zap.String("provider", h.provider.Name()),
-		zap.String("company_id", companyID),
-		zap.String("invoice_id", event.ExternalInvoiceID),
-		zap.Int64("attempt_count", event.AttemptCount),
-	)
-}
-
-func (h *WebhookHandler) handleSubscriptionDeleted(ctx context.Context, event *billing.WebhookEvent) {
-	if event.ExternalCustomerID == "" {
-		h.logger.Warn("webhook: subscription.deleted missing customer ID")
-		return
-	}
-
-	companyID, err := h.billingSvc.GetCompanyIDByExternalCustomerID(ctx, event.ExternalCustomerID)
-	if err != nil {
-		h.logger.Error("webhook: failed to resolve company from customer",
-			zap.String("customer_id", event.ExternalCustomerID),
-			zap.Error(err),
-		)
-		return
-	}
-
-	if companyID == "" {
-		h.logger.Warn("webhook: no company found for customer",
-			zap.String("customer_id", event.ExternalCustomerID),
-		)
-		return
-	}
-
-	if err := h.billingSvc.CancelPlan(ctx, companyID); err != nil {
-		h.logger.Error("webhook: failed to cancel plan",
+	if event.AmountMillicents <= 0 {
+		h.logger.Warn("webhook: checkout.session.completed has no usable amount",
 			zap.String("company_id", companyID),
-			zap.String("subscription_id", event.ExternalSubscriptionID),
-			zap.Error(err),
 		)
-		return
+		return nil
 	}
 
-	h.logger.Info("webhook: subscription deleted — plan cancelled",
-		zap.String("provider", h.provider.Name()),
+	h.logger.Info("webhook: provisioning from checkout",
 		zap.String("company_id", companyID),
-		zap.String("subscription_id", event.ExternalSubscriptionID),
+		zap.String("customer_id", event.ExternalCustomerID),
+		zap.Int64("initial_amount_millicents", event.AmountMillicents),
+		zap.Int64("max_monthly_millicents", event.MaxMonthlyMillicents),
 	)
-}
 
-func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *billing.WebhookEvent) {
-	if event.CompanyID == "" || event.Tier == "" {
-		h.logger.Error("webhook: checkout.session.completed missing required metadata",
-			zap.String("customer_id", event.ExternalCustomerID),
-		)
-		return
-	}
-
-	cycle := billing.BillingCycleMonthly
-	if event.BillingCycle == string(billing.BillingCycleYearly) {
-		cycle = billing.BillingCycleYearly
-	}
-
-	tier := billing.PlanTier(event.Tier)
-
-	err := h.billingSvc.ProvisionSubscription(
+	if err := h.billingSvc.ProvisionSubscription(
 		ctx,
-		event.CompanyID,
-		tier,
-		cycle,
+		companyID,
 		event.ExternalCustomerID,
-		event.ExternalSubscriptionID,
-	)
-
-	if err != nil {
-		h.logger.Error("webhook: failed to provision subscription from checkout",
-			zap.String("company_id", event.CompanyID),
-			zap.String("customer_id", event.ExternalCustomerID),
+		event.AmountMillicents,
+		event.MaxMonthlyMillicents,
+	); err != nil {
+		h.logger.Error("webhook: failed to provision from checkout",
+			zap.String("company_id", companyID),
 			zap.Error(err),
 		)
-		return
+		return err
 	}
 
-	h.logger.Info("webhook: initial subscription provisioned from checkout",
-		zap.String("provider", h.provider.Name()),
-		zap.String("company_id", event.CompanyID),
-		zap.String("tier", string(tier)),
-		zap.String("billing_cycle", string(cycle)),
-	)
+	return nil
 }

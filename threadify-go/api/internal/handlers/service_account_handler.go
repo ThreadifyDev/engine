@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 	"threadify-go/api/internal/service"
+	serror "threadify-go/shared/errors"
 	"threadify-go/shared/rbac"
 
 	"github.com/gin-gonic/gin"
@@ -34,8 +34,8 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(companyID, userID, &req)
 	if err != nil {
-		if errors.Is(err, service.ErrServiceAccountNameRequired) || errors.Is(err, service.ErrInvalidRoleAPI) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -70,8 +70,8 @@ func (h *ServiceAccountHandler) GetServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.GetServiceAccount(id, companyID)
 	if err != nil {
-		if errors.Is(err, service.ErrServiceAccountNotFound) || errors.Is(err, service.ErrUnauthorized) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -96,8 +96,8 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 
 	serviceAccount, err := h.serviceAccountService.UpdateServiceAccount(id, companyID, &req)
 	if err != nil {
-		if errors.Is(err, service.ErrServiceAccountNotFound) || errors.Is(err, service.ErrUnauthorized) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -116,8 +116,8 @@ func (h *ServiceAccountHandler) DeleteServiceAccount(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := h.serviceAccountService.DeleteServiceAccount(id, companyID); err != nil {
-		if errors.Is(err, service.ErrServiceAccountNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})

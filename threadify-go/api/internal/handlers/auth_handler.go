@@ -7,6 +7,7 @@ import (
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -181,31 +182,11 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 }
 
 func authErrorResponse(err error, fallbackStatus int, fallbackMessage string) (int, string) {
-	var requestValidationErr *validation.RequestValidationError
-	if errors.As(err, &requestValidationErr) {
-		return http.StatusBadRequest, requestValidationErr.FirstMessage()
+	if de := serror.GetDomainError(err); de != nil {
+		return de.Code, de.Message
 	}
 
-	switch {
-	case errors.Is(err, service.ErrUserAlreadyExists):
-		return http.StatusConflict, service.ErrUserAlreadyExists.Error()
-	case errors.Is(err, service.ErrInvalidCredentials):
-		return http.StatusUnauthorized, service.ErrInvalidCredentials.Error()
-	case errors.Is(err, service.ErrInvalidEmail):
-		return http.StatusBadRequest, service.ErrInvalidEmail.Error()
-	case errors.Is(err, service.ErrAccountStillProvisioning):
-		return http.StatusServiceUnavailable, service.ErrAccountStillProvisioning.Error()
-	case errors.Is(err, service.ErrPasswordResetRequired):
-		return http.StatusUnauthorized, service.ErrPasswordResetRequired.Error()
-	case errors.Is(err, service.ErrExpiredToken):
-		return http.StatusBadRequest, service.ErrExpiredToken.Error()
-	case errors.Is(err, service.ErrInvalidToken):
-		return http.StatusBadRequest, service.ErrInvalidToken.Error()
-	case errors.Is(err, service.ErrRateLimit):
-		return http.StatusTooManyRequests, service.ErrRateLimit.Error()
-	default:
-		return fallbackStatus, service.ErrInternalServerError.Error()
-	}
+	return fallbackStatus, fallbackMessage
 }
 
 func respondValidationError(c *gin.Context, err error) bool {

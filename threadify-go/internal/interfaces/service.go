@@ -3,7 +3,10 @@ package interfaces
 import (
 	"context"
 
+	"threadify-go/shared/billing"
+
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/pkg/validator"
 )
 
 // StepEventProcessor defines the interface for step event processing
@@ -51,8 +54,8 @@ type CacheManager interface {
 	ClearStepStatus(stepHashKey string)
 }
 
-// ContractValidator defines the interface for contract validation operations
-type ContractValidator interface {
+// ContractGraphValidator defines the interface for contract graph operations
+type ContractGraphValidator interface {
 	ValidateStepInContract(contractName string, version int, stepName string, context map[string]string, companyID string) error
 	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
 	GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error)
@@ -64,4 +67,24 @@ type ContractValidator interface {
 type BackgroundService interface {
 	Start() error
 	Stop() error
+}
+
+type PlanService interface {
+	ChargeContract(ctx context.Context, companyID string) error
+	ChargeContractVersion(ctx context.Context, companyID string) error
+	DecrementEgress(ctx context.Context, companyID string, bytes int64) error
+	DecrementIngress(ctx context.Context, companyID string, count int64) error
+	GetCurrentLimits(ctx context.Context, companyID string) (*billing.CreditAccount, error)
+	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
+	ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount, maxMonthly int64) error
+	InvalidatePlanCache(ctx context.Context, companyID string)
+	ProcessRollovers(ctx context.Context) error
+	CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error
+	CheckRateLimit(ctx context.Context, account *billing.CreditAccount) (bool, error)
+	HasSufficientBalance(ctx context.Context, companyID string, meter string, amount int64) error
+}
+
+type ContractValidator interface {
+	Validate(yamlString string) (*validator.Contract, *validator.ValidationResult)
+	SerializeContract(contract *validator.Contract) (string, string, error)
 }

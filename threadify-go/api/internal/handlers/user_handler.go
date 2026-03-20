@@ -7,6 +7,7 @@ import (
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
+	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -182,7 +183,7 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 // helpers
 
 func getUserID(c *gin.Context) (string, bool) {
-	userID, exists := c.Get("userID")
+	userID, exists := c.Get(sharedauth.CtxUserID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", false
@@ -196,7 +197,7 @@ func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", "", false
 	}
-	companyID, exists := c.Get("companyID")
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", "", false
@@ -207,8 +208,8 @@ func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
 func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {
 	user, err := h.userRepo.FindByID(userID)
 	if err != nil {
-		if errors.Is(err, serror.ErrUserNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})

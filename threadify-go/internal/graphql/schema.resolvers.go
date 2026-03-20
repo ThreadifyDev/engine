@@ -90,6 +90,11 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
+	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
+		return nil, fmt.Errorf("payment required: your account is out of credits")
+	}
+
 	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
@@ -126,6 +131,10 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	perf.Log("[PERF] Threads.getUserInfo: %v\n", perf.Since(authStart))
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+		return nil, fmt.Errorf("payment required: your account is out of credits")
 	}
 
 	// Normalize pagination using helper
@@ -172,6 +181,10 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
+	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+		return nil, fmt.Errorf("payment required: your account is out of credits")
+	}
+
 	// Normalize pagination
 	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
 
@@ -212,6 +225,10 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+		return nil, fmt.Errorf("payment required: your account is out of credits")
 	}
 
 	// Normalize pagination
@@ -260,6 +277,10 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+		return nil, fmt.Errorf("payment required: your account is out of credits")
 	}
 
 	// Set default max depth
