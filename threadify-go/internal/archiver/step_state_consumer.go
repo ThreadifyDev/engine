@@ -228,14 +228,6 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 		}
 		placeholderRows = append(placeholderRows, "("+strings.Join(cols, ", ")+", NOW())")
 
-		// Handle empty context: convert "" to NULL for JSONB column
-		var latestContext interface{}
-		if e.LatestContext == "" {
-			latestContext = nil
-		} else {
-			latestContext = e.LatestContext
-		}
-
 		args = append(args,
 			e.StepID,
 			e.ThreadID,

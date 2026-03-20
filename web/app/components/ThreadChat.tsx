@@ -152,6 +152,11 @@ export default function ThreadChat() {
       setIsDropdownOpen(false);
       setSearchQuery('');
       
+      // Reset token/message counts and limit error when switching conversations
+      setTokenCount(0);
+      setMessageCount(0);
+      setLimitError(null);
+      
       // Save to localStorage for auto-restore on next visit
       localStorage.setItem('lastConversationId', convId);
     } catch (error) {
