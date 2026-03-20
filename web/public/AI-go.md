@@ -253,24 +253,27 @@ for _, thread := range threads {
 
 ### Retrieve Thread Data
 
+**Important:** `GetThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `Join()`.
+
 **Recommended:** Use `GetCompleteData()` for efficiency (single query):
 
 ```go
 // Wait for archival (1-2 seconds)
 time.Sleep(2 * time.Second)
 
+// Get thread for READ-ONLY access
 thread, err := conn.GetThread(ctx, threadID)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get everything in one query (recommended)
 completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
-    StepHistoryLimit: 50,  // History per step
-    ValidationLimit:  10,  // Validation results
+	StepHistoryLimit: 50,  // History per step
+	ValidationLimit:  10,  // Validation results
 })
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Access: completeData.Steps, completeData.ValidationResults, etc.
@@ -279,21 +282,41 @@ if err != nil {
 **Alternative:** Separate queries (use only if you need partial data):
 
 ```go
+// Read-only access
 thread, err := conn.GetThread(ctx, threadID)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get steps only
 steps, err := thread.Steps(ctx, "order_placed", "", "success")
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get validations only
 validations, err := thread.ValidationResults(ctx, 10)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+```
+
+**To modify a thread:** Use `Join()` instead:
+
+```go
+// Join thread to add steps
+thread, err := conn.Join(ctx, 
+	threadify.WithJoinThreadID(threadID),
+	threadify.WithJoinRole("participant"),
+)
+if err != nil {
+	log.Fatal(err)
+}
+
+// Now you can record steps
+_, err = thread.Step("new_step").Success(ctx)
+if err != nil {
+	log.Fatal(err)
 }
 ```
 

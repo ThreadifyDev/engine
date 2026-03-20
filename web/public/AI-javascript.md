@@ -128,12 +128,15 @@ await childThread.linkThread(parentThread.id, 'parent');
 
 ### Retrieve Thread Data
 
+**Important:** `getThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `join()`.
+
 **Recommended:** Use `getCompleteData()` for efficiency (single query):
 
 ```javascript
 // Wait for archival (1-2 seconds)
 await new Promise(resolve => setTimeout(resolve, 2000));
 
+// Get thread for READ-ONLY access
 const thread = await connection.getThread(threadId);
 
 // Get everything in one query (recommended)
@@ -147,9 +150,19 @@ const data = await thread.getCompleteData({
 
 **Alternative:** Separate queries (use only if you need partial data):
 ```javascript
+// Read-only access
 const thread = await connection.getThread(threadId);
 const steps = await thread.steps();                    // All steps
 const validations = await thread.validationResults();  // All validations
+```
+
+**To modify a thread:** Use `join()` instead:
+```javascript
+// Join thread to add steps
+const thread = await connection.join(threadId, 'participant');
+
+// Now you can record steps
+await thread.step('new_step').success();
 ```
 
 ### Query Thread Chain

@@ -31,12 +31,12 @@ func NewUserHandler(
 }
 
 func (h *UserHandler) GetProfile(c *gin.Context) {
-	authUserID, companyID, ok := getUserAndCompanyID(c)
+	userID, companyID, ok := getUserAndCompanyID(c)
 	if !ok {
 		return
 	}
 
-	user, err := h.userRepo.FindByAuthUserID(authUserID)
+	user, err := h.userRepo.FindByID(userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -64,13 +64,13 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 }
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	authUserID, companyID, ok := getUserAndCompanyID(c)
+	userID, companyID, ok := getUserAndCompanyID(c)
 	if !ok {
 		return
 	}
 
-	// Look up user by auth_user_id to get internal ID
-	user, err := h.userRepo.FindByAuthUserID(authUserID)
+	// Look up user by internal ID
+	user, err := h.userRepo.FindByID(userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -140,13 +140,13 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 }
 
 func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
-	authUserID, ok := getUserID(c)
+	userID, ok := getUserID(c)
 	if !ok {
 		return
 	}
 
-	// Look up user by auth_user_id to get internal ID
-	user, err := h.userRepo.FindByAuthUserID(authUserID)
+	// Look up user by internal ID
+	user, err := h.userRepo.FindByID(userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -182,16 +182,16 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 // helpers
 
 func getUserID(c *gin.Context) (string, bool) {
-	authUserID, exists := c.Get("authUserID")
+	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", false
 	}
-	return authUserID.(string), true
+	return userID.(string), true
 }
 
 func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
-	authUserID, exists := c.Get("authUserID")
+	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", "", false
@@ -201,7 +201,7 @@ func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", "", false
 	}
-	return authUserID.(string), companyID.(string), true
+	return userID.(string), companyID.(string), true
 }
 
 func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {

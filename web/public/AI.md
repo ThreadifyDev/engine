@@ -169,9 +169,25 @@ Every step must have one of three statuses:
 
 ---
 
+### 9. Retrieving Thread Data
+
+**What it does:** Query thread execution data for analysis
+
+**Important:** `getThread()` returns a **read-only** thread object. To add steps or modify a thread, you must use `join()`.
+
+**Use cases:**
+- Analyze completed threads
+- Debug execution flow
+- Generate reports
+- Display thread history
+
+**To modify a thread:** Use `join()` to get write access and record new steps.
+
+---
+
 ### 10. Joining Threads
 
-**What it does:** Join an existing thread
+**What it does:** Join an existing thread to add steps or modify it
 
 **Variants:**
 1. **With invitation token** - External parties
@@ -182,6 +198,8 @@ Every step must have one of three statuses:
 - OR
 - `threadId` - Thread ID to join
 - `role` - Role for access control
+
+**Returns:** Thread instance with write access (can record steps)
 
 ---
 
