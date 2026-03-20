@@ -1,46 +1,15 @@
 billing:
   provider: stripe
   webhook_secret: "whsec_39a7f1c3d6fb6e5a638d8fa1d65d7b4589696b7067bbb7c14363e98cf1705848"
+  secret_key: "sk_test_51TA9lg8bW3V5oRkWnrbloHeHpj1M847ZTaKeBi3DV4FUXFAGPmUFICekeQPjDfVIj4S3Vll9xJueuQQMXnALqtpx000WWSnW5r"
   success_url: "http://localhost:3000/success"
   cancel_url: "http://localhost:3000/cancel"
-  tier_prices:
-    starter:
-      monthly_price_id: "price_1TA9pB8bW3V5oRkWW4AeMsiL"
-      yearly_price_id: "price_1TAD7G8bW3V5oRkW4y3tuygr"
-    growth:
-      monthly_price_id: "price_1TATY88bW3V5oRkWsOfrH4K0"
-      yearly_price_id: "price_growth_yearly_placeholder"
-  secret_key: "sk_test_51TA9lg8bW3V5oRkWnrbloHeHpj1M847ZTaKeBi3DV4FUXFAGPmUFICekeQPjDfVIj4S3Vll9xJueuQQMXnALqtpx000WWSnW5r"
 
 subscription:
-  tiers:
-    starter:
-      bandwidth_ingress: 1000000           # 1M steps/mo
-      bandwidth_ingress_hard_cap: 1500000  # forced upgrade at 1.5M
-      bandwidth_egress: 10737418240        # 10 GB
-      bandwidth_egress_overage_cents_per_gb: 15  # $0.15/GB
-      team_seats: 1
-      seat_overage_cents_per_month: 1500   # $15/mo per additional seat
-      contract_limit: 3
-      rate_limit: 10                       # 10 TPS
-      max_payload_bytes: 524288            # 500 KB
-      hot_storage_days: 7
-      cold_storage_days: 0                 # no archival, purged after hot window
-      support: community
-      overage_allowed: false               # hard stop on bandwidth ingress
-
-    growth:
-      bandwidth_ingress: 50000000          # 50M steps/mo
-      bandwidth_ingress_overage_cents_per_million: 50  # $0.50 per 1M additional
-      bandwidth_egress: 214748364800       # 200 GB
-      bandwidth_egress_overage_cents_per_gb: 10  # $0.10/GB
-      team_seats: 5
-      seat_overage_cents_per_month: 1500   # $15/mo per additional seat
-      contract_limit: 20
-      rate_limit: 1000                     # 1000 TPS
-      max_payload_bytes: 1048576           # 1 MB
-      hot_storage_days: 30
-      cold_storage_days: 365               # max 1yr retention
-      cold_storage_overage_cents_per_gb: 10  # $0.10/GB/mo
-      support: email
-      overage_allowed: true                # metered overage on all balance meters
+  credit:
+    ingress_cost_millicents: 100   # $1.00 per unit01 per unit
+    egress_cost_millicents: 100      # $0.001 per MB
+    seat_cost_millicents: 100               # $0.001 per seat
+    contract_cost_millicents: 100             # $0.001 per contract
+    rate_limit_tps: 600
+    payload_limit_bytes: 1048576 # 1MB

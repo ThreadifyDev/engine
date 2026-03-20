@@ -99,6 +99,25 @@ func (v *ValkeyService) SetNX(ctx context.Context, key string, value interface{}
 	return v.Client.SetNX(ctx, key, value, ttl).Result()
 }
 
+func (v *ValkeyService) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	if len(keys) == 0 {
+		return map[string]string{}, nil
+	}
+	vals, err := v.Client.MGet(ctx, keys...).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(keys))
+	for i, key := range keys {
+		if vals[i] == nil {
+			result[key] = ""
+		} else {
+			result[key] = fmt.Sprintf("%v", vals[i])
+		}
+	}
+	return result, nil
+}
+
 func (v *ValkeyService) Get(ctx context.Context, key string) (string, error) {
 	return v.Client.Get(ctx, key).Result()
 }

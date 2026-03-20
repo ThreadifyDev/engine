@@ -7,24 +7,31 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/threadify/engine/internal/database"
 	"go.uber.org/zap"
 )
 
 var ErrThreadNotFound = errors.New("wait for thread metadata")
 
-var meterColumns = map[string]string{
-	"bandwidth_ingress": "bandwidth_ingress_balance",
-	"bandwidth_egress":  "bandwidth_egress_balance",
-}
+const creditUpdateQuery = `
+    UPDATE credit_accounts
+    SET credit_balance_millicents         = credit_balance_millicents + $1,
+        credit_monthly_charged_millicents = credit_monthly_charged_millicents - $1,
+        last_sync_event_id                = $4,
+        updated_at                        = NOW()
+    WHERE company_id          = $2
+      AND billing_cycle_start = $3
+      AND (last_sync_event_id IS NULL OR last_sync_event_id != $4)`
 
-var meterUpdateQueries = map[string]string{
-	"bandwidth_ingress": `UPDATE usage_meters SET bandwidth_ingress_balance = bandwidth_ingress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
-	"bandwidth_egress":  `UPDATE usage_meters SET bandwidth_egress_balance = bandwidth_egress_balance - $1, updated_at = NOW() WHERE company_id = $2 AND billing_cycle_start = $3`,
-}
+const creditTopupUpdateQuery = `
+    UPDATE credit_accounts
+    SET credit_balance_millicents = credit_balance_millicents + $1,
+        last_sync_event_id        = $4,
+        updated_at                = NOW()
+    WHERE company_id          = $2
+      AND billing_cycle_start = $3
+      AND (last_sync_event_id IS NULL OR last_sync_event_id != $4)`
 
 type PostgresWriter struct {
 	db     *database.PostgresDB
@@ -109,7 +116,6 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 	}
 
 	if len(insertEvents) > 0 {
-
 		companyIDs := make([]string, 0, len(insertEvents))
 		ownerIDs := make([]string, 0, len(insertEvents))
 		for _, event := range insertEvents {
@@ -170,7 +176,6 @@ func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []Strea
 			}
 			createdAt := parseTimestamp(ts)
 
-			// Columns 9,10 (created_at, updated_at) are NOT NULL.
 			base := len(placeholderRows) * cols
 			p := make([]string, cols)
 			for j := range p {
@@ -376,8 +381,6 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 
 	w.logger.Info("wrote thread access events", zap.Int("success", success), zap.Int("skipped", skipped))
 
-	// If every event was skipped because its thread doesn't exist yet, signal the
-	// caller to NAK and retry — the thread metadata batch just hasn't landed yet.
 	if success == 0 && skipped > 0 {
 		return ErrThreadNotFound
 	}
@@ -531,7 +534,6 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		}
 
 		base := i * cols
-		// Column 7 (recorded_at) is NOT NULL — use COALESCE so the DB fills in NOW() if missing.
 		p := make([]string, cols)
 		for j := range p {
 			p[j] = fmt.Sprintf("$%d", base+j+1)
@@ -539,11 +541,9 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		p[6] = fmt.Sprintf("COALESCE($%d::timestamptz, NOW())", base+7)
 		placeholderRows = append(placeholderRows, "("+strings.Join(p, ", ")+")")
 
-		// Handle metadata (already JSON string from server)
 		metadataStr := event.Data["metadata"]
 		var metadataVal interface{} = nil
 		if metadataStr != "" {
-			// Parse JSON string to ensure it's valid
 			var metadataJSON map[string]interface{}
 			if err := json.Unmarshal([]byte(metadataStr), &metadataJSON); err == nil {
 				metadataVal = metadataJSON
@@ -701,68 +701,44 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 		return nil
 	}
 
-	tx, err := w.db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin usage sync tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	type aggregationKey struct {
-		CompanyID         string
-		Meter             string
-		BillingCycleStart time.Time
-	}
-	aggregated := make(map[aggregationKey]int64)
-	var duplicates int
+	var processed, duplicates, skipped int
 
 	for _, event := range events {
-		var insertedID string
-		err := tx.QueryRow(ctx, `
-			INSERT INTO usage_sync_events (event_id, company_id, meter, amount, occurred_at, processed_at, status)
-			VALUES ($1, $2, $3, $4, $5, NOW(), 'processed')
-			ON CONFLICT (event_id, occurred_at) DO NOTHING
-			RETURNING event_id
-		`, event.EventID, event.CompanyID, event.Meter, event.Amount, event.OccurredAt).Scan(&insertedID)
-
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				duplicates++
-				continue
-			}
-			return fmt.Errorf("persist usage sync event %s: %w", event.EventID, err)
-		}
-
-		key := aggregationKey{
-			CompanyID:         event.CompanyID,
-			Meter:             event.Meter,
-			BillingCycleStart: event.BillingCycleStart,
-		}
-		aggregated[key] += event.Amount
-	}
-
-	for key, totalAmount := range aggregated {
-		query := meterUpdateQueries[key.Meter]
-		tag, err := tx.Exec(ctx, query, totalAmount, key.CompanyID, key.BillingCycleStart)
-		if err != nil {
-			return fmt.Errorf("batch sync usage %s for company %s: %w", key.Meter, key.CompanyID, err)
-		}
-		if tag.RowsAffected() == 0 {
-			w.logger.Error("usage sync aggregation: no matching usage cycle found",
-				zap.String("company_id", key.CompanyID),
-				zap.String("meter", key.Meter),
-				zap.Time("billing_cycle_start", key.BillingCycleStart),
+		var query string
+		switch event.Meter {
+		case "credit_spend":
+			query = creditUpdateQuery
+		case "credit_topup":
+			query = creditTopupUpdateQuery
+		default:
+			w.logger.Warn("SyncUsageMeters: unrecognised meter, skipping",
+				zap.String("meter", event.Meter),
+				zap.String("company_id", event.CompanyID),
+				zap.String("event_id", event.EventID),
 			)
+			skipped++
+			continue
+		}
+
+		tag, err := w.db.Pool.Exec(ctx, query, event.Amount, event.CompanyID, event.BillingCycleStart, event.EventID)
+		if err != nil {
+			return fmt.Errorf("sync usage event %s: %w", event.EventID, err)
+		}
+
+		if tag.RowsAffected() == 0 {
+			duplicates++
+		} else {
+			processed++
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit usage sync aggregation tx: %w", err)
+	if processed > 0 || duplicates > 0 || skipped > 0 {
+		w.logger.Info("synced usage meters to postgres",
+			zap.Int("processed", processed),
+			zap.Int("duplicates", duplicates),
+			zap.Int("skipped", skipped),
+		)
 	}
 
-	w.logger.Info("synced usage meters to postgres (aggregated)",
-		zap.Int("input_events", len(events)),
-		zap.Int("duplicates", duplicates),
-		zap.Int("batch_updates", len(aggregated)),
-	)
 	return nil
 }

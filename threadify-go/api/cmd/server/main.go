@@ -324,9 +324,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	billing := api.Group("/billing")
 	{
 		billing.GET("/plan", h.billing.GetCurrentPlan)
-		billing.GET("/tiers", h.billing.GetTiers)
 		billing.POST("/checkout", h.billing.CreateCheckoutSession)
-		billing.POST("/cancel", h.billing.CancelSubscription)
 	}
 
 	return r

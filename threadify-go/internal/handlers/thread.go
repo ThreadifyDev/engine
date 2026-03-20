@@ -57,7 +57,7 @@ type WebSocketHandler struct {
 	invitationService    *service.InvitationTokenService
 	notificationConsumer *service.NotificationConsumer
 	notificationRouter   *NotificationRouter
-	planService          *service.PlanService
+	planService          interfaces.PlanService
 	valkeyClient         interfaces.ValkeyClient
 	sessions             sync.Map
 	luaScriptManager     interfaces.LuaScriptManager
@@ -91,7 +91,7 @@ func NewWebSocketHandler(
 	invitationService *service.InvitationTokenService,
 	notificationConsumer *service.NotificationConsumer,
 	notificationRouter *NotificationRouter,
-	planService *service.PlanService,
+	planService interfaces.PlanService,
 	valkeyClient interfaces.ValkeyClient,
 	luaScriptManager interfaces.LuaScriptManager,
 	rateLimitConfig *config.RateLimitConfig,
@@ -191,54 +191,13 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 	if action != ActionConnect && session.companyID != "" {
 		checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-		meter, err := h.planService.GetCurrentLimits(checkCtx, session.companyID)
+		account, err := h.planService.GetCurrentLimits(checkCtx, session.companyID)
 		cancel()
-		if err != nil || meter == nil {
+		if err != nil || account == nil {
 			return models.ErrorResponse{
 				Action:  action,
 				Status:  StatusError,
 				Message: "Active subscription required. Please check your billing status.",
-			}
-		}
-
-		if int64(len(msgBytes)) > meter.MaxPayloadBytes {
-			return models.ErrorResponse{
-				Action:  action,
-				Status:  StatusError,
-				Message: fmt.Sprintf("Payload size %d bytes exceeds your plan limit of %d bytes. Please upgrade your plan.", len(msgBytes), meter.MaxPayloadBytes),
-			}
-		}
-
-		if h.rateLimitConfig != nil && meter.MaxRateLimit > 0 && h.luaScriptManager != nil {
-			windowSeconds := h.rateLimitConfig.WindowSeconds
-			if windowSeconds <= 0 {
-				windowSeconds = 60
-			}
-
-			redisTimeout := time.Duration(h.rateLimitConfig.RedisTimeoutMs) * time.Millisecond
-			if redisTimeout <= 0 {
-				redisTimeout = 5 * time.Millisecond
-			}
-			rlCtx, rlCancel := context.WithTimeout(session.ctx, redisTimeout)
-			allowed, rlErr := h.luaScriptManager.CheckCompanyRateLimit(
-				rlCtx,
-				session.companyID,
-				meter.MaxRateLimit*windowSeconds,
-				windowSeconds,
-			)
-			rlCancel()
-			if rlErr != nil {
-				h.logger.Warn("company rate-limit check failed; failing open",
-					zap.String("company_id", session.companyID),
-					zap.String("action", action),
-					zap.Error(rlErr),
-				)
-			} else if !allowed {
-				return models.ErrorResponse{
-					Action:  action,
-					Status:  StatusError,
-					Message: "Rate limit exceeded. Please slow down.",
-				}
 			}
 		}
 	}
@@ -256,16 +215,11 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session)
 
-			// Tighten read limit after auth using plan payload limits.
 			checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-			meter, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
+			_, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
 			cancel()
-			if meterErr == nil && meter != nil && meter.MaxPayloadBytes > 0 {
-				connLimit := meter.MaxPayloadBytes + readLimitOverheadBytes
-				if connLimit < 1 {
-					connLimit = defaultWebSocketReadLimitBytes
-				}
-				session.conn.SetReadLimit(connLimit)
+			if meterErr != nil {
+				h.logger.Warn("connect: failed to verify subscription after auth", zap.Error(meterErr))
 			}
 
 			if h.notificationRouter != nil {

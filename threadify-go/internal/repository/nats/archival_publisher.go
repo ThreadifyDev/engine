@@ -10,13 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// ArchivalPublisher handles publishing archival events to NATS JetStream
+// ArchivalPublisher handles publishing archival events to NATS JetStream.
 type ArchivalPublisher struct {
 	client *Client
 	logger *zap.Logger
 }
 
-// NewArchivalPublisher creates a new archival event publisher
+// NewArchivalPublisher creates a new archival event publisher.
 func NewArchivalPublisher(client *Client, logger *zap.Logger) *ArchivalPublisher {
 	return &ArchivalPublisher{
 		client: client,
@@ -24,79 +24,85 @@ func NewArchivalPublisher(client *Client, logger *zap.Logger) *ArchivalPublisher
 	}
 }
 
-// PublishActivityLog publishes an activity log event
 func (p *ArchivalPublisher) PublishActivityLog(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "activity.log", event)
 }
 
-// PublishThreadMetadata publishes thread metadata event
 func (p *ArchivalPublisher) PublishThreadMetadata(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "metadata.thread", event)
 }
 
-// PublishThreadAccess publishes thread access event
 func (p *ArchivalPublisher) PublishThreadAccess(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "access.thread", event)
 }
 
-// PublishThreadValidation publishes thread validation event
 func (p *ArchivalPublisher) PublishThreadValidation(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "validations.thread", event)
 }
 
-// PublishThreadNotifications publishes individual thread notifications for archival
 func (p *ArchivalPublisher) PublishThreadNotifications(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "notifications.thread", event)
 }
 
-// PublishStepState publishes step state snapshot for archival
 func (p *ArchivalPublisher) PublishStepState(ctx context.Context, event map[string]interface{}) error {
 	return p.publish(ctx, "state.step", event)
 }
 
-// PublishUsageSyncBatch publishes a batch of usage sync events as a single NATS message
+func (p *ArchivalPublisher) PublishCreditTopupTrigger(ctx context.Context, event map[string]interface{}) error {
+	return p.publish(ctx, "credit.topup", event)
+}
+
 func (p *ArchivalPublisher) PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	// Add timestamps to each event if missing
-	now := time.Now().Format(time.RFC3339)
-	for _, event := range events {
-		if _, exists := event["timestamp"]; !exists {
-			event["timestamp"] = now
-		}
+	jsonData, err := json.Marshal(events)
+	if err != nil {
+		return fmt.Errorf("marshal usage sync batch: %w", err)
 	}
 
-	return p.publishData(ctx, "usage.sync", events)
+	dedupID, _ := events[0]["event_id"].(string)
+
+	msg := &nats.Msg{
+		Subject: "usage.sync",
+		Data:    jsonData,
+		Header:  make(nats.Header),
+	}
+	if dedupID != "" {
+		msg.Header.Set(nats.MsgIdHdr, dedupID)
+	}
+
+	if _, err := p.client.JetStream().PublishMsg(msg, nats.Context(ctx)); err != nil {
+		return fmt.Errorf("publish usage sync batch: %w", err)
+	}
+	return nil
 }
 
-// publish is the internal method that handles the actual NATS publish for a single event
 func (p *ArchivalPublisher) publish(ctx context.Context, subject string, event map[string]interface{}) error {
-	// Add timestamp if not present
+	payload := event
 	if _, exists := event["timestamp"]; !exists {
-		event["timestamp"] = time.Now().Format(time.RFC3339)
+		payload = make(map[string]interface{}, len(event)+1)
+		for k, v := range event {
+			payload[k] = v
+		}
+		payload["timestamp"] = time.Now().Format(time.RFC3339)
 	}
-	return p.publishData(ctx, subject, event)
+	return p.publishData(ctx, subject, payload)
 }
 
-// publishData marshals and publishes arbitrary data to NATS JetStream
 func (p *ArchivalPublisher) publishData(ctx context.Context, subject string, data interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	_, err = p.client.JetStream().Publish(subject, jsonData, nats.Context(ctx))
-	if err != nil {
+	if _, err := p.client.JetStream().Publish(subject, jsonData, nats.Context(ctx)); err != nil {
 		return fmt.Errorf("failed to publish to NATS subject %s: %w", subject, err)
 	}
-
 	return nil
 }
 
-// PublishAsync publishes event asynchronously (fire-and-forget with error logging).
-// Intentional: uses detached context — this goroutine outlives any request lifecycle.
 func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interface{}) {
 	if subject == "" {
 		p.logger.Warn("skipped async NATS message - empty subject")

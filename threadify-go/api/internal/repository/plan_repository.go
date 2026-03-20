@@ -16,62 +16,116 @@ func NewPlanRepository(db *sql.DB) *PlanRepository {
 	return &PlanRepository{db: db}
 }
 
-func (r *PlanRepository) GetCompanyPlan(ctx context.Context, companyID string) (*billing.CompanyPlan, error) {
-	query := `
-		SELECT id, company_id, subscription_tier, billing_cycle, external_customer_id, external_subscription_id, status, billing_start, billing_end, created_at, updated_at
-		FROM company_plans
-		WHERE company_id = $1
-	`
-	plan := &billing.CompanyPlan{}
-	err := r.db.QueryRowContext(ctx, query, companyID).Scan(
-		&plan.ID, &plan.CompanyID, &plan.SubscriptionTier, &plan.BillingCycle,
-		&plan.ExternalCustomerID, &plan.ExternalSubscriptionID,
-		&plan.Status, &plan.BillingStart, &plan.BillingEnd,
-		&plan.CreatedAt, &plan.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil // Return nil if no plan is found
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get company plan: %w", err)
-	}
-	return plan, nil
-}
-
-func (r *PlanRepository) GetCurrentUsageMeter(ctx context.Context, companyID string) (*billing.UsageMeter, error) {
-	query := `
-		SELECT id, company_id, subscription_tier, billing_cycle_start, billing_end,
-			bandwidth_ingress_balance, bandwidth_egress_balance,
-			max_bandwidth_ingress, max_bandwidth_egress,
-			max_team_seats, max_contract_limit, max_rate_limit,
-			max_payload_bytes, hot_storage_days, cold_storage_days, support,
-			created_at, updated_at
-		FROM usage_meters
-		WHERE company_id = $1
-		ORDER BY billing_cycle_start DESC
+func (r *PlanRepository) GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	const query = `
+		SELECT 
+			ca.id, ca.company_id, ca.billing_cycle_start,
+			ca.credit_balance_millicents, ca.credit_min_balance_millicents, ca.credit_max_monthly_charge_millicents,
+			ca.credit_auto_topup_millicents, ca.credit_monthly_charged_millicents, ca.rate_limit_tps, ca.payload_limit_bytes,
+			ca.created_at, ca.updated_at,
+			c.external_customer_id
+		FROM credit_accounts ca
+		JOIN companies c ON c.id = ca.company_id
+		WHERE ca.company_id = $1
+		ORDER BY ca.billing_cycle_start DESC
 		LIMIT 1
 	`
-	meter := &billing.UsageMeter{}
+	account := &billing.CreditAccount{}
 	err := r.db.QueryRowContext(ctx, query, companyID).Scan(
-		&meter.ID, &meter.CompanyID, &meter.SubscriptionTier,
-		&meter.BillingCycleStart, &meter.BillingEnd,
-		&meter.BandwidthIngressBalance, &meter.BandwidthEgressBalance,
-		&meter.MaxBandwidthIngress, &meter.MaxBandwidthEgress,
-		&meter.MaxTeamSeats, &meter.MaxContractLimit, &meter.MaxRateLimit,
-		&meter.MaxPayloadBytes, &meter.HotStorageDays, &meter.ColdStorageDays, &meter.Support,
-		&meter.CreatedAt, &meter.UpdatedAt,
+		&account.ID, &account.CompanyID, &account.BillingCycleStart,
+		&account.CreditBalanceMillicents, &account.CreditMinBalanceMillicents, &account.CreditMaxMonthlyChargeMillicents,
+		&account.CreditAutoTopupMillicents, &account.CreditMonthlyChargedMillicents,
+		&account.RateLimitTPS, &account.PayloadLimitBytes,
+		&account.CreatedAt, &account.UpdatedAt,
+		&account.ExternalCustomerID,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil // Return nil if no meter is found
+		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get current usage meter: %w", err)
+		return nil, fmt.Errorf("get credit account: %w", err)
 	}
-	return meter, nil
+	return account, nil
 }
 
-func (r *PlanRepository) MarkPlanCancelled(ctx context.Context, companyID string) error {
-	query := `UPDATE company_plans SET status = $1, updated_at = NOW() WHERE company_id = $2`
-	_, err := r.db.ExecContext(ctx, query, billing.StatusCancelled, companyID)
+func (r *PlanRepository) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
+	const query = `SELECT external_customer_id FROM companies WHERE id = $1`
+	var externalID string
+	err := r.db.QueryRowContext(ctx, query, companyID).Scan(&externalID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return externalID, err
+}
+
+func (r *PlanRepository) SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error {
+	const query = `UPDATE companies SET external_customer_id = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.db.ExecContext(ctx, query, externalCustomerID, companyID)
+	return err
+}
+
+func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
+	const query = `SELECT id FROM companies WHERE external_customer_id = $1 LIMIT 1`
+	var id string
+	err := r.db.QueryRowContext(ctx, query, externalCustomerID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error {
+	const query = `
+		INSERT INTO credit_accounts (
+			id, company_id, billing_cycle_start,
+			credit_balance_millicents, credit_min_balance_millicents, credit_max_monthly_charge_millicents,
+			credit_auto_topup_millicents, credit_monthly_charged_millicents,
+			rate_limit_tps, payload_limit_bytes,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		account.ID, account.CompanyID, account.BillingCycleStart,
+		account.CreditBalanceMillicents, account.CreditMinBalanceMillicents, account.CreditMaxMonthlyChargeMillicents,
+		account.CreditAutoTopupMillicents, account.CreditMonthlyChargedMillicents,
+		account.RateLimitTPS, account.PayloadLimitBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("create credit account: %w", err)
+	}
+	return nil
+}
+
+func (r *PlanRepository) UpdateCompanyLimits(ctx context.Context, companyID string, rateLimit *int64, payloadLimit *int64) error {
+	const query = `
+		UPDATE credit_accounts
+		SET rate_limit_tps = $1, payload_limit_bytes = $2, updated_at = NOW()
+		WHERE company_id = $3
+		AND billing_cycle_start = (
+			SELECT MAX(billing_cycle_start) FROM credit_accounts WHERE company_id = $3
+		)
+	`
+	_, err := r.db.ExecContext(ctx, query, rateLimit, payloadLimit, companyID)
+	if err != nil {
+		return fmt.Errorf("update company limits: %w", err)
+	}
+	return nil
+}
+func (r *PlanRepository) UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error {
+	const query = `UPDATE credit_accounts SET credit_monthly_charged_millicents = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.db.ExecContext(ctx, query, amount, id)
+	return err
+}
+
+func (r *PlanRepository) DisableAutoTopup(ctx context.Context, companyID string) error {
+	const query = `
+		UPDATE credit_accounts 
+		SET credit_max_monthly_charge_millicents = 0, credit_auto_topup_millicents = 0, updated_at = NOW()
+		WHERE company_id = $1
+		AND billing_cycle_start = (
+			SELECT MAX(billing_cycle_start) FROM credit_accounts WHERE company_id = $1
+		)
+	`
+	_, err := r.db.ExecContext(ctx, query, companyID)
 	return err
 }

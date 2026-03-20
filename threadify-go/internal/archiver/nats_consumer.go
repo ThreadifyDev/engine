@@ -356,14 +356,6 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	return err
 }
 
-func convertToStringMap(data map[string]interface{}) map[string]string {
-	result := make(map[string]string, len(data))
-	for k, v := range data {
-		result[k] = fmt.Sprintf("%v", v)
-	}
-	return result
-}
-
 func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Msg) error {
 	if len(msgs) == 0 {
 		return nil
@@ -371,7 +363,6 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 	start := time.Now()
 	c.logger.Debug("received usage sync messages", zap.Int("count", len(msgs)))
 	events := make([]UsageSyncEvent, 0, len(msgs)*4)
-	validMsgs := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
 		var dataArray []map[string]interface{}
@@ -387,14 +378,13 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 			continue
 		}
 
-		msgEvents, ok := c.parseBatchEvents(msg, dataArray)
-		if !ok {
+		msgEvents := c.parseBatchEvents(msg, dataArray)
+		if len(msgEvents) == 0 {
 			_ = msg.Term()
 			continue
 		}
 
 		events = append(events, msgEvents...)
-		validMsgs = append(validMsgs, msg)
 	}
 
 	if len(events) == 0 {
@@ -406,15 +396,11 @@ func (c *NATSConsumer) processUsageSync(ctx context.Context, msgs []jetstream.Ms
 		return err
 	}
 
-	for _, msg := range validMsgs {
-		_ = msg.Ack()
-	}
-
 	c.logPerf("usage.sync", len(msgs), start)
 	return nil
 }
 
-func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[string]interface{}) ([]UsageSyncEvent, bool) {
+func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[string]interface{}) []UsageSyncEvent {
 	events := make([]UsageSyncEvent, 0, len(dataArray))
 	seqFallback := ""
 
@@ -428,25 +414,17 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 				zap.String("company_id", companyID),
 				zap.String("meter", meter),
 			)
-			return nil, false
-		}
-
-		if _, ok := meterUpdateQueries[meter]; !ok {
-			c.logger.Error("usage sync event has unknown meter type",
-				zap.Int("index", i),
-				zap.String("meter", meter),
-			)
-			return nil, false
+			continue
 		}
 
 		amount, err := parseUsageAmount(data["amount"])
-		if err != nil || amount <= 0 {
-			c.logger.Error("invalid or non-positive usage amount in event",
+		if err != nil {
+			c.logger.Error("invalid usage amount in event",
 				zap.Int("index", i),
 				zap.Any("amount", data["amount"]),
 				zap.Error(err),
 			)
-			return nil, false
+			continue
 		}
 
 		billingCycleStart, err := parseUsageTimestamp(data["billing_cycle_start"])
@@ -456,7 +434,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 				zap.Any("billing_cycle_start", data["billing_cycle_start"]),
 				zap.Error(err),
 			)
-			return nil, false
+			continue
 		}
 
 		occurredAt, err := parseUsageTimestamp(data["timestamp"])
@@ -466,7 +444,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 				zap.Any("timestamp", data["timestamp"]),
 				zap.Error(err),
 			)
-			return nil, false
+			continue
 		}
 
 		eventID, _ := data["event_id"].(string)
@@ -482,7 +460,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 		}
 		if eventID == "" {
 			c.logger.Error("usage sync event has no resolvable event_id", zap.Int("index", i))
-			return nil, false
+			continue
 		}
 
 		events = append(events, UsageSyncEvent{
@@ -495,7 +473,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 		})
 	}
 
-	return events, true
+	return events
 }
 
 func parseUsageAmount(v interface{}) (int64, error) {
@@ -523,7 +501,7 @@ func parseUsageTimestamp(v interface{}) (time.Time, error) {
 		if strings.TrimSpace(value) == "" {
 			return time.Time{}, nil
 		}
-		t, err := time.Parse(time.RFC3339, value)
+		t, err := time.Parse(time.RFC3339Nano, value)
 		if err != nil {
 			return time.Time{}, err
 		}
@@ -531,4 +509,12 @@ func parseUsageTimestamp(v interface{}) (time.Time, error) {
 	default:
 		return time.Time{}, fmt.Errorf("unsupported timestamp type %T", v)
 	}
+}
+
+func convertToStringMap(data map[string]interface{}) map[string]string {
+	result := make(map[string]string, len(data))
+	for k, v := range data {
+		result[k] = fmt.Sprintf("%v", v)
+	}
+	return result
 }

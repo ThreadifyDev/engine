@@ -855,93 +855,51 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS reference_id TEXT;
 	CREATE INDEX IF NOT EXISTS idx_outbox_reference_id ON outbox_events(reference_id);
 
-	-- Company subscription plans
-	CREATE TABLE IF NOT EXISTS company_plans (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL UNIQUE,
-	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
-	billing_cycle            VARCHAR(20)  NOT NULL DEFAULT 'monthly',
-	billing_start            TIMESTAMP    NOT NULL,
-	billing_end              TIMESTAMP    NOT NULL,
-	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
-	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
-	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	status                   VARCHAR(50)  NOT NULL DEFAULT 'active',
-	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	ALTER TABLE companies ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255) NOT NULL DEFAULT '';
 
-CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
+	CREATE TABLE IF NOT EXISTS credit_accounts (
+		id                       VARCHAR(255) PRIMARY KEY,
+		company_id               VARCHAR(255) NOT NULL,
+		billing_cycle_start      TIMESTAMP    NOT NULL,
+		credit_balance_millicents BIGINT      NOT NULL DEFAULT 0,
+		credit_min_balance_millicents BIGINT  NOT NULL DEFAULT 0,
+		credit_max_monthly_charge_millicents BIGINT NOT NULL DEFAULT 0,
+		credit_auto_topup_millicents BIGINT   NOT NULL DEFAULT 0,
+		credit_monthly_charged_millicents BIGINT NOT NULL DEFAULT 0,
+		last_sync_event_id       VARCHAR(255),
+		rate_limit_tps           BIGINT,
+		payload_limit_bytes      BIGINT,
+		created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+		updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, billing_cycle_start),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 
-CREATE TABLE IF NOT EXISTS usage_meters (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL,
-	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
-	billing_cycle_start      TIMESTAMP    NOT NULL,
-	billing_end              TIMESTAMP    NOT NULL,
-	bandwidth_ingress_balance BIGINT      NOT NULL,
-	bandwidth_egress_balance  BIGINT      NOT NULL,
-	max_bandwidth_ingress    BIGINT       NOT NULL,
-	max_bandwidth_egress     BIGINT       NOT NULL,
-	max_team_seats           INT          NOT NULL,
-	max_contract_limit       INT          NOT NULL,
-	max_rate_limit           INT          NOT NULL,
-	max_payload_bytes        BIGINT       NOT NULL,
-	hot_storage_days         INT          NOT NULL DEFAULT 7,
-	cold_storage_days        INT          NOT NULL DEFAULT 0,
-	support                  VARCHAR(50)  NOT NULL DEFAULT 'community',
-	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	UNIQUE(company_id, billing_cycle_start),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	CREATE INDEX IF NOT EXISTS idx_credit_accounts_company ON credit_accounts(company_id);
+	
+	-- Ensure the column exists if the table was already created
+	ALTER TABLE credit_accounts ADD COLUMN IF NOT EXISTS last_sync_event_id VARCHAR(255);
 
-CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
+	CREATE TABLE IF NOT EXISTS billing_snapshots (
+		id                       VARCHAR(255) PRIMARY KEY,
+		company_id               VARCHAR(255) NOT NULL,
+		reason                   TEXT,
+		period_start             TIMESTAMPTZ  NOT NULL,
+		period_end               TIMESTAMPTZ  NOT NULL,
+		total_cents              BIGINT       NOT NULL DEFAULT 0,
+		provider_name            VARCHAR(50)  NOT NULL DEFAULT '',
+		external_invoice_id      VARCHAR(255) NOT NULL DEFAULT '',
+		external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
+		payment_status           VARCHAR(50)  NOT NULL DEFAULT 'no_charge',
+		created_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 
-CREATE TABLE IF NOT EXISTS billing_snapshots (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL,
-	tier                     VARCHAR(50)  NOT NULL,
-	reason                   TEXT,
-	period_start             TIMESTAMPTZ  NOT NULL,
-	period_end               TIMESTAMPTZ  NOT NULL,
-	is_cycle_end             BOOLEAN      NOT NULL DEFAULT false,
-	ingress_balance_final    BIGINT       NOT NULL,
-	egress_balance_final     BIGINT       NOT NULL,
-	max_ingress              BIGINT       NOT NULL,
-	max_egress               BIGINT       NOT NULL,
-	line_items_json          JSONB        NOT NULL DEFAULT '[]',
-	total_cents              BIGINT       NOT NULL DEFAULT 0,
-	provider_name            VARCHAR(50)  NOT NULL DEFAULT '',
-	external_invoice_id      VARCHAR(255) NOT NULL DEFAULT '',
-	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
-	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
-	payment_status           VARCHAR(50)  NOT NULL DEFAULT 'no_charge',
-	consecutive_overage_count INT         NOT NULL DEFAULT 0,
-	created_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-	UNIQUE(company_id, period_end),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
+		ON billing_snapshots(company_id, period_end DESC);
 
-CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
-	ON billing_snapshots(company_id, period_end DESC);
-
-CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
-	ON billing_snapshots(external_invoice_id)
-	WHERE external_invoice_id != '';
-
-CREATE TABLE IF NOT EXISTS usage_sync_events (
-	event_id     VARCHAR(255) NOT NULL,
-	company_id   VARCHAR(255) NOT NULL,
-	meter        VARCHAR(64)  NOT NULL,
-	amount       BIGINT       NOT NULL,
-	occurred_at  TIMESTAMPTZ  NOT NULL,
-	processed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-	status       VARCHAR(20)  NOT NULL DEFAULT 'processed',
-	PRIMARY KEY (event_id, occurred_at)
-) PARTITION BY RANGE (occurred_at);
--- Partitions managed via pg_partman (monthly interval, 2-month retention).
--- Run pg_partman maintenance to create new partitions.
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
+		ON billing_snapshots(external_invoice_id);
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err

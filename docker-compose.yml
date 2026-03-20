@@ -82,7 +82,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
   # Threadify Main Engine (Go Backend)
   # th-engine:
   #   build:
@@ -144,7 +143,7 @@ services:
   #     timeout: 3s
   #     start_period: 10s
   #     retries: 3
-  
+
   # # Threadify Web API (Go Backend)
   # th_web_api:
   #   build:
@@ -168,7 +167,7 @@ services:
   #     # REDIS_HOST: "custom-redis-host"
   #     # REDIS_PASSWORD: "custom-password"
   #     # NATS_URL: "nats://custom-nats:4222"
-      
+
   #     # Secrets (no defaults in config.yaml, must be provided)
   #     JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
   #     PLUNK_API_KEY: "${PLUNK_API_KEY}"
@@ -204,10 +203,10 @@ services:
   #   environment:
   #     # Backend API URL - Set this to your production backend URL
   #     API_URL: "${API_URL:-http://localhost:8081}"
-      
+
   #     # Session Secret
   #     SESSION_SECRET: "${SESSION_SECRET:-your-session-secret-change-in-production}"
-      
+
   #     # Node Environment
   #     NODE_ENV: "production"
   #   depends_on:

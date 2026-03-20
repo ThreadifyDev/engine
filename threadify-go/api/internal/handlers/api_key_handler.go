@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 	"threadify-go/api/internal/service"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +18,6 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 	}
 }
 
-// CreateAPIKey generates a new API key
 func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	companyID, _ := c.Get("companyID")
@@ -31,8 +30,8 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 	response, err := h.apiKeyService.CreateAPIKey(userID.(string), companyID.(string), &req)
 	if err != nil {
-		if errors.Is(err, service.ErrApiKeyNameRequired) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -57,7 +56,6 @@ func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 	})
 }
 
-// RevokeAPIKey revokes an API key
 func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
 	companyID, _ := c.Get("companyID")
 	keyID := c.Param("id")

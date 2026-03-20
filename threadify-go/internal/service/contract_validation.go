@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ContractValidationService implements the ContractValidator interface.
+// ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
 	graphRepo    interfaces.ContractGraphRepository
 	contractRepo *postgres.ContractRepository
@@ -21,8 +21,7 @@ type ContractValidationService struct {
 }
 
 // NewContractValidationService creates a new contract validation service.
-// contractRepo can be nil for testing (will skip PostgreSQL fallback).
-func NewContractValidationService(graphRepo interfaces.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) interfaces.ContractValidator {
+func NewContractValidationService(graphRepo interfaces.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) interfaces.ContractGraphValidator {
 	return &ContractValidationService{
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,
