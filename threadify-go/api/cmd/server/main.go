@@ -218,6 +218,15 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)
 	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
 	billingSvc := billing.NewBillingService(svcs.invoiceProvider, planRepo, &cfg.Subscription, &cfg.Billing, logger)
+	agentSvc := service.NewAgentService(
+		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+		cfg.WebAPI.OpenAIAPIKey,
+		agentRepo,
+		cfg.WebAPI.Agent.MaxMessages,
+		cfg.WebAPI.Agent.MaxTokens,
+		cfg.WebAPI.Agent.SummaryMaxTokens,
+		logger,
+	)
 
 	return &appHandlers{
 		auth:           handlers.NewAuthHandler(svcs.authService),
@@ -228,15 +237,7 @@ func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rb
 		codeSamples:    handlers.NewCodeSamplesHandler("./code_samples"),
 		contractProxy:  handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
 		graphqlProxy:   handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
-		agent: handlers.NewAgentHandler(
-			cfg.WebAPI.ThreadifyEngine.GraphQLURL,
-			cfg.WebAPI.OpenAIAPIKey,
-			agentRepo,
-			cfg.WebAPI.Agent.MaxMessages,
-			cfg.WebAPI.Agent.MaxTokens,
-			cfg.WebAPI.Agent.SummaryMaxTokens,
-			logger,
-		),
+		agent:          handlers.NewAgentHandler(agentSvc, logger),
 		billing: handlers.NewBillingHandler(
 			billingSvc,
 			logger,
@@ -325,6 +326,7 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	{
 		billing.GET("/plan", h.billing.GetCurrentPlan)
 		billing.POST("/checkout", h.billing.CreateCheckoutSession)
+		billing.POST("/auto-topup/disable", h.billing.DisableAutoTopup)
 	}
 
 	return r

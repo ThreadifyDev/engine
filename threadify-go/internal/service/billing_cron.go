@@ -20,7 +20,7 @@ const (
 )
 
 type BillingCron struct {
-	billingService *BillingService
+	billingService *BillingOrchestrator
 	valkeyClient   interfaces.ValkeyClient
 	logger         *zap.Logger
 	js             jetstream.JetStream
@@ -29,7 +29,7 @@ type BillingCron struct {
 }
 
 func NewBillingCron(
-	billingService *BillingService,
+	billingService *BillingOrchestrator,
 	valkeyClient interfaces.ValkeyClient,
 	js jetstream.JetStream,
 	logger *zap.Logger,

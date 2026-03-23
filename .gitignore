@@ -78,5 +78,8 @@ coverage.txt
 coverage.out
 
 threadify-go/api/server
+threadify-go/api/api
 threadify-go/cmd/server
 threadify-go/bin/*
+threadify-go/server
+threadify-go/main

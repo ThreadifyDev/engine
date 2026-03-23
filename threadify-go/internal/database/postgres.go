@@ -877,9 +877,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_credit_accounts_company ON credit_accounts(company_id);
 	
-	-- Ensure the column exists if the table was already created
-	ALTER TABLE credit_accounts ADD COLUMN IF NOT EXISTS last_sync_event_id VARCHAR(255);
-
 	CREATE TABLE IF NOT EXISTS billing_snapshots (
 		id                       VARCHAR(255) PRIMARY KEY,
 		company_id               VARCHAR(255) NOT NULL,

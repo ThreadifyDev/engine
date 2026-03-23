@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check } from 'lucide-react';
+import { useNavigate } from '@remix-run/react';
+import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, AlertCircle } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
 
@@ -27,6 +28,7 @@ interface Conversation {
 type Skill = 'support' | 'operations' | 'business';
 
 export default function ThreadChat() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -47,7 +49,7 @@ export default function ThreadChat() {
   // Load conversations on mount and restore last conversation
   useEffect(() => {
     loadConversations();
-    
+
     // Restore last conversation from localStorage
     const lastConversationId = localStorage.getItem('lastConversationId');
     if (lastConversationId) {
@@ -66,11 +68,15 @@ export default function ThreadChat() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
   const loadConversations = async () => {
     try {
       const response = await api.getChatConversations();
       setConversations(response.conversations || []);
+
+      // Proactive credit check
+      if (response.credits_available === false) {
+        setLimitError('Insufficient credits. Please top up your account to continue using the AI agent.');
+      }
     } catch (error) {
       // Silent fail - user will see empty conversation list
     }
@@ -80,30 +86,30 @@ export default function ThreadChat() {
     try {
       const response = await api.getChatMessageHistory(convId);
       const allMessages = response.messages;
-      
+
       // Process messages and link tool calls to their responses
       const processedMessages: Message[] = [];
-      
+
       for (let i = 0; i < allMessages.length; i++) {
         const msg = allMessages[i];
-        
+
         // Skip tool messages and empty assistant messages (tool calls)
         if (msg.role === 'tool' || (msg.role === 'assistant' && !msg.content)) {
           continue;
         }
-        
+
         const processedMsg: Message = {
           id: msg.id,
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.created_at),
         };
-        
+
         // Check if this assistant message was preceded by a tool call
         if (msg.role === 'assistant' && i >= 2) {
           const prevMsg = allMessages[i - 1]; // Should be tool result
           const prevPrevMsg = allMessages[i - 2]; // Should be tool call
-          
+
           if (prevMsg?.role === 'tool' && prevPrevMsg?.role === 'assistant' && prevPrevMsg.tool_calls) {
             try {
               const toolCalls = JSON.parse(prevPrevMsg.tool_calls);
@@ -119,15 +125,15 @@ export default function ThreadChat() {
             }
           }
         }
-        
+
         processedMessages.push(processedMsg);
       }
-      
+
       setMessages(processedMessages);
       setConversationId(convId);
       setIsDropdownOpen(false);
       setSearchQuery('');
-      
+
       // Save to localStorage for auto-restore on next visit
       localStorage.setItem('lastConversationId', convId);
     } catch (error) {
@@ -141,29 +147,29 @@ export default function ThreadChat() {
     setTokenCount(0);
     setMessageCount(0);
     setLimitError(null);
-    
+
     // Clear last conversation from localStorage
     localStorage.removeItem('lastConversationId');
   };
 
   const continueWithContext = async () => {
     if (!conversationId) return;
-    
+
     setIsGeneratingSummary(true);
-    
+
     try {
       const response = await api.continueConversation(conversationId);
-      
+
       // Switch to new conversation
       setConversationId(response.conversation_id);
       setMessages([]);
       setTokenCount(0);
       setMessageCount(0);
       setLimitError(null);
-      
+
       // Save new conversation to localStorage
       localStorage.setItem('lastConversationId', response.conversation_id);
-      
+
       // Reload conversations list
       loadConversations();
     } catch (error) {
@@ -175,20 +181,20 @@ export default function ThreadChat() {
 
   const deleteConversation = async (convId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent loading the conversation
-    
+
     if (!confirm('Are you sure you want to delete this conversation?')) {
       return;
     }
 
     try {
       await api.deleteChatConversation(convId);
-      
+
       // If we deleted the current conversation, clear it
       if (conversationId === convId) {
         setMessages([]);
         setConversationId(null);
       }
-      
+
       // Refresh conversation list
       loadConversations();
     } catch (error) {
@@ -209,7 +215,7 @@ export default function ThreadChat() {
     const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
     const parts = text.split(uuidRegex);
     const matches = text.match(uuidRegex) || [];
-    
+
     return parts.reduce((acc, part, i) => {
       acc.push(part);
       if (matches[i]) {
@@ -256,7 +262,7 @@ export default function ThreadChat() {
     try {
       const token = localStorage.getItem('auth_token');
       const apiUrl = (window as any).__ENV__?.API_URL || 'http://localhost:3001';
-      
+
       const response = await fetch(`${apiUrl}/api/chat/ask`, {
         method: 'POST',
         headers: {
@@ -271,14 +277,20 @@ export default function ThreadChat() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Failed to get response' }));
-        
+
+        if (response.status === 402 || (errorData.error && (errorData.error.toLowerCase().includes('credit') || errorData.error.toLowerCase().includes('insufficient')))) {
+          setLimitError(errorData.error || 'Insufficient credits. Please top up your account to continue using the AI agent.');
+          setIsLoading(false);
+          return;
+        }
+
         // Check if it's a limit error
         if (errorData.error && (errorData.error.includes('maximum') || errorData.error.includes('limit'))) {
           setLimitError(errorData.error);
           setIsLoading(false);
           return;
         }
-        
+
         throw new Error(errorData.error || 'Failed to get response');
       }
 
@@ -298,20 +310,20 @@ export default function ThreadChat() {
       if (reader) {
         let buffer = '';
         let currentEvent = '';
-        
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
-          
+
           // Keep the last incomplete line in the buffer
           buffer = lines.pop() || '';
 
           for (const line of lines) {
             if (!line.trim()) continue; // Skip empty lines
-            
+
             if (line.startsWith('event:')) {
               // Handle both 'event:chunk' and 'event: chunk'
               currentEvent = line.slice(6).trim();
@@ -319,13 +331,13 @@ export default function ThreadChat() {
               // Get data after 'data:' - keep everything after the colon
               // The space after 'data:' is part of the SSE format, but the content itself has spaces
               const data = line.slice(5); // Keep 'data:' prefix (5 chars) - includes leading space if present
-              
+
               // Handle different event types
               if (currentEvent === 'chunk') {
                 // Text content from LLM
                 assistantContent += data;
-                setMessages(prev => prev.map(msg => 
-                  msg.id === assistantMessageId 
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessageId
                     ? { ...msg, content: assistantContent }
                     : msg
                 ));
@@ -347,8 +359,8 @@ export default function ThreadChat() {
                 // System messages (like "Querying Threadify Engine...")
                 // Optionally show system message in UI
                 if (data.includes('Querying')) {
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === assistantMessageId 
+                  setMessages(prev => prev.map(msg =>
+                    msg.id === assistantMessageId
                       ? { ...msg, content: assistantContent + '\n\n_' + data + '_' }
                       : msg
                   ));
@@ -357,15 +369,15 @@ export default function ThreadChat() {
                 // Tool call information (GraphQL query and response)
                 try {
                   const toolCallData = JSON.parse(data.trim());
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === assistantMessageId 
-                      ? { 
-                          ...msg, 
-                          relatedToolCall: {
-                            query: toolCallData.query || '',
-                            response: toolCallData.response || '',
-                          }
+                  setMessages(prev => prev.map(msg =>
+                    msg.id === assistantMessageId
+                      ? {
+                        ...msg,
+                        relatedToolCall: {
+                          query: toolCallData.query || '',
+                          response: toolCallData.response || '',
                         }
+                      }
                       : msg
                   ));
                 } catch (e) {
@@ -375,7 +387,7 @@ export default function ThreadChat() {
                 // Stream complete
                 break;
               }
-              
+
               // Don't reset currentEvent - it persists until next event: line
             }
           }
@@ -410,7 +422,7 @@ export default function ThreadChat() {
               className="w-full text-left text-xs border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white hover:bg-gray-50 transition-colors flex items-center justify-between"
             >
               <span className="truncate">
-                {conversationId 
+                {conversationId
                   ? conversations.find(c => c.id === conversationId)?.title || 'Select conversation'
                   : 'New conversation'}
               </span>
@@ -450,17 +462,16 @@ export default function ThreadChat() {
                 {/* Conversation List */}
                 <div className="overflow-y-auto">
                   {conversations
-                    .filter(conv => 
+                    .filter(conv =>
                       conv.title.toLowerCase().includes(searchQuery.toLowerCase())
                     )
                     .map((conv) => (
                       <div
                         key={conv.id}
-                        className={`group flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer ${
-                          conversationId === conv.id ? 'bg-gray-100' : ''
-                        }`}
+                        className={`group flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer ${conversationId === conv.id ? 'bg-gray-100' : ''
+                          }`}
                       >
-                        <div 
+                        <div
                           onClick={() => loadConversation(conv.id)}
                           className="flex-1 min-w-0"
                         >
@@ -480,13 +491,13 @@ export default function ThreadChat() {
                         </button>
                       </div>
                     ))}
-                  {conversations.filter(conv => 
+                  {conversations.filter(conv =>
                     conv.title.toLowerCase().includes(searchQuery.toLowerCase())
                   ).length === 0 && searchQuery && (
-                    <div className="px-3 py-4 text-xs text-gray-500 text-center">
-                      No conversations found
-                    </div>
-                  )}
+                      <div className="px-3 py-4 text-xs text-gray-500 text-center">
+                        No conversations found
+                      </div>
+                    )}
                 </div>
               </div>
             )}
@@ -517,11 +528,10 @@ export default function ThreadChat() {
               </div>
             )}
             <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                message.role === 'user'
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-gray-100 text-gray-900'
-              }`}
+              className={`max-w-[80%] rounded-lg px-4 py-2 ${message.role === 'user'
+                ? 'bg-gray-900 text-white'
+                : 'bg-gray-100 text-gray-900'
+                }`}
             >
               <div className="text-sm break-words prose prose-sm max-w-none prose-p:my-1 prose-strong:font-semibold prose-strong:text-gray-900">
                 {message.role === 'assistant' ? (
@@ -530,7 +540,7 @@ export default function ThreadChat() {
                       code: ({ node, inline, children, ...props }) => {
                         const text = String(children);
                         const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-                        
+
                         if (inline && uuidRegex.test(text)) {
                           return (
                             <a
@@ -543,7 +553,7 @@ export default function ThreadChat() {
                             </a>
                           );
                         }
-                        
+
                         return inline ? (
                           <code className="bg-gray-200 px-1 rounded" {...props}>{children}</code>
                         ) : (
@@ -556,9 +566,9 @@ export default function ThreadChat() {
                             const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
                             const parts = node.split(uuidRegex);
                             const matches = node.match(uuidRegex) || [];
-                            
+
                             if (matches.length === 0) return node;
-                            
+
                             return parts.reduce((acc: any[], part: string, i: number) => {
                               if (part) acc.push(part);
                               if (matches[i]) {
@@ -597,7 +607,7 @@ export default function ThreadChat() {
                           }
                           return node;
                         };
-                        
+
                         return <p>{React.Children.map(children, processText)}</p>;
                       },
                       strong: ({ children }) => {
@@ -606,9 +616,9 @@ export default function ThreadChat() {
                             const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
                             const parts = node.split(uuidRegex);
                             const matches = node.match(uuidRegex) || [];
-                            
+
                             if (matches.length === 0) return <strong>{node}</strong>;
-                            
+
                             return (
                               <strong>
                                 {parts.reduce((acc: any[], part: string, i: number) => {
@@ -651,7 +661,7 @@ export default function ThreadChat() {
                           }
                           return <strong>{node}</strong>;
                         };
-                        
+
                         return <>{React.Children.map(children, processText)}</>;
                       },
                     }}
@@ -662,7 +672,7 @@ export default function ThreadChat() {
                   <div className="whitespace-pre-wrap">{message.content}</div>
                 )}
               </div>
-              
+
               {/* Timestamp and View GraphQL Query Button */}
               <div className="flex items-center justify-between mt-1">
                 <p className="text-xs opacity-60">
@@ -686,7 +696,7 @@ export default function ThreadChat() {
                   </button>
                 )}
               </div>
-              
+
               {/* Expandable Query Section */}
               {message.relatedToolCall && expandedQueries.has(message.id) && (
                 <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
@@ -732,8 +742,11 @@ export default function ThreadChat() {
         {/* Limit Error Message */}
         {limitError && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800 font-medium mb-3">{limitError}</p>
-            
+            <div className="flex items-start gap-3 mb-3">
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+              <p className="text-sm text-red-800 font-medium">{limitError}</p>
+            </div>
+
             {isGeneratingSummary ? (
               <div className="flex items-center justify-center gap-2 py-2">
                 <Loader2 className="w-4 h-4 animate-spin text-gray-900" />
@@ -741,23 +754,37 @@ export default function ThreadChat() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <button
-                  onClick={continueWithContext}
-                  className="flex-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors"
-                >
-                  New chat (keep context)
-                </button>
-                <button
-                  onClick={startNewConversation}
-                  className="flex-1 px-4 py-2 bg-gray-50 text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  New chat (fresh start)
-                </button>
+                {limitError.toLowerCase().includes('credit') || limitError.toLowerCase().includes('insufficient') ? (
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false);
+                      navigate('/u/settings');
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Go to Settings to Top Up
+                  </button>
+                ) : (
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={continueWithContext}
+                      className="flex-1 px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-900 transition-colors"
+                    >
+                      New chat (keep context)
+                    </button>
+                    <button
+                      onClick={startNewConversation}
+                      className="flex-1 px-4 py-2 bg-gray-50 text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-300 transition-colors"
+                    >
+                      New chat (fresh start)
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
-        
+
         <form onSubmit={handleSubmit} className="space-y-2">
           <div className="flex gap-2 items-end">
             <textarea
@@ -807,7 +834,7 @@ export default function ThreadChat() {
               <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
                 <div className="flex items-center gap-1">
                   <div className="w-12 h-0.5 bg-gray-200 rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className={`h-full transition-all ${tokenCount > 180000 ? 'bg-red-500' : tokenCount > 150000 ? 'bg-yellow-500' : 'bg-green-500'}`}
                       style={{ width: `${Math.min((tokenCount / 200000) * 100, 100)}%` }}
                     />

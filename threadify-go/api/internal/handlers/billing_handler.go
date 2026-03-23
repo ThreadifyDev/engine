@@ -15,6 +15,7 @@ import (
 type billingAPI interface {
 	GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error)
 	CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents, maxMonthlyMillicents int64) (string, error)
+	DisableAutoTopup(ctx context.Context, companyID string) error
 }
 
 type BillingHandler struct {
@@ -122,4 +123,22 @@ func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
 	c.JSON(http.StatusOK, GetCurrentPlanResponse{
 		CreditAccount: mapAccountToDTO(account),
 	})
+}
+
+func (h *BillingHandler) DisableAutoTopup(c *gin.Context) {
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	compID := companyID.(string)
+
+	err := h.billingService.DisableAutoTopup(c.Request.Context(), compID)
+	if err != nil {
+		h.logger.Error("failed to disable auto-topup", zap.Error(err), zap.String("companyID", compID))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable auto-topup"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Auto-topup disabled"})
 }
