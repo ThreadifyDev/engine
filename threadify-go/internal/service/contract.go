@@ -108,14 +108,6 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		}
 	}
 
-	if err := s.repo.Create(ctx, contractModel); err != nil {
-		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
-			return 400, map[string]string{"message": "Contract with this name already exists"}
-		}
-		s.logger.Error("failed to create contract", zap.Error(err))
-		return 500, map[string]string{"message": "Failed to create contract"}
-	}
-
 	graphJSON, err := buildGraphJSON(contentOnlyJSON)
 	if err != nil {
 		return 500, map[string]string{"message": err.Error()}
@@ -135,8 +127,13 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:   now,
 	}
 
-	if err := s.repo.CreateVersion(ctx, versionModel); err != nil {
-		return 500, map[string]string{"message": "Failed to create contract version"}
+	// Atomically create both contract and version in a single transaction
+	if err := s.repo.CreateContractWithVersion(ctx, contractModel, versionModel); err != nil {
+		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
+			return 400, map[string]string{"message": "Contract with this name already exists"}
+		}
+		s.logger.Error("failed to create contract with version", zap.Error(err))
+		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 
 	if err := s.planSvc.ChargeContract(ctx, companyID); err != nil {

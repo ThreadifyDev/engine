@@ -224,9 +224,9 @@ type ComplexityRoot struct {
 	}
 
 	Transition struct {
-		CanRetry   func(childComplexity int) int
 		From       func(childComplexity int) int
 		MaxRetries func(childComplexity int) int
+		Timeout    func(childComplexity int) int
 		To         func(childComplexity int) int
 	}
 
@@ -1246,12 +1246,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ThreadNotification.ViolationType(childComplexity), true
 
-	case "Transition.canRetry":
-		if e.ComplexityRoot.Transition.CanRetry == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Transition.CanRetry(childComplexity), true
 	case "Transition.from":
 		if e.ComplexityRoot.Transition.From == nil {
 			break
@@ -1264,6 +1258,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Transition.MaxRetries(childComplexity), true
+	case "Transition.timeout":
+		if e.ComplexityRoot.Transition.Timeout == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Transition.Timeout(childComplexity), true
 	case "Transition.to":
 		if e.ComplexityRoot.Transition.To == nil {
 			break
@@ -1624,7 +1624,7 @@ type GraphNode {
 type Transition {
   from: String!
   to: [String!]!
-  canRetry: Boolean!
+  timeout: String
   maxRetries: Int!
 }
 
@@ -2446,8 +2446,8 @@ func (ec *executionContext) fieldContext_ContractGraph_transitions(_ context.Con
 				return ec.fieldContext_Transition_from(ctx, field)
 			case "to":
 				return ec.fieldContext_Transition_to(ctx, field)
-			case "canRetry":
-				return ec.fieldContext_Transition_canRetry(ctx, field)
+			case "timeout":
+				return ec.fieldContext_Transition_timeout(ctx, field)
 			case "maxRetries":
 				return ec.fieldContext_Transition_maxRetries(ctx, field)
 			}
@@ -7043,30 +7043,30 @@ func (ec *executionContext) fieldContext_Transition_to(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_canRetry(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_timeout(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_Transition_canRetry,
+		ec.fieldContext_Transition_timeout,
 		func(ctx context.Context) (any, error) {
-			return obj.CanRetry, nil
+			return obj.Timeout, nil
 		},
 		nil,
-		ec.marshalNBoolean2bool,
+		ec.marshalOString2string,
 		true,
-		true,
+		false,
 	)
 }
 
-func (ec *executionContext) fieldContext_Transition_canRetry(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Transition_timeout(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transition",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Boolean does not have child fields")
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -11548,11 +11548,8 @@ func (ec *executionContext) _Transition(ctx context.Context, sel ast.SelectionSe
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "canRetry":
-			out.Values[i] = ec._Transition_canRetry(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
+		case "timeout":
+			out.Values[i] = ec._Transition_timeout(ctx, field, obj)
 		case "maxRetries":
 			out.Values[i] = ec._Transition_maxRetries(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

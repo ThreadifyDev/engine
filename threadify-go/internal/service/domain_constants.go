@@ -46,10 +46,10 @@ const (
 	MeterBandwidthEgress       = "bandwidth_egress"
 	MeterContractCreate        = "contract_create"
 	MeterContractVersionCreate = "contract_version_create"
-	MeterSeatCreate             = "seat_create"
-	MeterCreditSpend            = "credit_spend"
-	MeterCreditTopup            = "credit_topup"
-	MeterCreditTopupRequest     = "credit_topup_request"
+	MeterSeatCreate            = "seat_create"
+	MeterCreditSpend           = "credit_spend"
+	MeterCreditTopup           = "credit_topup"
+	MeterCreditTopupRequest    = "credit_topup_request"
 )
 
 const (

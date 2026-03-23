@@ -40,6 +40,7 @@ type NotificationService struct {
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
+	timeoutMonitor        *TimeoutMonitor
 	logger                *zap.Logger
 }
 
@@ -56,6 +57,7 @@ func NewNotificationService(
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
+	timeoutMonitor *TimeoutMonitor,
 	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
@@ -70,6 +72,7 @@ func NewNotificationService(
 		rbacLoader:            rbacLoader,
 		validationPool:        validationPool,
 		notificationPool:      notificationPool,
+		timeoutMonitor:        timeoutMonitor,
 		logger:                logger,
 	}
 }
@@ -92,6 +95,11 @@ func (s *NotificationService) PerformAsyncValidation(
 			zap.String("step_name", stepName),
 		)
 
+		// Cancel any pending timeouts waiting for this step to start
+		if s.timeoutMonitor != nil && graph != nil {
+			s.cancelPendingTimeoutsForStep(ctx, threadID, stepName, graph)
+		}
+
 		if graph == nil {
 			s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
 			return
@@ -111,6 +119,23 @@ func (s *NotificationService) PerformAsyncValidation(
 		}
 
 		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req)
+
+		// Schedule transition timeouts AFTER validations complete (inside worker pool)
+		// This ensures scheduling happens in the same async context as cancellation
+		if req.Status == StepStatusSuccess && s.timeoutMonitor != nil && graph != nil {
+			// Check if there are critical violations that would prevent timeout scheduling
+			hasCriticalViolation := false
+			for _, notif := range notifications {
+				if notif.Severity == "critical" {
+					hasCriticalViolation = true
+					break
+				}
+			}
+			if !hasCriticalViolation {
+				s.scheduleTransitionTimeouts(ctx, threadID, stepName, req, graph, thread)
+			}
+		}
+
 		s.logger.Debug("completed validation", zap.String("thread_id", threadID))
 	})
 
@@ -385,6 +410,9 @@ func (s *NotificationService) processValidationNotifications(
 	if s.natsPublisher != nil {
 		go s.publishDualNotifications(context.Background(), executionNotif, validationNotif)
 	}
+
+	// NOTE: Timeout scheduling moved to PerformAsyncValidation worker pool
+	// to prevent race conditions with cancellation logic
 
 	// Handle terminal step completion.
 	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
@@ -807,4 +835,143 @@ func ensureDetails(d map[string]interface{}) map[string]interface{} {
 		return d
 	}
 	return make(map[string]interface{})
+}
+
+// cancelPendingTimeoutsForStep cancels any pending timeouts waiting for this step to start
+func (s *NotificationService) cancelPendingTimeoutsForStep(
+	ctx context.Context,
+	threadID string,
+	stepName string,
+	graph *models.ContractGraph,
+) {
+	// Find all transitions that have this step as a target
+	var incomingTransitions []models.Transition
+	for _, transition := range graph.Transitions {
+		for _, toStep := range transition.To {
+			if toStep == stepName {
+				incomingTransitions = append(incomingTransitions, transition)
+				break
+			}
+		}
+	}
+
+	if len(incomingTransitions) == 0 {
+		return
+	}
+
+	// Cancel timeout for each incoming transition
+	for _, transition := range incomingTransitions {
+		// Reconstruct the timeout ID that was used when scheduling
+		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
+
+		if err := s.timeoutMonitor.CancelTimeout(timeoutID, threadID, fmt.Sprintf("step '%s' started", stepName)); err != nil {
+			s.logger.Warn("failed to cancel timeout",
+				zap.String("timeout_id", timeoutID),
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to_step", stepName),
+				zap.Error(err),
+			)
+		} else {
+			s.logger.Debug("cancelled timeout",
+				zap.String("timeout_id", timeoutID),
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to_step", stepName),
+			)
+		}
+	}
+}
+
+// scheduleTransitionTimeouts schedules timeout events for all outgoing transitions from the current step
+func (s *NotificationService) scheduleTransitionTimeouts(
+	ctx context.Context,
+	threadID string,
+	stepName string,
+	req *models.RecordEventRequest,
+	graph *models.ContractGraph,
+	thread *models.Thread,
+) {
+	// Find transitions from this step
+	var outgoingTransitions []models.Transition
+	for _, transition := range graph.Transitions {
+		if transition.From == stepName {
+			outgoingTransitions = append(outgoingTransitions, transition)
+		}
+	}
+
+	if len(outgoingTransitions) == 0 {
+		return
+	}
+
+	// Parse startedAt timestamp
+	startedAt, err := time.Parse(time.RFC3339, req.StartedAt)
+	if err != nil {
+		s.logger.Warn("failed to parse startedAt for timeout scheduling",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.Error(err),
+		)
+		return
+	}
+
+	// Schedule timeout for each outgoing transition that has a timeout defined
+	for _, transition := range outgoingTransitions {
+		if transition.Timeout == "" {
+			continue
+		}
+
+		// Parse timeout duration
+		timeout, err := time.ParseDuration(transition.Timeout)
+		if err != nil {
+			s.logger.Warn("invalid timeout duration format",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("timeout", transition.Timeout),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Calculate deadline: startedAt + timeout
+		deadline := startedAt.Add(timeout)
+
+		// Generate timeout ID for deduplication and cancellation
+		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
+
+		// Create timeout event
+		timeoutEvent := models.TimeoutEvent{
+			ID:           timeoutID,
+			ThreadID:     threadID,
+			Type:         models.TimeoutTypeTransition,
+			FromStep:     transition.From,
+			ToStep:       strings.Join(transition.To, ","), // Store as comma-separated for multiple targets
+			Timeout:      transition.Timeout,
+			ScheduledAt:  time.Now(),
+			DeadlineAt:   deadline,
+			ContractName: thread.ContractName,
+			Metadata: map[string]interface{}{
+				"step_name":       req.StepName,
+				"idempotency_key": req.IdempotencyKey,
+			},
+		}
+
+		// Schedule the timeout
+		if err := s.timeoutMonitor.ScheduleTimeout(timeoutEvent); err != nil {
+			s.logger.Error("failed to schedule transition timeout",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to", strings.Join(transition.To, ",")),
+				zap.Error(err),
+			)
+		} else {
+			s.logger.Debug("scheduled transition timeout",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to", strings.Join(transition.To, ",")),
+				zap.Duration("timeout", timeout),
+				zap.Time("deadline", deadline),
+			)
+		}
+	}
 }

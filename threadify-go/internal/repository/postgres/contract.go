@@ -86,6 +86,43 @@ func (r *ContractRepository) Create(ctx context.Context, contract *models.Contra
 	), contract))
 }
 
+// CreateContractWithVersion atomically creates both contract and initial version in a single transaction
+func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Insert contract
+	contractQuery := `INSERT INTO contracts (` + contractCols + `)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING ` + contractCols
+
+	if err := contractErr(scanContract(tx.QueryRow(ctx, contractQuery,
+		contract.ID, contract.Name, contract.CompanyID, contract.Description, contract.ContentHash,
+		contract.LatestVersion, contract.OwnerID, contract.IsPublic, contract.IsDeleted,
+		contract.CreatedAt, contract.UpdatedAt,
+	), contract)); err != nil {
+		return err
+	}
+
+	// Insert version
+	versionQuery := `INSERT INTO contract_versions (` + versionCols + `)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		RETURNING ` + versionCols
+
+	if err := versionErr(scanVersion(tx.QueryRow(ctx, versionQuery,
+		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
+		version.ContractID, version.CreatedBy, version.Graph, version.IsDeleted,
+		version.CreatedAt, version.UpdatedAt,
+	), version)); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *ContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
 	query := `UPDATE contracts
 		SET description=$1, content_hash=$2, latest_version=$3, updated_at=$4
