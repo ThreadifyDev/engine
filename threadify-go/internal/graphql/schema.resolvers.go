@@ -17,6 +17,7 @@ import (
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
+	"github.com/threadify/engine/internal/service"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"go.uber.org/zap"
 )
@@ -63,6 +64,20 @@ func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.Hash
 	return &brokenAt, nil
 }
 
+// RecordLLMUsage is the resolver for the recordLLMUsage mutation.
+func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if err := r.planService.DecrementLLMUsage(ctx, companyID, int64(tokens)); err != nil {
+		return false, fmt.Errorf("failed to record LLM usage: %w", err)
+	}
+
+	return true, nil
+}
+
 // RoleDefaults is the resolver for the roleDefaults field.
 func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
 	if obj.RoleDefaults == nil {
@@ -89,10 +104,9 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-
-	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
+	if err := r.requireCredit(ctx, companyID); err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
-		return nil, fmt.Errorf("payment required: your account is out of credits")
+		return nil, err
 	}
 
 	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
@@ -132,9 +146,8 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-
-	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
-		return nil, fmt.Errorf("payment required: your account is out of credits")
+	if err := r.requireCredit(ctx, companyID); err != nil {
+		return nil, err
 	}
 
 	// Normalize pagination using helper
@@ -180,9 +193,8 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-
-	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
-		return nil, fmt.Errorf("payment required: your account is out of credits")
+	if err := r.requireCredit(ctx, companyID); err != nil {
+		return nil, err
 	}
 
 	// Normalize pagination
@@ -226,9 +238,8 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-
-	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
-		return nil, fmt.Errorf("payment required: your account is out of credits")
+	if err := r.requireCredit(ctx, companyID); err != nil {
+		return nil, err
 	}
 
 	// Normalize pagination
@@ -278,9 +289,8 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-
-	if err := r.planService.HasSufficientBalance(ctx, companyID, "", 0); err != nil {
-		return nil, fmt.Errorf("payment required: your account is out of credits")
+	if err := r.requireCredit(ctx, companyID); err != nil {
+		return nil, err
 	}
 
 	// Set default max depth
@@ -367,6 +377,9 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+	if err := r.requireCredit(ctx, companyID); err != nil {
+		return nil, err
 	}
 
 	// Enforce hard caps on pagination limits
@@ -471,6 +484,33 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	}
 
 	return status, nil
+}
+
+// CheckCredits is the resolver for the checkCredits query.
+func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authentication required: %w", err)
+	}
+
+	meterVal := ""
+	if meter != nil {
+		meterVal = *meter
+	}
+
+	amountVal := int64(0)
+	if amount != nil {
+		amountVal = int64(*amount)
+	}
+
+	if err := r.planService.CheckCreditAvailable(ctx, companyID, meterVal, amountVal); err != nil {
+		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check credits: %w", err)
+	}
+
+	return true, nil
 }
 
 // Error is the resolver for the error field on StepHistory.
@@ -930,6 +970,9 @@ func (r *Resolver) HashChainStatus() generated.HashChainStatusResolver {
 	return &hashChainStatusResolver{r}
 }
 
+// Mutation returns generated.MutationResolver implementation.
+func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
+
 // NotificationConfig returns generated.NotificationConfigResolver implementation.
 func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
 	return &notificationConfigResolver{r}
@@ -963,6 +1006,7 @@ func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver
 type graphResolver struct{ *Resolver }
 type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
+type mutationResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type stepHistoryResolver struct{ *Resolver }

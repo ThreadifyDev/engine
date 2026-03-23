@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -191,13 +192,20 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 
 	if action != ActionConnect && session.companyID != "" {
 		checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-		account, err := h.planService.GetCurrentLimits(checkCtx, session.companyID)
+		err := h.planService.CheckCreditAvailable(checkCtx, session.companyID, "", 0)
 		cancel()
-		if err != nil || account == nil {
+		if err != nil {
+			if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+				return models.ErrorResponse{
+					Action:  action,
+					Status:  StatusError,
+					Message: "Payment required: insufficient credits.",
+				}
+			}
 			return models.ErrorResponse{
 				Action:  action,
 				Status:  StatusError,
-				Message: "Active subscription required. Please check your billing status.",
+				Message: "Unable to verify credit balance. Please try again.",
 			}
 		}
 	}

@@ -30,6 +30,7 @@ type ResolverRoot interface {
 	Graph() GraphResolver
 	GraphNode() GraphNodeResolver
 	HashChainStatus() HashChainStatusResolver
+	Mutation() MutationResolver
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
 	StepHistory() StepHistoryResolver
@@ -87,6 +88,10 @@ type ComplexityRoot struct {
 		Verified       func(childComplexity int) int
 	}
 
+	Mutation struct {
+		RecordLLMUsage func(childComplexity int, tokens int) int
+	}
+
 	NotificationConfig struct {
 		DefaultScope func(childComplexity int) int
 		RoleDefaults func(childComplexity int) int
@@ -106,6 +111,7 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
 		ResolveActors         func(childComplexity int, ids []string) int
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
@@ -274,6 +280,9 @@ type HashChainStatusResolver interface {
 
 	BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error)
 }
+type MutationResolver interface {
+	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
+}
 type NotificationConfigResolver interface {
 	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
 }
@@ -289,6 +298,7 @@ type QueryResolver interface {
 	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
 	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
 	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
+	CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error)
 }
 type StepHistoryResolver interface {
 	Error(ctx context.Context, obj *models.StepHistory) (*string, error)
@@ -519,6 +529,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.HashChainStatus.Verified(childComplexity), true
 
+	case "Mutation.recordLLMUsage":
+		if e.ComplexityRoot.Mutation.RecordLLMUsage == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_recordLLMUsage_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RecordLLMUsage(childComplexity, args["tokens"].(int)), true
+
 	case "NotificationConfig.defaultScope":
 		if e.ComplexityRoot.NotificationConfig.DefaultScope == nil {
 			break
@@ -593,6 +615,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.NotificationSummary.WarningCount(childComplexity), true
 
+	case "Query.checkCredits":
+		if e.ComplexityRoot.Query.CheckCredits == nil {
+			break
+		}
+
+		args, err := ec.field_Query_checkCredits_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.CheckCredits(childComplexity, args["meter"].(*string), args["amount"].(*int)), true
 	case "Query.contractGraph":
 		if e.ComplexityRoot.Query.ContractGraph == nil {
 			break
@@ -1456,6 +1489,21 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 
 			return &response
 		}
+	case ast.Mutation:
+		return func(ctx context.Context) *graphql.Response {
+			if !first {
+				return nil
+			}
+			first = false
+			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
+			data := ec._Mutation(ctx, opCtx.Operation.SelectionSet)
+			var buf bytes.Buffer
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
+		}
 
 	default:
 		return graphql.OneShot(graphql.ErrorResponse(ctx, "unsupported GraphQL operation"))
@@ -1709,6 +1757,15 @@ type Query {
   
   # Verify hash integrity for a single step
   verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+
+  # Verify if the company has sufficient credits (amount: millicents, meter: meter name)
+  # If amount/meter are omitted, performs a basic active account check.
+  checkCredits(meter: String, amount: Int): Boolean!
+}
+
+type Mutation {
+  # Record LLM token usage for the authenticated company
+  recordLLMUsage(tokens: Int!): Boolean!
 }
 
 type StepIntegrityStatus {
@@ -1811,6 +1868,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
 // region    ***************************** args.gotpl *****************************
 
+func (ec *executionContext) field_Mutation_recordLLMUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "tokens", ec.unmarshalNInt2int)
+	if err != nil {
+		return nil, err
+	}
+	args["tokens"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1819,6 +1887,22 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_checkCredits_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "meter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["meter"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "amount", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["amount"] = arg1
 	return args, nil
 }
 
@@ -3133,6 +3217,47 @@ func (ec *executionContext) fieldContext_HashChainStatus_error(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_recordLLMUsage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_recordLLMUsage,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RecordLLMUsage(ctx, fc.Args["tokens"].(int))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_recordLLMUsage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_recordLLMUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _NotificationConfig_defaultScope(ctx context.Context, field graphql.CollectedField, obj *models.NotificationConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4134,6 +4259,47 @@ func (ec *executionContext) fieldContext_Query_verifyStepIntegrity(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_verifyStepIntegrity_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_checkCredits(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_checkCredits,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().CheckCredits(ctx, fc.Args["meter"].(*string), fc.Args["amount"].(*int))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_checkCredits(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_checkCredits_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -9768,6 +9934,55 @@ func (ec *executionContext) _HashChainStatus(ctx context.Context, sel ast.Select
 	return out
 }
 
+var mutationImplementors = []string{"Mutation"}
+
+func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, mutationImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Mutation",
+	})
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		innerCtx := graphql.WithRootFieldContext(ctx, &graphql.RootFieldContext{
+			Object: field.Name,
+			Field:  field,
+		})
+
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Mutation")
+		case "recordLLMUsage":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_recordLLMUsage(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var notificationConfigImplementors = []string{"NotificationConfig"}
 
 func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationConfig) graphql.Marshaler {
@@ -10167,6 +10382,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_verifyStepIntegrity(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "checkCredits":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_checkCredits(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

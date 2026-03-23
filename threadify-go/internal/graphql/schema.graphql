@@ -225,6 +225,15 @@ type Query {
   
   # Verify hash integrity for a single step
   verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+
+  # Verify if the company has sufficient credits (amount: millicents, meter: meter name)
+  # If amount/meter are omitted, performs a basic active account check.
+  checkCredits(meter: String, amount: Int): Boolean!
+}
+
+type Mutation {
+  # Record LLM token usage for the authenticated company
+  recordLLMUsage(tokens: Int!): Boolean!
 }
 
 type StepIntegrityStatus {

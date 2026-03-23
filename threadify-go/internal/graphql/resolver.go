@@ -1,6 +1,10 @@
 package graphql
 
 import (
+	"context"
+	"errors"
+	"fmt"
+
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -14,7 +18,7 @@ type Resolver struct {
 	validationRepo      *valkey.ValidationRepository
 	accessRepo          *valkey.AccessRepository // For permission checks (hot path)
 	threadAccessService *service.ThreadAccessService
-	contractValidator    interfaces.ContractGraphValidator
+	contractValidator   interfaces.ContractGraphValidator
 	contractRepo        *postgres.ContractRepository
 	refsRepo            *postgres.ThreadRefsRepository         // For batch loading refs
 	stepStatePostgres   *postgres.StepStateRepository          // For batch loading steps
@@ -60,4 +64,17 @@ func NewResolver(
 		planService:         planService,
 		logger:              logger,
 	}
+}
+
+func (r *Resolver) requireCredit(ctx context.Context, companyID string) error {
+	if r.planService == nil {
+		return fmt.Errorf("billing unavailable")
+	}
+	if err := r.planService.CheckCreditAvailable(ctx, companyID, "", 0); err != nil {
+		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+			return fmt.Errorf("payment required: insufficient credits")
+		}
+		return fmt.Errorf("failed to verify credit balance: %w", err)
+	}
+	return nil
 }

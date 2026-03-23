@@ -16,18 +16,20 @@ import (
 	"go.uber.org/zap"
 )
 
-const creditTopupAppliedKeyTTL = 90 * 24 * time.Hour
+const (
+	creditTopupAppliedKeyTTL = 90 * 24 * time.Hour
+	millicentsPerCent        = 1000
+)
 
-type BillingService struct {
+type BillingOrchestrator struct {
 	*billing.BillingService
-	realPlanRepo interfaces.PlanRepository
 	billingRepo  interfaces.BillingRepository
 	valkeyClient interfaces.ValkeyClient
 	planSvc      interfaces.PlanService
 	logger       *zap.Logger
 }
 
-func NewBillingService(
+func NewBillingOrchestrator(
 	billingProvider billing.BillingProvider,
 	planRepo interfaces.PlanRepository,
 	billingRepo interfaces.BillingRepository,
@@ -36,12 +38,10 @@ func NewBillingService(
 	valkeyClient interfaces.ValkeyClient,
 	planSvc interfaces.PlanService,
 	logger *zap.Logger,
-) *BillingService {
+) *BillingOrchestrator {
 	sharedSvc := billing.NewBillingService(billingProvider, planRepo, subConfig, billingConfig, logger)
-
-	return &BillingService{
+	return &BillingOrchestrator{
 		BillingService: sharedSvc,
-		realPlanRepo:   planRepo,
 		billingRepo:    billingRepo,
 		valkeyClient:   valkeyClient,
 		planSvc:        planSvc,
@@ -49,13 +49,14 @@ func NewBillingService(
 	}
 }
 
-func (s *BillingService) ChargeCreditTopup(ctx context.Context, companyID string, eventID string, billingCycleStart time.Time, amountMillicents int64) error {
-	amountCents := amountMillicents / 1000
+
+func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID string, eventID string, billingCycleStart time.Time, amountMillicents int64) error {
+	amountCents := amountMillicents / millicentsPerCent
 	if amountCents <= 0 {
 		return nil
 	}
 
-	account, err := s.realPlanRepo.GetCreditAccount(ctx, companyID)
+	account, err := s.PlanRepo.GetCreditAccount(ctx, companyID)
 	if err != nil {
 		return fmt.Errorf("find credit account for credit topup: %w", err)
 	}
@@ -128,8 +129,8 @@ func (s *BillingService) ChargeCreditTopup(ctx context.Context, companyID string
 	return nil
 }
 
-func (s *BillingService) ApplyCreditTopup(ctx context.Context, snapshot *billing.BillingSnapshot) error {
-	amountMillicents := snapshot.TotalCents * 1000
+func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *billing.BillingSnapshot) error {
+	amountMillicents := snapshot.TotalCents * millicentsPerCent
 	if amountMillicents <= 0 {
 		return nil
 	}
@@ -144,6 +145,7 @@ func (s *BillingService) ApplyCreditTopup(ctx context.Context, snapshot *billing
 		s.logger.Error("failed to mark credit topup as applied", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
 		return fmt.Errorf("apply credit topup: mark applied: %w", err)
 	}
+
 	if !applied {
 		s.logger.Info("credit topup already applied", zap.String("company_id", snapshot.CompanyID))
 		return nil
@@ -165,12 +167,12 @@ func (s *BillingService) ApplyCreditTopup(ctx context.Context, snapshot *billing
 	return nil
 }
 
-func (s *BillingService) ClearCreditTopupPending(ctx context.Context, companyID string) error {
+func (s *BillingOrchestrator) ClearCreditTopupPending(ctx context.Context, companyID string) error {
 	keys := billing.KeysFor(companyID)
 	return s.valkeyClient.Delete(ctx, keys.Pending)
 }
 
-func (s *BillingService) writeCreditTopupToOutbox(ctx context.Context, companyID string, amountMillicents int64, billingCycleStart time.Time) {
+func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, companyID string, amountMillicents int64, billingCycleStart time.Time) {
 	eventData := map[string]interface{}{
 		fieldEventID:           uuid.NewString(),
 		fieldCompanyID:         companyID,
@@ -191,34 +193,34 @@ func (s *BillingService) writeCreditTopupToOutbox(ctx context.Context, companyID
 	s.logger.Debug("credit topup event written to outbox", zap.String("company_id", companyID), zap.Int64("amount_millicents", amountMillicents))
 }
 
-func (s *BillingService) DisableAutoTopup(ctx context.Context, companyID string) error {
-	return s.realPlanRepo.DisableAutoTopup(ctx, companyID)
+func (s *BillingOrchestrator) DisableAutoTopup(ctx context.Context, companyID string) error {
+	return s.PlanRepo.DisableAutoTopup(ctx, companyID)
 }
 
-func (s *BillingService) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
+func (s *BillingOrchestrator) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotPaidByID(ctx, snapshotID, externalInvoiceID)
 }
 
-func (s *BillingService) MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error {
+func (s *BillingOrchestrator) MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotPaidByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingService) MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error {
+func (s *BillingOrchestrator) MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotFailedByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
+func (s *BillingOrchestrator) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
 	return s.billingRepo.FindSnapshotByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingService) GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
-	return s.realPlanRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
+func (s *BillingOrchestrator) GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
+	return s.PlanRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
 }
 
-func (s *BillingService) ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount, maxMonthly int64) error {
+func (s *BillingOrchestrator) ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount, maxMonthly int64) error {
 	return s.planSvc.ProvisionSubscription(ctx, companyID, externalCustomerID, initialAmount, maxMonthly)
 }
 
-func (s *BillingService) ProcessRollovers(ctx context.Context) error {
+func (s *BillingOrchestrator) ProcessRollovers(ctx context.Context) error {
 	return s.planSvc.ProcessRollovers(ctx)
 }

@@ -258,17 +258,17 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		logger.Fatal("failed to initialize billing provider", zap.Error(err))
 	}
 
-	billingSvc := service.NewBillingService(billingProvider, planRepo, billingRepo, &cfg.Subscription, &cfg.Billing, d.valkey, planSvc, logger)
+	billingOrchestrator := service.NewBillingOrchestrator(billingProvider, planRepo, billingRepo, &cfg.Subscription, &cfg.Billing, d.valkey, planSvc, logger)
 
 	js, err := jetstream.New(d.natsPool.GetClient().Conn())
 	if err != nil {
 		logger.Fatal("failed to initialize NATS JetStream for billing", zap.Error(err))
 	}
 
-	billingCron := service.NewBillingCron(billingSvc, d.valkey, js, logger)
+	billingCron := service.NewBillingCron(billingOrchestrator, d.valkey, js, logger)
 	sm.Register(billingCron)
 
-	webhookHandler := handlers.NewWebhookHandler(billingProvider, billingSvc, logger)
+	webhookHandler := handlers.NewWebhookHandler(billingProvider, billingOrchestrator, logger)
 
 	contractSvc := service.NewContractService(contractRepo, planSvc, logger)
 	threadSvc := service.NewThreadService(cfg,
@@ -350,7 +350,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
 	mcpGroup.Use(middleware.CreditUsageMiddleware(planSvc, d.valkey, logger))
-	mountMCPServer(mcpGroup, cfg, logger)
+	mountMCPServer(mcpGroup, cfg, planSvc, logger)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
