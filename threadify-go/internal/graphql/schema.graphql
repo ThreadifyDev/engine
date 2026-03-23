@@ -140,7 +140,7 @@ type GraphNode {
 type Transition {
   from: String!
   to: [String!]!
-  canRetry: Boolean!
+  timeout: String
   maxRetries: Int!
 }
 

@@ -78,6 +78,10 @@ func (c *Client) JetStream() nats.JetStreamContext {
 	return c.js
 }
 
+func (c *Client) Conn() *nats.Conn {
+	return c.conn
+}
+
 func (c *Client) Close() {
 	if c.conn != nil {
 		c.conn.Close()

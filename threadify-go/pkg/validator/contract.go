@@ -330,6 +330,14 @@ func (v *ContractValidator) validateTransitionSteps(contract *Contract, stepIds 
 				})
 			}
 		}
+
+		// Validate timeout format if present
+		if transition.Timeout != "" && !v.isValidDuration(transition.Timeout) {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("transitions[%d].timeout", i),
+				Message: "Invalid duration format. Use: s, ms, us, m, h, or d (e.g., '2s', '3d')",
+			})
+		}
 	}
 
 	return errors

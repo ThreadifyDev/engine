@@ -22,6 +22,7 @@ type PlanRepository interface {
 
 type ContractRepository interface {
 	Create(ctx context.Context, contract *models.Contract) error
+	CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error
 	Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error)
 	Get(ctx context.Context, id string) (*models.Contract, error)
 	GetByID(ctx context.Context, contractID string) (*models.Contract, error)

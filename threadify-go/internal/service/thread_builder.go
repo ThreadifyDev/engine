@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
 
 	"github.com/threadify/engine/internal/config"
@@ -32,6 +33,7 @@ type ThreadServiceBuilder struct {
 	stepEventService      *StepEventService
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
+	natsClient            *nats.Client
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
@@ -73,6 +75,11 @@ func (b *ThreadServiceBuilder) WithThreadRepository(threadRepo *valkey.ThreadRep
 
 func (b *ThreadServiceBuilder) WithContractTTL(ttl int) *ThreadServiceBuilder {
 	b.contractTTLSeconds = ttl
+	return b
+}
+
+func (b *ThreadServiceBuilder) WithNATSClient(client *nats.Client) *ThreadServiceBuilder {
+	b.natsClient = client
 	return b
 }
 
@@ -169,11 +176,28 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	}
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader, b.logger)
 	validationService := NewValidationService(b.valkeyService, b.threadRepo)
+
+	// Initialize timeout monitor if NATS client is available
+	var timeoutMonitor *TimeoutMonitor
+	if b.natsClient != nil && b.natsPublisher != nil {
+		var err error
+		timeoutMonitor, err = InitializeTimeoutMonitor(
+			b.natsClient.Conn(),
+			b.threadRepo,
+			b.natsPublisher,
+			b.logger,
+		)
+		if err != nil {
+			b.logger.Warn("failed to initialize timeout monitor", zap.Error(err))
+		}
+	}
+
 	notificationService := NewNotificationService(
 		validationService, activityRepo, stepStateRepo, b.threadRepo, cacheService,
 		b.natsPublisher, b.natsArchivalPublisher,
 		accessService, rbacLoader,
 		validationPool, notificationPool,
+		timeoutMonitor,
 		b.logger,
 	)
 
