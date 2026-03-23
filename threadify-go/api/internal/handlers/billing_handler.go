@@ -72,16 +72,16 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 }
 
 type CreditAccountDTO struct {
-	ID                    string    `json:"id"`
-	CompanyID             string    `json:"company_id"`
-	BillingCycleStart     time.Time `json:"billing_cycle_start"`
-	BalanceCents          int64     `json:"balance_cents"`
-	MinBalanceCents       int64     `json:"min_balance_cents"`
-	MaxMonthlyChargeCents int64     `json:"max_monthly_charge_cents"`
-	AutoTopupCents        int64     `json:"auto_topup_cents"`
-	MonthlyChargedCents   int64     `json:"monthly_charged_cents"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	ID                       string    `json:"id"`
+	CompanyID                string    `json:"company_id"`
+	BillingCycleStart        time.Time `json:"billing_cycle_start"`
+	BalanceMillicents        int64     `json:"balance_millicents"`
+	MinBalanceMillicents     int64     `json:"min_balance_millicents"`
+	MaxMonthlyChargeMillicents int64   `json:"max_monthly_charge_millicents"`
+	AutoTopupMillicents      int64     `json:"auto_topup_millicents"`
+	MonthlyChargedMillicents int64     `json:"monthly_charged_millicents"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
 }
 
 type GetCurrentPlanResponse struct {
@@ -93,16 +93,16 @@ func mapAccountToDTO(m *billing.CreditAccount) *CreditAccountDTO {
 		return nil
 	}
 	return &CreditAccountDTO{
-		ID:                    m.ID,
-		CompanyID:             m.CompanyID,
-		BillingCycleStart:     m.BillingCycleStart,
-		BalanceCents:          m.CreditBalanceMillicents / 1000,
-		MinBalanceCents:       m.CreditMinBalanceMillicents / 1000,
-		MaxMonthlyChargeCents: m.CreditMaxMonthlyChargeMillicents / 1000,
-		AutoTopupCents:        m.CreditAutoTopupMillicents / 1000,
-		MonthlyChargedCents:   m.CreditMonthlyChargedMillicents / 1000,
-		CreatedAt:             m.CreatedAt,
-		UpdatedAt:             m.UpdatedAt,
+		ID:                       m.ID,
+		CompanyID:                m.CompanyID,
+		BillingCycleStart:        m.BillingCycleStart,
+		BalanceMillicents:        m.CreditBalanceMillicents,
+		MinBalanceMillicents:     m.CreditMinBalanceMillicents,
+		MaxMonthlyChargeMillicents: m.CreditMaxMonthlyChargeMillicents,
+		AutoTopupMillicents:      m.CreditAutoTopupMillicents,
+		MonthlyChargedMillicents: m.CreditMonthlyChargedMillicents,
+		CreatedAt:                m.CreatedAt,
+		UpdatedAt:                m.UpdatedAt,
 	}
 }
 func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
