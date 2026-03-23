@@ -274,6 +274,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	threadSvc := service.NewThreadService(cfg,
 		d.db, d.valkey, stepEventSvc,
 		threadRepo, int(contractTTL.Seconds()),
+		d.natsPool.GetClient(), // ← ADD THIS LINE
 		natsNotification, natsArchival,
 		authSvc, planSvc, cacheManager,
 		d.workerPools, logger,
