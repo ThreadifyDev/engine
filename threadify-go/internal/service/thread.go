@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
 
 	shderrors "threadify-go/shared/errors"
@@ -73,6 +74,7 @@ func NewThreadService(
 	stepEventService *StepEventService,
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
+	natsClient *nats.Client,
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
@@ -88,6 +90,7 @@ func NewThreadService(
 		WithStepEventService(stepEventService).
 		WithThreadRepository(threadRepo).
 		WithContractTTL(contractTTLSeconds).
+		WithNATSClient(natsClient).
 		WithNATSPublisher(natsPublisher).
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
@@ -246,6 +249,27 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	s.cacheManager.SetThread(threadID, thread)
 	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
+
+	// Schedule thread max duration timeout if contract has max_duration validation
+	if parsedContractName != "" && s.notificationService != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Get contract graph
+			graph, err := s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
+			if err != nil {
+				s.logger.Warn("failed to get contract graph for thread timeout",
+					zap.String("thread_id", threadID),
+					zap.String("contract", parsedContractName),
+					zap.Error(err),
+				)
+				return
+			}
+
+			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, thread.StartedAt)
+		}()
+	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 

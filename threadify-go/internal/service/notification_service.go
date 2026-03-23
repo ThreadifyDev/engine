@@ -418,6 +418,9 @@ func (s *NotificationService) processValidationNotifications(
 	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
 		s.logger.Info("thread marked as COMPLETED", zap.String("thread_id", threadID))
 
+		// Cancel thread max duration timeout
+		s.cancelThreadMaxDurationTimeout(ctx, threadID)
+
 		// Update Valkey status to "completed" SYNCHRONOUSLY.
 		// This is critical: it must happen before any WebSocket disconnect can call EndThread.
 		if s.threadRepo != nil {
