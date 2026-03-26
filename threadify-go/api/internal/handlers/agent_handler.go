@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
-	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 
@@ -38,6 +38,15 @@ const (
 	connectionKeepAlive    = "keep-alive"
 )
 
+func ctxString(c *gin.Context, key string) (string, bool) {
+	raw, exists := c.Get(key)
+	if !exists {
+		return "", false
+	}
+	val, ok := raw.(string)
+	return val, ok && val != ""
+}
+
 func (h *AgentHandler) Chat(c *gin.Context) {
 	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
@@ -45,13 +54,13 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	companyID, exists := c.Get(sharedauth.CtxCompanyID)
-	if !exists {
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -71,82 +80,72 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		c.Writer.Flush()
 	}
 
-	available, err := h.agentSvc.CheckCredits(c.Request.Context(), authHeader)
-	if err != nil {
-		h.logger.Error("credit check failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Credit verification failed"})
-		return
-	}
-	if !available {
-		h.logger.Warn("insufficient credits, blocking request", zap.String("userID", userID.(string)))
-		c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient credits"})
-		return
-	}
-
-	err = h.agentSvc.ChatStream(
+	err := h.agentSvc.ChatStream(
 		c.Request.Context(),
 		authHeader,
-		userID.(string),
-		companyID.(string),
+		userID,
+		companyID,
 		chatReq.ConversationID,
 		chatReq.Message,
 		chatReq.Skill,
 		onEvent,
 	)
-
 	if err != nil {
-		h.logger.Error("chat stream failed", zap.Error(err))
+		h.logger.Error("chat stream failed",
+			zap.Error(err),
+			zap.String("user_id", userID),
+			zap.String("company_id", companyID),
+		)
 		c.SSEvent("error", err.Error())
 		c.Writer.Flush()
 	}
 }
 
 func (h *AgentHandler) GetConversations(c *gin.Context) {
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	available, err := h.agentSvc.CheckCredits(c.Request.Context(), c.GetHeader(service.HeaderAuthorization))
+	convs, err := h.agentSvc.GetConversations(userID)
 	if err != nil {
-		h.logger.Warn("failed to check credits for conversation list", zap.Error(err))
-		available = true
-	}
-
-	if !available {
-		c.JSON(http.StatusOK, gin.H{
-			"conversations":     []models.AgentConversation{},
-			"credits_available": false,
-		})
-		return
-	}
-
-	convs, err := h.agentSvc.GetConversations(userID.(string))
-	if err != nil {
-		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("userID", userID.(string)))
+		h.logger.Error("failed to load conversations",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"conversations":     convs,
-		"credits_available": available,
+		"conversations": convs,
 	})
 }
 
 func (h *AgentHandler) GetConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	msgs, err := h.agentSvc.GetMessagesForUser(userID.(string), convID)
+	msgs, err := h.agentSvc.GetMessagesForUser(userID, convID)
 	if err != nil {
-		h.logger.Warn("failed to load messages", zap.Error(err), zap.String("conversationID", convID))
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
+		switch {
+		case errors.Is(err, service.ErrNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		case errors.Is(err, service.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
+		default:
+			h.logger.Error("failed to load messages",
+				zap.Error(err),
+				zap.String("user_id", userID),
+				zap.String("conversation_id", convID),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load messages"})
+		}
 		return
 	}
 
@@ -155,16 +154,26 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 
 func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	err := h.agentSvc.DeleteConversation(convID, userID.(string))
-	if err != nil {
-		h.logger.Error("failed to delete conversation", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
+	if err := h.agentSvc.DeleteConversation(convID, userID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		case errors.Is(err, service.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to delete this conversation"})
+		default:
+			h.logger.Error("failed to delete conversation",
+				zap.Error(err),
+				zap.String("user_id", userID),
+				zap.String("conversation_id", convID),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
+		}
 		return
 	}
 
@@ -173,25 +182,29 @@ func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 
 func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 	parentConvID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	companyID, exists := c.Get(sharedauth.CtxCompanyID)
-	if !exists {
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	newID, title, parentID, err := h.agentSvc.ContinueConversation(
 		c.Request.Context(),
-		userID.(string),
-		companyID.(string),
+		userID,
+		companyID,
 		parentConvID,
 	)
 	if err != nil {
-		h.logger.Error("failed to continue conversation", zap.Error(err), zap.String("parentConversationID", parentConvID))
+		h.logger.Error("failed to continue conversation",
+			zap.Error(err),
+			zap.String("user_id", userID),
+			zap.String("parent_conversation_id", parentConvID),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}

@@ -118,8 +118,33 @@ func NewWebSocketHandler(
 		luaScriptManager:     luaScriptManager,
 		rateLimitConfig:      rateLimitConfig,
 		websocketConfig:      websocketConfig,
-		logger:               logger,
 	}
+}
+
+func (s *WSSession) enforceCredits(planSvc interfaces.PlanService, action string) *models.ErrorResponse {
+	if action == ActionConnect || action == ActionCloseThread || action == ActionThreadEnd || action == ActionCloseConnection || s.companyID == "" {
+		return nil
+	}
+
+	checkCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+	err := planSvc.CheckCreditAvailable(checkCtx, s.companyID, "", 0)
+	cancel()
+
+	if err != nil {
+		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+			return &models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: "Payment required: Set up a billing account to continue using the service.",
+			}
+		}
+		return &models.ErrorResponse{
+			Action:  action,
+			Status:  StatusError,
+			Message: "Unable to verify credit balance. Please try again.",
+		}
+	}
+	return nil
 }
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
@@ -190,24 +215,8 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
 	}()
 
-	if action != ActionConnect && session.companyID != "" {
-		checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-		err := h.planService.CheckCreditAvailable(checkCtx, session.companyID, "", 0)
-		cancel()
-		if err != nil {
-			if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
-				return models.ErrorResponse{
-					Action:  action,
-					Status:  StatusError,
-					Message: "Payment required: insufficient credits.",
-				}
-			}
-			return models.ErrorResponse{
-				Action:  action,
-				Status:  StatusError,
-				Message: "Unable to verify credit balance. Please try again.",
-			}
-		}
+	if errResp := session.enforceCredits(h.planService, action); errResp != nil {
+		return *errResp
 	}
 
 	switch action {

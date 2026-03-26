@@ -49,7 +49,6 @@ func NewBillingOrchestrator(
 	}
 }
 
-
 func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID string, eventID string, billingCycleStart time.Time, amountMillicents int64) error {
 	amountCents := amountMillicents / millicentsPerCent
 	if amountCents <= 0 {
@@ -153,12 +152,10 @@ func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *bi
 
 	keys := billing.KeysFor(snapshot.CompanyID)
 
-	if _, err := s.valkeyClient.IncrBy(ctx, keys.Balance, amountMillicents); err != nil {
-		s.logger.Error("failed to increment credit balance", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
-		return fmt.Errorf("apply credit topup: increment balance: %w", err)
-	}
-	if err := s.valkeyClient.Delete(ctx, keys.Pending); err != nil {
-		s.logger.Warn("failed to delete pending key", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
+	if err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
+		_ = s.valkeyClient.Delete(ctx, appliedKey)
+		s.logger.Error("failed to apply credit topup", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
+		return fmt.Errorf("apply credit topup: %w", err)
 	}
 
 	s.planSvc.InvalidatePlanCache(ctx, snapshot.CompanyID)
@@ -176,7 +173,7 @@ func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, comp
 	eventData := map[string]interface{}{
 		fieldEventID:           uuid.NewString(),
 		fieldCompanyID:         companyID,
-		fieldMeter:             "credit_topup",
+		fieldMeter:             billing.MeterCreditTopup,
 		fieldAmount:            strconv.FormatInt(amountMillicents, 10),
 		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339Nano),
 		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),

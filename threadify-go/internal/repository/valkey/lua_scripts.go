@@ -148,6 +148,8 @@ func (m *LuaScriptManager) DecrementCreditWithAutoTopup(
 		params.BillingCycleStart.UTC().Format(time.RFC3339Nano),
 		params.OccurredAt.UTC().Format(time.RFC3339Nano),
 		boolToIntString(params.AllowTopup),
+		params.SeedBalance,
+		params.SeedCharged,
 	}
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)

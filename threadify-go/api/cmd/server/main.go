@@ -40,8 +40,7 @@ func main() {
 	}
 	defer appLogger.Sync() //nolint:errcheck
 
-	configPath := resolveConfigPath(appLogger)
-	cfg, err := config.Load(configPath)
+	cfg, err := loadConfig(appLogger)
 	if err != nil {
 		appLogger.Fatal("load config", zap.Error(err))
 	}
@@ -56,23 +55,28 @@ func main() {
 		appLogger.Fatal("init schema", zap.Error(err))
 	}
 
-	permissionsPath, rolesPath := resolveRBACPaths(appLogger)
+	permissionsPath, rolesPath, err := resolveRBACPaths(appLogger)
+	if err != nil {
+		appLogger.Fatal("resolve rbac paths", zap.Error(err))
+	}
 	rbacLoader, err := rbac.NewLoader(permissionsPath, rolesPath)
 	if err != nil {
 		appLogger.Fatal("load rbac", zap.Error(err))
 	}
 
-	svcs, err := initServices(cfg, db, appLogger)
+	repos := initRepositories(db)
+
+	svcs, err := initServices(cfg, db, repos, appLogger)
 	if err != nil {
 		appLogger.Fatal("init services", zap.Error(err))
 	}
 	defer svcs.close()
 
-	hdlrs := initHandlers(cfg, db, svcs, rbacLoader, appLogger)
+	hdlrs := initHandlers(cfg, svcs, repos, rbacLoader, appLogger)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.WebAPI.Port),
-		Handler:      buildRouter(cfg, db, svcs, rbacLoader, hdlrs, appLogger),
+		Handler:      buildRouter(cfg, svcs, repos, rbacLoader, hdlrs, appLogger),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -99,9 +103,35 @@ func main() {
 	appLogger.Info("shutdown complete")
 }
 
+type repositories struct {
+	user           *repository.UserRepository
+	company        *repository.CompanyRepository
+	userRole       *repository.UserRoleRepository
+	apiKey         *repository.APIKeyRepository
+	serviceAccount *repository.ServiceAccountRepository
+	plan           *repository.PlanRepository
+	outbox         *repository.OutboxRepository
+	agent          *repository.AgentRepository
+}
+
+func initRepositories(db *sql.DB) *repositories {
+	return &repositories{
+		user:           repository.NewUserRepository(db),
+		company:        repository.NewCompanyRepository(db),
+		userRole:       repository.NewUserRoleRepository(db),
+		apiKey:         repository.NewAPIKeyRepository(db),
+		serviceAccount: repository.NewServiceAccountRepository(db),
+		plan:           repository.NewPlanRepository(db),
+		outbox:         repository.NewOutboxRepository(db),
+		agent:          repository.NewAgentRepository(db),
+	}
+}
+
 type services struct {
 	natsClient      *nats.Client
 	authService     *service.AuthService
+	agentService    *service.AgentService
+	billingService  *billing.BillingService
 	invoiceProvider billing.BillingProvider
 	workerCancel    context.CancelFunc
 }
@@ -115,7 +145,7 @@ func (s *services) close() {
 	}
 }
 
-func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services, error) {
+func initServices(cfg *config.Config, db *sql.DB, repos *repositories, logger *zap.Logger) (*services, error) {
 	emailSvc, err := service.NewEmailService(
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
@@ -135,43 +165,59 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		return nil, errors.New("outbox_encryption_key is required in config.yaml (or set OUTBOX_ENCRYPTION_KEY env var)")
 	}
 
-	outboxRepo := repository.NewOutboxRepository(db)
-	userRepo := repository.NewUserRepository(db)
-	companyRepo := repository.NewCompanyRepository(db)
+	invoiceProvider, err := billing.InitializeProvider(cfg.Billing)
+	if err != nil {
+		return nil, fmt.Errorf("init billing provider: %w", err)
+	}
+
+	billingSvc := billing.NewBillingService(invoiceProvider, repos.plan, &cfg.Subscription, &cfg.Billing, logger)
 
 	var (
 		natsClient   *nats.Client
 		workerCancel context.CancelFunc
 	)
+
 	nc, natsErr := nats.NewClient(&cfg.NATS, logger)
 	if natsErr != nil {
-		logger.Warn("NATS unavailable — outbox worker disabled", zap.Error(natsErr))
-	} else {
-		if err := nc.InitializeOutboxStream(); err != nil {
-			logger.Error("failed to initialize NATS outbox stream — outbox worker disabled",
-				zap.Error(err))
-			nc.Close()
-		} else {
-			natsClient = nc
-
-			outboxWorker := worker.NewOutboxWorker(outboxRepo, userRepo, companyRepo, authClient, emailSvc, encryptionKey, logger)
-
-			workerCtx, cancel := context.WithCancel(context.Background())
-			workerCancel = cancel
-
-			go outboxWorker.Run(workerCtx, nc.JetStream())
-			go runPruner(workerCtx, outboxRepo, logger)
-
-			logger.Info("outbox worker started (in-process)")
-		}
+		logger.Fatal("NATS unavailable — outbox worker disabled", zap.Error(natsErr))
 	}
 
-	var outboxTrigger service.OutboxWorkerTrigger
-	if natsClient != nil {
-		outboxTrigger = service.NewNatsOutboxTrigger(natsClient.JetStream(), nats.SubjectOutboxTrigger, logger)
+	if err := nc.InitializeOutboxStream(); err != nil {
+		nc.Close()
+		return nil, fmt.Errorf("initialize NATS outbox stream: %w", err)
 	}
 
-	authSvc := service.NewAuthService(db, emailSvc, authClient, outboxRepo, outboxTrigger, encryptionKey, logger)
+	natsClient = nc
+
+	outboxWorker := worker.NewOutboxWorker(
+		repos.outbox,
+		repos.user,
+		repos.company,
+		authClient,
+		emailSvc,
+		encryptionKey,
+		logger,
+	)
+
+	workerCtx, cancel := context.WithCancel(context.Background())
+	workerCancel = cancel
+
+	go outboxWorker.Run(workerCtx, nc.JetStream())
+	go runPruner(workerCtx, repos.outbox, logger)
+
+	logger.Info("outbox worker started (in-process)")
+
+	outboxTrigger := service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
+
+	authSvc := service.NewAuthService(
+		db,
+		emailSvc,
+		authClient,
+		repos.outbox,
+		outboxTrigger,
+		encryptionKey,
+		logger,
+	)
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
@@ -180,14 +226,21 @@ func initServices(cfg *config.Config, db *sql.DB, logger *zap.Logger) (*services
 		logger.Warn("JWKS URL not configured — token verification disabled")
 	}
 
-	invoiceProvider, err := billing.InitializeProvider(cfg.Billing)
-	if err != nil {
-		return nil, fmt.Errorf("init billing provider: %w", err)
-	}
+	agentSvc := service.NewAgentService(
+		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+		cfg.WebAPI.OpenAIAPIKey,
+		repos.agent,
+		cfg.WebAPI.Agent.MaxMessages,
+		cfg.WebAPI.Agent.MaxTokens,
+		cfg.WebAPI.Agent.SummaryMaxTokens,
+		logger,
+	)
 
 	return &services{
 		natsClient:      natsClient,
 		authService:     authSvc,
+		agentService:    agentSvc,
+		billingService:  billingSvc,
 		invoiceProvider: invoiceProvider,
 		workerCancel:    workerCancel,
 	}, nil
@@ -206,46 +259,25 @@ type appHandlers struct {
 	billing        *handlers.BillingHandler
 }
 
-func initHandlers(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
-	userRepo := repository.NewUserRepository(db)
-	companyRepo := repository.NewCompanyRepository(db)
-	userRoleRepo := repository.NewUserRoleRepository(db)
-	apiKeyRepo := repository.NewAPIKeyRepository(db)
-	serviceAccountRepo := repository.NewServiceAccountRepository(db)
-	agentRepo := repository.NewAgentRepository(db)
-	planRepo := repository.NewPlanRepository(db)
-
-	apiKeySvc := service.NewAPIKeyService(apiKeyRepo, serviceAccountRepo, userRoleRepo, rbacLoader)
-	serviceAccountSvc := service.NewServiceAccountService(serviceAccountRepo, userRoleRepo)
-	billingSvc := billing.NewBillingService(svcs.invoiceProvider, planRepo, &cfg.Subscription, &cfg.Billing, logger)
-	agentSvc := service.NewAgentService(
-		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
-		cfg.WebAPI.OpenAIAPIKey,
-		agentRepo,
-		cfg.WebAPI.Agent.MaxMessages,
-		cfg.WebAPI.Agent.MaxTokens,
-		cfg.WebAPI.Agent.SummaryMaxTokens,
-		logger,
-	)
+func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
+	apiKeySvc := service.NewAPIKeyService(repos.apiKey, repos.serviceAccount, repos.userRole, rbacLoader)
+	serviceAccountSvc := service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
 
 	return &appHandlers{
 		auth:           handlers.NewAuthHandler(svcs.authService),
-		user:           handlers.NewUserHandler(userRepo, companyRepo, apiKeySvc),
+		user:           handlers.NewUserHandler(repos.user, repos.company, apiKeySvc),
 		apiKey:         handlers.NewAPIKeyHandler(apiKeySvc),
 		serviceAccount: handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
 		role:           handlers.NewRoleHandler(rbacLoader),
 		codeSamples:    handlers.NewCodeSamplesHandler("./code_samples"),
 		contractProxy:  handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
 		graphqlProxy:   handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
-		agent:          handlers.NewAgentHandler(agentSvc, logger),
-		billing: handlers.NewBillingHandler(
-			billingSvc,
-			logger,
-		),
+		agent:          handlers.NewAgentHandler(svcs.agentService, logger),
+		billing:        handlers.NewBillingHandler(svcs.billingService, logger),
 	}
 }
 
-func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rbac.Loader, h *appHandlers, logger *zap.Logger) http.Handler {
+func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, h *appHandlers, logger *zap.Logger) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
@@ -274,8 +306,9 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
 
-	userRoleRepo := repository.NewUserRoleRepository(db)
-	serviceAccountRepo := repository.NewServiceAccountRepository(db)
+	requirePerm := func(perm string) gin.HandlerFunc {
+		return rbac.RequirePermission(rbacLoader, repos.userRole, repos.serviceAccount, perm)
+	}
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthAccessTokenAuth(svcs.authService))
@@ -284,10 +317,6 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 	{
 		user.POST("/profile", h.user.UpdateProfile)
 		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
-	}
-
-	requirePerm := func(perm string) gin.HandlerFunc {
-		return rbac.RequirePermission(rbacLoader, userRoleRepo, serviceAccountRepo, perm)
 	}
 
 	api.POST("/api-keys", requirePerm("apikey.create"), h.apiKey.CreateAPIKey)
@@ -311,22 +340,25 @@ func buildRouter(cfg *config.Config, db *sql.DB, svcs *services, rbacLoader *rba
 		contracts.DELETE("/:id", h.contractProxy.DeleteContract)
 		contracts.GET("/:id/versions", h.contractProxy.GetAllContractVersions)
 		contracts.GET("/:id/versions/:version", h.contractProxy.GetContractVersion)
-		contracts.DELETE("/:id/versions/:version", h.contractProxy.DeleteContractVersion)
 	}
 
 	api.POST("/graphql", h.graphqlProxy.ProxyGraphQL)
 
-	api.POST("/chat/ask", h.agent.Chat)
-	api.GET("/chat/conversations", h.agent.GetConversations)
-	api.GET("/chat/conversations/:id", h.agent.GetConversation)
-	api.POST("/chat/conversations/:id/continue", h.agent.ContinueConversation)
-	api.DELETE("/chat/conversations/:id", h.agent.DeleteConversation)
-
-	billing := api.Group("/billing")
+	chat := api.Group("/chat")
+	chat.Use(middleware.AgentCreditCheckMiddleware(svcs.agentService))
 	{
-		billing.GET("/plan", h.billing.GetCurrentPlan)
-		billing.POST("/checkout", h.billing.CreateCheckoutSession)
-		billing.POST("/auto-topup/disable", h.billing.DisableAutoTopup)
+		chat.GET("/conversations", h.agent.GetConversations)
+		chat.GET("/conversations/:id", h.agent.GetConversation)
+		chat.DELETE("/conversations/:id", h.agent.DeleteConversation)
+		chat.POST("/ask", h.agent.Chat)
+		chat.POST("/conversations/:id/continue", h.agent.ContinueConversation)
+	}
+
+	billingGroup := api.Group("/billing")
+	{
+		billingGroup.GET("/plan", h.billing.GetCurrentPlan)
+		billingGroup.POST("/checkout", h.billing.CreateCheckoutSession)
+		billingGroup.POST("/auto-topup/disable", h.billing.DisableAutoTopup)
 	}
 
 	return r
@@ -357,30 +389,47 @@ func initDB(url string) (*sql.DB, error) {
 	return db, nil
 }
 
-func resolveConfigPath(logger *zap.Logger) string {
+func loadConfig(logger *zap.Logger) (*config.Config, error) {
+	path, err := resolveConfigPath(logger)
+	if err != nil {
+		return nil, err
+	}
+	return config.Load(path)
+}
+
+func resolveConfigPath(logger *zap.Logger) (string, error) {
 	if p := os.Getenv("CONFIG_PATH"); p != "" {
 		logger.Info("using config path from CONFIG_PATH env", zap.String("path", p))
-		return p
+		return p, nil
 	}
 	if _, err := os.Stat("/app/config/config.yaml"); err == nil {
 		logger.Info("using config path", zap.String("path", "/app/config/config.yaml"))
-		return "/app/config/config.yaml"
+		return "/app/config/config.yaml", nil
 	}
-	logger.Info("using config path (dev fallback)", zap.String("path", "../config/config.yaml"))
-	return "../config/config.yaml"
+
+	devPath := "../config/config.yaml"
+	if _, err := os.Stat(devPath); err == nil {
+		logger.Info("using config path (dev fallback)", zap.String("path", devPath))
+		return devPath, nil
+	}
+	return "", errors.New("config file not found: set CONFIG_PATH env var or provide /app/config/config.yaml")
 }
 
-func resolveRBACPaths(logger *zap.Logger) (string, string) {
-	if _, err := os.Stat("/app/shared/rbac/permissions.json"); err == nil {
-		logger.Info("using RBAC paths", zap.String("base", "/app/shared/rbac"))
-		return "/app/shared/rbac/permissions.json", "/app/shared/rbac/roles.json"
+func resolveRBACPaths(logger *zap.Logger) (string, string, error) {
+	candidates := []string{
+		"/app/shared/rbac",
+		"./shared/rbac",
+		"../shared/rbac",
 	}
-	if _, err := os.Stat("./shared/rbac/permissions.json"); err == nil {
-		logger.Info("using RBAC paths", zap.String("base", "./shared/rbac"))
-		return "./shared/rbac/permissions.json", "./shared/rbac/roles.json"
+	for _, base := range candidates {
+		perms := base + "/permissions.json"
+		roles := base + "/roles.json"
+		if _, err := os.Stat(perms); err == nil {
+			logger.Info("using RBAC paths", zap.String("base", base))
+			return perms, roles, nil
+		}
 	}
-	logger.Info("using RBAC paths (dev fallback)", zap.String("base", "../shared/rbac"))
-	return "../shared/rbac/permissions.json", "../shared/rbac/roles.json"
+	return "", "", errors.New("RBAC files not found in any known location; check deployment configuration")
 }
 
 func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *zap.Logger) {

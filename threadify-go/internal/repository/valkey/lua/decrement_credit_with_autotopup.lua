@@ -1,5 +1,6 @@
 -- decrement_credit_with_autotopup.lua
 -- Atomically decrements credit balance, requests top-up if needed, and appends outbox events.
+-- If balance/charged keys don't exist yet, seeds them from the provided initial values.
 --
 -- KEYS[1] = credit balance key
 -- KEYS[2] = credit monthly charged key
@@ -16,13 +17,14 @@
 -- ARGV[8]  = billing_cycle_start (RFC3339)
 -- ARGV[9]  = occurred_at (RFC3339)
 -- ARGV[10] = allow_topup ("1" = allowed, "0" = disabled)
+-- ARGV[11] = seed_balance (initial balance if keys missing)
+-- ARGV[12] = seed_charged (initial charged if keys missing)
 --
 -- Returns: { new_balance, allowed, spend_stream_id, topup_stream_id, topup_applied }
 --
 -- allowed:
 --   1  = debit accepted and applied
 --   0  = denied (insufficient credit)
---  -1  = balance or charged key missing (caller should seed and retry)
 --  -2  = invalid input
 --
 -- topup_applied:
@@ -44,16 +46,22 @@ local company_id         = ARGV[7]
 local billing_cycle_start = ARGV[8]
 local occurred_at        = ARGV[9]
 local allow_topup        = (ARGV[10] == '1')
+local seed_balance       = ARGV[11]
+local seed_charged       = ARGV[12]
  
 if not cost or not min_balance or not topup_amount or not max_monthly then
   return {0, -2, '', '', 0}
 end
+
+-- Atomic seed: if balance key doesn't exist, initialize from seed values.
+-- This eliminates the seed-then-retry race in the Go layer.
+if redis.call('EXISTS', balance_key) == 0 then
+  redis.call('SET', balance_key, seed_balance)
+  redis.call('SET', charged_key, seed_charged)
+end
  
 local raw_balance = redis.call('GET', balance_key)
 local raw_charged = redis.call('GET', charged_key)
-if not raw_balance or not raw_charged then
-  return {0, -1, '', '', 0}
-end
  
 local balance_num = tonumber(raw_balance)
 local charged_num = tonumber(raw_charged)

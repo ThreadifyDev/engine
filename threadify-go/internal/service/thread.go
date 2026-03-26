@@ -118,13 +118,35 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 
 	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
 	if err != nil {
-		if errors.Is(err, ErrNoAccount) {
-			return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "subscription expired"}
+		switch {
+		case errors.Is(err, ErrNoAccount):
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "No billing account found. Please set up a credit account in the dashboard.",
+			}
+		case errors.Is(err, ErrInsufficientCredit):
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "Insufficient credits. Please top up your account to continue.",
+			}
+		default:
+			s.logger.Error("failed to verify limits during connect", zap.Error(err), zap.String("company_id", userInfo.CompanyID))
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "Failed to verify credit account status. Please try again later.",
+			}
 		}
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to verify subscription"}
 	}
+
 	if meter == nil {
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "active subscription required"}
+		return &models.ConnectResponse{
+			Action:  ActionConnect,
+			Status:  StepStatusError,
+			Message: "Credit account details are currently unavailable. Please contact support.",
+		}
 	}
 
 	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
