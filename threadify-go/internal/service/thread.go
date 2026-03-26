@@ -116,7 +116,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
 	}
 
-	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
+	meter, err := s.planService.CheckBalancePositive(ctx, userInfo.CompanyID)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNoAccount):

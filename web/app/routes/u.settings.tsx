@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
-import { api, type User } from '~/lib/api';
+import { useNavigate, useSearchParams } from '@remix-run/react';
+import { api, type User, type CreditAccountDTO } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
+import { CreditCard, Zap, ShieldCheck } from 'lucide-react';
 
 export default function Settings() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'company'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing'>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [billingInfo, setBillingInfo] = useState<CreditAccountDTO | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState<number>(10);
+  const [customAmount, setCustomAmount] = useState<string>('');
+  const [maxMonthlyLimit, setMaxMonthlyLimit] = useState<string>('');
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
@@ -26,6 +32,12 @@ export default function Settings() {
   });
 
   useEffect(() => {
+    // Check for tab in query params
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile') {
+      setActiveTab(tabParam as any);
+    }
+
     // Check authentication
     const token = api.getStoredToken();
     if (!token) {
@@ -42,7 +54,55 @@ export default function Settings() {
       });
       // Company info would come from a separate API call
     }
+
+    loadBillingInfo();
   }, [navigate]);
+
+  const loadBillingInfo = async () => {
+    try {
+      const response = await api.getBillingInfo();
+      setBillingInfo(response.credit_account);
+      if (response.credit_account) {
+        // Pre-fill monthly limit if not already set by user
+        setMaxMonthlyLimit((response.credit_account.max_monthly_charge_millicents / 100000).toString());
+      }
+    } catch (err) {
+      console.error('Failed to load billing info:', err);
+    }
+  };
+
+  const handleTopUp = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const amount = customAmount ? parseFloat(customAmount) : topUpAmount;
+      const limit = parseFloat(maxMonthlyLimit);
+
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error('Please enter a valid top-up amount');
+      }
+      if (isNaN(limit) || limit <= 0) {
+        throw new Error('Please enter a valid monthly spending limit');
+      }
+      if (limit <= amount) {
+        throw new Error(`Monthly limit ($${limit}) must be greater than the top-up amount ($${amount})`);
+      }
+      
+      // Convert USD to millicents (1 USD = 100,000 millicents)
+      const amountMillicents = Math.round(amount * 100000);
+      const maxLimitMillicents = Math.round(limit * 100000);
+
+      const response = await api.createCheckoutSession(amountMillicents, maxLimitMillicents);
+      if (response.url) {
+        window.location.href = response.url;
+      } else {
+        throw new Error('No checkout URL returned from server');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to initiate checkout');
+      setLoading(false);
+    }
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,6 +158,16 @@ export default function Settings() {
             >
               Company
             </button>
+            <button
+              onClick={() => setActiveTab('billing')}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === 'billing'
+                  ? 'border-b-4 border-black -mb-0.5'
+                  : 'text-gray-600 hover:text-black'
+              }`}
+            >
+              Billing & Credits
+            </button>
           </div>
         </div>
 
@@ -111,7 +181,7 @@ export default function Settings() {
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
-          <form onSubmit={handleProfileUpdate} className="space-y-6">
+          <form key="profile-tab" onSubmit={handleProfileUpdate} className="space-y-6">
             <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
               <h3 className="text-xl font-bold mb-6">Personal Information</h3>
 
@@ -169,9 +239,168 @@ export default function Settings() {
           </form>
         )}
 
+        {/* Billing Tab */}
+        {activeTab === 'billing' && (
+          <div key="billing-tab" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Balance Card */}
+              <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-blue-50 rounded-lg">
+                    <CreditCard className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900">Credit Balance</h4>
+                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">
+                  ${((billingInfo?.balance_millicents || 0) / 100000).toFixed(2)}
+                </div>
+                <p className="text-sm text-gray-500 mb-6">Available for AI agent and system usage</p>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    {[10, 25, 50, 100].map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => {
+                          setTopUpAmount(amt);
+                          setCustomAmount('');
+                          // Automatically bump max limit if it's lower than or equal to the selected amount
+                          const currentLimit = parseFloat(maxMonthlyLimit);
+                          if (isNaN(currentLimit) || currentLimit <= amt) {
+                            // Set limit to amount + $5.00 margin
+                            setMaxMonthlyLimit((amt + 5).toString());
+                          }
+                        }}
+                        className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                          !customAmount && topUpAmount === amt
+                            ? 'bg-gray-900 text-white border-gray-900'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-gray-900'
+                        }`}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      type="number"
+                      placeholder="Custom amount"
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
+                      Monthly Spending Limit <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                      <input
+                        type="number"
+                        required
+                        value={maxMonthlyLimit}
+                        onChange={(e) => setMaxMonthlyLimit(e.target.value)}
+                        className="w-full pl-7 pr-3 py-2 border border-blue-200 rounded-lg text-sm bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-1 italic">
+                      Current maximum budget allowed per month
+                    </p>
+                  </div>
+
+                  <button 
+                    onClick={handleTopUp}
+                    disabled={loading}
+                    className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50"
+                  >
+                    {loading ? 'Initiating...' : `Top Up $${customAmount || topUpAmount}`}
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Card */}
+              <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-green-50 rounded-lg">
+                    <Zap className="w-5 h-5 text-green-600" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900">Monthly Usage</h4>
+                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">
+                  ${((billingInfo?.monthly_charged_millicents || 0) / 100000).toFixed(2)}
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+                  <span>Limit: ${((billingInfo?.max_monthly_charge_millicents || 0) / 100000).toFixed(2)}</span>
+                  <span>{Math.round(((billingInfo?.monthly_charged_millicents || 0) / (billingInfo?.max_monthly_charge_millicents || 1)) * 100)}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
+                  <div 
+                    className={`h-1.5 rounded-full ${
+                      (billingInfo?.monthly_charged_millicents || 0) >= (billingInfo?.max_monthly_charge_millicents || 0) 
+                        ? 'bg-red-500' 
+                        : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(100, ((billingInfo?.monthly_charged_millicents || 0) / (billingInfo?.max_monthly_charge_millicents || 1)) * 100)}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Safeguard Card */}
+              <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-purple-50 rounded-lg">
+                    <ShieldCheck className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <h4 className="font-semibold text-gray-900">Auto-Topup</h4>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${billingInfo?.auto_topup_millicents && billingInfo.auto_topup_millicents > 0 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {billingInfo?.auto_topup_millicents && billingInfo.auto_topup_millicents > 0 ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Automatically adds ${((billingInfo?.auto_topup_millicents || 0) / 100000).toFixed(2)} when balance drops below ${((billingInfo?.min_balance_millicents || 0) / 100000).toFixed(2)}.
+                </p>
+              </div>
+            </div>
+
+            {/* Detailed Info */}
+            <div className="border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+              <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <h4 className="font-semibold text-gray-900">Billing Details</h4>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-12 text-sm">
+                  <div className="flex justify-between py-2 border-b border-gray-50">
+                    <span className="text-gray-500">Billing Cycle Start</span>
+                    <span className="font-medium">{billingInfo?.billing_cycle_start ? new Date(billingInfo.billing_cycle_start).toLocaleDateString() : 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-50">
+                    <span className="text-gray-500">Account ID</span>
+                    <span className="font-mono text-xs">{billingInfo?.id || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-50">
+                    <span className="text-gray-500">Auto-Topup Threshold</span>
+                    <span className="font-medium">${((billingInfo?.min_balance_millicents || 0) / 100000).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-50">
+                    <span className="text-gray-500">Next Recharge Amount</span>
+                    <span className="font-medium">${((billingInfo?.auto_topup_millicents || 0) / 100000).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Company Tab */}
         {activeTab === 'company' && (
-          <form onSubmit={handleProfileUpdate} className="space-y-6">
+          <form key="company-tab" onSubmit={handleProfileUpdate} className="space-y-6">
             <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
               <h3 className="text-xl font-bold mb-6">Company Information</h3>
 

@@ -82,6 +82,23 @@ export interface ApiError {
   error: string;
 }
 
+export interface CreditAccountDTO {
+  id: string;
+  company_id: string;
+  billing_cycle_start: string;
+  balance_millicents: number;
+  min_balance_millicents: number;
+  max_monthly_charge_millicents: number;
+  auto_topup_millicents: number;
+  monthly_charged_millicents: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GetCurrentPlanResponse {
+  credit_account: CreditAccountDTO | null;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -137,7 +154,18 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const errorMessage = data.error || data.message || 'An error occurred';
+      let errorMessage = data.error || data.message || 'An error occurred';
+
+      // Cleanup internal billing error prefixes
+      if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
+        const jsonPart = errorMessage.split('payment required: insufficient credits: ')[1];
+        try {
+          const parsed = JSON.parse(jsonPart);
+          if (parsed.message) errorMessage = parsed.message;
+        } catch (e) {
+          // Keep original if parsing fails
+        }
+      }
 
       // Handle invalid token by logging out (only for authenticated requests)
       // Don't redirect on login failures (which also return 401)
@@ -453,6 +481,17 @@ class ApiClient {
 
   async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
     return this.request(`/code-samples?codeType=${codeType}`);
+  }
+
+  async getBillingInfo(): Promise<GetCurrentPlanResponse> {
+    return this.request('/billing/plan');
+  }
+
+  async createCheckoutSession(amountMillicents: number, maxMonthlyMillicents?: number): Promise<{ url: string }> {
+    return this.post('/billing/checkout', {
+      amount_millicents: amountMillicents,
+      max_monthly_millicents: maxMonthlyMillicents,
+    });
   }
 }
 

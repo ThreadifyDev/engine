@@ -46,7 +46,7 @@ func CreditUsageMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin
 			return
 		}
 
-		account, err := planSvc.GetCurrentLimits(c.Request.Context(), companyID)
+		account, err := planSvc.CheckBalancePositive(c.Request.Context(), companyID)
 		if err != nil {
 			switch {
 			case errors.Is(err, service.ErrNoAccount):
@@ -70,7 +70,7 @@ func CreditUsageMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin
 		}
 
 		if account == nil {
-			logger.Error("credit usage middleware: GetCurrentLimits returned nil account with no error",
+			logger.Error("credit usage middleware: CheckBalancePositive returned nil account with no error",
 				zap.String("company_id", companyID),
 			)
 			c.JSON(http.StatusInternalServerError, gin.H{

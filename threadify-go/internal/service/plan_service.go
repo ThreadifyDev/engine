@@ -227,6 +227,35 @@ func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*
 	return s.getCurrentAccount(ctx, companyID)
 }
 
+func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	account, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
+	if err != nil || !ok {
+		return account, nil
+	}
+
+	if balance > 0 || pending > 0 {
+		return account, nil
+	}
+
+	if account.IsTopupEnabled() && charged+account.CreditAutoTopupMillicents <= account.CreditMaxMonthlyChargeMillicents {
+		return account, nil
+	}
+
+	s.logger.Warn("credit check failed: balance reached 0 and monthly limit hit or topup disabled",
+		zap.String("company_id", companyID),
+		zap.Int64("balance", balance),
+		zap.Int64("charged", charged),
+		zap.Int64("max_monthly", account.CreditMaxMonthlyChargeMillicents),
+	)
+
+	return nil, ErrInsufficientCredit
+}
+
 func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error {
 	limit := account.PayloadLimitBytes
 	if limit > 0 && payloadBytes > limit {
@@ -260,13 +289,25 @@ func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 
 	cfg := s.subConfig.Credit
 	switch meter {
-	case MeterBandwidthIngress:
-		return amount * cfg.IngressCostMillicents
-	case MeterBandwidthEgress:
-		return amount * cfg.EgressCostMillicents
-	case MeterContractCreate:
-		return amount * cfg.ContractCostMillicents
-	case MeterContractVersionCreate:
+	case MeterBandwidthIngress, MeterBandwidthEgress:
+		// Bandwidth costs are defined "per MB" ($0.001 per MB = 100 millicents).
+		// We divide by 1024*1024 to convert bytes to MB.
+		// We use a floor of 1 millicent to ensure tiny packets are still metered if cost > 0.
+		costPerMB := cfg.IngressCostMillicents
+		if meter == MeterBandwidthEgress {
+			costPerMB = cfg.EgressCostMillicents
+		}
+		if costPerMB <= 0 {
+			return 0
+		}
+
+		millicents := (amount * costPerMB) / (1024 * 1024)
+		if millicents == 0 && amount > 0 {
+			return 1 // Minimum 1 millicent floor for any usage
+		}
+		return millicents
+
+	case MeterContractCreate, MeterContractVersionCreate:
 		return amount * cfg.ContractCostMillicents
 	case MeterSeatCreate:
 		return amount * cfg.SeatCostMillicents
