@@ -315,7 +315,7 @@ func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string,
 		if err := r.natsPublisher.PublishUsageSyncBatch(pubCtx, syncEvents); err != nil {
 			r.logger.Error("failed to publish usage sync batch to NATS", zap.Error(err))
 			for key, b := range window {
-				if b.meter != "credit_topup_request" {
+				if b.meter != MeterCreditTopupRequest {
 					failedKeys[key] = struct{}{}
 				}
 			}

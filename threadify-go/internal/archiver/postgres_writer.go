@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/threadify/engine/internal/database"
+	billing "threadify-go/shared/billing"
 	"go.uber.org/zap"
 )
 
@@ -706,9 +707,9 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 	for _, event := range events {
 		var query string
 		switch event.Meter {
-		case "credit_spend":
+		case billing.MeterCreditSpend:
 			query = creditUpdateQuery
-		case "credit_topup":
+		case billing.MeterCreditTopup:
 			query = creditTopupUpdateQuery
 		default:
 			w.logger.Warn("SyncUsageMeters: unrecognised meter, skipping",

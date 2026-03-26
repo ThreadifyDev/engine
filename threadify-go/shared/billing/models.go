@@ -17,6 +17,9 @@ const (
 	MeterContractVersion   = "contract_version"
 	MeterIngress           = "ingress"
 	MeterEgress            = "egress"
+	MeterCreditSpend       = "credit_spend"
+	MeterCreditTopup       = "credit_topup"
+	MeterCreditTopupRequest = "credit_topup_request"
 )
 
 type SnapshotReason string
