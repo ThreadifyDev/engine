@@ -127,7 +127,7 @@ func (s *WSSession) enforceCredits(planSvc interfaces.PlanService, action string
 	}
 
 	checkCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
-	err := planSvc.CheckCreditAvailable(checkCtx, s.companyID, "", 0)
+	_, err := planSvc.CheckBalancePositive(checkCtx, s.companyID)
 	cancel()
 
 	if err != nil {
@@ -236,7 +236,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			_, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
 			cancel()
 			if meterErr != nil {
-				h.logger.Warn("connect: failed to verify subscription after auth", zap.Error(meterErr))
+				h.logger.Error("connect: failed to verify credit account", zap.Error(meterErr))
 			}
 
 			if h.notificationRouter != nil {

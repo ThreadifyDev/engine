@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
+	"threadify-go/shared/billing"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/pkg/validator"
-	"threadify-go/shared/billing"
 )
 
 type MockContractRepository struct {
@@ -212,6 +213,14 @@ func (m *MockPlanService) CheckRateLimit(ctx context.Context, account *billing.C
 func (m *MockPlanService) CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error {
 	args := m.Called(ctx, companyID, meter, amount)
 	return args.Error(0)
+}
+
+func (m *MockPlanService) CheckBalancePositive(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	args := m.Called(ctx, companyID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*billing.CreditAccount), args.Error(1)
 }
 
 // MockContractValidator
