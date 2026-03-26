@@ -954,6 +954,7 @@ func (s *NotificationService) scheduleTransitionTimeouts(
 			DeadlineAt:   deadline,
 			ContractName: thread.ContractName,
 			Metadata: map[string]interface{}{
+				"owner_id":        thread.OwnerID,
 				"step_name":       req.StepName,
 				"idempotency_key": req.IdempotencyKey,
 			},

@@ -9,7 +9,7 @@
 -- ARGV[1]  = cost (millicents)
 -- ARGV[2]  = min_balance (millicents)
 -- ARGV[3]  = topup_amount (millicents)
--- ARGV[4]  = max_monthly (millicents; 0 = no cap)
+-- ARGV[4]  = max_monthly (millicents; 0 = disabled, no topup allowed)
 -- ARGV[5]  = spend_event_id
 -- ARGV[6]  = topup_event_id
 -- ARGV[7]  = company_id
@@ -74,7 +74,7 @@ local topup_stream_id = ''
 -- request from a prior cycle that was never fulfilled.
 if allow_topup then
   local needs_topup = (new_balance < 0) or (min_balance > 0 and new_balance < min_balance)
-  local under_monthly_cap = (max_monthly == 0) or ((charged_num + topup_amount) <= max_monthly)
+  local under_monthly_cap = (max_monthly > 0) and ((charged_num + topup_amount) <= max_monthly)
   local can_request = (topup_amount > 0) and (pending_num <= 0) and under_monthly_cap
  
   if needs_topup and can_request then

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
 
 	shderrors "threadify-go/shared/errors"
@@ -74,7 +73,7 @@ func NewThreadService(
 	stepEventService *StepEventService,
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
-	natsClient *nats.Client,
+	natsClient *natsrepo.Client,
 	natsPublisher NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
@@ -770,6 +769,7 @@ func (s *ThreadService) EndThread(
 	if s.notificationService != nil {
 		s.notificationService.submitNotificationJob(models.ValidationNotification{
 			ThreadID:         threadID,
+			StepName:         "global",
 			OwnerID:          actorID,
 			Timestamp:        recordedAt,
 			StepStatus:       status,

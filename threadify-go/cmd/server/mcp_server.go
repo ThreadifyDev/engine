@@ -4,16 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
+
+	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
 	mcp "github.com/metoro-io/mcp-golang"
 	mcptransport "github.com/metoro-io/mcp-golang/transport/http"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -30,10 +36,87 @@ func pullContextAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func estimateTokensFromBytes(totalBytes int, bytesPerToken int) int64 {
+	if totalBytes <= 0 || bytesPerToken <= 0 {
+		return 0
+	}
+	return int64((totalBytes + bytesPerToken - 1) / bytesPerToken)
+}
+
+func parseIntHeader(val string) (int64, bool) {
+	if val == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(val, 10, 64)
+	if err != nil || parsed <= 0 {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func extractTokenUsage(ctx context.Context) (int64, bool) {
+	if ginCtx, ok := ctx.Value("ginContext").(*gin.Context); ok && ginCtx != nil {
+		if total, ok := parseIntHeader(ginCtx.GetHeader("X-LLM-Total-Tokens")); ok {
+			return total, true
+		}
+		prompt, okPrompt := parseIntHeader(ginCtx.GetHeader("X-LLM-Prompt-Tokens"))
+		completion, okCompletion := parseIntHeader(ginCtx.GetHeader("X-LLM-Completion-Tokens"))
+		if okPrompt || okCompletion {
+			return prompt + completion, true
+		}
+	}
+	return 0, false
+}
+
+func extractCompanyID(ctx context.Context) string {
+	if ginCtx, ok := ctx.Value("ginContext").(*gin.Context); ok && ginCtx != nil {
+		if companyIDRaw, exists := ginCtx.Get(sharedauth.CtxCompanyID); exists {
+			if companyID, ok := companyIDRaw.(string); ok {
+				return companyID
+			}
+		}
+	}
+	return ""
+}
+
+func debitLLMUsage(ctx context.Context, cfg *config.Config, planSvc interfaces.PlanService, logger *zap.Logger, requestBytes, responseBytes int) error {
+	if planSvc == nil {
+		return nil
+	}
+	companyID := extractCompanyID(ctx)
+	if companyID == "" {
+		return nil
+	}
+
+	tokens, ok := extractTokenUsage(ctx)
+	if !ok {
+		tokens = estimateTokensFromBytes(requestBytes+responseBytes, cfg.Subscription.Credit.BytesPerToken)
+		logger.Debug("LLM usage tokens missing; falling back to byte estimate",
+			zap.String("company_id", companyID),
+			zap.Int("request_bytes", requestBytes),
+			zap.Int("response_bytes", responseBytes),
+			zap.Int64("estimated_tokens", tokens),
+		)
+	}
+	if tokens <= 0 {
+		return nil
+	}
+
+	if err := planSvc.DecrementLLMUsage(ctx, companyID, tokens); err != nil {
+		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+			return fmt.Errorf("payment required: insufficient credits")
+		}
+		logger.Warn("failed to debit LLM usage", zap.Error(err), zap.String("company_id", companyID), zap.Int64("tokens", tokens))
+		return fmt.Errorf("failed to debit LLM usage: %w", err)
+	}
+
+	return nil
+}
+
 // graphQLQuery executes a GraphQL query against the local engine endpoint and
 // returns the result as a JSON string wrapped in an MCP ToolResponse.
 // The X-API-Key is forwarded from the context so auth is preserved end-to-end.
-func graphQLQuery(ctx context.Context, apiPort int, query string, variables map[string]interface{}) (*mcp.ToolResponse, error) {
+func graphQLQuery(ctx context.Context, apiPort int, cfg *config.Config, planSvc interfaces.PlanService, logger *zap.Logger, query string, variables map[string]interface{}) (*mcp.ToolResponse, error) {
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"query":     query,
 		"variables": variables,
@@ -83,6 +166,10 @@ func graphQLQuery(ctx context.Context, apiPort int, query string, variables map[
 		return nil, fmt.Errorf("GraphQL error (status %d): %s", resp.StatusCode, string(body))
 	}
 
+	if err := debitLLMUsage(ctx, cfg, planSvc, logger, len(reqBody), len(body)); err != nil {
+		return nil, err
+	}
+
 	// Return the raw JSON as text content — LLMs read this fine
 	return mcp.NewToolResponse(mcp.NewTextContent(string(body))), nil
 }
@@ -93,7 +180,7 @@ func mustRegister(name string, err error, logger *zap.Logger) {
 	}
 }
 
-func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) {
+func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc interfaces.PlanService, logger *zap.Logger) {
 	mcpTransport := mcptransport.NewGinTransport()
 	mcpSrv := mcp.NewServer(
 		mcpTransport,
@@ -112,7 +199,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 		ID string `json:"id" jsonschema_description:"The UUID of the thread"`
 	}
 	mustRegister("get_thread", mcpSrv.RegisterTool("get_thread", "Get a thread by ID with its steps", func(ctx context.Context, args GetThreadArgs) (*mcp.ToolResponse, error) {
-		return graphQLQuery(ctx, port,
+		return graphQLQuery(ctx, port, cfg, planSvc, logger,
 			`query ($id: ID!) { thread(id: $id) { id contractId contractName status startedAt completedAt error steps { stepName status } } }`,
 			map[string]interface{}{"id": args.ID},
 		)
@@ -141,7 +228,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 		} else {
 			vars["limit"] = 50
 		}
-		return graphQLQuery(ctx, port,
+		return graphQLQuery(ctx, port, cfg, planSvc, logger,
 			`query ($contractName: String, $contractVersion: Int, $status: String, $limit: Int) {
 				threads(contractName: $contractName, contractVersion: $contractVersion, status: $status, limit: $limit) {
 					threads { id status contractName contractVersion startedAt completedAt }
@@ -161,7 +248,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 		if args.Version > 0 {
 			vars["version"] = args.Version
 		}
-		return graphQLQuery(ctx, port,
+		return graphQLQuery(ctx, port, cfg, planSvc, logger,
 			`query ($name: String!, $version: Int) {
 				contractGraph(name: $name, version: $version) {
 					parties
@@ -178,7 +265,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 		IDs []string `json:"ids" jsonschema_description:"List of actor UUIDs to resolve to names"`
 	}
 	mustRegister("resolve_actors", mcpSrv.RegisterTool("resolve_actors", "Resolve actor IDs to names and types", func(ctx context.Context, args ResolveActorsArgs) (*mcp.ToolResponse, error) {
-		return graphQLQuery(ctx, port,
+		return graphQLQuery(ctx, port, cfg, planSvc, logger,
 			`query ($ids: [String!]!) { resolveActors(ids: $ids) { id name type companyName } }`,
 			map[string]interface{}{"ids": args.IDs},
 		)
@@ -189,7 +276,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 		ThreadID string `json:"threadId" jsonschema_description:"Thread UUID to verify"`
 	}
 	mustRegister("verify_thread_integrity", mcpSrv.RegisterTool("verify_thread_integrity", "Verify thread integrity and detect tampering via hash chain validation", func(ctx context.Context, args VerifyThreadIntegrityArgs) (*mcp.ToolResponse, error) {
-		return graphQLQuery(ctx, port,
+		return graphQLQuery(ctx, port, cfg, planSvc, logger,
 			`query ($threadId: String!) { verifyThreadIntegrity(threadId: $threadId) { verified lastVerifiedAt totalEvents brokenAt error } }`,
 			map[string]interface{}{"threadId": args.ThreadID},
 		)
@@ -207,7 +294,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, logger *zap.Logger) 
 			if args.Variables == nil {
 				args.Variables = map[string]interface{}{}
 			}
-			return graphQLQuery(ctx, port, args.Query, args.Variables)
+			return graphQLQuery(ctx, port, cfg, planSvc, logger, args.Query, args.Variables)
 		},
 	), logger)
 

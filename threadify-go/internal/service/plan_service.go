@@ -15,11 +15,27 @@ import (
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 var ErrInsufficientCredit = fmt.Errorf("insufficient credit balance")
 
 var ErrNoAccount = fmt.Errorf("no active credit account")
+
+const (
+	defaultCacheTTLMs = 10_000 * time.Millisecond
+
+	minBalanceFraction           = 5
+	rateLimitWindowSeconds       = 1
+	debitDenied            int64 = 0
+	debitKeySeed           int64 = -1
+	debitTopupHit          int64 = 1
+
+	rolloverLockTTL = 15 * time.Minute
+
+	cacheTTLJitterFraction   = 5
+	cacheTTLJitterMultiplier = 2
+)
 
 type creditSeed struct {
 	BalanceMillicents          int64
@@ -75,6 +91,7 @@ type PlanService struct {
 	luaScripts   interfaces.LuaScriptManager
 	logger       *zap.Logger
 	cacheTTL     time.Duration
+	sfGroup      singleflight.Group
 }
 
 func NewPlanService(
@@ -87,7 +104,7 @@ func NewPlanService(
 	logger *zap.Logger,
 	cacheTTLMs int,
 ) *PlanService {
-	ttl := time.Duration(10000) * time.Millisecond
+	ttl := defaultCacheTTLMs
 	if cacheTTLMs > 0 {
 		ttl = time.Duration(cacheTTLMs) * time.Millisecond
 	}
@@ -126,7 +143,7 @@ func (s *PlanService) ProvisionSubscription(
 	}
 
 	creditCfg := &s.subConfig.Credit
-	minBalance := initialAmount / 5
+	minBalance := initialAmount / minBalanceFraction
 
 	seed := &creditSeed{
 		BalanceMillicents:          initialAmount,
@@ -182,20 +199,27 @@ func (s *PlanService) GetExternalCustomerID(ctx context.Context, companyID strin
 }
 
 func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
-	if cached := s.getCacheEntry(ctx, companyID); cached != nil {
-		return cached.Account, nil
-	}
+	v, err, _ := s.sfGroup.Do(companyID, func() (interface{}, error) {
+		if cached := s.getCacheEntry(ctx, companyID); cached != nil {
+			return cached.Account, nil
+		}
 
-	account, err := s.planRepo.GetCreditAccount(ctx, companyID)
+		account, err := s.planRepo.GetCreditAccount(ctx, companyID)
+		if err != nil {
+			return nil, fmt.Errorf("get credit account: %w", err)
+		}
+		if account == nil {
+			return nil, ErrNoAccount
+		}
+
+		s.setCacheEntry(ctx, companyID, &CachedPlan{Account: account})
+		return account, nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("get credit account: %w", err)
+		return nil, err
 	}
-	if account == nil {
-		return nil, ErrNoAccount
-	}
-
-	s.setCacheEntry(ctx, companyID, &CachedPlan{Account: account})
-	return account, nil
+	return v.(*billing.CreditAccount), nil
 }
 
 func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
@@ -216,7 +240,7 @@ func (s *PlanService) CheckRateLimit(ctx context.Context, account *billing.Credi
 		return true, nil
 	}
 
-	allowed, err := s.luaScripts.CheckCompanyRateLimit(ctx, account.CompanyID, int(tps), 1)
+	allowed, err := s.luaScripts.CheckCompanyRateLimit(ctx, account.CompanyID, int(tps), rateLimitWindowSeconds)
 	if err != nil {
 		s.logger.Error("rate limit script failure",
 			zap.Error(err),
@@ -245,6 +269,8 @@ func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 		return amount * cfg.ContractCostMillicents
 	case MeterSeatCreate:
 		return amount * cfg.SeatCostMillicents
+	case MeterLLMTokenUsage:
+		return amount * cfg.LLMTokenCostMillicents
 	default:
 		return 0
 	}
@@ -305,10 +331,10 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 		return fmt.Errorf("invoke debit: %w", err)
 	}
 
-	if result.Allowed == 0 {
+	if result.Allowed == debitDenied {
 		return ErrInsufficientCredit
 	}
-	if result.Allowed == -1 {
+	if result.Allowed == debitKeySeed {
 		if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
 			return fmt.Errorf("seed credit keys: %w", err)
 		}
@@ -316,15 +342,15 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 		if err != nil {
 			return fmt.Errorf("retry invoke debit: %w", err)
 		}
-		if result.Allowed == -1 {
+		if result.Allowed == debitKeySeed {
 			return fmt.Errorf("credit key missing after seed (company: %s)", companyID)
 		}
-		if result.Allowed == 0 {
+		if result.Allowed == debitDenied {
 			return ErrInsufficientCredit
 		}
 	}
 
-	if result.TopupApplied == 1 {
+	if result.TopupApplied == debitTopupHit {
 		s.logger.Info("auto-topup triggered and applied",
 			zap.String("company_id", companyID),
 			zap.String("event_id", result.TopupStreamID))
@@ -365,45 +391,97 @@ func (s *PlanService) writeUsageToOutbox(
 	}
 }
 
-func (s *PlanService) HasSufficientBalance(ctx context.Context, companyID string, meter string, amount int64) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
+func (s *PlanService) readCreditState(ctx context.Context, companyID string) (int64, int64, int64, bool, error) {
+	if s.valkeyClient == nil {
+		return 0, 0, 0, false, fmt.Errorf("valkey unavailable")
 	}
-	cost := s.calculateCost(meter, amount)
-
 	keys := billing.KeysFor(companyID)
 	vals, err := s.valkeyClient.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
 	if err != nil {
-		return err
+		return 0, 0, 0, false, err
 	}
 
-	balance, _ := strconv.ParseInt(vals[keys.Balance], 10, 64)
-	charged, _ := strconv.ParseInt(vals[keys.Charged], 10, 64)
-	pending, _ := strconv.ParseInt(vals[keys.Pending], 10, 64)
-
-	newBalance := balance - cost
-
-	if newBalance >= 0 {
-		return nil
+	balanceRaw, ok := vals[keys.Balance]
+	if !ok || balanceRaw == "" {
+		return 0, 0, 0, false, nil
+	}
+	chargedRaw, ok := vals[keys.Charged]
+	if !ok || chargedRaw == "" {
+		return 0, 0, 0, false, nil
 	}
 
-	if acc.CreditAutoTopupMillicents <= 0 || acc.CreditMaxMonthlyChargeMillicents <= 0 {
-		return fmt.Errorf("insufficient balance")
+	balance, err := strconv.ParseInt(balanceRaw, 10, 64)
+	if err != nil {
+		return 0, 0, 0, false, err
+	}
+	charged, err := strconv.ParseInt(chargedRaw, 10, 64)
+	if err != nil {
+		return 0, 0, 0, false, err
 	}
 
-	cushion := pending
-	if cushion <= 0 {
-		if (charged + acc.CreditAutoTopupMillicents) <= acc.CreditMaxMonthlyChargeMillicents {
-			cushion = acc.CreditAutoTopupMillicents
+	pending := int64(0)
+	if pendingRaw, ok := vals[keys.Pending]; ok && pendingRaw != "" {
+		if parsed, parseErr := strconv.ParseInt(pendingRaw, 10, 64); parseErr == nil {
+			pending = parsed
+		} else {
+			return 0, 0, 0, false, parseErr
 		}
 	}
 
-	if (newBalance + cushion) < 0 {
-		return fmt.Errorf("insufficient balance (monthly cap reached or cost too high)")
+	return balance, charged, pending, true, nil
+}
+
+func (s *PlanService) CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error {
+	account, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	cost := s.calculateCost(meter, amount)
+
+	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
+			return err
+		}
+		balance, charged, pending, ok, err = s.readCreditState(ctx, companyID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("credit keys missing for company %s", companyID)
+		}
+	}
+
+	if cost <= billing.CreditDisabled {
+		if balance > billing.CreditDisabled || pending > billing.CreditDisabled {
+			return nil
+		}
+		return ErrInsufficientCredit
+	}
+
+	newBalance := balance - cost
+	if newBalance >= billing.CreditDisabled {
+		return nil
+	}
+
+	if !account.IsTopupEnabled() {
+		return ErrInsufficientCredit
+	}
+
+	if pending > billing.CreditDisabled && newBalance+pending >= billing.CreditDisabled {
+		return nil
+	}
+
+	topup := account.CreditAutoTopupMillicents
+	if charged+topup <= account.CreditMaxMonthlyChargeMillicents && newBalance+topup >= billing.CreditDisabled {
+		return nil
+	}
+
+	return ErrInsufficientCredit
 }
 
 func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
@@ -411,7 +489,7 @@ func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, co
 	if err != nil {
 		return err
 	}
-	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	allowTopup := acc.IsTopupEnabled()
 	return s.chargeWithAccount(ctx, acc, MeterBandwidthIngress, count, allowTopup)
 }
 
@@ -420,7 +498,7 @@ func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, byt
 	if err != nil {
 		return err
 	}
-	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	allowTopup := acc.IsTopupEnabled()
 	return s.chargeWithAccount(ctx, acc, MeterBandwidthEgress, bytes, allowTopup)
 }
 
@@ -429,7 +507,7 @@ func (s *PlanService) ChargeContract(ctx context.Context, companyID string) erro
 	if err != nil {
 		return err
 	}
-	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	allowTopup := acc.IsTopupEnabled()
 	return s.chargeWithAccount(ctx, acc, MeterContractCreate, 1, allowTopup)
 }
 
@@ -438,14 +516,23 @@ func (s *PlanService) ChargeContractVersion(ctx context.Context, companyID strin
 	if err != nil {
 		return err
 	}
-	allowTopup := acc.CreditAutoTopupMillicents > 0 && acc.CreditMaxMonthlyChargeMillicents > 0
+	allowTopup := acc.IsTopupEnabled()
 	return s.chargeWithAccount(ctx, acc, MeterContractVersionCreate, 1, allowTopup)
+}
+
+func (s *PlanService) DecrementLLMUsage(ctx context.Context, companyID string, tokens int64) error {
+	acc, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return err
+	}
+	allowTopup := acc.IsTopupEnabled()
+	return s.chargeWithAccount(ctx, acc, MeterLLMTokenUsage, tokens, allowTopup)
 }
 
 func (s *PlanService) ProcessRollovers(ctx context.Context) error {
 	lockKey := database.CreditRolloverLockKey
 	lockValue := uuid.NewString()
-	lockTTL := 15 * time.Minute
+	lockTTL := rolloverLockTTL
 	if s.valkeyClient != nil {
 		acquired, err := s.valkeyClient.SetNX(ctx, lockKey, lockValue, lockTTL)
 		if err != nil {
@@ -568,8 +655,8 @@ func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, cp *C
 		return
 	}
 	ttl := s.cacheTTL
-	if jitterRange := int64(ttl / 5); jitterRange > 0 {
-		ttl += time.Duration(rand.Int63n(jitterRange*2)) - time.Duration(jitterRange)
+	if jitterRange := int64(ttl / cacheTTLJitterFraction); jitterRange > 0 {
+		ttl += time.Duration(rand.Int63n(jitterRange*cacheTTLJitterMultiplier)) - time.Duration(jitterRange)
 	}
 	_ = s.valkeyClient.Set(ctx, database.PlanCachePrefix+companyID, string(data), ttl)
 }

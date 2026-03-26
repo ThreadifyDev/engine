@@ -455,7 +455,7 @@ class ApiClient {
     return this.post('/chat/ask', { message, conversation_id: conversationId });
   }
 
-  async getChatConversations(): Promise<{ conversations: any[] }> {
+  async getChatConversations(): Promise<{ conversations: any[]; credits_available?: boolean }> {
     return this.request('/chat/conversations');
   }
 

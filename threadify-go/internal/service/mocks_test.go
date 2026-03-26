@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/threadify/engine/internal/interfaces"
@@ -32,6 +33,38 @@ func (m *MockContractRepository) Get(ctx context.Context, id string) (*models.Co
 	return args.Get(0).(*models.Contract), args.Error(1)
 }
 
+func (m *MockContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
+	args := m.Called(ctx, contractID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
+func (m *MockContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
+	args := m.Called(ctx, contractID, ownerID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
+func (m *MockContractRepository) GetByName(ctx context.Context, name string) (*models.Contract, error) {
+	args := m.Called(ctx, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
+func (m *MockContractRepository) GetByNameSlim(ctx context.Context, name string) (*models.Contract, error) {
+	args := m.Called(ctx, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
+}
+
 func (m *MockContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error) {
 	args := m.Called(ctx, name, companyID)
 	if args.Get(0) == nil {
@@ -48,9 +81,27 @@ func (m *MockContractRepository) GetVersion(ctx context.Context, contractID stri
 	return args.Get(0).(*models.ContractVersion), args.Error(1)
 }
 
+func (m *MockContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
+	args := m.Called(ctx, contractID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.ContractVersion), args.Error(1)
+}
+
 func (m *MockContractRepository) ListByCompany(ctx context.Context, companyID string) ([]*models.Contract, error) {
 	args := m.Called(ctx, companyID)
 	return args.Get(0).([]*models.Contract), args.Error(1)
+}
+
+func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
+	args := m.Called(ctx, ownerID)
+	return args.Get(0).([]*models.Contract), args.Error(1)
+}
+
+func (m *MockContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
+	args := m.Called(ctx, companyID)
+	return args.Int(0), args.Error(1)
 }
 
 func (m *MockContractRepository) ListVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
@@ -58,13 +109,26 @@ func (m *MockContractRepository) ListVersions(ctx context.Context, contractID st
 	return args.Get(0).([]*models.ContractVersion), args.Error(1)
 }
 
-func (m *MockContractRepository) Update(ctx context.Context, contract *models.Contract) error {
-	args := m.Called(ctx, contract)
-	return args.Error(0)
+func (m *MockContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
+	args := m.Called(ctx, contractID)
+	return args.Get(0).([]*models.ContractVersion), args.Error(1)
+}
+
+func (m *MockContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
+	args := m.Called(ctx, contractID, description, contentHash, latestVersion, updatedAt)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Contract), args.Error(1)
 }
 
 func (m *MockContractRepository) Delete(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockContractRepository) SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error {
+	args := m.Called(ctx, contractID, updatedAt)
 	return args.Error(0)
 }
 
@@ -73,14 +137,14 @@ func (m *MockContractRepository) DeleteVersion(ctx context.Context, contractID s
 	return args.Error(0)
 }
 
+func (m *MockContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error {
+	args := m.Called(ctx, contractID, version, updatedAt)
+	return args.Error(0)
+}
+
 // MockPlanService
 type MockPlanService struct {
 	mock.Mock
-}
-
-func (m *MockPlanService) CanAfford(ctx context.Context, companyID, meter string) (bool, error) {
-	args := m.Called(ctx, companyID, meter)
-	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockPlanService) ChargeContract(ctx context.Context, companyID string) error {
@@ -100,6 +164,11 @@ func (m *MockPlanService) DecrementEgress(ctx context.Context, companyID string,
 
 func (m *MockPlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
 	args := m.Called(ctx, companyID, count)
+	return args.Error(0)
+}
+
+func (m *MockPlanService) DecrementLLMUsage(ctx context.Context, companyID string, tokens int64) error {
+	args := m.Called(ctx, companyID, tokens)
 	return args.Error(0)
 }
 
@@ -138,6 +207,11 @@ func (m *MockPlanService) CheckPayloadSize(ctx context.Context, account *billing
 func (m *MockPlanService) CheckRateLimit(ctx context.Context, account *billing.CreditAccount) (bool, error) {
 	args := m.Called(ctx, account)
 	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockPlanService) CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error {
+	args := m.Called(ctx, companyID, meter, amount)
+	return args.Error(0)
 }
 
 // MockContractValidator

@@ -47,6 +47,7 @@ const (
 	MeterContractCreate        = "contract_create"
 	MeterContractVersionCreate = "contract_version_create"
 	MeterSeatCreate            = "seat_create"
+	MeterLLMTokenUsage         = "llm_token_usage"
 	MeterCreditSpend           = "credit_spend"
 	MeterCreditTopup           = "credit_topup"
 	MeterCreditTopupRequest    = "credit_topup_request"
