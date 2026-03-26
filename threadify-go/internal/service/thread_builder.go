@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
 
 	"github.com/threadify/engine/internal/config"
@@ -33,7 +32,7 @@ type ThreadServiceBuilder struct {
 	stepEventService      *StepEventService
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
-	natsClient            *nats.Client
+	natsClient            *natsrepo.Client
 	natsPublisher         NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
@@ -78,7 +77,7 @@ func (b *ThreadServiceBuilder) WithContractTTL(ttl int) *ThreadServiceBuilder {
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithNATSClient(client *nats.Client) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithNATSClient(client *natsrepo.Client) *ThreadServiceBuilder {
 	b.natsClient = client
 	return b
 }

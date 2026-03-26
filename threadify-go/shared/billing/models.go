@@ -9,6 +9,14 @@ const (
 	StatusActive              = "active"
 	StatusCancelled           = "cancelled"
 	StatusPendingCancellation = "pending_cancellation"
+
+	CreditDisabled int64 = 0
+
+	MeterLLMTokenUsage     = "llm_tokens"
+	MeterContractExecution = "contract_execution"
+	MeterContractVersion   = "contract_version"
+	MeterIngress           = "ingress"
+	MeterEgress            = "egress"
 )
 
 type SnapshotReason string
@@ -71,6 +79,10 @@ type CreditAccount struct {
 	UpdatedAt                        time.Time
 }
 
+func (a *CreditAccount) IsTopupEnabled() bool {
+	return a.CreditAutoTopupMillicents != CreditDisabled && a.CreditMaxMonthlyChargeMillicents != CreditDisabled
+}
+
 type PlanRepository interface {
 	GetCreditAccount(ctx context.Context, companyID string) (*CreditAccount, error)
 	CreateCreditAccount(ctx context.Context, account *CreditAccount) error
@@ -79,4 +91,20 @@ type PlanRepository interface {
 	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
 	DisableAutoTopup(ctx context.Context, companyID string) error
 	UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error
+}
+
+type PlanService interface {
+	ChargeContract(ctx context.Context, companyID string) error
+	ChargeContractVersion(ctx context.Context, companyID string) error
+	DecrementEgress(ctx context.Context, companyID string, bytes int64) error
+	DecrementIngress(ctx context.Context, companyID string, count int64) error
+	DecrementLLMUsage(ctx context.Context, companyID string, tokens int64) error
+	GetCurrentLimits(ctx context.Context, companyID string) (*CreditAccount, error)
+	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
+	ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount, maxMonthly int64) error
+	InvalidatePlanCache(ctx context.Context, companyID string)
+	ProcessRollovers(ctx context.Context) error
+	CheckPayloadSize(ctx context.Context, account *CreditAccount, payloadBytes int64) error
+	CheckRateLimit(ctx context.Context, account *CreditAccount) (bool, error)
+	CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error
 }

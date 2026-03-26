@@ -78,6 +78,13 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		}
 	}
 
+	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractCreate, 1); err != nil {
+		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
+			return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
+		}
+		return 500, map[string]string{"message": "Failed to verify credit balance"}
+	}
+
 	contract.Version = 1
 
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
@@ -102,10 +109,12 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:     now,
 	}
 
-	if s.planSvc != nil {
-		if err := s.planSvc.HasSufficientBalance(ctx, companyID, MeterContractCreate, 1); err != nil {
-			return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
+	if err := s.repo.Create(ctx, contractModel); err != nil {
+		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
+			return 400, map[string]string{"message": "Contract with this name already exists"}
 		}
+		s.logger.Error("failed to create contract", zap.Error(err))
+		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 
 	graphJSON, err := buildGraphJSON(contentOnlyJSON)
@@ -166,6 +175,13 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 			"message": fmt.Sprintf("contract version (%d) must be greater than the current latest version (%d)",
 				contract.Version, existingContract.LatestVersion),
 		}
+	}
+
+	if err := s.planSvc.CheckCreditAvailable(ctx, existingContract.CompanyID, MeterContractVersionCreate, 1); err != nil {
+		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
+			return 402, map[string]string{"message": "Payment Required: Insufficient credits to update contract"}
+		}
+		return 500, map[string]string{"message": "Failed to verify credit balance"}
 	}
 
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)

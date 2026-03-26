@@ -26,7 +26,18 @@ func (s *NotificationService) scheduleThreadMaxDurationTimeout(
 	}
 
 	// Check if contract has max_duration validation
-	if graph.Validation == nil || graph.Validation.MaxDuration == "" {
+	if graph.Validation == nil {
+		s.logger.Debug("contract graph has no validation section",
+			zap.String("thread_id", threadID),
+			zap.String("contract", thread.ContractName),
+		)
+		return
+	}
+	if graph.Validation.MaxDuration == "" {
+		s.logger.Debug("contract validation has no max_duration",
+			zap.String("thread_id", threadID),
+			zap.String("contract", thread.ContractName),
+		)
 		return
 	}
 

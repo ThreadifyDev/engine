@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"fmt"
+
 	"threadify-go/shared/config"
 
 	"go.uber.org/zap"
@@ -57,4 +58,11 @@ func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID st
 	}
 
 	return s.BillingProvider.CreateCheckoutSession(params)
+}
+
+func (s *BillingService) DisableAutoTopup(ctx context.Context, companyID string) error {
+	if err := s.PlanRepo.DisableAutoTopup(ctx, companyID); err != nil {
+		return fmt.Errorf("failed to disable auto-topup: %w", err)
+	}
+	return nil
 }

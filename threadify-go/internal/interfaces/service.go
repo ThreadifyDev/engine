@@ -69,20 +69,7 @@ type BackgroundService interface {
 	Stop() error
 }
 
-type PlanService interface {
-	ChargeContract(ctx context.Context, companyID string) error
-	ChargeContractVersion(ctx context.Context, companyID string) error
-	DecrementEgress(ctx context.Context, companyID string, bytes int64) error
-	DecrementIngress(ctx context.Context, companyID string, count int64) error
-	GetCurrentLimits(ctx context.Context, companyID string) (*billing.CreditAccount, error)
-	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
-	ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount, maxMonthly int64) error
-	InvalidatePlanCache(ctx context.Context, companyID string)
-	ProcessRollovers(ctx context.Context) error
-	CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error
-	CheckRateLimit(ctx context.Context, account *billing.CreditAccount) (bool, error)
-	HasSufficientBalance(ctx context.Context, companyID string, meter string, amount int64) error
-}
+type PlanService = billing.PlanService
 
 type ContractValidator interface {
 	Validate(yamlString string) (*validator.Contract, *validator.ValidationResult)

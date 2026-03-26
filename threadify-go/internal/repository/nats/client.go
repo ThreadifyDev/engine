@@ -27,7 +27,7 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 		return nil, fmt.Errorf("connect to message broker: %w", err)
 	}
 
-	js, err := nc.JetStream()
+	js, err := nc.JetStream(nats.PublishAsyncMaxPending(256))
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("initialize message broker: %w", err)

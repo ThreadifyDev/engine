@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/interfaces"
@@ -213,71 +214,44 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 	// so they experience the same delays. The cancellation flag check above
 	// is sufficient to prevent false positives.
 
-	// Check if thread is still active
-	// Type assert to get access to Get method
-	type threadGetter interface {
-		Get(ctx context.Context, threadID string) (*models.Thread, error)
+	// Build thread object from timeout event metadata
+	// All necessary information (owner_id, contract_name) is stored in the event
+	thread := &models.Thread{
+		ID:           event.ThreadID,
+		ContractName: event.ContractName,
+		OwnerID:      "",
 	}
-
-	getter, ok := tm.threadRepo.(threadGetter)
-	if !ok {
-		tm.logger.Warn("thread repository doesn't support Get method, skipping thread check",
-			zap.String("thread_id", event.ThreadID),
-		)
-		// Can't verify thread exists, proceed with violation
-		thread := &models.Thread{
-			ID:      event.ThreadID,
-			OwnerID: "", // Will need to be set from event metadata
-		}
-		if ownerID, ok := event.Metadata["owner_id"].(string); ok {
-			thread.OwnerID = ownerID
-		}
-		violation := tm.buildViolationNotification(event, thread)
-		if err := tm.notificationPub.PublishNotification(tm.ctx, violation); err != nil {
-			tm.logger.Error("failed to publish timeout violation",
-				zap.Error(err),
-				zap.String("timeout_id", event.ID),
-			)
-			return err
-		}
-		tm.violationCount.Add(1)
-		msg.Ack()
-		return nil
+	if ownerID, ok := event.Metadata["owner_id"].(string); ok {
+		thread.OwnerID = ownerID
 	}
-
-	thread, err := getter.Get(tm.ctx, event.ThreadID)
-	if err != nil {
-		tm.logger.Error("failed to get thread",
-			zap.Error(err),
-			zap.String("thread_id", event.ThreadID),
-		)
-		// Don't ack - will retry
-		return err
-	}
-
-	if thread == nil {
-		// Thread doesn't exist - skip violation
-		tm.logger.Debug("thread not found, skipping violation",
-			zap.String("timeout_id", event.ID),
-			zap.String("thread_id", event.ThreadID),
-		)
-		msg.Ack()
-		return nil
-	}
-
-	// Fire violation notification
-	tm.violationCount.Add(1)
 
 	violation := tm.buildViolationNotification(event, thread)
-	if err := tm.notificationPub.PublishNotification(tm.ctx, violation); err != nil {
+
+	// Use a timeout context for publishing to prevent indefinite hangs
+	publishCtx, cancel := context.WithTimeout(tm.ctx, 5*time.Second)
+	defer cancel()
+
+	tm.logger.Info("attempting to publish timeout violation",
+		zap.String("timeout_id", event.ID),
+		zap.String("thread_id", event.ThreadID),
+		zap.String("owner_id", thread.OwnerID),
+		zap.String("contract", event.ContractName),
+	)
+
+	if err := tm.notificationPub.PublishNotification(publishCtx, violation); err != nil {
 		tm.logger.Error("failed to publish timeout violation",
 			zap.Error(err),
 			zap.String("timeout_id", event.ID),
-			zap.String("thread_id", event.ThreadID),
+			zap.String("owner_id", thread.OwnerID),
 		)
-		// Don't ack - will retry
 		return err
 	}
+
+	tm.logger.Info("successfully published timeout violation",
+		zap.String("timeout_id", event.ID),
+		zap.String("owner_id", thread.OwnerID),
+	)
+	tm.violationCount.Add(1)
 
 	tm.logger.Info("timeout violation fired",
 		zap.String("timeout_id", event.ID),
@@ -293,7 +267,9 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 
 // isTimeoutCancelled checks if a timeout has been cancelled
 func (tm *TimeoutMonitor) isTimeoutCancelled(timeoutID string) (bool, error) {
-	key := fmt.Sprintf("cancelled:%s", timeoutID)
+	// NATS KV keys cannot contain colons, replace with underscores
+	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
+	key := fmt.Sprintf("cancelled_%s", sanitizedID)
 	_, err := tm.kv.Get(tm.ctx, key)
 
 	if err != nil {
@@ -363,7 +339,9 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 		return fmt.Errorf("marshal cancellation: %w", err)
 	}
 
-	key := fmt.Sprintf("cancelled:%s", timeoutID)
+	// NATS KV keys cannot contain colons, replace with underscores
+	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
+	key := fmt.Sprintf("cancelled_%s", sanitizedID)
 	_, err = tm.kv.Put(tm.ctx, key, data)
 	if err != nil {
 		return fmt.Errorf("write cancellation flag: %w", err)
@@ -382,29 +360,53 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 
 // buildViolationNotification creates a validation notification for a timeout violation
 func (tm *TimeoutMonitor) buildViolationNotification(event models.TimeoutEvent, thread *models.Thread) models.ValidationNotification {
-	expectedStepsDisplay := event.ToStep
-	if strings.Contains(event.ToStep, ",") {
-		expectedStepsDisplay = fmt.Sprintf("[%s]", event.ToStep)
+	var message string
+	var stepName string
+
+	switch event.Type {
+	case models.TimeoutTypeMaxDuration:
+		// For max_duration timeouts, use "global" as a placeholder step name
+		// since these are thread-level timeouts, not step-specific
+		message = fmt.Sprintf(
+			"Thread exceeded max_duration of %s",
+			event.Timeout,
+		)
+		stepName = "global"
+
+	case models.TimeoutTypeTransition:
+		// Transition timeout between steps
+		expectedStepsDisplay := event.ToStep
+		if strings.Contains(event.ToStep, ",") {
+			expectedStepsDisplay = fmt.Sprintf("[%s]", event.ToStep)
+		}
+		message = fmt.Sprintf(
+			"Transition timeout: Expected one of %s to start within %s after '%s' completed",
+			expectedStepsDisplay,
+			event.Timeout,
+			event.FromStep,
+		)
+		stepName = event.FromStep
+
+	default:
+		// Fallback for unknown timeout types
+		message = fmt.Sprintf("Timeout violation: %s", event.Type)
+		stepName = event.FromStep
 	}
 
-	message := fmt.Sprintf(
-		"Transition timeout: Expected one of %s to start within %s after '%s' completed",
-		expectedStepsDisplay,
-		event.Timeout,
-		event.FromStep,
-	)
-
 	return models.ValidationNotification{
+		NotificationID:   uuid.New().String(),
 		ThreadID:         event.ThreadID,
-		StepID:           "", // No specific step ID for transition timeouts
-		StepName:         event.FromStep,
+		StepID:           "", // No specific step ID for timeouts
+		StepName:         stepName,
 		OwnerID:          thread.OwnerID,
+		ContractName:     event.ContractName,
 		Status:           "violated",
 		Severity:         "critical",
 		ViolationType:    "timeout",
 		Message:          message,
+		Timestamp:        time.Now(),
 		Source:           models.NotificationSourceValidation,
-		NotificationType: "validation.violated",
+		NotificationType: "validation.violated.timeout",
 		Details: map[string]interface{}{
 			"timeout_id":     event.ID,
 			"timeout_type":   event.Type,
