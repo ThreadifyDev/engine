@@ -7,18 +7,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/billing"
 )
 
 const (
 	egressTimeout = 5 * time.Second
 )
 
-func CreditUsageMiddleware(planSvc *service.PlanService, valkeyClient interfaces.ValkeyClient, logger *zap.Logger) gin.HandlerFunc {
+func CreditUsageMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" {
@@ -46,28 +46,36 @@ func CreditUsageMiddleware(planSvc *service.PlanService, valkeyClient interfaces
 			return
 		}
 
-		account, err := planSvc.GetCurrentLimits(c.Request.Context(), companyID)
+		account, err := planSvc.CheckBalancePositive(c.Request.Context(), companyID)
 		if err != nil {
-			if errors.Is(err, service.ErrNoAccount) {
+			switch {
+			case errors.Is(err, service.ErrNoAccount):
+				c.JSON(http.StatusPaymentRequired, gin.H{
+					"error":   "NO_BILLING_ACCOUNT",
+					"message": "No billing account found. Please set up billing to continue.",
+				})
+			case errors.Is(err, service.ErrInsufficientCredit):
 				c.JSON(http.StatusPaymentRequired, gin.H{
 					"error":   "CREDIT_BALANCE_EXHAUSTED",
-					"message": err.Error(),
+					"message": "Credit balance exhausted. Please purchase credits to continue.",
 				})
-				c.Abort()
-				return
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":   "CREDIT_BALANCE_CHECK_FAILED",
+					"message": "Unable to verify credit balance. Please try again.",
+				})
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "CREDIT_BALANCE_CHECK_FAILED",
-				"message": "Unable to verify credit balance. Please try again.",
-			})
 			c.Abort()
 			return
 		}
 
 		if account == nil {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":   "CREDIT_BALANCE_REQUIRED",
-				"message": "Credit balance required. Please purchase credits to continue.",
+			logger.Error("credit usage middleware: CheckBalancePositive returned nil account with no error",
+				zap.String("company_id", companyID),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "CREDIT_BALANCE_CHECK_FAILED",
+				"message": "Unable to verify credit balance. Please try again.",
 			})
 			c.Abort()
 			return
@@ -103,31 +111,32 @@ func EgressMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.Hand
 			return
 		}
 
-		companyIDRaw, exists := c.Get(sharedauth.CtxCompanyID)
+		accountRaw, exists := c.Get(sharedauth.CtxCreditAccount)
 		if !exists {
-			logger.Warn("credit usage middleware: account not found in context in egress middleware")
+			logger.Warn("egress middleware: credit account not found in context, skipping egress decrement")
 			return
 		}
 
-		companyID, ok := companyIDRaw.(string)
-		if !ok || companyID == "" {
-			logger.Warn("credit usage middleware: account not found in context in egress middleware")
+		account, ok := accountRaw.(*billing.CreditAccount)
+		if !ok || account == nil {
+			logger.Warn("egress middleware: credit account in context has unexpected type, skipping egress decrement")
 			return
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), egressTimeout)
 		defer cancel()
 
-		if err := planSvc.DecrementEgress(ctx, companyID, size); err != nil {
+		if err := planSvc.DecrementEgress(ctx, account.CompanyID, size); err != nil {
 			if errors.Is(err, service.ErrInsufficientCredit) {
 				logger.Warn("egress middleware: insufficient credits",
-					zap.String("company_id", companyID),
+					zap.String("company_id", account.CompanyID),
 					zap.Int64("size", size),
 				)
 			} else {
 				logger.Error("egress middleware: egress decrement failed",
 					zap.Error(err),
-					zap.String("company_id", companyID),
+					zap.String("company_id", account.CompanyID),
+					zap.Int64("size", size),
 				)
 			}
 		}

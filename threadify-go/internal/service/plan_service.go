@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"threadify-go/shared/billing"
 	"threadify-go/shared/database"
+	serror "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
@@ -28,7 +30,6 @@ const (
 	minBalanceFraction           = 5
 	rateLimitWindowSeconds       = 1
 	debitDenied            int64 = 0
-	debitKeySeed           int64 = -1
 	debitTopupHit          int64 = 1
 
 	rolloverLockTTL = 15 * time.Minute
@@ -226,6 +227,35 @@ func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*
 	return s.getCurrentAccount(ctx, companyID)
 }
 
+func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+	account, err := s.getCurrentAccount(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+
+	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
+	if err != nil || !ok {
+		return account, nil
+	}
+
+	if balance > 0 || pending > 0 {
+		return account, nil
+	}
+
+	if account.IsTopupEnabled() && charged+account.CreditAutoTopupMillicents <= account.CreditMaxMonthlyChargeMillicents {
+		return account, nil
+	}
+
+	s.logger.Warn("credit check failed: balance reached 0 and monthly limit hit or topup disabled",
+		zap.String("company_id", companyID),
+		zap.Int64("balance", balance),
+		zap.Int64("charged", charged),
+		zap.Int64("max_monthly", account.CreditMaxMonthlyChargeMillicents),
+	)
+
+	return nil, ErrInsufficientCredit
+}
+
 func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error {
 	limit := account.PayloadLimitBytes
 	if limit > 0 && payloadBytes > limit {
@@ -259,13 +289,25 @@ func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 
 	cfg := s.subConfig.Credit
 	switch meter {
-	case MeterBandwidthIngress:
-		return amount * cfg.IngressCostMillicents
-	case MeterBandwidthEgress:
-		return amount * cfg.EgressCostMillicents
-	case MeterContractCreate:
-		return amount * cfg.ContractCostMillicents
-	case MeterContractVersionCreate:
+	case MeterBandwidthIngress, MeterBandwidthEgress:
+		// Bandwidth costs are defined "per MB" ($0.001 per MB = 100 millicents).
+		// We divide by 1024*1024 to convert bytes to MB.
+		// We use a floor of 1 millicent to ensure tiny packets are still metered if cost > 0.
+		costPerMB := cfg.IngressCostMillicents
+		if meter == MeterBandwidthEgress {
+			costPerMB = cfg.EgressCostMillicents
+		}
+		if costPerMB <= 0 {
+			return 0
+		}
+
+		millicents := (amount * costPerMB) / (1024 * 1024)
+		if millicents == 0 && amount > 0 {
+			return 1 // Minimum 1 millicent floor for any usage
+		}
+		return millicents
+
+	case MeterContractCreate, MeterContractVersionCreate:
 		return amount * cfg.ContractCostMillicents
 	case MeterSeatCreate:
 		return amount * cfg.SeatCostMillicents
@@ -324,6 +366,8 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 		CompanyID:         companyID,
 		BillingCycleStart: account.BillingCycleStart,
 		OccurredAt:        now,
+		SeedBalance:       account.CreditBalanceMillicents,
+		SeedCharged:       account.CreditMonthlyChargedMillicents,
 	}
 
 	result, err := s.invokeDebit(ctx, params)
@@ -333,21 +377,6 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 
 	if result.Allowed == debitDenied {
 		return ErrInsufficientCredit
-	}
-	if result.Allowed == debitKeySeed {
-		if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
-			return fmt.Errorf("seed credit keys: %w", err)
-		}
-		result, err = s.invokeDebit(ctx, params)
-		if err != nil {
-			return fmt.Errorf("retry invoke debit: %w", err)
-		}
-		if result.Allowed == debitKeySeed {
-			return fmt.Errorf("credit key missing after seed (company: %s)", companyID)
-		}
-		if result.Allowed == debitDenied {
-			return ErrInsufficientCredit
-		}
 	}
 
 	if result.TopupApplied == debitTopupHit {
@@ -392,9 +421,6 @@ func (s *PlanService) writeUsageToOutbox(
 }
 
 func (s *PlanService) readCreditState(ctx context.Context, companyID string) (int64, int64, int64, bool, error) {
-	if s.valkeyClient == nil {
-		return 0, 0, 0, false, fmt.Errorf("valkey unavailable")
-	}
 	keys := billing.KeysFor(companyID)
 	vals, err := s.valkeyClient.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
 	if err != nil {
@@ -441,19 +467,15 @@ func (s *PlanService) CheckCreditAvailable(ctx context.Context, companyID, meter
 
 	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
 	if err != nil {
-		return err
+		s.logger.Warn("failed to read credit state from valkey, falling back to DB values",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 	}
 	if !ok {
-		if err := s.seedCreditKeys(ctx, companyID, account); err != nil {
-			return err
-		}
-		balance, charged, pending, ok, err = s.readCreditState(ctx, companyID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("credit keys missing for company %s", companyID)
-		}
+		balance = account.CreditBalanceMillicents
+		charged = account.CreditMonthlyChargedMillicents
+		pending = 0
 	}
 
 	if cost <= billing.CreditDisabled {
@@ -536,8 +558,10 @@ func (s *PlanService) ProcessRollovers(ctx context.Context) error {
 	if s.valkeyClient != nil {
 		acquired, err := s.valkeyClient.SetNX(ctx, lockKey, lockValue, lockTTL)
 		if err != nil {
-			s.logger.Warn("failed to acquire rollover lock (continuing without lock)", zap.Error(err))
-		} else if !acquired {
+			s.logger.Warn("failed to acquire rollover lock; aborting rollover to be safe", zap.Error(err))
+			return fmt.Errorf("rollover lock unavailable: %w", err)
+		}
+		if !acquired {
 			s.logger.Info("rollover already in progress; skipping")
 			return nil
 		}
@@ -621,6 +645,12 @@ func (s *PlanService) ProcessRollovers(ctx context.Context) error {
 		}
 
 		if err := s.planRepo.CreateCreditAccount(ctx, newAccount); err != nil {
+			if errors.Is(err, serror.ErrDuplicateCreditAccount) {
+				s.logger.Info("rollover already applied by another instance, skipping",
+					zap.String("company_id", companyID),
+				)
+				continue
+			}
 			s.logger.Error("failed to renew credit account in repo", zap.String("company_id", companyID), zap.Error(err))
 			continue
 		}

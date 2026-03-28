@@ -98,6 +98,8 @@ type ValkeyClient interface {
 	XAdd(ctx context.Context, stream string, id string, values interface{}) (string, error)
 	// Retry operations with exponential backoff
 	ExecuteWithBackoff(ctx context.Context, operation func() error) error
+	// Credit operations
+	ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) error
 }
 
 // ValkeyPipeline defines the interface for Redis pipeline operations
@@ -233,6 +235,8 @@ type DebitParams struct {
 	CompanyID         string
 	BillingCycleStart time.Time
 	OccurredAt        time.Time
+	SeedBalance       int64
+	SeedCharged       int64
 }
 
 type DebitResult struct {

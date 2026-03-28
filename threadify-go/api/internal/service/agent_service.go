@@ -306,14 +306,7 @@ func (s *AgentService) ChatStream(
 	skill string,
 	onEvent StreamHandler,
 ) error {
-	available, err := s.CheckCredits(ctx, authHeader)
-	if err != nil {
-		return fmt.Errorf("credit check failed: %w", err)
-	}
-	if !available {
-		return fmt.Errorf("insufficient credits: please top up your account to continue using the AI agent")
-	}
-
+	var err error
 	if conversationID != "" {
 		if err := s.ensureConversationOwnership(userID, conversationID); err != nil {
 			return err
@@ -339,7 +332,7 @@ func (s *AgentService) ChatStream(
 		if len(title) > 30 {
 			title = title[:30] + "..."
 		}
-		err := s.agentRepo.CreateConversation(&models.AgentConversation{
+		err = s.agentRepo.CreateConversation(&models.AgentConversation{
 			ID:        convID,
 			UserID:    userID,
 			CompanyID: companyID,
@@ -561,6 +554,9 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 	if err != nil {
 		return "", err
 	}
+	if resp.StatusCode == http.StatusPaymentRequired || resp.StatusCode == http.StatusForbidden {
+		return "", fmt.Errorf("%w: %s", ErrPaymentRequired, string(respBody))
+	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		return "", fmt.Errorf("GraphQL error (status %d): %s", resp.StatusCode, string(respBody))
 	}
@@ -733,7 +729,7 @@ func (s *AgentService) ensureConversationOwnership(userID, convID string) error 
 			return nil
 		}
 	}
-	return errors.New("unauthorized conversation access")
+	return ErrForbidden
 }
 
 func (s *AgentService) saveToolMessages(convID, toolCallID, name, args, output string) {

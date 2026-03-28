@@ -1,10 +1,6 @@
 package graphql
 
 import (
-	"context"
-	"errors"
-	"fmt"
-
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -66,15 +62,15 @@ func NewResolver(
 	}
 }
 
-func (r *Resolver) requireCredit(ctx context.Context, companyID string) error {
-	if r.planService == nil {
-		return fmt.Errorf("billing unavailable")
-	}
-	if err := r.planService.CheckCreditAvailable(ctx, companyID, "", 0); err != nil {
-		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
-			return fmt.Errorf("payment required: insufficient credits")
-		}
-		return fmt.Errorf("failed to verify credit balance: %w", err)
-	}
-	return nil
-}
+// func (r *Resolver) requireCredit(ctx context.Context, companyID string) error {
+// 	if r.planService == nil {
+// 		return fmt.Errorf("billing unavailable")
+// 	}
+// 	if err := r.planService.CheckCreditAvailable(ctx, companyID, "", 0); err != nil {
+// 		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+// 			return fmt.Errorf("payment required: insufficient credits")
+// 		}
+// 		return fmt.Errorf("failed to verify credit balance: %w", err)
+// 	}
+// 	return nil
+// }

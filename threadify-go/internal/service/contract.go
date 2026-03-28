@@ -54,6 +54,16 @@ func (s *ContractService) CountContractsByCompany(ctx context.Context, companyID
 	return s.repo.CountByCompany(ctx, companyID)
 }
 
+func (s *ContractService) enforceCredits(ctx context.Context, companyID string) (int, interface{}) {
+	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractCreate, 1); err != nil {
+		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
+			return 402, map[string]string{"message": err.Error()}
+		}
+		return 500, map[string]string{"message": "Failed to verify credit balance"}
+	}
+	return 0, nil
+}
+
 // PreviewContract validates YAML and builds a contract graph without persisting.
 func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
 	contract, validationResult := s.validator.Validate(yamlString)
@@ -78,11 +88,8 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		}
 	}
 
-	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractCreate, 1); err != nil {
-		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
-			return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
-		}
-		return 500, map[string]string{"message": "Failed to verify credit balance"}
+	if status, resp := s.enforceCredits(ctx, companyID); status != 0 {
+		return status, resp
 	}
 
 	contract.Version = 1
@@ -147,7 +154,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 
 	if err := s.planSvc.ChargeContract(ctx, companyID); err != nil {
 		s.logger.Error("charge contract failed", zap.String("company_id", companyID), zap.Error(err))
-		return 402, map[string]string{"message": "Payment Required: Insufficient credits to create contract"}
+		return 402, map[string]string{"message": err.Error()}
 	}
 
 	return 200, ContractResponse{
@@ -177,11 +184,8 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		}
 	}
 
-	if err := s.planSvc.CheckCreditAvailable(ctx, existingContract.CompanyID, MeterContractVersionCreate, 1); err != nil {
-		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
-			return 402, map[string]string{"message": "Payment Required: Insufficient credits to update contract"}
-		}
-		return 500, map[string]string{"message": "Failed to verify credit balance"}
+	if status, resp := s.enforceCredits(ctx, existingContract.CompanyID); status != 0 {
+		return status, resp
 	}
 
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
@@ -224,7 +228,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 
 	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
 		s.logger.Error("charge contract version failed", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
-		return 402, map[string]string{"message": "Payment Required: Insufficient credits to update contract"}
+		return 402, map[string]string{"message": err.Error()}
 	}
 
 	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {

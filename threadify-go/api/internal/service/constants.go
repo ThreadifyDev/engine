@@ -16,6 +16,8 @@ var (
 	ErrInvalidToken                 = serror.ErrInvalidToken
 	ErrRateLimit                    = serror.ErrRateLimit
 	ErrInternalServerError          = serror.ErrInternalServerError
+	ErrNotFound                     = serror.ErrNotFound
+	ErrForbidden                    = serror.ErrForbidden
 
 	// API Key errors
 	ErrApiKeyNameRequired        = serror.ErrApiKeyNameRequired
@@ -33,6 +35,7 @@ var (
 	ErrServiceAccountNameRequired = serror.ErrServiceAccountNameRequired
 	ErrInvalidRoleAPI             = serror.ErrInvalidRoleAPI
 	ErrUserNotFound               = serror.ErrUserNotFound
+	ErrPaymentRequired            = serror.ErrPaymentRequired
 )
 
 // HTTP Header constants.

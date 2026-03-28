@@ -69,7 +69,7 @@ func TestContractService_CreateContract(t *testing.T) {
 		status, resp := svc.CreateContract(ctx, "owner-1", companyID, "owner-1", yaml)
 
 		assert.Equal(t, 402, status)
-		assert.Contains(t, resp.(map[string]string)["message"], "Insufficient credits")
+		assert.Contains(t, resp.(map[string]string)["message"], "insufficient credit balance")
 		mockPlanSvc.AssertExpectations(t)
 		mockRepo.AssertNotCalled(t, "Create", ctx, mock.Anything)
 		mockRepo.AssertNotCalled(t, "CreateVersion", ctx, mock.Anything)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"threadify-go/api/internal/service"
@@ -37,7 +38,15 @@ const (
 	connectionKeepAlive    = "keep-alive"
 )
 
-// Chat handles natural language queries related to thread analysis and contract building
+func ctxString(c *gin.Context, key string) (string, bool) {
+	raw, exists := c.Get(key)
+	if !exists {
+		return "", false
+	}
+	val, ok := raw.(string)
+	return val, ok && val != ""
+}
+
 func (h *AgentHandler) Chat(c *gin.Context) {
 	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
@@ -45,13 +54,13 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-	companyID, exists := c.Get(sharedauth.CtxCompanyID)
-	if !exists {
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -74,8 +83,8 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	err := h.agentSvc.ChatStream(
 		c.Request.Context(),
 		authHeader,
-		userID.(string),
-		companyID.(string),
+		userID,
+		companyID,
 		chatReq.ConversationID,
 		chatReq.Message,
 		chatReq.Skill,
@@ -90,76 +99,111 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 
 // GetConversations lists recent conversations for a user
 func (h *AgentHandler) GetConversations(c *gin.Context) {
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	available, err := h.agentSvc.CheckCredits(c.Request.Context(), c.GetHeader(service.HeaderAuthorization))
+	convs, err := h.agentSvc.GetConversations(userID)
 	if err != nil {
-		h.logger.Warn("failed to check credits for conversation list", zap.Error(err))
-		available = true
-	}
-
-	if !available {
-		c.JSON(http.StatusOK, gin.H{
-			"conversations":     []interface{}{},
-			"credits_available": false,
-		})
-		return
-	}
-
-	convs, err := h.agentSvc.GetConversations(userID.(string))
-	if err != nil {
-		h.logger.Error("failed to load conversations", zap.Error(err), zap.String("userID", userID.(string)))
+		h.logger.Error("failed to load conversations",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"conversations":     convs,
-		"credits_available": available,
+		"conversations": convs,
 	})
 }
 
 // GetConversation retrieves a specific conversation with its messages
 func (h *AgentHandler) GetConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	msgs, err := h.agentSvc.GetMessagesForUser(userID.(string), convID)
+	msgs, err := h.agentSvc.GetMessagesForUser(userID, convID)
 	if err != nil {
-		h.logger.Warn("failed to load messages", zap.Error(err), zap.String("conversationID", convID))
-		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
+		switch {
+		case errors.Is(err, service.ErrNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		case errors.Is(err, service.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
+		default:
+			h.logger.Error("failed to load messages",
+				zap.Error(err),
+				zap.String("user_id", userID),
+				zap.String("conversation_id", convID),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load messages"})
+		}
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"messages": msgs})
 }
 
-// ContinueConversation creates a new conversation with context from a parent conversation
-func (h *AgentHandler) ContinueConversation(c *gin.Context) {
-	parentConvID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	companyID, exists := c.Get(sharedauth.CtxCompanyID)
-	if !exists {
+func (h *AgentHandler) DeleteConversation(c *gin.Context) {
+	convID := c.Param("id")
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	newConvID, title, summary, err := h.agentSvc.ContinueConversation(c.Request.Context(), userID.(string), companyID.(string), parentConvID)
+	if err := h.agentSvc.DeleteConversation(convID, userID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		case errors.Is(err, service.ErrForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to delete this conversation"})
+		default:
+			h.logger.Error("failed to delete conversation",
+				zap.Error(err),
+				zap.String("user_id", userID),
+				zap.String("conversation_id", convID),
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Conversation deleted successfully"})
+}
+
+func (h *AgentHandler) ContinueConversation(c *gin.Context) {
+	parentConvID := c.Param("id")
+	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	newConvID, title, summary, err := h.agentSvc.ContinueConversation(
+		c.Request.Context(),
+		userID,
+		companyID,
+		parentConvID,
+	)
 	if err != nil {
-		h.logger.Error("failed to continue conversation", zap.Error(err), zap.String("parentConvID", parentConvID))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to continue conversation"})
+		h.logger.Error("failed to continue conversation",
+			zap.Error(err),
+			zap.String("user_id", userID),
+			zap.String("parent_conversation_id", parentConvID),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}
 
@@ -168,23 +212,4 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 		"title":           title,
 		"summary":         summary,
 	})
-}
-
-// DeleteConversation deletes a conversation
-func (h *AgentHandler) DeleteConversation(c *gin.Context) {
-	convID := c.Param("id")
-	userID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	err := h.agentSvc.DeleteConversation(convID, userID.(string))
-	if err != nil {
-		h.logger.Error("failed to delete conversation", zap.Error(err), zap.String("convID", convID))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }
