@@ -1,6 +1,8 @@
 package service
 
 import (
+	billing "threadify-go/shared/billing"
+
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -48,9 +50,12 @@ const (
 	MeterContractVersionCreate = "contract_version_create"
 	MeterSeatCreate            = "seat_create"
 	MeterLLMTokenUsage         = "llm_token_usage"
-	MeterCreditSpend           = "credit_spend"
-	MeterCreditTopup           = "credit_topup"
-	MeterCreditTopupRequest    = "credit_topup_request"
+)
+
+var (
+	MeterCreditSpend        = billing.MeterCreditSpend
+	MeterCreditTopup        = billing.MeterCreditTopup
+	MeterCreditTopupRequest = billing.MeterCreditTopupRequest
 )
 
 const (

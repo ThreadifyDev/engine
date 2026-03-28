@@ -83,6 +83,23 @@ export interface ApiError {
   error: string;
 }
 
+export interface CreditAccountDTO {
+  id: string;
+  company_id: string;
+  billing_cycle_start: string;
+  balance_millicents: number;
+  min_balance_millicents: number;
+  max_monthly_charge_millicents: number;
+  auto_topup_millicents: number;
+  monthly_charged_millicents: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GetCurrentPlanResponse {
+  credit_account: CreditAccountDTO | null;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -138,7 +155,18 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const errorMessage = data.error || data.message || 'An error occurred';
+      let errorMessage = data.error || data.message || 'An error occurred';
+
+      // Cleanup internal billing error prefixes
+      if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
+        const jsonPart = errorMessage.split('payment required: insufficient credits: ')[1];
+        try {
+          const parsed = JSON.parse(jsonPart);
+          if (parsed.message) errorMessage = parsed.message;
+        } catch (e) {
+          // Keep original if parsing fails
+        }
+      }
 
       // Handle invalid token by logging out (only for authenticated requests)
       // Don't redirect on login failures (which also return 401)
@@ -475,133 +503,14 @@ class ApiClient {
     return this.request(`/code-samples?codeType=${codeType}`);
   }
 
-  async createBillingCheckout(tier: string, billingCycle: string): Promise<{ checkout_url: string }> {
-    return this.request('/billing/checkout', {
-      method: 'POST',
-      body: JSON.stringify({
-        tier,
-        billing_cycle: billingCycle,
-      }),
-    });
-  }
-
-  async getCurrentPlan(): Promise<{
-    plan: {
-      id: string;
-      company_id: string;
-      subscription_tier: string;
-      billing_cycle: string;
-      status: string;
-      billing_start: string;
-      billing_end: string;
-      created_at: string;
-      updated_at: string;
-    } | null;
-    usage_meter: {
-      id: string;
-      company_id: string;
-      subscription_tier: string;
-      billing_cycle_start: string;
-      billing_end: string;
-      bandwidth_ingress_balance: number;
-      bandwidth_egress_balance: number;
-      max_bandwidth_ingress: number;
-      max_bandwidth_egress: number;
-      max_team_seats: number;
-      max_contract_limit: number;
-      max_rate_limit: number;
-      max_payload_bytes: number;
-      hot_storage_days: number;
-      cold_storage_days: number;
-      support: string;
-      created_at: string;
-      updated_at: string;
-    } | null;
-  }> {
+  async getBillingInfo(): Promise<GetCurrentPlanResponse> {
     return this.request('/billing/plan');
   }
 
-  async getTiers(): Promise<{
-    tiers: Array<{
-      name: string;
-      limits: {
-        bandwidth_ingress: number;
-        bandwidth_ingress_hard_cap: number;
-        bandwidth_ingress_overage_cents_per_million: number;
-        bandwidth_egress: number;
-        bandwidth_egress_overage_cents_per_gb: number;
-        team_seats: number;
-        seat_overage_cents_per_month: number;
-        contract_limit: number;
-        rate_limit: number;
-        max_payload_bytes: number;
-        hot_storage_days: number;
-        cold_storage_days: number;
-        cold_storage_overage_cents_per_gb: number;
-        support: string;
-        overage_allowed: boolean;
-      };
-      monthly_price_id: string;
-      yearly_price_id: string;
-      monthly_price_cents: number;
-      yearly_price_cents: number;
-    }>;
-  }> {
-    return this.request('/billing/tiers');
-  }
-
-  async cancelSubscription(): Promise<{ message: string }> {
-    return this.request('/billing/cancel', {
-      method: 'POST',
-    });
-  }
-
-  async sendTeamInvitation(data: { email: string; role: string }): Promise<{
-    success: boolean;
-    invitationId?: string;
-    expiresAt?: number;
-    message?: string;
-    error?: string;
-  }> {
-    return this.request('/team/invitations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async listInvitations(): Promise<{
-    invitations: Array<{
-      id: string;
-      email: string;
-      role: string;
-      status: string;
-      invited_by: string;
-      expires_at: number;
-      created_at: number;
-    }>;
-  }> {
-    return this.request('/team/invitations');
-  }
-
-  async resendInvitation(invitationId: string): Promise<{
-    success: boolean;
-    invitationId?: string;
-    expiresAt?: number;
-    message?: string;
-    error?: string;
-  }> {
-    return this.request(`/team/invitations/${invitationId}/resend`, {
-      method: 'POST',
-    });
-  }
-
-  async cancelInvitation(invitationId: string): Promise<{
-    success: boolean;
-    message?: string;
-    error?: string;
-  }> {
-    return this.request(`/team/invitations/${invitationId}`, {
-      method: 'DELETE',
+  async createCheckoutSession(amountMillicents: number, maxMonthlyMillicents?: number): Promise<{ url: string }> {
+    return this.post('/billing/checkout', {
+      amount_millicents: amountMillicents,
+      max_monthly_millicents: maxMonthlyMillicents,
     });
   }
 }

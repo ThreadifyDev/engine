@@ -2,10 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"threadify-go/shared/billing"
 
+	serror "threadify-go/shared/errors"
+
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -120,6 +124,10 @@ func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billi
 		account.RateLimitTPS, account.PayloadLimitBytes,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return serror.ErrDuplicateCreditAccount
+		}
 		return fmt.Errorf("create credit account: %w", err)
 	}
 	return nil

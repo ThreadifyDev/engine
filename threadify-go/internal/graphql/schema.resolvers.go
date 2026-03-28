@@ -104,10 +104,6 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
-		return nil, err
-	}
 
 	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
 	if err != nil {
@@ -145,9 +141,6 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 	perf.Log("[PERF] Threads.getUserInfo: %v\n", perf.Since(authStart))
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		return nil, err
 	}
 
 	// Normalize pagination using helper
@@ -193,9 +186,6 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		return nil, err
-	}
 
 	// Normalize pagination
 	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
@@ -237,9 +227,6 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		return nil, err
 	}
 
 	// Normalize pagination
@@ -288,9 +275,6 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		return nil, err
 	}
 
 	// Set default max depth
@@ -377,9 +361,6 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
-	}
-	if err := r.requireCredit(ctx, companyID); err != nil {
-		return nil, err
 	}
 
 	// Enforce hard caps on pagination limits
@@ -486,7 +467,6 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	return status, nil
 }
 
-// CheckCredits is the resolver for the checkCredits query.
 func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -863,7 +843,7 @@ func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, 
 	// Permission already checked by parent Thread query
 	// If we got here, user has access to the thread
 
-	// Get postgres notification repository
+	// Get postgres notification repositoryle
 	postgresNotificationRepo := r.notificationRepo
 	if postgresNotificationRepo == nil {
 		return nil, fmt.Errorf("no notification repository configured")

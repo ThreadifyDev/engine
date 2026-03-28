@@ -29,8 +29,13 @@ var (
 	ErrApiKeyExpiredAPI          = NewDomainError("API key has expired", http.StatusUnauthorized)
 	ErrInternalServerError       = NewDomainError("internal server error", http.StatusInternalServerError)
 
+	// Generic errors
+	ErrNotFound  = NewDomainError("not found", http.StatusNotFound)
+	ErrForbidden = NewDomainError("forbidden", http.StatusForbidden)
+
 	// Service Account errors
 	ErrServiceAccountNameRequired = NewDomainError("service account name is required", http.StatusBadRequest)
 	ErrInvalidRoleAPI             = NewDomainError("invalid role: must be 'standard_service' or 'reader'", http.StatusBadRequest)
 	ErrUserNotFound               = NewDomainError("user not found", http.StatusNotFound)
+	ErrPaymentRequired            = NewDomainError("payment required: insufficient credits", http.StatusPaymentRequired)
 )

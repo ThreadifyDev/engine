@@ -17,6 +17,9 @@ const (
 	MeterContractVersion   = "contract_version"
 	MeterIngress           = "ingress"
 	MeterEgress            = "egress"
+	MeterCreditSpend       = "credit_spend"
+	MeterCreditTopup       = "credit_topup"
+	MeterCreditTopupRequest = "credit_topup_request"
 )
 
 type SnapshotReason string
@@ -107,4 +110,5 @@ type PlanService interface {
 	CheckPayloadSize(ctx context.Context, account *CreditAccount, payloadBytes int64) error
 	CheckRateLimit(ctx context.Context, account *CreditAccount) (bool, error)
 	CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error
+	CheckBalancePositive(ctx context.Context, companyID string) (*CreditAccount, error)
 }

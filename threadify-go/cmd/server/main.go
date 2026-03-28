@@ -342,7 +342,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	r.POST("/graphql",
 		middleware.AuthMiddleware(authSvc, middleware.AuthDual),
-		middleware.CreditUsageMiddleware(planSvc, d.valkey, logger),
+		middleware.CreditUsageMiddleware(planSvc, logger),
 		middleware.EgressMiddleware(planSvc, logger),
 		graphqlMiddleware(gqlHandler),
 	)
@@ -350,28 +350,34 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	mcpGroup := r.Group("/mcp")
 	mcpGroup.Use(middleware.AuthMiddleware(authSvc, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.CreditUsageMiddleware(planSvc, d.valkey, logger))
+	mcpGroup.Use(middleware.CreditUsageMiddleware(planSvc, logger))
 	mountMCPServer(mcpGroup, cfg, planSvc, logger)
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
-	v1.Use(middleware.CreditUsageMiddleware(planSvc, d.valkey, logger))
 	v1.Use(middleware.EgressMiddleware(planSvc, logger))
 
 	contracts := v1.Group("/contracts")
 	{
+		// Read routes — no credit check required
 		contracts.GET("", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContracts)
+		contracts.GET("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContract)
+		contracts.GET("/:id/versions", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContractVersions)
+		contracts.GET("/:id/versions/:version", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContractVersion)
+		contracts.POST("/preview", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.PreviewContract)
+		contracts.DELETE("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.DeleteContract)
+		contracts.DELETE("/:id/versions/:version", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.DeleteContractVersion)
+
 		contracts.POST("",
+			middleware.CreditUsageMiddleware(planSvc, logger),
 			middleware.ContractRBACMiddleware(rbacLoader, "contract.create"),
 			contractHandler.CreateContract,
 		)
-		contracts.POST("/preview", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.PreviewContract)
-		contracts.GET("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContract)
-		contracts.PUT("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.UpdateContract)
-		contracts.DELETE("/:id", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.DeleteContract)
-		contracts.GET("/:id/versions", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetAllContractVersions)
-		contracts.GET("/:id/versions/:version", middleware.ContractRBACMiddleware(rbacLoader, "contract.read.*"), contractHandler.GetContractVersion)
-		contracts.DELETE("/:id/versions/:version", middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"), contractHandler.DeleteContractVersion)
+		contracts.PUT("/:id",
+			middleware.CreditUsageMiddleware(planSvc, logger),
+			middleware.ContractRBACMiddleware(rbacLoader, "contract.update.*"),
+			contractHandler.UpdateContract,
+		)
 	}
 
 	return &http.Server{
