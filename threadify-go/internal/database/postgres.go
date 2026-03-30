@@ -45,7 +45,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		size VARCHAR(50),
 		use_case TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		external_customer_id VARCHAR(255)
 	);
 
 	CREATE TABLE IF NOT EXISTS users (
@@ -855,7 +856,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS reference_id TEXT;
 	CREATE INDEX IF NOT EXISTS idx_outbox_reference_id ON outbox_events(reference_id);
 
-	ALTER TABLE companies ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255) NOT NULL DEFAULT '';
+	ALTER TABLE companies ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255);
 
 	CREATE TABLE IF NOT EXISTS credit_accounts (
 		id                       VARCHAR(255) PRIMARY KEY,
