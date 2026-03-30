@@ -860,5 +860,5 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 		}
 	}
 
-	return newConvID, newConv.Title, parentConvID, nil
+	return newConvID, newConv.Title, summary, nil
 }

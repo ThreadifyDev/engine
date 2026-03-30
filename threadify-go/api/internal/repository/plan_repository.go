@@ -162,3 +162,19 @@ func (r *PlanRepository) UpdateMaxMonthlyCharge(ctx context.Context, companyID s
 	}
 	return nil
 }
+
+func (r *PlanRepository) UpdateMonthlyLimit(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
+	const query = `
+		UPDATE credit_accounts 
+		SET credit_max_monthly_charge_millicents = $1, updated_at = NOW()
+		WHERE company_id = $2
+		AND billing_cycle_start = (
+			SELECT MAX(billing_cycle_start) FROM credit_accounts WHERE company_id = $2
+		)
+	`
+	_, err := r.db.ExecContext(ctx, query, maxMonthlyMillicents, companyID)
+	if err != nil {
+		return fmt.Errorf("update monthly limit: %w", err)
+	}
+	return nil
+}

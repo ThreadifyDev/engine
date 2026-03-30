@@ -190,7 +190,6 @@ func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, comp
 	s.logger.Debug("credit topup event written to outbox", zap.String("company_id", companyID), zap.Int64("amount_millicents", amountMillicents))
 }
 
-
 func (s *BillingOrchestrator) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotPaidByID(ctx, snapshotID, externalInvoiceID)
 }
