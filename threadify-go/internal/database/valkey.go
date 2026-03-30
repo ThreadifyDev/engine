@@ -246,12 +246,14 @@ func (v *ValkeyService) IncrBy(ctx context.Context, key string, value int64) (in
 
 // ApplyCreditTopupAtomic pipelines INCRBY on balanceKey and DEL on pendingKey
 // in a single round trip so a crash can't leave pendingKey permanently set.
-func (v *ValkeyService) ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) error {
+func (v *ValkeyService) ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) (int64, error) {
 	pipe := v.Client.Pipeline()
-	pipe.IncrBy(ctx, balanceKey, amount)
+	incrCmd := pipe.IncrBy(ctx, balanceKey, amount)
 	pipe.Del(ctx, pendingKey)
-	_, err := pipe.Exec(ctx)
-	return err
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, err
+	}
+	return incrCmd.Val(), nil
 }
 
 // SAdd adds members to a SET

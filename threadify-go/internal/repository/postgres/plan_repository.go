@@ -133,28 +133,59 @@ func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billi
 	return nil
 }
 
-func (r *PlanRepository) DisableAutoTopup(ctx context.Context, companyID string) error {
-	const query = `
-		WITH latest AS (
-			SELECT id
-			FROM credit_accounts
-			WHERE company_id = $1
-			ORDER BY billing_cycle_start DESC, created_at DESC
-			LIMIT 1
-		)
-		UPDATE credit_accounts
-		SET
-			credit_max_monthly_charge_millicents = 0,
-			credit_auto_topup_millicents         = 0,
-			updated_at                           = NOW()
-		WHERE id = (SELECT id FROM latest)
-	`
-	_, err := r.pool.Exec(ctx, query, companyID)
-	return err
-}
-
-func (r *PlanRepository) UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error {
+func (r *PlanRepository) UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error {
 	const query = `UPDATE credit_accounts SET credit_monthly_charged_millicents = $1, updated_at = NOW() WHERE id = $2`
 	_, err := r.pool.Exec(ctx, query, amount, id)
 	return err
+}
+
+func (r *PlanRepository) UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
+	const query = `
+		WITH latest AS (
+			SELECT id FROM credit_accounts
+			WHERE company_id = $1
+			ORDER BY billing_cycle_start DESC
+			LIMIT 1
+			FOR UPDATE
+		)
+		UPDATE credit_accounts
+		SET credit_max_monthly_charge_millicents = $2,
+			updated_at = NOW()
+		FROM latest
+		WHERE credit_accounts.id = latest.id
+	`
+	tag, err := r.pool.Exec(ctx, query, companyID, maxMonthlyMillicents)
+	if err != nil {
+		return fmt.Errorf("update max monthly charge: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no credit account found for company %s", companyID)
+	}
+	return nil
+}
+
+func (r *PlanRepository) UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error {
+	const query = `
+        WITH latest AS (
+            SELECT id FROM credit_accounts
+            WHERE company_id = $1
+            ORDER BY billing_cycle_start DESC
+            LIMIT 1
+            FOR UPDATE
+        )
+        UPDATE credit_accounts
+        SET credit_auto_topup_millicents         = $2,
+            credit_min_balance_millicents        = $3,
+            updated_at = NOW()
+        FROM latest
+        WHERE credit_accounts.id = latest.id
+    `
+	tag, err := r.pool.Exec(ctx, query, companyID, autoTopupAmount, minBalance)
+	if err != nil {
+		return fmt.Errorf("update topup settings: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no credit account found for company %s", companyID)
+	}
+	return nil
 }

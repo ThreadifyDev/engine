@@ -358,7 +358,7 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 	{
 		billingGroup.GET("/plan", h.billing.GetCurrentPlan)
 		billingGroup.POST("/checkout", h.billing.CreateCheckoutSession)
-		billingGroup.POST("/auto-topup/disable", h.billing.DisableAutoTopup)
+		billingGroup.PUT("/spending-limit", h.billing.UpdateMaxMonthlyCharge)
 	}
 
 	return r

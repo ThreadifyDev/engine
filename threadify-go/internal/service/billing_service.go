@@ -152,7 +152,7 @@ func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *bi
 
 	keys := billing.KeysFor(snapshot.CompanyID)
 
-	if err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
+	if _, err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
 		_ = s.valkeyClient.Delete(ctx, appliedKey)
 		s.logger.Error("failed to apply credit topup", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
 		return fmt.Errorf("apply credit topup: %w", err)
@@ -190,9 +190,6 @@ func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, comp
 	s.logger.Debug("credit topup event written to outbox", zap.String("company_id", companyID), zap.Int64("amount_millicents", amountMillicents))
 }
 
-func (s *BillingOrchestrator) DisableAutoTopup(ctx context.Context, companyID string) error {
-	return s.PlanRepo.DisableAutoTopup(ctx, companyID)
-}
 
 func (s *BillingOrchestrator) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotPaidByID(ctx, snapshotID, externalInvoiceID)
@@ -214,8 +211,8 @@ func (s *BillingOrchestrator) GetCompanyIDByExternalCustomerID(ctx context.Conte
 	return s.PlanRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
 }
 
-func (s *BillingOrchestrator) ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount, maxMonthly int64) error {
-	return s.planSvc.ProvisionSubscription(ctx, companyID, externalCustomerID, initialAmount, maxMonthly)
+func (s *BillingOrchestrator) ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount int64) error {
+	return s.planSvc.ProvisionSubscription(ctx, companyID, externalCustomerID, initialAmount)
 }
 
 func (s *BillingOrchestrator) ProcessRollovers(ctx context.Context) error {
