@@ -12,13 +12,13 @@ const (
 
 	CreditDisabled int64 = 0
 
-	MeterLLMTokenUsage     = "llm_tokens"
-	MeterContractExecution = "contract_execution"
-	MeterContractVersion   = "contract_version"
-	MeterIngress           = "ingress"
-	MeterEgress            = "egress"
-	MeterCreditSpend       = "credit_spend"
-	MeterCreditTopup       = "credit_topup"
+	MeterLLMTokenUsage      = "llm_tokens"
+	MeterContractExecution  = "contract_execution"
+	MeterContractVersion    = "contract_version"
+	MeterIngress            = "ingress"
+	MeterEgress             = "egress"
+	MeterCreditSpend        = "credit_spend"
+	MeterCreditTopup        = "credit_topup"
 	MeterCreditTopupRequest = "credit_topup_request"
 )
 
@@ -55,6 +55,15 @@ type InvoiceResult struct {
 	ProviderName      string
 }
 
+type CheckoutSessionParams struct {
+	CompanyID               string
+	Tier                    string
+	InitialAmountMillicents int64
+	SuccessURL              string
+	CancelURL               string
+	ExternalCustomerID      string
+}
+
 type WebhookEvent struct {
 	Type                 string
 	ExternalInvoiceID    string
@@ -83,7 +92,7 @@ type CreditAccount struct {
 }
 
 func (a *CreditAccount) IsTopupEnabled() bool {
-	return a.CreditAutoTopupMillicents != CreditDisabled && a.CreditMaxMonthlyChargeMillicents != CreditDisabled
+	return a.CreditMaxMonthlyChargeMillicents > CreditDisabled
 }
 
 type PlanRepository interface {
@@ -92,8 +101,9 @@ type PlanRepository interface {
 	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
 	SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error
 	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
-	DisableAutoTopup(ctx context.Context, companyID string) error
-	UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error
+	UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error
+	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
+	UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error
 }
 
 type PlanService interface {
@@ -104,7 +114,7 @@ type PlanService interface {
 	DecrementLLMUsage(ctx context.Context, companyID string, tokens int64) error
 	GetCurrentLimits(ctx context.Context, companyID string) (*CreditAccount, error)
 	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
-	ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount, maxMonthly int64) error
+	ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount int64) error
 	InvalidatePlanCache(ctx context.Context, companyID string)
 	ProcessRollovers(ctx context.Context) error
 	CheckPayloadSize(ctx context.Context, account *CreditAccount, payloadBytes int64) error

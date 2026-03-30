@@ -41,17 +41,13 @@ func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string)
 	return account, nil
 }
 
-func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents, maxMonthlyMillicents int64) (string, error) {
-	if maxMonthlyMillicents < amountMillicents {
-		maxMonthlyMillicents = amountMillicents
-	}
+func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error) {
 
 	extCustID, _ := s.PlanRepo.GetExternalCustomerID(ctx, companyID)
 
 	params := CheckoutSessionParams{
 		CompanyID:               companyID,
 		InitialAmountMillicents: amountMillicents,
-		MaxMonthlyMillicents:    maxMonthlyMillicents,
 		SuccessURL:              s.BillingConfig.SuccessURL,
 		CancelURL:               s.BillingConfig.CancelURL,
 		ExternalCustomerID:      extCustID,
@@ -60,9 +56,7 @@ func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID st
 	return s.BillingProvider.CreateCheckoutSession(params)
 }
 
-func (s *BillingService) DisableAutoTopup(ctx context.Context, companyID string) error {
-	if err := s.PlanRepo.DisableAutoTopup(ctx, companyID); err != nil {
-		return fmt.Errorf("failed to disable auto-topup: %w", err)
-	}
-	return nil
+func (s *BillingService) UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
+	return s.PlanRepo.UpdateMaxMonthlyCharge(ctx, companyID, maxMonthlyMillicents)
 }
+

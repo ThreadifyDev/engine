@@ -31,8 +31,8 @@ type BillingWebhookService interface {
 	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
 	ApplyCreditTopup(ctx context.Context, snapshot *billing.BillingSnapshot) error
 	ClearCreditTopupPending(ctx context.Context, companyID string) error
-	DisableAutoTopup(ctx context.Context, companyID string) error
-	ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount, maxMonthly int64) error
+	ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount int64) error
+	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthly int64) error
 }
 
 type WebhookHandler struct {
@@ -172,6 +172,17 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 		return fmt.Errorf("find snapshot for failed invoice: %w", err)
 	}
 	if snapshot == nil {
+		// No snapshot -> fail-safe: clear pending to avoid permanent block on auto-topup
+		companyID := event.Metadata["company_id"]
+		if companyID != "" {
+			if clearErr := h.billingSvc.ClearCreditTopupPending(ctx, companyID); clearErr != nil {
+				h.logger.Error("webhook: failed to clear credit topup pending for missing snapshot (fail-open)",
+					zap.String("company_id", companyID),
+					zap.String("invoice_id", event.ExternalInvoiceID),
+					zap.Error(clearErr),
+				)
+			}
+		}
 		h.logger.Warn("webhook: invoice.payment_failed has no matching snapshot",
 			zap.String("invoice_id", event.ExternalInvoiceID),
 		)
@@ -189,10 +200,10 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 	}
 
 	if event.AttemptCount >= maxPaymentAttempts {
-		if err := h.billingSvc.DisableAutoTopup(ctx, companyID); err != nil {
-			return fmt.Errorf("disable auto-topup after final payment failure: %w", err)
+		if err := h.billingSvc.UpdateMaxMonthlyCharge(ctx, companyID, 0); err != nil {
+			h.logger.Error("webhook: failed to disable auto-topup after final failure", zap.Error(err), zap.String("company_id", companyID))
 		}
-		h.logger.Warn("webhook: final payment attempt failed — auto-topup disabled",
+		h.logger.Error("webhook: final payment attempt failed — auto-topup disabled",
 			zap.String("provider", h.provider.Name()),
 			zap.String("company_id", companyID),
 			zap.String("invoice_id", event.ExternalInvoiceID),
@@ -236,7 +247,6 @@ func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, eve
 		zap.String("company_id", companyID),
 		zap.String("customer_id", event.ExternalCustomerID),
 		zap.Int64("initial_amount_millicents", event.AmountMillicents),
-		zap.Int64("max_monthly_millicents", event.MaxMonthlyMillicents),
 	)
 
 	if err := h.billingSvc.ProvisionSubscription(
@@ -244,7 +254,6 @@ func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, eve
 		companyID,
 		event.ExternalCustomerID,
 		event.AmountMillicents,
-		event.MaxMonthlyMillicents,
 	); err != nil {
 		h.logger.Error("webhook: failed to provision from checkout",
 			zap.String("company_id", companyID),

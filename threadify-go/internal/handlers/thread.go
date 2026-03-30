@@ -131,11 +131,18 @@ func (s *WSSession) enforceCredits(planSvc interfaces.PlanService, action string
 	cancel()
 
 	if err != nil {
-		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+		if errors.Is(err, service.ErrNoAccount) {
 			return &models.ErrorResponse{
 				Action:  action,
 				Status:  StatusError,
 				Message: "Payment required: Set up a billing account to continue using the service.",
+			}
+		}
+		if errors.Is(err, service.ErrInsufficientCredit) {
+			return &models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: "Payment required: Your credit balance is exhausted. Please top up to continue.",
 			}
 		}
 		return &models.ErrorResponse{
