@@ -200,7 +200,7 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 	}
 
 	if event.AttemptCount >= maxPaymentAttempts {
-		if err := h.billingSvc.UpdateMaxMonthlyCharge(ctx, companyID, 0); err != nil {
+		if err := h.billingSvc.UpdateMaxMonthlyCharge(ctx, companyID, billing.CreditDisabled); err != nil {
 			h.logger.Error("webhook: failed to disable auto-topup after final failure", zap.Error(err), zap.String("company_id", companyID))
 		}
 		h.logger.Error("webhook: final payment attempt failed — auto-topup disabled",
