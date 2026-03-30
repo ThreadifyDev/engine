@@ -233,6 +233,8 @@ func TestCheckCreditAvailable_HandlesSpecificCost(t *testing.T) {
 	// Now enable topup
 	account.CreditAutoTopupMillicents = 10000
 	account.CreditMaxMonthlyChargeMillicents = 50000
+	svc.InvalidatePlanCache(context.Background(), companyID)
+
 	err = svc.CheckCreditAvailable(context.Background(), companyID, MeterContractCreate, 1)
 	require.NoError(t, err)
 }
