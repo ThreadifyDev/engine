@@ -13,7 +13,6 @@ import (
 	"github.com/stripe/stripe-go/v82/client"
 )
 
-
 type InvoiceProvider interface {
 	Name() string
 	SkipInvoicing() bool
@@ -25,6 +24,18 @@ type WebhookProvider interface {
 	Name() string
 	SignatureHeader() string
 	VerifyAndParse(body []byte, signature string) (*WebhookEvent, error)
+}
+
+// isStripeResourceMissingError checks if the error is a Stripe resource_missing error
+func isStripeResourceMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var stripeErr *stripe.Error
+	if errors.As(err, &stripeErr) {
+		return stripeErr.Code == stripe.ErrorCodeResourceMissing
+	}
+	return false
 }
 
 type BillingProvider interface {
@@ -257,6 +268,16 @@ func (p *StripeBillingProvider) CreateCheckoutSession(
 
 	session, err := p.api.CheckoutSessions.New(params)
 	if err != nil {
+		// If customer doesn't exist, retry with customer creation
+		if checkoutParams.ExternalCustomerID != "" && isStripeResourceMissingError(err) {
+			params.Customer = nil
+			params.CustomerCreation = stripe.String("always")
+			session, err = p.api.CheckoutSessions.New(params)
+			if err != nil {
+				return "", fmt.Errorf("stripe: create checkout session (retry): %w", err)
+			}
+			return session.URL, nil
+		}
 		return "", fmt.Errorf("stripe: create checkout session: %w", err)
 	}
 	return session.URL, nil

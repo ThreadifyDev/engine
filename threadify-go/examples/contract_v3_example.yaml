@@ -95,7 +95,6 @@ transitions:
     to:
       - payment_validated
       - order_cancelled
-    can_retry: true
 
   - from: payment_validated
     to:
@@ -113,7 +112,6 @@ transitions:
   - from: delivery_failed
     to:
       - shipped
-    can_retry: true
 
 # Terminal steps - where threads can end
 terminal_steps:

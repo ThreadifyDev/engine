@@ -59,4 +59,3 @@ func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID st
 func (s *BillingService) UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
 	return s.PlanRepo.UpdateMaxMonthlyCharge(ctx, companyID, maxMonthlyMillicents)
 }
-

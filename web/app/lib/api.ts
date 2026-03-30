@@ -512,6 +512,15 @@ class ApiClient {
       amount_millicents: amountMillicents,
     });
   }
+
+  async updateMonthlyLimit(maxMonthlyMillicents: number): Promise<{ status: string }> {
+    return this.request('/billing/spending-limit', {
+      method: 'PUT',
+      body: JSON.stringify({
+        max_monthly_millicents: maxMonthlyMillicents,
+      }),
+    });
+  }
 }
 
 export const api = new ApiClient(API_BASE_URL);
