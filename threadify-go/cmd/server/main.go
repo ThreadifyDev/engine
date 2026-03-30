@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -94,6 +95,7 @@ type deps struct {
 	natsPool       *natsrepo.Pool
 	workerPools    *workerpool.Pools
 	serviceManager *service.ServiceManager
+	shuttingDown   atomic.Bool
 }
 
 func (d *deps) close() {
@@ -321,6 +323,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(shutdownGuard(&d.shuttingDown))
 
 	// Add CORS middleware
 	corsConfig := cors.DefaultConfig()
@@ -395,6 +398,8 @@ func waitForShutdown(logger *zap.Logger, srv *http.Server, d *deps) {
 	<-quit
 
 	logger.Info("shutting down...")
+
+	d.shuttingDown.Store(true)
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -472,4 +477,15 @@ func requestLogger(logger *zap.Logger) gin.HandlerFunc {
 func mustGet(c *gin.Context, key string) any {
 	v, _ := c.Get(key)
 	return v
+}
+
+func shutdownGuard(flag *atomic.Bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if flag != nil && flag.Load() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }

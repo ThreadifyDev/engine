@@ -14,4 +14,3 @@ subscription:
     llm_token_cost_millicents: 1             # per token (set >0 to bill MCP LLM usage)
     rate_limit_tps: 6000
     payload_limit_bytes: 1048576 # 1MB
-    bytes_per_token: 4

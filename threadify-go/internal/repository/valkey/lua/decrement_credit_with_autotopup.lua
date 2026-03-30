@@ -30,92 +30,108 @@
 -- topup_applied:
 --   1  = topup was requested this call
 --   0  = no topup requested
- 
-local balance_key   = KEYS[1]
-local charged_key   = KEYS[2]
-local stream_key    = KEYS[3]
-local pending_key   = KEYS[4]
- 
-local cost               = tonumber(ARGV[1])
-local min_balance        = tonumber(ARGV[2])
-local topup_amount       = tonumber(ARGV[3])
-local max_monthly        = tonumber(ARGV[4])
-local spend_event_id     = ARGV[5]
-local topup_event_id     = ARGV[6]
-local company_id         = ARGV[7]
+
+local balance_key     = KEYS[1]
+local charged_key     = KEYS[2]
+local stream_key      = KEYS[3]
+local pending_key     = KEYS[4]
+
+local cost                = tonumber(ARGV[1])
+local min_balance         = tonumber(ARGV[2])
+local topup_amount        = tonumber(ARGV[3])
+local max_monthly         = tonumber(ARGV[4])
+local spend_event_id      = ARGV[5]
+local topup_event_id      = ARGV[6]
+local company_id          = ARGV[7]
 local billing_cycle_start = ARGV[8]
-local occurred_at        = ARGV[9]
-local allow_topup        = (ARGV[10] == '1')
-local seed_balance       = ARGV[11]
-local seed_charged       = ARGV[12]
- 
+local occurred_at         = ARGV[9]
+local allow_topup         = (ARGV[10] == '1')
+local seed_balance        = ARGV[11]
+local seed_charged        = ARGV[12]
+
 if not cost or not min_balance or not topup_amount or not max_monthly then
   return {0, -2, '', '', 0}
 end
 
--- Atomic seed: if balance key doesn't exist, initialize from seed values.
--- This eliminates the seed-then-retry race in the Go layer.
-if redis.call('EXISTS', balance_key) == 0 then
+if redis.call('EXISTS', balance_key) == 0 or redis.call('EXISTS', charged_key) == 0 then
   redis.call('SET', balance_key, seed_balance)
   redis.call('SET', charged_key, seed_charged)
 end
- 
+
 local raw_balance = redis.call('GET', balance_key)
 local raw_charged = redis.call('GET', charged_key)
- 
+
 local balance_num = tonumber(raw_balance)
 local charged_num = tonumber(raw_charged)
 if not balance_num or not charged_num then
   return {0, -2, '', '', 0}
 end
- 
+
 local pending_num = tonumber(redis.call('GET', pending_key) or '0') or 0
- 
+
 local new_balance = balance_num - cost
- 
-local topup_applied  = 0
-local topup_stream_id = ''
- 
--- Topup is only considered when explicitly allowed (active subscriptions only).
--- For cancelled/pending-cancellation plans allow_topup is false, so pending_num
--- is intentionally ignored for the topup path — it may reflect a stale pending
--- request from a prior cycle that was never fulfilled.
-if allow_topup then
-  local needs_topup = (new_balance < 0) or (min_balance > 0 and new_balance < min_balance)
-  local under_monthly_cap = (max_monthly > 0) and ((charged_num + topup_amount) <= max_monthly)
-  local can_request = (topup_amount > 0) and (pending_num <= 0) and under_monthly_cap
- 
-  if needs_topup and can_request then
-    redis.call('SET', pending_key, tostring(topup_amount))
-    topup_applied = 1
-    topup_stream_id = redis.call('XADD', stream_key, '*',
-      'event_id',            topup_event_id,
-      'company_id',          company_id,
-      'meter',               'credit_topup_request',
-      'amount',              tostring(topup_amount),
-      'billing_cycle_start', billing_cycle_start,
-      'timestamp',           occurred_at
-    )
+
+-- allow_topup from Go is authoritative; Lua only enforces cap arithmetic
+if not allow_topup then
+  if balance_num <= 0 or new_balance < 0 then
+    return {balance_num, 0, '', '', 0}
   end
+  redis.call('SET',    balance_key, tostring(new_balance))
+  redis.call('INCRBY', charged_key, cost)
+  local spend_stream_id = redis.call('XADD', stream_key, '*',
+    'event_id',            spend_event_id,
+    'company_id',          company_id,
+    'meter',               'credit_spend',
+    'amount',              tostring(-cost),
+    'billing_cycle_start', billing_cycle_start,
+    'timestamp',           occurred_at
+  )
+  return {new_balance, 1, spend_stream_id, '', 0}
 end
- 
+
+local needs_topup = (new_balance < 0) or (min_balance > 0 and new_balance < min_balance)
+
+local can_request = false
+if needs_topup then
+  local remaining = max_monthly - charged_num
+  if remaining < topup_amount then
+    topup_amount = remaining
+  end
+  local under_monthly_cap = (charged_num + topup_amount) <= max_monthly
+  can_request = (topup_amount > 0) and (pending_num <= 0) and under_monthly_cap
+end
 
 local available_cushion = 0
-if allow_topup then
+if pending_num > 0 then
   available_cushion = pending_num
-  if topup_applied == 1 then
-    available_cushion = topup_amount
-  end
-end
- 
-if new_balance < 0 and (new_balance + available_cushion) < 0 then
-  return {balance_num, 0, '', topup_stream_id, topup_applied}
+elseif can_request then
+  available_cushion = topup_amount
 end
 
+if new_balance < 0 and (new_balance + available_cushion) < 0 then
+  return {balance_num, 0, '', '', 0}
+end
+
+local topup_applied   = 0
+local topup_stream_id = ''
+
+if needs_topup and can_request then
+  redis.call('SET',    pending_key, tostring(topup_amount))
+  redis.call('INCRBY', charged_key, topup_amount)
+  topup_applied = 1
+  topup_stream_id = redis.call('XADD', stream_key, '*',
+    'event_id',            topup_event_id,
+    'company_id',          company_id,
+    'meter',               'credit_topup_request',
+    'amount',              tostring(topup_amount),
+    'billing_cycle_start', billing_cycle_start,
+    'timestamp',           occurred_at
+  )
+end
 
 redis.call('SET',    balance_key, tostring(new_balance))
 redis.call('INCRBY', charged_key, cost)
- 
+
 local spend_stream_id = redis.call('XADD', stream_key, '*',
   'event_id',            spend_event_id,
   'company_id',          company_id,
@@ -124,5 +140,5 @@ local spend_stream_id = redis.call('XADD', stream_key, '*',
   'billing_cycle_start', billing_cycle_start,
   'timestamp',           occurred_at
 )
- 
+
 return {new_balance, 1, spend_stream_id, topup_stream_id, topup_applied}

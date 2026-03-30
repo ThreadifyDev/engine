@@ -111,31 +111,39 @@ func EgressMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.Hand
 			return
 		}
 
-		accountRaw, exists := c.Get(sharedauth.CtxCreditAccount)
-		if !exists {
-			logger.Warn("egress middleware: credit account not found in context, skipping egress decrement")
-			return
+		var companyID string
+		if accountRaw, exists := c.Get(sharedauth.CtxCreditAccount); exists {
+			if account, ok := accountRaw.(*billing.CreditAccount); ok && account != nil {
+				companyID = account.CompanyID
+			}
 		}
 
-		account, ok := accountRaw.(*billing.CreditAccount)
-		if !ok || account == nil {
-			logger.Warn("egress middleware: credit account in context has unexpected type, skipping egress decrement")
+		if companyID == "" {
+			if idRaw, exists := c.Get(sharedauth.CtxCompanyID); exists {
+				if id, ok := idRaw.(string); ok {
+					companyID = id
+				}
+			}
+		}
+
+		if companyID == "" {
+			logger.Warn("egress middleware: company_id not found in context, skipping egress decrement")
 			return
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), egressTimeout)
 		defer cancel()
 
-		if err := planSvc.DecrementEgress(ctx, account.CompanyID, size); err != nil {
+		if err := planSvc.DecrementEgress(ctx, companyID, size); err != nil {
 			if errors.Is(err, service.ErrInsufficientCredit) {
 				logger.Warn("egress middleware: insufficient credits",
-					zap.String("company_id", account.CompanyID),
+					zap.String("company_id", companyID),
 					zap.Int64("size", size),
 				)
 			} else {
 				logger.Error("egress middleware: egress decrement failed",
 					zap.Error(err),
-					zap.String("company_id", account.CompanyID),
+					zap.String("company_id", companyID),
 					zap.Int64("size", size),
 				)
 			}

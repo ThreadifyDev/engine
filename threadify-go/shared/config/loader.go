@@ -41,7 +41,6 @@ type CreditConfig struct {
 	LLMTokenCostMillicents int64 `yaml:"llm_token_cost_millicents" mapstructure:"llm_token_cost_millicents" json:"llm_token_cost_millicents"`
 	RateLimitTPS           int64 `yaml:"rate_limit_tps" mapstructure:"rate_limit_tps" json:"rate_limit_tps"`
 	PayloadLimitBytes      int64 `yaml:"payload_limit_bytes" mapstructure:"payload_limit_bytes" json:"payload_limit_bytes"`
-	BytesPerToken          int   `yaml:"bytes_per_token" mapstructure:"bytes_per_token" json:"bytes_per_token"`
 }
 
 type SubscriptionConfig struct {
