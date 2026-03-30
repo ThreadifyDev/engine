@@ -7,32 +7,34 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	billing "threadify-go/shared/billing"
 
 	"github.com/threadify/engine/internal/database"
-	billing "threadify-go/shared/billing"
 	"go.uber.org/zap"
 )
 
 var ErrThreadNotFound = errors.New("wait for thread metadata")
 
-const creditUpdateQuery = `
-    UPDATE credit_accounts
-    SET credit_balance_millicents         = credit_balance_millicents + $1,
-        credit_monthly_charged_millicents = credit_monthly_charged_millicents - $1,
-        last_sync_event_id                = $4,
-        updated_at                        = NOW()
-    WHERE company_id          = $2
-      AND billing_cycle_start = $3
-      AND (last_sync_event_id IS NULL OR last_sync_event_id != $4)`
-
-const creditTopupUpdateQuery = `
-    UPDATE credit_accounts
-    SET credit_balance_millicents = credit_balance_millicents + $1,
-        last_sync_event_id        = $4,
-        updated_at                = NOW()
-    WHERE company_id          = $2
-      AND billing_cycle_start = $3
-      AND (last_sync_event_id IS NULL OR last_sync_event_id != $4)`
+const creditUpsertQuery = `
+    INSERT INTO credit_accounts (
+        id, company_id, billing_cycle_start,
+        credit_balance_millicents,
+        credit_monthly_charged_millicents,
+        last_sync_event_id, created_at, updated_at
+    ) VALUES (
+        $6, $2, $3,
+        $1,
+        $5,
+        $4, NOW(), NOW()
+    )
+    ON CONFLICT (company_id, billing_cycle_start) DO UPDATE SET
+        credit_balance_millicents          = credit_accounts.credit_balance_millicents + EXCLUDED.credit_balance_millicents,
+        credit_monthly_charged_millicents  = credit_accounts.credit_monthly_charged_millicents + EXCLUDED.credit_monthly_charged_millicents,
+        last_sync_event_id                 = EXCLUDED.last_sync_event_id,
+        updated_at                         = NOW()
+    WHERE credit_accounts.last_sync_event_id IS DISTINCT FROM EXCLUDED.last_sync_event_id`
 
 type PostgresWriter struct {
 	db     *database.PostgresDB
@@ -705,12 +707,16 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 	var processed, duplicates, skipped int
 
 	for _, event := range events {
-		var query string
+		var expectedSign int
+		var chargedDelta int64
+
 		switch event.Meter {
 		case billing.MeterCreditSpend:
-			query = creditUpdateQuery
+			expectedSign = -1
+			chargedDelta = -event.Amount
 		case billing.MeterCreditTopup:
-			query = creditTopupUpdateQuery
+			expectedSign = 1
+			chargedDelta = 0
 		default:
 			w.logger.Warn("SyncUsageMeters: unrecognised meter, skipping",
 				zap.String("meter", event.Meter),
@@ -721,16 +727,36 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 			continue
 		}
 
-		tag, err := w.db.Pool.Exec(ctx, query, event.Amount, event.CompanyID, event.BillingCycleStart, event.EventID)
+		if (expectedSign > 0 && event.Amount <= 0) || (expectedSign < 0 && event.Amount >= 0) {
+			w.logger.Warn("SyncUsageMeters: invalid amount sign for meter, skipping",
+				zap.String("meter", event.Meter),
+				zap.Int64("amount", event.Amount),
+				zap.String("company_id", event.CompanyID),
+				zap.String("event_id", event.EventID),
+			)
+			skipped++
+			continue
+		}
+
+		id := deterministicUUID(event.CompanyID, event.BillingCycleStart.Format(time.RFC3339Nano), event.EventID)
+
+		tag, err := w.db.Pool.Exec(ctx, creditUpsertQuery,
+			event.Amount,
+			event.CompanyID,
+			event.BillingCycleStart,
+			event.EventID,
+			chargedDelta,
+			id,
+		)
 		if err != nil {
 			return fmt.Errorf("sync usage event %s: %w", event.EventID, err)
 		}
 
 		if tag.RowsAffected() == 0 {
-			duplicates++
-		} else {
-			processed++
+			duplicates++ // already applied, not an error
+			continue
 		}
+		processed++
 	}
 
 	if processed > 0 || duplicates > 0 || skipped > 0 {

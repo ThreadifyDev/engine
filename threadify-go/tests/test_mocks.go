@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/stretchr/testify/mock"
@@ -33,6 +34,14 @@ func (m *MockValkeyClient) Set(ctx context.Context, key, value string, ttl time.
 	return nil
 }
 
+func (m *MockValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	if _, exists := m.data[key]; exists {
+		return false, nil
+	}
+	m.data[key] = fmt.Sprintf("%v", value)
+	return true, nil
+}
+
 func (m *MockValkeyClient) Get(ctx context.Context, key string) (string, error) {
 	return m.data[key], nil
 }
@@ -40,6 +49,29 @@ func (m *MockValkeyClient) Get(ctx context.Context, key string) (string, error) 
 func (m *MockValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
 	_, exists := m.data[key]
 	return exists, nil
+}
+
+func (m *MockValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if v, ok := m.data[k]; ok {
+			result[k] = v
+		} else {
+			result[k] = ""
+		}
+	}
+	return result, nil
+}
+
+func (m *MockValkeyClient) IncrBy(ctx context.Context, key string, value int64) (int64, error) {
+	current, _ := strconv.ParseInt(m.data[key], 10, 64)
+	current += value
+	m.data[key] = fmt.Sprintf("%d", current)
+	return current, nil
+}
+
+func (m *MockValkeyClient) DecrBy(ctx context.Context, key string, value int64) (int64, error) {
+	return m.IncrBy(ctx, key, -value)
 }
 
 func (m *MockValkeyClient) Del(ctx context.Context, keys ...string) error {
@@ -362,6 +394,14 @@ func (m *MockValkeyClient) ScriptFlush(ctx context.Context) error {
 
 func (m *MockValkeyClient) ExecuteWithBackoff(ctx context.Context, operation func() error) error {
 	return operation()
+}
+
+func (m *MockValkeyClient) ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) (int64, error) {
+	current, _ := strconv.ParseInt(m.data[balanceKey], 10, 64)
+	current += amount
+	m.data[balanceKey] = fmt.Sprintf("%d", current)
+	m.data[pendingKey] = "0"
+	return current, nil
 }
 
 // Helper methods for validation testing

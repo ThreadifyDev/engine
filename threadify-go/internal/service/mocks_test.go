@@ -186,8 +186,8 @@ func (m *MockPlanService) GetExternalCustomerID(ctx context.Context, companyID s
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockPlanService) ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount, maxMonthly int64) error {
-	args := m.Called(ctx, companyID, externalCustomerID, initialAmount, maxMonthly)
+func (m *MockPlanService) ProvisionSubscription(ctx context.Context, companyID, externalCustomerID string, initialAmount int64) error {
+	args := m.Called(ctx, companyID, externalCustomerID, initialAmount)
 	return args.Error(0)
 }
 

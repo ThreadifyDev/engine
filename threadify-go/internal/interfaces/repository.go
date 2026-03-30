@@ -16,8 +16,9 @@ type PlanRepository interface {
 	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
 	ListCompaniesForRollover(ctx context.Context) (map[string]string, error)
 	CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error
-	DisableAutoTopup(ctx context.Context, companyID string) error
-	UpdateMonthlyCharged(ctx context.Context, id string, amount int64) error
+	UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error
+	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
+	UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error
 }
 
 type ContractRepository interface {
@@ -98,7 +99,7 @@ type ValkeyClient interface {
 	// Retry operations with exponential backoff
 	ExecuteWithBackoff(ctx context.Context, operation func() error) error
 	// Credit operations
-	ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) error
+	ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) (int64, error)
 }
 
 // ValkeyPipeline defines the interface for Redis pipeline operations

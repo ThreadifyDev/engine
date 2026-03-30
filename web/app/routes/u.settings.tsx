@@ -16,7 +16,6 @@ export default function Settings() {
   const [billingInfo, setBillingInfo] = useState<CreditAccountDTO | null>(null);
   const [topUpAmount, setTopUpAmount] = useState<number>(10);
   const [customAmount, setCustomAmount] = useState<string>('');
-  const [maxMonthlyLimit, setMaxMonthlyLimit] = useState<string>('');
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
@@ -62,10 +61,7 @@ export default function Settings() {
     try {
       const response = await api.getBillingInfo();
       setBillingInfo(response.credit_account);
-      if (response.credit_account) {
-        // Pre-fill monthly limit if not already set by user
-        setMaxMonthlyLimit((response.credit_account.max_monthly_charge_millicents / 100000).toString());
-      }
+      setBillingInfo(response.credit_account);
     } catch (err) {
       console.error('Failed to load billing info:', err);
     }
@@ -76,23 +72,13 @@ export default function Settings() {
     setError('');
     try {
       const amount = customAmount ? parseFloat(customAmount) : topUpAmount;
-      const limit = parseFloat(maxMonthlyLimit);
-
       if (isNaN(amount) || amount <= 0) {
         throw new Error('Please enter a valid top-up amount');
-      }
-      if (isNaN(limit) || limit <= 0) {
-        throw new Error('Please enter a valid monthly spending limit');
-      }
-      if (limit <= amount) {
-        throw new Error(`Monthly limit ($${limit}) must be greater than the top-up amount ($${amount})`);
       }
       
       // Convert USD to millicents (1 USD = 100,000 millicents)
       const amountMillicents = Math.round(amount * 100000);
-      const maxLimitMillicents = Math.round(limit * 100000);
-
-      const response = await api.createCheckoutSession(amountMillicents, maxLimitMillicents);
+      const response = await api.createCheckoutSession(amountMillicents);
       if (response.url) {
         window.location.href = response.url;
       } else {
@@ -264,12 +250,6 @@ export default function Settings() {
                         onClick={() => {
                           setTopUpAmount(amt);
                           setCustomAmount('');
-                          // Automatically bump max limit if it's lower than or equal to the selected amount
-                          const currentLimit = parseFloat(maxMonthlyLimit);
-                          if (isNaN(currentLimit) || currentLimit <= amt) {
-                            // Set limit to amount + $5.00 margin
-                            setMaxMonthlyLimit((amt + 5).toString());
-                          }
                         }}
                         className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
                           !customAmount && topUpAmount === amt
@@ -293,24 +273,6 @@ export default function Settings() {
                     />
                   </div>
 
-                  <div className="pt-4 border-t border-gray-100">
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
-                      Monthly Spending Limit <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                      <input
-                        type="number"
-                        required
-                        value={maxMonthlyLimit}
-                        onChange={(e) => setMaxMonthlyLimit(e.target.value)}
-                        className="w-full pl-7 pr-3 py-2 border border-blue-200 rounded-lg text-sm bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <p className="text-[10px] text-gray-600 mt-1 italic">
-                      Current maximum budget allowed per month
-                    </p>
-                  </div>
 
                   <button 
                     onClick={handleTopUp}
@@ -328,24 +290,13 @@ export default function Settings() {
                   <div className="p-2 bg-green-50 rounded-lg">
                     <Zap className="w-5 h-5 text-green-600" />
                   </div>
-                  <h4 className="font-semibold text-gray-900">Monthly Usage</h4>
+                  <h4 className="font-semibold text-gray-900">Monthly Charges</h4>
                 </div>
                 <div className="text-3xl font-bold text-gray-900 mb-1">
                   ${((billingInfo?.monthly_charged_millicents || 0) / 100000).toFixed(2)}
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                  <span>Limit: ${((billingInfo?.max_monthly_charge_millicents || 0) / 100000).toFixed(2)}</span>
-                  <span>{Math.round(((billingInfo?.monthly_charged_millicents || 0) / (billingInfo?.max_monthly_charge_millicents || 1)) * 100)}%</span>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
-                  <div 
-                    className={`h-1.5 rounded-full ${
-                      (billingInfo?.monthly_charged_millicents || 0) >= (billingInfo?.max_monthly_charge_millicents || 0) 
-                        ? 'bg-red-500' 
-                        : 'bg-green-500'
-                    }`}
-                    style={{ width: `${Math.min(100, ((billingInfo?.monthly_charged_millicents || 0) / (billingInfo?.max_monthly_charge_millicents || 1)) * 100)}%` }}
-                  ></div>
+                  <span>Cumulative top-ups in current billing cycle</span>
                 </div>
               </div>
 

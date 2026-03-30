@@ -487,10 +487,9 @@ class ApiClient {
     return this.request('/billing/plan');
   }
 
-  async createCheckoutSession(amountMillicents: number, maxMonthlyMillicents?: number): Promise<{ url: string }> {
+  async createCheckoutSession(amountMillicents: number): Promise<{ url: string }> {
     return this.post('/billing/checkout', {
       amount_millicents: amountMillicents,
-      max_monthly_millicents: maxMonthlyMillicents,
     });
   }
 }

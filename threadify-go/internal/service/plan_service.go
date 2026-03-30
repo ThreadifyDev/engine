@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"time"
@@ -14,6 +15,7 @@ import (
 	serror "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/interfaces"
 	"go.uber.org/zap"
@@ -36,16 +38,17 @@ const (
 
 	cacheTTLJitterFraction   = 5
 	cacheTTLJitterMultiplier = 2
+
+	minDebitFloorMillicents int64 = 1
 )
 
 type creditSeed struct {
-	BalanceMillicents          int64
-	MinBalanceMillicents       int64
-	MaxMonthlyChargeMillicents int64
-	AutoTopupMillicents        int64
-	MonthlyChargedMillicents   int64
-	RateLimitTPS               int64
-	PayloadLimitBytes          int64
+	BalanceMillicents        int64
+	MinBalanceMillicents     int64
+	AutoTopupMillicents      int64
+	MonthlyChargedMillicents int64
+	RateLimitTPS             int64
+	PayloadLimitBytes        int64
 }
 
 type CachedPlan struct {
@@ -62,7 +65,6 @@ func newCreditAccount(companyID string, start time.Time, creditCfg *config.Credi
 	if seed != nil {
 		account.CreditBalanceMillicents = seed.BalanceMillicents
 		account.CreditMinBalanceMillicents = seed.MinBalanceMillicents
-		account.CreditMaxMonthlyChargeMillicents = seed.MaxMonthlyChargeMillicents
 		account.CreditAutoTopupMillicents = seed.AutoTopupMillicents
 		account.CreditMonthlyChargedMillicents = seed.MonthlyChargedMillicents
 		account.RateLimitTPS = seed.RateLimitTPS
@@ -125,18 +127,65 @@ func NewPlanService(
 func (s *PlanService) ProvisionSubscription(
 	ctx context.Context,
 	companyID, externalCustomerID string,
-	initialAmount, maxMonthly int64,
+	initialAmount int64,
 ) error {
 	s.logger.Debug("Provisioning subscription",
 		zap.String("company_id", companyID),
 		zap.String("external_customer_id", externalCustomerID),
 		zap.Int64("initial_amount", initialAmount),
-		zap.Int64("max_monthly", maxMonthly),
 	)
 
-	if maxMonthly > 0 && maxMonthly < initialAmount {
-		maxMonthly = initialAmount
+	existingAccount, err := s.planRepo.GetCreditAccount(ctx, companyID)
+	if err != nil && !errors.Is(err, ErrNoAccount) {
+		return fmt.Errorf("provision subscription - get credit account: %w", err)
 	}
+
+	if existingAccount != nil {
+		if err := s.planRepo.SetExternalCustomerID(ctx, companyID, externalCustomerID); err != nil {
+			s.logger.Warn("failed to update external customer id on topup", zap.Error(err))
+		}
+
+		keys := billing.KeysFor(companyID)
+
+		_, getErr := s.valkeyClient.Get(ctx, keys.Balance)
+		if getErr != nil {
+			if !errors.Is(getErr, redis.Nil) {
+				return fmt.Errorf("manual topup - checking valkey balance: %w", getErr)
+			}
+			s.logger.Warn("valkey cache miss during manual topup, seeding from db",
+				zap.String("company_id", companyID),
+				zap.Int64("db_balance", existingAccount.CreditBalanceMillicents),
+			)
+			if seedErr := s.seedCreditKeys(ctx, companyID, existingAccount); seedErr != nil {
+				return fmt.Errorf("manual topup - seed valkey: %w", seedErr)
+			}
+		}
+
+		newBalance, err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, initialAmount)
+		if err != nil {
+			return fmt.Errorf("manual topup - apply credit atomic: %w", err)
+		}
+
+		s.writeUsageToOutbox(ctx, companyID, MeterCreditTopup, initialAmount, existingAccount.BillingCycleStart)
+
+		minBalance := newBalance / minBalanceFraction
+
+		if err := s.planRepo.UpdateTopupSettings(ctx, companyID, initialAmount, minBalance); err != nil {
+			s.logger.Warn("failed to update topup settings on manual topup", zap.Error(err))
+		}
+
+		s.logger.Info("processed manual topup for existing subscription",
+			zap.String("company_id", companyID),
+			zap.Int64("added_amount", initialAmount),
+			zap.Int64("new_balance", newBalance),
+			zap.Int64("new_min_balance", minBalance),
+			zap.Int64("max_monthly", existingAccount.CreditMaxMonthlyChargeMillicents),
+		)
+
+		s.InvalidatePlanCache(ctx, companyID)
+		return nil
+	}
+
 	now := time.Now().UTC()
 
 	if err := s.planRepo.SetExternalCustomerID(ctx, companyID, externalCustomerID); err != nil {
@@ -147,12 +196,11 @@ func (s *PlanService) ProvisionSubscription(
 	minBalance := initialAmount / minBalanceFraction
 
 	seed := &creditSeed{
-		BalanceMillicents:          initialAmount,
-		AutoTopupMillicents:        initialAmount,
-		MaxMonthlyChargeMillicents: maxMonthly,
-		MinBalanceMillicents:       minBalance,
-		RateLimitTPS:               creditCfg.RateLimitTPS,
-		PayloadLimitBytes:          creditCfg.PayloadLimitBytes,
+		BalanceMillicents:    initialAmount,
+		AutoTopupMillicents:  initialAmount,
+		MinBalanceMillicents: minBalance,
+		RateLimitTPS:         creditCfg.RateLimitTPS,
+		PayloadLimitBytes:    creditCfg.PayloadLimitBytes,
 	}
 	account := newCreditAccount(companyID, now, creditCfg, seed)
 
@@ -233,27 +281,83 @@ func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string
 		return nil, err
 	}
 
-	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
-	if err != nil || !ok {
-		return account, nil
+	state, err := s.readCreditState(ctx, companyID)
+	if err != nil {
+		s.logger.Warn("credit check: failed to read valkey state, using db values",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
+	}
+	if !state.Populated {
+		s.logger.Warn("credit check: valkey state missing, using db values",
+			zap.String("company_id", companyID),
+		)
+		state.Balance = account.CreditBalanceMillicents
+		state.Charged = account.CreditMonthlyChargedMillicents
+		state.Pending = 0
 	}
 
-	if balance > 0 || pending > 0 {
-		return account, nil
+	minOperatingCost := s.getMinOperatingCost()
+	if err := s.evaluateCreditAvailability(account, state.Balance, state.Charged, state.Pending, minOperatingCost); err != nil {
+		return nil, err
 	}
 
-	if account.IsTopupEnabled() && charged+account.CreditAutoTopupMillicents <= account.CreditMaxMonthlyChargeMillicents {
-		return account, nil
+	return account, nil
+}
+
+func (s *PlanService) evaluateCreditAvailability(account *billing.CreditAccount, balance, charged, pending, cost int64) error {
+	if balance >= cost {
+		return nil
 	}
 
-	s.logger.Warn("credit check failed: balance reached 0 and monthly limit hit or topup disabled",
-		zap.String("company_id", companyID),
+	if !account.IsTopupEnabled() {
+		return ErrInsufficientCredit
+	}
+
+	cushion := int64(0)
+	if pending > billing.CreditDisabled {
+		cushion = pending
+	} else {
+		topup := account.CreditAutoTopupMillicents
+		max := account.CreditMaxMonthlyChargeMillicents
+		underMonthlyCap := (max == billing.CreditDisabled) || (charged+topup <= max)
+		if topup > billing.CreditDisabled && underMonthlyCap {
+			cushion = topup
+		}
+	}
+
+	if balance-cost+cushion >= 0 {
+		return nil
+	}
+
+	s.logger.Warn("credit check failed: deficit exceeds available cushion",
+		zap.String("company_id", account.CompanyID),
 		zap.Int64("balance", balance),
-		zap.Int64("charged", charged),
+		zap.Int64("cost", cost),
+		zap.Int64("cushion", cushion),
 		zap.Int64("max_monthly", account.CreditMaxMonthlyChargeMillicents),
 	)
 
-	return nil, ErrInsufficientCredit
+	return ErrInsufficientCredit
+}
+
+func (s *PlanService) getMinOperatingCost() int64 {
+	cfg := s.subConfig.Credit
+	costs := []int64{
+		cfg.ContractCostMillicents,
+		cfg.IngressCostMillicents,
+		cfg.EgressCostMillicents,
+	}
+	min := int64(math.MaxInt64)
+	for _, c := range costs {
+		if c > 0 && c < min {
+			min = c
+		}
+	}
+	if min == math.MaxInt64 {
+		return minDebitFloorMillicents
+	}
+	return min
 }
 
 func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billing.CreditAccount, payloadBytes int64) error {
@@ -283,16 +387,9 @@ func (s *PlanService) CheckRateLimit(ctx context.Context, account *billing.Credi
 }
 
 func (s *PlanService) calculateCost(meter string, amount int64) int64 {
-	if s == nil || s.subConfig == nil || amount <= 0 {
-		return 0
-	}
-
 	cfg := s.subConfig.Credit
 	switch meter {
 	case MeterBandwidthIngress, MeterBandwidthEgress:
-		// Bandwidth costs are defined "per MB" ($0.001 per MB = 100 millicents).
-		// We divide by 1024*1024 to convert bytes to MB.
-		// We use a floor of 1 millicent to ensure tiny packets are still metered if cost > 0.
 		costPerMB := cfg.IngressCostMillicents
 		if meter == MeterBandwidthEgress {
 			costPerMB = cfg.EgressCostMillicents
@@ -420,29 +517,36 @@ func (s *PlanService) writeUsageToOutbox(
 	}
 }
 
-func (s *PlanService) readCreditState(ctx context.Context, companyID string) (int64, int64, int64, bool, error) {
+type creditState struct {
+	Balance   int64
+	Charged   int64
+	Pending   int64
+	Populated bool
+}
+
+func (s *PlanService) readCreditState(ctx context.Context, companyID string) (creditState, error) {
 	keys := billing.KeysFor(companyID)
 	vals, err := s.valkeyClient.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
 	if err != nil {
-		return 0, 0, 0, false, err
+		return creditState{}, err
 	}
 
 	balanceRaw, ok := vals[keys.Balance]
 	if !ok || balanceRaw == "" {
-		return 0, 0, 0, false, nil
+		return creditState{}, nil
 	}
 	chargedRaw, ok := vals[keys.Charged]
 	if !ok || chargedRaw == "" {
-		return 0, 0, 0, false, nil
+		return creditState{}, nil
 	}
 
 	balance, err := strconv.ParseInt(balanceRaw, 10, 64)
 	if err != nil {
-		return 0, 0, 0, false, err
+		return creditState{}, err
 	}
 	charged, err := strconv.ParseInt(chargedRaw, 10, 64)
 	if err != nil {
-		return 0, 0, 0, false, err
+		return creditState{}, err
 	}
 
 	pending := int64(0)
@@ -450,11 +554,16 @@ func (s *PlanService) readCreditState(ctx context.Context, companyID string) (in
 		if parsed, parseErr := strconv.ParseInt(pendingRaw, 10, 64); parseErr == nil {
 			pending = parsed
 		} else {
-			return 0, 0, 0, false, parseErr
+			return creditState{}, parseErr
 		}
 	}
 
-	return balance, charged, pending, true, nil
+	return creditState{
+		Balance:   balance,
+		Charged:   charged,
+		Pending:   pending,
+		Populated: true,
+	}, nil
 }
 
 func (s *PlanService) CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error {
@@ -465,45 +574,20 @@ func (s *PlanService) CheckCreditAvailable(ctx context.Context, companyID, meter
 
 	cost := s.calculateCost(meter, amount)
 
-	balance, charged, pending, ok, err := s.readCreditState(ctx, companyID)
+	state, err := s.readCreditState(ctx, companyID)
 	if err != nil {
 		s.logger.Warn("failed to read credit state from valkey, falling back to DB values",
 			zap.String("company_id", companyID),
 			zap.Error(err),
 		)
 	}
-	if !ok {
-		balance = account.CreditBalanceMillicents
-		charged = account.CreditMonthlyChargedMillicents
-		pending = 0
+	if !state.Populated {
+		state.Balance = account.CreditBalanceMillicents
+		state.Charged = account.CreditMonthlyChargedMillicents
+		state.Pending = 0
 	}
 
-	if cost <= billing.CreditDisabled {
-		if balance > billing.CreditDisabled || pending > billing.CreditDisabled {
-			return nil
-		}
-		return ErrInsufficientCredit
-	}
-
-	newBalance := balance - cost
-	if newBalance >= billing.CreditDisabled {
-		return nil
-	}
-
-	if !account.IsTopupEnabled() {
-		return ErrInsufficientCredit
-	}
-
-	if pending > billing.CreditDisabled && newBalance+pending >= billing.CreditDisabled {
-		return nil
-	}
-
-	topup := account.CreditAutoTopupMillicents
-	if charged+topup <= account.CreditMaxMonthlyChargeMillicents && newBalance+topup >= billing.CreditDisabled {
-		return nil
-	}
-
-	return ErrInsufficientCredit
+	return s.evaluateCreditAvailability(account, state.Balance, state.Charged, state.Pending, cost)
 }
 
 func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
@@ -623,7 +707,7 @@ func (s *PlanService) ProcessRollovers(ctx context.Context) error {
 			finalCharged = fetchedCharged
 		}
 
-		if err := s.planRepo.UpdateMonthlyCharged(ctx, account.ID, finalCharged); err != nil {
+		if err := s.planRepo.UpdateCumulativeMonthlyCharge(ctx, account.ID, finalCharged); err != nil {
 			s.logger.Warn("failed to update old account with final charged amount",
 				zap.String("company_id", companyID),
 				zap.Error(err),

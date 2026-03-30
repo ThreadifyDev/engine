@@ -13,15 +13,6 @@ import (
 	"github.com/stripe/stripe-go/v82/client"
 )
 
-type CheckoutSessionParams struct {
-	CompanyID               string
-	Tier                    string
-	InitialAmountMillicents int64
-	MaxMonthlyMillicents    int64
-	SuccessURL              string
-	CancelURL               string
-	ExternalCustomerID      string
-}
 
 type InvoiceProvider interface {
 	Name() string
@@ -263,7 +254,6 @@ func (p *StripeBillingProvider) CreateCheckoutSession(
 
 	params.AddMetadata("company_id", checkoutParams.CompanyID)
 	params.AddMetadata("initial_amount", strconv.FormatInt(checkoutParams.InitialAmountMillicents, 10))
-	params.AddMetadata("max_monthly", strconv.FormatInt(checkoutParams.MaxMonthlyMillicents, 10))
 
 	session, err := p.api.CheckoutSessions.New(params)
 	if err != nil {
