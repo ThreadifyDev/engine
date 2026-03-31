@@ -91,7 +91,7 @@ export default function Contracts() {
           </div>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
+            className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
           >
             Upload Contract
           </button>
@@ -115,7 +115,7 @@ export default function Contracts() {
             </p>
             <button
               onClick={() => setShowUploadModal(true)}
-              className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
+              className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
             >
               Upload Contract
             </button>
@@ -192,7 +192,7 @@ export default function Contracts() {
                 <button
                   type="submit"
                   disabled={uploading}
-                  className="flex-1 px-6 py-3 bg-gray-900 text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+                  className="flex-1 px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
                 >
                   {uploading ? 'Uploading...' : 'Upload Contract'}
                 </button>

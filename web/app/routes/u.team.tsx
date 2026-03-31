@@ -216,14 +216,14 @@ export default function Team() {
           <div className="flex gap-3">
             <button
               onClick={handleBillingClick}
-              className="px-6 py-3 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+              className="px-4 py-2 bg-white text-black text-sm font-medium hover:bg-gray-100 border-2 border-black transition-colors rounded"
             >
               Update Billing
             </button>
             {canInviteMembers && (
               <button
                 onClick={() => setShowInviteModal(true)}
-                className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium"
+                className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
               >
                 Invite Member
               </button>
@@ -374,14 +374,14 @@ export default function Team() {
                               <button
                                 onClick={() => handleResendInvitation(invitation.id, invitation.email)}
                                 disabled={resendingId === invitation.id || cancelingId === invitation.id}
-                                className="text-blue-600 hover:text-blue-800 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {resendingId === invitation.id ? 'Resending...' : 'Resend'}
                               </button>
                               <button
                                 onClick={() => handleCancelInvitation(invitation.id, invitation.email)}
                                 disabled={resendingId === invitation.id || cancelingId === invitation.id}
-                                className="text-red-600 hover:text-red-800 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {cancelingId === invitation.id ? 'Canceling...' : 'Cancel'}
                               </button>
@@ -442,7 +442,7 @@ export default function Team() {
                   required
                   value={inviteForm.email}
                   onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 rounded-lg border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
                   placeholder="colleague@company.com"
                 />
               </div>
@@ -455,7 +455,7 @@ export default function Team() {
                   required
                   value={inviteForm.role}
                   onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 rounded-lg border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>

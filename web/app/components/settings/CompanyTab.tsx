@@ -27,7 +27,7 @@ export function CompanyTab({ user, companyForm, setCompanyForm, loading, onSubmi
               type="text"
               value={user?.company_name || ''}
               disabled
-              className="w-full px-4 py-3 border-2 border-gray-300 bg-gray-100 cursor-not-allowed"
+              className="w-full px-4 py-3 border-2 rounded-lg border-gray-300 bg-gray-100 cursor-not-allowed"
             />
             <p className="text-sm text-gray-600 mt-1">
               Company name cannot be changed

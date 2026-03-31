@@ -138,7 +138,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <button className="mt-6 bg-black text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
+          <button onClick={() => window.open("https://docs.threadify.dev", "_blank")} className="mt-6 bg-black text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
             View Documentation
           </button>
         </div>

@@ -299,8 +299,9 @@ class ApiClient {
     });
   }
 
-  async getUserProfile(): Promise<{ user: User; company: any }> {
-    return this.request('/user/profile', {
+  async getUserProfile(minimal?: boolean): Promise<{ user: User; company: any }> {
+    const params = minimal ? '?minimal=true' : '';
+    return this.request(`/user/profile${params}`, {
       method: 'GET',
     });
   }
@@ -308,6 +309,31 @@ class ApiClient {
   async getTeamMembers(): Promise<{ members: User[] }> {
     return this.request('/team/members', {
       method: 'GET',
+    });
+  }
+
+  async listInvitations(): Promise<{ invitations: any[] }> {
+    return this.request('/team/invitations', {
+      method: 'GET',
+    });
+  }
+
+  async sendTeamInvitation(data: { email: string; role: string }): Promise<any> {
+    return this.request('/team/invitations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resendInvitation(id: string): Promise<any> {
+    return this.request(`/team/invitations/${id}/resend`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelInvitation(id: string): Promise<any> {
+    return this.request(`/team/invitations/${id}`, {
+      method: 'DELETE',
     });
   }
 
@@ -446,6 +472,7 @@ class ApiClient {
   async createAPIKey(data: {
     name: string;
     expires_in?: number;
+    service_account_id?: string;
     create_service_account?: boolean;
     service_account_role?: string;
   }): Promise<{

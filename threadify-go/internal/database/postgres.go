@@ -825,6 +825,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE TRIGGER update_service_accounts_updated_at BEFORE UPDATE ON service_accounts
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+	-- Add updated_at column to api_keys if it doesn't exist
+	ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+
 	DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
 	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -940,6 +943,24 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
 		ON billing_snapshots(external_invoice_id);
+
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS tier;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_balance_final;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_balance_final;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_balance_initial;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_balance_initial;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_usage;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_usage;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_ingress;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_egress;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_seats;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_contracts;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS rate_limit_tps;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS payload_limit_bytes;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS is_cycle_end;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS line_items_json;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS external_subscription_id;
+	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS consecutive_overage_count;
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err
