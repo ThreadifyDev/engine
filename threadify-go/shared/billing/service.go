@@ -42,8 +42,10 @@ func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string)
 }
 
 func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error) {
-
-	extCustID, _ := s.PlanRepo.GetExternalCustomerID(ctx, companyID)
+	extCustID, err := s.PlanRepo.GetExternalCustomerID(ctx, companyID)
+	if err != nil {
+		return "", fmt.Errorf("get external customer id: %w", err)
+	}
 
 	params := CheckoutSessionParams{
 		CompanyID:               companyID,
