@@ -446,6 +446,19 @@ export default function ThreadChat() {
                 } catch (e) {
                   console.error('[CONTRACT_PREVIEW] Parse error:', e);
                 }
+              } else if (currentEvent === 'error') {
+                // Error from backend
+                const errorMsg = data.trim();
+                
+                // Check if it's a token limit error
+                if (errorMsg.includes('token limit')) {
+                  setLimitError('This conversation has reached the maximum token limit (100,000 tokens). Please start a new conversation to continue.');
+                } else {
+                  setLimitError(errorMsg);
+                }
+                
+                setIsLoading(false);
+                break;
               } else if (currentEvent === 'done') {
                 // Stream complete
                 break;

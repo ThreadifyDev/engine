@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"threadify-go/api/internal/models"
@@ -446,12 +447,19 @@ func (s *AgentService) ChatStream(
 				Variables map[string]interface{} `json:"variables"`
 			}
 			if err := json.Unmarshal([]byte(currentToolArgs), &args); err != nil {
-				return fmt.Errorf("tool args parsing error: %w", err)
+				s.logger.Error("failed to parse tool arguments",
+					zap.String("tool", currentToolName),
+					zap.String("raw_args", currentToolArgs),
+					zap.Error(err),
+				)
+				return fmt.Errorf("tool args parsing error: %w (raw: %s)", err, currentToolArgs)
 			}
 
 			engineOutput, err := s.executeGraphQL(ctx, authHeader, args.Query, args.Variables)
 			if err != nil {
-				engineOutput = fmt.Sprintf("{\"error\": \"%v\"}", err)
+				// Sanitize error - don't expose SQL or internal details
+				sanitizedErr := s.sanitizeError(err)
+				engineOutput = fmt.Sprintf("{\"error\": \"%s\"}", sanitizedErr)
 			}
 
 			messages = append(messages, openai.ChatCompletionMessage{
@@ -523,6 +531,26 @@ func (s *AgentService) ChatStream(
 	onEvent(EventDone, "true")
 
 	return nil
+}
+
+// sanitizeError removes sensitive information from errors before showing to users
+func (s *AgentService) sanitizeError(err error) string {
+	errMsg := err.Error()
+
+	if strings.Contains(errMsg, "GraphQL error") {
+		// Extract just the user-facing part if possible
+		if strings.Contains(errMsg, "status") {
+			return "The query could not be completed. Please try again."
+		}
+	}
+
+	if strings.Contains(errMsg, "payment required") || strings.Contains(errMsg, "insufficient credits") {
+		return "Insufficient credits. Please top up your account to continue."
+	}
+
+	// For other errors, return a generic message but log the real error
+	s.logger.Error("sanitized error for user", zap.Error(err))
+	return "An error occurred while processing your request. Please try again or contact support."
 }
 
 func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query string, variables map[string]interface{}) (string, error) {
