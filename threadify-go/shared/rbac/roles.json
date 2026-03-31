@@ -1,11 +1,31 @@
 {
   "app_level": {
+    "owner": {
+      "name": "Owner",
+      "description": "Company owner with full access to all features",
+      "permissions": [
+        "apikey.create",
+        "apikey.read",
+        "apikey.delete",
+        "contract.read.*",
+        "contract.create",
+        "contract.update.*",
+        "contract.delete.*",
+        "serviceaccount.*",
+        "query.execution.*",
+        "member.invite",
+        "member.remove",
+        "member.view",
+        "billing.*"
+      ]
+    },
     "standard_account": {
       "name": "Standard Account",
       "description": "Default role for user accounts",
       "permissions": [
         "apikey.create",
         "apikey.read",
+        "apikey.delete",
         "contract.read.*",
         "contract.create",
         "contract.update.*",

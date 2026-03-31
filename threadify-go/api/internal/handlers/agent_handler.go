@@ -105,11 +105,18 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 		return
 	}
 
-	convs, err := h.agentSvc.GetConversations(userID)
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	convs, err := h.agentSvc.GetConversations(companyID)
 	if err != nil {
 		h.logger.Error("failed to load conversations",
 			zap.Error(err),
 			zap.String("user_id", userID),
+			zap.String("company_id", companyID),
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
@@ -129,7 +136,13 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 		return
 	}
 
-	msgs, err := h.agentSvc.GetMessagesForUser(userID, convID)
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	msgs, err := h.agentSvc.GetMessagesForUser(companyID, convID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):

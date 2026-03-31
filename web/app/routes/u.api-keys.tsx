@@ -28,6 +28,8 @@ export default function APIKeys() {
   const [copySuccess, setCopySuccess] = useState(false);
   const [createServiceAccount, setCreateServiceAccount] = useState(true);
   const [serviceAccountRole, setServiceAccountRole] = useState('standard_service');
+  const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
+  const [selectedServiceAccountId, setSelectedServiceAccountId] = useState<string>('');
 
   // Set default role when roles are loaded
   useEffect(() => {
@@ -44,7 +46,17 @@ export default function APIKeys() {
       return;
     }
     fetchAPIKeys();
+    fetchServiceAccounts();
   }, [navigate]);
+
+  const fetchServiceAccounts = async () => {
+    try {
+      const response = await api.listServiceAccounts();
+      setServiceAccounts(response.service_accounts || []);
+    } catch (err) {
+      console.error('Failed to load service accounts:', err);
+    }
+  };
 
   const fetchAPIKeys = async () => {
     try {
@@ -68,6 +80,7 @@ export default function APIKeys() {
       const response = await api.createAPIKey({
         name: newKeyName,
         expires_in: expiresInDays,
+        service_account_id: !createServiceAccount && selectedServiceAccountId ? selectedServiceAccountId : undefined,
         create_service_account: createServiceAccount,
         service_account_role: createServiceAccount ? serviceAccountRole : undefined,
       });
@@ -76,6 +89,7 @@ export default function APIKeys() {
       setNewKeyName('');
       setExpiresIn('never');
       setCreateServiceAccount(true);
+      setSelectedServiceAccountId('');
       setServiceAccountRole('developer');
       await fetchAPIKeys();
     } catch (err) {
@@ -302,12 +316,34 @@ export default function APIKeys() {
                         className="w-4 h-4 text-black border-gray-300 rounded focus:ring-black"
                       />
                       <label htmlFor="createServiceAccount" className="ml-2 text-sm font-medium text-gray-700">
-                        Create service account with this API key
+                        Create new service account
                       </label>
                     </div>
                     <p className="text-xs text-gray-600 mb-3">
                       Service accounts provide role-based access control for your API keys
                     </p>
+                    
+                    {!createServiceAccount && (
+                      <div className="mb-3">
+                        <label htmlFor="existingServiceAccount" className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Existing Service Account
+                        </label>
+                        <select
+                          id="existingServiceAccount"
+                          value={selectedServiceAccountId}
+                          onChange={(e) => setSelectedServiceAccountId(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white text-sm"
+                          required={!createServiceAccount}
+                        >
+                          <option value="">Select a service account...</option>
+                          {serviceAccounts.map((sa) => (
+                            <option key={sa.id} value={sa.id}>
+                              {sa.name} {!sa.is_active ? '(Inactive)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     
                     {createServiceAccount && (
                       <div>

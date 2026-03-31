@@ -48,7 +48,7 @@ export default function Onboarding() {
     // Only run once on mount
     const checkCompanyStatus = async () => {
       try {
-        const response = await api.getUserProfile();
+        const response = await api.getUserProfile(true); // minimal=true for onboarding
         
         // Backend now returns { company: { details_completed: boolean } }
         if (response.company?.details_completed) {

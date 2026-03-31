@@ -56,7 +56,9 @@ export default function Settings() {
     if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile') {
       setActiveTab(tabParam as any);
     }
+  }, [searchParams]);
 
+  useEffect(() => {
     // Check authentication
     const token = api.getStoredToken();
     if (!token) {
@@ -71,11 +73,27 @@ export default function Settings() {
         full_name: storedUser.full_name || '',
         job_role: storedUser.job_role || '',
       });
-      // Company info would come from a separate API call
     }
 
+    // Load company info
+    loadCompanyInfo();
     loadBillingInfo();
   }, [navigate]);
+
+  const loadCompanyInfo = async () => {
+    try {
+      const response = await api.getUserProfile();
+      if (response.company) {
+        setCompanyForm({
+          industry: response.company.industry || '',
+          company_size: response.company.company_size || '',
+          use_case: response.company.use_case || '',
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load company info:', err);
+    }
+  };
 
   const loadBillingInfo = async () => {
     try {
@@ -164,34 +182,34 @@ export default function Settings() {
         </div>
 
         {/* Tabs */}
-        <div className="border-b-2 border-black mb-8">
+        <div className="mb-8">
           <div className="flex gap-4">
             <button
               onClick={() => navigate('?tab=profile')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
                 activeTab === 'profile'
-                  ? 'border-b-4 border-black -mb-0.5'
-                  : 'text-gray-600 hover:text-black'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
               }`}
             >
               Profile
             </button>
             <button
               onClick={() => navigate('?tab=company')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
                 activeTab === 'company'
-                  ? 'border-b-4 border-black -mb-0.5'
-                  : 'text-gray-600 hover:text-black'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
               }`}
             >
               Company
             </button>
             <button
               onClick={() => navigate('?tab=billing')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              className={`px-3 font-medium transition-colors rounded-lg ${
                 activeTab === 'billing'
-                  ? 'border-b-4 border-black -mb-0.5'
-                  : 'text-gray-600 hover:text-black'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
               }`}
             >
               Billing & Credits

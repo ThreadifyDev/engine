@@ -90,7 +90,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	now := time.Now()
 	var company *models.Company
 	var invitation *models.TeamInvitation
-	var userRole string = "standard_account"
+	var userRole string = "owner" // Default to owner for new company creators
 
 	// Check if signing up via invitation
 	if req.InvitationToken != nil && *req.InvitationToken != "" {
@@ -118,7 +118,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		}
 
 		invitation = inv
-		userRole = inv.Role
+		userRole = inv.Role // Override with invitation role for invited users
 
 		// Override email from invitation token (don't trust frontend)
 		req.Email = inv.Email

@@ -44,8 +44,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
     { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
-    { path: '/u/api-keys', label: 'API Keys', icon: Key },
-    { path: '/u/service-accounts', label: 'Service Accounts', icon: Bot },
+    { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },
     { path: '/u/settings', label: 'Settings', icon: Settings },
   ];

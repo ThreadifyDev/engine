@@ -31,6 +31,14 @@ func NewUserHandler(
 	}
 }
 
+// Helper function to safely convert string pointer to string
+func stringPtrToString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	userID, companyID, ok := getUserAndCompanyID(c)
 	if !ok {
@@ -53,9 +61,23 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// Return minimal company data - just check if details are filled
-	companyData := gin.H{
-		"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
+	// Check if minimal response requested (for onboarding)
+	minimal := c.Query("minimal") == "true"
+
+	var companyData gin.H
+	if minimal {
+		// Return only details_completed for onboarding
+		companyData = gin.H{
+			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
+		}
+	} else {
+		// Return full company data for settings page
+		companyData = gin.H{
+			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
+			"industry":          stringPtrToString(company.Industry),
+			"company_size":      stringPtrToString(company.Size),
+			"use_case":          stringPtrToString(company.UseCase),
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -177,7 +199,19 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"members": users})
+	// Filter to only return necessary fields
+	filteredUsers := make([]gin.H, len(users))
+	for i, user := range users {
+		filteredUsers[i] = gin.H{
+			"id":         user.ID,
+			"email":      user.Email,
+			"full_name":  user.FullName,
+			"job_role":   user.JobRole,
+			"created_at": user.CreatedAt,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"members": filteredUsers})
 }
 
 // helpers

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from '@remix-run/react';
 import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, Plus, X, AlertTriangle } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
@@ -84,6 +85,7 @@ export default function ThreadChat() {
   const loadConversations = async () => {
     try {
       const response = await api.getChatConversations();
+      console.log('Conversations loaded:', response);
       setConversations(response.conversations || []);
 
       // Proactive credit check
@@ -91,6 +93,7 @@ export default function ThreadChat() {
         setLimitError('Insufficient credits. Please top up your account to continue using the AI agent.');
       }
     } catch (error) {
+      console.error('Failed to load conversations:', error);
       // Silent fail - user will see empty conversation list
     }
   };
@@ -164,7 +167,13 @@ export default function ThreadChat() {
       
       // Save to localStorage for auto-restore on next visit
       localStorage.setItem('lastConversationId', convId);
-    } catch (error) {
+    } catch (error: any) {
+      // If conversation is forbidden or not found, clear it from localStorage
+      if (error?.message?.includes('forbidden') || error?.message?.includes('Forbidden')) {
+        localStorage.removeItem('lastConversationId');
+        setConversationId(null);
+        setMessages([]);
+      }
       // Silent fail - conversation won't load
     }
   };

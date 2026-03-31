@@ -308,7 +308,7 @@ func (s *AgentService) ChatStream(
 ) error {
 	var err error
 	if conversationID != "" {
-		if err := s.ensureConversationOwnership(userID, conversationID); err != nil {
+		if err := s.ensureConversationOwnership(companyID, conversationID); err != nil {
 			return err
 		}
 		msgCount, tokenCount, err := s.agentRepo.GetConversationStats(conversationID)
@@ -719,8 +719,8 @@ func (s *AgentService) getTools() []openai.Tool {
 	}
 }
 
-func (s *AgentService) ensureConversationOwnership(userID, convID string) error {
-	convs, err := s.agentRepo.GetConversations(userID)
+func (s *AgentService) ensureConversationOwnership(companyID, convID string) error {
+	convs, err := s.agentRepo.GetConversations(companyID)
 	if err != nil {
 		return fmt.Errorf("failed to verify conversation ownership: %w", err)
 	}
@@ -762,12 +762,12 @@ func (s *AgentService) updateStats(convID string, newTokens int) (int, int) {
 }
 
 // Passthrough methods for conversation management
-func (s *AgentService) GetConversations(userID string) ([]models.AgentConversation, error) {
-	return s.agentRepo.GetConversations(userID)
+func (s *AgentService) GetConversations(companyID string) ([]models.AgentConversation, error) {
+	return s.agentRepo.GetConversations(companyID)
 }
 
-func (s *AgentService) GetMessagesForUser(userID, convID string) ([]*models.AgentMessage, error) {
-	if err := s.ensureConversationOwnership(userID, convID); err != nil {
+func (s *AgentService) GetMessagesForUser(companyID, convID string) ([]*models.AgentMessage, error) {
+	if err := s.ensureConversationOwnership(companyID, convID); err != nil {
 		return nil, err
 	}
 	return s.agentRepo.GetMessages(convID)
@@ -778,7 +778,7 @@ func (s *AgentService) DeleteConversation(convID, userID string) error {
 }
 
 func (s *AgentService) ContinueConversation(ctx context.Context, userID, companyID, parentConvID string) (string, string, string, error) {
-	convs, err := s.agentRepo.GetConversations(userID)
+	convs, err := s.agentRepo.GetConversations(companyID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to load conversations: %w", err)
 	}

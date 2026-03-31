@@ -53,10 +53,9 @@ if not cost or not min_balance or not topup_amount or not max_monthly then
   return {0, -2, '', '', 0}
 end
 
-if redis.call('EXISTS', balance_key) == 0 or redis.call('EXISTS', charged_key) == 0 then
-  redis.call('SET', balance_key, seed_balance)
-  redis.call('SET', charged_key, seed_charged)
-end
+-- Always seed from PostgreSQL to prevent stale data
+redis.call('SET', balance_key, seed_balance)
+redis.call('SET', charged_key, seed_charged)
 
 local raw_balance = redis.call('GET', balance_key)
 local raw_charged = redis.call('GET', charged_key)
@@ -89,7 +88,9 @@ if not allow_topup then
   return {new_balance, 1, spend_stream_id, '', 0}
 end
 
-local needs_topup = (new_balance < 0) or (min_balance > 0 and new_balance < min_balance)
+-- Only trigger topup if balance is below min_balance AND critically low
+-- (remaining balance < topup_amount means genuinely running out)
+local needs_topup = (min_balance > 0 and new_balance < min_balance and new_balance < topup_amount)
 
 local can_request = false
 if needs_topup then
