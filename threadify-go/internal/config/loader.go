@@ -30,6 +30,10 @@ func LoadFromViper() (*Config, error) {
 		cfg.Security.HashChainSecrets[key] = expandEnv(secret)
 	}
 
+	// Expand environment variables for billing configuration
+	cfg.Billing.SecretKey = expandEnv(cfg.Billing.SecretKey)
+	cfg.Billing.WebhookSecret = expandEnv(cfg.Billing.WebhookSecret)
+
 	cfg.Archiver.Retry.InitialBackoff = time.Duration(cfg.Archiver.Retry.InitialBackoffMs) * time.Millisecond
 	cfg.Archiver.Retry.MaxBackoff = time.Duration(cfg.Archiver.Retry.MaxBackoffMs) * time.Millisecond
 	cfg.Archiver.Streams.BlockTimeout = time.Duration(cfg.Archiver.Streams.BlockTimeoutMs) * time.Millisecond

@@ -33,6 +33,7 @@ WORKDIR /app
 COPY --from=builder /app/bin/server /app/server
 COPY --from=builder /app/internal /app/internal
 COPY --from=builder /app/config/config.yaml /app/config/config.yaml
+COPY --from=builder /app/config/subscription.yaml /app/config/subscription.yaml
 COPY --from=builder /app/shared/rbac /app/shared/rbac
 
 # Expose port

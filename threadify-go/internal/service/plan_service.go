@@ -170,8 +170,10 @@ func (s *PlanService) ProvisionSubscription(
 
 		minBalance := newBalance / minBalanceFraction
 
-		if err := s.planRepo.UpdateTopupSettings(ctx, companyID, initialAmount, minBalance); err != nil {
-			s.logger.Warn("failed to update topup settings on manual topup", zap.Error(err))
+		// Manual topup should NOT enable auto-topup - only update min_balance
+		// Auto-topup should only be enabled via explicit user configuration
+		if err := s.planRepo.UpdateTopupSettings(ctx, companyID, 0, minBalance); err != nil {
+			s.logger.Warn("failed to update min balance on manual topup", zap.Error(err))
 		}
 
 		s.logger.Info("processed manual topup for existing subscription",
@@ -197,7 +199,7 @@ func (s *PlanService) ProvisionSubscription(
 
 	seed := &creditSeed{
 		BalanceMillicents:    initialAmount,
-		AutoTopupMillicents:  initialAmount,
+		AutoTopupMillicents:  0, // Manual topup should NOT enable auto-topup
 		MinBalanceMillicents: minBalance,
 		RateLimitTPS:         creditCfg.RateLimitTPS,
 		PayloadLimitBytes:    creditCfg.PayloadLimitBytes,
