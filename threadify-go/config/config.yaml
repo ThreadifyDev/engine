@@ -25,7 +25,6 @@ redis:
 
 auth_provider: supabase
 
-
 supabase:
   url: "$SUPABASE_URL:"
   publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"

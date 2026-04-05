@@ -50,12 +50,15 @@ func (r *PlanRepository) GetCreditAccount(ctx context.Context, companyID string)
 
 func (r *PlanRepository) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
 	const query = `SELECT external_customer_id FROM companies WHERE id = $1`
-	var externalID string
+	var externalID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, companyID).Scan(&externalID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
-	return externalID, err
+	if err != nil {
+		return "", err
+	}
+	return externalID.String, nil
 }
 
 func (r *PlanRepository) SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error {

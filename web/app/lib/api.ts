@@ -155,7 +155,8 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      let errorMessage = data.error || data.message || 'An error occurred';
+      // Prefer 'message' field for user-friendly errors, fallback to 'error' field
+      let errorMessage = data.message || data.error || 'An error occurred';
 
       // Cleanup internal billing error prefixes
       if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
