@@ -557,9 +557,15 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 	for _, e := range events {
 		h := e.Data["hash"]
 		if h == "" {
-			w.logger.Warn("activity event missing hash, including without dedup",
-				zap.String("thread_id", e.Data["threadId"]),
-			)
+			if e.Data["type"] == "step_recorded" {
+				w.logger.Warn("step activity event missing hash, including without dedup",
+					zap.String("thread_id", e.Data["threadId"]),
+				)
+			} else {
+				w.logger.Debug("non-step activity lacks hash, including without dedup",
+					zap.String("type", e.Data["type"]),
+				)
+			}
 			deduped = append(deduped, e)
 			continue
 		}

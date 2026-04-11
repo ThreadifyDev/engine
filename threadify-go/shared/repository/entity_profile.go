@@ -41,14 +41,14 @@ func (r *EntityProfileRepo) GetProfileByRefKey(ctx context.Context, companyID, p
 func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfileID string) (*models.EntityProfileMetrics, error) {
 	query := `
 		SELECT entity_profile_id, total_deliveries, completed_successfully, validation_violations, 
-		       delivery_health_score, health_trend_slope, average_delivery_time_ms, last_calculated_at 
+		       delivery_health_score, prev_delivery_health_score, health_trend_slope, average_delivery_time_ms, last_calculated_at 
 		FROM entity_profile_metrics 
 		WHERE entity_profile_id = $1
 	`
 	row := r.pool.QueryRow(ctx, query, entityProfileID)
 	var m models.EntityProfileMetrics
 	err := row.Scan(&m.EntityProfileID, &m.TotalDeliveries, &m.CompletedSuccessfully, &m.ValidationViolations,
-		&m.DeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt)
+		&m.DeliveryHealthScore, &m.PrevDeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt)
 	return &m, err
 }
 
@@ -57,7 +57,7 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 		SELECT
 			ep.id, ep.company_id, ep.entity_profile_type_id, ep.name, ep.ref_key, ep.created_at, ep.last_active_at,
 			epm.entity_profile_id, epm.total_deliveries, epm.completed_successfully, epm.validation_violations,
-			epm.delivery_health_score, epm.health_trend_slope, epm.average_delivery_time_ms, epm.last_calculated_at
+			epm.delivery_health_score, epm.prev_delivery_health_score, epm.health_trend_slope, epm.average_delivery_time_ms, epm.last_calculated_at
 		FROM entity_profile ep
 		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id
 		LEFT JOIN entity_profile_metrics epm ON epm.entity_profile_id = ep.id
@@ -74,7 +74,7 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 	err := row.Scan(
 		&p.ID, &p.CompanyID, &p.ProfileTypeID, &p.Name, &p.RefKey, &p.CreatedAt, &p.LastActiveAt,
 		&metricsID, &totalDeliveries, &completed, &validations,
-		&m.DeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt,
+		&m.DeliveryHealthScore, &m.PrevDeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt,
 	)
 	if err != nil {
 		return nil, nil, err

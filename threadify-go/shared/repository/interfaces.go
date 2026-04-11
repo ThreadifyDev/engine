@@ -32,4 +32,5 @@ type EntityProfileRepository interface {
 	GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*models.EntityProfile, error)
 	GetProfileMetrics(ctx context.Context, entityProfileID string) (*models.EntityProfileMetrics, error)
 	GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*models.EntityProfile, *models.EntityProfileMetrics, error)
+	GetProfilesByTypeWithMetrics(ctx context.Context, companyID, typeName string) ([]*models.EntityProfile, []*models.EntityProfileMetrics, error)
 }
