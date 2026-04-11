@@ -66,8 +66,6 @@ func run(configPath string, logger *zap.Logger) error {
 	}
 	defer db.Close()
 
-	// logger.Info("connected to postgres", zap.String("url", maskURL(cfg.Postgres.URL)))
-
 	if err := db.InitSchema(context.Background()); err != nil {
 		return fmt.Errorf("init schema: %w", err)
 	}
@@ -75,7 +73,7 @@ func run(configPath string, logger *zap.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	stepStateConsumer, intelligenceConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
 	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
@@ -104,6 +102,9 @@ func run(configPath string, logger *zap.Logger) error {
 	if stepStateConsumer != nil {
 		stepStateConsumer.Stop()
 	}
+	if intelligenceConsumer != nil {
+		intelligenceConsumer.Stop()
+	}
 	if natsConn != nil {
 		natsConn.Drain()
 	}
@@ -124,7 +125,7 @@ func startNATSConsumers(
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
 	logger *zap.Logger,
-) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
+) (stepState *archiver.StepStateConsumer, intel *archiver.IntelligenceConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -132,7 +133,7 @@ func startNATSConsumers(
 
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect nats: %w", err)
+		return nil, nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
 	hostname, _ := os.Hostname()
@@ -148,7 +149,7 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, nil, fmt.Errorf("create nats consumer: %w", err)
 	}
 
 	go func() {
@@ -171,16 +172,33 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
+		return nil, nil, nil, fmt.Errorf("create step state consumer: %w", err)
 	}
 
 	if err := stepStateConsumer.Start(ctx); err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
+		return nil, nil, nil, fmt.Errorf("start step state consumer: %w", err)
+	}
+
+	intelligenceConsumer, err := archiver.NewIntelligenceConsumer(
+		nc, db,
+		cfg.Archiver.Streams.BatchSize,
+		flushInterval,
+		consumerPrefix+"-intelligence",
+		logger,
+	)
+	if err != nil {
+		nc.Close()
+		return nil, nil, nil, fmt.Errorf("create intelligence consumer: %w", err)
+	}
+
+	if err := intelligenceConsumer.Start(ctx); err != nil {
+		nc.Close()
+		return nil, nil, nil, fmt.Errorf("start intelligence consumer: %w", err)
 	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return stepStateConsumer, nc, nil
+	return stepStateConsumer, intelligenceConsumer, nc, nil
 }
 
 func maskURL(url string) string {
