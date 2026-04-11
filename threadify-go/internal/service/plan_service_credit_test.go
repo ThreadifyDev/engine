@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"threadify-go/shared/billing"
+	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/config"
@@ -64,7 +65,7 @@ func (*stubLuaScripts) GetAndResetCharged(ctx context.Context, balanceKey, charg
 	return 0, 0, nil
 }
 
-func newPlanServiceForTest(repo interfaces.PlanRepository, valkey interfaces.ValkeyClient, subCfg *config.SubscriptionConfig) *PlanService {
+func newPlanServiceForTest(repo sharedrepo.PlanRepository, valkey interfaces.ValkeyClient, subCfg *config.SubscriptionConfig) *PlanService {
 	if subCfg == nil {
 		subCfg = &config.SubscriptionConfig{Credit: config.CreditConfig{}}
 	}

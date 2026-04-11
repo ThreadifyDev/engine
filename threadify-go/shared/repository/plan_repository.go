@@ -1,4 +1,4 @@
-package postgres
+package repository
 
 import (
 	"context"
@@ -8,20 +8,21 @@ import (
 
 	serror "threadify-go/shared/errors"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PlanRepository struct {
+type PlanRepo struct {
 	pool *pgxpool.Pool
 }
 
-func NewPlanRepository(pool *pgxpool.Pool) *PlanRepository {
-	return &PlanRepository{pool: pool}
+func NewPlanRepo(pool *pgxpool.Pool) *PlanRepo {
+	return &PlanRepo{pool: pool}
 }
 
-func (r *PlanRepository) GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
 	const query = `
 		SELECT 
 			ca.id, ca.company_id, ca.billing_cycle_start,
@@ -53,7 +54,7 @@ func (r *PlanRepository) GetCreditAccount(ctx context.Context, companyID string)
 	return account, nil
 }
 
-func (r *PlanRepository) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
+func (r *PlanRepo) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
 	const query = `SELECT external_customer_id FROM companies WHERE id = $1`
 	var externalID string
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(&externalID)
@@ -66,13 +67,13 @@ func (r *PlanRepository) GetExternalCustomerID(ctx context.Context, companyID st
 	return externalID, nil
 }
 
-func (r *PlanRepository) SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error {
+func (r *PlanRepo) SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error {
 	const query = `UPDATE companies SET external_customer_id = $1, updated_at = NOW() WHERE id = $2`
 	_, err := r.pool.Exec(ctx, query, externalCustomerID, companyID)
 	return err
 }
 
-func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
+func (r *PlanRepo) FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
 	const query = `SELECT id FROM companies WHERE external_customer_id = $1 LIMIT 1`
 	var id string
 	err := r.pool.QueryRow(ctx, query, externalCustomerID).Scan(&id)
@@ -82,7 +83,7 @@ func (r *PlanRepository) FindCompanyByExternalCustomerID(ctx context.Context, ex
 	return id, err
 }
 
-func (r *PlanRepository) ListCompaniesForRollover(ctx context.Context) (map[string]string, error) {
+func (r *PlanRepo) ListCompaniesForRollover(ctx context.Context) (map[string]string, error) {
 	const query = `
 		SELECT DISTINCT c.id, COALESCE(c.external_customer_id, '')
 		FROM companies c
@@ -107,7 +108,7 @@ func (r *PlanRepository) ListCompaniesForRollover(ctx context.Context) (map[stri
 	return companies, rows.Err()
 }
 
-func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error {
+func (r *PlanRepo) CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error {
 	const query = `
 		INSERT INTO credit_accounts (
 			id, company_id, billing_cycle_start,
@@ -125,7 +126,7 @@ func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billi
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
 			return serror.ErrDuplicateCreditAccount
 		}
 		return fmt.Errorf("create credit account: %w", err)
@@ -133,13 +134,13 @@ func (r *PlanRepository) CreateCreditAccount(ctx context.Context, account *billi
 	return nil
 }
 
-func (r *PlanRepository) UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error {
+func (r *PlanRepo) UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error {
 	const query = `UPDATE credit_accounts SET credit_monthly_charged_millicents = $1, updated_at = NOW() WHERE id = $2`
 	_, err := r.pool.Exec(ctx, query, amount, id)
 	return err
 }
 
-func (r *PlanRepository) UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
+func (r *PlanRepo) UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error {
 	const query = `
 		WITH latest AS (
 			SELECT id FROM credit_accounts
@@ -164,7 +165,7 @@ func (r *PlanRepository) UpdateMaxMonthlyCharge(ctx context.Context, companyID s
 	return nil
 }
 
-func (r *PlanRepository) UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error {
+func (r *PlanRepo) UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error {
 	const query = `
         WITH latest AS (
             SELECT id FROM credit_accounts

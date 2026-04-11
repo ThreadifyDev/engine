@@ -2,6 +2,38 @@
 
 package generated
 
+type EntityProfile struct {
+	ID            string                `json:"id"`
+	RefKey        string                `json:"refKey"`
+	CompanyID     string                `json:"companyId"`
+	ProfileTypeID string                `json:"profileTypeId"`
+	Name          *string               `json:"name,omitempty"`
+	CreatedAt     string                `json:"createdAt"`
+	LastActiveAt  string                `json:"lastActiveAt"`
+	Metrics       *EntityProfileMetrics `json:"metrics,omitempty"`
+}
+
+type EntityProfileMetrics struct {
+	EntityProfileID       string   `json:"entityProfileId"`
+	TotalDeliveries       int      `json:"totalDeliveries"`
+	CompletedSuccessfully int      `json:"completedSuccessfully"`
+	ValidationViolations  int      `json:"validationViolations"`
+	DeliveryHealthScore   *float64 `json:"deliveryHealthScore,omitempty"`
+	HealthTrendSlope      *float64 `json:"healthTrendSlope,omitempty"`
+	AverageDeliveryTimeMs *int     `json:"averageDeliveryTimeMs,omitempty"`
+	LastCalculatedAt      *string  `json:"lastCalculatedAt,omitempty"`
+}
+
+type EntityProfileType struct {
+	ID          string  `json:"id"`
+	CompanyID   string  `json:"companyId"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"createdAt"`
+	UpdatedAt   string  `json:"updatedAt"`
+}
+
 type Mutation struct {
 }
 

@@ -9,6 +9,7 @@ import (
 
 	shderrors "threadify-go/shared/errors"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +20,11 @@ import (
 // kept in sync with the Scan calls in scanContract and scanVersion.
 const contractCols = `id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
 const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at`
+
+const (
+	constrContractNameCompanyActive = "idx_contracts_name_company_active"
+	constrUniqueContractName        = "unique_contract_name"
+)
 
 type ContractRepository struct {
 	pool *pgxpool.Pool
@@ -54,10 +60,10 @@ func contractErr(err error) error {
 		return shderrors.ErrContractNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		if strings.Contains(pgErr.ConstraintName, "idx_contracts_name_company_active") ||
-			strings.Contains(pgErr.ConstraintName, "unique_contract_name") ||
-			strings.Contains(pgErr.Message, "idx_contracts_name_company_active") {
+	if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+		if strings.Contains(pgErr.ConstraintName, constrContractNameCompanyActive) ||
+			strings.Contains(pgErr.ConstraintName, constrUniqueContractName) ||
+			strings.Contains(pgErr.Message, constrContractNameCompanyActive) {
 			return shderrors.ErrContractAlreadyExists
 		}
 	}

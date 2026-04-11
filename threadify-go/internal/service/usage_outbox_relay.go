@@ -11,6 +11,7 @@ import (
 
 	"threadify-go/shared/database"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	internaldb "github.com/threadify/engine/internal/database"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -256,6 +257,9 @@ func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string,
 			if b, exists := window[key]; exists {
 				b.amount += amount
 				b.timestamp = timestamp
+				if !isCreditMeter(meter) {
+					b.eventID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(b.eventID+":"+eventID)).String()
+				}
 			} else {
 				window[key] = &bucket{
 					companyID:         companyID,

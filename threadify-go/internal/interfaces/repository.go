@@ -9,18 +9,6 @@ import (
 	"github.com/threadify/engine/internal/models"
 )
 
-type PlanRepository interface {
-	GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error)
-	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
-	SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error
-	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
-	ListCompaniesForRollover(ctx context.Context) (map[string]string, error)
-	CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error
-	UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error
-	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
-	UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error
-}
-
 type ContractRepository interface {
 	Create(ctx context.Context, contract *models.Contract) error
 	CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error

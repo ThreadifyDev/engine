@@ -18,6 +18,7 @@ import (
 	"threadify-go/shared/billing"
 	"threadify-go/shared/logger"
 	"threadify-go/shared/rbac"
+	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
@@ -247,7 +248,7 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 
 	threadAccessSvc := service.NewThreadAccessService(accessRepo, cacheManager, luaScriptManager, rbacLoader, logger)
 
-	planRepo := postgres.NewPlanRepository(d.db.Pool)
+	planRepo := sharedrepo.NewPlanRepo(d.db.Pool)
 
 	planSvc := service.NewPlanService(planRepo, contractRepo, actorRepo, &cfg.Subscription, d.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs)
 	usageOutboxRelay := service.NewUsageOutboxRelay(d.valkey, natsArchival, logger)
@@ -307,11 +308,15 @@ func buildServer(cfg *config.Config, d *deps, logger *zap.Logger) *http.Server {
 		logger,
 	)
 
+	entityProfileRepo := sharedrepo.NewEntityProfileRepo(d.db.Pool)
+	entityProfileTypeRepo := sharedrepo.NewEntityProfileTypeRepository(d.db.Pool)
+
 	graphqlResolver := graphql.NewResolver(
 		threadRepo, stepStateRepo, validationRepo, accessRepo,
 		threadAccessSvc, threadSvc.GetContractValidator(), contractRepo,
 		refsRepo, postgresStepRepo, activityRepo, actorRepo,
 		notificationRepo, subStepRepo,
+		entityProfileRepo, entityProfileTypeRepo,
 		planSvc,
 		logger,
 	)
