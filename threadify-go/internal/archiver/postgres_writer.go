@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -141,21 +142,25 @@ func partitionThreadEvents(events []StreamEvent) (insert, completion, ref []Stre
 	return
 }
 
-func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) error {
+func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) ([]string, error) {
 	if len(events) == 0 {
-		return nil
+		return nil, nil
 	}
 	w.logger.Info("received thread metadata events", zap.Int("count", len(events)))
 
 	insert, completion, ref := partitionThreadEvents(events)
 
 	if err := w.writeNewThreads(ctx, insert); err != nil {
-		return err
+		return nil, err
 	}
-	if err := w.WriteThreadRefs(ctx, ref); err != nil {
-		return err
+	profileIDs, err := w.WriteThreadRefs(ctx, ref)
+	if err != nil {
+		return nil, err
 	}
-	return w.batchUpdateThreadStatus(ctx, completion)
+	if err := w.batchUpdateThreadStatus(ctx, completion); err != nil {
+		return nil, err
+	}
+	return profileIDs, nil
 }
 
 func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEvent) error {
@@ -296,25 +301,20 @@ func (w *PostgresWriter) batchUpdateThreadStatus(ctx context.Context, events []S
 	return nil
 }
 
-func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEvent) error {
+func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEvent) ([]string, error) {
 	if len(events) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	threadIDs := make([]string, 0, len(events))
 	for _, e := range events {
 		threadIDs = append(threadIDs, e.Data["threadId"])
 	}
-	validThreads, err := w.queryExistingIDs(ctx, "threads", "id", threadIDs)
-	if err != nil {
-		return err
-	}
 
 	type refKey struct {
 		threadID string
 		key      string
 	}
-
 	unique := make(map[refKey]StreamEvent, len(events))
 	ordered := make([]refKey, 0, len(events))
 	for _, e := range events {
@@ -325,10 +325,40 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 		unique[k] = e
 	}
 
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].threadID != ordered[j].threadID {
+			return ordered[i].threadID < ordered[j].threadID
+		}
+		return ordered[i].key < ordered[j].key
+	})
+
+	tx, err := w.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin WriteThreadRefs tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	validRows, err := tx.Query(ctx, `SELECT id FROM threads WHERE id = ANY($1::text[])`, threadIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query existing threads: %w", err)
+	}
+	validThreads := make(map[string]bool, len(threadIDs))
+	for validRows.Next() {
+		var id string
+		if err := validRows.Scan(&id); err != nil {
+			validRows.Close()
+			return nil, fmt.Errorf("scan thread id: %w", err)
+		}
+		validThreads[id] = true
+	}
+	validRows.Close()
+	if err := validRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate thread rows: %w", err)
+	}
+
 	const cols = 3
 	rb := newRowBuilder(cols)
 	var skipped int
-
 	for _, k := range ordered {
 		e := unique[k]
 		if !validThreads[k.threadID] {
@@ -342,7 +372,7 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 	}
 
 	if rb.len() == 0 {
-		return nil
+		return nil, nil
 	}
 
 	refsQuery := `
@@ -352,40 +382,75 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 			ref_value  = EXCLUDED.ref_value,
 			updated_at = NOW()`
 
-	if err := w.batchExec(ctx, "write thread refs", refsQuery, rb.Values); err != nil {
-		return err
+	if _, err := tx.Exec(ctx, refsQuery, rb.Values...); err != nil {
+		return nil, fmt.Errorf("write thread refs: %w", err)
 	}
 
 	profilesQuery := `
-		WITH matched_types AS (
-			SELECT id AS type_id, company_id, type
-			FROM entity_profile_type
-			WHERE archived_at IS NULL
-		)
-		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
-		SELECT
-			gen_random_uuid()::varchar,
-			t.company_id,
-			mt.type_id,
-			v.ref_value::varchar,
-			v.ref_value::varchar,
-			NOW(),
-			NOW()
-		FROM (VALUES ` + rb.placeholders() + `) AS v(thread_id, ref_key, ref_value)
-		JOIN threads t ON t.id = v.thread_id
-		JOIN matched_types mt ON mt.company_id = t.company_id AND mt.type = v.ref_key
-		ON CONFLICT (company_id, entity_profile_type_id, ref_key)
-		DO UPDATE SET last_active_at = NOW()`
+    WITH matched_types AS (
+        SELECT id AS type_id, company_id, type
+        FROM entity_profile_type
+        WHERE archived_at IS NULL
+    ),
+    candidates AS (
+        SELECT DISTINCT ON (t.company_id, mt.type_id, v.ref_value)
+            t.company_id,
+            mt.type_id,
+            v.ref_value::varchar
+        FROM (VALUES ` + rb.placeholders() + `) AS v(thread_id, ref_key, ref_value)
+        JOIN threads t ON t.id = v.thread_id
+        JOIN matched_types mt ON mt.company_id = t.company_id AND mt.type = v.ref_key
+    )
+    INSERT INTO entity_profile (
+        id, company_id, entity_profile_type_id,
+        name, ref_key, created_at, last_active_at
+    )
+    SELECT
+        gen_random_uuid()::varchar,
+        company_id,
+        type_id,
+        ref_value,
+        ref_value,
+        NOW(),
+        NOW()
+    FROM candidates
+    ON CONFLICT (company_id, entity_profile_type_id, ref_key)
+    DO UPDATE SET last_active_at = NOW()
+    RETURNING id`
 
-	if _, err := w.db.Pool.Exec(ctx, profilesQuery, rb.Values...); err != nil {
-		w.logger.Error("failed to auto-create entity profiles from thread refs", zap.Error(err))
+	profileRows, err := tx.Query(ctx, profilesQuery, rb.Values...)
+	if err != nil {
+		return nil, fmt.Errorf("auto-create entity profiles: %w", err)
 	}
 
-	w.logger.Info("wrote thread refs and synced matching entity profiles",
-		zap.Int("count", rb.len()),
+	seenProfiles := make(map[string]struct{})
+	var profileIDs []string
+	for profileRows.Next() {
+		var id string
+		if err := profileRows.Scan(&id); err != nil {
+			profileRows.Close()
+			return nil, fmt.Errorf("scan profile id: %w", err)
+		}
+		if _, exists := seenProfiles[id]; !exists {
+			seenProfiles[id] = struct{}{}
+			profileIDs = append(profileIDs, id)
+		}
+	}
+	profileRows.Close()
+	if err := profileRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate profile rows: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit WriteThreadRefs tx: %w", err)
+	}
+
+	w.logger.Info("wrote thread refs and synced profiles",
+		zap.Int("refs", rb.len()),
+		zap.Int("profiles_touched", len(profileIDs)),
 		zap.Int("skipped", skipped),
 	)
-	return nil
+	return profileIDs, nil
 }
 
 func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamEvent) error {
