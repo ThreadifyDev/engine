@@ -31,7 +31,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 		return
 	}
 
-	response, err := h.apiKeyService.CreateAPIKey(userID.(string), companyID.(string), &req)
+	response, err := h.apiKeyService.CreateAPIKey(c.Request.Context(), userID.(string), companyID.(string), &req)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -50,7 +50,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 	companyID, _ := c.Get("companyID")
 
-	keys, err := h.apiKeyService.ListAPIKeys(companyID.(string))
+	keys, err := h.apiKeyService.ListAPIKeys(c.Request.Context(), companyID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch API keys"})
 		return
@@ -70,7 +70,7 @@ func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
 		return
 	}
 
-	err := h.apiKeyService.RevokeAPIKey(keyID, companyID.(string))
+	err := h.apiKeyService.RevokeAPIKey(c.Request.Context(), keyID, companyID.(string))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

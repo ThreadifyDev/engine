@@ -945,23 +945,57 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
 		ON billing_snapshots(external_invoice_id);
 
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS tier;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_balance_final;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_balance_final;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_balance_initial;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_balance_initial;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS ingress_usage;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS egress_usage;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_ingress;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_egress;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_seats;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS max_contracts;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS rate_limit_tps;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS payload_limit_bytes;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS is_cycle_end;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS line_items_json;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS external_subscription_id;
-	ALTER TABLE billing_snapshots DROP COLUMN IF EXISTS consecutive_overage_count;
+	CREATE TABLE IF NOT EXISTS entity_profile_type (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		type VARCHAR(255) NOT NULL,
+		description TEXT,
+		archived_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, type),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_company ON entity_profile_type(company_id);
+
+	CREATE TABLE IF NOT EXISTS entity_profile (
+		id VARCHAR(255) PRIMARY KEY,
+		ref_key VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
+		entity_profile_type_id VARCHAR(255) NOT NULL,
+		name VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_active_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, entity_profile_type_id, ref_key),
+		FOREIGN KEY (entity_profile_type_id) REFERENCES entity_profile_type(id) ON DELETE CASCADE,
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS entity_profile_metrics (
+		entity_profile_id VARCHAR(255) PRIMARY KEY,
+		total_deliveries INT NOT NULL DEFAULT 0,
+		completed_successfully INT NOT NULL DEFAULT 0,
+		validation_violations INT NOT NULL DEFAULT 0,
+		delivery_health_score DECIMAL(5,2),
+		health_trend_slope DECIMAL(5,2),
+		average_delivery_time_ms BIGINT,
+		last_calculated_at TIMESTAMP,
+		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS entity_partner_compatibility (
+		id UUID PRIMARY KEY,
+		entity_profile_id VARCHAR(255) NOT NULL,
+		partner_ref VARCHAR(255) NOT NULL,
+		total_interactions INT NOT NULL DEFAULT 0,
+		successful_interactions INT NOT NULL DEFAULT 0,
+		compatibility_score DECIMAL(5,2),
+		last_calculated_at TIMESTAMP,
+		UNIQUE(entity_profile_id, partner_ref),
+		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
+	);
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err

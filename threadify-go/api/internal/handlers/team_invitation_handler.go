@@ -138,7 +138,7 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 	}
 
 	// Validate token and get invitation
-	invitation, err := h.invitationSvc.ValidateToken(req.Token)
+	invitation, err := h.invitationSvc.ValidateToken(c.Request.Context(), req.Token)
 	if err != nil {
 		h.logger.Warn("invalid invitation token",
 			zap.String("token", req.Token),
@@ -149,7 +149,7 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 	}
 
 	// Get company name
-	company, err := h.companyRepo.FindByID(invitation.CompanyID)
+	company, err := h.companyRepo.FindByID(c.Request.Context(), invitation.CompanyID)
 	if err != nil {
 		h.logger.Error("failed to get company",
 			zap.String("company_id", invitation.CompanyID),
@@ -176,7 +176,7 @@ func (h *TeamInvitationHandler) ListInvitations(c *gin.Context) {
 	}
 
 	// Get invitations for company
-	invitations, err := h.invitationSvc.ListByCompany(companyID.(string))
+	invitations, err := h.invitationSvc.ListByCompany(c.Request.Context(), companyID.(string))
 	if err != nil {
 		h.logger.Error("failed to list invitations",
 			zap.String("company_id", companyID.(string)),
@@ -224,7 +224,7 @@ func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
 	}
 
 	// Get existing invitation
-	invitation, err := h.invitationSvc.GetByID(invitationID)
+	invitation, err := h.invitationSvc.GetByID(c.Request.Context(), invitationID)
 	if err != nil || invitation == nil {
 		h.logger.Error("invitation not found",
 			zap.String("invitation_id", invitationID),
@@ -295,7 +295,7 @@ func (h *TeamInvitationHandler) CancelInvitation(c *gin.Context) {
 	}
 
 	// Get existing invitation
-	invitation, err := h.invitationSvc.GetByID(invitationID)
+	invitation, err := h.invitationSvc.GetByID(c.Request.Context(), invitationID)
 	if err != nil || invitation == nil {
 		h.logger.Error("invitation not found",
 			zap.String("invitation_id", invitationID),

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	shderrors "threadify-go/shared/errors"
+	sharedmodels "threadify-go/shared/models"
 	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
@@ -491,6 +492,83 @@ func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount 
 	}
 
 	return true, nil
+}
+
+func (r *queryResolver) EntityProfile(ctx context.Context, refKey string, typeArg string) (*generated.EntityProfile, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, typeArg, refKey)
+	if err != nil {
+		return nil, nil
+	}
+
+	return &generated.EntityProfile{
+		ID:            profile.ID,
+		RefKey:        profile.RefKey,
+		CompanyID:     profile.CompanyID,
+		ProfileTypeID: profile.ProfileTypeID,
+		Name:          &profile.Name,
+		CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+		LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+		Metrics:       toGraphQLMetrics(metrics),
+	}, nil
+}
+
+func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.EntityProfileType, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	types, err := r.entityProfileTypeRepo.GetProfileTypesByCompanyID(ctx, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch entity profile types: %w", err)
+	}
+
+	result := make([]*generated.EntityProfileType, len(types))
+	for i, t := range types {
+		result[i] = toGraphQLProfileType(t)
+	}
+	return result, nil
+}
+
+func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityProfileMetrics {
+	if m == nil {
+		return nil
+	}
+	out := &generated.EntityProfileMetrics{
+		EntityProfileID:       m.EntityProfileID,
+		TotalDeliveries:       m.TotalDeliveries,
+		CompletedSuccessfully: m.CompletedSuccessfully,
+		ValidationViolations:  m.ValidationViolations,
+		DeliveryHealthScore:   m.DeliveryHealthScore,
+		HealthTrendSlope:      m.HealthTrendSlope,
+	}
+	if m.AverageDeliveryTimeMs != nil {
+		v := int(*m.AverageDeliveryTimeMs)
+		out.AverageDeliveryTimeMs = &v
+	}
+	if m.LastCalculatedAt != nil {
+		v := m.LastCalculatedAt.Format(time.RFC3339)
+		out.LastCalculatedAt = &v
+	}
+	return out
+}
+
+func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
+	desc := t.Description
+	return &generated.EntityProfileType{
+		ID:          t.ID,
+		CompanyID:   t.CompanyID,
+		Name:        t.Name,
+		Type:        t.Type,
+		Description: &desc,
+		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 // Error is the resolver for the error field on StepHistory.

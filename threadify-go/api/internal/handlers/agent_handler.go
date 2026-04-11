@@ -111,7 +111,7 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 		return
 	}
 
-	convs, err := h.agentSvc.GetConversations(companyID)
+	convs, err := h.agentSvc.GetConversations(c.Request.Context(), companyID)
 	if err != nil {
 		h.logger.Error("failed to load conversations",
 			zap.Error(err),
@@ -142,7 +142,7 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 		return
 	}
 
-	msgs, err := h.agentSvc.GetMessagesForUser(companyID, convID)
+	msgs, err := h.agentSvc.GetMessagesForUser(c.Request.Context(), companyID, convID)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
@@ -171,7 +171,7 @@ func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 		return
 	}
 
-	if err := h.agentSvc.DeleteConversation(convID, userID); err != nil {
+	if err := h.agentSvc.DeleteConversation(c.Request.Context(), convID, userID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})

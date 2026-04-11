@@ -16,6 +16,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/nats"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	natsio "github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 )
@@ -27,6 +28,7 @@ const (
 )
 
 type OutboxWorker struct {
+	pool          *pgxpool.Pool
 	outboxRepo    *repository.OutboxRepository
 	userRepo      *repository.UserRepository
 	companyRepo   *repository.CompanyRepository
@@ -38,6 +40,7 @@ type OutboxWorker struct {
 }
 
 func NewOutboxWorker(
+	pool *pgxpool.Pool,
 	outboxRepo *repository.OutboxRepository,
 	userRepo *repository.UserRepository,
 	companyRepo *repository.CompanyRepository,
@@ -49,11 +52,11 @@ func NewOutboxWorker(
 	key, err := hex.DecodeString(encryptionKey)
 	if err != nil {
 		logger.Error("failed to decode outbox encryption key", zap.Error(err))
-		// Fallback to raw bytes if hex decoding fails.
 		key = []byte(encryptionKey)
 	}
 
 	return &OutboxWorker{
+		pool:          pool,
 		outboxRepo:    outboxRepo,
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
@@ -102,7 +105,7 @@ func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 }
 
 func (w *OutboxWorker) processEvents(ctx context.Context) {
-	events, err := w.outboxRepo.FetchPendingDue(batchSize)
+	events, err := w.outboxRepo.FetchPendingDue(ctx, batchSize)
 	if err != nil {
 		w.logger.Error("outbox: failed to fetch pending events", zap.Error(err))
 		return
@@ -126,7 +129,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 				retryExp = 20
 			}
 			backoff := time.Duration(math.Pow(2, float64(retryExp))) * backoffDelay
-			if err := w.outboxRepo.MarkFailedWithRetry(event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
+			if err := w.outboxRepo.MarkFailedWithRetry(ctx, event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
 				w.logger.Error("outbox: failed to mark event for retry",
 					zap.String("event_id", event.ID),
 					zap.Error(err),
@@ -135,7 +138,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 			continue
 		}
 
-		if err := w.outboxRepo.MarkDone(event.ID); err != nil {
+		if err := w.outboxRepo.MarkDone(ctx, event.ID); err != nil {
 			w.logger.Error("outbox: failed to mark event as done",
 				zap.String("event_id", event.ID),
 				zap.Error(err),
@@ -208,7 +211,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		fullName = val
 	}
 
-	user, err := w.userRepo.FindByID(userID)
+	user, err := w.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
@@ -231,7 +234,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 			return nil
 		}
 
-		if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
+		if err := w.userRepo.UpdateAuthUserID(ctx, userID, authUserID); err != nil {
 			return fmt.Errorf("update auth user ID: %w", err)
 		}
 
@@ -241,7 +244,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		)
 	}
 
-	alreadyQueued, err := w.outboxRepo.ExistsByReference(models.EventTypeSendVerificationEmail, userID)
+	alreadyQueued, err := w.outboxRepo.ExistsByReference(ctx, models.EventTypeSendVerificationEmail, userID)
 	if err != nil {
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}
@@ -252,10 +255,10 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		return nil
 	}
 
-	return w.queueVerificationEmail(userID, email)
+	return w.queueVerificationEmail(ctx, userID, email)
 }
 
-func (w *OutboxWorker) queueVerificationEmail(userID, email string) error {
+func (w *OutboxWorker) queueVerificationEmail(ctx context.Context, userID, email string) error {
 	payload, err := json.Marshal(map[string]string{"email": email})
 	if err != nil {
 		return fmt.Errorf("marshal email event payload: %w", err)
@@ -271,7 +274,7 @@ func (w *OutboxWorker) queueVerificationEmail(userID, email string) error {
 		payload[i] = 0
 	}
 
-	if err := w.outboxRepo.Create(&models.OutboxEvent{
+	if err := w.outboxRepo.Create(ctx, &models.OutboxEvent{
 		ID:          utils.GenerateID(),
 		Type:        models.EventTypeSendVerificationEmail,
 		Payload:     encrypted,
@@ -322,19 +325,19 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 }
 
 func (w *OutboxWorker) cleanupUser(ctx context.Context, userID, companyID string) error {
-	tx, err := w.userRepo.GetDB().BeginTx(ctx, nil)
+	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin cleanup transaction: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if err := w.userRepo.DeleteTx(tx, userID); err != nil {
+	if err := w.userRepo.DeleteTx(ctx, tx, userID); err != nil {
 		return fmt.Errorf("cleanup delete user: %w", err)
 	}
-	if err := w.companyRepo.DeleteTx(tx, companyID); err != nil {
+	if err := w.companyRepo.DeleteTx(ctx, tx, companyID); err != nil {
 		return fmt.Errorf("cleanup delete company: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit cleanup transaction: %w", err)
 	}
 
@@ -351,7 +354,7 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 		return err
 	}
 
-	if u, err := w.userRepo.FindByEmail(email); err == nil && u != nil && u.EmailVerified {
+	if u, err := w.userRepo.FindByEmail(ctx, email); err == nil && u != nil && u.EmailVerified {
 		w.logger.Debug("outbox: user already verified, skipping email")
 		return nil
 	}
@@ -403,7 +406,7 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		zap.String("source", source),
 	)
 
-	user, err := w.userRepo.FindByEmail(email)
+	user, err := w.userRepo.FindByEmail(ctx, email)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
@@ -428,12 +431,12 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return fmt.Errorf("register user in Supabase: %w", err)
 	}
 
-	if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
+	if err := w.userRepo.UpdateAuthUserID(ctx, userID, authUserID); err != nil {
 		return fmt.Errorf("update auth_user_id: %w", err)
 	}
 
 	// Clear password_hash after successful migration
-	if err := w.userRepo.ClearPasswordHash(userID); err != nil {
+	if err := w.userRepo.ClearPasswordHash(ctx, userID); err != nil {
 		w.logger.Error("outbox: failed to clear password hash after migration",
 			zap.Error(err),
 			zap.String("user_id", userID),

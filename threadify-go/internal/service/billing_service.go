@@ -8,8 +8,8 @@ import (
 
 	"threadify-go/shared/billing"
 	sharedconfig "threadify-go/shared/config"
-
 	"threadify-go/shared/database"
+	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/interfaces"
@@ -31,7 +31,7 @@ type BillingOrchestrator struct {
 
 func NewBillingOrchestrator(
 	billingProvider billing.BillingProvider,
-	planRepo interfaces.PlanRepository,
+	planRepo sharedrepo.PlanRepository,
 	billingRepo interfaces.BillingRepository,
 	subConfig *sharedconfig.SubscriptionConfig,
 	billingConfig *sharedconfig.BillingConfig,

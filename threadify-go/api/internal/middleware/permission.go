@@ -31,7 +31,7 @@ func RequirePermission(
 
 		if userID != "" {
 			// User authentication - load roles from DB using internal userID
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+			roleNames, err := userRoleRepo.GetUserRoles(c.Request.Context(), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
@@ -47,7 +47,7 @@ func RequirePermission(
 			permissions = permLoader.GetPermissionsForRoles(roleNames, "app_level")
 		} else {
 			// Service account authentication
-			sa, err := serviceAccountRepo.FindByID(serviceAccountID)
+			sa, err := serviceAccountRepo.FindByID(c.Request.Context(), serviceAccountID)
 			if err != nil || sa == nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Service account not found"})
 				c.Abort()
@@ -61,7 +61,7 @@ func RequirePermission(
 			}
 
 			// Load roles from DB and get permissions from JSON
-			roleNames, err := userRoleRepo.GetServiceAccountRoles(serviceAccountID)
+			roleNames, err := userRoleRepo.GetServiceAccountRoles(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load service account roles"})
 				c.Abort()
@@ -117,7 +117,7 @@ func RequireResourcePermission(
 
 		if userID != "" {
 			// User authentication - load roles from DB using internal userID
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+			roleNames, err := userRoleRepo.GetUserRoles(c.Request.Context(), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
@@ -131,7 +131,7 @@ func RequireResourcePermission(
 			permissions = permLoader.GetPermissionsForRoles(roleNames, "app_level")
 		} else {
 			// Service account authentication
-			sa, err := serviceAccountRepo.FindByID(serviceAccountID)
+			sa, err := serviceAccountRepo.FindByID(c.Request.Context(), serviceAccountID)
 			if err != nil || sa == nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Service account not found"})
 				c.Abort()
@@ -144,7 +144,7 @@ func RequireResourcePermission(
 				return
 			}
 
-			roleNames, err := userRoleRepo.GetServiceAccountRoles(serviceAccountID)
+			roleNames, err := userRoleRepo.GetServiceAccountRoles(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load service account roles"})
 				c.Abort()

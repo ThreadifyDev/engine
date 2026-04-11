@@ -229,6 +229,12 @@ type Query {
   # Verify if the company has sufficient credits (amount: millicents, meter: meter name)
   # If amount/meter are omitted, performs a basic active account check.
   checkCredits(meter: String, amount: Int): Boolean!
+
+  # Retrieve an entity profile and its intelligence metrics
+  entityProfile(refKey: String!, type: String!): EntityProfile
+
+  # Retrieve all configured entity profile types for the company
+  entityProfileTypes: [EntityProfileType!]!
 }
 
 type Mutation {
@@ -327,4 +333,36 @@ type ActorInfo {
   name: String!
   type: String!
   companyName: String
+}
+
+type EntityProfileMetrics {
+  entityProfileId: String!
+  totalDeliveries: Int!
+  completedSuccessfully: Int!
+  validationViolations: Int!
+  deliveryHealthScore: Float
+  healthTrendSlope: Float
+  averageDeliveryTimeMs: Int
+  lastCalculatedAt: String
+}
+
+type EntityProfile {
+  id: String!
+  refKey: String!
+  companyId: String!
+  profileTypeId: String!
+  name: String
+  createdAt: String!
+  lastActiveAt: String!
+  metrics: EntityProfileMetrics
+}
+
+type EntityProfileType {
+  id: String!
+  companyId: String!
+  name: String!
+  type: String!
+  description: String
+  createdAt: String!
+  updatedAt: String!
 }

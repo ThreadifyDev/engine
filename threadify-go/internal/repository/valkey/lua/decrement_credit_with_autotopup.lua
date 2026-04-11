@@ -53,9 +53,15 @@ if not cost or not min_balance or not topup_amount or not max_monthly then
   return {0, -2, '', '', 0}
 end
 
--- Always seed from PostgreSQL to prevent stale data
-redis.call('SET', balance_key, seed_balance)
-redis.call('SET', charged_key, seed_charged)
+-- Lazy-seed from PostgreSQL ONLY if keys are missing (first use after expiry/restart).
+-- Previously this was unconditional, which reset the live balance to a stale DB snapshot
+-- on every call — causing credits to be effectively free under concurrent load.
+if redis.call('EXISTS', balance_key) == 0 then
+  redis.call('SET', balance_key, seed_balance)
+end
+if redis.call('EXISTS', charged_key) == 0 then
+  redis.call('SET', charged_key, seed_charged)
+end
 
 local raw_balance = redis.call('GET', balance_key)
 local raw_charged = redis.call('GET', charged_key)

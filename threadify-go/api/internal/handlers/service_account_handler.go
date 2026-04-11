@@ -32,7 +32,7 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 		return
 	}
 
-	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(companyID, userID, &req)
+	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(c.Request.Context(), companyID, userID, &req)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -52,7 +52,7 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 func (h *ServiceAccountHandler) ListServiceAccounts(c *gin.Context) {
 	companyID := c.GetString("companyID")
 
-	serviceAccounts, err := h.serviceAccountService.ListServiceAccounts(companyID)
+	serviceAccounts, err := h.serviceAccountService.ListServiceAccounts(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
@@ -68,7 +68,7 @@ func (h *ServiceAccountHandler) GetServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	id := c.Param("id")
 
-	serviceAccount, err := h.serviceAccountService.GetServiceAccount(id, companyID)
+	serviceAccount, err := h.serviceAccountService.GetServiceAccount(c.Request.Context(), id, companyID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -94,7 +94,7 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 		return
 	}
 
-	serviceAccount, err := h.serviceAccountService.UpdateServiceAccount(id, companyID, &req)
+	serviceAccount, err := h.serviceAccountService.UpdateServiceAccount(c.Request.Context(), id, companyID, &req)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -115,7 +115,7 @@ func (h *ServiceAccountHandler) DeleteServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	id := c.Param("id")
 
-	if err := h.serviceAccountService.DeleteServiceAccount(id, companyID); err != nil {
+	if err := h.serviceAccountService.DeleteServiceAccount(c.Request.Context(), id, companyID); err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return

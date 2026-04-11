@@ -45,7 +45,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.FindByID(userID)
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -55,7 +55,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	company, err := h.companyRepo.FindByID(companyID)
+	company, err := h.companyRepo.FindByID(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve company information"})
 		return
@@ -93,7 +93,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	// Look up user by internal ID
-	user, err := h.userRepo.FindByID(userID)
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -123,7 +123,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	// Get company to check its current state
-	company, err := h.companyRepo.FindByID(companyID)
+	company, err := h.companyRepo.FindByID(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve company information"})
 		return
@@ -146,14 +146,14 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	// Update user profile (always allowed) - use internal database ID
-	if err := h.userRepo.UpdateProfile(user.ID, &req.FullName, &req.JobRole, true); err != nil {
+	if err := h.userRepo.UpdateProfile(c.Request.Context(), user.ID, &req.FullName, &req.JobRole, true); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
 		return
 	}
 
 	// Update company details if provided and company doesn't exist yet
 	if companyProvided && !companyExists {
-		if err := h.companyRepo.UpdateDetails(companyID, &req.Industry, &req.CompanySize, &req.UseCase); err != nil {
+		if err := h.companyRepo.UpdateDetails(c.Request.Context(), companyID, &req.Industry, &req.CompanySize, &req.UseCase); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update company details"})
 			return
 		}
@@ -169,7 +169,7 @@ func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
 	}
 
 	// Look up user by internal ID
-	user, err := h.userRepo.FindByID(userID)
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -179,7 +179,7 @@ func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
 		return
 	}
 
-	if err := h.userRepo.MarkFirstInstrumentationDone(user.ID); err != nil {
+	if err := h.userRepo.MarkFirstInstrumentationDone(c.Request.Context(), user.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update instrumentation status"})
 		return
 	}
@@ -193,7 +193,7 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 		return
 	}
 
-	users, err := h.userRepo.ListByCompanyID(companyID)
+	users, err := h.userRepo.ListByCompanyID(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve team members"})
 		return
@@ -240,7 +240,7 @@ func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
 }
 
 func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {
-	user, err := h.userRepo.FindByID(userID)
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})

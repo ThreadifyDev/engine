@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -13,10 +14,10 @@ import (
 
 // queueLegacyUserMigration queues a migration event for a legacy user
 // source: "login" or "forgot_password" - determines which email to send after migration
-func (s *AuthService) queueLegacyUserMigration(userID, email, password, source string) error {
+func (s *AuthService) queueLegacyUserMigration(ctx context.Context, userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
-	inflight, err := s.outboxRepo.ExistsPendingByReference(models.EventTypeMigrateLegacyUser, userID)
+	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, models.EventTypeMigrateLegacyUser, userID)
 	if err != nil {
 		return fmt.Errorf("check inflight migration: %w", err)
 	}
@@ -47,7 +48,7 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 	for i := range payload {
 		payload[i] = 0
 	}
-	if err := s.outboxRepo.Create(&models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &models.OutboxEvent{
 		ID:          utils.GenerateID(),
 		Type:        models.EventTypeMigrateLegacyUser,
 		Payload:     encrypted,
