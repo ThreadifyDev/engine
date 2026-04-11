@@ -195,6 +195,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	
 	-- Keep contract_id index for backward compatibility
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_id ON threads(company_id);
 
 	CREATE TABLE IF NOT EXISTS thread_refs (
 		thread_id VARCHAR(255) NOT NULL,
@@ -214,6 +216,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Enhanced index for threadsByRef with date filtering
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value_created 
 		ON thread_refs(ref_key, ref_value, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_lookup_optimized 
+		ON thread_refs(ref_key, ref_value, thread_id);
 
 	CREATE TABLE IF NOT EXISTS thread_activities (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

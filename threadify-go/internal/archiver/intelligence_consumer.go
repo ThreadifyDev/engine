@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/threadify/engine/internal/database"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +21,7 @@ const (
 	initialBackoff         = 1 * time.Second
 	maxBackoff             = 30 * time.Second
 	shutdownFlushTimeout   = 30 * time.Second
+	consumerName           = "intelligence-metrics"
 )
 
 type IntelligenceConsumer struct {
@@ -44,9 +46,8 @@ type IntelligenceConsumer struct {
 }
 
 type pendingIntelEvent struct {
-	threadID  string
-	eventType string
-	msg       *nats.Msg
+	profileIDs []string
+	msg        *nats.Msg
 }
 
 func NewIntelligenceConsumer(
@@ -81,13 +82,13 @@ func NewIntelligenceConsumer(
 
 func (c *IntelligenceConsumer) Start(ctx context.Context) error {
 	sub, err := c.js.PullSubscribe(
-		"metadata.thread",
-		"intelligence-metrics",
+		natsrepo.SubjectProfileRecalculate,
+		consumerName,
 		nats.ManualAck(),
 		nats.AckExplicit(),
 	)
 	if err != nil {
-		return fmt.Errorf("subscribe to metadata.thread for intelligence: %w", err)
+		return fmt.Errorf("subscribe to %s: %w", natsrepo.SubjectProfileRecalculate, err)
 	}
 
 	c.logger.Info("started intelligence consumer", zap.String("consumer", c.consumerID))
@@ -153,51 +154,34 @@ func (c *IntelligenceConsumer) run(ctx context.Context, sub *nats.Subscription) 
 				case <-time.After(time.Second):
 				}
 			}
-			// On timeout or transient error, fall through to flush check below.
 		}
 
 		c.mu.Lock()
 		for _, msg := range msgs {
-			var data map[string]interface{}
-			if err := json.Unmarshal(msg.Data, &data); err != nil {
+			var profileIDs []string
+			if err := json.Unmarshal(msg.Data, &profileIDs); err != nil {
 				c.logger.Error("intelligence consumer unmarshal error", zap.Error(err))
 				msg.Nak()
 				continue
 			}
-
-			threadID, _ := data["threadId"].(string)
-			if threadID == "" {
+			if len(profileIDs) == 0 {
 				msg.Ack()
 				continue
 			}
-
-			action, _ := data["action"].(string)
-			status, _ := data["status"].(string)
-
-			var eventType string
-			switch {
-			case action == "ref_added":
-				eventType = "ref_added"
-			case status == "completed":
-				eventType = "completed"
-			case status == "cancelled":
-				eventType = "cancelled"
-			default:
-				msg.Ack()
-				continue
-			}
-
 			c.buffer = append(c.buffer, pendingIntelEvent{
-				threadID:  threadID,
-				eventType: eventType,
-				msg:       msg,
+				profileIDs: profileIDs,
+				msg:        msg,
 			})
 		}
 
 		shouldFlush := len(c.buffer) >= c.batchSize || time.Since(lastFlush) >= c.flushTimeout
 		if shouldFlush && len(c.buffer) > 0 {
-			c.flushLocked(ctx)
+			pending := c.buffer
+			c.buffer = make([]pendingIntelEvent, 0, c.batchSize)
+			c.mu.Unlock()
+			c.flush(ctx, pending)
 			lastFlush = time.Now()
+			continue
 		}
 		c.mu.Unlock()
 	}
@@ -208,46 +192,40 @@ func (c *IntelligenceConsumer) flushAll() {
 	defer cancel()
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.flushLocked(ctx)
+	if len(c.buffer) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	pending := c.buffer
+	c.buffer = make([]pendingIntelEvent, 0, c.batchSize)
+	c.mu.Unlock()
+
+	c.flush(ctx, pending)
 }
 
-func (c *IntelligenceConsumer) flushLocked(ctx context.Context) {
-	if len(c.buffer) == 0 {
+func (c *IntelligenceConsumer) flush(ctx context.Context, pending []pendingIntelEvent) {
+	if len(pending) == 0 {
 		return
 	}
 
-	pending := c.buffer
-	c.buffer = make([]pendingIntelEvent, 0, c.batchSize)
-
-	seen := make(map[string]bool, len(pending))
-	threadIDs := make([]string, 0, len(pending))
+	seen := make(map[string]struct{}, len(pending)*2)
+	profileIDs := make([]string, 0, len(pending)*2)
 	for _, p := range pending {
-		if !seen[p.threadID] {
-			seen[p.threadID] = true
-			threadIDs = append(threadIDs, p.threadID)
-		}
-	}
-
-	var startSeq, endSeq uint64
-	if len(pending) > 0 {
-		if meta, err := pending[0].msg.Metadata(); err == nil {
-			startSeq = meta.Sequence.Stream
-		}
-		if meta, err := pending[len(pending)-1].msg.Metadata(); err == nil {
-			endSeq = meta.Sequence.Stream
+		for _, id := range p.profileIDs {
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				profileIDs = append(profileIDs, id)
+			}
 		}
 	}
 
 	c.logger.Info("recalculating entity profile metrics",
-		zap.Int("events", len(pending)),
-		zap.Int("unique_threads", len(threadIDs)),
-		zap.Uint64("start_seq", startSeq),
-		zap.Uint64("end_seq", endSeq),
+		zap.Int("messages", len(pending)),
+		zap.Int("unique_profiles", len(profileIDs)),
 		zap.String("consumer", c.consumerID),
 	)
 
-	if err := c.recalculateMetrics(ctx, threadIDs); err != nil {
+	if err := c.recalculateMetrics(ctx, profileIDs); err != nil {
 		c.consecutiveFailures.Add(1)
 		c.logger.Error("failed to recalculate entity profile metrics",
 			zap.String("consumer", c.consumerID),
@@ -266,10 +244,7 @@ func (c *IntelligenceConsumer) flushLocked(ctx context.Context) {
 	for _, p := range pending {
 		if err := p.msg.AckSync(); err != nil {
 			ackErrors++
-			c.logger.Error("failed to sync ACK message",
-				zap.Uint64("seq", startSeq),
-				zap.Error(err),
-			)
+			c.logger.Error("failed to ack intelligence message", zap.Error(err))
 		}
 	}
 
@@ -281,29 +256,29 @@ func (c *IntelligenceConsumer) flushLocked(ctx context.Context) {
 	}
 
 	c.logger.Info("entity profile metrics updated",
-		zap.Int("threads_processed", len(threadIDs)),
+		zap.Int("profiles_processed", len(profileIDs)),
 		zap.Int("acks_sent", len(pending)-ackErrors),
 		zap.String("consumer", c.consumerID),
 	)
 }
 
-func (c *IntelligenceConsumer) recalculateMetrics(ctx context.Context, threadIDs []string) error {
-	if len(threadIDs) == 0 {
+func (c *IntelligenceConsumer) recalculateMetrics(ctx context.Context, profileIDs []string) error {
+	if len(profileIDs) == 0 {
 		return nil
 	}
 
-	if err := c.recalculateProfileMetrics(ctx, threadIDs); err != nil {
+	if err := c.recalculateProfileMetrics(ctx, profileIDs); err != nil {
 		return err
 	}
 
-	if err := c.recalculatePartnerCompatibility(ctx, threadIDs); err != nil {
+	if err := c.recalculatePartnerCompatibility(ctx, profileIDs); err != nil {
 		c.logger.Warn("failed to update partner compatibility (non-fatal)", zap.Error(err))
 	}
 
 	return nil
 }
 
-func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, threadIDs []string) error {
+func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, profileIDs []string) error {
 	queryCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
 	defer cancel()
 
@@ -318,7 +293,7 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, th
 			ep.id,
 			COUNT(DISTINCT all_refs.thread_id),
 			COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END),
-			COUNT(DISTINCT CASE WHEN tv.overall_status = 'violated' THEN tv.validation_id END),
+			SUM(COALESCE(v.violation_count, 0)),
 			CASE
 				WHEN COUNT(DISTINCT all_refs.thread_id) > 0 THEN
 					ROUND(
@@ -330,7 +305,7 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, th
 			NULL,
 			NULL,
 			AVG(
-				CASE WHEN t.completed_at IS NOT NULL THEN
+				CASE WHEN t.completed_at IS NOT NULL AND t.completed_at > t.created_at THEN
 					EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000
 				END
 			)::bigint,
@@ -339,14 +314,12 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, th
 		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id AND ept.archived_at IS NULL
 		JOIN thread_refs all_refs ON all_refs.ref_key = ept.type AND all_refs.ref_value = ep.ref_key
 		JOIN threads t ON t.id = all_refs.thread_id AND t.company_id = ep.company_id
-		LEFT JOIN thread_validations tv ON tv.thread_id = all_refs.thread_id
-		WHERE ep.id IN (
-			SELECT DISTINCT ep2.id
-			FROM entity_profile ep2
-			JOIN entity_profile_type ept2 ON ept2.id = ep2.entity_profile_type_id
-			JOIN thread_refs tr2 ON tr2.ref_key = ept2.type AND tr2.ref_value = ep2.ref_key
-			WHERE tr2.thread_id = ANY($1)
-		)
+		LEFT JOIN LATERAL (
+			SELECT COUNT(DISTINCT tv.validation_id) AS violation_count
+			FROM thread_validations tv
+			WHERE tv.thread_id = t.id AND tv.overall_status = 'violated'
+		) v ON TRUE
+		WHERE ep.id = ANY($1)
 		GROUP BY ep.id
 		ON CONFLICT (entity_profile_id) DO UPDATE SET
 			total_deliveries           = EXCLUDED.total_deliveries,
@@ -359,14 +332,13 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, th
 			average_delivery_time_ms   = EXCLUDED.average_delivery_time_ms,
 			last_calculated_at         = NOW()`
 
-	_, err := c.db.Pool.Exec(queryCtx, query, threadIDs)
-	if err != nil {
+	if _, err := c.db.Pool.Exec(queryCtx, query, profileIDs); err != nil {
 		return fmt.Errorf("recalculate entity profile metrics: %w", err)
 	}
 	return nil
 }
 
-func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Context, threadIDs []string) error {
+func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Context, profileIDs []string) error {
 	queryCtx, cancel := context.WithTimeout(ctx, defaultQueryTimeout)
 	defer cancel()
 
@@ -396,7 +368,7 @@ func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Conte
 		JOIN thread_refs entity_refs ON entity_refs.ref_key = ept.type AND entity_refs.ref_value = ep.ref_key
 		JOIN threads t ON t.id = entity_refs.thread_id AND t.company_id = ep.company_id
 		JOIN thread_refs partner_refs ON partner_refs.thread_id = t.id AND partner_refs.ref_key = 'partner_ref'
-		WHERE entity_refs.thread_id = ANY($1)
+		WHERE ep.id = ANY($1)
 		GROUP BY ep.id, partner_refs.ref_value
 		ON CONFLICT (entity_profile_id, partner_ref) DO UPDATE SET
 			total_interactions      = EXCLUDED.total_interactions,
@@ -404,8 +376,7 @@ func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Conte
 			compatibility_score     = EXCLUDED.compatibility_score,
 			last_calculated_at      = NOW()`
 
-	_, err := c.db.Pool.Exec(queryCtx, query, threadIDs)
-	if err != nil {
+	if _, err := c.db.Pool.Exec(queryCtx, query, profileIDs); err != nil {
 		return fmt.Errorf("recalculate partner compatibility: %w", err)
 	}
 	return nil

@@ -82,9 +82,15 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 
 	if metricsID != nil {
 		m.EntityProfileID = *metricsID
-		if totalDeliveries != nil { m.TotalDeliveries = *totalDeliveries }
-		if completed != nil { m.CompletedSuccessfully = *completed }
-		if validations != nil { m.ValidationViolations = *validations }
+		if totalDeliveries != nil {
+			m.TotalDeliveries = *totalDeliveries
+		}
+		if completed != nil {
+			m.CompletedSuccessfully = *completed
+		}
+		if validations != nil {
+			m.ValidationViolations = *validations
+		}
 		return &p, &m, nil
 	}
 	return &p, nil, nil
