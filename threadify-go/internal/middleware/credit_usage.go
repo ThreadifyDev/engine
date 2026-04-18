@@ -135,17 +135,16 @@ func EgressMiddleware(planSvc *service.PlanService, logger *zap.Logger) gin.Hand
 		defer cancel()
 
 		if err := planSvc.DecrementEgress(ctx, companyID, size); err != nil {
-			if errors.Is(err, service.ErrInsufficientCredit) {
-				logger.Warn("egress middleware: insufficient credits",
-					zap.String("company_id", companyID),
-					zap.Int64("size", size),
-				)
-			} else {
-				logger.Error("egress middleware: egress decrement failed",
-					zap.Error(err),
-					zap.String("company_id", companyID),
-					zap.Int64("size", size),
-				)
+			fields := []zap.Field{
+				zap.String("company_id", companyID),
+				zap.Int64("size", size),
+			}
+			switch {
+			case errors.Is(err, service.ErrNoAccount):
+			case errors.Is(err, service.ErrInsufficientCredit):
+				logger.Warn("egress middleware: insufficient credits", fields...)
+			default:
+				logger.Error("egress middleware: egress decrement failed", append(fields, zap.Error(err))...)
 			}
 		}
 	}
