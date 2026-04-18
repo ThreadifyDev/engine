@@ -277,6 +277,10 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, fmt.Errorf("failed to authenticate")
 	}
 
+	if localUser == nil {
+		return nil, ErrInvalidCredentials
+	}
+
 	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
 	if err != nil {
 		// Check if this is an "invalid credentials" error - could be user doesn't exist in Supabase
