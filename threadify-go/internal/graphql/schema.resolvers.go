@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	shderrors "threadify-go/shared/errors"
-	sharedmodels "threadify-go/shared/models"
 	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
@@ -468,6 +467,7 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	return status, nil
 }
 
+// CheckCredits is the resolver for the checkCredits field.
 func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -494,6 +494,7 @@ func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount 
 	return true, nil
 }
 
+// EntityProfile is the resolver for the entityProfile field.
 func (r *queryResolver) EntityProfile(ctx context.Context, refKey string, typeArg string) (*generated.EntityProfile, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -517,6 +518,7 @@ func (r *queryResolver) EntityProfile(ctx context.Context, refKey string, typeAr
 	}, nil
 }
 
+// EntityProfileTypes is the resolver for the entityProfileTypes field.
 func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.EntityProfileType, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -533,42 +535,6 @@ func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.En
 		result[i] = toGraphQLProfileType(t)
 	}
 	return result, nil
-}
-
-func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityProfileMetrics {
-	if m == nil {
-		return nil
-	}
-	out := &generated.EntityProfileMetrics{
-		EntityProfileID:       m.EntityProfileID,
-		TotalDeliveries:       m.TotalDeliveries,
-		CompletedSuccessfully: m.CompletedSuccessfully,
-		ValidationViolations:  m.ValidationViolations,
-		DeliveryHealthScore:   m.DeliveryHealthScore,
-		HealthTrendSlope:      m.HealthTrendSlope,
-	}
-	if m.AverageDeliveryTimeMs != nil {
-		v := int(*m.AverageDeliveryTimeMs)
-		out.AverageDeliveryTimeMs = &v
-	}
-	if m.LastCalculatedAt != nil {
-		v := m.LastCalculatedAt.Format(time.RFC3339)
-		out.LastCalculatedAt = &v
-	}
-	return out
-}
-
-func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
-	desc := t.Description
-	return &generated.EntityProfileType{
-		ID:          t.ID,
-		CompanyID:   t.CompanyID,
-		Name:        t.Name,
-		Type:        t.Type,
-		Description: &desc,
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
-	}
 }
 
 // Error is the resolver for the error field on StepHistory.

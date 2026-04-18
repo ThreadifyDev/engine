@@ -269,7 +269,7 @@ type AgentService struct {
 	threadifyEngineURL string
 	httpClient         *http.Client
 	openaiClient       *openai.Client
-	agentRepo          *repository.AgentRepository
+	agentRepo          repository.AgentRepository
 	maxMessages        int
 	maxTokens          int
 	summaryMaxTokens   int
@@ -279,7 +279,7 @@ type AgentService struct {
 func NewAgentService(
 	threadifyEngineURL string,
 	openaiAPIKey string,
-	agentRepo *repository.AgentRepository,
+	agentRepo repository.AgentRepository,
 	maxMessages int,
 	maxTokens int,
 	summaryMaxTokens int,

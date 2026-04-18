@@ -233,9 +233,6 @@ type Query {
   # Retrieve an entity profile and its intelligence metrics
   entityProfile(refKey: String!, type: String!): EntityProfile
 
-  # Retrieve all profiles for a given entity profile type
-  entityProfiles(type: String!): [EntityProfile!]!
-
   # Retrieve all configured entity profile types for the company
   entityProfileTypes: [EntityProfileType!]!
 }

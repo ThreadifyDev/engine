@@ -14,10 +14,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -33,10 +33,10 @@ type Session struct {
 	ID            string
 	OwnerID       string
 	MaxInFlight   int
-	Conn          *websocket.Conn
+	Conn          interfaces.WSConnection
 	Subscriptions map[string]*ClientSubscription
 	mu            sync.RWMutex
-	sendMu        *sync.Mutex
+	sendMu        interfaces.WSMutex
 }
 
 // WebSocketClient is an alias for Session for backward compatibility.
@@ -89,7 +89,7 @@ func NewNotificationRouter(nc *nats.Conn, natsConfig *config.NATSConfig, logger 
 	}, nil
 }
 
-func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn *websocket.Conn, connMutex *sync.Mutex) error {
+func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn interfaces.WSConnection, connMutex interfaces.WSMutex) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

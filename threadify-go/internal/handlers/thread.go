@@ -53,11 +53,11 @@ const (
 var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
-	threadService        *service.ThreadService
-	stepEventService     *service.StepEventService
-	invitationService    *service.InvitationTokenService
-	notificationConsumer *service.NotificationConsumer
-	notificationRouter   *NotificationRouter
+	threadService        interfaces.ThreadService
+	stepEventService     interfaces.StepEventProcessor
+	invitationService    interfaces.InvitationTokenService
+	notificationConsumer interfaces.NotificationConsumer
+	notificationRouter   interfaces.NotificationRouter
 	planService          interfaces.PlanService
 	valkeyClient         interfaces.ValkeyClient
 	sessions             sync.Map
@@ -68,7 +68,7 @@ type WebSocketHandler struct {
 }
 
 type WSSession struct {
-	conn      *websocket.Conn
+	conn      interfaces.WSConnection
 	sessionID string
 	ownerID   string
 	companyID string
@@ -87,11 +87,11 @@ type NotificationACKMessage struct {
 }
 
 func NewWebSocketHandler(
-	threadService *service.ThreadService,
-	stepEventService *service.StepEventService,
-	invitationService *service.InvitationTokenService,
-	notificationConsumer *service.NotificationConsumer,
-	notificationRouter *NotificationRouter,
+	threadService interfaces.ThreadService,
+	stepEventService interfaces.StepEventProcessor,
+	invitationService interfaces.InvitationTokenService,
+	notificationConsumer interfaces.NotificationConsumer,
+	notificationRouter interfaces.NotificationRouter,
 	planService interfaces.PlanService,
 	valkeyClient interfaces.ValkeyClient,
 	luaScriptManager interfaces.LuaScriptManager,
@@ -118,6 +118,7 @@ func NewWebSocketHandler(
 		luaScriptManager:     luaScriptManager,
 		rateLimitConfig:      rateLimitConfig,
 		websocketConfig:      websocketConfig,
+		logger:               logger,
 	}
 }
 
@@ -442,7 +443,7 @@ func (h *WebSocketHandler) handleThreadEnd(session *WSSession, threadID, status,
 	defer cancel()
 
 	recordedAt := time.Now()
-	if err := h.threadService.EndThread(ctx, threadID, session.ownerID, "", status, reason, recordedAt); err != nil {
+	if err := h.threadService.EndThread(ctx, threadID, session.ownerID, service.ActorServiceRuleEngine, status, reason, recordedAt); err != nil {
 		return models.ErrorResponse{Action: ActionThreadEnd, Status: StatusError, Message: "Failed to end thread: " + err.Error()}
 	}
 

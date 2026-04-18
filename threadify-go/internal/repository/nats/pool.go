@@ -1,6 +1,7 @@
 package nats
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 
@@ -42,7 +43,7 @@ func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error
 	}
 	defer initClient.Close()
 
-	if err := initClient.InitStreams(); err != nil {
+	if err := initClient.InitStreams(context.Background()); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("initialize NATS streams: %w", err)
 	}

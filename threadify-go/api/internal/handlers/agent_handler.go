@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 
@@ -12,12 +13,12 @@ import (
 )
 
 type AgentHandler struct {
-	agentSvc *service.AgentService
+	agentSvc iface.AgentService
 	logger   *zap.Logger
 }
 
 func NewAgentHandler(
-	agentSvc *service.AgentService,
+	agentSvc iface.AgentService,
 	logger *zap.Logger,
 ) *AgentHandler {
 	return &AgentHandler{
@@ -170,8 +171,13 @@ func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
+	companyID, ok := ctxString(c, sharedauth.CtxCompanyID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
-	if err := h.agentSvc.DeleteConversation(c.Request.Context(), convID, userID); err != nil {
+	if err := h.agentSvc.DeleteConversation(c.Request.Context(), companyID, convID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrNotFound):
 			c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})

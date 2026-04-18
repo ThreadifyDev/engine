@@ -13,8 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	internaldb "github.com/threadify/engine/internal/database"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -36,22 +34,61 @@ const (
 )
 
 type UsageOutboxRelay struct {
-	valkey        *internaldb.ValkeyService
-	natsPublisher *natsrepo.ArchivalPublisher
+	valkey        UsageOutboxValkey
+	natsPublisher UsageOutboxPublisher
 	logger        *zap.Logger
 	consumerName  string
+	forwarder     UsageOutboxBatchForwarder
+	sleeper       UsageOutboxSleeper
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
 	doneCh   chan struct{}
 }
 
+//go:generate mockgen -package=usageoutboxmocks -destination=mocks/usageoutbox/usage_outbox_mocks.go -source=usage_outbox_relay.go
+type UsageOutboxPublisher interface {
+	PublishCreditTopupTrigger(ctx context.Context, event map[string]interface{}) error
+	PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error
+}
+
+type UsageOutboxValkey interface {
+	XGroupCreateMkStream(ctx context.Context, stream, group, start string) error
+	XReadGroup(ctx context.Context, args *redis.XReadGroupArgs) ([]redis.XStream, error)
+	XAck(ctx context.Context, stream, group string, ids ...string) error
+}
+
+type UsageOutboxBatchForwarder interface {
+	ForwardBatch(ctx context.Context, streamStart string, block time.Duration) (int, error)
+}
+
+type UsageOutboxSleeper interface {
+	Sleep(ctx context.Context, d time.Duration)
+}
+
+type usageOutboxDefaultForwarder struct {
+	relay *UsageOutboxRelay
+}
+
+func (f usageOutboxDefaultForwarder) ForwardBatch(ctx context.Context, streamStart string, block time.Duration) (int, error) {
+	return f.relay.forwardBatch(ctx, streamStart, block)
+}
+
+type usageOutboxDefaultSleeper struct{}
+
+func (usageOutboxDefaultSleeper) Sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
+}
+
 func NewUsageOutboxRelay(
-	valkey *internaldb.ValkeyService,
-	natsPublisher *natsrepo.ArchivalPublisher,
+	valkey UsageOutboxValkey,
+	natsPublisher UsageOutboxPublisher,
 	logger *zap.Logger,
 ) *UsageOutboxRelay {
-	return &UsageOutboxRelay{
+	relay := &UsageOutboxRelay{
 		valkey:        valkey,
 		natsPublisher: natsPublisher,
 		logger:        logger,
@@ -59,6 +96,29 @@ func NewUsageOutboxRelay(
 		stopCh:        make(chan struct{}),
 		doneCh:        make(chan struct{}),
 	}
+	relay.forwarder = usageOutboxDefaultForwarder{relay: relay}
+	relay.sleeper = usageOutboxDefaultSleeper{}
+	return relay
+}
+
+// SetForwarder overrides the batch forwarder implementation (primarily for tests).
+// If f is nil, the default forwarder is restored.
+func (r *UsageOutboxRelay) SetForwarder(f UsageOutboxBatchForwarder) {
+	if f == nil {
+		r.forwarder = usageOutboxDefaultForwarder{relay: r}
+		return
+	}
+	r.forwarder = f
+}
+
+// SetSleeper overrides the sleeper implementation (primarily for tests).
+// If s is nil, the default sleeper is restored.
+func (r *UsageOutboxRelay) SetSleeper(s UsageOutboxSleeper) {
+	if s == nil {
+		r.sleeper = usageOutboxDefaultSleeper{}
+		return
+	}
+	r.sleeper = s
 }
 
 func buildConsumerName() string {
@@ -69,7 +129,7 @@ func buildConsumerName() string {
 }
 
 func (r *UsageOutboxRelay) Start() error {
-	if r.valkey == nil || r.valkey.Client == nil {
+	if r.valkey == nil {
 		return fmt.Errorf("usage outbox relay: valkey client is required")
 	}
 	if r.natsPublisher == nil {
@@ -79,7 +139,7 @@ func (r *UsageOutboxRelay) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := r.valkey.Client.XGroupCreateMkStream(ctx, database.UsageOutboxStreamKey, usageOutboxGroupName, "0").Err(); err != nil {
+	if err := r.valkey.XGroupCreateMkStream(ctx, database.UsageOutboxStreamKey, usageOutboxGroupName, "0"); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
 			return fmt.Errorf("create usage outbox consumer group: %w", err)
 		}
@@ -126,32 +186,25 @@ func (r *UsageOutboxRelay) run() {
 		default:
 		}
 
-		attempted, err := r.forwardBatch(ctx, streamStartPending, noBlock)
+		attempted, err := r.forwarder.ForwardBatch(ctx, streamStartPending, noBlock)
 		if err != nil {
 			r.logger.Error("usage outbox relay: failed to process pending messages", zap.Error(err))
-			sleep(ctx, errorBackoff)
+			r.sleeper.Sleep(ctx, errorBackoff)
 			continue
 		}
 		if attempted > 0 {
 			continue
 		}
 
-		_, err = r.forwardBatch(ctx, streamStartNew, blockDuration)
+		_, err = r.forwarder.ForwardBatch(ctx, streamStartNew, blockDuration)
 		if err != nil {
 			if err == redis.Nil || err == context.Canceled {
-				sleep(ctx, emptyBackoff)
+				r.sleeper.Sleep(ctx, emptyBackoff)
 				continue
 			}
 			r.logger.Error("usage outbox relay: failed to process new messages", zap.Error(err))
-			sleep(ctx, errorBackoff)
+			r.sleeper.Sleep(ctx, errorBackoff)
 		}
-	}
-}
-
-func sleep(ctx context.Context, d time.Duration) {
-	select {
-	case <-ctx.Done():
-	case <-time.After(d):
 	}
 }
 
@@ -179,14 +232,14 @@ func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string,
 	readCtx, readCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer readCancel()
 
-	streams, err := r.valkey.Client.XReadGroup(readCtx, &redis.XReadGroupArgs{
+	streams, err := r.valkey.XReadGroup(readCtx, &redis.XReadGroupArgs{
 		Group:    usageOutboxGroupName,
 		Consumer: r.consumerName,
 		Streams:  []string{database.UsageOutboxStreamKey, streamStart},
 		Count:    usageOutboxBatchSize,
 		Block:    block,
 		NoAck:    false,
-	}).Result()
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -275,7 +328,7 @@ func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string,
 
 	if len(poisonIDs) > 0 {
 		poisonCtx, poisonCancel := context.WithTimeout(ctx, 5*time.Second)
-		_ = r.valkey.Client.XAck(poisonCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, poisonIDs...).Err()
+		_ = r.valkey.XAck(poisonCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, poisonIDs...)
 		poisonCancel()
 	}
 
@@ -339,7 +392,7 @@ func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string,
 
 	if len(ackIDs) > 0 {
 		ackCtx, ackCancel := context.WithTimeout(ctx, 5*time.Second)
-		if ackErr := r.valkey.Client.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, ackIDs...).Err(); ackErr != nil {
+		if ackErr := r.valkey.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, ackIDs...); ackErr != nil {
 			r.logger.Warn("failed to ACK outbox entries — may be redelivered",
 				zap.Int("count", len(ackIDs)),
 				zap.Error(ackErr),
@@ -392,6 +445,11 @@ func mapUsageOutboxEvent(values map[string]interface{}) (map[string]interface{},
 	return event, true
 }
 
+// MapUsageOutboxEvent is an exported wrapper around mapUsageOutboxEvent (primarily for tests).
+func MapUsageOutboxEvent(values map[string]interface{}) (map[string]interface{}, bool) {
+	return mapUsageOutboxEvent(values)
+}
+
 func parseRelayAmount(v interface{}) (int64, error) {
 	switch value := v.(type) {
 	case string:
@@ -403,6 +461,11 @@ func parseRelayAmount(v interface{}) (int64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported amount type %T", v)
 	}
+}
+
+// ParseRelayAmount is an exported wrapper around parseRelayAmount (primarily for tests).
+func ParseRelayAmount(v interface{}) (int64, error) {
+	return parseRelayAmount(v)
 }
 
 func bucketToMap(b *bucket) map[string]interface{} {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/service"
 	serror "threadify-go/shared/errors"
 	"threadify-go/shared/rbac"
@@ -10,11 +11,11 @@ import (
 )
 
 type ServiceAccountHandler struct {
-	serviceAccountService *service.ServiceAccountService
+	serviceAccountService iface.ServiceAccountService
 	rbacLoader            *rbac.Loader
 }
 
-func NewServiceAccountHandler(serviceAccountService *service.ServiceAccountService, rbacLoader *rbac.Loader) *ServiceAccountHandler {
+func NewServiceAccountHandler(serviceAccountService iface.ServiceAccountService, rbacLoader *rbac.Loader) *ServiceAccountHandler {
 	return &ServiceAccountHandler{
 		serviceAccountService: serviceAccountService,
 		rbacLoader:            rbacLoader,

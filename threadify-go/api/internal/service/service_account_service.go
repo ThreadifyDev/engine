@@ -14,13 +14,13 @@ var validServiceAccountRoles = map[string]bool{
 }
 
 type ServiceAccountService struct {
-	serviceAccountRepo *repository.ServiceAccountRepository
-	userRoleRepo       *repository.UserRoleRepository
+	serviceAccountRepo repository.ServiceAccountRepository
+	userRoleRepo       repository.UserRoleRepository
 }
 
 func NewServiceAccountService(
-	serviceAccountRepo *repository.ServiceAccountRepository,
-	userRoleRepo *repository.UserRoleRepository,
+	serviceAccountRepo repository.ServiceAccountRepository,
+	userRoleRepo repository.UserRoleRepository,
 ) *ServiceAccountService {
 	return &ServiceAccountService{
 		serviceAccountRepo: serviceAccountRepo,

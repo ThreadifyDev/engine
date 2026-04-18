@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
 	serror "threadify-go/shared/errors"
 
@@ -13,10 +13,10 @@ import (
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
+	authService iface.AuthService
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
+func NewAuthHandler(authService iface.AuthService) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 	}

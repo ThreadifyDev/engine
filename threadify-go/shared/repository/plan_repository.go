@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"threadify-go/shared/billing"
 
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/models"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -22,7 +22,7 @@ func NewPlanRepo(pool *pgxpool.Pool) *PlanRepo {
 	return &PlanRepo{pool: pool}
 }
 
-func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error) {
+func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*models.CreditAccount, error) {
 	const query = `
 		SELECT 
 			ca.id, ca.company_id, ca.billing_cycle_start,
@@ -36,7 +36,7 @@ func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*bil
 		ORDER BY ca.billing_cycle_start DESC, ca.created_at DESC
 		LIMIT 1
 	`
-	account := &billing.CreditAccount{}
+	account := &models.CreditAccount{}
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
 		&account.ID, &account.CompanyID, &account.BillingCycleStart,
 		&account.CreditBalanceMillicents, &account.CreditMinBalanceMillicents, &account.CreditMaxMonthlyChargeMillicents,
@@ -108,7 +108,7 @@ func (r *PlanRepo) ListCompaniesForRollover(ctx context.Context) (map[string]str
 	return companies, rows.Err()
 }
 
-func (r *PlanRepo) CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error {
+func (r *PlanRepo) CreateCreditAccount(ctx context.Context, account *models.CreditAccount) error {
 	const query = `
 		INSERT INTO credit_accounts (
 			id, company_id, billing_cycle_start,

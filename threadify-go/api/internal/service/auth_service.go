@@ -16,7 +16,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,14 +31,18 @@ type OutboxWorkerTrigger interface {
 	Trigger()
 }
 
+type DBPool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
 type AuthService struct {
-	pool           *pgxpool.Pool
-	userRepo       *repository.UserRepository
-	companyRepo    *repository.CompanyRepository
-	userRoleRepo   *repository.UserRoleRepository
-	outboxRepo     *repository.OutboxRepository
-	invitationRepo *repository.TeamInvitationRepository
-	emailSvc       *EmailService
+	pool           DBPool
+	userRepo       repository.UserRepository
+	companyRepo    repository.CompanyRepository
+	userRoleRepo   repository.UserRoleRepository
+	outboxRepo     repository.OutboxRepository
+	invitationRepo repository.TeamInvitationRepository
+	emailSvc       EmailService
 	authClient     sharedauth.AuthClient
 	jwksVerifier   *sharedauth.JWKSVerifier
 	outboxWorker   OutboxWorkerTrigger
@@ -47,11 +51,14 @@ type AuthService struct {
 }
 
 func NewAuthService(
-	pool *pgxpool.Pool,
-	emailSvc *EmailService,
+	pool DBPool,
+	userRepo repository.UserRepository,
+	companyRepo repository.CompanyRepository,
+	userRoleRepo repository.UserRoleRepository,
+	emailSvc EmailService,
 	authClient sharedauth.AuthClient,
-	outboxRepo *repository.OutboxRepository,
-	invitationRepo *repository.TeamInvitationRepository,
+	outboxRepo repository.OutboxRepository,
+	invitationRepo repository.TeamInvitationRepository,
 	outboxWorker OutboxWorkerTrigger,
 	encryptionKey string,
 	logger *zap.Logger,
@@ -64,9 +71,9 @@ func NewAuthService(
 
 	return &AuthService{
 		pool:           pool,
-		userRepo:       repository.NewUserRepository(pool),
-		companyRepo:    repository.NewCompanyRepository(pool),
-		userRoleRepo:   repository.NewUserRoleRepository(pool),
+		userRepo:       userRepo,
+		companyRepo:    companyRepo,
+		userRoleRepo:   userRoleRepo,
 		outboxRepo:     outboxRepo,
 		invitationRepo: invitationRepo,
 		emailSvc:       emailSvc,
@@ -488,9 +495,6 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	}, nil
 }
 
-// resolveVerifiedUser looks up a user by Supabase subject (preferred) and
-// falls back to email lookup for accounts registered before auth_user_id was
-// populated.
 func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string) (*models.User, error) {
 	user, err := s.userRepo.FindByAuthUserID(ctx, sub)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {

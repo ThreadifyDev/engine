@@ -7,31 +7,26 @@ import (
 
 	"threadify-go/api/internal/models"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type OutboxRepository struct {
+type outboxRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewOutboxRepository(pool *pgxpool.Pool) *OutboxRepository {
-	return &OutboxRepository{pool: pool}
+func NewOutboxRepository(pool *pgxpool.Pool) OutboxRepository {
+	return &outboxRepository{pool: pool}
 }
 
-type outboxExecer interface {
-	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
-}
-
-func (r *OutboxRepository) Create(ctx context.Context, event *models.OutboxEvent) error {
+func (r *outboxRepository) Create(ctx context.Context, event *models.OutboxEvent) error {
 	return r.CreateTx(ctx, r.pool, event)
 }
 
-func (r *OutboxRepository) CreateTx(ctx context.Context, execer outboxExecer, event *models.OutboxEvent) error {
+func (r *outboxRepository) CreateTx(ctx context.Context, execer DBExecer, event *models.OutboxEvent) error {
 	return r.insert(ctx, execer, event)
 }
 
-func (r *OutboxRepository) insert(ctx context.Context, execer outboxExecer, event *models.OutboxEvent) error {
+func (r *outboxRepository) insert(ctx context.Context, execer DBExecer, event *models.OutboxEvent) error {
 	const query = `
 		INSERT INTO outbox_events
 			(id, type, payload, status, retry_count, max_retries, next_run_at, reference_id, created_at, updated_at)
@@ -48,7 +43,7 @@ func (r *OutboxRepository) insert(ctx context.Context, execer outboxExecer, even
 	return nil
 }
 
-func (r *OutboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
+func (r *outboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
 	const query = `
 		UPDATE outbox_events
 		SET status = $1, updated_at = NOW()
@@ -90,7 +85,7 @@ func (r *OutboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*m
 	return events, rows.Err()
 }
 
-func (r *OutboxRepository) ExistsByReference(ctx context.Context, eventType, referenceID string) (bool, error) {
+func (r *outboxRepository) ExistsByReference(ctx context.Context, eventType, referenceID string) (bool, error) {
 	const query = `
 		SELECT EXISTS (
 			SELECT 1 FROM outbox_events
@@ -104,7 +99,7 @@ func (r *OutboxRepository) ExistsByReference(ctx context.Context, eventType, ref
 	return exists, err
 }
 
-func (r *OutboxRepository) ExistsPendingByReference(ctx context.Context, eventType, referenceID string) (bool, error) {
+func (r *outboxRepository) ExistsPendingByReference(ctx context.Context, eventType, referenceID string) (bool, error) {
 	const query = `
 		SELECT EXISTS (
 			SELECT 1 FROM outbox_events
@@ -118,7 +113,7 @@ func (r *OutboxRepository) ExistsPendingByReference(ctx context.Context, eventTy
 	return exists, err
 }
 
-func (r *OutboxRepository) MarkDone(ctx context.Context, id string) error {
+func (r *outboxRepository) MarkDone(ctx context.Context, id string) error {
 	const query = `
 		UPDATE outbox_events
 		SET status = $1, updated_at = NOW()
@@ -131,7 +126,7 @@ func (r *OutboxRepository) MarkDone(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *OutboxRepository) MarkFailedWithRetry(ctx context.Context, id, lastErr string, nextRunAt time.Time) error {
+func (r *outboxRepository) MarkFailedWithRetry(ctx context.Context, id, lastErr string, nextRunAt time.Time) error {
 	const query = `
 		UPDATE outbox_events
 		SET status      = CASE WHEN retry_count + 1 >= max_retries
@@ -157,7 +152,7 @@ func (r *OutboxRepository) MarkFailedWithRetry(ctx context.Context, id, lastErr 
 	return nil
 }
 
-func (r *OutboxRepository) PruneProcessed(ctx context.Context, before time.Time) (int64, error) {
+func (r *outboxRepository) PruneProcessed(ctx context.Context, before time.Time) (int64, error) {
 	const query = `DELETE FROM outbox_events WHERE status = $1 AND created_at < $2`
 	result, err := r.pool.Exec(ctx, query, models.OutboxStatusDone, before)
 	if err != nil {

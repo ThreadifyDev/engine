@@ -36,6 +36,9 @@ var (
 	ErrInvalidRoleAPI             = serror.ErrInvalidRoleAPI
 	ErrUserNotFound               = serror.ErrUserNotFound
 	ErrPaymentRequired            = serror.ErrPaymentRequired
+
+	// Invitation errors
+	ErrInvitationNotFound = serror.ErrInvitationNotFound
 )
 
 // HTTP Header constants.

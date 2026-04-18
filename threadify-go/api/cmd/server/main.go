@@ -109,13 +109,13 @@ func main() {
 }
 
 type repositories struct {
-	user              *repository.UserRepository
-	company           *repository.CompanyRepository
-	userRole          *repository.UserRoleRepository
-	apiKey            *repository.APIKeyRepository
-	serviceAccount    *repository.ServiceAccountRepository
-	outbox            *repository.OutboxRepository
-	agent             *repository.AgentRepository
+	user              repository.UserRepository
+	company           repository.CompanyRepository
+	userRole          repository.UserRoleRepository
+	apiKey            repository.APIKeyRepository
+	serviceAccount    repository.ServiceAccountRepository
+	outbox            repository.OutboxRepository
+	agent             repository.AgentRepository
 	plan              sharedrepo.PlanRepository
 	entityProfileType sharedrepo.EntityProfileTypeRepository
 }
@@ -151,7 +151,7 @@ type services struct {
 	billingService        *billing.BillingService
 	teamInvitationService *service.TeamInvitationService
 	invoiceProvider       billing.BillingProvider
-	outboxRepo            *repository.OutboxRepository
+	outboxRepo            repository.OutboxRepository
 	outboxTrigger         service.OutboxWorkerTrigger
 	workerCancel          context.CancelFunc
 	workerWg              sync.WaitGroup
@@ -202,7 +202,7 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		return nil, fmt.Errorf("NATS unavailable: %w", err)
 	}
 
-	if err := nc.InitializeOutboxStream(); err != nil {
+	if err := nc.InitializeOutboxStream(context.Background()); err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("initialize NATS outbox stream: %w", err)
 	}
@@ -246,6 +246,9 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 	teamInvitationRepo := repository.NewTeamInvitationRepository(pool)
 	authSvc := service.NewAuthService(
 		pool,
+		repos.user,
+		repos.company,
+		repos.userRole,
 		emailSvc,
 		authClient,
 		repos.outbox,
@@ -515,7 +518,7 @@ func resolveRBACPaths(logger *zap.Logger) (string, string, error) {
 	return "", "", errors.New("RBAC files not found in any known location; check deployment configuration")
 }
 
-func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *zap.Logger) {
+func runPruner(ctx context.Context, repo repository.OutboxRepository, logger *zap.Logger) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 

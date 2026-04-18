@@ -6,23 +6,18 @@ import (
 
 	"threadify-go/api/internal/models"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type CompanyRepository struct {
+type companyRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewCompanyRepository(pool *pgxpool.Pool) *CompanyRepository {
-	return &CompanyRepository{pool: pool}
+func NewCompanyRepository(pool *pgxpool.Pool) CompanyRepository {
+	return &companyRepository{pool: pool}
 }
 
-type companyExecer interface {
-	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
-}
-
-func (r *CompanyRepository) CreateTx(ctx context.Context, execer companyExecer, company *models.Company) error {
+func (r *companyRepository) CreateTx(ctx context.Context, execer DBExecer, company *models.Company) error {
 	const query = `
         INSERT INTO companies (id, name, industry, size, use_case, created_at, updated_at)
         VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NOW(), NOW())
@@ -34,7 +29,7 @@ func (r *CompanyRepository) CreateTx(ctx context.Context, execer companyExecer, 
 	return nil
 }
 
-func (r *CompanyRepository) FindByID(ctx context.Context, id string) (*models.Company, error) {
+func (r *companyRepository) FindByID(ctx context.Context, id string) (*models.Company, error) {
 	company := &models.Company{}
 	const query = `
         SELECT id, name, industry, size, use_case, created_at, updated_at
@@ -53,7 +48,7 @@ func (r *CompanyRepository) FindByID(ctx context.Context, id string) (*models.Co
 	return company, nil
 }
 
-func (r *CompanyRepository) UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error {
+func (r *companyRepository) UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error {
 	const query = `
         UPDATE companies
         SET industry = COALESCE($1, industry),
@@ -68,11 +63,11 @@ func (r *CompanyRepository) UpdateDetails(ctx context.Context, id string, indust
 	}
 	return nil
 }
-func (r *CompanyRepository) Delete(ctx context.Context, id string) error {
+func (r *companyRepository) Delete(ctx context.Context, id string) error {
 	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *CompanyRepository) DeleteTx(ctx context.Context, execer companyExecer, id string) error {
+func (r *companyRepository) DeleteTx(ctx context.Context, execer DBExecer, id string) error {
 	_, err := execer.Exec(ctx, `DELETE FROM companies WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete company: %w", err)

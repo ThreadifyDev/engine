@@ -9,39 +9,31 @@ import (
 )
 
 type Config struct {
-	// Database
 	DatabaseURL string
 
-	// JWT
 	JWTSecret              string
 	JWTExpiration          time.Duration
 	RefreshTokenExpiration time.Duration
 
-	// API Keys
 	APIKeyTTL time.Duration
 
-	// Plunk Email Service
 	PlunkAPIKey    string
 	PlunkFromEmail string
 
-	// ThreadifyEngine URLs
 	ThreadifyEngineURL        string
 	ThreadifyEngineGraphQLURL string
 	ThreadifyEngineUserID     string
 
-	// Server
 	Port        string
 	CORSOrigins string
 	FrontendURL string
 
-	// Rate Limiting
 	RateLimitRequests int
 	RateLimitWindow   time.Duration
 }
 
 func Load() (*Config, error) {
-	// Load .env file
-	err := godotenv.Load() // ignore error, default to environment variables
+	err := godotenv.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load .env file: %w", err)
 	}
@@ -63,8 +55,8 @@ func Load() (*Config, error) {
 		DatabaseURL:               getEnv("DATABASE_URL", "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"),
 		JWTSecret:                 getEnv("JWT_SECRET", "dev-secret-key"),
 		JWTExpiration:             jwtExp,
-		RefreshTokenExpiration:    refreshTokenExp, // 7 days
-		APIKeyTTL:                 apiKeyTTL,       // 365 days
+		RefreshTokenExpiration:    refreshTokenExp,
+		APIKeyTTL:                 apiKeyTTL,
 		PlunkAPIKey:               getEnv("PLUNK_API_KEY", ""),
 		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.com"),
 		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "http://localhost:8081"),

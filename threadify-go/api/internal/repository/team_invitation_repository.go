@@ -6,32 +6,26 @@ import (
 	"time"
 
 	"threadify-go/api/internal/models"
+	serror "threadify-go/shared/errors"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type TeamInvitationRepository struct {
+type teamInvitationRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewTeamInvitationRepository(pool *pgxpool.Pool) *TeamInvitationRepository {
-	return &TeamInvitationRepository{pool: pool}
-}
-
-type teamInvitationExecer interface {
-	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
-	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
+func NewTeamInvitationRepository(pool *pgxpool.Pool) TeamInvitationRepository {
+	return &teamInvitationRepository{pool: pool}
 }
 
 // Create inserts a new team invitation
-func (r *TeamInvitationRepository) Create(ctx context.Context, invitation *models.TeamInvitation) error {
+func (r *teamInvitationRepository) Create(ctx context.Context, invitation *models.TeamInvitation) error {
 	return r.CreateTx(ctx, r.pool, invitation)
 }
 
 // CreateTx inserts a new team invitation within a transaction
-func (r *TeamInvitationRepository) CreateTx(ctx context.Context, execer teamInvitationExecer, invitation *models.TeamInvitation) error {
+func (r *teamInvitationRepository) CreateTx(ctx context.Context, execer DBExecer, invitation *models.TeamInvitation) error {
 	const query = `
 		INSERT INTO team_invitations
 			(id, company_id, email, role, invited_by, status, token, expires_at, created_at)
@@ -54,7 +48,7 @@ func (r *TeamInvitationRepository) CreateTx(ctx context.Context, execer teamInvi
 }
 
 // GetByToken retrieves an invitation by token
-func (r *TeamInvitationRepository) GetByToken(ctx context.Context, token string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetByToken(ctx context.Context, token string) (*models.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -84,7 +78,7 @@ func (r *TeamInvitationRepository) GetByToken(ctx context.Context, token string)
 }
 
 // GetByID retrieves an invitation by ID
-func (r *TeamInvitationRepository) GetByID(ctx context.Context, id string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetByID(ctx context.Context, id string) (*models.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -114,12 +108,12 @@ func (r *TeamInvitationRepository) GetByID(ctx context.Context, id string) (*mod
 }
 
 // MarkAccepted marks an invitation as accepted
-func (r *TeamInvitationRepository) MarkAccepted(ctx context.Context, invitationID, userID string) error {
+func (r *teamInvitationRepository) MarkAccepted(ctx context.Context, invitationID, userID string) error {
 	return r.MarkAcceptedTx(ctx, r.pool, invitationID, userID)
 }
 
 // MarkAcceptedTx marks an invitation as accepted within a transaction
-func (r *TeamInvitationRepository) MarkAcceptedTx(ctx context.Context, execer teamInvitationExecer, invitationID, userID string) error {
+func (r *teamInvitationRepository) MarkAcceptedTx(ctx context.Context, execer DBExecer, invitationID, userID string) error {
 	const query = `
 		UPDATE team_invitations
 		SET status = $1, accepted_at = NOW(), accepted_by_user_id = $2
@@ -133,26 +127,29 @@ func (r *TeamInvitationRepository) MarkAcceptedTx(ctx context.Context, execer te
 }
 
 // UpdateStatus updates the status of an invitation
-func (r *TeamInvitationRepository) UpdateStatus(ctx context.Context, invitationID, status string) error {
+func (r *teamInvitationRepository) UpdateStatus(ctx context.Context, invitationID, status string) error {
 	const query = `
 		UPDATE team_invitations
 		SET status = $1
 		WHERE id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, status, invitationID)
+	result, err := r.pool.Exec(ctx, query, status, invitationID)
 	if err != nil {
 		return fmt.Errorf("update invitation status: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return serror.ErrInvitationNotFound
 	}
 	return nil
 }
 
 // Delete removes an invitation
-func (r *TeamInvitationRepository) Delete(ctx context.Context, invitationID string) error {
+func (r *teamInvitationRepository) Delete(ctx context.Context, invitationID string) error {
 	return r.DeleteTx(ctx, r.pool, invitationID)
 }
 
 // DeleteTx removes an invitation within a transaction
-func (r *TeamInvitationRepository) DeleteTx(ctx context.Context, execer teamInvitationExecer, invitationID string) error {
+func (r *teamInvitationRepository) DeleteTx(ctx context.Context, execer DBExecer, invitationID string) error {
 	const query = `DELETE FROM team_invitations WHERE id = $1`
 	_, err := execer.Exec(ctx, query, invitationID)
 	if err != nil {
@@ -162,7 +159,7 @@ func (r *TeamInvitationRepository) DeleteTx(ctx context.Context, execer teamInvi
 }
 
 // RefreshInvitation updates the token and expiry date for an existing invitation
-func (r *TeamInvitationRepository) RefreshInvitation(ctx context.Context, invitationID, newToken string, expiresAt time.Time) error {
+func (r *teamInvitationRepository) RefreshInvitation(ctx context.Context, invitationID, newToken string, expiresAt time.Time) error {
 	const query = `
 		UPDATE team_invitations
 		SET token = $1, expires_at = $2
@@ -176,7 +173,7 @@ func (r *TeamInvitationRepository) RefreshInvitation(ctx context.Context, invita
 }
 
 // GetPendingByCompanyAndEmail retrieves pending invitations for a company and email
-func (r *TeamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -208,7 +205,7 @@ func (r *TeamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Conte
 }
 
 // ListByCompany retrieves all invitations for a company
-func (r *TeamInvitationRepository) ListByCompany(ctx context.Context, companyID string) ([]*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) ListByCompany(ctx context.Context, companyID string) ([]*models.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -245,7 +242,7 @@ func (r *TeamInvitationRepository) ListByCompany(ctx context.Context, companyID 
 }
 
 // DeleteExpired deletes expired invitations
-func (r *TeamInvitationRepository) DeleteExpired(ctx context.Context) (int64, error) {
+func (r *teamInvitationRepository) DeleteExpired(ctx context.Context) (int64, error) {
 	const query = `DELETE FROM team_invitations WHERE status = 'pending' AND expires_at < NOW()`
 	result, err := r.pool.Exec(ctx, query)
 	if err != nil {

@@ -17,7 +17,7 @@ import (
 	"threadify-go/shared/nats"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	natsio "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
@@ -29,11 +29,11 @@ const (
 
 type OutboxWorker struct {
 	pool          *pgxpool.Pool
-	outboxRepo    *repository.OutboxRepository
-	userRepo      *repository.UserRepository
-	companyRepo   *repository.CompanyRepository
+	outboxRepo    repository.OutboxRepository
+	userRepo      repository.UserRepository
+	companyRepo   repository.CompanyRepository
 	authClient    sharedauth.AuthClient
-	emailSvc      *service.EmailService
+	emailSvc      service.EmailService
 	encryptionKey []byte
 	trigger       chan struct{}
 	logger        *zap.Logger
@@ -41,11 +41,11 @@ type OutboxWorker struct {
 
 func NewOutboxWorker(
 	pool *pgxpool.Pool,
-	outboxRepo *repository.OutboxRepository,
-	userRepo *repository.UserRepository,
-	companyRepo *repository.CompanyRepository,
+	outboxRepo repository.OutboxRepository,
+	userRepo repository.UserRepository,
+	companyRepo repository.CompanyRepository,
 	authClient sharedauth.AuthClient,
-	emailSvc *service.EmailService,
+	emailSvc service.EmailService,
 	encryptionKey string,
 	logger *zap.Logger,
 ) *OutboxWorker {
@@ -75,15 +75,19 @@ func (w *OutboxWorker) Trigger() {
 	}
 }
 
-func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
+func (w *OutboxWorker) Run(ctx context.Context, js jetstream.JetStream) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	sub, err := js.PullSubscribe(nats.SubjectOutboxTrigger, "outbox-worker")
+	consumerConfig := jetstream.ConsumerConfig{
+		Durable:       "outbox-worker",
+		FilterSubject: nats.SubjectOutboxTrigger,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	}
+
+	cons, err := js.CreateOrUpdateConsumer(ctx, nats.StreamOutboxTriggers, consumerConfig)
 	if err != nil {
 		w.logger.Error("outbox: failed to subscribe to NATS trigger", zap.Error(err))
-	} else {
-		defer sub.Unsubscribe()
 	}
 
 	for {
@@ -93,10 +97,13 @@ func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 		case <-ticker.C:
 			w.processEvents(ctx)
 		case <-w.trigger:
-			if sub != nil {
-				msgs, err := sub.Fetch(1, natsio.MaxWait(100*time.Millisecond))
-				if err == nil && len(msgs) > 0 {
-					msgs[0].Ack()
+			if cons != nil {
+				batch, err := cons.Fetch(1, jetstream.FetchMaxWait(100*time.Millisecond))
+				if err == nil {
+					msg := <-batch.Messages()
+					if msg != nil {
+						msg.Ack()
+					}
 				}
 			}
 			w.processEvents(ctx)

@@ -6,17 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
-// ArchivalPublisher handles publishing archival events to NATS JetStream.
 type ArchivalPublisher struct {
 	client *Client
 	logger *zap.Logger
 }
 
-// NewArchivalPublisher creates a new archival event publisher.
 func NewArchivalPublisher(client *Client, logger *zap.Logger) *ArchivalPublisher {
 	return &ArchivalPublisher{
 		client: client,
@@ -64,16 +62,7 @@ func (p *ArchivalPublisher) PublishUsageSyncBatch(ctx context.Context, events []
 
 	dedupID, _ := events[0]["event_id"].(string)
 
-	msg := &nats.Msg{
-		Subject: "usage.sync",
-		Data:    jsonData,
-		Header:  make(nats.Header),
-	}
-	if dedupID != "" {
-		msg.Header.Set(nats.MsgIdHdr, dedupID)
-	}
-
-	if _, err := p.client.JetStream().PublishMsg(msg, nats.Context(ctx)); err != nil {
+	if _, err := p.client.JetStream().Publish(ctx, "usage.sync", jsonData, jetstream.WithMsgID(dedupID)); err != nil {
 		return fmt.Errorf("publish usage sync batch: %w", err)
 	}
 	return nil
@@ -97,7 +86,7 @@ func (p *ArchivalPublisher) publishData(ctx context.Context, subject string, dat
 		return fmt.Errorf("failed to marshal data: %w", err)
 	}
 
-	if _, err := p.client.JetStream().Publish(subject, jsonData, nats.Context(ctx)); err != nil {
+	if _, err := p.client.JetStream().Publish(ctx, subject, jsonData); err != nil {
 		return fmt.Errorf("failed to publish to NATS subject %s: %w", subject, err)
 	}
 	return nil

@@ -1,0 +1,250 @@
+{
+  "app_level": [
+    {
+      "name": "contract.*",
+      "description": "All contract operations",
+      "is_wildcard": true
+    },
+    {
+      "name": "contract.create",
+      "description": "Create contracts",
+      "is_wildcard": false
+    },
+    {
+      "name": "contract.read.*",
+      "description": "Read any contract",
+      "is_wildcard": true
+    },
+    {
+      "name": "contract.read.<contract_id>",
+      "description": "Read specific contract by ID (dynamic)",
+      "is_wildcard": false,
+      "is_dynamic": true
+    },
+    {
+      "name": "contract.update.*",
+      "description": "Update any contract",
+      "is_wildcard": true
+    },
+    {
+      "name": "contract.update.<contract_id>",
+      "description": "Update specific contract by ID (dynamic)",
+      "is_wildcard": false,
+      "is_dynamic": true
+    },
+    {
+      "name": "contract.delete.*",
+      "description": "Delete any contract",
+      "is_wildcard": true
+    },
+    {
+      "name": "contract.delete.<contract_id>",
+      "description": "Delete specific contract by ID (dynamic)",
+      "is_wildcard": false,
+      "is_dynamic": true
+    },
+    {
+      "name": "query.execution.*",
+      "description": "Execute GraphQL queries for all contract types",
+      "is_wildcard": true
+    },
+    {
+      "name": "query.execution.<contract_id>",
+      "description": "Execute GraphQL queries for specific contract (dynamic)",
+      "is_wildcard": false,
+      "is_dynamic": true
+    },
+    {
+      "name": "apikey.*",
+      "description": "All API key operations",
+      "is_wildcard": true
+    },
+    {
+      "name": "apikey.create",
+      "description": "Create API keys",
+      "is_wildcard": false
+    },
+    {
+      "name": "apikey.read",
+      "description": "Read API keys",
+      "is_wildcard": false
+    },
+    {
+      "name": "apikey.update",
+      "description": "Update API keys",
+      "is_wildcard": false
+    },
+    {
+      "name": "apikey.delete",
+      "description": "Delete API keys",
+      "is_wildcard": false
+    },
+    {
+      "name": "serviceaccount.*",
+      "description": "All service account operations",
+      "is_wildcard": true
+    },
+    {
+      "name": "member.invite",
+      "description": "Invite members to the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.remove",
+      "description": "Remove members from the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.view",
+      "description": "View members in the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "serviceaccount.create",
+      "description": "Create service accounts",
+      "is_wildcard": false
+    },
+    {
+      "name": "serviceaccount.read",
+      "description": "Read service accounts",
+      "is_wildcard": false
+    },
+    {
+      "name": "serviceaccount.update",
+      "description": "Update service accounts",
+      "is_wildcard": false
+    },
+    {
+      "name": "serviceaccount.delete",
+      "description": "Delete service accounts",
+      "is_wildcard": false
+    }
+  ],
+  "runtime_level": [
+    {
+      "name": "notification.execution.*",
+      "description": "All step execution status notifications (SDK-reported)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.execution.failed.*",
+      "description": "Step execution failures (SDK reported)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.execution.failed.own",
+      "description": "Own step execution failures",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.execution.success.*",
+      "description": "Step execution successes (SDK reported)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.execution.success.own",
+      "description": "Own step execution successes",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.*",
+      "description": "All contract validation notifications",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.*",
+      "description": "All contract violations (business rules, timeout, retries)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.critical",
+      "description": "Critical contract violations only",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.own",
+      "description": "Own contract violations",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.timeout.*",
+      "description": "Step duration exceeded (contract rule)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.timeout.own",
+      "description": "Own step duration exceeded",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.violated.retry_limit.*",
+      "description": "Max retries exceeded (contract rule)",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.violated.retry_limit.own",
+      "description": "Own max retries exceeded",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.validation.passed.*",
+      "description": "Contract validations passed",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.validation.passed.own",
+      "description": "Own contract validations passed",
+      "is_wildcard": false
+    },
+    {
+      "name": "notification.thread.*",
+      "description": "All thread-level notifications",
+      "is_wildcard": true
+    },
+    {
+      "name": "notification.thread.lifecycle",
+      "description": "Thread lifecycle events (created, completed)",
+      "is_wildcard": false
+    },
+    {
+      "name": "thread.*",
+      "description": "All thread operations",
+      "is_wildcard": true
+    },
+    {
+      "name": "thread.create",
+      "description": "Create threads",
+      "is_wildcard": false
+    },
+    {
+      "name": "thread.read.*",
+      "description": "Read from any thread",
+      "is_wildcard": true
+    },
+    {
+      "name": "thread.read.own",
+      "description": "Read only your step from a thread",
+      "is_wildcard": true
+    },
+    {
+      "name": "thread.write.*",
+      "description": "Write to a thread",
+      "is_wildcard": true
+    },
+    {
+      "name": "thread.delete",
+      "description": "Delete threads",
+      "is_wildcard": false
+    },
+    {
+      "name": "thread.invite",
+      "description": "Invite participants to threads",
+      "is_wildcard": false
+    },
+    {
+      "name": "thread.end",
+      "description": "End threads (cancel or complete)",
+      "is_wildcard": false
+    }
+  ]
+}

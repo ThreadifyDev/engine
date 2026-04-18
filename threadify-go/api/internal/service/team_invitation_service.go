@@ -15,20 +15,20 @@ import (
 )
 
 type TeamInvitationService struct {
-	invitationRepo *repository.TeamInvitationRepository
-	outboxRepo     *repository.OutboxRepository
+	invitationRepo repository.TeamInvitationRepository
+	outboxRepo     repository.OutboxRepository
 	outboxWorker   OutboxWorkerTrigger
-	userRepo       *repository.UserRepository
+	userRepo       repository.UserRepository
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
 }
 
 func NewTeamInvitationService(
-	invitationRepo *repository.TeamInvitationRepository,
-	outboxRepo *repository.OutboxRepository,
+	invitationRepo repository.TeamInvitationRepository,
+	outboxRepo repository.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
-	userRepo *repository.UserRepository,
+	userRepo repository.UserRepository,
 	encryptionKey string,
 	frontendURL string,
 	logger *zap.Logger,

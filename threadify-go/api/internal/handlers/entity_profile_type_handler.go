@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 
@@ -12,10 +12,10 @@ import (
 )
 
 type EntityProfileTypeHandler struct {
-	entityProfileTypeService *service.EntityProfileTypeService
+	entityProfileTypeService iface.EntityProfileTypeService
 }
 
-func NewEntityProfileTypeHandler(entityProfileTypeService *service.EntityProfileTypeService) *EntityProfileTypeHandler {
+func NewEntityProfileTypeHandler(entityProfileTypeService iface.EntityProfileTypeService) *EntityProfileTypeHandler {
 	return &EntityProfileTypeHandler{
 		entityProfileTypeService: entityProfileTypeService,
 	}

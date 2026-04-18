@@ -3,17 +3,17 @@ package repository
 import (
 	"context"
 
-	"threadify-go/shared/billing"
 	"threadify-go/shared/models"
 )
 
+//go:generate mockgen -package=sharedmocks -destination=../mocks/repository_mocks.go -source=interfaces.go
 type PlanRepository interface {
-	GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error)
+	GetCreditAccount(ctx context.Context, companyID string) (*models.CreditAccount, error)
 	GetExternalCustomerID(ctx context.Context, companyID string) (string, error)
 	SetExternalCustomerID(ctx context.Context, companyID, externalCustomerID string) error
 	FindCompanyByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error)
 	ListCompaniesForRollover(ctx context.Context) (map[string]string, error)
-	CreateCreditAccount(ctx context.Context, account *billing.CreditAccount) error
+	CreateCreditAccount(ctx context.Context, account *models.CreditAccount) error
 	UpdateCumulativeMonthlyCharge(ctx context.Context, id string, amount int64) error
 	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
 	UpdateTopupSettings(ctx context.Context, companyID string, autoTopupAmount, minBalance int64) error

@@ -10,15 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ServiceAccountRepository struct {
+type serviceAccountRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewServiceAccountRepository(pool *pgxpool.Pool) *ServiceAccountRepository {
-	return &ServiceAccountRepository{pool: pool}
+func NewServiceAccountRepository(pool *pgxpool.Pool) ServiceAccountRepository {
+	return &serviceAccountRepository{pool: pool}
 }
 
-func (r *ServiceAccountRepository) Create(ctx context.Context, sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Create(ctx context.Context, sa *models.ServiceAccount) error {
 	query := `
 		INSERT INTO service_accounts (id, company_id, name, description, is_active, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -28,7 +28,7 @@ func (r *ServiceAccountRepository) Create(ctx context.Context, sa *models.Servic
 	return err
 }
 
-func (r *ServiceAccountRepository) FindByID(ctx context.Context, id string) (*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByID(ctx context.Context, id string) (*models.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
@@ -46,7 +46,7 @@ func (r *ServiceAccountRepository) FindByID(ctx context.Context, id string) (*mo
 	return &sa, nil
 }
 
-func (r *ServiceAccountRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
@@ -70,7 +70,7 @@ func (r *ServiceAccountRepository) FindByCompanyID(ctx context.Context, companyI
 	return accounts, nil
 }
 
-func (r *ServiceAccountRepository) Update(ctx context.Context, sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Update(ctx context.Context, sa *models.ServiceAccount) error {
 	query := `
 		UPDATE service_accounts
 		SET name = $1, description = $2, is_active = $3, updated_at = $4
@@ -81,20 +81,20 @@ func (r *ServiceAccountRepository) Update(ctx context.Context, sa *models.Servic
 	return err
 }
 
-func (r *ServiceAccountRepository) Delete(ctx context.Context, id string) error {
+func (r *serviceAccountRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM service_accounts WHERE id = $1`
 	_, err := r.pool.Exec(ctx, query, id)
 	return err
 }
 
-func (r *ServiceAccountRepository) UpdateLastUsed(ctx context.Context, id string) error {
+func (r *serviceAccountRepository) UpdateLastUsed(ctx context.Context, id string) error {
 	query := `UPDATE service_accounts SET last_used_at = NOW() WHERE id = $1`
 	_, err := r.pool.Exec(ctx, query, id)
 	return err
 }
 
 // IsServiceAccountActive checks if a service account exists and is active
-func (r *ServiceAccountRepository) IsServiceAccountActive(ctx context.Context, id string) (bool, error) {
+func (r *serviceAccountRepository) IsServiceAccountActive(ctx context.Context, id string) (bool, error) {
 	query := `SELECT is_active FROM service_accounts WHERE id = $1`
 	var isActive bool
 	err := r.pool.QueryRow(ctx, query, id).Scan(&isActive)

@@ -10,8 +10,8 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
-	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
 	"golang.org/x/sync/singleflight"
 )
@@ -41,7 +41,7 @@ type cachedRoles struct {
 
 type AuthService struct {
 	db            *pgxpool.Pool
-	authRepo      *postgres.AuthRepository
+	authRepo      interfaces.AuthRepository
 	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
 	rolesCache    sync.Map // key: userID:type   → *cachedRoles
 	cacheTTL      time.Duration
@@ -52,7 +52,7 @@ type AuthService struct {
 	sfRoles       singleflight.Group // Prevents cache stampedes on role lookup
 }
 
-func NewAuthService(authRepo *postgres.AuthRepository, cacheTTLSeconds int) *AuthService {
+func NewAuthService(authRepo interfaces.AuthRepository, cacheTTLSeconds int) *AuthService {
 	ttl := time.Duration(cacheTTLSeconds) * time.Second
 	if cacheTTLSeconds <= 0 {
 		ttl = time.Duration(defaultCacheTTL) * time.Second
@@ -85,44 +85,48 @@ func (s *AuthService) cleanupExpiredCache() {
 	for {
 		select {
 		case <-ticker.C:
-			now := time.Now()
-			var cacheCount, rolesCount int
-			s.cache.Range(func(key, value interface{}) bool {
-				cacheCount++
-				if cached, ok := value.(*cachedUserInfo); ok && now.After(cached.expiresAt) {
-					s.cache.Delete(key)
-					cacheCount--
-				}
-				return true
-			})
-			s.rolesCache.Range(func(key, value interface{}) bool {
-				rolesCount++
-				if cached, ok := value.(*cachedRoles); ok && now.After(cached.expiresAt) {
-					s.rolesCache.Delete(key)
-					rolesCount--
-				}
-				return true
-			})
-			// Evict excess entries beyond max cap to prevent unbounded memory growth
-			if cacheCount > maxCacheEntries {
-				evicted := 0
-				s.cache.Range(func(key, value interface{}) bool {
-					s.cache.Delete(key)
-					evicted++
-					return evicted < cacheCount-maxCacheEntries
-				})
-			}
-			if rolesCount > maxCacheEntries {
-				evicted := 0
-				s.rolesCache.Range(func(key, value interface{}) bool {
-					s.rolesCache.Delete(key)
-					evicted++
-					return evicted < rolesCount-maxCacheEntries
-				})
-			}
+			s.performCleanup()
 		case <-s.stopCleanup:
 			return
 		}
+	}
+}
+
+func (s *AuthService) performCleanup() {
+	now := time.Now()
+	var cacheCount, rolesCount int
+	s.cache.Range(func(key, value interface{}) bool {
+		cacheCount++
+		if cached, ok := value.(*cachedUserInfo); ok && now.After(cached.expiresAt) {
+			s.cache.Delete(key)
+			cacheCount--
+		}
+		return true
+	})
+	s.rolesCache.Range(func(key, value interface{}) bool {
+		rolesCount++
+		if cached, ok := value.(*cachedRoles); ok && now.After(cached.expiresAt) {
+			s.rolesCache.Delete(key)
+			rolesCount--
+		}
+		return true
+	})
+	// Evict excess entries beyond max cap to prevent unbounded memory growth
+	if cacheCount > maxCacheEntries {
+		evicted := 0
+		s.cache.Range(func(key, value interface{}) bool {
+			s.cache.Delete(key)
+			evicted++
+			return evicted < cacheCount-maxCacheEntries
+		})
+	}
+	if rolesCount > maxCacheEntries {
+		evicted := 0
+		s.rolesCache.Range(func(key, value interface{}) bool {
+			s.rolesCache.Delete(key)
+			evicted++
+			return evicted < rolesCount-maxCacheEntries
+		})
 	}
 }
 

@@ -8,15 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type AgentRepository struct {
+type agentRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewAgentRepository(pool *pgxpool.Pool) *AgentRepository {
-	return &AgentRepository{pool: pool}
+func NewAgentRepository(pool *pgxpool.Pool) AgentRepository {
+	return &agentRepository{pool: pool}
 }
 
-func (r *AgentRepository) CreateConversation(ctx context.Context, conv *models.AgentConversation) error {
+func (r *agentRepository) CreateConversation(ctx context.Context, conv *models.AgentConversation) error {
 	query := `
 		INSERT INTO agent_conversations (id, user_id, company_id, title, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
@@ -25,7 +25,7 @@ func (r *AgentRepository) CreateConversation(ctx context.Context, conv *models.A
 	return err
 }
 
-func (r *AgentRepository) CreateConversationWithParent(ctx context.Context, conv *models.AgentConversation, parentConvID string) error {
+func (r *agentRepository) CreateConversationWithParent(ctx context.Context, conv *models.AgentConversation, parentConvID string) error {
 	query := `
 		INSERT INTO agent_conversations (id, user_id, company_id, title, parent_conversation_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -34,7 +34,7 @@ func (r *AgentRepository) CreateConversationWithParent(ctx context.Context, conv
 	return err
 }
 
-func (r *AgentRepository) GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error) {
+func (r *agentRepository) GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error) {
 	query := `SELECT id, user_id, company_id, title, message_count, token_count, created_at, updated_at 
 	          FROM agent_conversations 
 	          WHERE company_id = $1 
@@ -60,7 +60,7 @@ func (r *AgentRepository) GetConversations(ctx context.Context, companyID string
 	return conversations, nil
 }
 
-func (r *AgentRepository) UpdateConversationStats(ctx context.Context, convID string, messageCount, tokenCount int) error {
+func (r *agentRepository) UpdateConversationStats(ctx context.Context, convID string, messageCount, tokenCount int) error {
 	query := `UPDATE agent_conversations 
 	          SET message_count = $1, token_count = $2, updated_at = NOW() 
 	          WHERE id = $3`
@@ -68,13 +68,13 @@ func (r *AgentRepository) UpdateConversationStats(ctx context.Context, convID st
 	return err
 }
 
-func (r *AgentRepository) GetConversationStats(ctx context.Context, convID string) (messageCount, tokenCount int, err error) {
+func (r *agentRepository) GetConversationStats(ctx context.Context, convID string) (messageCount, tokenCount int, err error) {
 	query := `SELECT message_count, token_count FROM agent_conversations WHERE id = $1`
 	err = r.pool.QueryRow(ctx, query, convID).Scan(&messageCount, &tokenCount)
 	return
 }
 
-func (r *AgentRepository) AddMessage(ctx context.Context, msg *models.AgentMessage) error {
+func (r *agentRepository) AddMessage(ctx context.Context, msg *models.AgentMessage) error {
 	query := `
 		INSERT INTO agent_messages (id, conversation_id, role, content, tool_calls, tool_call_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -87,7 +87,7 @@ func (r *AgentRepository) AddMessage(ctx context.Context, msg *models.AgentMessa
 	return err
 }
 
-func (r *AgentRepository) GetMessages(ctx context.Context, convID string) ([]*models.AgentMessage, error) {
+func (r *agentRepository) GetMessages(ctx context.Context, convID string) ([]*models.AgentMessage, error) {
 	query := `
 		SELECT id, conversation_id, role, content, tool_calls, tool_call_id, created_at
 		FROM agent_messages
@@ -111,7 +111,7 @@ func (r *AgentRepository) GetMessages(ctx context.Context, convID string) ([]*mo
 	return msgs, nil
 }
 
-func (r *AgentRepository) DeleteConversation(ctx context.Context, convID string, userID string) error {
+func (r *agentRepository) DeleteConversation(ctx context.Context, convID string, userID string) error {
 	// First delete all messages
 	_, err := r.pool.Exec(ctx, `DELETE FROM agent_messages WHERE conversation_id = $1`, convID)
 	if err != nil {
@@ -132,7 +132,7 @@ func (r *AgentRepository) DeleteConversation(ctx context.Context, convID string,
 	return nil
 }
 
-func (r *AgentRepository) SaveContext(ctx context.Context, agentCtx *models.AgentContext) error {
+func (r *agentRepository) SaveContext(ctx context.Context, agentCtx *models.AgentContext) error {
 	query := `
 		INSERT INTO agent_context (id, conversation_id, context_key, context_value, created_at)
 		VALUES ($1, $2, $3, $4, NOW())
@@ -142,7 +142,7 @@ func (r *AgentRepository) SaveContext(ctx context.Context, agentCtx *models.Agen
 	return err
 }
 
-func (r *AgentRepository) GetContext(ctx context.Context, convID string) ([]*models.AgentContext, error) {
+func (r *agentRepository) GetContext(ctx context.Context, convID string) ([]*models.AgentContext, error) {
 	query := `
 		SELECT id, conversation_id, context_key, context_value, created_at
 		FROM agent_context

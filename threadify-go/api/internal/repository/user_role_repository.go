@@ -2,27 +2,22 @@ package repository
 
 import (
 	"context"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type UserRoleRepository struct {
+type userRoleRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewUserRoleRepository(pool *pgxpool.Pool) *UserRoleRepository {
-	return &UserRoleRepository{pool: pool}
+func NewUserRoleRepository(pool *pgxpool.Pool) UserRoleRepository {
+	return &userRoleRepository{pool: pool}
 }
 
-func (r *UserRoleRepository) AssignRoleToUser(ctx context.Context, userID, roleName, assignedBy string) error {
+func (r *userRoleRepository) AssignRoleToUser(ctx context.Context, userID, roleName, assignedBy string) error {
 	return r.AssignRoleToUserTx(ctx, r.pool, userID, roleName, assignedBy)
 }
 
-type roleExecer interface {
-	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
-}
-
-func (r *UserRoleRepository) AssignRoleToUserTx(ctx context.Context, execer roleExecer, userID, roleName, assignedBy string) error {
+func (r *userRoleRepository) AssignRoleToUserTx(ctx context.Context, execer DBExecer, userID, roleName, assignedBy string) error {
 	query := `
 		INSERT INTO user_roles (principal_id, principal_type, role_name, assigned_by)
 		VALUES ($1, 'user', $2, $3)
@@ -32,7 +27,7 @@ func (r *UserRoleRepository) AssignRoleToUserTx(ctx context.Context, execer role
 	return err
 }
 
-func (r *UserRoleRepository) GetUserRoles(ctx context.Context, userID string) ([]string, error) {
+func (r *userRoleRepository) GetUserRoles(ctx context.Context, userID string) ([]string, error) {
 	query := `
 		SELECT role_name 
 		FROM user_roles 
@@ -56,7 +51,7 @@ func (r *UserRoleRepository) GetUserRoles(ctx context.Context, userID string) ([
 	return roles, rows.Err()
 }
 
-func (r *UserRoleRepository) RemoveRoleFromUser(ctx context.Context, userID, roleName string) error {
+func (r *userRoleRepository) RemoveRoleFromUser(ctx context.Context, userID, roleName string) error {
 	query := `
 		DELETE FROM user_roles 
 		WHERE principal_id = $1 AND principal_type = 'user' AND role_name = $2
@@ -65,7 +60,7 @@ func (r *UserRoleRepository) RemoveRoleFromUser(ctx context.Context, userID, rol
 	return err
 }
 
-func (r *UserRoleRepository) AssignRoleToServiceAccount(ctx context.Context, serviceAccountID, roleName, assignedBy string) error {
+func (r *userRoleRepository) AssignRoleToServiceAccount(ctx context.Context, serviceAccountID, roleName, assignedBy string) error {
 	query := `
 		INSERT INTO user_roles (principal_id, principal_type, role_name, assigned_by)
 		VALUES ($1, 'service_account', $2, $3)
@@ -75,7 +70,7 @@ func (r *UserRoleRepository) AssignRoleToServiceAccount(ctx context.Context, ser
 	return err
 }
 
-func (r *UserRoleRepository) GetServiceAccountRoles(ctx context.Context, serviceAccountID string) ([]string, error) {
+func (r *userRoleRepository) GetServiceAccountRoles(ctx context.Context, serviceAccountID string) ([]string, error) {
 	query := `
 		SELECT role_name 
 		FROM user_roles 

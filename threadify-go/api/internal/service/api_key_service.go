@@ -14,17 +14,17 @@ import (
 const defaultServiceAccountRole = "standard_service"
 
 type APIKeyService struct {
-	apiKeyRepo         *repository.APIKeyRepository
-	serviceAccountRepo *repository.ServiceAccountRepository
-	userRoleRepo       *repository.UserRoleRepository
+	apiKeyRepo         repository.APIKeyRepository
+	serviceAccountRepo repository.ServiceAccountRepository
+	userRoleRepo       repository.UserRoleRepository
 	rbacLoader         *rbac.Loader
 	logger             *zap.Logger
 }
 
 func NewAPIKeyService(
-	apiKeyRepo *repository.APIKeyRepository,
-	serviceAccountRepo *repository.ServiceAccountRepository,
-	userRoleRepo *repository.UserRoleRepository,
+	apiKeyRepo repository.APIKeyRepository,
+	serviceAccountRepo repository.ServiceAccountRepository,
+	userRoleRepo repository.UserRoleRepository,
 	rbacLoader *rbac.Loader,
 	logger *zap.Logger,
 ) *APIKeyService {

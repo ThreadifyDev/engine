@@ -41,4 +41,7 @@ var (
 
 	// Entity Profile errors
 	ErrEntityProfileTypeAlreadyExists = NewDomainError("an entity profile type with this key already exists for your company", http.StatusConflict)
+
+	// Invitation errors
+	ErrInvitationNotFound = NewDomainError("invitation not found", http.StatusNotFound)
 )
