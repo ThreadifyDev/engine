@@ -11,7 +11,7 @@ import (
 func InitializeTimeoutMonitor(
 	nc *nats.Conn,
 	threadRepo interfaces.ThreadRepository,
-	notificationPub NotificationPublisher,
+	notificationPub interfaces.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
 	monitor, err := NewTimeoutMonitor(nc, threadRepo, notificationPub, logger)

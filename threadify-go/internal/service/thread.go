@@ -74,7 +74,7 @@ func NewThreadService(
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
 	natsClient *natsrepo.Client,
-	natsPublisher NotificationPublisher,
+	natsPublisher interfaces.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
 	planService interfaces.PlanService,
@@ -104,7 +104,7 @@ func NewThreadService(
 	return svc
 }
 
-func (s *ThreadService) GetNotificationConsumer() *NotificationConsumer {
+func (s *ThreadService) GetNotificationConsumer() interfaces.NotificationConsumer {
 	return s.notificationConsumer
 }
 
@@ -1033,6 +1033,11 @@ func parseContractIdentifier(identifier string) (name string, version int) {
 	return identifier, 0
 }
 
+// ParseContractIdentifier is an exported wrapper around parseContractIdentifier (primarily for tests).
+func ParseContractIdentifier(identifier string) (name string, version int) {
+	return parseContractIdentifier(identifier)
+}
+
 // validateRecordEventRequest checks that all required fields are present.
 func validateRecordEventRequest(req *models.RecordEventRequest) error {
 	switch {
@@ -1050,4 +1055,9 @@ func validateRecordEventRequest(req *models.RecordEventRequest) error {
 		return errors.New("Context is required")
 	}
 	return nil
+}
+
+// ValidateRecordEventRequest is an exported wrapper around validateRecordEventRequest (primarily for tests).
+func ValidateRecordEventRequest(req *models.RecordEventRequest) error {
+	return validateRecordEventRequest(req)
 }

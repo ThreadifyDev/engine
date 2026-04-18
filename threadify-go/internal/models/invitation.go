@@ -1,5 +1,18 @@
 package models
 
+import (
+	"github.com/golang-jwt/jwt/v5"
+)
+
+// ThreadInvitationClaims represents JWT claims for thread invitations.
+type ThreadInvitationClaims struct {
+	ThreadID    string `json:"threadId"`
+	Role        string `json:"role"`        // Business/contract role
+	AccessLevel string `json:"accessLevel"` // owner | participant | observer | external
+	InvitedBy   string `json:"invitedBy"`
+	jwt.RegisteredClaims
+}
+
 // InvitePartyRequest represents a request to create an invitation token
 type InvitePartyRequest struct {
 	Action      string `json:"action"`      // "inviteParty"

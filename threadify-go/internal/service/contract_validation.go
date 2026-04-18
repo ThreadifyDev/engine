@@ -15,9 +15,30 @@ import (
 // ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
 	graphRepo    interfaces.ContractGraphRepository
-	contractRepo *postgres.ContractRepository
+	contractRepo contractRepo
 	cacheManager interfaces.CacheManager
 	logger       *zap.Logger
+}
+
+type contractRepo interface {
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
+	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
+}
+
+// NewContractValidationServiceFromParts creates a ContractValidationService from explicit parts.
+// This is primarily intended for tests.
+func NewContractValidationServiceFromParts(
+	graphRepo interfaces.ContractGraphRepository,
+	contractRepo contractRepo,
+	cacheManager interfaces.CacheManager,
+	logger *zap.Logger,
+) *ContractValidationService {
+	return &ContractValidationService{
+		graphRepo:    graphRepo,
+		contractRepo: contractRepo,
+		cacheManager: cacheManager,
+		logger:       logger,
+	}
 }
 
 // NewContractValidationService creates a new contract validation service.

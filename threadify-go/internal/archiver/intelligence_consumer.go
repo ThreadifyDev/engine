@@ -3,14 +3,12 @@ package archiver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/threadify/engine/internal/database"
+	"github.com/nats-io/nats.go/jetstream"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
@@ -25,9 +23,8 @@ const (
 )
 
 type IntelligenceConsumer struct {
-	nc           *nats.Conn
-	js           nats.JetStreamContext
-	db           *database.PostgresDB
+	js           JetStreamPublisher
+	db           DBExecer
 	batchSize    int
 	flushTimeout time.Duration
 	consumerID   string
@@ -36,7 +33,8 @@ type IntelligenceConsumer struct {
 	mu     sync.Mutex
 	buffer []pendingIntelEvent
 
-	consecutiveFailures atomic.Int32
+	consecutiveFailures   atomic.Int32
+	partnerCompatFailures atomic.Int32
 
 	stopOnce    sync.Once
 	stopChan    chan struct{}
@@ -47,26 +45,20 @@ type IntelligenceConsumer struct {
 
 type pendingIntelEvent struct {
 	profileIDs []string
-	msg        *nats.Msg
+	msg        jetstream.Msg
 }
 
 func NewIntelligenceConsumer(
-	nc *nats.Conn,
-	db *database.PostgresDB,
+	js JetStreamPublisher,
+	db DBExecer,
 	batchSize int,
 	flushInterval time.Duration,
 	consumerID string,
 	logger *zap.Logger,
 ) (*IntelligenceConsumer, error) {
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, fmt.Errorf("get jetstream context: %w", err)
-	}
-
 	shutdownCtx, shutdownFn := context.WithCancel(context.Background())
 
 	return &IntelligenceConsumer{
-		nc:           nc,
 		js:           js,
 		db:           db,
 		batchSize:    batchSize,
@@ -81,109 +73,84 @@ func NewIntelligenceConsumer(
 }
 
 func (c *IntelligenceConsumer) Start(ctx context.Context) error {
-	sub, err := c.js.PullSubscribe(
-		natsrepo.SubjectProfileRecalculate,
-		consumerName,
-		nats.ManualAck(),
-		nats.AckExplicit(),
-	)
+	cons, err := c.js.CreateOrUpdateConsumer(ctx, natsrepo.StreamProfileRecalculate, jetstream.ConsumerConfig{
+		Durable:       consumerName,
+		FilterSubject: natsrepo.SubjectProfileRecalculate,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})
 	if err != nil {
-		return fmt.Errorf("subscribe to %s: %w", natsrepo.SubjectProfileRecalculate, err)
+		return fmt.Errorf("create consumer: %w", err)
 	}
 
 	c.logger.Info("started intelligence consumer", zap.String("consumer", c.consumerID))
 
 	c.wg.Add(1)
-	go c.run(ctx, sub)
+	go c.run(ctx, cons)
 	return nil
 }
 
-func (c *IntelligenceConsumer) run(ctx context.Context, sub *nats.Subscription) {
+func (c *IntelligenceConsumer) run(ctx context.Context, cons jetstream.Consumer) {
 	defer c.wg.Done()
 
-	lastFlush := time.Now()
-
-	for {
-		select {
-		case <-c.stopChan:
-			c.flushAll()
+	consumeCtx, err := cons.Consume(func(msg jetstream.Msg) {
+		var profileIDs []string
+		if err := json.Unmarshal(msg.Data(), &profileIDs); err != nil {
+			c.logger.Error("unmarshal error", zap.Error(err))
+			msg.Nak()
 			return
-		case <-ctx.Done():
-			c.flushAll()
-			return
-		default:
 		}
 
-		if failures := c.consecutiveFailures.Load(); failures >= maxConsecutiveFailures {
-			shift := int(failures - maxConsecutiveFailures)
-			if shift > 4 {
-				shift = 4
-			}
-			backoff := initialBackoff * time.Duration(1<<shift)
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			c.logger.Warn("intelligence consumer circuit breaker active, backing off",
-				zap.Int32("consecutive_failures", failures),
-				zap.Duration("backoff", backoff),
-			)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return
-			case <-c.stopChan:
-				return
-			}
-			continue
-		}
-
-		msgs, err := sub.Fetch(c.batchSize, nats.MaxWait(c.flushTimeout))
-		if err != nil {
-			if !errors.Is(err, nats.ErrTimeout) {
-				c.logger.Error("intelligence consumer fetch error",
-					zap.String("consumer", c.consumerID),
-					zap.Error(err),
-				)
-				select {
-				case <-ctx.Done():
-					c.flushAll()
-					return
-				case <-c.stopChan:
-					c.flushAll()
-					return
-				case <-time.After(time.Second):
-				}
-			}
+		if len(profileIDs) == 0 {
+			msg.Ack()
+			return
 		}
 
 		c.mu.Lock()
-		for _, msg := range msgs {
-			var profileIDs []string
-			if err := json.Unmarshal(msg.Data, &profileIDs); err != nil {
-				c.logger.Error("intelligence consumer unmarshal error", zap.Error(err))
-				msg.Nak()
-				continue
-			}
-			if len(profileIDs) == 0 {
-				msg.Ack()
-				continue
-			}
-			c.buffer = append(c.buffer, pendingIntelEvent{
-				profileIDs: profileIDs,
-				msg:        msg,
-			})
-		}
+		c.buffer = append(c.buffer, pendingIntelEvent{
+			profileIDs: profileIDs,
+			msg:        msg,
+		})
 
-		shouldFlush := len(c.buffer) >= c.batchSize || time.Since(lastFlush) >= c.flushTimeout
-		if shouldFlush && len(c.buffer) > 0 {
+		if len(c.buffer) >= c.batchSize {
 			pending := c.buffer
 			c.buffer = make([]pendingIntelEvent, 0, c.batchSize)
 			c.mu.Unlock()
 			c.flush(ctx, pending)
-			lastFlush = time.Now()
-			continue
+			return
 		}
 		c.mu.Unlock()
+	}, jetstream.ConsumeErrHandler(func(consumeCtx jetstream.ConsumeContext, err error) {
+		c.logger.Error("consume error", zap.Error(err))
+	}))
+	if err != nil {
+		c.logger.Error("failed to start consume", zap.Error(err))
+		return
+	}
+
+	ticker := time.NewTicker(c.flushTimeout)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.stopChan:
+			consumeCtx.Stop()
+			c.flushAll()
+			return
+		case <-ctx.Done():
+			consumeCtx.Stop()
+			c.flushAll()
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			if len(c.buffer) > 0 {
+				pending := c.buffer
+				c.buffer = make([]pendingIntelEvent, 0, c.batchSize)
+				c.mu.Unlock()
+				c.flush(ctx, pending)
+			} else {
+				c.mu.Unlock()
+			}
+		}
 	}
 }
 
@@ -242,7 +209,7 @@ func (c *IntelligenceConsumer) flush(ctx context.Context, pending []pendingIntel
 
 	var ackErrors int
 	for _, p := range pending {
-		if err := p.msg.AckSync(); err != nil {
+		if err := p.msg.Ack(); err != nil {
 			ackErrors++
 			c.logger.Error("failed to ack intelligence message", zap.Error(err))
 		}
@@ -273,6 +240,7 @@ func (c *IntelligenceConsumer) recalculateMetrics(ctx context.Context, profileID
 
 	if err := c.recalculatePartnerCompatibility(ctx, profileIDs); err != nil {
 		c.logger.Warn("failed to update partner compatibility (non-fatal)", zap.Error(err))
+		c.partnerCompatFailures.Add(1)
 	}
 
 	return nil
@@ -332,7 +300,7 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, pr
 			average_delivery_time_ms   = EXCLUDED.average_delivery_time_ms,
 			last_calculated_at         = NOW()`
 
-	if _, err := c.db.Pool.Exec(queryCtx, query, profileIDs); err != nil {
+	if _, err := c.db.Exec(queryCtx, query, profileIDs); err != nil {
 		return fmt.Errorf("recalculate entity profile metrics: %w", err)
 	}
 	return nil
@@ -376,7 +344,7 @@ func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Conte
 			compatibility_score     = EXCLUDED.compatibility_score,
 			last_calculated_at      = NOW()`
 
-	if _, err := c.db.Pool.Exec(queryCtx, query, profileIDs); err != nil {
+	if _, err := c.db.Exec(queryCtx, query, profileIDs); err != nil {
 		return fmt.Errorf("recalculate partner compatibility: %w", err)
 	}
 	return nil
@@ -388,5 +356,5 @@ func (c *IntelligenceConsumer) Stop() {
 	})
 	c.wg.Wait()
 	c.shutdownFn()
-	c.logger.Info("stopped intelligence consumer", zap.String("consumer", c.consumerID))
+	c.logger.Info("stopped intelligence consumer")
 }

@@ -10,9 +10,8 @@ import (
 	"strings"
 	"time"
 
-	billing "threadify-go/shared/billing"
+	billingmodels "threadify-go/shared/models"
 
-	"github.com/threadify/engine/internal/database"
 	"go.uber.org/zap"
 )
 
@@ -89,16 +88,16 @@ var activityTopLevelKeys = map[string]bool{
 }
 
 type PostgresWriter struct {
-	db     *database.PostgresDB
+	db     DBExecer
 	logger *zap.Logger
 }
 
-func NewPostgresWriter(db *database.PostgresDB, logger *zap.Logger) *PostgresWriter {
+func NewPostgresWriter(db DBExecer, logger *zap.Logger) *PostgresWriter {
 	return &PostgresWriter{db: db, logger: logger}
 }
 
 func (w *PostgresWriter) batchExec(ctx context.Context, op, query string, values []interface{}) error {
-	if _, err := w.db.Pool.Exec(ctx, query, values...); err != nil {
+	if _, err := w.db.Exec(ctx, query, values...); err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 	return nil
@@ -108,7 +107,7 @@ func (w *PostgresWriter) queryExistingIDs(ctx context.Context, table, column str
 	if len(ids) == 0 {
 		return map[string]bool{}, nil
 	}
-	rows, err := w.db.Pool.Query(ctx,
+	rows, err := w.db.Query(ctx,
 		fmt.Sprintf(`SELECT %s FROM %s WHERE %s = ANY($1::text[])`, column, table, column),
 		ids,
 	)
@@ -332,7 +331,7 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 		return ordered[i].key < ordered[j].key
 	})
 
-	tx, err := w.db.Pool.Begin(ctx)
+	tx, err := w.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin WriteThreadRefs tx: %w", err)
 	}
@@ -532,7 +531,7 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	return nil
 }
 
-func (w *PostgresWriter) WriteValidationResults(ctx context.Context, events []StreamEvent) error {
+func (w *PostgresWriter) WriteThreadValidations(ctx context.Context, events []StreamEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -841,10 +840,10 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 		var chargedDelta int64
 
 		switch event.Meter {
-		case billing.MeterCreditSpend:
+		case billingmodels.MeterCreditSpend:
 			expectedSign = -1
 			chargedDelta = -event.Amount
-		case billing.MeterCreditTopup:
+		case billingmodels.MeterCreditTopup:
 			expectedSign = 1
 			chargedDelta = 0
 		default:
@@ -870,7 +869,7 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 
 		id := deterministicID(event.CompanyID, event.BillingCycleStart.Format(time.RFC3339Nano), event.EventID)
 
-		tag, err := w.db.Pool.Exec(ctx, creditUpsertQuery,
+		tag, err := w.db.Exec(ctx, creditUpsertQuery,
 			event.Amount,
 			event.CompanyID,
 			event.BillingCycleStart,

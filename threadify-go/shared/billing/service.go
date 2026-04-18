@@ -5,13 +5,15 @@ import (
 	"fmt"
 
 	"threadify-go/shared/config"
+	"threadify-go/shared/models"
+	"threadify-go/shared/repository"
 
 	"go.uber.org/zap"
 )
 
 type BillingService struct {
 	BillingProvider BillingProvider
-	PlanRepo        PlanRepository
+	PlanRepo        repository.PlanRepository
 	SubConfig       *config.SubscriptionConfig
 	BillingConfig   *config.BillingConfig
 	Logger          *zap.Logger
@@ -19,7 +21,7 @@ type BillingService struct {
 
 func NewBillingService(
 	billingProvider BillingProvider,
-	planRepo PlanRepository,
+	planRepo repository.PlanRepository,
 	subConfig *config.SubscriptionConfig,
 	billingConfig *config.BillingConfig,
 	logger *zap.Logger,
@@ -33,7 +35,7 @@ func NewBillingService(
 	}
 }
 
-func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string) (*CreditAccount, error) {
+func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string) (*models.CreditAccount, error) {
 	account, err := s.PlanRepo.GetCreditAccount(ctx, companyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve credit account: %w", err)
@@ -42,12 +44,16 @@ func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string)
 }
 
 func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error) {
+	if amountMillicents <= 0 {
+		return "", fmt.Errorf("billing: amount must be greater than zero")
+	}
+
 	extCustID, err := s.PlanRepo.GetExternalCustomerID(ctx, companyID)
 	if err != nil {
 		return "", fmt.Errorf("get external customer id: %w", err)
 	}
 
-	params := CheckoutSessionParams{
+	params := models.CheckoutSessionParams{
 		CompanyID:               companyID,
 		InitialAmountMillicents: amountMillicents,
 		SuccessURL:              s.BillingConfig.SuccessURL,

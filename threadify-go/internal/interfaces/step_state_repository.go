@@ -4,6 +4,8 @@ import (
 	"context"
 )
 
+//go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/step_state_repository_mock.go -source=step_state_repository.go
+
 // StepStateRepository handles atomic step state operations with validation
 type StepStateRepository interface {
 	// LoadScripts loads all Lua scripts into Redis/Valkey

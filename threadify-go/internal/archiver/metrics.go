@@ -5,7 +5,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Archiver Metrics
 var (
 	// Stream Consumption Metrics
 	StreamMessagesConsumed = promauto.NewCounterVec(

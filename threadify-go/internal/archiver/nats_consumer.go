@@ -10,10 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/database"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
@@ -24,9 +22,9 @@ type StreamEvent struct {
 }
 
 type NATSConsumer struct {
-	js           jetstream.JetStream
-	db           *database.PostgresDB
-	writer       *PostgresWriter
+	js           JetStreamPublisher
+	db           DBExecer
+	writer       ConsumerWriter
 	batchSize    int
 	batchTimeout time.Duration
 	consumerName string
@@ -37,19 +35,14 @@ type NATSConsumer struct {
 }
 
 func NewNATSConsumer(
-	nc *nats.Conn,
-	db *database.PostgresDB,
+	js JetStreamPublisher,
+	db DBExecer,
 	batchSize int,
 	batchTimeout time.Duration,
 	consumerName string,
 	cfg *config.Config,
 	logger *zap.Logger,
 ) (*NATSConsumer, error) {
-	js, err := jetstream.New(nc)
-	if err != nil {
-		return nil, fmt.Errorf("create jetstream context: %w", err)
-	}
-
 	return &NATSConsumer{
 		js:           js,
 		db:           db,
@@ -370,7 +363,7 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_validations", msgs)
 	c.logDroppedMalformed("thread_validations", failed)
-	err := c.writer.WriteValidationResults(ctx, events)
+	err := c.writer.WriteThreadValidations(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
 	return err
 }
@@ -469,7 +462,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 		eventID, _ := data["event_id"].(string)
 		if eventID == "" {
 			if seqFallback == "" {
-				if metadata, metaErr := msg.Metadata(); metaErr == nil {
+				if metadata, metaErr := msg.Metadata(); metaErr == nil && metadata != nil {
 					seqFallback = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
 				}
 			}

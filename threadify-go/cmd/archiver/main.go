@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -139,8 +140,14 @@ func startNATSConsumers(
 	hostname, _ := os.Hostname()
 	consumerPrefix := fmt.Sprintf("archiver-%s-%d", hostname, os.Getpid())
 
+	js, err := jetstream.New(nc)
+	if err != nil {
+		nc.Close()
+		return nil, nil, nil, fmt.Errorf("create jetstream: %w", err)
+	}
+
 	natsConsumer, err := archiver.NewNATSConsumer(
-		nc, db,
+		js, db.Pool,
 		cfg.Archiver.Streams.BatchSize,
 		cfg.Archiver.Streams.BlockTimeout,
 		consumerPrefix+"-nats",
@@ -164,7 +171,7 @@ func startNATSConsumers(
 	}
 
 	stepStateConsumer, err := archiver.NewStepStateConsumer(
-		nc, db,
+		js, db.Pool,
 		cfg.Archiver.Streams.BatchSize,
 		flushInterval,
 		consumerPrefix+"-step-state",
@@ -181,7 +188,7 @@ func startNATSConsumers(
 	}
 
 	intelligenceConsumer, err := archiver.NewIntelligenceConsumer(
-		nc, db,
+		js, db.Pool,
 		cfg.Archiver.Streams.BatchSize,
 		flushInterval,
 		consumerPrefix+"-intelligence",
