@@ -201,6 +201,10 @@ func buildRouter(cfg *config.Config, d *deps, logger *zap.Logger) http.Handler {
 	postgresThreadRepo := postgres.NewThreadRepository(d.db.Pool)
 	stepStatePostgres := postgres.NewStepStateRepository(d.db.Pool)
 	cacheManager := service.NewCacheService(logger)
+	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
+	if err := luaScriptManager.LoadScripts(context.Background()); err != nil {
+		logger.Fatal("failed to load lua scripts", zap.Error(err))
+	}
 
 	threadTTL := time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond
 	threadRepo := valkey.NewThreadRepository(d.valkey, int(threadTTL.Seconds()), postgresThreadRepo, stepStatePostgres, cacheManager, luaScriptManager, logger)

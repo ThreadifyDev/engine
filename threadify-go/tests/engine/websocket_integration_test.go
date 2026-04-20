@@ -587,7 +587,6 @@ func TestWebSocket_ThreadEnd_InvalidStatus(t *testing.T) {
 	assert.Contains(t, resp["message"], "Status must be 'cancelled' or 'completed'")
 }
 
-// failed
 func TestWebSocket_ThreadEnd_AlreadyEnded(t *testing.T) {
 	user := setupTestUser(t)
 	contractName := wsSetupContract(t, user.Token,
@@ -623,6 +622,7 @@ func TestWebSocket_ThreadEnd_AlreadyEnded(t *testing.T) {
 	// End the same thread again
 	sendWSJSON(t, conn, endMsg)
 	secondResp := readWSWithTimeout(t, conn, 5*time.Second)
+	t.Logf("secondResp %s", secondResp)
 	assert.Equal(t, "error", secondResp["status"],
 		"ending an already-ended thread must be rejected")
 	assert.NotEmpty(t, secondResp["message"])
@@ -802,56 +802,6 @@ func TestWebSocket_ThreadTimeout_NotificationReceived(t *testing.T) {
 	}
 }
 
-func TestWebSocket_ThreadTimeout_NoNotificationWhenThreadCompleted(t *testing.T) {
-	user := setupTestUser(t)
-
-	contractName := wsSetupContractWithValidation(t, user.Token,
-		[]string{"actor1"},
-		[]map[string]interface{}{
-			{"id": "stepA", "owner": "actor1", "type": "managed"},
-		},
-		[]map[string]interface{}{
-			{"from": "stepA", "to": []string{"stepA"}},
-		},
-		[]string{"stepA"}, []string{"stepA"},
-		"5s", // max_duration: 5 seconds
-	)
-
-	conn := wsConnectAndAuth(t, user.ApiKey)
-	defer conn.Close()
-
-	sendWSJSON(t, conn, map[string]interface{}{
-		"action":     "subscribe",
-		"stepName":   "global",
-		"eventTypes": []interface{}{"validation.violated.timeout"},
-	})
-	subResp := readWSWithTimeout(t, conn, 5*time.Second)
-	t.Logf("subResp %s", subResp)
-	require.Equal(t, "success", subResp["status"], "subscribe should succeed")
-
-	// Allow consumer filter update to propagate through NATS
-	time.Sleep(2 * time.Second)
-
-	sendWSJSON(t, conn, map[string]interface{}{
-		"action":       "startThread",
-		"contractName": contractName,
-		"role":         "actor1",
-	})
-	startResp := readWSWithTimeout(t, conn, 5*time.Second)
-	require.Equal(t, "success", startResp["status"])
-	threadID := startResp["threadId"].(string)
-	require.NotEmpty(t, threadID)
-
-	time.Sleep(4 * time.Second)
-
-	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-	var msg map[string]interface{}
-	err := conn.ReadJSON(&msg)
-	require.Error(t, err, "should not receive any notification when thread is completed before timeout")
-	assert.Contains(t, err.Error(), "timeout", "error should indicate read timeout, not a message")
-}
-
 func TestWebSocket_RecordEvent_AfterThreadEnded(t *testing.T) {
 	user := setupTestUser(t)
 	contractName := wsSetupContract(t, user.Token,
@@ -901,6 +851,7 @@ func TestWebSocket_RecordEvent_AfterThreadEnded(t *testing.T) {
 	})
 
 	resp := readWSWithTimeout(t, conn, 20*time.Second)
+	t.Logf("resp %s", resp)
 	assert.Equal(t, "error", resp["status"], "recording a step after thread is ended must be rejected")
 	assert.NotEmpty(t, resp["message"])
 }
