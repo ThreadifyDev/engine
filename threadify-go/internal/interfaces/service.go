@@ -129,7 +129,7 @@ type NotificationConsumer interface {
 type NotificationRouter interface {
 	HandleConnect(sessionID, ownerID string, maxInFlight int, conn WSConnection, connMutex WSMutex) error
 	HandleDisconnect(sessionID string) error
-	HandleSubscribe(sessionID, stepName, contract string) error
+	HandleSubscribe(sessionID, stepName, contract string, eventTypes []string) error
 	HandleAck(ackToken string) error
 }
 

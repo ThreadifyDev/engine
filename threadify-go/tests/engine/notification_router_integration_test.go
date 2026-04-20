@@ -94,7 +94,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 	})
 
 	t.Run("HandleSubscribe", func(t *testing.T) {
-		err := router.HandleSubscribe(sessionID, "test_step", "test_contract")
+		err := router.HandleSubscribe(sessionID, "test_step", "test_contract", []string{"validation.violated.timeout"})
 		assert.NoError(t, err)
 
 		// Allow the consumer update to propagate.
@@ -119,7 +119,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		data, err := json.Marshal(notification)
 		require.NoError(t, err)
 
-		msgSubject := fmt.Sprintf("notifications.user.%s.%s.%s", ownerID, contractName, stepName)
+		msgSubject := fmt.Sprintf("notifications.user.%s.validation.violated.%s.%s", ownerID, contractName, stepName)
 		_, err = js.Publish(ctx, msgSubject, data)
 		require.NoError(t, err)
 
