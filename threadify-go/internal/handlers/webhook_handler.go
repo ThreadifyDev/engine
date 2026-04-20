@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,6 +48,12 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 	if err != nil {
 		h.logger.Error("webhook: failed to read body", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+		return
+	}
+
+	if !json.Valid(body) {
+		h.logger.Warn("webhook: malformed json payload")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
 		return
 	}
 

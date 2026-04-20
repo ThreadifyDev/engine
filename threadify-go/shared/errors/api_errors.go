@@ -14,6 +14,7 @@ var (
 	ErrJwtVerificationNotConfigured = NewDomainError("JWT verification not configured", http.StatusInternalServerError)
 	ErrExpiredToken                 = NewDomainError("token has expired", http.StatusUnauthorized)
 	ErrInvalidToken                 = NewDomainError("invalid or already used token", http.StatusUnauthorized)
+	ErrAuthInvalidToken             = NewDomainError("invalid or already used token", http.StatusUnprocessableEntity)
 	ErrRateLimit                    = NewDomainError("too many requests, please try again later", http.StatusTooManyRequests)
 
 	// API Key errors

@@ -77,8 +77,15 @@ func (p *NoOpBillingProvider) IssueTopupInvoice(_ *models.BillingSnapshot) (*mod
 	return &models.InvoiceResult{ExternalInvoiceID: "", ProviderName: "noop"}, nil
 }
 
-func (p *NoOpBillingProvider) VerifyAndParse(_ []byte, _ string) (*models.WebhookEvent, error) {
-	return nil, nil
+func (p *NoOpBillingProvider) VerifyAndParse(body []byte, _ string) (*models.WebhookEvent, error) {
+	if len(body) == 0 {
+		return nil, nil
+	}
+	var event models.WebhookEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		return nil, err
+	}
+	return &event, nil
 }
 
 func (p *NoOpBillingProvider) CreateCheckoutSession(_ models.CheckoutSessionParams) (string, error) {

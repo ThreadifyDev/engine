@@ -71,6 +71,14 @@ test-engine-unit: ## Run engine unit tests
 	@echo "Running engine unit tests..."
 	@$(GO) test $(ENGINE_PKGS) -count=1
 
+test-engine-integration: ## Run engine integration tests
+	@echo "Running engine integration tests..."
+	@cd tests && $(GO) test ./engine/... -count=1
+
+test-api-integration: ## Run API integration tests
+	@echo "Running API integration tests..."
+	@cd tests && $(GO) test ./api/... -count=1
+
 test-engine-coverage: ## Run engine tests with HTML coverage
 	@echo "Running engine coverage..."
 	@$(GO) test $(ENGINE_PKGS) -coverprofile=coverage.out

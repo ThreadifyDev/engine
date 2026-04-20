@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 var baseCycle = time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
 
 func spendEvt(id string, amount int64) UsageSyncEvent {
