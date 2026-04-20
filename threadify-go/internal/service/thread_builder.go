@@ -33,7 +33,7 @@ type ThreadServiceBuilder struct {
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
 	natsClient            *natsrepo.Client
-	natsPublisher         NotificationPublisher
+	natsPublisher         interfaces.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
 	planService           interfaces.PlanService
@@ -82,7 +82,7 @@ func (b *ThreadServiceBuilder) WithNATSClient(client *natsrepo.Client) *ThreadSe
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithNATSPublisher(publisher NotificationPublisher) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithNATSPublisher(publisher interfaces.NotificationPublisher) *ThreadServiceBuilder {
 	b.natsPublisher = publisher
 	return b
 }
@@ -200,6 +200,12 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		b.logger,
 	)
 
+	scopeResolver := NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger)
+	var notificationConsumer *NotificationConsumer
+	if b.natsClient != nil {
+		notificationConsumer = NewNotificationConsumer(b.natsClient, scopeResolver, b.logger)
+	}
+
 	return &ThreadService{
 		repo:                  b.threadRepo,
 		accessRepo:            accessRepo,
@@ -214,8 +220,8 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		validationService:     validationService,
 		notificationService:   notificationService,
 		invitationService:     NewInvitationTokenService(b.cfg.JWT.Secret, b.cfg.JWT.Issuer),
-		scopeResolver:         NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger),
-		notificationConsumer:  nil,
+		scopeResolver:         scopeResolver,
+		notificationConsumer:  notificationConsumer,
 		planService:           b.planService,
 		valkeyClient:          b.valkeyService,
 		luaScripts:            luaScripts,

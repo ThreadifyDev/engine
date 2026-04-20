@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -10,12 +9,13 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
@@ -31,6 +31,7 @@ import (
 	"threadify-go/shared/logger"
 	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
+	sharedrepo "threadify-go/shared/repository"
 )
 
 func main() {
@@ -40,18 +41,24 @@ func main() {
 	}
 	defer appLogger.Sync() //nolint:errcheck
 
+	rootCtx, rootCancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer rootCancel()
+
 	cfg, err := loadConfig(appLogger)
 	if err != nil {
 		appLogger.Fatal("load config", zap.Error(err))
 	}
 
-	db, err := initDB(cfg.Postgres.URL)
+	dbCtx, dbCancel := context.WithTimeout(rootCtx, 15*time.Second)
+	defer dbCancel()
+
+	pool, err := initDB(dbCtx, cfg.Postgres.URL)
 	if err != nil {
 		appLogger.Fatal("init database", zap.Error(err))
 	}
-	defer db.Close()
+	defer pool.Close()
 
-	if err := database.InitSchema(context.Background(), db); err != nil {
+	if err := database.InitSchema(rootCtx, pool); err != nil {
 		appLogger.Fatal("init schema", zap.Error(err))
 	}
 
@@ -64,13 +71,13 @@ func main() {
 		appLogger.Fatal("load rbac", zap.Error(err))
 	}
 
-	repos := initRepositories(db)
+	repos := initRepositories(pool)
 
-	svcs, err := initServices(cfg, db, repos, appLogger)
+	svcs, err := initServices(cfg, pool, repos, appLogger)
 	if err != nil {
 		appLogger.Fatal("init services", zap.Error(err))
 	}
-	defer svcs.close()
+	defer svcs.close(appLogger)
 
 	hdlrs := initHandlers(cfg, svcs, repos, rbacLoader, appLogger)
 
@@ -89,41 +96,51 @@ func main() {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	<-rootCtx.Done()
 
 	appLogger.Info("shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		appLogger.Error("server forced shutdown", zap.Error(err))
 	}
 	appLogger.Info("shutdown complete")
 }
 
 type repositories struct {
-	user           *repository.UserRepository
-	company        *repository.CompanyRepository
-	userRole       *repository.UserRoleRepository
-	apiKey         *repository.APIKeyRepository
-	serviceAccount *repository.ServiceAccountRepository
-	plan           *repository.PlanRepository
-	outbox         *repository.OutboxRepository
-	agent          *repository.AgentRepository
+	user              repository.UserRepository
+	company           repository.CompanyRepository
+	userRole          repository.UserRoleRepository
+	apiKey            repository.APIKeyRepository
+	serviceAccount    repository.ServiceAccountRepository
+	outbox            repository.OutboxRepository
+	agent             repository.AgentRepository
+	plan              sharedrepo.PlanRepository
+	entityProfileType sharedrepo.EntityProfileTypeRepository
 }
 
-func initRepositories(db *sql.DB) *repositories {
+func initRepositories(pool *pgxpool.Pool) *repositories {
+	userRepo := repository.NewUserRepository(pool)
+	companyRepo := repository.NewCompanyRepository(pool)
+	userRoleRepo := repository.NewUserRoleRepository(pool)
+	apiKeyRepo := repository.NewAPIKeyRepository(pool)
+	serviceAccountRepo := repository.NewServiceAccountRepository(pool)
+	planRepo := sharedrepo.NewPlanRepo(pool)
+	outboxRepo := repository.NewOutboxRepository(pool)
+	agentRepo := repository.NewAgentRepository(pool)
+	entityProfileTypeRepo := sharedrepo.NewEntityProfileTypeRepository(pool)
+
 	return &repositories{
-		user:           repository.NewUserRepository(db),
-		company:        repository.NewCompanyRepository(db),
-		userRole:       repository.NewUserRoleRepository(db),
-		apiKey:         repository.NewAPIKeyRepository(db),
-		serviceAccount: repository.NewServiceAccountRepository(db),
-		plan:           repository.NewPlanRepository(db),
-		outbox:         repository.NewOutboxRepository(db),
-		agent:          repository.NewAgentRepository(db),
+		user:              userRepo,
+		company:           companyRepo,
+		userRole:          userRoleRepo,
+		apiKey:            apiKeyRepo,
+		serviceAccount:    serviceAccountRepo,
+		plan:              planRepo,
+		outbox:            outboxRepo,
+		agent:             agentRepo,
+		entityProfileType: entityProfileTypeRepo,
 	}
 }
 
@@ -134,21 +151,26 @@ type services struct {
 	billingService        *billing.BillingService
 	teamInvitationService *service.TeamInvitationService
 	invoiceProvider       billing.BillingProvider
-	outboxRepo            *repository.OutboxRepository
+	outboxRepo            repository.OutboxRepository
 	outboxTrigger         service.OutboxWorkerTrigger
 	workerCancel          context.CancelFunc
+	workerWg              sync.WaitGroup
 }
 
-func (s *services) close() {
+func (s *services) close(logger *zap.Logger) {
 	if s.workerCancel != nil {
+		logger.Info("stopping background workers...")
 		s.workerCancel()
+		s.workerWg.Wait()
+		logger.Info("background workers stopped")
 	}
 	if s.natsClient != nil {
 		s.natsClient.Close()
+		logger.Info("NATS connection closed")
 	}
 }
 
-func initServices(cfg *config.Config, db *sql.DB, repos *repositories, logger *zap.Logger) (*services, error) {
+func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, logger *zap.Logger) (*services, error) {
 	emailSvc, err := service.NewEmailService(
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
@@ -175,24 +197,25 @@ func initServices(cfg *config.Config, db *sql.DB, repos *repositories, logger *z
 
 	billingSvc := billing.NewBillingService(invoiceProvider, repos.plan, &cfg.Subscription, &cfg.Billing, logger)
 
-	var (
-		natsClient   *nats.Client
-		workerCancel context.CancelFunc
-	)
-
-	nc, natsErr := nats.NewClient(&cfg.NATS, logger)
-	if natsErr != nil {
-		logger.Fatal("NATS unavailable — outbox worker disabled", zap.Error(natsErr))
+	nc, err := nats.NewClient(&cfg.NATS, logger)
+	if err != nil {
+		return nil, fmt.Errorf("NATS unavailable: %w", err)
 	}
 
-	if err := nc.InitializeOutboxStream(); err != nil {
+	if err := nc.InitializeOutboxStream(context.Background()); err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("initialize NATS outbox stream: %w", err)
 	}
 
-	natsClient = nc
+	svcs := &services{
+		natsClient:      nc,
+		billingService:  billingSvc,
+		invoiceProvider: invoiceProvider,
+		outboxRepo:      repos.outbox,
+	}
 
 	outboxWorker := worker.NewOutboxWorker(
+		pool,
 		repos.outbox,
 		repos.user,
 		repos.company,
@@ -203,18 +226,29 @@ func initServices(cfg *config.Config, db *sql.DB, repos *repositories, logger *z
 	)
 
 	workerCtx, cancel := context.WithCancel(context.Background())
-	workerCancel = cancel
+	svcs.workerCancel = cancel
 
-	go outboxWorker.Run(workerCtx, nc.JetStream())
-	go runPruner(workerCtx, repos.outbox, logger)
+	svcs.workerWg.Add(2)
+	go func() {
+		defer svcs.workerWg.Done()
+		outboxWorker.Run(workerCtx, nc.JetStream())
+	}()
+	go func() {
+		defer svcs.workerWg.Done()
+		runPruner(workerCtx, repos.outbox, logger)
+	}()
 
 	logger.Info("outbox worker started (in-process)")
 
 	outboxTrigger := service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
+	svcs.outboxTrigger = outboxTrigger
 
-	teamInvitationRepo := repository.NewTeamInvitationRepository(db)
+	teamInvitationRepo := repository.NewTeamInvitationRepository(pool)
 	authSvc := service.NewAuthService(
-		db,
+		pool,
+		repos.user,
+		repos.company,
+		repos.userRole,
 		emailSvc,
 		authClient,
 		repos.outbox,
@@ -251,49 +285,48 @@ func initServices(cfg *config.Config, db *sql.DB, repos *repositories, logger *z
 		logger,
 	)
 
-	return &services{
-		natsClient:            natsClient,
-		authService:           authSvc,
-		agentService:          agentSvc,
-		billingService:        billingSvc,
-		teamInvitationService: teamInvitationSvc,
-		invoiceProvider:       invoiceProvider,
-		outboxRepo:            repos.outbox,
-		outboxTrigger:         outboxTrigger,
-		workerCancel:          workerCancel,
-	}, nil
+	svcs.authService = authSvc
+	svcs.agentService = agentSvc
+	svcs.teamInvitationService = teamInvitationSvc
+
+	return svcs, nil
 }
 
 type appHandlers struct {
-	auth           *handlers.AuthHandler
-	user           *handlers.UserHandler
-	apiKey         *handlers.APIKeyHandler
-	serviceAccount *handlers.ServiceAccountHandler
-	role           *handlers.RoleHandler
-	codeSamples    *handlers.CodeSamplesHandler
-	contractProxy  *handlers.ContractProxyHandler
-	graphqlProxy   *handlers.GraphQLProxyHandler
-	agent          *handlers.AgentHandler
-	billing        *handlers.BillingHandler
-	teamInvitation *handlers.TeamInvitationHandler
+	auth               *handlers.AuthHandler
+	user               *handlers.UserHandler
+	apiKey             *handlers.APIKeyHandler
+	serviceAccount     *handlers.ServiceAccountHandler
+	role               *handlers.RoleHandler
+	codeSamples        *handlers.CodeSamplesHandler
+	contractProxy      *handlers.ContractProxyHandler
+	graphqlProxy       *handlers.GraphQLProxyHandler
+	agent              *handlers.AgentHandler
+	billing            *handlers.BillingHandler
+	teamInvitation     *handlers.TeamInvitationHandler
+	entityProfileType  *handlers.EntityProfileTypeHandler
+	entityProfileProxy *handlers.EntityProfileProxyHandler
 }
 
 func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
 	apiKeySvc := service.NewAPIKeyService(repos.apiKey, repos.serviceAccount, repos.userRole, rbacLoader, logger)
 	serviceAccountSvc := service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
+	entityProfileTypeSvc := service.NewEntityProfileTypeService(repos.entityProfileType, logger)
 
 	return &appHandlers{
-		auth:           handlers.NewAuthHandler(svcs.authService),
-		user:           handlers.NewUserHandler(repos.user, repos.company, apiKeySvc),
-		apiKey:         handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
-		serviceAccount: handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
-		role:           handlers.NewRoleHandler(rbacLoader),
-		codeSamples:    handlers.NewCodeSamplesHandler("./code_samples"),
-		contractProxy:  handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
-		graphqlProxy:   handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
-		agent:          handlers.NewAgentHandler(svcs.agentService, logger),
-		billing:        handlers.NewBillingHandler(svcs.billingService, logger),
-		teamInvitation: handlers.NewTeamInvitationHandler(svcs.teamInvitationService, repos.company, logger),
+		auth:               handlers.NewAuthHandler(svcs.authService),
+		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc),
+		apiKey:             handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
+		serviceAccount:     handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
+		role:               handlers.NewRoleHandler(rbacLoader),
+		codeSamples:        handlers.NewCodeSamplesHandler("./code_samples"),
+		contractProxy:      handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
+		graphqlProxy:       handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
+		agent:              handlers.NewAgentHandler(svcs.agentService, logger),
+		billing:            handlers.NewBillingHandler(svcs.billingService, logger),
+		teamInvitation:     handlers.NewTeamInvitationHandler(svcs.teamInvitationService, repos.company, logger),
+		entityProfileType:  handlers.NewEntityProfileTypeHandler(entityProfileTypeSvc),
+		entityProfileProxy: handlers.NewEntityProfileProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
 	}
 }
 
@@ -394,6 +427,20 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 		billingGroup.PUT("/spending-limit", h.billing.UpdateMaxMonthlyCharge)
 	}
 
+	entityProfileType := api.Group("/entity-profile-types")
+	{
+		entityProfileType.POST("", h.entityProfileType.CreateEntityProfileType)
+		entityProfileType.GET("", h.entityProfileType.ListEntityProfileTypes)
+		entityProfileType.PUT("/:id", h.entityProfileType.UpdateEntityProfileType)
+		entityProfileType.DELETE("/:id", h.entityProfileType.ArchiveEntityProfileType)
+	}
+
+	entityProfiles := api.Group("/entity-profiles")
+	{
+		entityProfiles.GET("", h.entityProfileProxy.GetEntityProfile)
+		entityProfiles.GET("/types", h.entityProfileProxy.ListEntityProfileTypes)
+	}
+
 	return r
 }
 
@@ -411,15 +458,16 @@ func corsMiddleware(originsCSV string) gin.HandlerFunc {
 	})
 }
 
-func initDB(url string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", url)
+func initDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
-		return nil, fmt.Errorf("open: %w", err)
+		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	return db, nil
+	return pool, nil
 }
 
 func loadConfig(logger *zap.Logger) (*config.Config, error) {
@@ -457,15 +505,20 @@ func resolveRBACPaths(logger *zap.Logger) (string, string, error) {
 	for _, base := range candidates {
 		perms := base + "/permissions.json"
 		roles := base + "/roles.json"
-		if _, err := os.Stat(perms); err == nil {
-			logger.Info("using RBAC paths", zap.String("base", base))
-			return perms, roles, nil
+		if _, err := os.Stat(perms); err != nil {
+			continue
 		}
+		if _, err := os.Stat(roles); err != nil {
+			logger.Warn("found permissions.json but roles.json missing", zap.String("base", base))
+			continue
+		}
+		logger.Info("using RBAC paths", zap.String("base", base))
+		return perms, roles, nil
 	}
 	return "", "", errors.New("RBAC files not found in any known location; check deployment configuration")
 }
 
-func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *zap.Logger) {
+func runPruner(ctx context.Context, repo repository.OutboxRepository, logger *zap.Logger) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 
@@ -475,9 +528,12 @@ func runPruner(ctx context.Context, repo *repository.OutboxRepository, logger *z
 			return
 		case <-ticker.C:
 			cutoff := time.Now().Add(-7 * 24 * time.Hour)
-			count, err := repo.PruneProcessed(cutoff)
+			count, err := repo.PruneProcessed(ctx, cutoff)
 			if err != nil {
-				logger.Error("pruner: failed to prune old events", zap.Error(err))
+				logger.Error("pruner: failed to prune old events",
+					zap.Error(err),
+					zap.String("cutoff", cutoff.Format(time.DateOnly)),
+				)
 			} else {
 				logger.Info("pruner: removed events",
 					zap.Int64("count", count),

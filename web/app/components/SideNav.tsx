@@ -11,7 +11,8 @@ import {
   Bot,
   Users,
   Settings,
-  Sparkles
+  Sparkles,
+  UserCircle
 } from 'lucide-react';
 import { api } from '~/lib/api';
 
@@ -43,6 +44,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
+    { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
     { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },

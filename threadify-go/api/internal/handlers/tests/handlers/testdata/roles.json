@@ -1,0 +1,111 @@
+{
+  "app_level": {
+    "owner": {
+      "name": "Owner",
+      "description": "Company owner with full access to all features",
+      "permissions": [
+        "apikey.create",
+        "apikey.read",
+        "apikey.delete",
+        "contract.read.*",
+        "contract.create",
+        "contract.update.*",
+        "contract.delete.*",
+        "serviceaccount.*",
+        "query.execution.*",
+        "member.invite",
+        "member.remove",
+        "member.view",
+        "billing.*"
+      ]
+    },
+    "standard_account": {
+      "name": "Standard Account",
+      "description": "Default role for user accounts",
+      "permissions": [
+        "apikey.create",
+        "apikey.read",
+        "apikey.delete",
+        "contract.read.*",
+        "contract.create",
+        "contract.update.*",
+        "serviceaccount.*",
+        "query.execution.*",
+        "member.invite",
+        "member.remove",
+        "member.view"
+      ]
+    }
+  },
+  "api_level": {
+    "standard_service": {
+      "name": "Standard Service",
+      "description": "Default role for service accounts",
+      "permissions": [
+        "thread.read",
+        "thread.write",
+        "query.execution.*"
+      ]
+    },
+    "reader": {
+      "name": "Reader",
+      "description": "Read-only access",
+      "permissions": [
+        "thread.read",
+        "query.execution.*"
+      ]
+    }
+  },
+  "runtime_level": {
+    "owner": {
+      "name": "Thread Owner",
+      "description": "Full access to threads and all notifications",
+      "permissions": [
+        "thread.create",
+        "thread.read.*",
+        "thread.write.*",
+        "thread.invite",
+        "thread.end",
+        "notification.execution.*",
+        "notification.validation.*",
+        "notification.thread.*"
+      ]
+    },
+    "participant": {
+      "name": "Thread Participant",
+      "description": "Can read and write to threads, receives own notifications",
+      "permissions": [
+        "thread.read.*",
+        "thread.write.*",
+        "thread.end",
+        "notification.execution.failed.own",
+        "notification.execution.success.own",
+        "notification.validation.violated.own",
+        "notification.validation.violated.timeout.own",
+        "notification.validation.violated.retry_limit.own",
+        "notification.validation.passed.own"
+      ]
+    },
+    "observer": {
+      "name": "Thread Observer",
+      "description": "Read-only access, monitors critical violations",
+      "permissions": [
+        "thread.read.*",
+        "thread.write.*",
+        "notification.validation.violated.critical",
+        "notification.validation.violated.timeout.*",
+        "notification.validation.violated.retry_limit.*"
+      ]
+    },
+    "external": {
+      "name": "Thread External",
+      "description": "Limited read access, own execution notifications only",
+      "permissions": [
+        "thread.read.own",
+        "thread.write.*",
+        "notification.execution.failed.own",
+        "notification.execution.success.own"
+      ]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,31 +9,29 @@ import (
 
 	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type UserRepository struct {
-	db *sql.DB
+type userRepository struct {
+	pool *pgxpool.Pool
 }
 
-func (r *UserRepository) GetDB() *sql.DB {
-	return r.db
+func NewUserRepository(pool *pgxpool.Pool) UserRepository {
+	return &userRepository{pool: pool}
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
-	return &UserRepository{db: db}
+func (r *userRepository) Pool() *pgxpool.Pool {
+	return r.pool
 }
 
-type userExecer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
-func (r *UserRepository) CreateTx(execer userExecer, user *models.User) error {
+func (r *userRepository) CreateTx(ctx context.Context, execer DBExecer, user *models.User) error {
 	const query = `
         INSERT INTO users (id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
     `
-	_, err := execer.Exec(query,
+	_, err := execer.Exec(ctx, query,
 		user.ID, user.CompanyID, user.Email, user.AuthUserID,
 		user.FullName, user.JobRole, user.EmailVerified,
 		user.OnboardingCompleted, user.FirstInstrumentationDone,
@@ -43,7 +42,7 @@ func (r *UserRepository) CreateTx(execer userExecer, user *models.User) error {
 	return nil
 }
 
-func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
+func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
 	user := &models.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
@@ -51,7 +50,7 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
             created_at, updated_at, last_login_at
         FROM users WHERE email = $1
     `
-	err := r.db.QueryRow(query, email).Scan(
+	err := r.pool.QueryRow(ctx, query, email).Scan(
 		&user.ID, &user.CompanyID, &user.Email, &user.AuthUserID,
 		&user.FullName, &user.JobRole, &user.EmailVerified,
 		&user.OnboardingCompleted, &user.FirstInstrumentationDone,
@@ -66,7 +65,7 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	return user, nil
 }
 
-func (r *UserRepository) ListByCompanyID(companyID string) ([]*models.User, error) {
+func (r *userRepository) ListByCompanyID(ctx context.Context, companyID string) ([]*models.User, error) {
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done,
@@ -74,7 +73,7 @@ func (r *UserRepository) ListByCompanyID(companyID string) ([]*models.User, erro
         FROM users WHERE company_id = $1
         ORDER BY created_at ASC
     `
-	rows, err := r.db.Query(query, companyID)
+	rows, err := r.pool.Query(ctx, query, companyID)
 	if err != nil {
 		return nil, fmt.Errorf("list users by company: %w", err)
 	}
@@ -101,7 +100,7 @@ func (r *UserRepository) ListByCompanyID(companyID string) ([]*models.User, erro
 	return users, nil
 }
 
-func (r *UserRepository) FindByID(id string) (*models.User, error) {
+func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
 	user := &models.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
@@ -109,7 +108,7 @@ func (r *UserRepository) FindByID(id string) (*models.User, error) {
             created_at, updated_at, last_login_at
         FROM users WHERE id = $1
     `
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&user.ID, &user.CompanyID, &user.Email, &user.AuthUserID,
 		&user.FullName, &user.JobRole, &user.EmailVerified,
 		&user.OnboardingCompleted, &user.FirstInstrumentationDone,
@@ -124,7 +123,7 @@ func (r *UserRepository) FindByID(id string) (*models.User, error) {
 	return user, nil
 }
 
-func (r *UserRepository) FindByAuthUserID(authUserID string) (*models.User, error) {
+func (r *userRepository) FindByAuthUserID(ctx context.Context, authUserID string) (*models.User, error) {
 	user := &models.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
@@ -132,7 +131,7 @@ func (r *UserRepository) FindByAuthUserID(authUserID string) (*models.User, erro
             created_at, updated_at, last_login_at
         FROM users WHERE auth_user_id = $1
     `
-	err := r.db.QueryRow(query, authUserID).Scan(
+	err := r.pool.QueryRow(ctx, query, authUserID).Scan(
 		&user.ID, &user.CompanyID, &user.Email, &user.AuthUserID,
 		&user.FullName, &user.JobRole, &user.EmailVerified,
 		&user.OnboardingCompleted, &user.FirstInstrumentationDone,
@@ -147,31 +146,31 @@ func (r *UserRepository) FindByAuthUserID(authUserID string) (*models.User, erro
 	return user, nil
 }
 
-func (r *UserRepository) UpdateAuthUserID(id, authUserID string) error {
-	_, err := r.db.Exec(`UPDATE users SET auth_user_id = $1, updated_at = NOW() WHERE id = $2`, authUserID, id)
+func (r *userRepository) UpdateAuthUserID(ctx context.Context, id, authUserID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET auth_user_id = $1, updated_at = NOW() WHERE id = $2`, authUserID, id)
 	if err != nil {
 		return fmt.Errorf("update auth user id: %w", err)
 	}
 	return nil
 }
 
-func (r *UserRepository) UpdateEmailVerified(id string, verified bool) error {
-	_, err := r.db.Exec(`UPDATE users SET email_verified = $1, updated_at = NOW() WHERE id = $2`, verified, id)
+func (r *userRepository) UpdateEmailVerified(ctx context.Context, id string, verified bool) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET email_verified = $1, updated_at = NOW() WHERE id = $2`, verified, id)
 	if err != nil {
 		return fmt.Errorf("update email verified: %w", err)
 	}
 	return nil
 }
 
-func (r *UserRepository) UpdateLastLogin(id string) error {
-	_, err := r.db.Exec(`UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, id)
+func (r *userRepository) UpdateLastLogin(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("update last login: %w", err)
 	}
 	return nil
 }
 
-func (r *UserRepository) UpdateProfile(id string, fullName, jobRole *string, onboardingCompleted bool) error {
+func (r *userRepository) UpdateProfile(ctx context.Context, id string, fullName, jobRole *string, onboardingCompleted bool) error {
 	const query = `
         UPDATE users
         SET full_name = COALESCE($1, full_name),
@@ -180,24 +179,24 @@ func (r *UserRepository) UpdateProfile(id string, fullName, jobRole *string, onb
             updated_at = NOW()
         WHERE id = $4
     `
-	_, err := r.db.Exec(query, fullName, jobRole, onboardingCompleted, id)
+	_, err := r.pool.Exec(ctx, query, fullName, jobRole, onboardingCompleted, id)
 	if err != nil {
 		return fmt.Errorf("update profile: %w", err)
 	}
 	return nil
 }
 
-func (r *UserRepository) MarkFirstInstrumentationDone(id string) error {
-	_, err := r.db.Exec(`UPDATE users SET first_instrumentation_done = true, updated_at = NOW() WHERE id = $1`, id)
+func (r *userRepository) MarkFirstInstrumentationDone(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET first_instrumentation_done = true, updated_at = NOW() WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("mark first instrumentation done: %w", err)
 	}
 	return nil
 }
 
-func (r *UserRepository) GetPasswordChangedAt(id string) (*time.Time, error) {
+func (r *userRepository) GetPasswordChangedAt(ctx context.Context, id string) (*time.Time, error) {
 	var changedAt *time.Time
-	err := r.db.QueryRow(`SELECT password_changed_at FROM users WHERE id = $1`, id).Scan(&changedAt)
+	err := r.pool.QueryRow(ctx, `SELECT password_changed_at FROM users WHERE id = $1`, id).Scan(&changedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, serror.ErrUserNotFound
 	}
@@ -207,9 +206,9 @@ func (r *UserRepository) GetPasswordChangedAt(id string) (*time.Time, error) {
 	return changedAt, nil
 }
 
-func (r *UserRepository) GetPasswordHash(email string) (string, error) {
+func (r *userRepository) GetPasswordHash(ctx context.Context, email string) (string, error) {
 	var passwordHash string
-	err := r.db.QueryRow(`SELECT password_hash FROM users WHERE email = $1`, email).Scan(&passwordHash)
+	err := r.pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE email = $1`, email).Scan(&passwordHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", serror.ErrUserNotFound
 	}
@@ -219,19 +218,19 @@ func (r *UserRepository) GetPasswordHash(email string) (string, error) {
 	return passwordHash, nil
 }
 
-func (r *UserRepository) ClearPasswordHash(userID string) error {
-	_, err := r.db.Exec(`UPDATE users SET password_hash = NULL WHERE id = $1`, userID)
+func (r *userRepository) ClearPasswordHash(ctx context.Context, userID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET password_hash = NULL WHERE id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("clear password hash: %w", err)
 	}
 	return nil
 }
-func (r *UserRepository) Delete(id string) error {
-	return r.DeleteTx(r.db, id)
+func (r *userRepository) Delete(ctx context.Context, id string) error {
+	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *UserRepository) DeleteTx(execer userExecer, id string) error {
-	_, err := execer.Exec(`DELETE FROM users WHERE id = $1`, id)
+func (r *userRepository) DeleteTx(ctx context.Context, execer DBExecer, id string) error {
+	_, err := execer.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}

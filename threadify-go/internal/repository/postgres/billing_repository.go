@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"threadify-go/shared/billing"
+	billingmodels "threadify-go/shared/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +20,7 @@ func NewBillingRepository(pool *pgxpool.Pool) *BillingRepository {
 	return &BillingRepository{pool: pool}
 }
 
-func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *billing.BillingSnapshot) error {
+func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *billingmodels.BillingSnapshot) error {
 	const query = `
 		INSERT INTO billing_snapshots (
 			id, company_id, reason, period_start, period_end,
@@ -47,7 +47,7 @@ func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *billin
 	return nil
 }
 
-func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error) {
+func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billingmodels.BillingSnapshot, error) {
 	const query = `
 		SELECT id, company_id, reason, period_start, period_end,
 			total_cents,
@@ -77,9 +77,7 @@ func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapsho
 	return nil
 }
 
-
-
-func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billing.PaymentStatus) error {
+func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billingmodels.PaymentStatus) error {
 	const query = `
 		UPDATE billing_snapshots
 		SET payment_status = $1
@@ -99,7 +97,7 @@ func (r *BillingRepository) MarkSnapshotPaidByInvoiceID(ctx context.Context, ext
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusPaid), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusPaid), externalInvoiceID)
 	return err
 }
 
@@ -109,7 +107,7 @@ func (r *BillingRepository) MarkSnapshotPaidByID(ctx context.Context, snapshotID
 		SET payment_status = $1, external_invoice_id = $2 
 		WHERE id = $3
 	`
-	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusPaid), externalInvoiceID, snapshotID)
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusPaid), externalInvoiceID, snapshotID)
 	return err
 }
 
@@ -117,7 +115,7 @@ func (r *BillingRepository) MarkSnapshotFailedByInvoiceID(ctx context.Context, e
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(billing.PaymentStatusFailed), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusFailed), externalInvoiceID)
 	return err
 }
 
@@ -125,8 +123,8 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-func (r *BillingRepository) scanSnapshot(row scannable) (*billing.BillingSnapshot, error) {
-	var s billing.BillingSnapshot
+func (r *BillingRepository) scanSnapshot(row scannable) (*billingmodels.BillingSnapshot, error) {
+	var s billingmodels.BillingSnapshot
 
 	err := row.Scan(
 		&s.ID, &s.CompanyID, &s.Reason, &s.PeriodStart, &s.PeriodEnd,

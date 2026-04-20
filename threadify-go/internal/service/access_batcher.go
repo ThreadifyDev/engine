@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/interfaces"
 	"go.uber.org/zap"
 )
 
@@ -26,9 +26,10 @@ type AccessBatcher struct {
 	buffer        chan *AccessWrite
 	batchSize     int
 	flushInterval time.Duration
-	accessRepo    *valkey.AccessRepository
-	luaScripts    *valkey.LuaScriptManager
+	accessRepo    interfaces.AccessRepository
+	luaScripts    interfaces.LuaScriptManager
 	stopChan      chan struct{}
+	stopOnce      sync.Once
 	wg            sync.WaitGroup
 	logger        *zap.Logger
 }
@@ -38,8 +39,8 @@ func NewAccessBatcher(
 	bufferSize int,
 	batchSize int,
 	flushInterval time.Duration,
-	accessRepo *valkey.AccessRepository,
-	luaScripts *valkey.LuaScriptManager,
+	accessRepo interfaces.AccessRepository,
+	luaScripts interfaces.LuaScriptManager,
 	logger *zap.Logger,
 ) *AccessBatcher {
 	return &AccessBatcher{
@@ -65,7 +66,9 @@ func (b *AccessBatcher) Start() {
 
 // Stop gracefully stops the batcher, drains the buffer, and flushes remaining items.
 func (b *AccessBatcher) Stop() {
-	close(b.stopChan)
+	b.stopOnce.Do(func() {
+		close(b.stopChan)
+	})
 	b.wg.Wait()
 	b.logger.Info("access batcher stopped")
 }
@@ -73,6 +76,12 @@ func (b *AccessBatcher) Stop() {
 // Write queues an access write operation (non-blocking).
 // Falls back to a synchronous write if the buffer is full.
 func (b *AccessBatcher) Write(write *AccessWrite) error {
+	select {
+	case <-b.stopChan:
+		return context.Canceled
+	default:
+	}
+
 	select {
 	case b.buffer <- write:
 		return nil

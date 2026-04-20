@@ -119,3 +119,11 @@ func (c *ConnectionService) GetClientCompany(ownerID string) (string, bool) {
 	}
 	return client.CompanyID, true
 }
+
+// GetSessionCount returns the number of active sessions for an owner.
+// Returns 0 when the owner is not connected.
+func (c *ConnectionService) GetSessionCount(ownerID string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sessionCounts[ownerID]
+}

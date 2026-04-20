@@ -20,11 +20,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// NotificationPublisher defines the interface for publishing notifications.
-type NotificationPublisher interface {
-	PublishNotification(ctx context.Context, notification models.ValidationNotification) error
-}
-
 // NotificationService orchestrates async validation and notification archival.
 // It handles non-blocking validation processing, stores validation results in streams,
 // and manages the archival of validation notifications without blocking main execution.
@@ -34,14 +29,42 @@ type NotificationService struct {
 	stepStateRepo         interfaces.StepStateRepository
 	threadRepo            interfaces.ThreadRepository
 	cacheManager          interfaces.CacheManager
-	natsPublisher         NotificationPublisher
+	natsPublisher         interfaces.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	threadAccessService   *ThreadAccessService
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
-	timeoutMonitor        *TimeoutMonitor
+	timeoutMonitor        interfaces.TimeoutMonitor
 	logger                *zap.Logger
+}
+
+// ShouldReceiveNotification exports shouldReceiveNotification for use in tests and other packages.
+func (s *NotificationService) ShouldReceiveNotification(
+	userPerms, requiredPerms []string,
+	userID, stepOwnerID string,
+) bool {
+	return s.shouldReceiveNotification(userPerms, requiredPerms, userID, stepOwnerID)
+}
+
+// ScheduleThreadMaxDurationTimeout exports scheduleThreadMaxDurationTimeout for tests.
+func (s *NotificationService) ScheduleThreadMaxDurationTimeout(ctx context.Context, threadID string, graph *models.ContractGraph, thread *models.Thread, now time.Time) {
+	s.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, now)
+}
+
+// CancelThreadMaxDurationTimeout exports cancelThreadMaxDurationTimeout for tests.
+func (s *NotificationService) CancelThreadMaxDurationTimeout(ctx context.Context, threadID string) {
+	s.cancelThreadMaxDurationTimeout(ctx, threadID)
+}
+
+// HandleNoContractStep exports handleNoContractStep for tests.
+func (s *NotificationService) HandleNoContractStep(ctx context.Context, threadID, stepID, stepName, ownerID string, req *models.RecordEventRequest, thread *models.Thread) {
+	s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
+}
+
+// GetRequiredPermissionsForNotification exports getRequiredPermissionsForNotification.
+func GetRequiredPermissionsForNotification(status, stepStatus, severity, violationType string) []string {
+	return getRequiredPermissionsForNotification(status, stepStatus, severity, violationType)
 }
 
 // NewNotificationService creates a new notification service.
@@ -51,13 +74,13 @@ func NewNotificationService(
 	stepStateRepo interfaces.StepStateRepository,
 	threadRepo interfaces.ThreadRepository,
 	cacheManager interfaces.CacheManager,
-	natsPublisher NotificationPublisher,
+	natsPublisher interfaces.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
-	timeoutMonitor *TimeoutMonitor,
+	timeoutMonitor interfaces.TimeoutMonitor,
 	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
@@ -683,19 +706,29 @@ func (s *NotificationService) shouldReceiveNotification(
 	userID, stepOwnerID string,
 ) bool {
 	for _, userPerm := range userPerms {
+		hasOwn := strings.HasSuffix(userPerm, ".own")
+		isOwner := userID == stepOwnerID
+
 		for _, reqPerm := range requiredPerms {
+			// If user has .own, they MUST be the owner for this perm to match.
+			if hasOwn {
+				if !isOwner {
+					continue
+				}
+				ownBase := strings.TrimSuffix(userPerm, ".own")
+				if ownBase == reqPerm || ownBase == strings.TrimSuffix(reqPerm, ".*") || ownBase == strings.TrimSuffix(reqPerm, ".own") {
+					return true
+				}
+				continue
+			}
+
+			// Global match (exact or wildcard)
 			if userPerm == reqPerm {
 				return true
 			}
 			if strings.HasSuffix(userPerm, ".*") {
 				prefix := strings.TrimSuffix(userPerm, ".*")
 				if strings.HasPrefix(reqPerm, prefix) {
-					return true
-				}
-			}
-			if strings.HasSuffix(userPerm, ".own") && userID == stepOwnerID {
-				ownBase := strings.TrimSuffix(userPerm, ".own")
-				if ownBase == strings.TrimSuffix(reqPerm, ".*") || ownBase == strings.TrimSuffix(reqPerm, ".own") {
 					return true
 				}
 			}

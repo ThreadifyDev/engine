@@ -269,7 +269,7 @@ type AgentService struct {
 	threadifyEngineURL string
 	httpClient         *http.Client
 	openaiClient       *openai.Client
-	agentRepo          *repository.AgentRepository
+	agentRepo          repository.AgentRepository
 	maxMessages        int
 	maxTokens          int
 	summaryMaxTokens   int
@@ -279,7 +279,7 @@ type AgentService struct {
 func NewAgentService(
 	threadifyEngineURL string,
 	openaiAPIKey string,
-	agentRepo *repository.AgentRepository,
+	agentRepo repository.AgentRepository,
 	maxMessages int,
 	maxTokens int,
 	summaryMaxTokens int,
@@ -309,10 +309,10 @@ func (s *AgentService) ChatStream(
 ) error {
 	var err error
 	if conversationID != "" {
-		if err := s.ensureConversationOwnership(companyID, conversationID); err != nil {
+		if err := s.ensureConversationOwnership(ctx, companyID, conversationID); err != nil {
 			return err
 		}
-		msgCount, tokenCount, err := s.agentRepo.GetConversationStats(conversationID)
+		msgCount, tokenCount, err := s.agentRepo.GetConversationStats(ctx, conversationID)
 		if err == nil {
 			if msgCount >= s.maxMessages {
 				return fmt.Errorf("conversation has reached the maximum of %d messages", s.maxMessages)
@@ -333,7 +333,7 @@ func (s *AgentService) ChatStream(
 		if len(title) > 30 {
 			title = title[:30] + "..."
 		}
-		err = s.agentRepo.CreateConversation(&models.AgentConversation{
+		err = s.agentRepo.CreateConversation(ctx, &models.AgentConversation{
 			ID:        convID,
 			UserID:    userID,
 			CompanyID: companyID,
@@ -344,7 +344,7 @@ func (s *AgentService) ChatStream(
 		}
 	}
 
-	err = s.agentRepo.AddMessage(&models.AgentMessage{
+	err = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
 		ID:             uuid.New().String(),
 		ConversationID: convID,
 		Role:           RoleUser,
@@ -354,7 +354,7 @@ func (s *AgentService) ChatStream(
 		s.logger.Error("failed to save user message", zap.Error(err))
 	}
 
-	messages := s.buildInitialMessages(convID, isNewConversation, message, skill)
+	messages := s.buildInitialMessages(ctx, convID, isNewConversation, message, skill)
 
 	tools := s.getTools()
 	totalTokens := 0
@@ -418,7 +418,7 @@ func (s *AgentService) ChatStream(
 
 		if !hasToolCalls {
 			if currentContent != "" {
-				s.saveAssistantMessage(convID, currentContent)
+				s.saveAssistantMessage(ctx, convID, currentContent)
 			}
 			break
 		}
@@ -467,7 +467,7 @@ func (s *AgentService) ChatStream(
 				Content:    engineOutput,
 				ToolCallID: currentToolId,
 			})
-			s.saveToolMessages(convID, currentToolId, currentToolName, currentToolArgs, engineOutput)
+			s.saveToolMessages(ctx, convID, currentToolId, currentToolName, currentToolArgs, engineOutput)
 
 			toolCallData, _ := json.Marshal(map[string]string{
 				"query":    args.Query,
@@ -488,7 +488,7 @@ func (s *AgentService) ChatStream(
 				return fmt.Errorf("missing key or value for save_context")
 			}
 
-			_ = s.agentRepo.SaveContext(&models.AgentContext{
+			_ = s.agentRepo.SaveContext(ctx, &models.AgentContext{
 				ID:             uuid.New().String(),
 				ConversationID: convID,
 				ContextKey:     args.Key,
@@ -501,7 +501,7 @@ func (s *AgentService) ChatStream(
 				Content:    toolOutput,
 				ToolCallID: currentToolId,
 			})
-			s.saveToolMessages(convID, currentToolId, currentToolName, currentToolArgs, toolOutput)
+			s.saveToolMessages(ctx, convID, currentToolId, currentToolName, currentToolArgs, toolOutput)
 			continue
 
 		default:
@@ -510,7 +510,7 @@ func (s *AgentService) ChatStream(
 	}
 
 	// 8. Update conversation stats
-	messageCount, tokenCount := s.updateStats(convID, totalTokens)
+	messageCount, tokenCount := s.updateStats(ctx, convID, totalTokens)
 
 	// 8a. Record token usage in engine for billing
 	if totalTokens > 0 {
@@ -617,7 +617,7 @@ func (s *AgentService) recordUsage(ctx context.Context, authHeader string, token
 	return nil
 }
 
-func (s *AgentService) buildInitialMessages(convID string, isNew bool, message string, skill string) []openai.ChatCompletionMessage {
+func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, isNew bool, message string, skill string) []openai.ChatCompletionMessage {
 	var roleDescription string
 	switch skill {
 	case SkillSupport:
@@ -672,7 +672,7 @@ RESPONSE STYLE:
 
 	if !isNew {
 		// Load context + history from repo
-		contexts, _ := s.agentRepo.GetContext(convID)
+		contexts, _ := s.agentRepo.GetContext(ctx, convID)
 		if len(contexts) > 0 {
 			msg := "Previously saved context:\n"
 			for _, c := range contexts {
@@ -681,7 +681,7 @@ RESPONSE STYLE:
 			messages = append(messages, openai.ChatCompletionMessage{Role: RoleSystem, Content: msg})
 		}
 
-		history, _ := s.agentRepo.GetMessages(convID)
+		history, _ := s.agentRepo.GetMessages(ctx, convID)
 		for _, m := range history {
 			msg := openai.ChatCompletionMessage{Role: m.Role, Content: m.Content}
 			if m.ToolCallID != nil {
@@ -747,8 +747,8 @@ func (s *AgentService) getTools() []openai.Tool {
 	}
 }
 
-func (s *AgentService) ensureConversationOwnership(companyID, convID string) error {
-	convs, err := s.agentRepo.GetConversations(companyID)
+func (s *AgentService) ensureConversationOwnership(ctx context.Context, companyID, convID string) error {
+	convs, err := s.agentRepo.GetConversations(ctx, companyID)
 	if err != nil {
 		return fmt.Errorf("failed to verify conversation ownership: %w", err)
 	}
@@ -760,53 +760,53 @@ func (s *AgentService) ensureConversationOwnership(companyID, convID string) err
 	return ErrForbidden
 }
 
-func (s *AgentService) saveToolMessages(convID, toolCallID, name, args, output string) {
+func (s *AgentService) saveToolMessages(ctx context.Context, convID, toolCallID, name, args, output string) {
 	calls, _ := json.Marshal([]openai.ToolCall{{ID: toolCallID, Type: openai.ToolTypeFunction, Function: openai.FunctionCall{Name: name, Arguments: args}}})
 	callsStr := string(calls)
 
-	_ = s.agentRepo.AddMessage(&models.AgentMessage{
+	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
 		ID: uuid.New().String(), ConversationID: convID, Role: RoleAssistant, ToolCalls: &callsStr,
 	})
-	_ = s.agentRepo.AddMessage(&models.AgentMessage{
+	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
 		ID: uuid.New().String(), ConversationID: convID, Role: RoleTool, Content: output, ToolCallID: &toolCallID,
 	})
 }
 
-func (s *AgentService) saveAssistantMessage(convID, content string) {
-	_ = s.agentRepo.AddMessage(&models.AgentMessage{
+func (s *AgentService) saveAssistantMessage(ctx context.Context, convID, content string) {
+	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
 		ID: uuid.New().String(), ConversationID: convID, Role: RoleAssistant, Content: content, CreatedAt: time.Now(),
 	})
 }
 
-func (s *AgentService) updateStats(convID string, newTokens int) (int, int) {
-	msgCount, tokenCount, err := s.agentRepo.GetConversationStats(convID)
+func (s *AgentService) updateStats(ctx context.Context, convID string, newTokens int) (int, int) {
+	msgCount, tokenCount, err := s.agentRepo.GetConversationStats(ctx, convID)
 	if err != nil {
 		return 0, 0
 	}
 	msgCount += 2
 	tokenCount += newTokens
-	_ = s.agentRepo.UpdateConversationStats(convID, msgCount, tokenCount)
+	_ = s.agentRepo.UpdateConversationStats(ctx, convID, msgCount, tokenCount)
 	return msgCount, tokenCount
 }
 
 // Passthrough methods for conversation management
-func (s *AgentService) GetConversations(companyID string) ([]models.AgentConversation, error) {
-	return s.agentRepo.GetConversations(companyID)
+func (s *AgentService) GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error) {
+	return s.agentRepo.GetConversations(ctx, companyID)
 }
 
-func (s *AgentService) GetMessagesForUser(companyID, convID string) ([]*models.AgentMessage, error) {
-	if err := s.ensureConversationOwnership(companyID, convID); err != nil {
+func (s *AgentService) GetMessagesForUser(ctx context.Context, companyID, convID string) ([]*models.AgentMessage, error) {
+	if err := s.ensureConversationOwnership(ctx, companyID, convID); err != nil {
 		return nil, err
 	}
-	return s.agentRepo.GetMessages(convID)
+	return s.agentRepo.GetMessages(ctx, convID)
 }
 
-func (s *AgentService) DeleteConversation(convID, userID string) error {
-	return s.agentRepo.DeleteConversation(convID, userID)
+func (s *AgentService) DeleteConversation(ctx context.Context, convID, userID string) error {
+	return s.agentRepo.DeleteConversation(ctx, convID, userID)
 }
 
 func (s *AgentService) ContinueConversation(ctx context.Context, userID, companyID, parentConvID string) (string, string, string, error) {
-	convs, err := s.agentRepo.GetConversations(companyID)
+	convs, err := s.agentRepo.GetConversations(ctx, companyID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to load conversations: %w", err)
 	}
@@ -824,7 +824,7 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 		return "", "", "", fmt.Errorf("not authorized to continue this conversation")
 	}
 
-	messages, err := s.agentRepo.GetMessages(parentConvID)
+	messages, err := s.agentRepo.GetMessages(ctx, parentConvID)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to load parent messages: %w", err)
 	}
@@ -872,7 +872,7 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 		Title:     parentTitle + " (continued)",
 	}
 
-	if err := s.agentRepo.CreateConversationWithParent(newConv, parentConvID); err != nil {
+	if err := s.agentRepo.CreateConversationWithParent(ctx, newConv, parentConvID); err != nil {
 		return "", "", "", fmt.Errorf("failed to create conversation: %w", err)
 	}
 
@@ -883,7 +883,7 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 			ContextKey:     ContextKeySummary,
 			ContextValue:   summary,
 		}
-		if err := s.agentRepo.SaveContext(summaryCtx); err != nil {
+		if err := s.agentRepo.SaveContext(ctx, summaryCtx); err != nil {
 			s.logger.Error("failed to save summary context", zap.Error(err), zap.String("newConversationID", newConvID))
 		}
 	}

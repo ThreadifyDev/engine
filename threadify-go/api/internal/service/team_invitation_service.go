@@ -15,20 +15,20 @@ import (
 )
 
 type TeamInvitationService struct {
-	invitationRepo *repository.TeamInvitationRepository
-	outboxRepo     *repository.OutboxRepository
+	invitationRepo repository.TeamInvitationRepository
+	outboxRepo     repository.OutboxRepository
 	outboxWorker   OutboxWorkerTrigger
-	userRepo       *repository.UserRepository
+	userRepo       repository.UserRepository
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
 }
 
 func NewTeamInvitationService(
-	invitationRepo *repository.TeamInvitationRepository,
-	outboxRepo *repository.OutboxRepository,
+	invitationRepo repository.TeamInvitationRepository,
+	outboxRepo repository.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
-	userRepo *repository.UserRepository,
+	userRepo repository.UserRepository,
 	encryptionKey string,
 	frontendURL string,
 	logger *zap.Logger,
@@ -58,7 +58,7 @@ func (s *TeamInvitationService) SendInvitation(
 	expiryDuration time.Duration,
 ) (*models.TeamInvitation, error) {
 	// Check if user already exists
-	existingUser, err := s.userRepo.FindByEmail(email)
+	existingUser, err := s.userRepo.FindByEmail(ctx, email)
 	if err == nil && existingUser != nil {
 		return nil, fmt.Errorf("user with email %s already has an account", email)
 	}
@@ -80,7 +80,7 @@ func (s *TeamInvitationService) SendInvitation(
 	}
 
 	// Save invitation to database
-	if err := s.invitationRepo.Create(invitation); err != nil {
+	if err := s.invitationRepo.Create(ctx, invitation); err != nil {
 		return nil, fmt.Errorf("create invitation: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 		ReferenceID: invitation.ID,
 	}
 
-	if err := s.outboxRepo.Create(event); err != nil {
+	if err := s.outboxRepo.Create(ctx, event); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
 	}
 
@@ -158,8 +158,8 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 }
 
 // ValidateToken checks if a token is valid and not expired
-func (s *TeamInvitationService) ValidateToken(token string) (*models.TeamInvitation, error) {
-	invitation, err := s.invitationRepo.GetByToken(token)
+func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string) (*models.TeamInvitation, error) {
+	invitation, err := s.invitationRepo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("get invitation: %w", err)
 	}
@@ -180,28 +180,28 @@ func (s *TeamInvitationService) ValidateToken(token string) (*models.TeamInvitat
 }
 
 // MarkAccepted marks an invitation as accepted
-func (s *TeamInvitationService) MarkAccepted(invitationID, userID string) error {
-	return s.invitationRepo.MarkAccepted(invitationID, userID)
+func (s *TeamInvitationService) MarkAccepted(ctx context.Context, invitationID, userID string) error {
+	return s.invitationRepo.MarkAccepted(ctx, invitationID, userID)
 }
 
 // GetByCompanyAndEmail retrieves pending invitation for a company and email
-func (s *TeamInvitationService) GetByCompanyAndEmail(companyID, email string) (*models.TeamInvitation, error) {
-	return s.invitationRepo.GetPendingByCompanyAndEmail(companyID, email)
+func (s *TeamInvitationService) GetByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error) {
+	return s.invitationRepo.GetPendingByCompanyAndEmail(ctx, companyID, email)
 }
 
 // GetByID retrieves an invitation by ID
-func (s *TeamInvitationService) GetByID(invitationID string) (*models.TeamInvitation, error) {
-	return s.invitationRepo.GetByID(invitationID)
+func (s *TeamInvitationService) GetByID(ctx context.Context, invitationID string) (*models.TeamInvitation, error) {
+	return s.invitationRepo.GetByID(ctx, invitationID)
 }
 
 // ListByCompany retrieves all invitations for a company
-func (s *TeamInvitationService) ListByCompany(companyID string) ([]*models.TeamInvitation, error) {
-	return s.invitationRepo.ListByCompany(companyID)
+func (s *TeamInvitationService) ListByCompany(ctx context.Context, companyID string) ([]*models.TeamInvitation, error) {
+	return s.invitationRepo.ListByCompany(ctx, companyID)
 }
 
 // CancelInvitation cancels a pending invitation
 func (s *TeamInvitationService) CancelInvitation(ctx context.Context, invitationID string) error {
-	return s.invitationRepo.UpdateStatus(invitationID, "cancelled")
+	return s.invitationRepo.UpdateStatus(ctx, invitationID, "cancelled")
 }
 
 // RefreshInvitation updates an existing invitation with a new token and expiry, and resends the email
@@ -211,7 +211,7 @@ func (s *TeamInvitationService) RefreshInvitation(ctx context.Context, invitatio
 	expiresAt := time.Now().Add(duration)
 
 	// Update invitation in database
-	err := s.invitationRepo.RefreshInvitation(invitation.ID, newToken, expiresAt)
+	err := s.invitationRepo.RefreshInvitation(ctx, invitation.ID, newToken, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh invitation: %w", err)
 	}

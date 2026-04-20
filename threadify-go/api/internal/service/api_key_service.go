@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
@@ -13,17 +14,17 @@ import (
 const defaultServiceAccountRole = "standard_service"
 
 type APIKeyService struct {
-	apiKeyRepo         *repository.APIKeyRepository
-	serviceAccountRepo *repository.ServiceAccountRepository
-	userRoleRepo       *repository.UserRoleRepository
+	apiKeyRepo         repository.APIKeyRepository
+	serviceAccountRepo repository.ServiceAccountRepository
+	userRoleRepo       repository.UserRoleRepository
 	rbacLoader         *rbac.Loader
 	logger             *zap.Logger
 }
 
 func NewAPIKeyService(
-	apiKeyRepo *repository.APIKeyRepository,
-	serviceAccountRepo *repository.ServiceAccountRepository,
-	userRoleRepo *repository.UserRoleRepository,
+	apiKeyRepo repository.APIKeyRepository,
+	serviceAccountRepo repository.ServiceAccountRepository,
+	userRoleRepo repository.UserRoleRepository,
 	rbacLoader *rbac.Loader,
 	logger *zap.Logger,
 ) *APIKeyService {
@@ -50,12 +51,12 @@ type CreateAPIKeyResponse struct {
 	APIKey    *models.APIKey `json:"api_key"`
 }
 
-func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
+func (s *APIKeyService) CreateAPIKey(ctx context.Context, userID, companyID string, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
 	if req.Name == "" {
 		return nil, ErrApiKeyNameRequired
 	}
 
-	serviceAccountID, err := s.resolveServiceAccount(userID, companyID, req)
+	serviceAccountID, err := s.resolveServiceAccount(ctx, userID, companyID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +94,7 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 		CreatedAt:        time.Now(),
 	}
 
-	if err := s.apiKeyRepo.Create(apiKey); err != nil {
+	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
 		return nil, err
 	}
 	return &CreateAPIKeyResponse{
@@ -105,9 +106,9 @@ func (s *APIKeyService) CreateAPIKey(userID, companyID string, req *CreateAPIKey
 
 // resolveServiceAccount returns the service account ID to associate with the
 // new API key, creating one if necessary.
-func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *CreateAPIKeyRequest) (*string, error) {
+func (s *APIKeyService) resolveServiceAccount(ctx context.Context, userID, companyID string, req *CreateAPIKeyRequest) (*string, error) {
 	if req.ServiceAccountID != nil {
-		sa, err := s.serviceAccountRepo.FindByID(*req.ServiceAccountID)
+		sa, err := s.serviceAccountRepo.FindByID(ctx, *req.ServiceAccountID)
 		if err != nil || sa == nil {
 			return nil, ErrServiceAccountNotFound
 		}
@@ -144,22 +145,22 @@ func (s *APIKeyService) resolveServiceAccount(userID, companyID string, req *Cre
 		UpdatedAt: time.Now(),
 	}
 
-	if err := s.serviceAccountRepo.Create(sa); err != nil {
+	if err := s.serviceAccountRepo.Create(ctx, sa); err != nil {
 		return nil, err
 	}
 
-	if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, role, userID); err != nil {
+	if err := s.userRoleRepo.AssignRoleToServiceAccount(ctx, sa.ID, role, userID); err != nil {
 		return nil, ErrFailedToAssignRole
 	}
 	return &sa.ID, nil
 }
 
-func (s *APIKeyService) ListAPIKeys(companyID string) ([]*models.APIKey, error) {
-	return s.apiKeyRepo.FindByCompanyID(companyID)
+func (s *APIKeyService) ListAPIKeys(ctx context.Context, companyID string) ([]*models.APIKey, error) {
+	return s.apiKeyRepo.FindByCompanyID(ctx, companyID)
 }
 
-func (s *APIKeyService) RevokeAPIKey(keyID, companyID string) error {
-	key, err := s.apiKeyRepo.FindByID(keyID)
+func (s *APIKeyService) RevokeAPIKey(ctx context.Context, keyID, companyID string) error {
+	key, err := s.apiKeyRepo.FindByID(ctx, keyID)
 	if err != nil {
 		return err
 	}
@@ -169,11 +170,11 @@ func (s *APIKeyService) RevokeAPIKey(keyID, companyID string) error {
 	if key.CompanyID != companyID {
 		return ErrUnauthorized
 	}
-	return s.apiKeyRepo.Revoke(keyID)
+	return s.apiKeyRepo.Revoke(ctx, keyID)
 }
 
-func (s *APIKeyService) ValidateAPIKey(key string) (*models.APIKey, error) {
-	apiKey, err := s.apiKeyRepo.FindByHash(utils.HashAPIKey(key))
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*models.APIKey, error) {
+	apiKey, err := s.apiKeyRepo.FindByHash(ctx, utils.HashAPIKey(key))
 	if err != nil {
 		return nil, err
 	}

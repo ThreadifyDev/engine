@@ -1,14 +1,12 @@
 {
   "info": {
+    "_postman_id": "6e07a9d2-2ddf-4a4e-8277-1bd37e81a13d",
     "name": "Threadify Web API",
-    "_postman_id": "b2c7b9f1-4c3c-4c1a-9b45-0a5d9d3f8e12",
     "description": "Web API endpoints for Threadify (Auth0-backed auth).",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "23422180",
+    "_collection_link": "https://go.postman.co/collection/23422180-6e07a9d2-2ddf-4a4e-8277-1bd37e81a13d?source=collection_link"
   },
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3001" },
-    { "key": "access_token", "value": "" }
-  ],
   "item": [
     {
       "name": "Health",
@@ -17,15 +15,35 @@
           "name": "GET /health",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
-          }
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
         },
         {
           "name": "GET /metrics",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/metrics", "host": ["{{baseUrl}}"], "path": ["metrics"] }
-          }
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -36,17 +54,29 @@
           "name": "POST /api/auth/signup",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"company_name\": \"Test Co\",\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Passw0rd!123456\",\n  \"full_name\": \"Test User\",\n  \"job_role\": \"Developer\",\n  \"industry\": \"software\",\n  \"company_size\": \"1-10\",\n  \"use_case\": \"testing\"\n}\n"
+              "raw": "{\n  \"company_name\": \"Test Co\",\n  \"email\": \"[EMAIL_ADDRESS]\",\n  \"password\": \"[PASSWORD]\",\n  \"full_name\": \"Test User\",\n  \"job_role\": \"Developer\",\n  \"industry\": \"software\",\n  \"company_size\": \"1-10\",\n  \"use_case\": \"testing\"\n}\n"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/signup",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "signup"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "signup"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "POST /api/auth/login (stores access_token)",
@@ -62,36 +92,167 @@
                   "  pm.collectionVariables.set('access_token', json.token);",
                   "});"
                 ],
-                "type": "text/javascript"
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
               }
             }
           ],
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Passw0rd!123456\"\n}\n"
+              "raw": "{\n  \"email\": \"[EMAIL_ADDRESS]\",\n  \"password\": \"[PASSWORD]\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "POST /api/auth/forgot-password",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"testuser@example.com\"\n}\n" },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"testuser@example.com\"\n}\n"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/auth/forgot-password",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "forgot-password"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "forgot-password"
+              ]
             }
-          }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/reset-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"9fb7f5ddc34657a1735b81dd51585f73b6c1e87bd3fffe89cab84285\",\n  \"password\": \"NewSecurePassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "reset-password"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/verify-user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Login returns token', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('token');",
+                  "  pm.collectionVariables.set('access_token', json.token);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\":\"97648096\",\n  \"email\": \"[EMAIL_ADDRESS]\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verify-otp"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/auth/resend-verification-email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"[EMAIL_ADDRESS]\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/resend-verification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "resend-verification"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -102,19 +263,38 @@
           "name": "GET /api/roles",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/roles", "host": ["{{baseUrl}}"], "path": ["api", "roles"] }
-          }
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "roles"
+              ]
+            }
+          },
+          "response": []
         },
         {
           "name": "GET /api/roles/:level",
           "request": {
             "method": "GET",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/roles/standard_account",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "roles", "standard_account"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "roles",
+                "standard_account"
+              ]
             }
-          }
+          },
+          "response": []
         }
       ]
     },
@@ -126,28 +306,56 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"job_role\": \"Engineer\"\n}\n" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"full_name\": \"jajsjs\",\n    \"job_role\": \"Quality Engineer\",\n    \"industry\": \"SaaS\",\n    \"company_size\": \"medium\",\n    \"use_case\": \"Payment Processing\"\n}"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/user/profile",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "user", "profile"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "user",
+                "profile"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "POST /api/user/mark-instrumentation-done",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/user/mark-instrumentation-done",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "user", "mark-instrumentation-done"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "user",
+                "mark-instrumentation-done"
+              ]
             }
-          }
+          },
+          "response": []
         }
       ]
     },
@@ -159,40 +367,80 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My API Key\"\n}\n" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"My API Key\"\n}\n"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/api-keys",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "api-keys"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "api-keys"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "GET /api/api-keys",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/api-keys",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "api-keys"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "api-keys"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "DELETE /api/api-keys/:id",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/api-keys/{{apiKeyId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "api-keys", "{{apiKeyId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "api-keys",
+                "{{apiKeyId}}"
+              ]
             }
-          }
+          },
+          "response": []
         }
       ]
     },
@@ -204,80 +452,160 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Bot\",\n  \"description\": \"Automation account\"\n}\n" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"CI Bot\",\n  \"description\": \"Automation account\"\n}\n"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "GET /api/service-accounts",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "GET /api/service-accounts/:id",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts",
+                "{{serviceAccountId}}"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "PUT /api/service-accounts/:id",
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CI Bot Updated\",\n  \"description\": \"Updated\"\n}\n" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"CI Bot Updated\",\n  \"description\": \"Updated\"\n}\n"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts",
+                "{{serviceAccountId}}"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "DELETE /api/service-accounts/:id",
           "request": {
             "method": "DELETE",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts/{{serviceAccountId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts", "{{serviceAccountId}}"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts",
+                "{{serviceAccountId}}"
+              ]
             }
-          }
+          },
+          "response": []
         },
         {
           "name": "GET /api/service-accounts/scopes/:scope/permissions",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/api/service-accounts/scopes/{{scope}}/permissions",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "service-accounts", "scopes", "{{scope}}", "permissions"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "service-accounts",
+                "scopes",
+                "{{scope}}",
+                "permissions"
+              ]
             }
-          }
+          },
+          "response": []
         }
       ]
     },
@@ -287,26 +615,98 @@
         {
           "name": "GET /api/contracts",
           "request": {
+            "auth": {
+              "type": "noauth"
+            },
             "method": "GET",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
-            "url": { "raw": "{{baseUrl}}/api/contracts", "host": ["{{baseUrl}}"], "path": ["api", "contracts"] }
-          }
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-API-Key",
+                "value": "td_enXpaaSeIFartwPCjtI-QRY2lcSiHciNM7vPLaFD4m8",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/contracts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "contracts"
+              ]
+            }
+          },
+          "response": []
         },
         {
           "name": "POST /api/contracts/preview",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"contract\": {}\n}\n" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"contract_name\": \"product_delivery\",\n    \"version\": 3,\n    \"description\": \"Complete product delivery workflow with retry limits\",\n    \"entry_points\": [\n        \"order_placed\"\n    ],\n    \"parties\": [\n        \"merchant\",\n        \"payment_processor\",\n        \"warehouse_manager\",\n        \"logistics_carrier\"\n    ],\n    \"steps\": [\n        {\n            \"id\": \"order_placed\",\n            \"owner\": \"merchant\",\n            \"type\": \"managed\",\n            \"timeout\": \"5m\",\n            \"business_context\": {\n                \"required\": [\n                    \"order_id\",\n                    \"customer_id\",\n                    \"total_amount\"\n                ],\n                \"optional\": [\n                    \"notes\",\n                    \"promo_code\"\n                ]\n            }\n        },\n        {\n            \"id\": \"payment_validation\",\n            \"owner\": \"payment_processor\",\n            \"type\": \"external\",\n            \"timeout\": \"30s\",\n            \"business_context\": {\n                \"required\": [\n                    \"payment_method\",\n                    \"amount\"\n                ],\n                \"optional\": [\n                    \"transaction_id\"\n                ]\n            }\n        },\n        {\n            \"id\": \"payment_validated\",\n            \"owner\": \"payment_processor\",\n            \"type\": \"managed\"\n        },\n        {\n            \"id\": \"order_cancelled\",\n            \"owner\": \"merchant\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"cancellation_reason\"\n                ]\n            }\n        },\n        {\n            \"id\": \"fulfillment_ready\",\n            \"owner\": \"warehouse_manager\",\n            \"type\": \"human_in_loop\",\n            \"timeout\": \"2h\",\n            \"business_context\": {\n                \"required\": [\n                    \"warehouse_location\",\n                    \"items_count\"\n                ]\n            }\n        },\n        {\n            \"id\": \"shipped\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"timeout\": \"24h\",\n            \"business_context\": {\n                \"required\": [\n                    \"tracking_number\",\n                    \"carrier_name\"\n                ],\n                \"optional\": [\n                    \"estimated_delivery\"\n                ]\n            }\n        },\n        {\n            \"id\": \"delivered\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"delivery_timestamp\",\n                    \"signature\"\n                ]\n            }\n        },\n        {\n            \"id\": \"delivery_failed\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"failure_reason\"\n                ]\n            }\n        }\n    ],\n    \"transitions\": [\n        {\n            \"from\": \"order_placed\",\n            \"to\": [\n                \"payment_validation\"\n            ],\n            \"max_retries\": 3\n        },\n        {\n            \"from\": \"payment_validation\",\n            \"to\": [\n                \"payment_validated\",\n                \"order_cancelled\"\n            ],\n            \"max_retries\": 3\n        },\n        {\n            \"from\": \"payment_validated\",\n            \"to\": [\n                \"fulfillment_ready\"\n            ]\n        },\n        {\n            \"from\": \"fulfillment_ready\",\n            \"to\": [\n                \"shipped\"\n            ]\n        },\n        {\n            \"from\": \"shipped\",\n            \"to\": [\n                \"delivered\",\n                \"delivery_failed\"\n            ]\n        },\n        {\n            \"from\": \"delivery_failed\",\n            \"to\": [\n                \"shipped\"\n            ],\n            \"max_retries\": 2\n        }\n    ],\n    \"terminal_steps\": [\n        \"delivered\",\n        \"order_cancelled\"\n    ],\n    \"validation\": {\n        \"max_duration\": \"72h\",\n        \"allow_multiple_terminals\": false,\n        \"multiple_terminals_severity\": \"major\"\n    },\n    \"versioning\": {\n        \"threads_lock_to_version\": true\n    }\n}"
+            },
             "url": {
               "raw": "{{baseUrl}}/api/contracts/preview",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "contracts", "preview"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "contracts",
+                "preview"
+              ]
             }
-          }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/contracts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"contract_name\": \"product_delivery\",\n    \"version\": 3,\n    \"description\": \"Complete product delivery workflow with retry limits\",\n    \"entry_points\": [\n        \"order_placed\"\n    ],\n    \"parties\": [\n        \"merchant\",\n        \"payment_processor\",\n        \"warehouse_manager\",\n        \"logistics_carrier\"\n    ],\n    \"steps\": [\n        {\n            \"id\": \"order_placed\",\n            \"owner\": \"merchant\",\n            \"type\": \"managed\",\n            \"timeout\": \"5m\",\n            \"business_context\": {\n                \"required\": [\n                    \"order_id\",\n                    \"customer_id\",\n                    \"total_amount\"\n                ],\n                \"optional\": [\n                    \"notes\",\n                    \"promo_code\"\n                ]\n            }\n        },\n        {\n            \"id\": \"payment_validation\",\n            \"owner\": \"payment_processor\",\n            \"type\": \"external\",\n            \"timeout\": \"30s\",\n            \"business_context\": {\n                \"required\": [\n                    \"payment_method\",\n                    \"amount\"\n                ],\n                \"optional\": [\n                    \"transaction_id\"\n                ]\n            }\n        },\n        {\n            \"id\": \"payment_validated\",\n            \"owner\": \"payment_processor\",\n            \"type\": \"managed\"\n        },\n        {\n            \"id\": \"order_cancelled\",\n            \"owner\": \"merchant\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"cancellation_reason\"\n                ]\n            }\n        },\n        {\n            \"id\": \"fulfillment_ready\",\n            \"owner\": \"warehouse_manager\",\n            \"type\": \"human_in_loop\",\n            \"timeout\": \"2h\",\n            \"business_context\": {\n                \"required\": [\n                    \"warehouse_location\",\n                    \"items_count\"\n                ]\n            }\n        },\n        {\n            \"id\": \"shipped\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"timeout\": \"24h\",\n            \"business_context\": {\n                \"required\": [\n                    \"tracking_number\",\n                    \"carrier_name\"\n                ],\n                \"optional\": [\n                    \"estimated_delivery\"\n                ]\n            }\n        },\n        {\n            \"id\": \"delivered\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"delivery_timestamp\",\n                    \"signature\"\n                ]\n            }\n        },\n        {\n            \"id\": \"delivery_failed\",\n            \"owner\": \"logistics_carrier\",\n            \"type\": \"managed\",\n            \"business_context\": {\n                \"required\": [\n                    \"failure_reason\"\n                ]\n            }\n        }\n    ],\n    \"transitions\": [\n        {\n            \"from\": \"order_placed\",\n            \"to\": [\n                \"payment_validation\"\n            ],\n            \"max_retries\": 3\n        },\n        {\n            \"from\": \"payment_validation\",\n            \"to\": [\n                \"payment_validated\",\n                \"order_cancelled\"\n            ],\n            \"max_retries\": 3\n        },\n        {\n            \"from\": \"payment_validated\",\n            \"to\": [\n                \"fulfillment_ready\"\n            ]\n        },\n        {\n            \"from\": \"fulfillment_ready\",\n            \"to\": [\n                \"shipped\"\n            ]\n        },\n        {\n            \"from\": \"shipped\",\n            \"to\": [\n                \"delivered\",\n                \"delivery_failed\"\n            ]\n        },\n        {\n            \"from\": \"delivery_failed\",\n            \"to\": [\n                \"shipped\"\n            ],\n            \"max_retries\": 2\n        }\n    ],\n    \"terminal_steps\": [\n        \"delivered\",\n        \"order_cancelled\"\n    ],\n    \"validation\": {\n        \"max_duration\": \"72h\",\n        \"allow_multiple_terminals\": false,\n        \"multiple_terminals_severity\": \"major\"\n    },\n    \"versioning\": {\n        \"threads_lock_to_version\": true\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/contracts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "contracts"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -318,17 +718,382 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"query\": \"query { __typename }\",\n  \"variables\": {}\n}\n"
             },
-            "url": { "raw": "{{baseUrl}}/api/graphql", "host": ["{{baseUrl}}"], "path": ["api", "graphql"] }
-          }
+            "url": {
+              "raw": "{{baseUrl}}/api/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "graphql"
+              ]
+            }
+          },
+          "response": []
         }
       ]
+    },
+    {
+      "name": "Billing",
+      "item": [
+        {
+          "name": "POST /api/billing/checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"amount_millicents\": 500000,\n    \"max_monthly_millicents\": 1000000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "checkout"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/billing/plan",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"tier\": \"starter\", \n    \"billing_cycle\": \"monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "plan"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/billing/tiers",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"tier\": \"starter\", \n    \"billing_cycle\": \"monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/plan",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "plan"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST /api/billing/spending-limit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"max_monthly_millicents\": 1000000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/billing/spending-limit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "billing",
+                "spending-limit"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Entity Profiles (Protected)",
+      "item": [
+        {
+          "name": "POST /api/entity-profile-types",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Customer ID\",\n  \"type\": \"customer_id\",\n  \"description\": \"Maps thread refs to customer profiles\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profile-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profile-types"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/entity-profile-types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profile-types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profile-types"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PUT /api/entity-profile-types/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Customer Reference\",\n  \"description\": \"Updated description for customer mapping\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profile-types/{{profileTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profile-types",
+                "{{profileTypeId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /api/entity-profile-types/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profile-types/{{profileTypeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profile-types",
+                "{{profileTypeId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/entity-profiles?refKey=...&type=...",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profiles?refKey=cust_12345&type=customer_id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profiles"
+              ],
+              "query": [
+                {
+                  "key": "refKey",
+                  "value": "cust_12345"
+                },
+                {
+                  "key": "type",
+                  "value": "customer_id"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /api/entity-profiles/types (via Engine)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/entity-profiles/types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "entity-profiles",
+                "types"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "access_token",
+      "value": ""
     }
   ]
 }

@@ -1,57 +1,54 @@
 package repository
 
 import (
-	"database/sql"
-	"errors"
+	"context"
 	"fmt"
 
 	"threadify-go/api/internal/models"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type CompanyRepository struct {
-	db *sql.DB
+type companyRepository struct {
+	pool *pgxpool.Pool
 }
 
-func NewCompanyRepository(db *sql.DB) *CompanyRepository {
-	return &CompanyRepository{db: db}
+func NewCompanyRepository(pool *pgxpool.Pool) CompanyRepository {
+	return &companyRepository{pool: pool}
 }
 
-type companyExecer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}
-
-func (r *CompanyRepository) CreateTx(execer companyExecer, company *models.Company) error {
+func (r *companyRepository) CreateTx(ctx context.Context, execer DBExecer, company *models.Company) error {
 	const query = `
         INSERT INTO companies (id, name, industry, size, use_case, created_at, updated_at)
         VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NOW(), NOW())
     `
-	_, err := execer.Exec(query, company.ID, company.Name, company.Industry, company.Size, company.UseCase)
+	_, err := execer.Exec(ctx, query, company.ID, company.Name, company.Industry, company.Size, company.UseCase)
 	if err != nil {
 		return fmt.Errorf("create company: %w", err)
 	}
 	return nil
 }
 
-func (r *CompanyRepository) FindByID(id string) (*models.Company, error) {
+func (r *companyRepository) FindByID(ctx context.Context, id string) (*models.Company, error) {
 	company := &models.Company{}
 	const query = `
         SELECT id, name, industry, size, use_case, created_at, updated_at
         FROM companies WHERE id = $1
     `
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&company.ID, &company.Name, &company.Industry, &company.Size,
 		&company.UseCase, &company.CreatedAt, &company.UpdatedAt,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
 	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("find company by id: %w", err)
 	}
 	return company, nil
 }
 
-func (r *CompanyRepository) UpdateDetails(id string, industry, size, useCase *string) error {
+func (r *companyRepository) UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error {
 	const query = `
         UPDATE companies
         SET industry = COALESCE($1, industry),
@@ -60,18 +57,18 @@ func (r *CompanyRepository) UpdateDetails(id string, industry, size, useCase *st
             updated_at = NOW()
         WHERE id = $4
     `
-	_, err := r.db.Exec(query, industry, size, useCase, id)
+	_, err := r.pool.Exec(ctx, query, industry, size, useCase, id)
 	if err != nil {
 		return fmt.Errorf("update company details: %w", err)
 	}
 	return nil
 }
-func (r *CompanyRepository) Delete(id string) error {
-	return r.DeleteTx(r.db, id)
+func (r *companyRepository) Delete(ctx context.Context, id string) error {
+	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *CompanyRepository) DeleteTx(execer companyExecer, id string) error {
-	_, err := execer.Exec(`DELETE FROM companies WHERE id = $1`, id)
+func (r *companyRepository) DeleteTx(ctx context.Context, execer DBExecer, id string) error {
+	_, err := execer.Exec(ctx, `DELETE FROM companies WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete company: %w", err)
 	}

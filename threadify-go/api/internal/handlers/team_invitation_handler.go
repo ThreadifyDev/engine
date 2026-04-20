@@ -4,22 +4,24 @@ import (
 	"net/http"
 	"time"
 
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/repository"
-	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/validation"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 type TeamInvitationHandler struct {
-	invitationSvc *service.TeamInvitationService
-	companyRepo   *repository.CompanyRepository
+	invitationSvc iface.TeamInvitationService
+	companyRepo   repository.CompanyRepository
 	logger        *zap.Logger
 }
 
 func NewTeamInvitationHandler(
-	invitationSvc *service.TeamInvitationService,
-	companyRepo *repository.CompanyRepository,
+	invitationSvc iface.TeamInvitationService,
+	companyRepo repository.CompanyRepository,
 	logger *zap.Logger,
 ) *TeamInvitationHandler {
 	return &TeamInvitationHandler{
@@ -46,6 +48,11 @@ type SendInvitationResponse struct {
 func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 	var req SendInvitationRequest
 	if !bindJSON(c, &req) {
+		return
+	}
+
+	if err := validation.ValidateSendInvitationRequest(req.Email, req.Role); err != nil {
+		respondValidationError(c, err)
 		return
 	}
 
@@ -80,6 +87,13 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 		7*24*time.Hour,
 	)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, SendInvitationResponse{
+				Success: false,
+				Error:   de.Message,
+			})
+			return
+		}
 		h.logger.Error("failed to send invitation",
 			zap.String("email", req.Email),
 			zap.String("company_id", companyID.(string)),
@@ -137,9 +151,18 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 		return
 	}
 
+	if err := validation.ValidateValidateInvitationRequest(req.Token); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+
 	// Validate token and get invitation
-	invitation, err := h.invitationSvc.ValidateToken(req.Token)
+	invitation, err := h.invitationSvc.ValidateToken(c.Request.Context(), req.Token)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Warn("invalid invitation token",
 			zap.String("token", req.Token),
 			zap.Error(err),
@@ -149,8 +172,12 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 	}
 
 	// Get company name
-	company, err := h.companyRepo.FindByID(invitation.CompanyID)
+	company, err := h.companyRepo.FindByID(c.Request.Context(), invitation.CompanyID)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to get company",
 			zap.String("company_id", invitation.CompanyID),
 			zap.Error(err),
@@ -176,8 +203,12 @@ func (h *TeamInvitationHandler) ListInvitations(c *gin.Context) {
 	}
 
 	// Get invitations for company
-	invitations, err := h.invitationSvc.ListByCompany(companyID.(string))
+	invitations, err := h.invitationSvc.ListByCompany(c.Request.Context(), companyID.(string))
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to list invitations",
 			zap.String("company_id", companyID.(string)),
 			zap.Error(err),
@@ -224,7 +255,7 @@ func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
 	}
 
 	// Get existing invitation
-	invitation, err := h.invitationSvc.GetByID(invitationID)
+	invitation, err := h.invitationSvc.GetByID(c.Request.Context(), invitationID)
 	if err != nil || invitation == nil {
 		h.logger.Error("invitation not found",
 			zap.String("invitation_id", invitationID),
@@ -257,6 +288,13 @@ func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
 		7*24*time.Hour,
 	)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, SendInvitationResponse{
+				Success: false,
+				Error:   de.Message,
+			})
+			return
+		}
 		h.logger.Error("failed to resend invitation",
 			zap.String("email", invitation.Email),
 			zap.Error(err),
@@ -295,7 +333,7 @@ func (h *TeamInvitationHandler) CancelInvitation(c *gin.Context) {
 	}
 
 	// Get existing invitation
-	invitation, err := h.invitationSvc.GetByID(invitationID)
+	invitation, err := h.invitationSvc.GetByID(c.Request.Context(), invitationID)
 	if err != nil || invitation == nil {
 		h.logger.Error("invitation not found",
 			zap.String("invitation_id", invitationID),
@@ -324,6 +362,10 @@ func (h *TeamInvitationHandler) CancelInvitation(c *gin.Context) {
 	// Cancel the invitation (update status to cancelled)
 	err = h.invitationSvc.CancelInvitation(c.Request.Context(), invitationID)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message, "success": false})
+			return
+		}
 		h.logger.Error("failed to cancel invitation",
 			zap.String("invitation_id", invitationID),
 			zap.Error(err),

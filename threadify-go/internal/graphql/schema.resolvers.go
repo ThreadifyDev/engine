@@ -467,6 +467,7 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	return status, nil
 }
 
+// CheckCredits is the resolver for the checkCredits field.
 func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -491,6 +492,49 @@ func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount 
 	}
 
 	return true, nil
+}
+
+// EntityProfile is the resolver for the entityProfile field.
+func (r *queryResolver) EntityProfile(ctx context.Context, refKey string, typeArg string) (*generated.EntityProfile, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, typeArg, refKey)
+	if err != nil {
+		return nil, nil
+	}
+
+	return &generated.EntityProfile{
+		ID:            profile.ID,
+		RefKey:        profile.RefKey,
+		CompanyID:     profile.CompanyID,
+		ProfileTypeID: profile.ProfileTypeID,
+		Name:          &profile.Name,
+		CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+		LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+		Metrics:       toGraphQLMetrics(metrics),
+	}, nil
+}
+
+// EntityProfileTypes is the resolver for the entityProfileTypes field.
+func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.EntityProfileType, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	types, err := r.entityProfileTypeRepo.GetProfileTypesByCompanyID(ctx, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch entity profile types: %w", err)
+	}
+
+	result := make([]*generated.EntityProfileType, len(types))
+	for i, t := range types {
+		result[i] = toGraphQLProfileType(t)
+	}
+	return result, nil
 }
 
 // Error is the resolver for the error field on StepHistory.

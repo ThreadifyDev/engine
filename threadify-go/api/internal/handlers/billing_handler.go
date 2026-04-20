@@ -10,11 +10,12 @@ import (
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	"threadify-go/shared/billing"
+	serror "threadify-go/shared/errors"
+	billingmodels "threadify-go/shared/models"
 )
 
 type billingAPI interface {
-	GetCreditAccount(ctx context.Context, companyID string) (*billing.CreditAccount, error)
+	GetCreditAccount(ctx context.Context, companyID string) (*billingmodels.CreditAccount, error)
 	CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error)
 	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
 }
@@ -44,6 +45,10 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 
 	account, err := h.billingService.GetCreditAccount(c.Request.Context(), compID)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to fetch credit account for validation", zap.Error(err), zap.String("companyID", compID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify topup settings"})
 		return
@@ -67,6 +72,10 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 		req.MaxMonthlyChargeMillicents,
 	)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to update max monthly charge",
 			zap.Error(err),
 			zap.String("companyID", compID),
@@ -117,6 +126,10 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		req.AmountMillicents,
 	)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to create checkout session",
 			zap.Error(err),
 			zap.String("companyID", compID),
@@ -146,7 +159,7 @@ type GetCurrentPlanResponse struct {
 	CreditAccount *CreditAccountDTO `json:"credit_account"`
 }
 
-func mapAccountToDTO(m *billing.CreditAccount) *CreditAccountDTO {
+func mapAccountToDTO(m *billingmodels.CreditAccount) *CreditAccountDTO {
 	if m == nil {
 		return nil
 	}
@@ -173,6 +186,10 @@ func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
 
 	account, err := h.billingService.GetCreditAccount(c.Request.Context(), compID)
 	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
 		h.logger.Error("failed to get current billing info", zap.Error(err), zap.String("companyID", compID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve billing info"})
 		return

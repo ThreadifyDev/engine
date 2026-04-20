@@ -1,0 +1,168 @@
+package service_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/service/tests/common"
+	serror "threadify-go/shared/errors"
+
+	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	testEncryptionKey = "30313233343536373839616263646566" +
+		"30313233343536373839616263646566"
+	testFrontendURL = "https://app.threadify.ai"
+)
+
+func TestTeamInvitationService_SendInvitation(t *testing.T) {
+	const (
+		companyID = "comp_123"
+		email     = "test@example.com"
+		role      = "admin"
+		invitedBy = "user_456"
+	)
+	expiryDuration := 24 * time.Hour
+
+	tests := []struct {
+		name      string
+		setupMock func(deps *common.MockedDeps)
+		validate  func(t *testing.T, invitation *models.TeamInvitation, err error)
+	}{
+		{
+			name: "success",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(nil, nil)
+				deps.InvitationRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+				deps.OutboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			validate: func(t *testing.T, invitation *models.TeamInvitation, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				require.NotNil(t, invitation)
+				assert.Equal(t, companyID, invitation.CompanyID)
+				assert.Equal(t, email, invitation.Email)
+				assert.Equal(t, role, invitation.Role)
+			},
+		},
+		{
+			name: "user_already_exists",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123"}, nil)
+			},
+			validate: func(t *testing.T, invitation *models.TeamInvitation, err error) {
+				t.Helper()
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "already has an account")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			svc := deps.NewTeamInvitationService(nil, testEncryptionKey, testFrontendURL)
+			tt.setupMock(deps)
+
+			invitation, err := svc.SendInvitation(context.Background(), companyID, email, role, invitedBy, expiryDuration)
+			tt.validate(t, invitation, err)
+		})
+	}
+}
+
+func TestTeamInvitationService_ValidateToken(t *testing.T) {
+	const token = "valid_token"
+
+	tests := []struct {
+		name       string
+		invitation *models.TeamInvitation
+		wantErr    string
+	}{
+		{
+			name: "success",
+			invitation: &models.TeamInvitation{
+				Token:     token,
+				Status:    "pending",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		{
+			name: "expired",
+			invitation: &models.TeamInvitation{
+				Token:     token,
+				Status:    "pending",
+				ExpiresAt: time.Now().Add(-time.Hour),
+			},
+			wantErr: "expired",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			svc := deps.NewTeamInvitationService(nil, testEncryptionKey, testFrontendURL)
+
+			deps.InvitationRepo.EXPECT().GetByToken(gomock.Any(), token).Return(tt.invitation, nil)
+
+			res, err := svc.ValidateToken(context.Background(), token)
+			if tt.wantErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, res)
+			}
+		})
+	}
+}
+
+func TestTeamInvitationService_CancelInvitation(t *testing.T) {
+	const invitationID = "inv_123"
+
+	tests := []struct {
+		name      string
+		setupMock func(deps *common.MockedDeps)
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(nil)
+			},
+		},
+		{
+			name: "not_found",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(serror.ErrInvitationNotFound)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(assert.AnError)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			svc := deps.NewTeamInvitationService(nil, testEncryptionKey, testFrontendURL)
+			tt.setupMock(deps)
+
+			err := svc.CancelInvitation(context.Background(), invitationID)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

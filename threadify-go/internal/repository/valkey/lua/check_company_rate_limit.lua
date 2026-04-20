@@ -6,6 +6,7 @@
 -- ARGV[2] = window start timestamp (current - window_seconds)
 -- ARGV[3] = max requests allowed in window
 -- ARGV[4] = TTL for the key (seconds)
+-- ARGV[5] = unique request ID (prevents member collision under burst)
 --
 -- Returns:
 --   1 = request allowed (under limit)
@@ -16,6 +17,7 @@ local now = tonumber(ARGV[1])
 local window_start = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 local ttl = tonumber(ARGV[4])
+local request_id = ARGV[5]
 
 -- Remove old entries outside the window
 redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
@@ -24,8 +26,8 @@ redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
 local current = redis.call('ZCARD', key)
 
 if current < limit then
-    -- Under limit: add new request and update TTL
-    redis.call('ZADD', key, now, now)
+    -- Under limit: add new request with unique member and update TTL
+    redis.call('ZADD', key, now, request_id)
     redis.call('EXPIRE', key, ttl)
     return 1
 else

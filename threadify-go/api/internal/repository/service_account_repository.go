@@ -1,40 +1,44 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type ServiceAccountRepository struct {
-	db *sql.DB
+type serviceAccountRepository struct {
+	pool *pgxpool.Pool
 }
 
-func NewServiceAccountRepository(db *sql.DB) *ServiceAccountRepository {
-	return &ServiceAccountRepository{db: db}
+func NewServiceAccountRepository(pool *pgxpool.Pool) ServiceAccountRepository {
+	return &serviceAccountRepository{pool: pool}
 }
 
-func (r *ServiceAccountRepository) Create(sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Create(ctx context.Context, sa *models.ServiceAccount) error {
 	query := `
 		INSERT INTO service_accounts (id, company_id, name, description, is_active, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	_, err := r.db.Exec(query,
+	_, err := r.pool.Exec(ctx, query,
 		sa.ID, sa.CompanyID, sa.Name, sa.Description, sa.IsActive, sa.CreatedBy, sa.CreatedAt, sa.UpdatedAt)
 	return err
 }
 
-func (r *ServiceAccountRepository) FindByID(id string) (*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByID(ctx context.Context, id string) (*models.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
 		WHERE id = $1
 	`
 	var sa models.ServiceAccount
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&sa.ID, &sa.CompanyID, &sa.Name, &sa.Description, &sa.IsActive, &sa.CreatedBy, &sa.LastUsedAt, &sa.CreatedAt, &sa.UpdatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, serror.ErrServiceAccountNotFound
 		}
 		return nil, err
@@ -42,14 +46,14 @@ func (r *ServiceAccountRepository) FindByID(id string) (*models.ServiceAccount, 
 	return &sa, nil
 }
 
-func (r *ServiceAccountRepository) FindByCompanyID(companyID string) ([]*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
 		WHERE company_id = $1
 		ORDER BY created_at DESC
 	`
-	rows, err := r.db.Query(query, companyID)
+	rows, err := r.pool.Query(ctx, query, companyID)
 	if err != nil {
 		return nil, err
 	}
@@ -66,35 +70,35 @@ func (r *ServiceAccountRepository) FindByCompanyID(companyID string) ([]*models.
 	return accounts, nil
 }
 
-func (r *ServiceAccountRepository) Update(sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Update(ctx context.Context, sa *models.ServiceAccount) error {
 	query := `
 		UPDATE service_accounts
 		SET name = $1, description = $2, is_active = $3, updated_at = $4
 		WHERE id = $5
 	`
-	_, err := r.db.Exec(query,
+	_, err := r.pool.Exec(ctx, query,
 		sa.Name, sa.Description, sa.IsActive, sa.UpdatedAt, sa.ID)
 	return err
 }
 
-func (r *ServiceAccountRepository) Delete(id string) error {
+func (r *serviceAccountRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM service_accounts WHERE id = $1`
-	_, err := r.db.Exec(query, id)
+	_, err := r.pool.Exec(ctx, query, id)
 	return err
 }
 
-func (r *ServiceAccountRepository) UpdateLastUsed(id string) error {
+func (r *serviceAccountRepository) UpdateLastUsed(ctx context.Context, id string) error {
 	query := `UPDATE service_accounts SET last_used_at = NOW() WHERE id = $1`
-	_, err := r.db.Exec(query, id)
+	_, err := r.pool.Exec(ctx, query, id)
 	return err
 }
 
 // IsServiceAccountActive checks if a service account exists and is active
-func (r *ServiceAccountRepository) IsServiceAccountActive(id string) (bool, error) {
+func (r *serviceAccountRepository) IsServiceAccountActive(ctx context.Context, id string) (bool, error) {
 	query := `SELECT is_active FROM service_accounts WHERE id = $1`
 	var isActive bool
-	err := r.db.QueryRow(query, id).Scan(&isActive)
-	if err == sql.ErrNoRows {
+	err := r.pool.QueryRow(ctx, query, id).Scan(&isActive)
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, serror.ErrServiceAccountNotFound
 	}
 	if err != nil {

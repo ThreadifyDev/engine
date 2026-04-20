@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
@@ -13,13 +14,13 @@ var validServiceAccountRoles = map[string]bool{
 }
 
 type ServiceAccountService struct {
-	serviceAccountRepo *repository.ServiceAccountRepository
-	userRoleRepo       *repository.UserRoleRepository
+	serviceAccountRepo repository.ServiceAccountRepository
+	userRoleRepo       repository.UserRoleRepository
 }
 
 func NewServiceAccountService(
-	serviceAccountRepo *repository.ServiceAccountRepository,
-	userRoleRepo *repository.UserRoleRepository,
+	serviceAccountRepo repository.ServiceAccountRepository,
+	userRoleRepo repository.UserRoleRepository,
 ) *ServiceAccountService {
 	return &ServiceAccountService{
 		serviceAccountRepo: serviceAccountRepo,
@@ -39,7 +40,7 @@ type UpdateServiceAccountRequest struct {
 	IsActive    *bool   `json:"is_active"`
 }
 
-func (s *ServiceAccountService) CreateServiceAccount(companyID, createdBy string, req *CreateServiceAccountRequest) (*models.ServiceAccount, error) {
+func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, companyID, createdBy string, req *CreateServiceAccountRequest) (*models.ServiceAccount, error) {
 	if req.Name == "" {
 		return nil, ErrServiceAccountNameRequired
 	}
@@ -59,22 +60,22 @@ func (s *ServiceAccountService) CreateServiceAccount(companyID, createdBy string
 		UpdatedAt:   now,
 	}
 
-	if err := s.serviceAccountRepo.Create(sa); err != nil {
+	if err := s.serviceAccountRepo.Create(ctx, sa); err != nil {
 		return nil, err
 	}
-	if err := s.userRoleRepo.AssignRoleToServiceAccount(sa.ID, req.Role, createdBy); err != nil {
+	if err := s.userRoleRepo.AssignRoleToServiceAccount(ctx, sa.ID, req.Role, createdBy); err != nil {
 		return nil, ErrFailedToAssignRole
 	}
 
 	return sa, nil
 }
 
-func (s *ServiceAccountService) ListServiceAccounts(companyID string) ([]*models.ServiceAccount, error) {
-	return s.serviceAccountRepo.FindByCompanyID(companyID)
+func (s *ServiceAccountService) ListServiceAccounts(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
+	return s.serviceAccountRepo.FindByCompanyID(ctx, companyID)
 }
 
-func (s *ServiceAccountService) GetServiceAccount(id, companyID string) (*models.ServiceAccount, error) {
-	sa, err := s.serviceAccountRepo.FindByID(id)
+func (s *ServiceAccountService) GetServiceAccount(ctx context.Context, id, companyID string) (*models.ServiceAccount, error) {
+	sa, err := s.serviceAccountRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +88,8 @@ func (s *ServiceAccountService) GetServiceAccount(id, companyID string) (*models
 	return sa, nil
 }
 
-func (s *ServiceAccountService) UpdateServiceAccount(id, companyID string, req *UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
-	sa, err := s.GetServiceAccount(id, companyID)
+func (s *ServiceAccountService) UpdateServiceAccount(ctx context.Context, id, companyID string, req *UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
+	sa, err := s.GetServiceAccount(ctx, id, companyID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,18 +105,18 @@ func (s *ServiceAccountService) UpdateServiceAccount(id, companyID string, req *
 	}
 	sa.UpdatedAt = time.Now()
 
-	if err := s.serviceAccountRepo.Update(sa); err != nil {
+	if err := s.serviceAccountRepo.Update(ctx, sa); err != nil {
 		return nil, err
 	}
 
 	return sa, nil
 }
 
-func (s *ServiceAccountService) DeleteServiceAccount(id, companyID string) error {
-	sa, err := s.GetServiceAccount(id, companyID)
+func (s *ServiceAccountService) DeleteServiceAccount(ctx context.Context, id, companyID string) error {
+	sa, err := s.GetServiceAccount(ctx, id, companyID)
 	if err != nil {
 		return err
 	}
 	// TODO: check for active API keys before deleting
-	return s.serviceAccountRepo.Delete(sa.ID)
+	return s.serviceAccountRepo.Delete(ctx, sa.ID)
 }

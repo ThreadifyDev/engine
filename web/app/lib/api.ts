@@ -549,6 +549,67 @@ class ApiClient {
       }),
     });
   }
+
+  // --- Entity Profile Management ---
+  async createEntityProfileType(data: { name: string; type: string; description?: string }): Promise<any> {
+    return this.post('/entity-profile-types', data);
+  }
+
+  async listEntityProfileTypes(): Promise<any> {
+    return this.request('/entity-profile-types');
+  }
+
+  async updateEntityProfileType(id: string, data: { name: string; description?: string }): Promise<any> {
+    return this.request(`/entity-profile-types/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async archiveEntityProfileType(id: string): Promise<any> {
+    return this.delete(`/entity-profile-types/${id}`);
+  }
+
+  async listEntityProfileTypesProxy(): Promise<any> {
+    return this.request('/entity-profiles/types');
+  }
+
+  async getEntityProfile(refKey: string, type: string): Promise<any> {
+    // Note: Use encodeURIComponent to safely pass refKey and type
+    return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
+  }
+}
+
+export interface EntityProfileType {
+  id: string;
+  company_id: string;
+  name: string;
+  type: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityProfileMetrics {
+  entityProfileId: string;
+  totalDeliveries: number;
+  completedSuccessfully: number;
+  validationViolations: number;
+  deliveryHealthScore: number;
+  healthTrendSlope: number;
+  averageDeliveryTimeMs: number;
+  lastCalculatedAt: string;
+}
+
+export interface EntityProfile {
+  id: string;
+  refKey: string;
+  companyId: string;
+  profileTypeId: string;
+  name: string;
+  createdAt: string;
+  lastActiveAt: string;
+  metrics: EntityProfileMetrics;
 }
 
 export const api = new ApiClient(API_BASE_URL);
