@@ -220,7 +220,7 @@ func (s *PlanService) provisionNewSubscription(
 	companyID, externalCustomerID string,
 	initialAmount int64,
 ) error {
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(24 * time.Hour)
 
 	if err := s.planRepo.SetExternalCustomerID(ctx, companyID, externalCustomerID); err != nil {
 		return fmt.Errorf("provision subscription - set external customer id: %w", err)

@@ -193,7 +193,7 @@ func TestAuthService_ResetPassword(t *testing.T) {
 			setupMock: func(authClient *sharedmocks.MockAuthClient) {
 				authClient.EXPECT().ResetPasswordWithOTP(gomock.Any(), "invalid", "NewPassword123!").Return(sharedauth.ErrAuthInvalidToken)
 			},
-			wantErr: service.ErrInvalidToken,
+			wantErr: service.ErrAuthInvalidToken,
 		},
 	}
 

@@ -129,9 +129,6 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &req)
 	if err != nil {
-		if respondValidationError(c, err) {
-			return
-		}
 		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
 		c.JSON(statusCode, gin.H{"error": message})
 		return
@@ -150,11 +147,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	token := parts[1]
 	if err := h.authService.Logout(c.Request.Context(), token); err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "Logged out."})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or revoked token"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully."})
+	c.Status(http.StatusNoContent)
 }
 
 func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
