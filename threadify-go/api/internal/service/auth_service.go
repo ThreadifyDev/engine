@@ -445,7 +445,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 	if err := s.authClient.ResetPasswordWithOTP(ctx, req.Token, req.Password); err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
-			return ErrInvalidToken
+			return ErrAuthInvalidToken
 		case errors.Is(err, sharedauth.ErrAuthExpiredToken):
 			return ErrExpiredToken
 		case errors.Is(err, sharedauth.ErrAuthRateLimit):
@@ -462,7 +462,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	if err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
-			return nil, ErrInvalidToken
+			return nil, ErrAuthInvalidToken
 		case errors.Is(err, sharedauth.ErrAuthExpiredToken):
 			return nil, ErrExpiredToken
 		case errors.Is(err, sharedauth.ErrAuthRateLimit):

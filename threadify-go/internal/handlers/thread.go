@@ -83,7 +83,7 @@ type NotificationACKMessage struct {
 	NotificationID string `json:"notification_id"`
 	ThreadID       string `json:"thread_id"`
 	Processed      bool   `json:"processed"`
-	AckToken       string `json:"ackToken"`
+	AckToken       string `json:"ack_token"`
 }
 
 func NewWebSocketHandler(

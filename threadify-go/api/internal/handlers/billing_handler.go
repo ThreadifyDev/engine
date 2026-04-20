@@ -99,7 +99,7 @@ func NewBillingHandler(
 }
 
 type CheckoutRequest struct {
-	AmountMillicents int64 `json:"amount_millicents" binding:"required"`
+	AmountMillicents *int64 `json:"amount_millicents" binding:"required"`
 }
 
 func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
@@ -115,7 +115,7 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	if req.AmountMillicents <= 0 {
+	if req.AmountMillicents == nil || *req.AmountMillicents <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "amount_millicents must be greater than zero"})
 		return
 	}
@@ -123,9 +123,13 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 	url, err := h.billingService.CreateCheckoutSession(
 		c.Request.Context(),
 		compID,
-		req.AmountMillicents,
+		*req.AmountMillicents,
 	)
 	if err != nil {
+		amount := int64(0)
+		if req.AmountMillicents != nil {
+			amount = *req.AmountMillicents
+		}
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
@@ -133,7 +137,7 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		h.logger.Error("failed to create checkout session",
 			zap.Error(err),
 			zap.String("companyID", compID),
-			zap.Int64("amount_millicents", req.AmountMillicents),
+			zap.Int64("amount_millicents", amount),
 		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create checkout session"})
 		return

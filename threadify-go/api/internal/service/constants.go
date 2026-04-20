@@ -14,6 +14,7 @@ var (
 	ErrJwtVerificationNotConfigured = serror.ErrJwtVerificationNotConfigured
 	ErrExpiredToken                 = serror.ErrExpiredToken
 	ErrInvalidToken                 = serror.ErrInvalidToken
+	ErrAuthInvalidToken             = serror.ErrAuthInvalidToken
 	ErrRateLimit                    = serror.ErrRateLimit
 	ErrInternalServerError          = serror.ErrInternalServerError
 	ErrNotFound                     = serror.ErrNotFound
