@@ -11,9 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"threadify-go/shared/logger"
+
 	"github.com/threadify/engine/internal/app"
 	"go.uber.org/zap"
-	"threadify-go/shared/logger"
 )
 
 const (
