@@ -314,7 +314,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			EventTypes []string `json:"eventTypes"`
 		}
 		json.Unmarshal(msgBytes, &req) //nolint:errcheck
-		return h.handleSubscribe(session, req.StepName)
+		return h.handleSubscribe(session, req.StepName, req.EventTypes)
 
 	case ActionUnsubscribe:
 		var req struct {
@@ -389,8 +389,7 @@ func (h *WebSocketHandler) unsubscribeFromNotifications(session *WSSession) {
 	}
 }
 
-func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw string) interface{} {
-	// Auto-convert empty step name to "global" for thread-level subscriptions
+func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw string, eventTypes []string) interface{} {
 	if stepNameRaw == "" {
 		stepNameRaw = "global"
 	}
@@ -409,7 +408,7 @@ func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw strin
 		stepName = stepNameRaw
 	}
 
-	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName); err != nil {
+	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName, eventTypes); err != nil {
 		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: fmt.Sprintf("Failed to subscribe: %v", err)}
 	}
 	return map[string]interface{}{"action": ActionSubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Subscribed to %s", stepNameRaw)}

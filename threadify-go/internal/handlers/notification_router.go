@@ -214,7 +214,7 @@ func (r *NotificationRouter) HandleDisconnect(sessionID string) error {
 	return nil
 }
 
-func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract string) error {
+func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract string, eventTypes []string) error {
 	r.mu.RLock()
 	session, exists := r.sessions[sessionID]
 	r.mu.RUnlock()
@@ -223,18 +223,18 @@ func (r *NotificationRouter) HandleSubscribe(sessionID, stepName, contract strin
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
+	subscriptionKey := buildSubscriptionKey(stepName, contract)
+
 	session.mu.Lock()
 	if session.Subscriptions == nil {
 		session.Subscriptions = make(map[string]*ClientSubscription)
 	}
-	session.Subscriptions[stepName] = &ClientSubscription{
+	session.Subscriptions[subscriptionKey] = &ClientSubscription{
 		StepName:     stepName,
 		ContractName: contract,
-		EventTypes:   []string{},
+		EventTypes:   append([]string{}, eventTypes...),
 	}
 	session.mu.Unlock()
-
-	subscriptionKey := buildSubscriptionKey(stepName, contract)
 
 	r.mu.Lock()
 	if r.subscriptionIndex[session.OwnerID] == nil {
@@ -272,7 +272,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 		}
 
 		r.mu.RLock()
-		matchingSessions := r.getMatchingSessions(ownerID, notification.StepName, notification.ContractName)
+		matchingSessions := r.getMatchingSessions(ownerID, notification.StepName, notification.ContractName, notification.NotificationType)
 		r.mu.RUnlock()
 
 		if len(matchingSessions) == 0 {
@@ -369,13 +369,45 @@ func buildSubscriptionKey(stepName, contract string) string {
 	return fmt.Sprintf("%s@*", stepName)
 }
 
-func (r *NotificationRouter) getMatchingSessions(ownerID, stepName, contract string) []string {
+func (r *NotificationRouter) getMatchingSessions(ownerID, stepName, contract, notificationType string) []string {
 	if contract == "" {
 		contract = "global"
 	}
-	specific := r.subscriptionIndex[ownerID][buildSubscriptionKey(stepName, contract)]
-	wildcard := r.subscriptionIndex[ownerID][buildSubscriptionKey(stepName, "")]
-	return append(append([]string{}, specific...), wildcard...)
+	specificKey := buildSubscriptionKey(stepName, contract)
+	wildcardKey := buildSubscriptionKey(stepName, "")
+
+	specific := r.subscriptionIndex[ownerID][specificKey]
+	wildcard := r.subscriptionIndex[ownerID][wildcardKey]
+	candidates := append(append([]string{}, specific...), wildcard...)
+
+	if len(candidates) == 0 {
+		return candidates
+	}
+
+	result := make([]string, 0, len(candidates))
+	for _, sessionID := range candidates {
+		session := r.sessions[sessionID]
+		if session == nil {
+			continue
+		}
+
+		session.mu.RLock()
+		sub := session.Subscriptions[specificKey]
+		if sub == nil {
+			sub = session.Subscriptions[wildcardKey]
+		}
+		session.mu.RUnlock()
+
+		if sub == nil {
+			result = append(result, sessionID)
+			continue
+		}
+		if eventTypeMatches(sub.EventTypes, notificationType) {
+			result = append(result, sessionID)
+		}
+	}
+
+	return result
 }
 
 func (r *NotificationRouter) calculateMaxAckPending(ownerID string) int {
@@ -420,13 +452,23 @@ func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
 		}
 		session.mu.RLock()
 		for _, sub := range session.Subscriptions {
-			var subject string
-			if sub.ContractName != "" {
-				subject = fmt.Sprintf("%s.%s.%s.%s", natsrepo.PrefixNotificationsUser, ownerID, sub.ContractName, sub.StepName)
-			} else {
-				subject = fmt.Sprintf("%s.%s.*.%s", natsrepo.PrefixNotificationsUser, ownerID, sub.StepName)
+			base := fmt.Sprintf("%s.%s", natsrepo.PrefixNotificationsUser, ownerID)
+
+			if len(sub.EventTypes) == 0 {
+				filterMap[base+".>"] = true
+				continue
 			}
-			filterMap[subject] = true
+
+			for _, et := range sub.EventTypes {
+				et = strings.Trim(et, ".")
+				if et == "" {
+					continue
+				}
+				// Event types are prefixes like "validation.violated". Use a tail wildcard so
+				// it matches subtypes like "validation.violated.timeout" (and still includes
+				// contract + step tokens).
+				filterMap[fmt.Sprintf("%s.%s.>", base, et)] = true
+			}
 		}
 		session.mu.RUnlock()
 	}
@@ -436,6 +478,26 @@ func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
 		result = append(result, f)
 	}
 	return result
+}
+
+func eventTypeMatches(subscribed []string, notificationType string) bool {
+	if len(subscribed) == 0 {
+		return true
+	}
+	nt := strings.Trim(notificationType, ".")
+	for _, raw := range subscribed {
+		et := strings.Trim(raw, ".")
+		if et == "" {
+			continue
+		}
+		if nt == et {
+			return true
+		}
+		if strings.HasPrefix(nt, et+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func createAckToken(sequence uint64, replySubject string) string {
