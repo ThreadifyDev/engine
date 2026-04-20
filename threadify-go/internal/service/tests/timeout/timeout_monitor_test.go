@@ -100,7 +100,7 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 			assert.Equal(t, tc.wantStepName, n.StepName)
 			assert.Equal(t, "critical", n.Severity)
 			assert.Equal(t, "timeout", n.ViolationType)
-			assert.Equal(t, "validation.violated.timeout", n.NotificationType)
+			assert.Equal(t, "rule.violated.timeout", n.NotificationType)
 			assert.Contains(t, n.Message, tc.wantMessageContain)
 			assert.Equal(t, tc.event.ID, n.Details["timeout_id"])
 			assert.Equal(t, tc.event.Timeout, n.Details["timeout"])

@@ -522,9 +522,9 @@ func getRequiredPermissionsForNotification(status, stepStatus, severity, violati
 	if status == "none" {
 		switch stepStatus {
 		case "failed", "error":
-			return []string{"notification.execution.failed.*", "notification.execution.failed.own"}
+			return []string{"notification.step.failed.*", "notification.step.failed.own"}
 		case "success":
-			return []string{"notification.execution.success.*", "notification.execution.success.own"}
+			return []string{"notification.step.success.*", "notification.step.success.own"}
 		default:
 			return nil
 		}
@@ -532,20 +532,20 @@ func getRequiredPermissionsForNotification(status, stepStatus, severity, violati
 
 	switch status {
 	case "violated":
-		base := []string{"notification.validation.violated.*", "notification.validation.violated.own"}
+		base := []string{"notification.rule.violated.*", "notification.rule.violated.own"}
 		switch violationType {
 		case "step_timeout_exceeded":
-			return append(base, "notification.validation.violated.timeout.*", "notification.validation.violated.timeout.own")
+			return append(base, "notification.rule.violated.timeout.*", "notification.rule.violated.timeout.own")
 		case "retry_limit_exceeded":
-			return append(base, "notification.validation.violated.retry_limit.*", "notification.validation.violated.retry_limit.own")
+			return append(base, "notification.rule.violated.retry_limit.*", "notification.rule.violated.retry_limit.own")
 		}
 		if severity == "critical" {
-			return append(base, "notification.validation.violated.critical")
+			return append(base, "notification.rule.violated.critical")
 		}
 		return base
 
 	case "passed":
-		return []string{"notification.validation.passed.*", "notification.validation.passed.own"}
+		return []string{"notification.rule.passed.*", "notification.rule.passed.own"}
 
 	default:
 		return nil
@@ -562,11 +562,11 @@ func (s *NotificationService) submitNotificationJob(notification models.Validati
 // publishToAuthorizedMembers publishes a notification to all thread members with appropriate permissions.
 func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, notification models.ValidationNotification) {
 	if notification.Status == "none" {
-		notification.Source = models.NotificationSourceExecution
-		notification.NotificationType = fmt.Sprintf("execution.%s", notification.StepStatus)
+		notification.Source = models.NotificationSourceStep
+		notification.NotificationType = fmt.Sprintf("step.%s", notification.StepStatus)
 	} else {
-		notification.Source = models.NotificationSourceValidation
-		notification.NotificationType = fmt.Sprintf("validation.%s", notification.Status)
+		notification.Source = models.NotificationSourceRule
+		notification.NotificationType = fmt.Sprintf("rule.%s", notification.Status)
 	}
 
 	requiredPerms := getRequiredPermissionsForNotification(
@@ -607,7 +607,7 @@ func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, no
 		zap.Strings("perms", requiredPerms),
 	)
 
-	shouldArchive := notification.Source == models.NotificationSourceValidation &&
+	shouldArchive := notification.Source == models.NotificationSourceRule &&
 		(notification.Status == "violated" || notification.Severity == "warning")
 
 	if s.natsArchivalPublisher != nil && publishedCount > 0 && shouldArchive {
@@ -622,10 +622,10 @@ func (s *NotificationService) publishDualNotifications(
 	ctx context.Context,
 	executionNotif, validationNotif models.ValidationNotification,
 ) {
-	executionNotif.Source = models.NotificationSourceExecution
-	executionNotif.NotificationType = fmt.Sprintf("execution.%s", executionNotif.StepStatus)
-	validationNotif.Source = models.NotificationSourceValidation
-	validationNotif.NotificationType = fmt.Sprintf("validation.%s", validationNotif.Status)
+	executionNotif.Source = models.NotificationSourceStep
+	executionNotif.NotificationType = fmt.Sprintf("step.%s", executionNotif.StepStatus)
+	validationNotif.Source = models.NotificationSourceRule
+	validationNotif.NotificationType = fmt.Sprintf("rule.%s", validationNotif.Status)
 
 	executionPerms := getRequiredPermissionsForNotification(
 		executionNotif.Status, executionNotif.StepStatus, executionNotif.Severity, executionNotif.ViolationType,

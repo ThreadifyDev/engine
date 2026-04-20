@@ -34,4 +34,7 @@ var (
 	ErrContextRequired     = errors.New("context is required")
 	ErrFailedToProcessStep = errors.New("failed to process step event")
 	ErrFailedToGetThread   = errors.New("failed to get thread")
+
+	// Thread lifecycle errors
+	ErrThreadAlreadyEnded = errors.New("thread has already been ended")
 )
