@@ -29,7 +29,7 @@ func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*mod
 			ca.credit_balance_millicents, ca.credit_min_balance_millicents, ca.credit_max_monthly_charge_millicents,
 			ca.credit_auto_topup_millicents, ca.credit_monthly_charged_millicents, ca.rate_limit_tps, ca.payload_limit_bytes,
 			ca.created_at, ca.updated_at,
-			c.external_customer_id
+			COALESCE(c.external_customer_id, '')
 		FROM credit_accounts ca
 		JOIN companies c ON c.id = ca.company_id
 		WHERE ca.company_id = $1
@@ -55,7 +55,7 @@ func (r *PlanRepo) GetCreditAccount(ctx context.Context, companyID string) (*mod
 }
 
 func (r *PlanRepo) GetExternalCustomerID(ctx context.Context, companyID string) (string, error) {
-	const query = `SELECT external_customer_id FROM companies WHERE id = $1`
+	const query = `SELECT COALESCE(external_customer_id, '') FROM companies WHERE id = $1`
 	var externalID string
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(&externalID)
 	if err == pgx.ErrNoRows {
