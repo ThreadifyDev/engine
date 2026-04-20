@@ -252,7 +252,11 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		contract_version = EXCLUDED.contract_version,
 		owner_id         = COALESCE(EXCLUDED.owner_id, threads.owner_id),
 		error            = EXCLUDED.error,
-		status           = EXCLUDED.status,
+		status           = CASE 
+		                     WHEN threads.status IN ('completed', 'cancelled') 
+		                     THEN threads.status
+		                     ELSE EXCLUDED.status
+		                   END,
 		updated_at       = COALESCE(EXCLUDED.updated_at, NOW())`
 
 	if err := w.batchExec(ctx, "batch upsert threads", query, rb.Values); err != nil {
@@ -290,7 +294,8 @@ func (w *PostgresWriter) batchUpdateThreadStatus(ctx context.Context, events []S
 		updated_at   = v.completed_at::timestamptz,
 		company_id   = COALESCE(v.company_id, threads.company_id)
 	FROM (VALUES ` + rb.placeholders() + `) AS v(thread_id, status, completed_at, company_id)
-	WHERE threads.id::text = v.thread_id`
+	WHERE threads.id::text = v.thread_id
+	  AND threads.status NOT IN ('completed', 'cancelled')`
 
 	if err := w.batchExec(ctx, "batch update thread status", query, rb.Values); err != nil {
 		return err

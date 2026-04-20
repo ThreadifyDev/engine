@@ -22,18 +22,20 @@ type ThreadRepository struct {
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
 	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
 	writeBackPool     *workerpool.Pool              // For async cache write-backs
+	luaScripts        interfaces.LuaScriptManager   // For atomic Lua script operations
 	logger            *zap.Logger
 }
 
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
 // PostgreSQL fallback is always required for production hot/cold architecture
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) *ThreadRepository {
+func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager, luaScripts interfaces.LuaScriptManager, logger *zap.Logger) *ThreadRepository {
 	return &ThreadRepository{
 		valkey:            valkey,
 		ttl:               ttl,
 		postgresRepo:      postgresRepo,
 		stepStatePostgres: stepStatePostgres,
 		cacheManager:      cacheManager,
+		luaScripts:        luaScripts,
 		logger:            logger,
 	}
 }
@@ -272,47 +274,55 @@ func (r *ThreadRepository) ExtendTTL(ctx context.Context, threadID string) error
 	return nil
 }
 
-// UpdateThreadStatus updates thread status in Valkey cache
+// UpdateThreadStatus atomically updates thread status in Valkey cache
+// Returns nil if already terminal (not an error, just skipped)
+// Uses Lua script to prevent race conditions with double-ending
 func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID string, status string, timestamp time.Time) error {
 	key := r.getThreadKey(threadID)
 	metaKey := r.getThreadMetaKey(threadID)
 
-	// First, get the current thread JSON to update it
-	thread, err := r.getFromValkey(ctx, threadID)
-	if err != nil || thread == nil {
-		// Thread not in cache, skip update (will be updated via archiver)
+	// Check if Lua script manager is available
+	if r.luaScripts == nil {
+		return fmt.Errorf("luaScripts not initialized - cannot update thread status atomically")
+	}
+
+	// Get script hash
+	scriptHash, exists := r.luaScripts.GetScriptHash("check_and_update_thread_status")
+	if !exists {
+		return fmt.Errorf("check_and_update_thread_status script not loaded")
+	}
+
+	// Execute atomic check-and-update via Lua script
+	result, err := r.valkey.EvalSHA(ctx, scriptHash, []string{metaKey, key}, status, timestamp.Format(time.RFC3339), r.ttl)
+	if err != nil {
+		return fmt.Errorf("lua script failed: %w", err)
+	}
+
+	// Parse result: {success, status}
+	arr, ok := result.([]interface{})
+	if !ok || len(arr) < 2 {
+		return fmt.Errorf("unexpected result format from lua script")
+	}
+
+	success, ok := arr[0].(int64)
+	if !ok {
+		return fmt.Errorf("unexpected success value type from lua script")
+	}
+
+	if success == 0 {
+		// Already terminal - not an error, just skip
+		currentStatus, _ := arr[1].(string)
+		r.logger.Debug("thread already terminal, skipping update",
+			zap.String("thread_id", threadID),
+			zap.String("current_status", currentStatus),
+			zap.String("attempted_status", status))
 		return nil
 	}
 
-	// Update thread object
-	thread.Status = models.ThreadStatus(status)
-	if status == string(models.ThreadStatusCompleted) || status == string(models.ThreadStatusCancelled) {
-		thread.CompletedAt = &timestamp
-	}
-
-	// Serialize updated thread to JSON
-	data, err := thread.ToJSON()
-	if err != nil {
-		return fmt.Errorf("failed to serialize thread: %w", err)
-	}
-
-	// Use pipeline for atomic write
-	pipe := r.valkey.Pipeline()
-
-	// Update base data as JSON
-	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
-
-	// Update metadata hash
-	metadata := map[string]interface{}{
-		"status": status,
-	}
-	if status == string(models.ThreadStatusCompleted) || status == string(models.ThreadStatusCancelled) {
-		metadata["completedAt"] = timestamp.Format(time.RFC3339)
-	}
-	pipe.HSet(ctx, metaKey, metadata)
-
-	_, err = pipe.Exec(ctx)
-	return err
+	r.logger.Debug("thread status updated atomically",
+		zap.String("thread_id", threadID),
+		zap.String("new_status", status))
+	return nil
 }
 
 // getThreadKey generates the Redis key for a thread
