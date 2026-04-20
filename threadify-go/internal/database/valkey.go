@@ -280,6 +280,21 @@ func (v *ValkeyService) XAdd(ctx context.Context, stream string, id string, valu
 	}).Result()
 }
 
+// XGroupCreateMkStream creates a consumer group and stream if missing.
+func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
+	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+}
+
+// XReadGroup reads messages from a consumer group.
+func (v *ValkeyService) XReadGroup(ctx context.Context, args *redis.XReadGroupArgs) ([]redis.XStream, error) {
+	return v.Client.XReadGroup(ctx, args).Result()
+}
+
+// XAck acknowledges stream entries in a consumer group.
+func (v *ValkeyService) XAck(ctx context.Context, stream, group string, ids ...string) error {
+	return v.Client.XAck(ctx, stream, group, ids...).Err()
+}
+
 // RedisPipeline implements the ValkeyPipeline interface
 type RedisPipeline struct {
 	pipe redis.Pipeliner

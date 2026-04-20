@@ -1,7 +1,7 @@
 package service
 
 import (
-	billing "threadify-go/shared/billing"
+	billingmodels "threadify-go/shared/models"
 
 	"github.com/threadify/engine/internal/models"
 )
@@ -44,25 +44,34 @@ const (
 )
 
 const (
-	MeterBandwidthIngress      = "bandwidth_ingress"
-	MeterBandwidthEgress       = "bandwidth_egress"
-	MeterContractCreate        = "contract_create"
-	MeterContractVersionCreate = "contract_version_create"
-	MeterSeatCreate            = "seat_create"
-	MeterLLMTokenUsage         = "llm_token_usage"
+	MeterIngress           = billingmodels.MeterIngress
+	MeterEgress            = billingmodels.MeterEgress
+	MeterContractExecution = billingmodels.MeterContractExecution
+	MeterContractVersion   = billingmodels.MeterContractVersion
+	MeterSeatCreate        = billingmodels.MeterSeatCreate
+	MeterLLMTokenUsage     = billingmodels.MeterLLMTokenUsage
+
+	// Deprecated: Use MeterIngress
+	MeterBandwidthIngress = billingmodels.MeterIngress
+	// Deprecated: Use MeterEgress
+	MeterBandwidthEgress = billingmodels.MeterEgress
+	// Deprecated: Use MeterContractExecution
+	MeterContractCreate = billingmodels.MeterContractExecution
+	// Deprecated: Use MeterContractVersion
+	MeterContractVersionCreate = billingmodels.MeterContractVersion
 )
 
 var (
-	MeterCreditSpend        = billing.MeterCreditSpend
-	MeterCreditTopup        = billing.MeterCreditTopup
-	MeterCreditTopupRequest = billing.MeterCreditTopupRequest
+	MeterCreditSpend        = billingmodels.MeterCreditSpend
+	MeterCreditTopup        = billingmodels.MeterCreditTopup
+	MeterCreditTopupRequest = billingmodels.MeterCreditTopupRequest
 )
 
 const (
-	fieldEventID           = "event_id"
-	fieldCompanyID         = "company_id"
-	fieldMeter             = "meter"
-	fieldAmount            = "amount"
-	fieldBillingCycleStart = "billing_cycle_start"
-	fieldTimestamp         = "timestamp"
+	fieldEventID           = billingmodels.FieldEventID
+	fieldCompanyID         = billingmodels.FieldCompanyID
+	fieldMeter             = billingmodels.FieldMeter
+	fieldAmount            = billingmodels.FieldAmount
+	fieldBillingCycleStart = billingmodels.FieldBillingCycleStart
+	fieldTimestamp         = billingmodels.FieldTimestamp
 )

@@ -26,9 +26,9 @@ const (
 type TimeoutMonitor struct {
 	nc              *nats.Conn
 	js              jetstream.JetStream
-	kv              jetstream.KeyValue
+	kv              timeoutKV
 	threadRepo      interfaces.ThreadRepository
-	notificationPub NotificationPublisher
+	notificationPub interfaces.NotificationPublisher
 	logger          *zap.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -39,11 +39,40 @@ type TimeoutMonitor struct {
 	violationCount atomic.Uint64
 }
 
+//go:generate mockgen -package=timeoutmocks -destination=mocks/timeout/timeout_kv_mock.go -source=timeout_monitor.go timeoutKV
+type timeoutKV interface {
+	Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error)
+	Put(ctx context.Context, key string, value []byte) (uint64, error)
+}
+
+// TimeoutKV is an exported alias for timeoutKV (primarily for tests).
+type TimeoutKV = timeoutKV
+
+// TimeoutCancellationKey returns the KV key used to mark a timeout as cancelled.
+func TimeoutCancellationKey(timeoutID string) string {
+	// NATS KV keys cannot contain colons, replace with underscores
+	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
+	return fmt.Sprintf("cancelled_%s", sanitizedID)
+}
+
+// NewTimeoutMonitorForTests constructs a TimeoutMonitor without performing any NATS/JetStream setup.
+// Intended for unit tests that exercise behaviour in isolation.
+func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub interfaces.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &TimeoutMonitor{
+		kv:              kv,
+		notificationPub: notificationPub,
+		logger:          logger,
+		ctx:             ctx,
+		cancel:          cancel,
+	}
+}
+
 // NewTimeoutMonitor creates a new timeout monitor service
 func NewTimeoutMonitor(
 	nc *nats.Conn,
 	threadRepo interfaces.ThreadRepository,
-	notificationPub NotificationPublisher,
+	notificationPub interfaces.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
 	js, err := jetstream.New(nc)
@@ -177,6 +206,11 @@ func (tm *TimeoutMonitor) Start() error {
 	return nil
 }
 
+// HandleTimeoutEvent is an exported wrapper around handleTimeoutEvent (primarily for tests).
+func (tm *TimeoutMonitor) HandleTimeoutEvent(msg jetstream.Msg) error {
+	return tm.handleTimeoutEvent(msg)
+}
+
 // handleTimeoutEvent processes a timeout event
 func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 	var event models.TimeoutEvent
@@ -225,7 +259,7 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 		thread.OwnerID = ownerID
 	}
 
-	violation := tm.buildViolationNotification(event, thread)
+	violation := BuildTimeoutViolationNotification(event, thread)
 
 	// Use a timeout context for publishing to prevent indefinite hangs
 	publishCtx, cancel := context.WithTimeout(tm.ctx, 5*time.Second)
@@ -267,10 +301,7 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 
 // isTimeoutCancelled checks if a timeout has been cancelled
 func (tm *TimeoutMonitor) isTimeoutCancelled(timeoutID string) (bool, error) {
-	// NATS KV keys cannot contain colons, replace with underscores
-	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
-	key := fmt.Sprintf("cancelled_%s", sanitizedID)
-	_, err := tm.kv.Get(tm.ctx, key)
+	_, err := tm.kv.Get(tm.ctx, TimeoutCancellationKey(timeoutID))
 
 	if err != nil {
 		if err == jetstream.ErrKeyNotFound {
@@ -280,6 +311,11 @@ func (tm *TimeoutMonitor) isTimeoutCancelled(timeoutID string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// IsTimeoutCancelled is an exported wrapper around isTimeoutCancelled (primarily for tests).
+func (tm *TimeoutMonitor) IsTimeoutCancelled(timeoutID string) (bool, error) {
+	return tm.isTimeoutCancelled(timeoutID)
 }
 
 // ScheduleTimeout publishes a timeout event with delayed delivery (not integrated yet)
@@ -339,10 +375,7 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 		return fmt.Errorf("marshal cancellation: %w", err)
 	}
 
-	// NATS KV keys cannot contain colons, replace with underscores
-	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
-	key := fmt.Sprintf("cancelled_%s", sanitizedID)
-	_, err = tm.kv.Put(tm.ctx, key, data)
+	_, err = tm.kv.Put(tm.ctx, TimeoutCancellationKey(timeoutID), data)
 	if err != nil {
 		return fmt.Errorf("write cancellation flag: %w", err)
 	}
@@ -358,8 +391,8 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 	return nil
 }
 
-// buildViolationNotification creates a validation notification for a timeout violation
-func (tm *TimeoutMonitor) buildViolationNotification(event models.TimeoutEvent, thread *models.Thread) models.ValidationNotification {
+// BuildTimeoutViolationNotification creates a validation notification for a timeout violation.
+func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models.Thread) models.ValidationNotification {
 	var message string
 	var stepName string
 

@@ -3,21 +3,19 @@ package archiver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/threadify/engine/internal/database"
+	"github.com/nats-io/nats.go/jetstream"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
 type StepStateConsumer struct {
-	nc           *nats.Conn
-	js           nats.JetStreamContext
-	db           *database.PostgresDB
+	js           JetStreamPublisher
+	db           DBExecer
 	batchSize    int
 	flushTimeout time.Duration
 	consumerID   string
@@ -31,7 +29,7 @@ type StepStateConsumer struct {
 	wg       sync.WaitGroup
 }
 
-type StepStateEvent struct {
+type stepStateEvent struct {
 	StepID         string `json:"stepId"`
 	ThreadID       string `json:"threadId"`
 	StepName       string `json:"stepName"`
@@ -49,24 +47,19 @@ type StepStateEvent struct {
 }
 
 type pendingStepState struct {
-	event StepStateEvent
-	msg   *nats.Msg
+	event stepStateEvent
+	msg   jetstream.Msg
 }
 
 func NewStepStateConsumer(
-	nc *nats.Conn,
-	db *database.PostgresDB,
+	js JetStreamPublisher,
+	db DBExecer,
 	batchSize int,
 	flushInterval time.Duration,
 	consumerID string,
 	logger *zap.Logger,
 ) (*StepStateConsumer, error) {
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, fmt.Errorf("get jetstream context: %w", err)
-	}
 	return &StepStateConsumer{
-		nc:           nc,
 		js:           js,
 		db:           db,
 		batchSize:    batchSize,
@@ -79,20 +72,49 @@ func NewStepStateConsumer(
 }
 
 func (c *StepStateConsumer) Start(ctx context.Context) error {
-	sub, err := c.js.PullSubscribe("state.step", "step-state-archivers", nats.ManualAck())
+	cons, err := c.js.CreateOrUpdateConsumer(ctx, natsrepo.StreamStepState, jetstream.ConsumerConfig{
+		Durable:       "step-state-archivers",
+		FilterSubject: natsrepo.SubjectStepState,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})
 	if err != nil {
-		return fmt.Errorf("subscribe to state.step: %w", err)
+		return fmt.Errorf("create consumer: %w", err)
 	}
 
 	c.logger.Info("started step state consumer", zap.String("consumer", c.consumerID))
 
 	c.wg.Add(1)
-	go c.run(ctx, sub)
+	go c.run(ctx, cons)
 	return nil
 }
 
-func (c *StepStateConsumer) run(ctx context.Context, sub *nats.Subscription) {
+func (c *StepStateConsumer) run(ctx context.Context, cons jetstream.Consumer) {
 	defer c.wg.Done()
+
+	consumeCtx, err := cons.Consume(func(msg jetstream.Msg) {
+		var event stepStateEvent
+		if err := json.Unmarshal(msg.Data(), &event); err != nil {
+			c.logger.Error("unmarshal error",
+				zap.String("consumer", c.consumerID),
+				zap.Error(err),
+			)
+			msg.Nak()
+			return
+		}
+
+		c.mu.Lock()
+		c.buffer = append(c.buffer, pendingStepState{event: event, msg: msg})
+		if len(c.buffer) >= c.batchSize {
+			c.flushLocked(ctx)
+		}
+		c.mu.Unlock()
+	}, jetstream.ConsumeErrHandler(func(consumeCtx jetstream.ConsumeContext, err error) {
+		c.logger.Error("consume error", zap.Error(err))
+	}))
+	if err != nil {
+		c.logger.Error("failed to start consume", zap.Error(err))
+		return
+	}
 
 	ticker := time.NewTicker(c.flushTimeout)
 	defer ticker.Stop()
@@ -100,59 +122,18 @@ func (c *StepStateConsumer) run(ctx context.Context, sub *nats.Subscription) {
 	for {
 		select {
 		case <-c.stopChan:
+			consumeCtx.Stop()
 			c.flushAll(context.Background())
 			return
 
 		case <-ctx.Done():
+			consumeCtx.Stop()
 			c.flushAll(context.Background())
 			return
 
 		case <-ticker.C:
-			c.mu.Lock()
-			if len(c.buffer) > 0 {
-				c.flushLocked(ctx)
-			}
-			c.mu.Unlock()
+			c.flushAll(ctx)
 
-		default:
-			msgs, err := sub.Fetch(c.batchSize, nats.MaxWait(c.flushTimeout))
-			if err != nil {
-				if !errors.Is(err, nats.ErrTimeout) {
-					c.logger.Error("fetch error",
-						zap.String("consumer", c.consumerID),
-						zap.Error(err),
-					)
-					select {
-					case <-ctx.Done():
-						c.flushAll(context.Background())
-						return
-					case <-c.stopChan:
-						c.flushAll(context.Background())
-						return
-					case <-time.After(time.Second):
-					}
-				}
-				continue
-			}
-
-			c.mu.Lock()
-			for _, msg := range msgs {
-				var event StepStateEvent
-				if err := json.Unmarshal(msg.Data, &event); err != nil {
-					c.logger.Error("unmarshal error",
-						zap.String("consumer", c.consumerID),
-						zap.Error(err),
-					)
-					msg.Nak()
-					continue
-				}
-				c.buffer = append(c.buffer, pendingStepState{event: event, msg: msg})
-			}
-
-			if len(c.buffer) >= c.batchSize {
-				c.flushLocked(ctx)
-			}
-			c.mu.Unlock()
 		}
 	}
 }
@@ -173,7 +154,7 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 
 	type dedupKey struct{ threadID, stepName, idempKey string }
 	seen := make(map[dedupKey]int, len(pending))
-	deduped := make([]StepStateEvent, 0, len(pending))
+	deduped := make([]stepStateEvent, 0, len(pending))
 	for _, p := range pending {
 		k := dedupKey{p.event.ThreadID, p.event.StepName, p.event.IdempotencyKey}
 		if idx, ok := seen[k]; ok {
@@ -196,7 +177,7 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 			zap.Error(err),
 		)
 		for _, p := range pending {
-			p.msg.Nak()
+			p.msg.NakWithDelay(5 * time.Second)
 		}
 		return
 	}
@@ -211,7 +192,7 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 	)
 }
 
-func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEvent) error {
+func (c *StepStateConsumer) writeBatch(ctx context.Context, events []stepStateEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -262,7 +243,7 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []StepStateEv
 		actor_service   = EXCLUDED.actor_service,
 		latest_context  = EXCLUDED.latest_context`
 
-	if _, err := c.db.Pool.Exec(ctx, query, args...); err != nil {
+	if _, err := c.db.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("insert step states: %w", err)
 	}
 	return nil

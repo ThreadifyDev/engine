@@ -10,10 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/database"
+	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -23,9 +22,9 @@ type StreamEvent struct {
 }
 
 type NATSConsumer struct {
-	js           jetstream.JetStream
-	db           *database.PostgresDB
-	writer       *PostgresWriter
+	js           JetStreamPublisher
+	db           DBExecer
+	writer       ConsumerWriter
 	batchSize    int
 	batchTimeout time.Duration
 	consumerName string
@@ -36,19 +35,14 @@ type NATSConsumer struct {
 }
 
 func NewNATSConsumer(
-	nc *nats.Conn,
-	db *database.PostgresDB,
+	js JetStreamPublisher,
+	db DBExecer,
 	batchSize int,
 	batchTimeout time.Duration,
 	consumerName string,
 	cfg *config.Config,
 	logger *zap.Logger,
 ) (*NATSConsumer, error) {
-	js, err := jetstream.New(nc)
-	if err != nil {
-		return nil, fmt.Errorf("create jetstream context: %w", err)
-	}
-
 	return &NATSConsumer{
 		js:           js,
 		db:           db,
@@ -320,9 +314,27 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
 	c.logDroppedMalformed("thread_metadata", failed)
-	err := c.writer.WriteThreadMetadata(ctx, events)
+	profileIDs, err := c.writer.WriteThreadMetadata(ctx, events)
+	if err != nil {
+		return err
+	}
+
+	if len(profileIDs) > 0 {
+		payload, err := json.Marshal(profileIDs)
+		if err != nil {
+			return fmt.Errorf("marshal profile ids for publish: %w", err)
+		}
+		if _, err := c.js.Publish(ctx, natsrepo.SubjectProfileRecalculate, payload); err != nil {
+			c.logger.Error("failed to publish profile recalculation event",
+				zap.Strings("profile_ids", profileIDs),
+				zap.Error(err),
+			)
+			return fmt.Errorf("publish profile recalculate event: %w", err)
+		}
+	}
+
 	c.logPerf("metadata.thread", len(msgs), start)
-	return err
+	return nil
 }
 
 func (c *NATSConsumer) processThreadAccess(ctx context.Context, msgs []jetstream.Msg) error {
@@ -351,7 +363,7 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_validations", msgs)
 	c.logDroppedMalformed("thread_validations", failed)
-	err := c.writer.WriteValidationResults(ctx, events)
+	err := c.writer.WriteThreadValidations(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
 	return err
 }
@@ -450,7 +462,7 @@ func (c *NATSConsumer) parseBatchEvents(msg jetstream.Msg, dataArray []map[strin
 		eventID, _ := data["event_id"].(string)
 		if eventID == "" {
 			if seqFallback == "" {
-				if metadata, metaErr := msg.Metadata(); metaErr == nil {
+				if metadata, metaErr := msg.Metadata(); metaErr == nil && metadata != nil {
 					seqFallback = fmt.Sprintf("nats:usage.sync:%d", metadata.Sequence.Stream)
 				}
 			}

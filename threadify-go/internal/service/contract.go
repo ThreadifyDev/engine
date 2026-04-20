@@ -50,12 +50,31 @@ func NewContractService(repo interfaces.ContractRepository, planSvc interfaces.P
 	}
 }
 
+// NewContractServiceWithValidator allows injecting a custom contract validator (useful for tests).
+// If v is nil, a default validator is used.
+func NewContractServiceWithValidator(
+	repo interfaces.ContractRepository,
+	planSvc interfaces.PlanService,
+	v interfaces.ContractValidator,
+	logger *zap.Logger,
+) *ContractService {
+	if v == nil {
+		v = validator.NewContractValidator()
+	}
+	return &ContractService{
+		repo:      repo,
+		planSvc:   planSvc,
+		validator: v,
+		logger:    logger,
+	}
+}
+
 func (s *ContractService) CountContractsByCompany(ctx context.Context, companyID string) (int, error) {
 	return s.repo.CountByCompany(ctx, companyID)
 }
 
 func (s *ContractService) enforceCredits(ctx context.Context, companyID string) (int, interface{}) {
-	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractCreate, 1); err != nil {
+	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractExecution, 1); err != nil {
 		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
 			return 402, map[string]string{"message": err.Error()}
 		}
@@ -114,14 +133,6 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		IsDeleted:     false,
 		CreatedAt:     now,
 		UpdatedAt:     now,
-	}
-
-	if err := s.repo.Create(ctx, contractModel); err != nil {
-		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
-			return 400, map[string]string{"message": "Contract with this name already exists"}
-		}
-		s.logger.Error("failed to create contract", zap.Error(err))
-		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 
 	graphJSON, err := buildGraphJSON(contentOnlyJSON)

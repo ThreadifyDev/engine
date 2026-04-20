@@ -149,6 +149,9 @@ func (e *permanentError) Unwrap() error { return e.cause }
 
 func permanent(err error) error { return &permanentError{cause: err} }
 
+// PermanentError is an exported alias for permanentError (primarily for tests).
+type PermanentError = permanentError
+
 type creditTopupEvent struct {
 	CompanyID         string      `json:"company_id"`
 	EventID           string      `json:"event_id"`
@@ -201,6 +204,11 @@ func (c *BillingCron) handleCreditTopup(msg jetstream.Msg) error {
 	return c.billingService.ChargeCreditTopup(ctx, event.CompanyID, event.EventID, billingCycleStart, amountMillicents)
 }
 
+// HandleCreditTopup is an exported wrapper around handleCreditTopup (primarily for tests).
+func (c *BillingCron) HandleCreditTopup(msg jetstream.Msg) error {
+	return c.handleCreditTopup(msg)
+}
+
 func (c *BillingCron) startRolloverWorker() {
 	c.logger.Info("billing rollover worker started")
 
@@ -226,4 +234,9 @@ func (c *BillingCron) runRollover() {
 	if err != nil {
 		c.logger.Error("failed to process billing rollovers", zap.Error(err))
 	}
+}
+
+// RunRollover is an exported wrapper around runRollover (primarily for tests).
+func (c *BillingCron) RunRollover() {
+	c.runRollover()
 }

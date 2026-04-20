@@ -38,4 +38,10 @@ var (
 	ErrInvalidRoleAPI             = NewDomainError("invalid role: must be 'standard_service' or 'reader'", http.StatusBadRequest)
 	ErrUserNotFound               = NewDomainError("user not found", http.StatusNotFound)
 	ErrPaymentRequired            = NewDomainError("payment required: insufficient credits", http.StatusPaymentRequired)
+
+	// Entity Profile errors
+	ErrEntityProfileTypeAlreadyExists = NewDomainError("an entity profile type with this key already exists for your company", http.StatusConflict)
+
+	// Invitation errors
+	ErrInvitationNotFound = NewDomainError("invitation not found", http.StatusNotFound)
 )

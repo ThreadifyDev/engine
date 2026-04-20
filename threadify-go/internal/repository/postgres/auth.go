@@ -2,19 +2,11 @@ package postgres
 
 import (
 	"context"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/models"
 )
-
-type AuthInfo struct {
-	OwnerID   string
-	CompanyID string
-	Role      string
-	IsActive  bool
-	ExpiresAt *time.Time
-}
 
 type AuthRepository struct {
 	db *pgxpool.Pool
@@ -25,7 +17,7 @@ func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 }
 
 // ValidateAPIKey retrieves API key information with service account and role details
-func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*AuthInfo, error) {
+func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*models.AuthInfo, error) {
 	query := `
 		SELECT
 			sa.id as owner_id,
@@ -42,7 +34,7 @@ func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*A
 		LIMIT 1
 	`
 
-	var info AuthInfo
+	var info models.AuthInfo
 	var isActive bool
 
 	err := r.db.QueryRow(ctx, query, keyHash).Scan(

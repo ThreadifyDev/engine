@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"threadify-go/shared/billing"
+	billingmodels "threadify-go/shared/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/interfaces"
@@ -24,26 +24,15 @@ const (
 	maxPaymentAttempts = int64(4)
 )
 
-type BillingWebhookService interface {
-	LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error
-	MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error
-	MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error
-	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billing.BillingSnapshot, error)
-	ApplyCreditTopup(ctx context.Context, snapshot *billing.BillingSnapshot) error
-	ClearCreditTopupPending(ctx context.Context, companyID string) error
-	ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount int64) error
-	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthly int64) error
-}
-
 type WebhookHandler struct {
 	provider   interfaces.WebhookProvider
-	billingSvc BillingWebhookService
+	billingSvc interfaces.BillingWebhookService
 	logger     *zap.Logger
 }
 
 func NewWebhookHandler(
 	provider interfaces.WebhookProvider,
-	billingSvc BillingWebhookService,
+	billingSvc interfaces.BillingWebhookService,
 	logger *zap.Logger,
 ) *WebhookHandler {
 	return &WebhookHandler{
@@ -110,7 +99,7 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"received": true})
 }
 
-func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.WebhookEvent) error {
+func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billingmodels.WebhookEvent) error {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.paid missing invoice ID")
 		return nil
@@ -142,7 +131,7 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 		}
 	}
 
-	if strings.HasPrefix(string(snapshot.Reason), string(billing.SnapshotReasonCreditTopup)) {
+	if strings.HasPrefix(string(snapshot.Reason), string(billingmodels.SnapshotReasonCreditTopup)) {
 		if err := h.billingSvc.ApplyCreditTopup(ctx, snapshot); err != nil {
 			return fmt.Errorf("apply credit topup: %w", err)
 		}
@@ -157,7 +146,7 @@ func (h *WebhookHandler) handleInvoicePaid(ctx context.Context, event *billing.W
 	return nil
 }
 
-func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *billing.WebhookEvent) error {
+func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *billingmodels.WebhookEvent) error {
 	if event.ExternalInvoiceID == "" {
 		h.logger.Warn("webhook: invoice.payment_failed missing invoice ID")
 		return nil
@@ -200,7 +189,7 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 	}
 
 	if event.AttemptCount >= maxPaymentAttempts {
-		if err := h.billingSvc.UpdateMaxMonthlyCharge(ctx, companyID, billing.CreditDisabled); err != nil {
+		if err := h.billingSvc.UpdateMaxMonthlyCharge(ctx, companyID, billingmodels.CreditDisabled); err != nil {
 			h.logger.Error("webhook: failed to disable auto-topup after final failure", zap.Error(err), zap.String("company_id", companyID))
 		}
 		h.logger.Error("webhook: final payment attempt failed — auto-topup disabled",
@@ -222,7 +211,7 @@ func (h *WebhookHandler) handleInvoicePaymentFailed(ctx context.Context, event *
 	return nil
 }
 
-func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *billing.WebhookEvent) error {
+func (h *WebhookHandler) handleCheckoutSessionCompleted(ctx context.Context, event *billingmodels.WebhookEvent) error {
 	companyID := event.Metadata["company_id"]
 	if companyID == "" {
 		h.logger.Warn("webhook: checkout.session.completed missing company_id in metadata")

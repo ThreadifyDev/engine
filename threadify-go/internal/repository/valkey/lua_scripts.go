@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"time"
 
@@ -102,12 +103,18 @@ func (m *LuaScriptManager) checkRateLimit(
 	windowStartNano := nowNano - int64(windowSeconds)*int64(time.Second)
 	ttl := windowSeconds * 2 // TTL = 2× window so Valkey auto-cleans stale entries
 
+	// Create a unique request ID to avoid sorted set member collisions.
+	// Under burst, multiple requests can share the same nanosecond; using
+	// timestamp alone as both score and member would silently merge them.
+	requestID := fmt.Sprintf("%d:%d", nowNano, rand.Int63())
+
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash,
 		[]string{key},
 		nowNano,
 		windowStartNano,
 		requestsPerWindow,
 		ttl,
+		requestID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("failed to execute rate limit script: %w", err)

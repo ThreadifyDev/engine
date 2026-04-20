@@ -13,16 +13,16 @@ const (
 
 // TimeoutEvent represents a scheduled timeout check
 type TimeoutEvent struct {
-	ID           string      `json:"id"`
-	ThreadID     string      `json:"thread_id"`
-	Type         TimeoutType `json:"type"`
-	FromStep     string      `json:"from_step,omitempty"`      // For transition timeouts
-	ToStep       string      `json:"to_step,omitempty"`        // For transition timeouts
-	StepName     string      `json:"step_name,omitempty"`      // For step timeouts
-	Timeout      string      `json:"timeout"`                  // Duration string (e.g., "5m")
-	ScheduledAt  time.Time   `json:"scheduled_at"`             // When timeout was scheduled
-	DeadlineAt   time.Time   `json:"deadline_at"`              // When timeout should fire
-	ContractName string      `json:"contract_name,omitempty"`
+	ID           string                 `json:"id"`
+	ThreadID     string                 `json:"thread_id"`
+	Type         TimeoutType            `json:"type"`
+	FromStep     string                 `json:"from_step,omitempty"` // For transition timeouts
+	ToStep       string                 `json:"to_step,omitempty"`   // For transition timeouts
+	StepName     string                 `json:"step_name,omitempty"` // For step timeouts
+	Timeout      string                 `json:"timeout"`             // Duration string (e.g., "5m")
+	ScheduledAt  time.Time              `json:"scheduled_at"`        // When timeout was scheduled
+	DeadlineAt   time.Time              `json:"deadline_at"`         // When timeout should fire
+	ContractName string                 `json:"contract_name,omitempty"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 

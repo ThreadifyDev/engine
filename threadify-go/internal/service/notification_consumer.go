@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -18,12 +18,11 @@ type NotificationHandler interface {
 	HandleNotification(notification models.ValidationNotification) error
 }
 
-// NotificationConsumer consumes notifications from NATS and delivers them to handlers.
 type NotificationConsumer struct {
-	client        *natsrepo.Client
-	scopeResolver *ScopeResolver // TODO: wire up scope resolution
+	client        interfaces.NATSClient
+	scopeResolver *ScopeResolver
 	handlers      map[string]NotificationHandler
-	subscriptions map[string]context.CancelFunc // subKey -> cancel
+	subscriptions map[string]context.CancelFunc
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -32,7 +31,7 @@ type NotificationConsumer struct {
 
 // NewNotificationConsumer creates a new notification consumer.
 func NewNotificationConsumer(
-	client *natsrepo.Client,
+	client interfaces.NATSClient,
 	scopeResolver *ScopeResolver,
 	logger *zap.Logger,
 ) *NotificationConsumer {
