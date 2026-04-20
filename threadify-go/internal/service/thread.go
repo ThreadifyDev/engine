@@ -729,13 +729,13 @@ func (s *ThreadService) EndThread(
 		return ErrCannotManuallyCompleteThreadLinkedToContract
 	}
 
-	// 1. Update Valkey asynchronously via writeback pool.
-	s.writeBackPool.Submit(func(ctx context.Context) {
-		if err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt); err != nil {
-			s.logger.Warn("failed to update thread status in Valkey",
-				zap.String("thread_id", threadID), zap.Error(err))
-		}
-	})
+	// 1. Update Valkey status SYNCHRONOUSLY using atomic Lua script.
+	// This prevents race conditions with double-ending or concurrent terminal step completion.
+	if err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt); err != nil {
+		s.logger.Warn("failed to update thread status in Valkey",
+			zap.String("thread_id", threadID), zap.Error(err))
+		// Continue with archival even if Valkey update fails
+	}
 
 	// 2. Archive thread metadata.
 	if s.natsArchivalPublisher != nil {
