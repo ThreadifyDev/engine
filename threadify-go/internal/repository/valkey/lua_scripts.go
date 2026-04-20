@@ -25,6 +25,9 @@ var decrementCreditWithAutoTopupScript string
 //go:embed lua/get_and_reset_charged.lua
 var getAndResetChargedScript string
 
+//go:embed lua/check_and_update_thread_status.lua
+var checkAndUpdateThreadStatusScript string
+
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
 	valkeyClient interfaces.ValkeyClient
@@ -47,6 +50,7 @@ func (m *LuaScriptManager) LoadScripts(ctx context.Context) error {
 		"check_company_rate_limit":        checkCompanyRateLimitScript,
 		"decrement_credit_with_autotopup": decrementCreditWithAutoTopupScript,
 		"get_and_reset_charged":           getAndResetChargedScript,
+		"check_and_update_thread_status":  checkAndUpdateThreadStatusScript,
 	}
 
 	for name, script := range scripts {
