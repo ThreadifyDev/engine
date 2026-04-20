@@ -1115,17 +1115,17 @@ func (mr *MockNotificationRouterMockRecorder) HandleDisconnect(sessionID interfa
 }
 
 // HandleSubscribe mocks base method.
-func (m *MockNotificationRouter) HandleSubscribe(sessionID, stepName, contract string) error {
+func (m *MockNotificationRouter) HandleSubscribe(sessionID, stepName, contract string, eventTypes []string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HandleSubscribe", sessionID, stepName, contract)
+	ret := m.ctrl.Call(m, "HandleSubscribe", sessionID, stepName, contract, eventTypes)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // HandleSubscribe indicates an expected call of HandleSubscribe.
-func (mr *MockNotificationRouterMockRecorder) HandleSubscribe(sessionID, stepName, contract interface{}) *gomock.Call {
+func (mr *MockNotificationRouterMockRecorder) HandleSubscribe(sessionID, stepName, contract, eventTypes interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleSubscribe", reflect.TypeOf((*MockNotificationRouter)(nil).HandleSubscribe), sessionID, stepName, contract)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleSubscribe", reflect.TypeOf((*MockNotificationRouter)(nil).HandleSubscribe), sessionID, stepName, contract, eventTypes)
 }
 
 // MockNotificationPublisher is a mock of NotificationPublisher interface.
