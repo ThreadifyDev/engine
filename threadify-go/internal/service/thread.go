@@ -185,6 +185,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	var contractVersion int
 	var parsedContractName, contractUUID string
+	var contractGraph *models.ContractGraph
 
 	if req.ContractName != "" {
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
@@ -196,6 +197,17 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 			return errResp("Failed to load contract")
 		}
 		contractVersion = actualVersion
+
+		// Get contract graph (already cached from LoadContractGraphIntoCache above)
+		contractGraph, err = s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
+		if err != nil {
+			return errResp("Failed to load contract graph")
+		}
+
+		// Validate role against contract parties
+		if len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, req.Role) {
+			return errResp("Role '" + req.Role + "' is not defined in contract parties")
+		}
 
 		t = time.Now()
 		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
@@ -236,20 +248,8 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	createCtx, createCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer createCancel()
 
-	// CRITICAL: Creator must always receive the "owner" runtime_role.
-	t := time.Now()
-	runtimeRole, err := s.scopeResolver.ResolveScope(createCtx, threadID, ownerID, creatorRole, true, nil)
-	metrics.OperationDuration.WithLabelValues(ActionStartThread, "rbac_resolve").Observe(time.Since(t).Seconds())
-	if err != nil {
-		s.logger.Error("failed to resolve runtime_role for creator",
-			zap.String("owner", ownerID), zap.String("thread", threadID), zap.Error(err))
-		return errResp("System error: failed to assign creator permissions")
-	}
-	if runtimeRole != "owner" {
-		s.logger.Error("creator got invalid runtime_role",
-			zap.String("owner", ownerID), zap.String("role", runtimeRole), zap.String("thread", threadID))
-		return errResp("System error: invalid creator permissions")
-	}
+	// Thread creator always gets "owner" runtime_role (invariant)
+	runtimeRole := "owner"
 
 	threadDataBytes, err := thread.ToJSON()
 	if err != nil {
@@ -258,7 +258,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	threadDataStr := string(threadDataBytes)
 	threadTTLSeconds := 18000 // 5 hours
 
-	t = time.Now()
+	t := time.Now()
 	access, err := s.accessService.GrantAccessWithThreadCreation(
 		createCtx, threadID, ownerID, creatorRole, runtimeRole, &threadDataStr, &threadTTLSeconds,
 	)
@@ -272,24 +272,13 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
 	// Schedule thread max duration timeout if contract has max_duration validation
-	if parsedContractName != "" && s.notificationService != nil {
-		go func() {
+	if contractGraph != nil && s.notificationService != nil {
+		go func(graph *models.ContractGraph) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			// Get contract graph
-			graph, err := s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
-			if err != nil {
-				s.logger.Warn("failed to get contract graph for thread timeout",
-					zap.String("thread_id", threadID),
-					zap.String("contract", parsedContractName),
-					zap.Error(err),
-				)
-				return
-			}
-
 			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, thread.StartedAt)
-		}()
+		}(contractGraph)
 	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
