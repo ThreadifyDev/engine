@@ -715,14 +715,14 @@ func (s *ThreadService) EndThread(
 		return ErrFailedToGetThread
 	}
 
-	// Early exit: if Valkey already shows "completed" or "cancelled", skip.
+	// Early exit: if Valkey already shows "completed" or "cancelled", return error.
 	// The NotificationService updates Valkey synchronously on terminal step completion,
-	// so this guard will catch disconnect events that arrive after completion.
+	// so this guard will catch duplicate EndThread calls.
 	if thread.Status == models.ThreadStatusCompleted || thread.Status == models.ThreadStatusCancelled {
-		s.logger.Debug("thread already terminal, skipping EndThread",
+		s.logger.Debug("thread already terminal, rejecting EndThread",
 			zap.String("thread_id", threadID),
 			zap.String("current_status", string(thread.Status)))
-		return nil
+		return ErrThreadAlreadyEnded
 	}
 
 	if status == ThreadStatusCompleted && thread.ContractID != nil && *thread.ContractID != "" {

@@ -47,28 +47,28 @@ func TestNotificationService_ShouldReceiveNotification(t *testing.T) {
 	}{
 		{
 			name:      "exact match",
-			userPerms: []string{"notification.execution.success.*"},
-			required:  []string{"notification.execution.success.*"},
+			userPerms: []string{"notification.step.success.*"},
+			required:  []string{"notification.step.success.*"},
 			want:      true,
 		},
 		{
 			name:      "wildcard match",
 			userPerms: []string{"notification.*"},
-			required:  []string{"notification.execution.success.*"},
+			required:  []string{"notification.step.success.*"},
 			want:      true,
 		},
 		{
 			name:        "own match success",
-			userPerms:   []string{"notification.execution.success.own"},
-			required:    []string{"notification.execution.success.own"},
+			userPerms:   []string{"notification.step.success.own"},
+			required:    []string{"notification.step.success.own"},
 			userID:      "u1",
 			stepOwnerID: "u1",
 			want:        true,
 		},
 		{
 			name:        "own match failure (different user)",
-			userPerms:   []string{"notification.execution.success.own"},
-			required:    []string{"notification.execution.success.own"},
+			userPerms:   []string{"notification.step.success.own"},
+			required:    []string{"notification.step.success.own"},
 			userID:      "u1",
 			stepOwnerID: "u2",
 			want:        false,
@@ -76,7 +76,7 @@ func TestNotificationService_ShouldReceiveNotification(t *testing.T) {
 		{
 			name:      "no match",
 			userPerms: []string{"thread.read"},
-			required:  []string{"notification.execution.success.*"},
+			required:  []string{"notification.step.success.*"},
 			want:      false,
 		},
 		{

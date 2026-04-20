@@ -1,7 +1,7 @@
 billing:
   provider: stripe
-  webhook_secret: "whsec_39a7f1c3d6fb6e5a638d8fa1d65d7b4589696b7067bbb7c14363e98cf1705848"
-  secret_key: "sk_test_51TA9lg8bW3V5oRkWnrbloHeHpj1M847ZTaKeBi3DV4FUXFAGPmUFICekeQPjDfVIj4S3Vll9xJueuQQMXnALqtpx000WWSnW5r"
+  webhook_secret: "whsec_d34c24264e0a1f03a082e3d452f98e80095f9e0555f0cd08d0de02b411a8c7be"
+  secret_key: "sk_test_51TEDPTF0QwoPK2TLjG27qX5698tcj7HsEsakfEBGV3Xu1UrSOkHd0pulExBqKiRlxDrK9KKBnsrA0osl9Cj9cIGf00myAqLlRz"
   success_url: "http://localhost:3000/u/settings?tab=billing"
   cancel_url: "http://localhost:3000/u/settings?tab=billing"
 
@@ -10,7 +10,9 @@ subscription:
     ingress_cost_millicents: 1  # $1.00 per unit
     egress_cost_millicents: 1      # $0.001 per MB
     seat_cost_millicents: 1               # $0.001 per seat
-    contract_cost_millicents: 1             # $0.001 per contract
+    contract_cost_millicents: 1000             # $0.001 per contract
     llm_token_cost_millicents: 100             # per token (set >0 to bill MCP LLM usage)
-    rate_limit_tps: 6000
+    rate_limit_tps: 60000
     payload_limit_bytes: 1048576 # 1MB
+
+ec6c4d5

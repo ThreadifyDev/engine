@@ -438,8 +438,8 @@ func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models
 		ViolationType:    "timeout",
 		Message:          message,
 		Timestamp:        time.Now(),
-		Source:           models.NotificationSourceValidation,
-		NotificationType: "validation.violated.timeout",
+		Source:           models.NotificationSourceRule,
+		NotificationType: string(models.NotificationTypeRuleViolatedTimeout),
 		Details: map[string]interface{}{
 			"timeout_id":     event.ID,
 			"timeout_type":   event.Type,
