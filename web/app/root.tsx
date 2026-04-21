@@ -14,6 +14,9 @@ import { getConfig } from "./config.server";
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
+  { rel: "icon", type: "image/svg+xml", href: "/favicon-black.svg", media: "(prefers-color-scheme: light)" },
+  { rel: "icon", type: "image/svg+xml", href: "/favicon-white.svg", media: "(prefers-color-scheme: dark)" },
+  { rel: "icon", type: "image/svg+xml", href: "/favicon-black.svg" },
 ];
 
 export const loader = async () => {
