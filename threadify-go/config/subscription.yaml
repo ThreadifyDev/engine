@@ -6,6 +6,7 @@ billing:
   cancel_url: "http://localhost:3000/u/settings?tab=billing"
 
 subscription:
+  signup_credits_millicents: 100000 # $1.00 default seed on signup (0 falls back to service default)
   credit:
     ingress_cost_millicents: 1  # $1.00 per unit
     egress_cost_millicents: 1      # $0.001 per MB

@@ -2,12 +2,17 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"threadify-go/shared/repository"
 )
 
 func TestAuth_Signup_Success(t *testing.T) {
@@ -28,6 +33,40 @@ func TestAuth_Signup_Success(t *testing.T) {
 		"signup must not return a token before email verification")
 	assert.Nil(t, body["user"],
 		"signup must not return user data before email verification")
+}
+
+func TestAuth_VerifyOTP_ProvisionsSignupCredits(t *testing.T) {
+	email := uniqueEmail()
+	password := "Password123!@#"
+
+	signupUser(t, email, password)
+
+	otp := supabase.GetOTP(email)
+	require.NotEmpty(t, otp)
+
+	verifyResp := doJSON(t, http.MethodPost, "/api/auth/verify-otp", map[string]any{
+		"email": email,
+		"token": otp,
+	})
+	require.Equal(t, http.StatusOK, verifyResp.StatusCode, string(verifyResp.Body))
+
+	body := decodeJSONBody(t, verifyResp)
+	userMap := body["user"].(map[string]any)
+	companyID := userMap["company_id"].(string)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, env.Postgres.ConnectionString)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	account, err := repository.NewPlanRepo(pool).GetCreditAccount(ctx, companyID)
+	require.NoError(t, err)
+	require.NotNil(t, account, "signup verification should create a credit account")
+	assert.Equal(t, int64(100_000), account.CreditBalanceMillicents)
+	assert.Equal(t, int64(60_000), account.RateLimitTPS)
+	assert.Equal(t, int64(1_048_576), account.PayloadLimitBytes)
 }
 
 func TestAuth_Signup_DuplicateEmail(t *testing.T) {
