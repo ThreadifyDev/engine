@@ -39,6 +39,7 @@ type MockedDeps struct {
 	ServiceAccountRepo    *sarepomocks.MockServiceAccountRepository
 	AgentRepo             *agentrepomocks.MockAgentRepository
 	EntityProfileTypeRepo *sharedmocks.MockEntityProfileTypeRepository
+	PlanRepo              *sharedmocks.MockPlanRepository
 
 	AuthSvc           *authmocks.MockAuthService
 	APIKeySvc         *apikeymocks.MockAPIKeyService
@@ -65,6 +66,7 @@ func NewMockDeps(t *testing.T) *MockedDeps {
 		ServiceAccountRepo:    sarepomocks.NewMockServiceAccountRepository(ctrl),
 		AgentRepo:             agentrepomocks.NewMockAgentRepository(ctrl),
 		EntityProfileTypeRepo: sharedmocks.NewMockEntityProfileTypeRepository(ctrl),
+		PlanRepo:              sharedmocks.NewMockPlanRepository(ctrl),
 
 		AuthSvc:           authmocks.NewMockAuthService(ctrl),
 		APIKeySvc:         apikeymocks.NewMockAPIKeyService(ctrl),

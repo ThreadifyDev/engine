@@ -15,7 +15,10 @@ import (
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
+	sharemodels "threadify-go/shared/models"
+	sharedrepo "threadify-go/shared/repository"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -35,6 +38,21 @@ type DBPool interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+func newSignupCreditAccount(companyID string, billingCycleStart time.Time, balanceMillicents, rateLimitTPS, payloadLimitBytes int64) *sharemodels.CreditAccount {
+	return &sharemodels.CreditAccount{
+		ID:                               uuid.NewString(),
+		CompanyID:                        companyID,
+		BillingCycleStart:                billingCycleStart,
+		CreditBalanceMillicents:          balanceMillicents,
+		CreditMinBalanceMillicents:       0,
+		CreditMaxMonthlyChargeMillicents: sharemodels.CreditDisabled,
+		CreditAutoTopupMillicents:        0,
+		CreditMonthlyChargedMillicents:   0,
+		RateLimitTPS:                     rateLimitTPS,
+		PayloadLimitBytes:                payloadLimitBytes,
+	}
+}
+
 type AuthService struct {
 	pool           DBPool
 	userRepo       repository.UserRepository
@@ -42,12 +60,17 @@ type AuthService struct {
 	userRoleRepo   repository.UserRoleRepository
 	outboxRepo     repository.OutboxRepository
 	invitationRepo repository.TeamInvitationRepository
+	planRepo       sharedrepo.PlanRepository
 	emailSvc       EmailService
 	authClient     sharedauth.AuthClient
 	jwksVerifier   *sharedauth.JWKSVerifier
 	outboxWorker   OutboxWorkerTrigger
 	encryptionKey  []byte
 	logger         *zap.Logger
+
+	signupCreditsMillicents int64
+	signupRateLimitTPS      int64
+	signupPayloadLimitBytes int64
 }
 
 func NewAuthService(
@@ -86,6 +109,13 @@ func NewAuthService(
 
 func (s *AuthService) SetJWKSVerifier(verifier *sharedauth.JWKSVerifier) {
 	s.jwksVerifier = verifier
+}
+
+func (s *AuthService) ConfigureSignupCredits(planRepo sharedrepo.PlanRepository, signupCreditsMillicents, rateLimitTPS, payloadLimitBytes int64) {
+	s.planRepo = planRepo
+	s.signupCreditsMillicents = signupCreditsMillicents
+	s.signupRateLimitTPS = rateLimitTPS
+	s.signupPayloadLimitBytes = payloadLimitBytes
 }
 
 func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) error {
@@ -489,6 +519,9 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	s.logger.Info("verify email: email verified", zap.String("user_id", user.ID))
 
 	if !wasAlreadyVerified {
+		if err := s.provisionSignupCredits(ctx, user.CompanyID); err != nil {
+			return nil, fmt.Errorf("provision signup credits: %w", err)
+		}
 		s.sendWelcomeEmailAsync(user)
 	}
 
@@ -497,6 +530,46 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 		User:    user,
 		Message: "Email verified and logged in.",
 	}, nil
+}
+
+func (s *AuthService) provisionSignupCredits(ctx context.Context, companyID string) error {
+	if s.planRepo == nil || strings.TrimSpace(companyID) == "" {
+		return nil
+	}
+	if s.signupCreditsMillicents <= 0 && s.signupRateLimitTPS <= 0 && s.signupPayloadLimitBytes <= 0 {
+		return nil
+	}
+
+	account, err := s.planRepo.GetCreditAccount(ctx, companyID)
+	if err != nil {
+		return fmt.Errorf("get credit account: %w", err)
+	}
+	if account != nil {
+		return nil
+	}
+
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	newAccount := newSignupCreditAccount(
+		companyID,
+		start,
+		s.signupCreditsMillicents,
+		s.signupRateLimitTPS,
+		s.signupPayloadLimitBytes,
+	)
+
+	if err := s.planRepo.CreateCreditAccount(ctx, newAccount); err != nil {
+		if errors.Is(err, serror.ErrDuplicateCreditAccount) {
+			return nil
+		}
+		return fmt.Errorf("create credit account: %w", err)
+	}
+
+	s.logger.Info("signup credits provisioned",
+		zap.String("company_id", companyID),
+		zap.Int64("amount_millicents", s.signupCreditsMillicents),
+	)
+
+	return nil
 }
 
 func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string) (*models.User, error) {

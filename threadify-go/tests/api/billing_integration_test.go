@@ -31,8 +31,8 @@ func TestBilling_GetCurrentPlan_WithAccount(t *testing.T) {
 		"credit account must have an id")
 
 	// fields match what was seeded
-	assert.Equal(t, float64(0), ca["balance_millicents"],
-		"unseeded balance must be zero")
+	assert.Equal(t, float64(100_000), ca["balance_millicents"],
+		"new signups must have their initial signup credits balance")
 	assert.Equal(t, float64(10*100_000), ca["auto_topup_millicents"],
 		"auto_topup_millicents must match seeded value")
 	assert.Equal(t, float64(5*100_000), ca["min_balance_millicents"],
@@ -51,9 +51,17 @@ func TestBilling_GetCurrentPlan_WithAccount(t *testing.T) {
 }
 
 func TestBilling_GetCurrentPlan_NoAccount_ReturnsNullCreditAccount(t *testing.T) {
-	user := setupAuthenticatedUser(t)
+	// Signup credits are provisioned on first verification. To cover the legacy scenario
+	// where a company has no credit account, mark the user as already verified before login.
+	email := uniqueEmail()
+	password := "Password123!@#"
+	signupUser(t, email, password)
+	markUserEmailVerified(t, email)
+	auth := loginUser(t, email, password)
+	userMap := auth["user"].(map[string]any)
+	token := auth["token"].(string)
 
-	resp := doRawWithAuth(t, http.MethodGet, "/api/billing/plan", nil, "", user.AccessToken)
+	resp := doRawWithAuth(t, http.MethodGet, "/api/billing/plan", nil, "", token)
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(resp.Body))
 
 	body := decodeJSONBody(t, resp)
@@ -62,6 +70,8 @@ func TestBilling_GetCurrentPlan_NoAccount_ReturnsNullCreditAccount(t *testing.T)
 	assert.True(t, exists, "credit_account key must be present in response even when no account exists")
 	assert.Nil(t, body["credit_account"],
 		"credit_account must be null when no billing account exists")
+
+	_ = userMap // keep for clarity: authenticated as a real user
 }
 
 func TestBilling_GetCurrentPlan_IsolatedByCompany(t *testing.T) {

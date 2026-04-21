@@ -111,7 +111,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 			OwnerID:          ownerID,
 			StepName:         stepName,
 			ContractName:     contractName,
-			Source:           models.NotificationSourceValidation,
+			Source:           models.NotificationSourceRule,
 			NotificationType: "validation.violated.timeout",
 			Status:           "violated",
 			ViolationType:    "timeout",

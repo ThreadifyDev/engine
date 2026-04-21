@@ -238,6 +238,12 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		encryptionKey,
 		logger,
 	)
+	authSvc.ConfigureSignupCredits(
+		repos.plan,
+		cfg.Subscription.SignupCreditsMillicents,
+		cfg.Subscription.Credit.RateLimitTPS,
+		cfg.Subscription.Credit.PayloadLimitBytes,
+	)
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))

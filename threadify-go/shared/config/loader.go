@@ -44,7 +44,8 @@ type CreditConfig struct {
 }
 
 type SubscriptionConfig struct {
-	Credit CreditConfig `yaml:"credit" mapstructure:"credit"`
+	SignupCreditsMillicents int64        `yaml:"signup_credits_millicents" mapstructure:"signup_credits_millicents" json:"signup_credits_millicents"`
+	Credit                  CreditConfig `yaml:"credit" mapstructure:"credit"`
 }
 
 type BillingConfig struct {
@@ -87,13 +88,14 @@ type Config struct {
 	Subscription SubscriptionConfig `yaml:"subscription"`
 
 	WebAPI struct {
-		Enabled             bool   `yaml:"enabled"`
-		Port                int    `yaml:"port"`
-		Host                string `yaml:"host"`
-		CORSOrigins         string `yaml:"cors_origins"`
-		FrontendURL         string `yaml:"frontend_url"`
-		OutboxEncryptionKey string `yaml:"outbox_encryption_key"`
-		Email               struct {
+		Enabled                 bool   `yaml:"enabled"`
+		Port                    int    `yaml:"port"`
+		Host                    string `yaml:"host"`
+		CORSOrigins             string `yaml:"cors_origins"`
+		FrontendURL             string `yaml:"frontend_url"`
+		OutboxEncryptionKey     string `yaml:"outbox_encryption_key"`
+		SignupCreditsMillicents int64  `yaml:"signup_credits_millicents"`
+		Email                   struct {
 			PlunkAPIKey    string `yaml:"plunk_api_key"`
 			PlunkFromEmail string `yaml:"plunk_from_email"`
 			PlunkAPIURL    string `yaml:"plunk_api_url"`

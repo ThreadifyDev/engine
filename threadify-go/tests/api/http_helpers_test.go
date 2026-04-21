@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	serror "threadify-go/shared/errors"
 	"threadify-go/shared/models"
 	"threadify-go/shared/repository"
 )
@@ -244,9 +245,35 @@ func ensureCreditAccount(t *testing.T, companyID string, fixture creditAccountFi
 		PayloadLimitBytes:                0,
 	}
 
-	require.NoError(t, repo.CreateCreditAccount(ctx, account))
+	err = repo.CreateCreditAccount(ctx, account)
+	if err != nil {
+		if err != serror.ErrDuplicateCreditAccount {
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, repo.UpdateTopupSettings(ctx, companyID, fixture.AutoTopupMillicents, fixture.MinBalanceMillicents))
+
+		existing, err := repo.GetCreditAccount(ctx, companyID)
+		require.NoError(t, err)
+		require.NotNil(t, existing)
+		return existing
+	}
 
 	return account
+}
+
+func markUserEmailVerified(t *testing.T, email string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, env.Postgres.ConnectionString)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	_, err = pool.Exec(ctx, "UPDATE users SET email_verified = true WHERE email = $1", email)
+	require.NoError(t, err)
 }
 
 func assertEmptyOrNilList(t *testing.T, body map[string]any, key string) {
