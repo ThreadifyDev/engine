@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
-import { api, type EntityProfileType } from '~/lib/api';
+import { api, type EntityProfileType, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import { Search, Plus, Database, ChevronRight, X, UserCircle, Edit2, Trash2 } from 'lucide-react';
+import Alert from '~/components/Alert';
+import { Search, Plus, Database, ChevronRight, X, Edit2, Trash2 } from 'lucide-react';
 
 export const meta: MetaFunction = () => {
   return [
@@ -22,6 +23,7 @@ export default function EntityProfiles() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createData, setCreateData] = useState({ name: '', type: '', description: '' });
+  const [createError, setCreateError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -60,6 +62,7 @@ export default function EntityProfiles() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateError(null);
     try {
       setIsCreating(true);
       await api.createEntityProfileType(createData);
@@ -67,7 +70,16 @@ export default function EntityProfiles() {
       setIsCreateModalOpen(false);
       await fetchProfileTypes();
     } catch (err: any) {
-      alert(err.message || 'Failed to create profile type');
+      if (err instanceof ValidationError) {
+        setCreateError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setCreateError({
+          message: err.message || 'Failed to create profile type',
+        });
+      }
     } finally {
       setIsCreating(false);
     }
@@ -115,10 +127,7 @@ export default function EntityProfiles() {
       <div className="p-8 px-4 sm:px-6 lg:px-8">
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-              <UserCircle className="w-8 h-8 text-black" />
-              Entity Profiles
-            </h1>
+            <h2 className="text-2xl font-bold mb-2">Entity Profiles</h2>
             <p className="text-gray-600">
               Define the schemas for your tracked entities and view their real-time health metrics.
             </p>
@@ -247,13 +256,24 @@ export default function EntityProfiles() {
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h2 className="text-lg font-bold text-gray-900">Create Profile Type</h2>
               <button 
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setCreateError(null);
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleCreate} className="p-6">
+              {createError && (
+                <Alert
+                  type="error"
+                  message={createError.message}
+                  details={createError.details}
+                  className="mb-4"
+                />
+              )}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>

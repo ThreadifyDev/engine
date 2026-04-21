@@ -21,9 +21,5 @@ func ValidateCreateEntityProfileTypeRequest(req *models.CreateEntityProfileTypeR
 		b.add("type", "Type is required.")
 	}
 
-	if strings.TrimSpace(req.Description) == "" {
-		b.add("description", "Description is required.")
-	}
-
 	return b.err()
 }
