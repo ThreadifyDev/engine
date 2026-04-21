@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -a -installsuffix cgo \
     -ldflags="-s -w" \
     -trimpath \
-    -o bin/server cmd/server/main.go cmd/server/mcp_server.go
+    -o bin/server ./cmd/server
 
 # Final stage - using distroless for minimal size
 FROM gcr.io/distroless/static-debian12:nonroot

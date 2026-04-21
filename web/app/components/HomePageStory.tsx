@@ -9,22 +9,20 @@ export default function HomePageStory() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-black/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center">
-            <svg className="h-7" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-              {/* Text: Thread */}
-              <text x="0" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="700" fill="currentColor">T</text>
-              <text x="10" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="600" fill="currentColor">hread</text>
-              
-              {/* Sewing Needle as 'i' */}
-              <ellipse cx="58" cy="8" rx="1.5" ry="1.2" fill="currentColor"/>
-              <path d="M58 12L58 22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-              
-              {/* Text: f */}
-              <text x="64" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="600" fill="currentColor">f</text>
-              
-              {/* Y with cursive tail */}
-              <path d="M76 10L80 16L80 20Q80 24 84 26Q88 28 90 26" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-              <path d="M88 10L80 16" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-            </svg>
+<span className="inline-flex items-center" style={{gap: '0px'}}>
+              {/* T as needle: pointed tip at bottom, eye hole near top, thread as crossbar */}
+              <svg style={{width: '26px', height: '30px', flexShrink: 0, marginRight: '-8px'}} viewBox="0 0 16 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 22 L7.2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M8 22 L8.8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                {/* needle eye — small oval near top */}
+                <ellipse cx="8" cy="5" rx="1.4" ry="2" stroke="currentColor" strokeWidth="1.4" fill="white"/>
+                {/* thread as crossbar — looping through the eye left to right with a slight wave */}
+                <path d="M1 4 Q4 2 8 3 Q12 4 15 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+              </svg>
+              <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>hread</span>
+              <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>if</span>
+<span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>y</span>
+            </span>
           </Link>
           <div className="hidden md:flex items-center gap-8">
             <a href="#how-it-works" className="text-sm text-gray-600 hover:text-black transition-colors">How it works</a>
@@ -316,22 +314,22 @@ export default function HomePageStory() {
         </div>
       </section>
 
-      {/* Cross-Boundary Section */}
-      <section className="py-32 px-6 bg-gray-50">
-        <div className="max-w-5xl mx-auto text-center">
-          <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
-            Your process doesn't stop at your boundary.
-            <br />
-            <span className="text-gray-400">Your intelligence shouldn't either.</span>
-          </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-12">
-            Invite a partner into the thread. They instrument their side. One shared execution graph — their steps and yours, in one timeline.
-          </p>
-          <div className="flex items-center justify-center gap-8">
-            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Your API</div>
-            <GitMerge className="w-6 h-6 text-gray-400" />
-            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Partner API</div>
+      {/* Entity Profile Section */}
+      <section className="py-32 px-6 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-sm font-medium text-white mb-6 shadow-lg">
+            <TrendingUp className="w-4 h-4" />
+            Entity Profiles
           </div>
+          <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
+            Every thread is one moment. Every customer has many.
+          </h2>
+          <p className="text-xl text-gray-700 leading-relaxed mb-6">
+            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Threadify aggregates execution across every entity — customer, partner, feature — so you see the patterns that matter.
+          </p>
+          <p className="text-xl text-black font-medium">
+            Intelligence from execution, not guesswork.
+          </p>
         </div>
       </section>
 
@@ -365,20 +363,20 @@ export default function HomePageStory() {
               </div>
             </div>
 
-            {/* Engineering & Product */}
+            {/* Product & Analytics */}
             <div className="relative">
               <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-gray-800 to-transparent rounded-full"></div>
               <div className="pl-8">
-                <h3 className="text-2xl font-bold mb-4 text-gray-900">Engineering & Product</h3>
+                <h3 className="text-2xl font-bold mb-4 text-gray-900">Product & Analytics</h3>
                 <p className="text-gray-600 leading-relaxed mb-6">
-                  See what your system actually does, not what the docs say. Debug faster. Onboard faster.
+                  Build intelligence with entity profiles. Customer health. Feature performance. Partner reliability. All from real execution, not surveys.
                 </p>
                 <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                   <div className="flex items-center gap-3 mb-3">
-                    <Network className="w-5 h-5 text-gray-400" />
-                    <span className="font-semibold text-gray-900">Living documentation</span>
+                    <TrendingUp className="w-5 h-5 text-gray-400" />
+                    <span className="font-semibold text-gray-900">Intelligence from patterns</span>
                   </div>
-                  <p className="text-sm text-gray-600">Living documentation from real execution</p>
+                  <p className="text-sm text-gray-600">Who's thriving. Who's struggling. What's working.</p>
                 </div>
               </div>
             </div>
@@ -404,18 +402,22 @@ export default function HomePageStory() {
         </div>
       </section>
 
-      {/* Continuous Delivery Record Section */}
+      {/* Cross-Boundary Section */}
       <section className="py-32 px-6 bg-gray-50">
-        <div className="max-w-4xl mx-auto text-center">
+        <div className="max-w-5xl mx-auto text-center">
           <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
-            Every thread is one moment. Every customer has many.
+            Your process doesn't stop at your boundary.
+            <br />
+            <span className="text-gray-400">Your intelligence shouldn't either.</span>
           </h2>
-          <p className="text-xl text-gray-600 leading-relaxed mb-6">
-            Threadify connects every request into a continuous delivery record per customer. See who you're serving well — and who you're quietly failing.
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-12">
+            Invite a partner into the thread. They instrument their side. One shared execution graph — their steps and yours, in one timeline.
           </p>
-          <p className="text-xl text-black font-medium">
-            That's not monitoring. That's delivery intelligence.
-          </p>
+          <div className="flex items-center justify-center gap-8">
+            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Your API</div>
+            <GitMerge className="w-6 h-6 text-gray-400" />
+            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Partner API</div>
+          </div>
         </div>
       </section>
 
@@ -447,22 +449,16 @@ export default function HomePageStory() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
             <div className="flex items-center">
-              <svg className="h-8" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* Text: Thread */}
-                <text x="0" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="700" fill="currentColor">T</text>
-                <text x="10" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="600" fill="currentColor">hread</text>
-                
-                {/* Sewing Needle as 'i' */}
-                <ellipse cx="58" cy="8" rx="1.5" ry="1.2" fill="currentColor"/>
-                <path d="M58 12L58 22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                
-                {/* Text: f */}
-                <text x="64" y="22" fontFamily="system-ui, -apple-system, sans-serif" fontSize="18" fontWeight="600" fill="currentColor">f</text>
-                
-                {/* Y with cursive tail */}
-                <path d="M76 10L80 16L80 20Q80 24 84 26Q88 28 90 26" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                <path d="M88 10L80 16" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-              </svg>
+              <span className="inline-flex items-center" style={{gap: '0px'}}>
+                <svg style={{width: '26px', height: '30px', flexShrink: 0, marginRight: '-8px'}} viewBox="0 0 16 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 22 L7.2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M8 22 L8.8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <ellipse cx="8" cy="5" rx="1.4" ry="2" stroke="currentColor" strokeWidth="1.4" fill="white"/>
+                  <path d="M1 4 Q4 2 8 3 Q12 4 15 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>hreadif</span>
+                <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>y</span>
+              </span>
             </div>
             <div className="flex items-center gap-6">
               <a href="https://docs.threadify.dev/core-concepts/mcp-integration" className="text-sm text-gray-600 hover:text-gray-900 transition">MCP Integration</a>
