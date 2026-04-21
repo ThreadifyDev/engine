@@ -1,4 +1,5 @@
 import { Link } from "@remix-run/react";
+import ThreadifyLogo from "~/components/ThreadifyLogo";
 import { useState, useEffect } from "react";
 import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge } from "lucide-react";
 
@@ -9,20 +10,7 @@ export default function HomePageStory() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-black/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center">
-<span className="inline-flex items-center" style={{gap: '0px'}}>
-              {/* T as needle: pointed tip at bottom, eye hole near top, thread as crossbar */}
-              <svg style={{width: '26px', height: '30px', flexShrink: 0, marginRight: '-8px'}} viewBox="0 0 16 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 22 L7.2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M8 22 L8.8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                {/* needle eye — small oval near top */}
-                <ellipse cx="8" cy="5" rx="1.4" ry="2" stroke="currentColor" strokeWidth="1.4" fill="white"/>
-                {/* thread as crossbar — looping through the eye left to right with a slight wave */}
-                <path d="M1 4 Q4 2 8 3 Q12 4 15 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
-              </svg>
-              <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>hread</span>
-              <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>if</span>
-<span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>y</span>
-            </span>
+            <ThreadifyLogo height={26} />
           </Link>
           <div className="hidden md:flex items-center gap-8">
             <a href="#how-it-works" className="text-sm text-gray-600 hover:text-black transition-colors">How it works</a>
@@ -315,16 +303,12 @@ export default function HomePageStory() {
       </section>
 
       {/* Entity Profile Section */}
-      <section className="py-32 px-6 bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      <section className="py-32 px-6 bg-gray-50">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-sm font-medium text-white mb-6 shadow-lg">
-            <TrendingUp className="w-4 h-4" />
-            Entity Profiles
-          </div>
           <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
             Every thread is one moment. Every customer has many.
           </h2>
-          <p className="text-xl text-gray-700 leading-relaxed mb-6">
+          <p className="text-xl text-gray-600 leading-relaxed mb-6">
             One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Threadify aggregates execution across every entity — customer, partner, feature — so you see the patterns that matter.
           </p>
           <p className="text-xl text-black font-medium">
@@ -449,16 +433,7 @@ export default function HomePageStory() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
             <div className="flex items-center">
-              <span className="inline-flex items-center" style={{gap: '0px'}}>
-                <svg style={{width: '26px', height: '30px', flexShrink: 0, marginRight: '-8px'}} viewBox="0 0 16 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 22 L7.2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  <path d="M8 22 L8.8 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  <ellipse cx="8" cy="5" rx="1.4" ry="2" stroke="currentColor" strokeWidth="1.4" fill="white"/>
-                  <path d="M1 4 Q4 2 8 3 Q12 4 15 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
-                </svg>
-                <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>hreadif</span>
-                <span className="text-[1.15rem] font-semibold tracking-tight" style={{lineHeight: 1}}>y</span>
-              </span>
+              <ThreadifyLogo height={26} />
             </div>
             <div className="flex items-center gap-6">
               <a href="https://docs.threadify.dev/core-concepts/mcp-integration" className="text-sm text-gray-600 hover:text-gray-900 transition">MCP Integration</a>

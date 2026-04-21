@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from '@remix-run/react';
+import ThreadifyLogo from '~/components/ThreadifyLogo';
 import { useState } from 'react';
 import {
   ChevronLeft,
@@ -59,13 +60,12 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
       {/* Logo & Toggle */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         {!isCollapsed && (
-          <h1
-            className="text-xl font-bold cursor-pointer text-white"
-            style={{ fontFamily: 'Block, sans-serif' }}
+          <div
+            className="cursor-pointer text-white"
             onClick={() => navigate('/u/dashboard')}
           >
-            Threadify
-          </h1>
+            <ThreadifyLogo height={24} />
+          </div>
         )}
         <button
           onClick={handleToggle}
