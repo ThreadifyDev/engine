@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"threadify-go/shared/slug"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -226,11 +228,12 @@ func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	user := setupTestUser(t)
 
 	profileTypeID := uuid.NewString()
-	profileTypeName := "Customer Profiles " + uuid.NewString()[:8]
+	profileTypeName := "Customer Profiles"
+	profileTypeSlug := slug.ToSlug(profileTypeName)
 	_, err := env.Postgres.Pool.Exec(context.Background(), `
-		INSERT INTO entity_profile_type (id, company_id, name, type, description, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-	`, profileTypeID, user.CompanyID, profileTypeName, []string{"customer"}, "test type")
+		INSERT INTO entity_profile_type (id, company_id, name, type, slug, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+	`, profileTypeID, user.CompanyID, profileTypeName, []string{"customer"}, profileTypeSlug, "test type")
 	require.NoError(t, err)
 
 	olderID := uuid.NewString()
@@ -253,7 +256,7 @@ func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($type: String!) { entityProfilesByType(type: $type, limit: 10, offset: 0) { totalCount items { id refKey profileTypeId } } }",
 		Variables: map[string]interface{}{
-			"type": profileTypeName,
+			"type": profileTypeSlug,
 		},
 	})
 
