@@ -196,6 +196,16 @@ type Query {
     limit: Int = 50
     offset: Int = 0
   ): ThreadConnection!
+
+  # Get thread history for a specific entity profile
+  entityProfileHistory(
+    profileID: ID!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
@@ -249,6 +259,7 @@ type Query {
 type EntityProfileConnection {
   items: [EntityProfile!]!
   totalCount: Int!
+  profileType: EntityProfileType
 }
 
 type Mutation {
@@ -366,6 +377,7 @@ type EntityProfile {
   refKey: String!
   companyId: String!
   profileTypeId: String!
+  profileType: EntityProfileType
   name: String
   createdAt: String!
   lastActiveAt: String!

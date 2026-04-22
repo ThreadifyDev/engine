@@ -253,7 +253,7 @@ export default function APIKeys() {
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleRevokeKey(key.id, key.name)}
-                        className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                        className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                       >
                         Revoke
                       </button>
@@ -414,7 +414,7 @@ export default function APIKeys() {
                         setNewKeyName('');
                         setExpiresIn('never');
                       }}
-                      className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                      className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                     >
                       Cancel
                     </button>

@@ -35,4 +35,6 @@ type AuthClient interface {
 	Logout(ctx context.Context, accessToken string) error
 	UpdatePassword(ctx context.Context, authUserID, email, newPassword string) (string, error)
 	FindUserIDByEmail(ctx context.Context, email string) (string, error)
+	UpdateUserEmail(ctx context.Context, authUserID, newEmail string) error
+	DeleteUser(ctx context.Context, authUserID string) error
 }

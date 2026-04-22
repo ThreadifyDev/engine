@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -127,6 +128,7 @@ func initRepositories(pool *pgxpool.Pool) *repositories {
 
 type services struct {
 	natsClient            *nats.Client
+	authClient            sharedauth.AuthClient
 	authService           *service.AuthService
 	agentService          *service.AgentService
 	billingService        *billing.BillingService
@@ -273,6 +275,7 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		logger,
 	)
 
+	svcs.authClient = authClient
 	svcs.authService = authSvc
 	svcs.agentService = agentSvc
 	svcs.teamInvitationService = teamInvitationSvc
@@ -302,9 +305,15 @@ func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacL
 	serviceAccountSvc := service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
 	entityProfileTypeSvc := service.NewEntityProfileTypeService(repos.entityProfileType, logger)
 
+	encryptionKey, err := hex.DecodeString(cfg.WebAPI.OutboxEncryptionKey)
+	if err != nil {
+		logger.Warn("failed to decode outbox encryption key, using raw string", zap.Error(err))
+		encryptionKey = []byte(cfg.WebAPI.OutboxEncryptionKey)
+	}
+
 	return &appHandlers{
 		auth:               handlers.NewAuthHandler(svcs.authService),
-		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole, logger),
+		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole, svcs.authClient, repos.outbox, svcs.outboxTrigger, encryptionKey, logger),
 		apiKey:             handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
 		serviceAccount:     handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
 		role:               handlers.NewRoleHandler(rbacLoader),

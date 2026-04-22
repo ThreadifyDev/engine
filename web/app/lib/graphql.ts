@@ -587,6 +587,50 @@ class GraphQLClient {
     return { threads: data.threadsByRef.threads, totalCount: data.threadsByRef.totalCount };
   }
 
+  async getEntityProfileHistory(options: {
+    profileID: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+    startedAfter?: string;
+    startedBefore?: string;
+  }): Promise<{ threads: Thread[]; totalCount: number }> {
+    const query = `
+      query GetEntityProfileHistory(
+        $profileID: ID!
+        $status: String
+        $limit: Int
+        $offset: Int
+        $startedAfter: String
+        $startedBefore: String
+      ) {
+        entityProfileHistory(
+          profileID: $profileID
+          status: $status
+          limit: $limit
+          offset: $offset
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
+        ) {
+          threads {
+            id
+            contractName
+            contractVersion
+            status
+            refs
+            startedAt
+            completedAt
+            error
+          }
+          totalCount
+        }
+      }
+    `;
+
+    const data = await this.request<{ entityProfileHistory: { threads: Thread[]; totalCount: number } }>(query, options);
+    return { threads: data.entityProfileHistory.threads, totalCount: data.entityProfileHistory.totalCount };
+  }
+
   async verifyThreadIntegrity(threadId: string): Promise<HashChainStatus> {
     const query = `
       query VerifyThreadIntegrity($threadId: String!) {
@@ -663,11 +707,15 @@ class GraphQLClient {
     search?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ items: EntityProfileListItem[]; totalCount: number }> {
+  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[] } }> {
     const query = `
       query EntityProfilesByType($type: String!, $search: String, $limit: Int, $offset: Int) {
         entityProfilesByType(type: $type, search: $search, limit: $limit, offset: $offset) {
           totalCount
+          profileType {
+            name
+            type
+          }
           items {
             id
             refKey
@@ -682,7 +730,11 @@ class GraphQLClient {
       }
     `;
     const data = await this.request<{
-      entityProfilesByType: { items: EntityProfileListItem[]; totalCount: number };
+      entityProfilesByType: {
+        items: EntityProfileListItem[];
+        totalCount: number;
+        profileType?: { name: string; type: string[] };
+      };
     }>(query, {
       type: options.type,
       search: options.search ?? null,
@@ -700,6 +752,10 @@ class GraphQLClient {
           refKey
           companyId
           profileTypeId
+          profileType {
+            name
+            type
+          }
           name
           createdAt
           lastActiveAt

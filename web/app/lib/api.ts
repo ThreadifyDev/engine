@@ -557,7 +557,7 @@ class ApiClient {
   }
 
   // --- Entity Profile Management ---
-  async createEntityProfileType(data: { name: string; type: string; description?: string }): Promise<any> {
+  async createEntityProfileType(data: { name: string; type: string[]; description?: string }): Promise<any> {
     return this.post('/entity-profile-types', data);
   }
 
@@ -565,7 +565,7 @@ class ApiClient {
     return this.request('/entity-profile-types');
   }
 
-  async updateEntityProfileType(id: string, data: { name: string; description?: string }): Promise<any> {
+  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string }): Promise<any> {
     return this.request(`/entity-profile-types/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -592,7 +592,7 @@ export interface EntityProfileType {
   company_id: string;
   name: string;
   slug: string;
-  type: string;
+  type: string[];
   description: string;
   created_at: string;
   updated_at: string;
@@ -615,6 +615,7 @@ export interface EntityProfile {
   refKey: string;
   companyId: string;
   profileTypeId: string;
+  profileType?: EntityProfileType;
   name: string;
   createdAt: string;
   lastActiveAt: string;

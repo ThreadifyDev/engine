@@ -40,6 +40,12 @@ export default function GettingStarted() {
       return;
     }
 
+    // If user has already completed first instrumentation, redirect to dashboard
+    if (user.first_instrumentation_done) {
+      navigate('/u/dashboard');
+      return;
+    }
+
     // Fetch code samples
     fetchCodeSamples();
   }, [navigate]);

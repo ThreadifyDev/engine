@@ -22,6 +22,7 @@ type PlanRepository interface {
 type EntityProfileTypeRepository interface {
 	CreateProfileType(ctx context.Context, profileType *models.EntityProfileType) error
 	GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*models.EntityProfileType, error)
+	GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error)
 	GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error)
 	UpdateProfileType(ctx context.Context, profileType *models.EntityProfileType) error
 	ArchiveProfileType(ctx context.Context, companyID, profileTypeID string) error

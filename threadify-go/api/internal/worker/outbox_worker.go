@@ -210,6 +210,12 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleSendTeamInvitation(ctx, data)
+	case models.EventTypeUpdateAuthUserEmail:
+		w.logger.Debug("outbox: dispatching update-auth-user-email",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleUpdateAuthUserEmail(ctx, data)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.Type)
 	}
@@ -517,6 +523,29 @@ func (w *OutboxWorker) handleSendTeamInvitation(ctx context.Context, data map[st
 
 	w.logger.Info("outbox: team invitation email sent",
 		zap.String("email", email),
+	)
+	return nil
+}
+
+func (w *OutboxWorker) handleUpdateAuthUserEmail(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "auth_user_id", "new_email")
+	if err != nil {
+		return err
+	}
+	authUserID, newEmail := fields[0], fields[1]
+
+	w.logger.Debug("outbox: updating Supabase user email",
+		zap.String("auth_user_id", authUserID),
+		zap.String("new_email", newEmail),
+	)
+
+	if err := w.authClient.UpdateUserEmail(ctx, authUserID, newEmail); err != nil {
+		return fmt.Errorf("update Supabase user email: %w", err)
+	}
+
+	w.logger.Info("outbox: Supabase user email updated",
+		zap.String("auth_user_id", authUserID),
+		zap.String("new_email", newEmail),
 	)
 	return nil
 }

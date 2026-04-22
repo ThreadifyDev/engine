@@ -20,6 +20,10 @@ export default function EntityProfilesByType() {
 
   const [items, setItems] = useState<EntityProfileListItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [profileType, setProfileType] = useState<{
+    name: string | null;
+    keys: string[];
+  }>({ name: null, keys: [] });
   const [offset, setOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +53,7 @@ export default function EntityProfilesByType() {
   // Fetch from backend via GraphQL whenever type/offset/committed change
   useEffect(() => {
     if (!type) return;
+    
     let cancelled = false;
     (async () => {
       try {
@@ -63,6 +68,10 @@ export default function EntityProfilesByType() {
         if (cancelled) return;
         setItems(res.items || []);
         setTotal(res.totalCount || 0);
+        setProfileType({
+          name: res.profileType?.name || null,
+          keys: res.profileType?.type || [],
+        });
       } catch (err: any) {
         if (cancelled) return;
         setError(err.message || 'Failed to load entity profiles');
@@ -92,23 +101,35 @@ export default function EntityProfilesByType() {
         </div>
 
         {/* Header — matches /u/contracts style */}
-        <div className="flex justify-between items-start mb-8 gap-4">
-          <div>
-            <h2 className="text-2xl font-bold mb-2 font-mono">{type}</h2>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-6">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold mb-2 font-mono truncate">{profileType.name || type}</h2>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {profileType.keys.map((key) => (
+                <span
+                  key={key}
+                  className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-md text-[11px] font-mono font-medium"
+                >
+                  {key}: &hellip;
+                </span>
+              ))}
+            </div>
             <p className="text-gray-600">
               {total} {total === 1 ? 'profile' : 'profiles'} tracked under this type
             </p>
           </div>
 
           {/* Explicit search — with button */}
-          <InlineSearch
-            value={search}
-            onChange={setSearch}
-            onSearch={handleSearch}
-            onClear={handleClear}
-            isLoading={isLoading && committed !== ''}
-            placeholder="Search profiles…"
-          />
+          <div className="w-full sm:w-auto">
+            <InlineSearch
+              value={search}
+              onChange={setSearch}
+              onSearch={handleSearch}
+              onClear={handleClear}
+              isLoading={isLoading && committed !== ''}
+              placeholder="Search profiles…"
+            />
+          </div>
         </div>
 
         {/* Content */}
@@ -195,8 +216,8 @@ function InlineSearch({
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative w-80 max-w-full">
+    <div className="flex items-center gap-2 w-full sm:w-auto">
+      <div className="relative flex-1 sm:w-80 max-w-full">
         <div className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />

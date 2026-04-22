@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
+
 	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/utils"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
@@ -21,6 +27,10 @@ type UserHandler struct {
 	companyRepo   repository.CompanyRepository
 	apiKeyService iface.APIKeyService
 	userRoleRepo  repository.UserRoleRepository
+	authClient    sharedauth.AuthClient
+	outboxRepo    repository.OutboxRepository
+	outboxTrigger service.OutboxWorkerTrigger
+	encryptionKey []byte
 	logger        *zap.Logger
 }
 
@@ -29,6 +39,10 @@ func NewUserHandler(
 	companyRepo repository.CompanyRepository,
 	apiKeyService iface.APIKeyService,
 	userRoleRepo repository.UserRoleRepository,
+	authClient sharedauth.AuthClient,
+	outboxRepo repository.OutboxRepository,
+	outboxTrigger service.OutboxWorkerTrigger,
+	encryptionKey []byte,
 	logger *zap.Logger,
 ) *UserHandler {
 	return &UserHandler{
@@ -36,6 +50,10 @@ func NewUserHandler(
 		companyRepo:   companyRepo,
 		apiKeyService: apiKeyService,
 		userRoleRepo:  userRoleRepo,
+		authClient:    authClient,
+		outboxRepo:    outboxRepo,
+		outboxTrigger: outboxTrigger,
+		encryptionKey: encryptionKey,
 		logger:        logger,
 	}
 }
@@ -62,6 +80,11 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
+	}
+
+	// If companyID from JWT is empty, use user's company_id
+	if companyID == "" && user != nil {
+		companyID = user.CompanyID
 	}
 
 	company, err := h.companyRepo.FindByID(c.Request.Context(), companyID)
@@ -105,7 +128,6 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Look up user by internal ID
 	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
@@ -114,6 +136,11 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
+	}
+
+	// If companyID from JWT is empty, use user's company_id
+	if companyID == "" && user != nil {
+		companyID = user.CompanyID
 	}
 
 	var req models.UpdateProfileRequest
@@ -332,7 +359,55 @@ func (h *UserHandler) RemoveTeamMember(c *gin.Context) {
 		return
 	}
 
+	// 5. Queue Supabase user email update via outbox
+	if user.AuthUserID != nil && *user.AuthUserID != "" {
+		if err := h.queueSupabaseEmailUpdate(c.Request.Context(), *user.AuthUserID, archivedEmail, targetUserID); err != nil {
+			h.logger.Warn("failed to queue Supabase email update", zap.Error(err))
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Member removed successfully"})
+}
+
+// queueSupabaseEmailUpdate creates an outbox event to update a Supabase user's email
+func (h *UserHandler) queueSupabaseEmailUpdate(ctx context.Context, authUserID, newEmail, referenceID string) error {
+	payload, err := json.Marshal(map[string]string{
+		"auth_user_id": authUserID,
+		"new_email":    newEmail,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	encrypted, err := utils.Encrypt(payload, h.encryptionKey)
+	if err != nil {
+		for i := range payload {
+			payload[i] = 0
+		}
+		return fmt.Errorf("encrypt payload: %w", err)
+	}
+
+	for i := range payload {
+		payload[i] = 0
+	}
+
+	if err := h.outboxRepo.Create(ctx, &models.OutboxEvent{
+		ID:          utils.GenerateID(),
+		Type:        models.EventTypeUpdateAuthUserEmail,
+		Payload:     encrypted,
+		Status:      models.OutboxStatusPending,
+		MaxRetries:  models.OutboxDefaultMaxRetries,
+		NextRunAt:   time.Now(),
+		ReferenceID: referenceID,
+	}); err != nil {
+		return fmt.Errorf("create outbox event: %w", err)
+	}
+
+	if h.outboxTrigger != nil {
+		h.outboxTrigger.Trigger()
+	}
+
+	return nil
 }
 
 // helpers
@@ -347,7 +422,7 @@ func getUserID(c *gin.Context) (string, bool) {
 }
 
 func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
-	userID, exists := c.Get("userID")
+	userID, exists := c.Get(sharedauth.CtxUserID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", "", false

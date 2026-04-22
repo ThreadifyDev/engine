@@ -115,17 +115,17 @@ export default function BillingCard({ onUpgrade }: BillingCardProps) {
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex items-center gap-6 mt-2">
           <button
             onClick={onUpgrade}
-            className="px-6 py-3 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium"
+            className="text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
           >
             Change Plan
           </button>
           {plan.status === 'active' && (
             <button
               onClick={() => setShowCancelConfirm(true)}
-              className="px-6 py-3 border-2 border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors font-medium"
+              className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
             >
               Cancel Subscription
             </button>
@@ -228,18 +228,18 @@ export default function BillingCard({ onUpgrade }: BillingCardProps) {
             <p className="text-gray-600 mb-6">
               Are you sure you want to cancel your subscription? You'll lose access to premium features at the end of your billing period.
             </p>
-            <div className="flex gap-3 justify-end">
+            <div className="flex justify-end items-center gap-6 mt-2">
               <button
                 onClick={() => setShowCancelConfirm(false)}
                 disabled={cancelMutation.isPending}
-                className="px-6 py-3 border-2 border-gray-300 hover:bg-gray-100 transition-colors font-medium"
+                className="text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
               >
                 Keep Subscription
               </button>
               <button
                 onClick={handleCancelSubscription}
                 disabled={cancelMutation.isPending}
-                className="px-6 py-3 bg-red-600 text-white hover:bg-red-700 transition-colors font-medium disabled:opacity-50"
+                className="px-8 py-3 bg-red-600 text-white hover:bg-red-700 rounded-xl transition-colors font-medium disabled:opacity-50"
               >
                 {cancelMutation.isPending ? 'Cancelling...' : 'Yes, Cancel'}
               </button>

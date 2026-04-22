@@ -268,7 +268,8 @@ func extractClaims(c jwt.MapClaims) *TokenClaims {
 		tc.CompanyID = claimStr(meta, "threadify_company_id")
 
 		if !tc.EmailVerified {
-			tc.EmailVerified = claimBool(meta, "email_verified")
+			tc.UserID = claimStr(meta, "threadify_user_id")
+			tc.CompanyID = claimStr(meta, "threadify_company_id")
 		}
 	}
 

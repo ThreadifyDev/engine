@@ -965,13 +965,27 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_company ON entity_profile_type(company_id);
 
-	ALTER TABLE entity_profile_type
-    ALTER COLUMN type TYPE TEXT[] USING ARRAY[type];
+	DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'entity_profile_type'
+        AND column_name = 'type'
+        AND data_type != 'ARRAY'
+    ) THEN
+        ALTER TABLE entity_profile_type
+            ALTER COLUMN type TYPE TEXT[] USING ARRAY[type];
+    END IF;
+END $$;
 
 	ALTER TABLE entity_profile_type
     ALTER COLUMN type SET DEFAULT '{}';
 
 	ALTER TABLE entity_profile_type ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+
+	UPDATE entity_profile_type
+	SET slug = LOWER(REPLACE(TRIM(name), ' ', '-'))
+	WHERE slug IS NULL;
 
 	DO $$
 BEGIN

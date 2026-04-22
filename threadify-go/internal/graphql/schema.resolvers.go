@@ -121,6 +121,11 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
+	// Batch load refs if requested in selections
+	if err := r.BatchLoadThreadData(ctx, []*models.Thread{thread}); err != nil {
+		return nil, err
+	}
+
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
 	ctx = cacheAccessCheck(ctx, thread.ID, true)
 	metrics.RequestsTotal.WithLabelValues("graphql_thread", "success").Inc()
@@ -239,18 +244,18 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Convert refKey pointer to string (empty string if nil)
-	refKeyVal := ""
-	if refKey != nil {
-		refKeyVal = *refKey
+	// Convert refKey pointer to slice
+	var refKeys []string
+	if refKey != nil && *refKey != "" {
+		refKeys = []string{*refKey}
 	}
 
 	// Query threads by ref (this method already filters by company)
-	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeyVal, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeys, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to query threads by ref",
 			zap.String("company_id", companyID),
-			zap.String("ref_key", refKeyVal),
+			zap.Strings("ref_keys", refKeys),
 			zap.String("ref_value", refValue),
 			zap.Error(err),
 		)
@@ -258,6 +263,63 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	}
 
 	// Batch load refs if needed
+	if len(threads) > 0 {
+		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+			return nil, err
+		}
+	}
+
+	return &models.ThreadConnection{
+		Threads:    threads,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// EntityProfileHistory is the resolver for the entityProfileHistory field.
+func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+	// 1. Get user info from context (companyID for security)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// 2. Fetch Entity Profile
+	profile, _, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity profile: %w", err)
+	}
+
+	// 3. Fetch Entity Profile Type to get refKeys
+	profileType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+	if err != nil {
+		r.logger.Warn("failed to fetch profile type for history", zap.Error(err), zap.String("profile_type_id", profile.ProfileTypeID))
+	}
+
+	var refKeys []string
+	if profileType != nil {
+		refKeys = profileType.Type
+	}
+
+	// 4. Query threads by refKeys and profile.RefKey (the identifier value)
+	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeys, profile.RefKey, status, startedAfter, startedBefore, limitVal, offsetVal)
+	if err != nil {
+		r.logger.Error("failed to query entity profile history",
+			zap.String("company_id", companyID),
+			zap.String("profile_id", profileID),
+			zap.Strings("ref_keys", refKeys),
+			zap.String("ref_value", profile.RefKey),
+			zap.Error(err),
+		)
+		return nil, apperrors.NewInternalError("Failed to query thread history", err)
+	}
+
+	// 5. Batch load refs if needed
 	if len(threads) > 0 {
 		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
 			return nil, err
@@ -507,11 +569,15 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 		if err != nil || profile == nil {
 			return nil, nil // Not found or error
 		}
+		// Fetch profile type details
+		pType, _ := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+
 		return &generated.EntityProfile{
 			ID:            profile.ID,
 			RefKey:        profile.RefKey,
 			CompanyID:     profile.CompanyID,
 			ProfileTypeID: profile.ProfileTypeID,
+			ProfileType:   toGraphQLProfileType(pType),
 			Name:          &profile.Name,
 			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
@@ -524,11 +590,15 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 		if err != nil || profile == nil {
 			return nil, nil
 		}
+		// Fetch profile type details
+		pType, _ := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+
 		return &generated.EntityProfile{
 			ID:            profile.ID,
 			RefKey:        profile.RefKey,
 			CompanyID:     profile.CompanyID,
 			ProfileTypeID: profile.ProfileTypeID,
+			ProfileType:   toGraphQLProfileType(pType),
 			Name:          &profile.Name,
 			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
@@ -588,6 +658,16 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		return nil, apperrors.NewInternalError("Failed to list entity profiles", err)
 	}
 
+	// Fetch profile type details for the connection
+	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
+	if err != nil {
+		r.logger.Warn("could not fetch profile type details for connection",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+	}
+
 	out := make([]*generated.EntityProfile, 0, len(items))
 	for _, it := range items {
 		p := it.Profile
@@ -605,8 +685,9 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 	}
 
 	return &generated.EntityProfileConnection{
-		Items:      out,
-		TotalCount: total,
+		Items:       out,
+		TotalCount:  total,
+		ProfileType: toGraphQLProfileType(pt),
 	}, nil
 }
 
