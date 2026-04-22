@@ -42,10 +42,10 @@ export default function Developer() {
 
   return (
     <AppLayout>
-      <div className="p-8 px-4 sm:px-6 lg:px-8">
+      <div className="p-8">
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Developer Settings</h1>
+            <h1 className="text-2xl font-bold mb-2">Developer Settings</h1>
             <p className="text-gray-600">
               Manage API keys and service accounts for programmatic access
             </p>

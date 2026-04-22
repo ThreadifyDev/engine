@@ -286,18 +286,64 @@ export default function HomePage() {
 
       {/* SECTION 7 — Cross Boundary */}
       <section className="py-32 px-6 bg-gradient-to-br from-blue-50 to-purple-50">
-        <div className="max-w-5xl mx-auto text-center space-y-8">
-          <h3 className="text-4xl md:text-5xl font-bold text-slate-900 leading-tight">
-            Your process doesn't stop at your boundary.
-            <br />
-            <span className="text-blue-600">Your intelligence shouldn't either.</span>
-          </h3>
-          <div className="space-y-4 text-xl text-slate-700 leading-relaxed max-w-3xl mx-auto">
-            <p>
-              Invite a partner into the thread. Their services instrument their side. You get one
-              shared execution graph — their steps and yours, in the same coherent timeline.
+        <div className="max-w-6xl mx-auto space-y-12">
+          <div className="text-center space-y-8">
+            <h3 className="text-4xl md:text-5xl font-bold text-slate-900 leading-tight">
+              Your process doesn't stop at your boundary.
+              <br />
+              <span className="text-blue-600">Your intelligence shouldn't either.</span>
+            </h3>
+            <p className="text-xl text-slate-700 leading-relaxed max-w-3xl mx-auto">
+              Invite a partner into the thread. They instrument their side. One shared execution
+              graph — their steps and yours, in one timeline.
             </p>
-            <p className="font-semibold text-slate-900">
+          </div>
+
+          {/* Code Examples */}
+          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {/* Your API - Invite */}
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+              <div className="bg-slate-800 px-6 py-3 border-b border-slate-700">
+                <h4 className="text-sm font-semibold text-slate-300">Your API</h4>
+              </div>
+              <div className="p-6">
+                <pre className="text-sm text-slate-800 overflow-x-auto">
+                  <code>{`// Invite partner to thread
+const invitation = await thread
+  .inviteParty({
+    role: "logistics",
+    accessLevel: "external",
+    expiresIn: "48h"
+  });
+
+// Share token with partner
+console.log(invitation.token);`}</code>
+                </pre>
+              </div>
+            </div>
+
+            {/* Partner API - Join */}
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+              <div className="bg-purple-800 px-6 py-3 border-b border-purple-700">
+                <h4 className="text-sm font-semibold text-purple-100">Partner API</h4>
+              </div>
+              <div className="p-6">
+                <pre className="text-sm text-slate-800 overflow-x-auto">
+                  <code>{`// Join thread with token
+const thread = await connection
+  .join(invitationToken);
+
+// Record their steps
+await thread.step('package_shipped')
+  .addContext({ tracking: '1Z999' })
+  .success();`}</code>
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center space-y-4 pt-8">
+            <p className="text-lg font-semibold text-slate-900">
               No more "send me your logs." No more cross-company finger pointing.
             </p>
             <p className="text-blue-600 font-bold text-2xl">One thread. Full picture.</p>
@@ -329,7 +375,7 @@ export default function HomePage() {
               Get started <ArrowRight className="w-5 h-5" />
             </Link>
             <a
-              href="https://docs.threadify.com"
+              href="https://docs.threadify.dev"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-slate-900 border-2 border-slate-300 rounded-lg hover:border-slate-400 transition-colors text-lg font-semibold"
@@ -349,7 +395,7 @@ export default function HomePage() {
                 Threadify
               </Link>
               <a
-                href="https://docs.threadify.com"
+                href="https://docs.threadify.dev"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"
@@ -357,7 +403,7 @@ export default function HomePage() {
                 Docs
               </a>
               <a
-                href="https://docs.threadify.com/mcp-server"
+                href="https://docs.threadify.dev/mcp-server"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"
@@ -365,7 +411,7 @@ export default function HomePage() {
                 MCP Server
               </a>
               <a
-                href="https://docs.threadify.com/ai-assistant"
+                href="https://docs.threadify.dev/ai-assistant"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"

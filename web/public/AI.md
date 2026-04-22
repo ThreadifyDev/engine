@@ -197,7 +197,7 @@ Every step must have one of three statuses:
 - `token` - JWT invitation token
 - OR
 - `threadId` - Thread ID to join
-- `role` - Role for access control
+- `role` - Role for access control (`owner`, `participant`, `observer`, `external`)
 
 **Returns:** Thread instance with write access (can record steps)
 

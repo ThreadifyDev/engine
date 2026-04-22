@@ -113,9 +113,14 @@ export default function ContractDetail() {
               ← Back to Contracts
             </button>
             <div className="flex items-center justify-between mb-6">
-              <h1 className="text-3xl font-semibold text-gray-900">
-                {contract?.name || id || 'Contract Details'}
-              </h1>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                  {contract?.name || id || 'Contract Details'}
+                </h1>
+                <p className="text-gray-600">
+                  View contract versions and validation rules
+                </p>
+              </div>
               <button
                 onClick={() => setShowUpdateModal(true)}
                 className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors text-sm font-medium"

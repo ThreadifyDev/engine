@@ -321,10 +321,13 @@ export default function ThreadsPage() {
 
   return (
     <AppLayout>
-      <div className="p-6 max-w-7xl mx-auto">
+      <div className="p-8">
         {/* Compact Header */}
-        <div className="mb-4">
-          <h1 className="text-2xl font-bold text-black">Threads</h1>
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-black mb-2">Threads</h1>
+          <p className="text-gray-600">
+            Search and browse workflow execution threads
+          </p>
         </div>
 
         {/* Advanced Search */}

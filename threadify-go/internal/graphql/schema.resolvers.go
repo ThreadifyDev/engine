@@ -495,27 +495,47 @@ func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount 
 }
 
 // EntityProfile is the resolver for the entityProfile field.
-func (r *queryResolver) EntityProfile(ctx context.Context, refKey string, typeArg string) (*generated.EntityProfile, error) {
+func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*generated.EntityProfile, error) {
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, typeArg, refKey)
-	if err != nil {
-		return nil, nil
+	if id != nil && *id != "" {
+		profile, metrics, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, *id)
+		if err != nil || profile == nil {
+			return nil, nil // Not found or error
+		}
+		return &generated.EntityProfile{
+			ID:            profile.ID,
+			RefKey:        profile.RefKey,
+			CompanyID:     profile.CompanyID,
+			ProfileTypeID: profile.ProfileTypeID,
+			Name:          &profile.Name,
+			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(metrics),
+		}, nil
 	}
 
-	return &generated.EntityProfile{
-		ID:            profile.ID,
-		RefKey:        profile.RefKey,
-		CompanyID:     profile.CompanyID,
-		ProfileTypeID: profile.ProfileTypeID,
-		Name:          &profile.Name,
-		CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
-		LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
-		Metrics:       toGraphQLMetrics(metrics),
-	}, nil
+	if refKey != nil && typeArg != nil && *refKey != "" && *typeArg != "" {
+		profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, *typeArg, *refKey)
+		if err != nil || profile == nil {
+			return nil, nil
+		}
+		return &generated.EntityProfile{
+			ID:            profile.ID,
+			RefKey:        profile.RefKey,
+			CompanyID:     profile.CompanyID,
+			ProfileTypeID: profile.ProfileTypeID,
+			Name:          &profile.Name,
+			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(metrics),
+		}, nil
+	}
+
+	return nil, fmt.Errorf("must provide either id or both refKey and type")
 }
 
 // EntityProfileTypes is the resolver for the entityProfileTypes field.
@@ -535,6 +555,58 @@ func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.En
 		result[i] = toGraphQLProfileType(t)
 	}
 	return result, nil
+}
+
+// EntityProfilesByType is the resolver for the entityProfilesByType field.
+func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*generated.EntityProfileConnection, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	limitVal := 20
+	if limit != nil {
+		limitVal = *limit
+	}
+	offsetVal := 0
+	if offset != nil {
+		offsetVal = *offset
+	}
+	searchVal := ""
+	if search != nil {
+		searchVal = *search
+	}
+
+	items, total, err := r.entityProfileRepo.ListProfilesByType(ctx, companyID, typeArg, searchVal, limitVal, offsetVal)
+	if err != nil {
+		r.logger.Error("failed to list entity profiles by type",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+		return nil, apperrors.NewInternalError("Failed to list entity profiles", err)
+	}
+
+	out := make([]*generated.EntityProfile, 0, len(items))
+	for _, it := range items {
+		p := it.Profile
+		name := p.Name
+		out = append(out, &generated.EntityProfile{
+			ID:            p.ID,
+			RefKey:        p.RefKey,
+			CompanyID:     p.CompanyID,
+			ProfileTypeID: p.ProfileTypeID,
+			Name:          &name,
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  p.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(it.Metrics),
+		})
+	}
+
+	return &generated.EntityProfileConnection{
+		Items:      out,
+		TotalCount: total,
+	}, nil
 }
 
 // Error is the resolver for the error field on StepHistory.
@@ -958,7 +1030,7 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread
 // Details is the resolver for the details field.
 func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
 	// Return details as JSON string
-	if obj.Details == nil || len(obj.Details) == 0 {
+	if len(obj.Details) == 0 {
 		emptyJSON := "{}"
 		return &emptyJSON, nil
 	}

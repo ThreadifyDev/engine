@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { Key, Check } from 'lucide-react';
-import { api } from '~/lib/api';
+import { Key, Plus, Copy, Check, Trash2, Eye, EyeOff, X } from 'lucide-react';
+import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import Alert from '~/components/Alert';
@@ -19,7 +19,7 @@ export default function APIKeys() {
   const { roles, isLoading: rolesLoading } = useServiceAccountRoles();
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [expiresIn, setExpiresIn] = useState<string>('never');
@@ -64,7 +64,14 @@ export default function APIKeys() {
       const response = await api.listAPIKeys();
       setApiKeys(response.api_keys || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load API keys');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to load API keys' });
+      }
     } finally {
       setLoading(false);
     }
@@ -72,7 +79,7 @@ export default function APIKeys() {
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setCreating(true);
 
     try {
@@ -93,7 +100,14 @@ export default function APIKeys() {
       setServiceAccountRole('developer');
       await fetchAPIKeys();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create API key');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to create API key' });
+      }
     } finally {
       setCreating(false);
     }
@@ -108,7 +122,14 @@ export default function APIKeys() {
       await api.revokeAPIKey(keyId);
       await fetchAPIKeys();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke API key');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to revoke API key' });
+      }
     }
   };
 
@@ -132,7 +153,7 @@ export default function APIKeys() {
       <div className="p-8">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">API Keys</h1>
+          <h1 className="text-2xl font-bold mb-2">API Keys</h1>
           <p className="text-gray-600">
             Manage your API keys for authenticating with the Threadify API
           </p>
@@ -146,7 +167,7 @@ export default function APIKeys() {
         )}
 
         {/* Error Message */}
-        {error && <Alert type="error" message={error} className="mb-6" />}
+        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
 
         {/* Create Button */}
         <div className="mb-6">

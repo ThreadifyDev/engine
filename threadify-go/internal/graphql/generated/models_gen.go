@@ -13,15 +13,21 @@ type EntityProfile struct {
 	Metrics       *EntityProfileMetrics `json:"metrics,omitempty"`
 }
 
+type EntityProfileConnection struct {
+	Items      []*EntityProfile `json:"items"`
+	TotalCount int              `json:"totalCount"`
+}
+
 type EntityProfileMetrics struct {
-	EntityProfileID       string   `json:"entityProfileId"`
-	TotalDeliveries       int      `json:"totalDeliveries"`
-	CompletedSuccessfully int      `json:"completedSuccessfully"`
-	ValidationViolations  int      `json:"validationViolations"`
-	DeliveryHealthScore   *float64 `json:"deliveryHealthScore,omitempty"`
-	HealthTrendSlope      *float64 `json:"healthTrendSlope,omitempty"`
-	AverageDeliveryTimeMs *int     `json:"averageDeliveryTimeMs,omitempty"`
-	LastCalculatedAt      *string  `json:"lastCalculatedAt,omitempty"`
+	EntityProfileID         string   `json:"entityProfileId"`
+	TotalDeliveries         int      `json:"totalDeliveries"`
+	CompletedSuccessfully   int      `json:"completedSuccessfully"`
+	ValidationViolations    int      `json:"validationViolations"`
+	DeliveryHealthScore     *float64 `json:"deliveryHealthScore,omitempty"`
+	PrevDeliveryHealthScore *float64 `json:"prevDeliveryHealthScore,omitempty"`
+	HealthTrendSlope        *float64 `json:"healthTrendSlope,omitempty"`
+	AverageDeliveryTimeMs   *int     `json:"averageDeliveryTimeMs,omitempty"`
+	LastCalculatedAt        *string  `json:"lastCalculatedAt,omitempty"`
 }
 
 type EntityProfileType struct {

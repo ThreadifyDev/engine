@@ -1,7 +1,9 @@
 import { Link } from "@remix-run/react";
 import ThreadifyLogo from "~/components/ThreadifyLogo";
+import Footer from "~/components/homepage/Footer";
+import CodeBlock from "~/components/CodeBlock";
 import { useState, useEffect } from "react";
-import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge } from "lucide-react";
+import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge, ChevronDown } from "lucide-react";
 
 export default function HomePageStory() {
   return (
@@ -15,7 +17,7 @@ export default function HomePageStory() {
           <div className="hidden md:flex items-center gap-8">
             <a href="#how-it-works" className="text-sm text-gray-600 hover:text-black transition-colors">How it works</a>
             <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-black transition-colors">Documentation</a>
-            <a href="#pricing" className="text-sm text-gray-600 hover:text-black transition-colors">Pricing</a>
+            <Link to="/pricing" className="text-sm text-gray-600 hover:text-black transition-colors">Pricing</Link>
           </div>
           <div className="flex items-center gap-3">
             <Link to="/login" className="text-sm font-medium text-gray-700 hover:text-black transition-colors px-4 py-2">Sign in</Link>
@@ -42,11 +44,11 @@ export default function HomePageStory() {
               See exactly how your business{" "}
               <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">delivers.</span>
               <br />
-              <span className="text-gray-400">Every request. In real time.</span>
+              <span className="text-gray-500">Every request. In real time.</span>
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-500 max-w-3xl mx-auto mb-12 leading-relaxed font-light">
-              Turn every customer request into delivery intelligence your teams and systems can act on.
+              Turn every customer request into service delivery intelligence your teams and systems can act on.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
@@ -138,33 +140,36 @@ export default function HomePageStory() {
               </div>
             </div>
           </div>
+
+          {/* Tagline */}
+          <div className="mt-6 text-center mb-20">
+            <p className="text-xs text-gray-400 italic">
+              This is what Threadify sees.{" "}
+              <span className="text-gray-600">For the first time, so can you.</span>
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="max-w-4xl mx-auto">
+            <hr className="border-gray-200" />
+          </div>
         </div>
       </section>
 
-      {/* Tagline Section */}
-      <section className="py-32 px-6 bg-white">
-        <div className="max-w-4xl mx-auto text-center">
-          <p className="text-2xl md:text-3xl lg:text-4xl text-gray-400 leading-relaxed font-light">
-            This is what Threadify sees.{" "}
-            <span className="text-black font-normal">For the first time, so can you.</span>
-          </p>
-        </div>
-      </section>
-
-      {/* Value Prop Banner */}
-      <section className="py-20 px-6 bg-black text-white">
+      {/* Value Prop Banner - Header for Capture/Validate/React sections */}
+      <section className="pt-12 pb-12 px-6 bg-white">
         <div className="max-w-5xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold leading-tight tracking-tight mb-6">
-            The process crosses every boundary.
-            <br />
-            <span className="bg-gradient-to-r from-white via-gray-300 to-gray-500 bg-clip-text text-transparent">The intelligence doesn't.</span>
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold leading-tight tracking-tight text-black mb-4">
+            Everything you need.{" "}
+            <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">
+              Intelligence at scale.
+            </span>
           </h2>
-          <p className="text-xl text-gray-400 italic">Until now.</p>
         </div>
       </section>
 
       {/* How It Works - Capture */}
-      <section id="how-it-works" className="py-32 px-6 border-b border-gray-100">
+      <section id="how-it-works" className="pt-4 pb-16 px-6 border-b border-gray-100">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div>
@@ -180,7 +185,7 @@ export default function HomePageStory() {
                   Crossing services, teams, partners, and boundaries no single system can see end to end.
                 </p>
                 <p>
-                  One line per business action. A live execution graph builds itself across every service involved.
+                  One line per business action. A live execution graph (a Thread) builds itself across every service involved.
                 </p>
                 <p className="text-black font-medium">
                   Most teams discover their real process looks nothing like the Confluence doc. Now you know what it actually is.
@@ -188,23 +193,20 @@ export default function HomePageStory() {
               </div>
             </div>
             <div>
-              <div className="bg-gray-50 rounded-2xl p-8 border border-gray-200">
-                <div className="font-mono text-sm">
-                  <div className="text-gray-400 mb-4">// Start tracking</div>
-                  <div className="space-y-2 mb-6">
-                    <div><span className="text-gray-500">const</span> thread = <span className="text-gray-500">await</span> threadify.<span className="text-black">start</span>();</div>
-                    <div>thread.<span className="text-black">step</span>(<span className="text-gray-600">"payment_captured"</span>)</div>
-                  </div>
-                  <div className="text-gray-400 mb-2">// Add context</div>
-                  <div className="space-y-2">
-                    <div><span className="text-gray-500">const</span> step = thread.<span className="text-black">step</span>(<span className="text-gray-600">"fraud_check"</span>)</div>
-                    <div>step.<span className="text-black">addContext</span>(data).<span className="text-black">success</span>()</div>
-                  </div>
-                </div>
-              </div>
+              <CodeBlock
+                title="Start tracking"
+                headerColor="gray"
+                code={`// Start tracking
+const thread = await threadify.start();
+thread.step("payment_captured")
+
+// Add context
+const step = thread.step("fraud_check")
+step.addContext(data).success()`}
+              />
               <div className="mt-6">
                 <a href="https://docs.threadify.dev/core-concepts/tracking-workflows" className="inline-flex items-center gap-2 text-black font-medium hover:gap-3 transition-all">
-                  Learn how to track workflows
+                  Learn how to track service delivery
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </div>
@@ -247,7 +249,7 @@ export default function HomePageStory() {
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
                 <p>
-                  Define what correct looks like. Threadify validates every execution against it in real time.
+                  Define what correct looks like - Contracts. Threadify validates every execution against it in real time.
                 </p>
                 <p>
                   A step skipped. A sequence broken. A partner silent. You know instantly.
@@ -273,31 +275,48 @@ export default function HomePageStory() {
               <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
                 Build systems that respond intelligently
               </h2>
-              <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
+              <div className="space-y-5 text-lg text-gray-600 leading-relaxed mb-8">
                 <p>
-                  When a step gets skipped, a workflow stops before it goes further. When a payment stalls, an account is suspended automatically.
+                  When a step gets skipped, the process stops before it goes further. When a payment stalls, an account is suspended automatically.
                 </p>
                 <p className="text-black font-medium">
-                  Your system stops being reactive. It becomes intelligent.
+                  Your system stops being reactive. It becomes proactive and intelligent.
                 </p>
               </div>
-            </div>
-            <div className="bg-gray-50 rounded-2xl p-8 border border-gray-200">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-white rounded-lg border border-gray-100">
+              
+              {/* Taglines */}
+              <div className="flex flex-wrap gap-6">
+                <div className="flex items-center gap-3">
                   <Users className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">Proactive customer messaging</span>
+                  <span className="text-sm font-medium text-gray-700">Proactive customer messaging</span>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-white rounded-lg border border-gray-100">
+                <div className="flex items-center gap-3">
                   <Bot className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">AI agents with full context</span>
+                  <span className="text-sm font-medium text-gray-700">AI agents with full context</span>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-white rounded-lg border border-gray-100">
+                <div className="flex items-center gap-3">
                   <Zap className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-900">Circuit breakers that fire early</span>
+                  <span className="text-sm font-medium text-gray-700">Circuit breakers that fire early</span>
                 </div>
               </div>
             </div>
+            
+            {/* Code Example */}
+            <CodeBlock
+              title="Event Listeners"
+              headerColor="gray"
+              code={`// React to step completion
+connection.subscribe('step.success', 'order_placed', (notification) => {
+  console.log('Order placed:', notification.context);
+  notification.ack();
+});
+
+// React to rule violations
+connection.subscribe('rule.violated', 'payment_processed', (notification) => {
+  console.log('Violation:', notification.severity);
+  notification.ack();
+});`}
+            />
           </div>
         </div>
       </section>
@@ -305,6 +324,10 @@ export default function HomePageStory() {
       {/* Entity Profile Section */}
       <section className="py-32 px-6 bg-gray-50">
         <div className="max-w-4xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
+            <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">4</span>
+            Entity Profile
+          </div>
           <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
             Every thread is one moment. Every customer has many.
           </h2>
@@ -388,19 +411,55 @@ export default function HomePageStory() {
 
       {/* Cross-Boundary Section */}
       <section className="py-32 px-6 bg-gray-50">
-        <div className="max-w-5xl mx-auto text-center">
-          <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
-            Your process doesn't stop at your boundary.
-            <br />
-            <span className="text-gray-400">Your intelligence shouldn't either.</span>
-          </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-12">
-            Invite a partner into the thread. They instrument their side. One shared execution graph — their steps and yours, in one timeline.
-          </p>
-          <div className="flex items-center justify-center gap-8">
-            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Your API</div>
-            <GitMerge className="w-6 h-6 text-gray-400" />
-            <div className="px-6 py-4 bg-white rounded-lg border border-gray-200 font-medium">Partner API</div>
+        <div className="max-w-6xl mx-auto space-y-12">
+          <div className="text-center space-y-8">
+            <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight leading-[1.1]">
+              Your process doesn't stop at your boundary.
+              <br />
+              <span className="text-gray-500">Your intelligence shouldn't either.</span>
+            </h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Invite a partner into the thread. They instrument their side. One shared execution graph — their steps and yours, in one timeline.
+            </p>
+          </div>
+
+          {/* Code Examples */}
+          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {/* Your API - Invite */}
+            <CodeBlock
+              title="Your API"
+              headerColor="gray"
+              code={`// Invite partner to thread
+const invitation = await thread
+  .inviteParty({
+    role: "logistics",
+    expiresIn: "48h"
+  });
+
+// Share token with partner
+console.log(invitation.token);`}
+            />
+
+            {/* Partner API - Join */}
+            <CodeBlock
+              title="Partner API"
+              headerColor="purple"
+              code={`// Join thread with token
+const thread = await connection
+  .join(invitationToken);
+
+// Record their steps
+await thread.step('package_shipped')
+  .addContext({ tracking: '1Z999' })
+  .success();`}
+            />
+          </div>
+
+          <div className="text-center space-y-4 pt-8">
+            <p className="text-lg font-semibold text-gray-900">
+              Service delivery doesn't stop at your boundary. Your visibility shouldn't either.
+            </p>
+            <p className="text-black font-bold text-2xl">One thread. Their steps and yours. Full picture.</p>
           </div>
         </div>
       </section>
@@ -418,7 +477,7 @@ export default function HomePageStory() {
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link to="/signup" className="group px-10 py-5 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl text-lg flex items-center gap-2">
-              Start free trial
+              Get Started Free
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
             <a href="https://docs.threadify.dev" className="px-10 py-5 bg-white text-gray-900 rounded-xl font-bold border-2 border-gray-200 hover:border-gray-300 transition-all text-lg">
@@ -428,22 +487,7 @@ export default function HomePageStory() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 px-6 border-t border-gray-200 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
-            <div className="flex items-center">
-              <ThreadifyLogo height={26} />
-            </div>
-            <div className="flex items-center gap-6">
-              <a href="https://docs.threadify.dev/core-concepts/mcp-integration" className="text-sm text-gray-600 hover:text-gray-900 transition">MCP Integration</a>
-              <a href="https://threadify.dev/AI.md" className="text-sm text-gray-600 hover:text-gray-900 transition">AI Assistant Guide</a>
-              <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-gray-900 transition">Documentation</a>
-            </div>
-          </div>
-          <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. Service delivery intelligence platform.</p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

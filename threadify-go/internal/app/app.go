@@ -352,6 +352,14 @@ func buildRouter(cfg *config.Config, d *deps, logger *zap.Logger) http.Handler {
 	mcpGroup.Use(middleware.CreditUsageMiddleware(planSvc, logger))
 	mountMCPServer(mcpGroup, cfg, planSvc, logger)
 
+	// Public endpoints (no auth required)
+	v1Public := r.Group("/v1")
+	v1Public.GET("/pricing", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"credit": cfg.Subscription.Credit,
+		})
+	})
+
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
 	v1.Use(middleware.EgressMiddleware(planSvc, logger))
@@ -441,7 +449,23 @@ func shutdownGuard(shuttingDown *atomic.Bool) gin.HandlerFunc {
 
 func graphqlMiddleware(h *handler.Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h.ServeHTTP(c.Writer, c.Request)
+		// Transfer authentication context from Gin to GraphQL request
+		ctx := c.Request.Context()
+
+		// Extract auth values from Gin context
+		if userID, exists := c.Get(sharedauth.CtxUserID); exists {
+			ctx = context.WithValue(ctx, sharedauth.CtxUserID, userID)
+		}
+		if companyID, exists := c.Get(sharedauth.CtxCompanyID); exists {
+			ctx = context.WithValue(ctx, sharedauth.CtxCompanyID, companyID)
+		}
+		if roles, exists := c.Get(sharedauth.CtxRoles); exists {
+			ctx = context.WithValue(ctx, sharedauth.CtxRoles, roles)
+		}
+
+		// Create new request with updated context
+		r := c.Request.WithContext(ctx)
+		h.ServeHTTP(c.Writer, r)
 	}
 }
 

@@ -68,7 +68,7 @@ if err != nil {
 // With contract and specific role
 thread, err := conn.Start(ctx, 
     threadify.WithContract("order_fulfillment"),
-    threadify.WithRole("merchant"),
+    threadify.WithRole("participant"),
 )
 if err != nil {
     log.Fatal(err)
@@ -268,7 +268,7 @@ if err != nil {
 }
 
 // Get everything in one query (recommended)
-completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
+completeData, err := thread.GetCompleteData(ctx, &threadify.devpleteDataOptions{
 	StepHistoryLimit: 50,  // History per step
 	ValidationLimit:  10,  // Validation results
 })
@@ -405,7 +405,7 @@ if err != nil {
 ```go
 // Create invitation for external party
 invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
-    Role:        "logistics",
+    Role:        "participant",
     AccessLevel: "external",  // Optional, defaults to "external"
     ExpiresIn:   "48h",        // Optional, defaults to "24h"
 })

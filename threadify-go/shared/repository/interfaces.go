@@ -31,5 +31,7 @@ type EntityProfileRepository interface {
 	CreateProfile(ctx context.Context, profile *models.EntityProfile) error
 	GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*models.EntityProfile, error)
 	GetProfileMetrics(ctx context.Context, entityProfileID string) (*models.EntityProfileMetrics, error)
+	GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*models.EntityProfile, *models.EntityProfileMetrics, error)
 	GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*models.EntityProfile, *models.EntityProfileMetrics, error)
+	ListProfilesByType(ctx context.Context, companyID, typeName, search string, limit, offset int) ([]*ProfileWithMetrics, int, error)
 }

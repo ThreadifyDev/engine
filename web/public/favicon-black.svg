@@ -1,11 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Background -->
-  <rect width="32" height="32" rx="6" fill="white"/>
-  <!-- Needle stem (two converging lines meeting at pointed tip) -->
-  <path d="M16 29 L14.5 9" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M16 29 L17.5 9" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
-  <!-- Needle eye (small oval near top) -->
-  <ellipse cx="16" cy="7.5" rx="2" ry="2.8" stroke="black" stroke-width="1.8" fill="white"/>
-  <!-- Thread crossbar (wavy line through the eye) -->
-  <path d="M2 7 Q8 4 16 6 Q24 8 30 5" stroke="black" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+  <path d="M16 29 L14 8" stroke="black" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M16 29 L18 8" stroke="black" stroke-width="4.5" stroke-linecap="round"/>
+  <ellipse cx="16" cy="6.5" rx="2.5" ry="3.5" stroke="black" stroke-width="4" fill="none"/>
+  <path d="M1 6 Q8 3 16 5.5 Q24 8 31 4.5" stroke="black" stroke-width="4" stroke-linecap="round" fill="none"/>
 </svg>

@@ -8,6 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 	models "threadify-go/shared/models"
+	"threadify-go/shared/repository"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -341,4 +342,20 @@ func (m *MockEntityProfileRepository) GetProfileWithMetrics(ctx context.Context,
 func (mr *MockEntityProfileRepositoryMockRecorder) GetProfileWithMetrics(ctx, companyID, typeName, refKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProfileWithMetrics", reflect.TypeOf((*MockEntityProfileRepository)(nil).GetProfileWithMetrics), ctx, companyID, typeName, refKey)
+}
+
+// ListProfilesByType mocks base method.
+func (m *MockEntityProfileRepository) ListProfilesByType(ctx context.Context, companyID, typeName, search string, limit, offset int) ([]*repository.ProfileWithMetrics, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProfilesByType", ctx, companyID, typeName, search, limit, offset)
+	ret0, _ := ret[0].([]*repository.ProfileWithMetrics)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListProfilesByType indicates an expected call of ListProfilesByType.
+func (mr *MockEntityProfileRepositoryMockRecorder) ListProfilesByType(ctx, companyID, typeName, search, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProfilesByType", reflect.TypeOf((*MockEntityProfileRepository)(nil).ListProfilesByType), ctx, companyID, typeName, search, limit, offset)
 }

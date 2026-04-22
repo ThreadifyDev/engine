@@ -60,6 +60,7 @@ web_api:
   outbox_encryption_key: %q
   email:
     plunk_api_key: %q
+    plunk_from_email: "noreply@threadify.dev"
     plunk_api_url: %q
 auth_provider: "supabase"
 supabase:

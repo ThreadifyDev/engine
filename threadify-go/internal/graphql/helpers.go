@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/graphql/generated"
 	sharedauth "threadify-go/shared/auth"
 	sharedmodels "threadify-go/shared/models"
+
+	"github.com/threadify/engine/internal/graphql/generated"
 )
 
 // Context keys for caching
@@ -84,12 +85,13 @@ func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityPro
 		return nil
 	}
 	out := &generated.EntityProfileMetrics{
-		EntityProfileID:       m.EntityProfileID,
-		TotalDeliveries:       m.TotalDeliveries,
-		CompletedSuccessfully: m.CompletedSuccessfully,
-		ValidationViolations:  m.ValidationViolations,
-		DeliveryHealthScore:   m.DeliveryHealthScore,
-		HealthTrendSlope:      m.HealthTrendSlope,
+		EntityProfileID:         m.EntityProfileID,
+		TotalDeliveries:         m.TotalDeliveries,
+		CompletedSuccessfully:   m.CompletedSuccessfully,
+		ValidationViolations:    m.ValidationViolations,
+		DeliveryHealthScore:     m.DeliveryHealthScore,
+		PrevDeliveryHealthScore: m.PrevDeliveryHealthScore,
+		HealthTrendSlope:        m.HealthTrendSlope,
 	}
 	if m.AverageDeliveryTimeMs != nil {
 		v := int(*m.AverageDeliveryTimeMs)
