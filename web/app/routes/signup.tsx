@@ -3,6 +3,7 @@ import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, Link, useSearchParams } from '@remix-run/react';
 import { api, type SignupData, ValidationError } from '~/lib/api';
 import Alert, { type AlertType } from '~/components/Alert';
+import { Eye, EyeOff } from 'lucide-react';
 
 export const meta: MetaFunction = () => {
   return [
@@ -26,6 +27,7 @@ export default function Signup() {
   });
   const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [invitationToken, setInvitationToken] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string>('');
   const [loadingInvitation, setLoadingInvitation] = useState(false);
@@ -176,17 +178,26 @@ export default function Signup() {
               <label htmlFor="password" className="block text-sm font-medium text-black mb-1">
                 Password <span className="text-red-600">*</span>
               </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
-                placeholder="Min. 8 characters"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={8}
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 pr-12 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  placeholder="Min. 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
               <p className="mt-1 text-xs text-gray-500">Must be at least 8 characters</p>
             </div>
 

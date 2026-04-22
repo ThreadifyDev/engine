@@ -50,10 +50,10 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="p-12">
+      <div className="p-8">
         {/* Welcome Section */}
-        <div className="mb-12">
-          <h2 className="text-4xl font-bold text-black mb-2">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-black mb-2">
             Welcome back{user.full_name ? `, ${user.full_name}` : ''}!
           </h2>
           <p className="text-gray-600">

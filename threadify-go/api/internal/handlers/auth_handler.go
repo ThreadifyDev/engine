@@ -174,7 +174,7 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "If an account exists with this email and is not verified, a verification email will be sent.",
+		"message": "If an account exists with this email, a verification email will be sent.",
 	})
 }
 

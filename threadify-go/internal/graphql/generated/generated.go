@@ -71,15 +71,21 @@ type ComplexityRoot struct {
 		RefKey        func(childComplexity int) int
 	}
 
+	EntityProfileConnection struct {
+		Items      func(childComplexity int) int
+		TotalCount func(childComplexity int) int
+	}
+
 	EntityProfileMetrics struct {
-		AverageDeliveryTimeMs func(childComplexity int) int
-		CompletedSuccessfully func(childComplexity int) int
-		DeliveryHealthScore   func(childComplexity int) int
-		EntityProfileID       func(childComplexity int) int
-		HealthTrendSlope      func(childComplexity int) int
-		LastCalculatedAt      func(childComplexity int) int
-		TotalDeliveries       func(childComplexity int) int
-		ValidationViolations  func(childComplexity int) int
+		AverageDeliveryTimeMs   func(childComplexity int) int
+		CompletedSuccessfully   func(childComplexity int) int
+		DeliveryHealthScore     func(childComplexity int) int
+		EntityProfileID         func(childComplexity int) int
+		HealthTrendSlope        func(childComplexity int) int
+		LastCalculatedAt        func(childComplexity int) int
+		PrevDeliveryHealthScore func(childComplexity int) int
+		TotalDeliveries         func(childComplexity int) int
+		ValidationViolations    func(childComplexity int) int
 	}
 
 	EntityProfileType struct {
@@ -145,8 +151,9 @@ type ComplexityRoot struct {
 	Query struct {
 		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
-		EntityProfile         func(childComplexity int, refKey string, typeArg string) int
+		EntityProfile         func(childComplexity int, id *string, refKey *string, typeArg *string) int
 		EntityProfileTypes    func(childComplexity int) int
+		EntityProfilesByType  func(childComplexity int, typeArg string, search *string, limit *int, offset *int) int
 		ResolveActors         func(childComplexity int, ids []string) int
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread                func(childComplexity int, id string) int
@@ -333,8 +340,9 @@ type QueryResolver interface {
 	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
 	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
 	CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error)
-	EntityProfile(ctx context.Context, refKey string, typeArg string) (*EntityProfile, error)
+	EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*EntityProfile, error)
 	EntityProfileTypes(ctx context.Context) ([]*EntityProfileType, error)
+	EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*EntityProfileConnection, error)
 }
 type StepHistoryResolver interface {
 	Error(ctx context.Context, obj *models.StepHistory) (*string, error)
@@ -497,6 +505,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.EntityProfile.RefKey(childComplexity), true
 
+	case "EntityProfileConnection.items":
+		if e.ComplexityRoot.EntityProfileConnection.Items == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.Items(childComplexity), true
+	case "EntityProfileConnection.totalCount":
+		if e.ComplexityRoot.EntityProfileConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.TotalCount(childComplexity), true
+
 	case "EntityProfileMetrics.averageDeliveryTimeMs":
 		if e.ComplexityRoot.EntityProfileMetrics.AverageDeliveryTimeMs == nil {
 			break
@@ -533,6 +554,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfileMetrics.LastCalculatedAt(childComplexity), true
+	case "EntityProfileMetrics.prevDeliveryHealthScore":
+		if e.ComplexityRoot.EntityProfileMetrics.PrevDeliveryHealthScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.PrevDeliveryHealthScore(childComplexity), true
 	case "EntityProfileMetrics.totalDeliveries":
 		if e.ComplexityRoot.EntityProfileMetrics.TotalDeliveries == nil {
 			break
@@ -824,13 +851,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.EntityProfile(childComplexity, args["refKey"].(string), args["type"].(string)), true
+		return e.ComplexityRoot.Query.EntityProfile(childComplexity, args["id"].(*string), args["refKey"].(*string), args["type"].(*string)), true
 	case "Query.entityProfileTypes":
 		if e.ComplexityRoot.Query.EntityProfileTypes == nil {
 			break
 		}
 
 		return e.ComplexityRoot.Query.EntityProfileTypes(childComplexity), true
+	case "Query.entityProfilesByType":
+		if e.ComplexityRoot.Query.EntityProfilesByType == nil {
+			break
+		}
+
+		args, err := ec.field_Query_entityProfilesByType_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EntityProfilesByType(childComplexity, args["type"].(string), args["search"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 
 	case "Query.resolveActors":
 		if e.ComplexityRoot.Query.ResolveActors == nil {
@@ -1957,10 +1995,24 @@ type Query {
   checkCredits(meter: String, amount: Int): Boolean!
 
   # Retrieve an entity profile and its intelligence metrics
-  entityProfile(refKey: String!, type: String!): EntityProfile
+  entityProfile(id: String, refKey: String, type: String): EntityProfile
 
   # Retrieve all configured entity profile types for the company
   entityProfileTypes: [EntityProfileType!]!
+
+  # List entity profiles for a given profile type (by type key). Supports
+  # case-insensitive search across ref_key and name plus pagination.
+  entityProfilesByType(
+    type: String!
+    search: String
+    limit: Int
+    offset: Int
+  ): EntityProfileConnection!
+}
+
+type EntityProfileConnection {
+  items: [EntityProfile!]!
+  totalCount: Int!
 }
 
 type Mutation {
@@ -2067,6 +2119,7 @@ type EntityProfileMetrics {
   completedSuccessfully: Int!
   validationViolations: Int!
   deliveryHealthScore: Float
+  prevDeliveryHealthScore: Float
   healthTrendSlope: Float
   averageDeliveryTimeMs: Int
   lastCalculatedAt: String
@@ -2157,16 +2210,47 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 func (ec *executionContext) field_Query_entityProfile_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "refKey", ec.unmarshalNString2string)
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["refKey"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalNString2string)
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "refKey", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["type"] = arg1
+	args["refKey"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["type"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_entityProfilesByType_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["type"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "search", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["search"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg3
 	return args, nil
 }
 
@@ -3127,6 +3211,8 @@ func (ec *executionContext) fieldContext_EntityProfile_metrics(_ context.Context
 				return ec.fieldContext_EntityProfileMetrics_validationViolations(ctx, field)
 			case "deliveryHealthScore":
 				return ec.fieldContext_EntityProfileMetrics_deliveryHealthScore(ctx, field)
+			case "prevDeliveryHealthScore":
+				return ec.fieldContext_EntityProfileMetrics_prevDeliveryHealthScore(ctx, field)
 			case "healthTrendSlope":
 				return ec.fieldContext_EntityProfileMetrics_healthTrendSlope(ctx, field)
 			case "averageDeliveryTimeMs":
@@ -3135,6 +3221,82 @@ func (ec *executionContext) fieldContext_EntityProfile_metrics(_ context.Context
 				return ec.fieldContext_EntityProfileMetrics_lastCalculatedAt(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileMetrics", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_items(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_items,
+		func(ctx context.Context) (any, error) {
+			return obj.Items, nil
+		},
+		nil,
+		ec.marshalNEntityProfile2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfile_id(ctx, field)
+			case "refKey":
+				return ec.fieldContext_EntityProfile_refKey(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfile_companyId(ctx, field)
+			case "profileTypeId":
+				return ec.fieldContext_EntityProfile_profileTypeId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfile_name(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfile_createdAt(ctx, field)
+			case "lastActiveAt":
+				return ec.fieldContext_EntityProfile_lastActiveAt(ctx, field)
+			case "metrics":
+				return ec.fieldContext_EntityProfile_metrics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_totalCount,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
 		},
 	}
 	return fc, nil
@@ -3273,6 +3435,35 @@ func (ec *executionContext) _EntityProfileMetrics_deliveryHealthScore(ctx contex
 }
 
 func (ec *executionContext) fieldContext_EntityProfileMetrics_deliveryHealthScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_prevDeliveryHealthScore(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_prevDeliveryHealthScore,
+		func(ctx context.Context) (any, error) {
+			return obj.PrevDeliveryHealthScore, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_prevDeliveryHealthScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "EntityProfileMetrics",
 		Field:      field,
@@ -5247,7 +5438,7 @@ func (ec *executionContext) _Query_entityProfile(ctx context.Context, field grap
 		ec.fieldContext_Query_entityProfile,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().EntityProfile(ctx, fc.Args["refKey"].(string), fc.Args["type"].(string))
+			return ec.Resolvers.Query().EntityProfile(ctx, fc.Args["id"].(*string), fc.Args["refKey"].(*string), fc.Args["type"].(*string))
 		},
 		nil,
 		ec.marshalOEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile,
@@ -5339,6 +5530,53 @@ func (ec *executionContext) fieldContext_Query_entityProfileTypes(_ context.Cont
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_entityProfilesByType(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfilesByType,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EntityProfilesByType(ctx, fc.Args["type"].(string), fc.Args["search"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNEntityProfileConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfilesByType(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "items":
+				return ec.fieldContext_EntityProfileConnection_items(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_EntityProfileConnection_totalCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_entityProfilesByType_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -10748,6 +10986,50 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var entityProfileConnectionImplementors = []string{"EntityProfileConnection"}
+
+func (ec *executionContext) _EntityProfileConnection(ctx context.Context, sel ast.SelectionSet, obj *EntityProfileConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityProfileConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityProfileConnection")
+		case "items":
+			out.Values[i] = ec._EntityProfileConnection_items(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._EntityProfileConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var entityProfileMetricsImplementors = []string{"EntityProfileMetrics"}
 
 func (ec *executionContext) _EntityProfileMetrics(ctx context.Context, sel ast.SelectionSet, obj *EntityProfileMetrics) graphql.Marshaler {
@@ -10781,6 +11063,8 @@ func (ec *executionContext) _EntityProfileMetrics(ctx context.Context, sel ast.S
 			}
 		case "deliveryHealthScore":
 			out.Values[i] = ec._EntityProfileMetrics_deliveryHealthScore(ctx, field, obj)
+		case "prevDeliveryHealthScore":
+			out.Values[i] = ec._EntityProfileMetrics_prevDeliveryHealthScore(ctx, field, obj)
 		case "healthTrendSlope":
 			out.Values[i] = ec._EntityProfileMetrics_healthTrendSlope(ctx, field, obj)
 		case "averageDeliveryTimeMs":
@@ -11678,6 +11962,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_entityProfileTypes(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfilesByType":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfilesByType(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -13708,6 +14014,46 @@ func (ec *executionContext) marshalNContractGraph2ᚖgithubᚗcomᚋthreadifyᚋ
 		return graphql.Null
 	}
 	return ec._ContractGraph(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEntityProfile2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileᚄ(ctx context.Context, sel ast.SelectionSet, v []*EntityProfile) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx context.Context, sel ast.SelectionSet, v *EntityProfile) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityProfile(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEntityProfileConnection2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection(ctx context.Context, sel ast.SelectionSet, v EntityProfileConnection) graphql.Marshaler {
+	return ec._EntityProfileConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEntityProfileConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection(ctx context.Context, sel ast.SelectionSet, v *EntityProfileConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityProfileConnection(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNEntityProfileType2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileTypeᚄ(ctx context.Context, sel ast.SelectionSet, v []*EntityProfileType) graphql.Marshaler {

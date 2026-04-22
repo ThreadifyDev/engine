@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
 
 export const meta: MetaFunction = () => {
@@ -25,7 +25,7 @@ export default function Onboarding() {
     use_case: '',
     use_case_other: '',
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
   const [skipCompanyStep, setSkipCompanyStep] = useState(false);
 
@@ -80,7 +80,7 @@ export default function Onboarding() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setLoading(true);
 
     try {
@@ -107,7 +107,16 @@ export default function Onboarding() {
       // Navigate to getting-started (mandatory, non-skippable)
       navigate('/u/getting-started');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete onboarding');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to complete onboarding',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -152,7 +161,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && <Alert type="error" message={error} />}
+            {error && <Alert type="error" message={error.message} details={error.details} />}
 
             <div className="space-y-4">
               {/* Full Name */}
@@ -247,7 +256,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && <Alert type="error" message={error} />}
+            {error && <Alert type="error" message={error.message} details={error.details} />}
 
             <div className="space-y-4">
               {/* Industry */}

@@ -1,6 +1,6 @@
 .PHONY: help install generate-graphql \
         build build-api build-archiver \
-        build-image build-web-api build-web-ui build-docs \
+        build-image build-archiver-image build-web-api build-web-ui build-docs \
         run run-api run-archiver run-docker \
         push push-archiver push-web-api push-web-ui push-docs \
         test-engine-unit test-engine-coverage \
@@ -49,7 +49,7 @@ build-api: ## Build the Web API binary
 	cd api && $(GO) build -o ../bin/api cmd/server/main.go
 	@echo "✓ Binary created at bin/api"
 
-build-archiver: ## Build the archiver binary
+build-archiver-binary: ## Build the archiver binary
 	@echo "Building archiver..."
 	@mkdir -p bin
 	$(GO) build -o bin/archiver cmd/archiver/main.go
@@ -181,6 +181,9 @@ dev: docker-up ## Start dev environment and run server
 
 build-image: ## Build engine Docker image
 	docker build -t intelijence/th-engine:$(VERSION) .
+
+build-archiver: ## Build archiver Docker image
+	docker build -f Dockerfile.archiver -t intelijence/th-archiver:$(VERSION) .
 
 build-web-api: ## Build Web API Docker image
 	docker build -f Dockerfile.api -t intelijence/th_web_api:$(VERSION) .

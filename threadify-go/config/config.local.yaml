@@ -211,8 +211,8 @@ web_api:
   
   # Email service (Plunk)
   email:
-    plunk_api_key: "$PLUNK_API_KEY:sk_b2383fde9b0f52295c5410166454519f4db28e48561bd419"
-    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.com"
+    plunk_api_key: "$PLUNK_API_KEY:"
+    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
   
   # Threadify Engine integration
   threadify_engine:

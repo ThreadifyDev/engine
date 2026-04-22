@@ -26,11 +26,12 @@ type plunkEmailService struct {
 	apiKey      string
 	apiURL      string
 	frontendURL string
+	fromEmail   string
 	httpClient  *http.Client
 	templates   *template.Template
 }
 
-func NewEmailService(apiKey, apiURL, frontendURL string) (EmailService, error) {
+func NewEmailService(apiKey, apiURL, frontendURL, fromEmail string) (EmailService, error) {
 	tmpl, err := template.ParseFS(emailTemplates, "templates/email/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse email templates: %w", err)
@@ -40,6 +41,7 @@ func NewEmailService(apiKey, apiURL, frontendURL string) (EmailService, error) {
 		apiKey:      apiKey,
 		apiURL:      apiURL,
 		frontendURL: frontendURL,
+		fromEmail:   fromEmail,
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		templates:   tmpl,
 	}, nil
@@ -55,6 +57,7 @@ type emailData struct {
 
 type plunkEmailRequest struct {
 	To      string `json:"to"`
+	From    string `json:"from"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 }
@@ -72,6 +75,7 @@ func (s *plunkEmailService) SendWelcomeEmail(ctx context.Context, email, fullNam
 	}
 	return s.send(ctx, plunkEmailRequest{
 		To:      email,
+		From:    s.fromEmail,
 		Subject: "Welcome to Threadify",
 		Body:    body,
 	})
@@ -89,6 +93,7 @@ func (s *plunkEmailService) SendVerificationEmail(ctx context.Context, email, to
 	}
 	return s.send(ctx, plunkEmailRequest{
 		To:      email,
+		From:    s.fromEmail,
 		Subject: "Verify Your Threadify Account",
 		Body:    body,
 	})
@@ -104,6 +109,7 @@ func (s *plunkEmailService) SendLoginOTPEmail(ctx context.Context, email, token 
 	}
 	return s.send(ctx, plunkEmailRequest{
 		To:      email,
+		From:    s.fromEmail,
 		Subject: "Your Threadify Login Code",
 		Body:    body,
 	})
@@ -121,6 +127,7 @@ func (s *plunkEmailService) SendPasswordResetEmail(ctx context.Context, email, r
 	}
 	return s.send(ctx, plunkEmailRequest{
 		To:      email,
+		From:    s.fromEmail,
 		Subject: "Reset Your Threadify Password",
 		Body:    body,
 	})
@@ -137,6 +144,7 @@ func (s *plunkEmailService) SendTeamInvitationEmail(ctx context.Context, email, 
 	}
 	return s.send(ctx, plunkEmailRequest{
 		To:      email,
+		From:    s.fromEmail,
 		Subject: "You're invited to join Threadify",
 		Body:    body,
 	})

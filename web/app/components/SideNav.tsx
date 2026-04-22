@@ -20,9 +20,11 @@ import { api } from '~/lib/api';
 interface SideNavProps {
   isCollapsed?: boolean;
   onToggle?: () => void;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: SideNavProps = {}) {
+export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, isMobileOpen = false, onCloseMobile }: SideNavProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [internalCollapsed, setInternalCollapsed] = useState(true);
@@ -44,9 +46,9 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
   const navItems = [
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
+    { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
     { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
-    { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },
     { path: '/u/settings', label: 'Settings', icon: Settings },
@@ -54,8 +56,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
 
   return (
     <div
-      className={`hidden lg:flex h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
-        }`}
+      className={`h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 z-50 ${isCollapsed ? 'w-16' : 'w-64'} ${isMobileOpen ? 'translate-x-0 flex' : '-translate-x-full lg:translate-x-0 lg:flex'} `}
     >
       {/* Logo & Toggle */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
@@ -67,13 +68,25 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
             <ThreadifyLogo height={24} />
           </div>
         )}
-        <button
-          onClick={handleToggle}
-          className="p-2 hover:bg-gray-800 rounded transition-colors text-white"
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-        </button>
+        <div className="flex gap-2">
+          {/* Close button on mobile instead of expand/collapse */}
+          {isMobileOpen ? (
+            <button
+              onClick={onCloseMobile}
+              className="p-2 hover:bg-gray-800 rounded transition-colors text-white lg:hidden"
+              title="Close menu"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          ) : null}
+          <button
+            onClick={handleToggle}
+            className="p-2 hover:bg-gray-800 rounded transition-colors text-white hidden lg:block"
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Navigation Items */}
@@ -88,8 +101,8 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
               }`}
             title={isCollapsed ? item.label : undefined}
           >
-            <item.icon className="w-5 h-5" />
-            {!isCollapsed && <span>{item.label}</span>}
+            <item.icon className="w-5 h-5 flex-shrink-0" />
+            {(!isCollapsed || isMobileOpen) && <span className="truncate">{item.label}</span>}
           </button>
         ))}
       </nav>
@@ -98,12 +111,12 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle }: 
       <div className="p-4 border-t border-gray-800">
         <button
           onClick={handleLogout}
-          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${isCollapsed ? 'justify-center' : 'justify-start'
+          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${isCollapsed && !isMobileOpen ? 'justify-center' : 'justify-start'
             }`}
-          title={isCollapsed ? 'Logout' : undefined}
+          title={isCollapsed && !isMobileOpen ? 'Logout' : undefined}
         >
-          <LogOut className="w-4 h-4" />
-          {!isCollapsed && <span>Logout</span>}
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          {(!isCollapsed || isMobileOpen) && <span>Logout</span>}
         </button>
       </div>
     </div>

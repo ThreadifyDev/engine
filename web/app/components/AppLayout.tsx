@@ -15,26 +15,57 @@ export default function AppLayout({
   rightSidebarWidth = '400px'
 }: AppLayoutProps) {
   const [isNavCollapsed, setIsNavCollapsed] = useState(true);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  const navWidth = isNavCollapsed ? 64 : 256; // w-16 = 64px, w-64 = 256px
+  // navWidth only applies to desktop (lg and up)
+  const navWidth = isNavCollapsed ? 64 : 256; 
 
   return (
     <div className="min-h-screen bg-white flex">
+      {/* Mobile Nav Overlay */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
       {/* Left Navigation */}
       <SideNav 
         isCollapsed={isNavCollapsed} 
         onToggle={() => setIsNavCollapsed(!isNavCollapsed)} 
+        isMobileOpen={isMobileOpen}
+        onCloseMobile={() => setIsMobileOpen(false)}
       />
       
       {/* Main Content Area */}
       <main 
-        className="flex-1 transition-all duration-300 overflow-auto"
+        className="flex-1 transition-all duration-300 overflow-auto w-full"
         style={{
-          marginLeft: `${navWidth}px`,
-          marginRight: showRightSidebar ? rightSidebarWidth : '0',
+          // Use CSS variables or calc to handle responsive margin
         }}
       >
-        {children}
+        {/* Mobile Header */}
+        <div className="lg:hidden flex items-center p-4 border-b border-gray-200">
+          <button 
+            onClick={() => setIsMobileOpen(true)}
+            className="p-2 hover:bg-gray-100 rounded text-black transition-colors mr-3"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <span className="font-semibold">Threadify</span>
+        </div>
+
+        <div className="lg:ml-auto transition-all duration-300" style={{ marginLeft: `var(--desktop-margin, 0px)` }}>
+          <style>{`
+            @media (min-width: 1024px) {
+              :root {
+                --desktop-margin: ${navWidth}px;
+              }
+            }
+          `}</style>
+          {children}
+        </div>
       </main>
 
       {/* Right Sidebar (Optional) */}

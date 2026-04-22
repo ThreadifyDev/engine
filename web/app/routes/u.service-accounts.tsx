@@ -163,7 +163,7 @@ export default function ServiceAccounts() {
 
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8">
+      <div className="p-8">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Service Accounts</h1>

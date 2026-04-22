@@ -156,6 +156,7 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
 		cfg.WebAPI.FrontendURL,
+		cfg.WebAPI.Email.PlunkFromEmail,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init email service: %w", err)
@@ -287,6 +288,7 @@ type appHandlers struct {
 	teamInvitation     *handlers.TeamInvitationHandler
 	entityProfileType  *handlers.EntityProfileTypeHandler
 	entityProfileProxy *handlers.EntityProfileProxyHandler
+	pricing            *handlers.PricingHandler
 }
 
 func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
@@ -308,6 +310,7 @@ func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacL
 		teamInvitation:     handlers.NewTeamInvitationHandler(svcs.teamInvitationService, repos.company, logger),
 		entityProfileType:  handlers.NewEntityProfileTypeHandler(entityProfileTypeSvc),
 		entityProfileProxy: handlers.NewEntityProfileProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
+		pricing:            handlers.NewPricingHandler(cfg.WebAPI.ThreadifyEngine.URL),
 	}
 }
 
@@ -338,6 +341,7 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 	r.GET("/api/code-samples", h.codeSamples.GetCodeSample)
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
+	r.GET("/api/pricing", h.pricing.GetPricing)
 
 	r.POST("/api/team/invitation/validate", h.teamInvitation.ValidateInvitation)
 

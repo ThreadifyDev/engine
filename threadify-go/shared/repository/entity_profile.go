@@ -52,6 +52,103 @@ func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfile
 	return &m, err
 }
 
+// ProfileWithMetrics bundles a profile row with its (optional) metrics.
+type ProfileWithMetrics struct {
+	Profile *models.EntityProfile
+	Metrics *models.EntityProfileMetrics
+}
+
+// ListProfilesByType returns profiles under a given profile type (by type key)
+// for a company, ordered by last_active_at desc. Returns total count for pagination.
+// If search is non-empty, matches against name OR ref_key (case-insensitive substring).
+func (r *EntityProfileRepo) ListProfilesByType(ctx context.Context, companyID, typeName, search string, limit, offset int) ([]*ProfileWithMetrics, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var searchPattern string
+	hasSearch := len(search) > 0
+	if hasSearch {
+		searchPattern = "%" + search + "%"
+	}
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM entity_profile ep
+		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id
+		WHERE ep.company_id = $1 AND ept.type = $2 AND ept.archived_at IS NULL
+		  AND ($3::text IS NULL OR ep.name ILIKE $3 OR ep.ref_key ILIKE $3)
+	`
+	var searchArg interface{}
+	if hasSearch {
+		searchArg = searchPattern
+	} else {
+		searchArg = nil
+	}
+	var total int
+	if err := r.pool.QueryRow(ctx, countQuery, companyID, typeName, searchArg).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT
+			ep.id, ep.company_id, ep.entity_profile_type_id, ep.name, ep.ref_key, ep.created_at, ep.last_active_at,
+			epm.entity_profile_id, epm.total_deliveries, epm.completed_successfully, epm.validation_violations,
+			epm.delivery_health_score, epm.prev_delivery_health_score, epm.health_trend_slope, epm.average_delivery_time_ms, epm.last_calculated_at
+		FROM entity_profile ep
+		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id
+		LEFT JOIN entity_profile_metrics epm ON epm.entity_profile_id = ep.id
+		WHERE ep.company_id = $1 AND ept.type = $2 AND ept.archived_at IS NULL
+		  AND ($5::text IS NULL OR ep.name ILIKE $5 OR ep.ref_key ILIKE $5)
+		ORDER BY ep.last_active_at DESC
+		LIMIT $3 OFFSET $4
+	`
+	rows, err := r.pool.Query(ctx, query, companyID, typeName, limit, offset, searchArg)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var results []*ProfileWithMetrics
+	for rows.Next() {
+		var p models.EntityProfile
+		var m models.EntityProfileMetrics
+		var metricsID *string
+		var totalDeliveries, completed, violations *int
+
+		if err := rows.Scan(
+			&p.ID, &p.CompanyID, &p.ProfileTypeID, &p.Name, &p.RefKey, &p.CreatedAt, &p.LastActiveAt,
+			&metricsID, &totalDeliveries, &completed, &violations,
+			&m.DeliveryHealthScore, &m.PrevDeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+
+		item := &ProfileWithMetrics{Profile: &p}
+		if metricsID != nil {
+			m.EntityProfileID = *metricsID
+			if totalDeliveries != nil {
+				m.TotalDeliveries = *totalDeliveries
+			}
+			if completed != nil {
+				m.CompletedSuccessfully = *completed
+			}
+			if violations != nil {
+				m.ValidationViolations = *violations
+			}
+			item.Metrics = &m
+		}
+		results = append(results, item)
+	}
+	return results, total, rows.Err()
+}
+
 func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
 	query := `
 		SELECT
@@ -64,6 +161,49 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 		WHERE ep.company_id = $1 AND ept.type = $2 AND ep.ref_key = $3 AND ept.archived_at IS NULL
 	`
 	row := r.pool.QueryRow(ctx, query, companyID, typeName, refKey)
+
+	var p models.EntityProfile
+	var m models.EntityProfileMetrics
+	var metricsID *string
+
+	var totalDeliveries, completed, validations *int
+
+	err := row.Scan(
+		&p.ID, &p.CompanyID, &p.ProfileTypeID, &p.Name, &p.RefKey, &p.CreatedAt, &p.LastActiveAt,
+		&metricsID, &totalDeliveries, &completed, &validations,
+		&m.DeliveryHealthScore, &m.PrevDeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if metricsID != nil {
+		m.EntityProfileID = *metricsID
+		if totalDeliveries != nil {
+			m.TotalDeliveries = *totalDeliveries
+		}
+		if completed != nil {
+			m.CompletedSuccessfully = *completed
+		}
+		if validations != nil {
+			m.ValidationViolations = *validations
+		}
+		return &p, &m, nil
+	}
+	return &p, nil, nil
+}
+
+func (r *EntityProfileRepo) GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
+	query := `
+		SELECT
+			ep.id, ep.company_id, ep.entity_profile_type_id, ep.name, ep.ref_key, ep.created_at, ep.last_active_at,
+			epm.entity_profile_id, epm.total_deliveries, epm.completed_successfully, epm.validation_violations,
+			epm.delivery_health_score, epm.prev_delivery_health_score, epm.health_trend_slope, epm.average_delivery_time_ms, epm.last_calculated_at
+		FROM entity_profile ep
+		LEFT JOIN entity_profile_metrics epm ON epm.entity_profile_id = ep.id
+		WHERE ep.company_id = $1 AND ep.id = $2
+	`
+	row := r.pool.QueryRow(ctx, query, companyID, entityProfileID)
 
 	var p models.EntityProfile
 	var m models.EntityProfileMetrics

@@ -231,10 +231,24 @@ type Query {
   checkCredits(meter: String, amount: Int): Boolean!
 
   # Retrieve an entity profile and its intelligence metrics
-  entityProfile(refKey: String!, type: String!): EntityProfile
+  entityProfile(id: String, refKey: String, type: String): EntityProfile
 
   # Retrieve all configured entity profile types for the company
   entityProfileTypes: [EntityProfileType!]!
+
+  # List entity profiles for a given profile type (by type key). Supports
+  # case-insensitive search across ref_key and name plus pagination.
+  entityProfilesByType(
+    type: String!
+    search: String
+    limit: Int
+    offset: Int
+  ): EntityProfileConnection!
+}
+
+type EntityProfileConnection {
+  items: [EntityProfile!]!
+  totalCount: Int!
 }
 
 type Mutation {
@@ -341,6 +355,7 @@ type EntityProfileMetrics {
   completedSuccessfully: Int!
   validationViolations: Int!
   deliveryHealthScore: Float
+  prevDeliveryHealthScore: Float
   healthTrendSlope: Float
   averageDeliveryTimeMs: Int
   lastCalculatedAt: String

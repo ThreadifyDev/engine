@@ -578,6 +578,7 @@ class ApiClient {
     // Note: Use encodeURIComponent to safely pass refKey and type
     return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
   }
+
 }
 
 export interface EntityProfileType {
@@ -595,8 +596,9 @@ export interface EntityProfileMetrics {
   totalDeliveries: number;
   completedSuccessfully: number;
   validationViolations: number;
-  deliveryHealthScore: number;
-  healthTrendSlope: number;
+  deliveryHealthScore: number | null;
+  prevDeliveryHealthScore: number | null;
+  healthTrendSlope: number | null;
   averageDeliveryTimeMs: number;
   lastCalculatedAt: string;
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from '@remix-run/react';
-import { api, type User, type GetCurrentPlanResponse } from '~/lib/api';
+import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
 import { ProfileTab } from '~/components/settings/ProfileTab';
@@ -33,7 +33,7 @@ export default function Settings() {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing'>('profile');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState('');
   const [billingInfo, setBillingInfo] = useState<GetCurrentPlanResponse | null>(null);
 
@@ -106,7 +106,7 @@ export default function Settings() {
 
   const handleTopUp = async (amount: number) => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       if (isNaN(amount) || amount <= 0) {
         throw new Error('Please enter a valid top-up amount');
@@ -121,14 +121,23 @@ export default function Settings() {
         throw new Error('No checkout URL returned from server');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to initiate checkout');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err.message || 'Failed to initiate checkout',
+        });
+      }
       setLoading(false);
     }
   };
 
   const handleUpdateMonthlyLimit = async (limitStr: string) => {
     setLoading(true);
-    setError('');
+    setError(null);
     setSuccess('');
     try {
       const limit = parseFloat(limitStr);
@@ -144,7 +153,16 @@ export default function Settings() {
       setSuccess('Monthly spending limit updated successfully!');
       await loadBillingInfo(); // Reload billing info
     } catch (err: any) {
-      setError(err.message || 'Failed to update monthly limit');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err.message || 'Failed to update monthly limit',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -153,7 +171,7 @@ export default function Settings() {
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
     setSuccess('');
 
     try {
@@ -165,7 +183,16 @@ export default function Settings() {
       setUser(response.user);
       setSuccess('Profile updated successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to update profile',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -218,7 +245,7 @@ export default function Settings() {
         </div>
 
         {/* Messages */}
-        {error && <Alert type="error" message={error} className="mb-6" />}
+        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
         {success && (
           <div className="bg-green-600 text-white px-4 py-3 mb-6">
             {success}

@@ -18,7 +18,7 @@ func TestEmailService_AllTemplates(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc, err := service.NewEmailService("test-key", server.URL, "https://frontend.com")
+	svc, err := service.NewEmailService("test-key", server.URL, "https://frontend.com", "noreply@threadify.dev")
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -66,7 +66,7 @@ func TestEmailService_HTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc, err := service.NewEmailService("test-key", server.URL, "https://frontend.com")
+	svc, err := service.NewEmailService("test-key", server.URL, "https://frontend.com", "noreply@threadify.dev")
 	require.NoError(t, err)
 
 	err = svc.SendWelcomeEmail(context.Background(), "test@example.com", "John Doe")

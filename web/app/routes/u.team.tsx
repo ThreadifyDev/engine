@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert from '~/components/Alert';
 
@@ -28,7 +28,7 @@ export default function Team() {
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'member' });
   const [inviting, setInviting] = useState(false);
@@ -49,7 +49,7 @@ export default function Team() {
 
     const fetchData = async () => {
       setLoading(true);
-      setError('');
+      setError(null);
       
       // Get current user ID
       const user = api.getStoredUser();
@@ -91,7 +91,7 @@ export default function Team() {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviting(true);
-    setError('');
+    setError(null);
     setSuccessMessage('');
 
     try {
@@ -107,10 +107,17 @@ export default function Team() {
         // Refresh data
         window.location.reload();
       } else {
-        setError(response.error || 'Failed to send invitation');
+        setError({ message: response.error || 'Failed to send invitation' });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send invite');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to send invite' });
+      }
     } finally {
       setInviting(false);
     }
@@ -119,15 +126,15 @@ export default function Team() {
   const handleRemoveMember = async (memberId: string) => {
     // Prevent users from removing themselves
     if (memberId === currentUserId) {
-      setError('You cannot remove yourself from the team');
-      setTimeout(() => setError(''), 5000);
+      setError({ message: 'You cannot remove yourself from the team' });
+      setTimeout(() => setError(null), 5000);
       return;
     }
 
     // Ensure at least one user remains
     if (teamMembers.length <= 1) {
-      setError('Cannot remove the last team member. There must be at least one user in the team.');
-      setTimeout(() => setError(''), 5000);
+      setError({ message: 'Cannot remove the last team member. There must be at least one user in the team.' });
+      setTimeout(() => setError(null), 5000);
       return;
     }
 
@@ -138,7 +145,14 @@ export default function Team() {
       setSuccessMessage('Member removed successfully');
       window.location.reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove member');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to remove member' });
+      }
     }
   };
 
@@ -147,7 +161,7 @@ export default function Team() {
 
     try {
       setResendingId(invitationId);
-      setError('');
+      setError(null);
       setSuccessMessage('');
 
       const response = await api.resendInvitation(invitationId);
@@ -156,10 +170,17 @@ export default function Team() {
         setSuccessMessage(`Invitation resent to ${email}`);
         window.location.reload();
       } else {
-        setError(response.error || 'Failed to resend invitation');
+        setError({ message: response.error || 'Failed to resend invitation' });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend invitation');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to resend invitation' });
+      }
     } finally {
       setResendingId(null);
     }
@@ -170,7 +191,7 @@ export default function Team() {
 
     try {
       setCancelingId(invitationId);
-      setError('');
+      setError(null);
       setSuccessMessage('');
 
       const response = await api.cancelInvitation(invitationId);
@@ -180,10 +201,17 @@ export default function Team() {
         setInvitations(invitations.filter(inv => inv.id !== invitationId));
         setSuccessMessage(`Invitation cancelled for ${email}`);
       } else {
-        setError(response.error || 'Failed to cancel invitation');
+        setError({ message: response.error || 'Failed to cancel invitation' });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel invitation');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to cancel invitation' });
+      }
     } finally {
       setCancelingId(null);
     }
@@ -195,7 +223,7 @@ export default function Team() {
       setSuccessMessage('Invitation link copied to clipboard!');
       setTimeout(() => setSuccessMessage(''), 3000);
     }).catch(() => {
-      setError('Failed to copy link to clipboard');
+      setError({ message: 'Failed to copy link to clipboard' });
     });
   };
 
@@ -231,7 +259,7 @@ export default function Team() {
           </div>
         </div>
 
-        {error && <Alert type="error" message={error} className="mb-6" />}
+        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
         {successMessage && <Alert type="success" message={successMessage} className="mb-6" />}
 
         {/* Tabs */}

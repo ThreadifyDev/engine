@@ -9,7 +9,7 @@ import YamlEditor from '~/components/YamlEditor';
 export const meta: MetaFunction = () => {
   return [
     { title: "Contracts - Threadify" },
-    { name: "description", content: "Manage your workflow contracts" },
+    { name: "description", content: "Enforce your service delivery workflow as contracts" },
   ];
 };
 
@@ -86,7 +86,7 @@ export default function Contracts() {
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
             <p className="text-gray-600">
-              Manage your workflow contracts and validation rules
+              Enforce your service delivery workflow as contracts
             </p>
           </div>
           <button

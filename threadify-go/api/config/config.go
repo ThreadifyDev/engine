@@ -58,7 +58,7 @@ func Load() (*Config, error) {
 		RefreshTokenExpiration:    refreshTokenExp,
 		APIKeyTTL:                 apiKeyTTL,
 		PlunkAPIKey:               getEnv("PLUNK_API_KEY", ""),
-		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.com"),
+		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.dev"),
 		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "http://localhost:8081"),
 		ThreadifyEngineGraphQLURL: getEnv("THREADIFY_ENGINE_GRAPHQL_URL", "http://localhost:8081/graphql"),
 		ThreadifyEngineUserID:     getEnv("THREADIFY_ENGINE_USER_ID", "123456"),

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { Link, useNavigate } from '@remix-run/react';
 import { CheckCircle } from 'lucide-react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
 
 export const meta: MetaFunction = () => {
@@ -14,20 +14,29 @@ export const meta: MetaFunction = () => {
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setLoading(true);
 
     try {
       await api.forgotPassword({ email });
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send reset email');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to send reset email',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -82,7 +91,7 @@ export default function ForgotPassword() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && <Alert type="error" message={error} />}
+          {error && <Alert type="error" message={error.message} details={error.details} />}
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-black mb-1">

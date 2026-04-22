@@ -1,54 +1,20 @@
+import ThreadifyLogo from "~/components/ThreadifyLogo";
+
 export default function Footer() {
-  const currentYear = new Date().getFullYear();
-
   return (
-    <footer className="bg-gray-50 border-t border-gray-200 py-12 px-6">
+    <footer className="py-12 px-6 border-t border-gray-200 bg-white">
       <div className="max-w-7xl mx-auto">
-        <div className="grid md:grid-cols-3 gap-8 mb-8">
-          {/* Brand */}
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xl font-semibold text-black">Threadify</h3>
-            <p className="text-sm text-gray-600">Enabling intelligent systems and teams.</p>
+        <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
+          <div className="flex items-center">
+            <ThreadifyLogo height={26} />
           </div>
-
-          {/* Resources */}
-          <div className="flex flex-col gap-3">
-            <h4 className="text-sm font-semibold text-black uppercase tracking-wider">Resources</h4>
-            <a 
-              href="https://docs.threadify.dev" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-black transition-colors"
-            >
-              Documentation
-            </a>
-            <a 
-              href="https://docs.threadify.dev/core-concepts/mcp-integration" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-black transition-colors"
-            >
-              MCP Server
-            </a>
-            <a 
-              href="/AI.md" 
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-gray-600 hover:text-black transition-colors"
-            >
-              AI Assistant Guide
-            </a>
+          <div className="flex items-center gap-6">
+            <a href="https://docs.threadify.dev/core-concepts/mcp-integration" className="text-sm text-gray-600 hover:text-gray-900 transition">MCP Integration</a>
+            <a href="https://threadify.dev/AI.md" className="text-sm text-gray-600 hover:text-gray-900 transition">AI Assistant Guide</a>
+            <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-gray-900 transition">Documentation</a>
           </div>
-
-          {/* Empty column for spacing */}
-          <div></div>
         </div>
-
-        <div className="flex justify-center pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-500">
-            © {currentYear} Threadify. All rights reserved.
-          </p>
-        </div>
+        <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. Service delivery intelligence platform.</p>
       </div>
     </footer>
   );

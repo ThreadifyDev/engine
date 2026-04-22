@@ -264,7 +264,7 @@ export default function TierSelectionModal({ isOpen, onClose, currentTier }: Tie
               </div>
 
               <a
-                href="mailto:sales@threadify.com?subject=Enterprise Plan Inquiry"
+                href="mailto:sales@threadify.dev?subject=Enterprise Plan Inquiry"
                 className="block w-full py-3 text-center font-medium bg-black text-white hover:bg-gray-800 transition-colors"
               >
                 Contact Us
