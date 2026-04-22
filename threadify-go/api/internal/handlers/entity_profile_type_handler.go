@@ -91,6 +91,11 @@ func (h *EntityProfileTypeHandler) UpdateEntityProfileType(c *gin.Context) {
 		return
 	}
 
+	if err := validation.ValidateUpdateEntityProfileTypeRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+
 	profileType, err := h.entityProfileTypeService.UpdateEntityProfileType(c.Request.Context(), compID, id, &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})

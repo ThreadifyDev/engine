@@ -31,13 +31,13 @@ type EntityProfileMetrics struct {
 }
 
 type EntityProfileType struct {
-	ID          string  `json:"id"`
-	CompanyID   string  `json:"companyId"`
-	Name        string  `json:"name"`
-	Type        string  `json:"type"`
-	Description *string `json:"description,omitempty"`
-	CreatedAt   string  `json:"createdAt"`
-	UpdatedAt   string  `json:"updatedAt"`
+	ID          string   `json:"id"`
+	CompanyID   string   `json:"companyId"`
+	Name        string   `json:"name"`
+	Type        []string `json:"type"`
+	Description *string  `json:"description,omitempty"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
 }
 
 type Mutation struct {

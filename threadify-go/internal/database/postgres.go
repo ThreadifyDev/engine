@@ -965,6 +965,29 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_company ON entity_profile_type(company_id);
 
+	ALTER TABLE entity_profile_type
+    ALTER COLUMN type TYPE TEXT[] USING ARRAY[type];
+
+	ALTER TABLE entity_profile_type
+    ALTER COLUMN type SET DEFAULT '{}';
+
+	ALTER TABLE entity_profile_type ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+
+	DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'uq_entity_profile_type_company_slug'
+    ) THEN
+        ALTER TABLE entity_profile_type
+            ADD CONSTRAINT uq_entity_profile_type_company_slug
+            UNIQUE(company_id, slug);
+    END IF;
+END $$;
+
+	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_slug
+		ON entity_profile_type(company_id, slug);
+
 	CREATE TABLE IF NOT EXISTS entity_profile (
 		id VARCHAR(255) PRIMARY KEY,
 		ref_key VARCHAR(255) NOT NULL,
