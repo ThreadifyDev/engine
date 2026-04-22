@@ -232,7 +232,7 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		setup func(t *testing.T) (email, password string)
+		setup func(t *testing.T) (string, string)
 	}{
 		{
 			name: "unknown_email",
@@ -245,6 +245,14 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 			setup: func(t *testing.T) (string, string) {
 				email := uniqueEmail()
 				signupUser(t, email, "Password123!@#")
+				// Verify the email to get a verified user
+				otp := supabase.GetOTP(email)
+				require.NotEmpty(t, otp)
+				verifyResp := doJSON(t, http.MethodPost, "/api/auth/verify-otp", map[string]any{
+					"email": email,
+					"token": otp,
+				})
+				require.Equal(t, http.StatusOK, verifyResp.StatusCode)
 				return email, "WrongPassword123!@#"
 			},
 		},

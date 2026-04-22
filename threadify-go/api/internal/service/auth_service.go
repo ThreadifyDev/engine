@@ -123,100 +123,119 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return err
 	}
 
-	now := time.Now()
-	var company *models.Company
-	var invitation *models.TeamInvitation
-	var userRole string = "owner" // Default to owner for new company creators
-
-	// Check if signing up via invitation
-	if req.InvitationToken != nil && *req.InvitationToken != "" {
-		// Validate and get invitation
-		inv, err := s.invitationRepo.GetByToken(ctx, *req.InvitationToken)
-		if err != nil {
-			s.logger.Error("failed to get invitation", zap.Error(err))
-			return fmt.Errorf("invalid invitation token")
-		}
-		if inv == nil {
-			return fmt.Errorf("invitation not found")
-		}
-		if inv.Status != "pending" {
-			return fmt.Errorf("invitation already used or expired")
-		}
-		if time.Now().After(inv.ExpiresAt) {
-			return fmt.Errorf("invitation has expired")
-		}
-
-		// Get existing company
-		company, err = s.companyRepo.FindByID(ctx, inv.CompanyID)
-		if err != nil {
-			s.logger.Error("failed to get company", zap.Error(err))
-			return fmt.Errorf("company not found")
-		}
-
-		invitation = inv
-		userRole = inv.Role // Override with invitation role for invited users
-
-		// Override email from invitation token (don't trust frontend)
-		req.Email = inv.Email
-
-		// Check if user already exists (using email from invitation)
-		existing, err := s.userRepo.FindByEmail(ctx, req.Email)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			s.logger.Error("failed to check existing user", zap.Error(err))
-			return fmt.Errorf("check existing user: %w", err)
-		}
-		if existing != nil {
-			s.logger.Warn("user already exists")
-			return ErrUserAlreadyExists
-		}
-	} else {
-		// Regular signup - check if user already exists
-		existing, err := s.userRepo.FindByEmail(ctx, req.Email)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			s.logger.Error("failed to check existing user", zap.Error(err))
-			return fmt.Errorf("check existing user: %w", err)
-		}
-		if existing != nil {
-			s.logger.Warn("user already exists")
-			return ErrUserAlreadyExists
-		}
-
-		// Creating new company
-		company = &models.Company{
-			ID:        utils.GenerateID(),
-			Name:      strings.TrimSpace(req.CompanyName),
-			Industry:  req.Industry,
-			Size:      req.CompanySize,
-			UseCase:   req.UseCase,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
+	company, invitation, userRole, err := s.resolveSignupContext(ctx, req)
+	if err != nil {
+		return err
 	}
 
-	// New user signup (either regular or invitation-based)
-	user := &models.User{
+	user := buildUser(req, company.ID)
+
+	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)
+	if err != nil {
+		s.logger.Error("signup: failed to build auth user event", zap.Error(err))
+		return err
+	}
+
+	if err := s.persistSignup(ctx, user, company, invitation, userRole, outboxEvent); err != nil {
+		return err
+	}
+
+	s.logger.Info("signup: user registered",
+		zap.String("user_id", user.ID),
+		zap.String("company_id", company.ID),
+	)
+
+	if s.outboxWorker != nil {
+		s.outboxWorker.Trigger()
+	}
+
+	return nil
+}
+
+func (s *AuthService) resolveSignupContext(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+	if req.InvitationToken != nil && *req.InvitationToken != "" {
+		return s.resolveInvitationSignup(ctx, req)
+	}
+	return s.resolveRegularSignup(ctx, req)
+}
+
+func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+	inv, err := s.invitationRepo.GetByToken(ctx, *req.InvitationToken)
+	if err != nil {
+		s.logger.Error("signup: failed to get invitation", zap.Error(err))
+		return nil, nil, "", fmt.Errorf("invalid invitation token")
+	}
+	if inv == nil {
+		return nil, nil, "", fmt.Errorf("invitation not found")
+	}
+	if inv.Status != "pending" {
+		return nil, nil, "", fmt.Errorf("invitation already used or expired")
+	}
+	if time.Now().After(inv.ExpiresAt) {
+		return nil, nil, "", fmt.Errorf("invitation has expired")
+	}
+
+	company, err := s.companyRepo.FindByID(ctx, inv.CompanyID)
+	if err != nil {
+		s.logger.Error("signup: failed to get company for invitation", zap.Error(err))
+		return nil, nil, "", fmt.Errorf("company not found")
+	}
+
+	req.Email = inv.Email
+
+	if err := s.checkUserExists(ctx, req.Email); err != nil {
+		return nil, nil, "", err
+	}
+
+	return company, inv, inv.Role, nil
+}
+
+func (s *AuthService) resolveRegularSignup(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+	if err := s.checkUserExists(ctx, req.Email); err != nil {
+		return nil, nil, "", err
+	}
+
+	now := time.Now()
+	company := &models.Company{
 		ID:        utils.GenerateID(),
-		CompanyID: company.ID,
-		Email:     req.Email,
-		FullName:  normalizeOptionalString(req.FullName),
-		JobRole:   normalizeOptionalString(req.JobRole),
+		Name:      strings.TrimSpace(req.CompanyName),
+		Industry:  req.Industry,
+		Size:      req.CompanySize,
+		UseCase:   req.UseCase,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
-	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)
-	if err != nil {
-		s.logger.Error("failed to register user", zap.Error(err))
-		return err
-	}
+	return company, nil, "owner", nil
+}
 
+func (s *AuthService) checkUserExists(ctx context.Context, email string) error {
+	existing, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+		s.logger.Error("signup: failed to check existing user", zap.Error(err))
+		return fmt.Errorf("check existing user: %w", err)
+	}
+	if existing != nil {
+		s.logger.Warn("signup: user already exists", zap.String("email", email))
+		return ErrUserAlreadyExists
+	}
+	return nil
+}
+
+func (s *AuthService) persistSignup(
+	ctx context.Context,
+	user *models.User,
+	company *models.Company,
+	invitation *models.TeamInvitation,
+	userRole string,
+	outboxEvent *models.OutboxEvent,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Only create company if not joining via invitation
 	if invitation == nil {
 		if err := s.companyRepo.CreateTx(ctx, tx, company); err != nil {
 			return fmt.Errorf("create company: %w", err)
@@ -233,7 +252,6 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return fmt.Errorf("create outbox event: %w", err)
 	}
 
-	// Delete invitation after successful signup
 	if invitation != nil {
 		if err := s.invitationRepo.DeleteTx(ctx, tx, invitation.ID); err != nil {
 			return fmt.Errorf("delete invitation: %w", err)
@@ -244,16 +262,20 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 
-	s.logger.Info("signup: user registered",
-		zap.String("user_id", user.ID),
-		zap.String("company_id", company.ID),
-	)
-
-	if s.outboxWorker != nil {
-		s.outboxWorker.Trigger()
-	}
-
 	return nil
+}
+
+func buildUser(req *models.SignupRequest, companyID string) *models.User {
+	now := time.Now()
+	return &models.User{
+		ID:        utils.GenerateID(),
+		CompanyID: companyID,
+		Email:     req.Email,
+		FullName:  normalizeOptionalString(req.FullName),
+		JobRole:   normalizeOptionalString(req.JobRole),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 }
 
 func (s *AuthService) buildRegisterAuthUserEvent(
@@ -300,108 +322,157 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 		return nil, err
 	}
 
-	// Get local user first (needed for both legacy check and password_hash cleanup)
-	localUser, dbErr := s.userRepo.FindByEmail(ctx, req.Email)
-	if dbErr != nil && !errors.Is(dbErr, serror.ErrUserNotFound) {
-		s.logger.Error("login: failed to find user", zap.Error(dbErr))
-		return nil, fmt.Errorf("failed to authenticate")
-	}
-
-	if localUser == nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	_, userInfo, err := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
+	localUser, err := s.resolveLocalUser(ctx, req.Email)
 	if err != nil {
-		// Check if this is an "invalid credentials" error - could be user doesn't exist in Supabase
-		if errors.Is(err, sharedauth.ErrAuthInvalidCredentials) {
-			// Check if user exists in local DB (legacy user)
-			if localUser != nil && (localUser.AuthUserID == nil || strings.TrimSpace(*localUser.AuthUserID) == "") {
-				// Legacy user found - verify password and queue migration
-				s.logger.Info("login: legacy user detected, verifying password")
+		return nil, err
+	}
 
-				// Get stored password hash
-				passwordHash, err := s.userRepo.GetPasswordHash(ctx, req.Email)
-				if err != nil {
-					s.logger.Error("login: failed to get password hash for legacy user", zap.Error(err))
-					return nil, ErrInvalidCredentials
-				}
+	if localUser != nil && !localUser.EmailVerified {
+		return s.handleUnverifiedUser(ctx, localUser)
+	}
 
-				// Verify password against stored hash
-				if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-					// Password doesn't match
-					return nil, ErrInvalidCredentials
-				}
+	if isLegacyUser(localUser) {
+		return s.handleLegacyLogin(ctx, req, localUser)
+	}
 
-				// Password verified - queue async migration (don't block login)
-				if err := s.queueLegacyUserMigration(ctx, localUser.ID, req.Email, req.Password, "login"); err != nil {
-					s.logger.Error("login: failed to queue migration for legacy user",
-						zap.Error(err),
-						zap.String("user_id", localUser.ID),
-					)
-					// Don't fail login if queueing fails - user can try again
-				}
+	_, userInfo, authErr := s.authClient.LoginWithPassword(ctx, req.Email, req.Password, clientIP)
+	if authErr != nil {
+		return s.handleAuthError(ctx, authErr, req, localUser)
+	}
 
-				// Return OTP required response
-				return &models.AuthResponse{
-					User:        localUser,
-					OTPRequired: true,
-					Message:     "A login code has been sent to your email.",
-				}, nil
-			}
+	_ = s.clearStaleLegacyHash(ctx, localUser)
 
-			// Not a legacy user, just invalid credentials
+	return s.issueLoginOTP(ctx, userInfo.Email)
+}
+
+func (s *AuthService) resolveLocalUser(ctx context.Context, email string) (*models.User, error) {
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, serror.ErrUserNotFound) {
 			return nil, ErrInvalidCredentials
-		} else if errors.Is(err, sharedauth.ErrAuthRateLimit) {
-			// Rate limit error
-			return nil, ErrRateLimit
-		} else {
-			// Other auth errors
-			s.logger.Error("login: auth client returned error",
-				zap.Error(err),
-				zap.String("error_type", fmt.Sprintf("%T", err)),
-			)
-			return nil, fmt.Errorf("authenticate: %w", err)
 		}
+		s.logger.Error("login: failed to find user by email", zap.Error(err))
+		return nil, ErrInternalServerError
+	}
+	return user, nil
+}
+
+func (s *AuthService) handleUnverifiedUser(ctx context.Context, user *models.User) (*models.AuthResponse, error) {
+	s.logger.Debug("login: email not verified; re-queuing verification email",
+		zap.String("user_id", user.ID),
+	)
+	if err := s.queueVerificationEmail(ctx, user.ID, user.Email); err != nil {
+		s.logger.Error("login: failed to queue verification email", zap.Error(err))
+		return nil, fmt.Errorf("login: queue verification email: %w", err)
+	}
+	return &models.AuthResponse{
+		Email:                     user.Email,
+		OTPRequired:               true,
+		EmailVerificationRequired: true,
+		Message:                   "Please verify your email. A verification code has been sent to your email.",
+	}, nil
+}
+
+func (s *AuthService) handleAuthError(
+	ctx context.Context,
+	authErr error,
+	req *models.LoginRequest,
+	localUser *models.User,
+) (*models.AuthResponse, error) {
+	switch {
+	case errors.Is(authErr, sharedauth.ErrAuthInvalidCredentials):
+		return nil, ErrInvalidCredentials
+	case errors.Is(authErr, sharedauth.ErrAuthRateLimit):
+		return nil, ErrRateLimit
+	default:
+		s.logger.Error("login: unexpected auth client error",
+			zap.Error(authErr),
+			zap.String("error_type", fmt.Sprintf("%T", authErr)),
+		)
+		return nil, fmt.Errorf("login: authenticate: %w", authErr)
+	}
+}
+
+func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRequest, localUser *models.User) (*models.AuthResponse, error) {
+	s.logger.Info("login: legacy user detected, verifying stored password hash",
+		zap.String("user_id", localUser.ID),
+	)
+
+	if err := s.verifyLegacyPassword(ctx, req.Email, req.Password); err != nil {
+		return nil, err
 	}
 
-	// Successful Supabase login - check if password_hash needs clearing
-	if localUser != nil {
-		// Check if password_hash exists (indicates user was migrated but hash not cleared)
-		passwordHash, hashErr := s.userRepo.GetPasswordHash(ctx, req.Email)
-		if hashErr == nil && passwordHash != "" {
-			// Clear password_hash since user is now fully migrated
-			if clearErr := s.userRepo.ClearPasswordHash(ctx, localUser.ID); clearErr != nil {
-				s.logger.Error("login: failed to clear password hash after successful Supabase login",
-					zap.Error(clearErr),
-					zap.String("user_id", localUser.ID),
-				)
-				// Don't fail login - just log the error
-			} else {
-				s.logger.Debug("login: cleared password_hash for migrated user",
-					zap.String("user_id", localUser.ID),
-				)
-			}
-		}
+	if err := s.queueLegacyUserMigration(ctx, localUser.ID, req.Email, req.Password, "login"); err != nil {
+		s.logger.Error("login: failed to queue Supabase migration for legacy user",
+			zap.Error(err),
+			zap.String("user_id", localUser.ID),
+		)
 	}
 
-	// For login source, OTP verification email is queued separately
-	otpCode, err := s.authClient.GenerateLoginOTP(ctx, req.Email)
+	return s.issueLoginOTP(ctx, req.Email)
+}
+
+func (s *AuthService) verifyLegacyPassword(ctx context.Context, email, password string) error {
+	hash, err := s.userRepo.GetPasswordHash(ctx, email)
 	if err != nil {
-		s.logger.Error("login: failed to generate otp", zap.Error(err))
-		return nil, fmt.Errorf("failed to generate login verification code")
+		s.logger.Error("login: failed to fetch password hash for legacy user", zap.Error(err))
+		return ErrInvalidCredentials
 	}
 
-	if err := s.emailSvc.SendLoginOTPEmail(ctx, req.Email, otpCode); err != nil {
-		s.logger.Error("login: failed to send otp email", zap.Error(err))
-		return nil, fmt.Errorf("failed to send login verification email")
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
+func (s *AuthService) clearStaleLegacyHash(ctx context.Context, localUser *models.User) error {
+	if localUser == nil {
+		return nil
+	}
+	if localUser.AuthUserID != nil && strings.TrimSpace(*localUser.AuthUserID) != "" {
+		return nil
+	}
+
+	hash, err := s.userRepo.GetPasswordHash(ctx, localUser.Email)
+	if err != nil || hash == "" {
+		return nil
+	}
+
+	if err := s.userRepo.ClearPasswordHash(ctx, localUser.ID); err != nil {
+		s.logger.Error("login: failed to clear stale legacy password hash",
+			zap.Error(err),
+			zap.String("user_id", localUser.ID),
+		)
+		return err
+	}
+
+	s.logger.Debug("login: cleared stale legacy password hash",
+		zap.String("user_id", localUser.ID),
+	)
+	return nil
+}
+
+func (s *AuthService) issueLoginOTP(ctx context.Context, email string) (*models.AuthResponse, error) {
+	code, err := s.authClient.GenerateLoginOTP(ctx, email)
+	if err != nil {
+		s.logger.Error("login: failed to generate OTP", zap.Error(err))
+		return nil, fmt.Errorf("login: generate OTP: %w", err)
+	}
+
+	if err := s.emailSvc.SendLoginOTPEmail(ctx, email, code); err != nil {
+		s.logger.Error("login: failed to send OTP email", zap.Error(err))
+		return nil, fmt.Errorf("login: send OTP email: %w", err)
 	}
 
 	return &models.AuthResponse{
-		Email:       userInfo.Email,
+		Email:       email,
 		OTPRequired: true,
 		Message:     "A login code has been sent to your email.",
 	}, nil
+}
+
+func isLegacyUser(u *models.User) bool {
+	return u != nil && (u.AuthUserID == nil || strings.TrimSpace(*u.AuthUserID) == "")
 }
 
 // @TODO - We should switch this to resetPassword as forgotPassword should not be resetting the user's account

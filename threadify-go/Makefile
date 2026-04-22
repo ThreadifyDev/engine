@@ -73,7 +73,7 @@ test-engine-integration: ## Run engine integration tests
 
 test-api-integration: ## Run API integration tests
 	@echo "Running API integration tests..."
-	@cd tests && $(GO) test ./api/... -count=1
+	@cd tests && $(GO) test -v ./api/... -count=1
 
 test-archiver: ## Run archiver tests
 	@echo "Running archiver tests..."
