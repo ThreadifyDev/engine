@@ -460,13 +460,13 @@ export default function Team() {
           <h3 className="text-lg font-bold mb-2">Team Roles</h3>
           <div className="space-y-2 text-sm">
             <div>
-              <strong>Owner:</strong> Full access to all features and settings
+              <strong>Admin:</strong> Company Admin with full access to all features except billing
             </div>
             <div>
-              <strong>Admin:</strong> Can manage team members and contracts
+              <strong>Member:</strong> Can manage API keys, contracts, service accounts, and execute queries
             </div>
             <div>
-              <strong>Member:</strong> Can view and create threads
+              <strong>Viewer:</strong> Read-only access, can view contracts and team members
             </div>
           </div>
         </div>
