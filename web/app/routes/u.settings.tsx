@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from '@remix-run/react';
 import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
 import { ProfileTab } from '~/components/settings/ProfileTab';
 import { BillingTab } from '~/components/settings/BillingTab';
 import { CompanyTab } from '~/components/settings/CompanyTab';
@@ -245,7 +245,19 @@ export default function Settings() {
         </div>
 
         {/* Messages */}
-        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
+        {error && (
+          <Alert
+            type="error"
+            message={error.message}
+            details={error.details}
+            className="mb-6"
+            action={
+              isCreditError(error.message)
+                ? { label: 'Go to Billing', onClick: () => navigate('?tab=billing'), variant: 'primary' }
+                : undefined
+            }
+          />
+        )}
         {success && (
           <div className="bg-green-600 text-white px-4 py-3 mb-6">
             {success}

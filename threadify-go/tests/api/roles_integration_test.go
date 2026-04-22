@@ -22,12 +22,12 @@ func TestRoles_GetRoles(t *testing.T) {
 	apiLevel, ok := roles["api_level"].(map[string]any)
 	require.True(t, ok, "roles must include api_level")
 
-	owner, ok := appLevel["owner"].(map[string]any)
-	require.True(t, ok, "app_level must include an owner role")
+	admin, ok := appLevel["admin"].(map[string]any)
+	require.True(t, ok, "app_level must include an admin role")
 
-	perms, ok := owner["permissions"].([]any)
-	require.True(t, ok, "owner must have a permissions array")
-	assert.NotEmpty(t, perms, "owner must have at least one permission")
+	perms, ok := admin["permissions"].([]any)
+	require.True(t, ok, "admin must have a permissions array")
+	assert.NotEmpty(t, perms, "admin must have at least one permission")
 	assert.Contains(t, perms, "apikey.create")
 
 	reader, ok := apiLevel["reader"].(map[string]any)
@@ -63,12 +63,12 @@ func TestRoles_GetRolesByLevel(t *testing.T) {
 		require.True(t, ok, "response must include a roles object")
 		assert.NotEmpty(t, roles, "app_level must have at least one role")
 
-		// owner is load-bearing — must always be present
-		owner, ok := roles["owner"].(map[string]any)
-		require.True(t, ok, "app_level must include an owner role")
-		perms, ok := owner["permissions"].([]any)
-		require.True(t, ok, "owner must have a permissions array")
-		assert.NotEmpty(t, perms, "owner must have at least one permission")
+		// admin is load-bearing — must always be present
+		admin, ok := roles["admin"].(map[string]any)
+		require.True(t, ok, "app_level must include an admin role")
+		perms, ok := admin["permissions"].([]any)
+		require.True(t, ok, "admin must have a permissions array")
+		assert.NotEmpty(t, perms, "admin must have at least one permission")
 
 		// Every role present must be well-formed
 		for roleName, roleDef := range roles {

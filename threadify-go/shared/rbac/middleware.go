@@ -47,7 +47,7 @@ func RequirePermission(
 			}
 
 			if len(roleNames) == 0 {
-				roleNames = []string{"standard_account"}
+				roleNames = []string{"member"}
 			}
 
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
@@ -120,7 +120,7 @@ func RequireResourcePermission(
 			}
 
 			if len(roleNames) == 0 {
-				roleNames = []string{"standard_account"}
+				roleNames = []string{"member"}
 			}
 
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
