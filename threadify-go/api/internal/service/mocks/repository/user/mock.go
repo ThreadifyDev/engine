@@ -14,6 +14,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 	pgx "github.com/jackc/pgx/v5"
 	pgconn "github.com/jackc/pgx/v5/pgconn"
+	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 )
 
 // MockDBExecer is a mock of DBExecer interface.
@@ -279,6 +280,20 @@ func (m *MockUserRepository) MarkFirstInstrumentationDone(ctx context.Context, i
 func (mr *MockUserRepositoryMockRecorder) MarkFirstInstrumentationDone(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirstInstrumentationDone", reflect.TypeOf((*MockUserRepository)(nil).MarkFirstInstrumentationDone), ctx, id)
+}
+
+// Pool mocks base method.
+func (m *MockUserRepository) Pool() *pgxpool.Pool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pool")
+	ret0, _ := ret[0].(*pgxpool.Pool)
+	return ret0
+}
+
+// Pool indicates an expected call of Pool.
+func (mr *MockUserRepositoryMockRecorder) Pool() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pool", reflect.TypeOf((*MockUserRepository)(nil).Pool))
 }
 
 // UpdateAuthUserID mocks base method.

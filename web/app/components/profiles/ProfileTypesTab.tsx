@@ -117,11 +117,11 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
               key={pt.id}
               role="button"
               tabIndex={0}
-              onClick={() => navigate(`/u/profiles/${encodeURIComponent(pt.type)}`)}
+              onClick={() => navigate(`/u/profiles/${encodeURIComponent(pt.slug)}`)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  navigate(`/u/profiles/${encodeURIComponent(pt.type)}`);
+                  navigate(`/u/profiles/${encodeURIComponent(pt.slug)}`);
                 }
               }}
               className="group relative bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer flex flex-col"

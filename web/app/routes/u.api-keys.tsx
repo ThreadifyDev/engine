@@ -253,7 +253,7 @@ export default function APIKeys() {
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleRevokeKey(key.id, key.name)}
-                        className="px-4 py-2 border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors text-sm font-medium rounded"
+                        className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                       >
                         Revoke
                       </button>
@@ -406,7 +406,7 @@ export default function APIKeys() {
                     )}
                   </div>
 
-                  <div className="flex gap-4">
+                  <div className="flex justify-end items-center gap-6 mt-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -414,14 +414,14 @@ export default function APIKeys() {
                         setNewKeyName('');
                         setExpiresIn('never');
                       }}
-                      className="flex-1 px-6 py-3 border border-gray-300 hover:bg-gray-100 transition-colors font-medium rounded"
+                      className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={creating}
-                      className="flex-1 px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 rounded"
+                      className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                     >
                       {creating ? 'Creating...' : 'Create Key'}
                     </button>

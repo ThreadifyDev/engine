@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
@@ -11,6 +12,8 @@ import (
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type UserHandler struct {
@@ -18,6 +21,7 @@ type UserHandler struct {
 	companyRepo   repository.CompanyRepository
 	apiKeyService iface.APIKeyService
 	userRoleRepo  repository.UserRoleRepository
+	logger        *zap.Logger
 }
 
 func NewUserHandler(
@@ -25,12 +29,14 @@ func NewUserHandler(
 	companyRepo repository.CompanyRepository,
 	apiKeyService iface.APIKeyService,
 	userRoleRepo repository.UserRoleRepository,
+	logger *zap.Logger,
 ) *UserHandler {
 	return &UserHandler{
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
 		apiKeyService: apiKeyService,
 		userRoleRepo:  userRoleRepo,
+		logger:        logger,
 	}
 }
 
@@ -236,6 +242,97 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"members": filteredUsers})
+}
+
+func (h *UserHandler) RemoveTeamMember(c *gin.Context) {
+	_, companyID, ok := getUserAndCompanyID(c)
+	if !ok {
+		return
+	}
+
+	targetUserID := c.Param("id")
+	if targetUserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	// 1. Prevent users from removing themselves (enforce frontend rule at backend level too)
+	currentUserID, _ := getUserID(c)
+	if targetUserID == currentUserID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot remove yourself from the team"})
+		return
+	}
+
+	// 2. Fetch target user and verify they belong to same company
+	user, err := h.userRepo.FindByID(c.Request.Context(), targetUserID)
+	if err != nil {
+		if errors.Is(err, serror.ErrUserNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to look up user"})
+		return
+	}
+
+	if user.CompanyID != companyID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "User does not belong to your company"})
+		return
+	}
+
+	// 3. Prevent removing admins (optional, but good for safety unless we want to allow it)
+	// Actually, the RBAC middleware would handle this if we set permissions correctly,
+	// but let's check roles here too to be safe.
+	roles, err := h.userRoleRepo.GetUserRoles(c.Request.Context(), targetUserID)
+	if err == nil {
+		for _, r := range roles {
+			if r == "admin" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Cannot remove an administrator"})
+				return
+			}
+		}
+	}
+
+	// 4. Perform archival (Deactivation)
+	// We remove roles to revoke access, and update the email/company_id
+	// to preserve records while allowing the original email to be reused.
+	pool := h.userRepo.Pool()
+	tx, err := pool.Begin(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback(c.Request.Context()) //nolint:errcheck
+
+	// Remove all roles
+	_, err = tx.Exec(c.Request.Context(), `DELETE FROM user_roles WHERE principal_id = $1 AND principal_type = 'user'`, targetUserID)
+	if err != nil {
+		h.logger.Error("failed to remove user roles", zap.String("user_id", targetUserID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove user roles"})
+		return
+	}
+
+	// Archive user record:
+	// 1. Prefix email with archived metadata to free the original email
+	// 2. Clear company_id, password_hash, and auth_user_id for security and mobility
+	archivedEmail := fmt.Sprintf("archived-%s-%s", uuid.New().String(), user.Email)
+
+	// We use tx.Exec directly to update multiple fields in one go
+	_, err = tx.Exec(c.Request.Context(),
+		`UPDATE users SET email = $1, company_id = NULL, password_hash = NULL, auth_user_id = NULL, updated_at = NOW() WHERE id = $2`,
+		archivedEmail, targetUserID)
+
+	if err != nil {
+		h.logger.Error("failed to archive user record", zap.String("user_id", targetUserID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to archive user record"})
+		return
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit removal"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Member removed successfully"})
 }
 
 // helpers

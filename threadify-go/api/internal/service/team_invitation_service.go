@@ -199,9 +199,9 @@ func (s *TeamInvitationService) ListByCompany(ctx context.Context, companyID str
 	return s.invitationRepo.ListByCompany(ctx, companyID)
 }
 
-// CancelInvitation cancels a pending invitation
+// CancelInvitation permanently deletes a pending invitation
 func (s *TeamInvitationService) CancelInvitation(ctx context.Context, invitationID string) error {
-	return s.invitationRepo.UpdateStatus(ctx, invitationID, "cancelled")
+	return s.invitationRepo.Delete(ctx, invitationID)
 }
 
 // RefreshInvitation updates an existing invitation with a new token and expiry, and resends the email

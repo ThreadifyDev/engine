@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Common interfaces for transaction support
@@ -19,6 +20,7 @@ type DBExecer interface {
 
 //go:generate mockgen -package=repomocks -destination=../service/mocks/repository/user/mock.go -source=interfaces.go UserRepository
 type UserRepository interface {
+	Pool() *pgxpool.Pool
 	CreateTx(ctx context.Context, execer DBExecer, user *models.User) error
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
 	ListByCompanyID(ctx context.Context, companyID string) ([]*models.User, error)

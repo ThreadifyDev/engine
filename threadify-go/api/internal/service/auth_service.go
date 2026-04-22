@@ -206,7 +206,7 @@ func (s *AuthService) resolveRegularSignup(ctx context.Context, req *models.Sign
 		UpdatedAt: now,
 	}
 
-	return company, nil, "owner", nil
+	return company, nil, "admin", nil
 }
 
 func (s *AuthService) checkUserExists(ctx context.Context, email string) error {

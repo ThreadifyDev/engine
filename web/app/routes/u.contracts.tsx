@@ -147,7 +147,7 @@ export default function Contracts() {
                       e.stopPropagation();
                       handleDelete(contract.id);
                     }}
-                    className="p-2 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                    className="p-2 text-red-500 hover:text-red-700 transition-colors"
                     title="Delete contract"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -160,10 +160,10 @@ export default function Contracts() {
 
         {/* Upload Modal */}
         {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white border-4 border-black max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="border-b-4 border-black p-6 flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Upload Contract</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm transition-all">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border-2 border-black">
+            <div className="border-b-2 border-black p-6 flex justify-between items-center bg-white">
+              <h2 className="text-xl font-bold text-gray-900">Upload Contract</h2>
               <button
                 onClick={() => setShowUploadModal(false)}
                 className="text-2xl font-bold hover:text-gray-600"
@@ -188,20 +188,20 @@ export default function Contracts() {
                 </p>
               </div>
 
-              <div className="flex gap-4">
-                <button
-                  type="submit"
-                  disabled={uploading}
-                  className="flex-1 px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
-                >
-                  {uploading ? 'Uploading...' : 'Upload Contract'}
-                </button>
+              <div className="flex justify-end items-center gap-6 mt-2">
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="px-6 py-3 bg-white border border-gray-300 hover:bg-gray-50 transition-colors font-medium text-gray-700 rounded-lg"
+                  className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading ? 'Uploading...' : 'Upload Contract'}
                 </button>
               </div>
             </form>

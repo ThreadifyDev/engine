@@ -13,16 +13,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
 
 func newUserRouter(deps *common.MockedHandlers, companyID, userID string) *gin.Engine {
-	h := handlers.NewUserHandler(deps.UserRepo, deps.CompanyRepo, deps.APIKeySvc, deps.UserRoleRepo)
+	h := handlers.NewUserHandler(deps.UserRepo, deps.CompanyRepo, deps.APIKeySvc, deps.UserRoleRepo, zap.NewNop())
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
 
 	r.GET("/profile", h.GetProfile)
 	r.POST("/profile", h.UpdateProfile)
 	r.GET("/members", h.ListTeamMembers)
+	r.DELETE("/members/:id", h.RemoveTeamMember)
 
 	return r
 }
@@ -204,6 +206,59 @@ func TestUserHandler_ListTeamMembers(t *testing.T) {
 			deps := common.NewMockedHandlers(t)
 			tt.setupMock(deps)
 			w := common.DoRequest(t, newUserRouter(deps, companyID, "user_1"), "GET", "/members", nil)
+			assert.Equal(t, tt.wantStatus, w.Code)
+		})
+	}
+}
+
+func TestUserHandler_RemoveTeamMember(t *testing.T) {
+	const (
+		companyID     = "comp_123"
+		currentUserID = "user_admin"
+		targetUserID  = "user_to_remove"
+	)
+
+	tests := []struct {
+		name       string
+		memberID   string
+		setupMock  func(*common.MockedHandlers)
+		wantStatus int
+	}{
+		{
+			name:     "cannot_remove_self",
+			memberID: currentUserID,
+			setupMock: func(d *common.MockedHandlers) {
+				// No mocks needed for self-check
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:     "user_not_found",
+			memberID: "non-existent",
+			setupMock: func(d *common.MockedHandlers) {
+				d.UserRepo.EXPECT().
+					FindByID(gomock.Any(), "non-existent").
+					Return(nil, serror.ErrUserNotFound)
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:     "forbidden_cross_company",
+			memberID: "other_user",
+			setupMock: func(d *common.MockedHandlers) {
+				d.UserRepo.EXPECT().
+					FindByID(gomock.Any(), "other_user").
+					Return(&models.User{ID: "other_user", CompanyID: "other_comp"}, nil)
+			},
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockedHandlers(t)
+			tt.setupMock(deps)
+			w := common.DoRequest(t, newUserRouter(deps, companyID, currentUserID), "DELETE", "/members/"+tt.memberID, nil)
 			assert.Equal(t, tt.wantStatus, w.Code)
 		})
 	}

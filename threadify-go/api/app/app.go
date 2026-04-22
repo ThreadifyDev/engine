@@ -304,7 +304,7 @@ func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacL
 
 	return &appHandlers{
 		auth:               handlers.NewAuthHandler(svcs.authService),
-		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole),
+		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole, logger),
 		apiKey:             handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
 		serviceAccount:     handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
 		role:               handlers.NewRoleHandler(rbacLoader),
@@ -368,6 +368,7 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 	team := api.Group("/team")
 	{
 		team.GET("/members", requirePerm("member.view"), h.user.ListTeamMembers)
+		team.DELETE("/members/:id", requirePerm("member.delete"), h.user.RemoveTeamMember)
 		team.POST("/invitations", requirePerm("member.invite"), h.teamInvitation.SendInvitation)
 		team.GET("/invitations", requirePerm("member.view"), h.teamInvitation.ListInvitations)
 		team.POST("/invitations/:id/resend", requirePerm("member.invite"), h.teamInvitation.ResendInvitation)

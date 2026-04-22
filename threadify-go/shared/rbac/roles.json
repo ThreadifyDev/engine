@@ -14,7 +14,7 @@
         "serviceaccount.*",
         "query.execution.*",
         "member.invite",
-        "member.remove",
+        "member.delete",
         "member.view"
       ]
     },
