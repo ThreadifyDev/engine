@@ -17,17 +17,20 @@ type UserHandler struct {
 	userRepo      repository.UserRepository
 	companyRepo   repository.CompanyRepository
 	apiKeyService iface.APIKeyService
+	userRoleRepo  repository.UserRoleRepository
 }
 
 func NewUserHandler(
 	userRepo repository.UserRepository,
 	companyRepo repository.CompanyRepository,
 	apiKeyService iface.APIKeyService,
+	userRoleRepo repository.UserRoleRepository,
 ) *UserHandler {
 	return &UserHandler{
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
 		apiKeyService: apiKeyService,
+		userRoleRepo:  userRoleRepo,
 	}
 }
 
@@ -214,11 +217,20 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 	// Filter to only return necessary fields
 	filteredUsers := make([]gin.H, len(users))
 	for i, user := range users {
+		roles, err := h.userRoleRepo.GetUserRoles(c.Request.Context(), user.ID)
+		var highestRole string
+		if err == nil && len(roles) > 0 {
+			highestRole = roles[0]
+		} else {
+			highestRole = "member"
+		}
+
 		filteredUsers[i] = gin.H{
 			"id":         user.ID,
 			"email":      user.Email,
 			"full_name":  user.FullName,
 			"job_role":   user.JobRole,
+			"role":       highestRole,
 			"created_at": user.CreatedAt,
 		}
 	}

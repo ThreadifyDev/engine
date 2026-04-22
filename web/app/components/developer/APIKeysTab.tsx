@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Key, Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
+import { useNavigate } from '@remix-run/react';
 
 export function APIKeysTab() {
+  const navigate = useNavigate();
   const { roles, isLoading: rolesLoading } = useServiceAccountRoles();
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +134,18 @@ export function APIKeysTab() {
       )}
 
       {/* Error Message */}
-      {error && <Alert type="error" message={error} className="mb-6" />}
+      {error && (
+        <Alert
+          type="error"
+          message={error}
+          className="mb-6"
+          action={
+            isCreditError(error)
+              ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+              : undefined
+          }
+        />
+      )}
 
       {/* API Keys List */}
       {loading ? (

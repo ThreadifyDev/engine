@@ -16,7 +16,7 @@ import (
 )
 
 func newUserRouter(deps *common.MockedHandlers, companyID, userID string) *gin.Engine {
-	h := handlers.NewUserHandler(deps.UserRepo, deps.CompanyRepo, deps.APIKeySvc)
+	h := handlers.NewUserHandler(deps.UserRepo, deps.CompanyRepo, deps.APIKeySvc, deps.UserRoleRepo)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
 
@@ -182,6 +182,9 @@ func TestUserHandler_ListTeamMembers(t *testing.T) {
 				d.UserRepo.EXPECT().
 					ListByCompanyID(gomock.Any(), companyID).
 					Return([]*models.User{{ID: "u1", Email: "u1@test.com"}}, nil)
+				d.UserRoleRepo.EXPECT().
+					GetUserRoles(gomock.Any(), "u1").
+					Return([]string{"admin"}, nil).AnyTimes()
 			},
 			wantStatus: http.StatusOK,
 		},

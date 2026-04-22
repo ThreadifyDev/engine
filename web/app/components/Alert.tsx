@@ -1,12 +1,20 @@
 import { AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
+import React from 'react';
 
 export type AlertType = 'error' | 'info' | 'success' | 'warning';
 
+interface AlertAction {
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
+}
+
 interface AlertProps {
   type: AlertType;
-  message: string;
+  message: React.ReactNode;
   details?: Array<{ field: string; message: string }>;
   className?: string;
+  action?: AlertAction;
 }
 
 const alertStyles: Record<AlertType, { container: string; icon: JSX.Element }> = {
@@ -28,15 +36,29 @@ const alertStyles: Record<AlertType, { container: string; icon: JSX.Element }> =
   },
 };
 
-export default function Alert({ type, message, details, className = '' }: AlertProps) {
+export default function Alert({ type, message, details, className = '', action }: AlertProps) {
   const styles = alertStyles[type];
 
   return (
     <div className={`flex flex-col gap-3 px-4 py-3 rounded-lg ${styles.container} ${className}`}>
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 mt-0.5">{styles.icon}</div>
-        <div className="flex-1 text-sm capitalize font-medium">{message}</div>
+        <div className="flex-1 text-sm font-medium">{message}</div>
       </div>
+      {action && (
+        <div className="ml-8">
+          <button
+            onClick={action.onClick}
+            className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
+              action.variant === 'secondary'
+                ? 'bg-white/50 hover:bg-white/70 text-gray-900'
+                : 'bg-gray-900 hover:bg-gray-800 text-white'
+            }`}
+          >
+            {action.label}
+          </button>
+        </div>
+      )}
       {details && details.length > 0 && (
         <ul className="ml-8 space-y-1 text-sm">
           {details.map((detail, index) => (
@@ -49,4 +71,10 @@ export default function Alert({ type, message, details, className = '' }: AlertP
       )}
     </div>
   );
+}
+
+// Helper function to detect credit-related errors
+export function isCreditError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('credit') || lower.includes('insufficient') || lower.includes('out of credit') || lower.includes('ran out');
 }

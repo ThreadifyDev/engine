@@ -7,7 +7,7 @@ import { useServiceAccounts, useCreateServiceAccount, useToggleServiceAccount, u
 const ROLE_COLORS: Record<string, string> = {
   standard_service: 'bg-blue-50 text-blue-700 border-blue-200 text-xs px-2 py-0.5 rounded-full',
   reader: 'bg-gray-50 text-gray-700 border-gray-200 text-xs px-2 py-0.5 rounded-full',
-  standard_account: 'bg-purple-50 text-purple-700 border-purple-200 text-xs px-2 py-0.5 rounded-full',
+  member: 'bg-purple-50 text-purple-700 border-purple-200 text-xs px-2 py-0.5 rounded-full',
 };
 
 export function ServiceAccountsTab() {

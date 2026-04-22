@@ -304,7 +304,7 @@ func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacL
 
 	return &appHandlers{
 		auth:               handlers.NewAuthHandler(svcs.authService),
-		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc),
+		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole),
 		apiKey:             handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
 		serviceAccount:     handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
 		role:               handlers.NewRoleHandler(rbacLoader),

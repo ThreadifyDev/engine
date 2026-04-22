@@ -12,6 +12,7 @@ import (
 	companyrepomocks "threadify-go/api/internal/service/mocks/repository/company"
 	invitationrepomocks "threadify-go/api/internal/service/mocks/repository/invitation"
 	userrepomocks "threadify-go/api/internal/service/mocks/repository/user"
+	userrolerepomocks "threadify-go/api/internal/service/mocks/repository/userrole"
 	agentmocks "threadify-go/api/internal/service/mocks/service/agent"
 	apikeymocks "threadify-go/api/internal/service/mocks/service/apikey"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
@@ -45,6 +46,7 @@ type MockedHandlers struct {
 
 	// Repositories
 	UserRepo       *userrepomocks.MockUserRepository
+	UserRoleRepo   *userrolerepomocks.MockUserRoleRepository
 	CompanyRepo    *companyrepomocks.MockCompanyRepository
 	AgentRepo      *agentrepomocks.MockAgentRepository
 	APIKeyRepo     *apikeyrepomocks.MockAPIKeyRepository
@@ -88,6 +90,7 @@ func NewMockedHandlers(t *testing.T) *MockedHandlers {
 		EntityProfileSvc:  entityprofilemocks.NewMockEntityProfileTypeService(ctrl),
 
 		UserRepo:       userrepomocks.NewMockUserRepository(ctrl),
+		UserRoleRepo:   userrolerepomocks.NewMockUserRoleRepository(ctrl),
 		CompanyRepo:    companyrepomocks.NewMockCompanyRepository(ctrl),
 		AgentRepo:      agentrepomocks.NewMockAgentRepository(ctrl),
 		APIKeyRepo:     apikeyrepomocks.NewMockAPIKeyRepository(ctrl),

@@ -1,16 +1,16 @@
 .PHONY: help install generate-graphql \
-        build build-api build-archiver \
-        build-image build-archiver-image build-web-api build-web-ui build-docs \
-        run run-api run-archiver run-docker \
-        push push-archiver push-web-api push-web-ui push-docs \
-        test-engine-integration test-engine-coverage \
-        test-archiver test-archiver-coverage \
-        test-api test-api-integration \
-        test-shared test-all \
-        test-coverage-api test-coverage-shared \
-        mocks-engine mocks-api mocks-shared mocks-all \
-        lint fmt clean \
-        docker-up docker-down docker-logs dev
+	build build-api build-archiver \
+	build-image build-web-api build-web-ui build-docs \
+	run run-api run-archiver run-docker \
+	push push-archiver push-web-api push-web-ui push-docs \
+	test-engine-integration test-engine-coverage \
+	test-archiver test-archiver-coverage \
+	test-api test-api-integration \
+	test-shared test-all \
+	test-coverage-api test-coverage-shared \
+	mocks-engine mocks-api mocks-shared mocks-all \
+	lint fmt clean \
+	docker-up docker-down docker-logs dev
 
 VERSION := $(shell git describe --tags --always --match "v*" 2>/dev/null || git rev-parse --short HEAD)
 
@@ -63,7 +63,7 @@ run-api: build-api ## Build and run the Web API server
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 	cd api && $(GO) run cmd/server/main.go --config=../config/config.yaml
 
-run-archiver: build-archiver ## Build and run the archiver
+run-archiver: build-archiver-binary ## Build and run the archiver
 	@lsof -ti:8082 | xargs kill -9 2>/dev/null || true
 	./bin/archiver
 

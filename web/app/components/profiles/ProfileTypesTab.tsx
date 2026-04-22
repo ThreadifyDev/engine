@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from '@remix-run/react';
 import type { EntityProfileType } from '~/lib/api';
 import { Database, Plus, Edit2, Trash2, X, ArrowRight } from 'lucide-react';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
 
 interface ProfileTypesTabProps {
@@ -188,6 +188,11 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   message={createError.message}
                   details={createError.details}
                   className="mb-4"
+                  action={
+                    isCreditError(createError.message)
+                      ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+                      : undefined
+                  }
                 />
               )}
               <div className="space-y-4">

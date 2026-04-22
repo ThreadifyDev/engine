@@ -3,13 +3,15 @@ import { json, type MetaFunction } from "@remix-run/node";
 import ThreadifyLogo from "~/components/ThreadifyLogo";
 import PricingValue, { type PricingData } from "~/components/PricingValue";
 import { ArrowRight } from "lucide-react";
+import { getConfig } from "~/config.server";
+import Footer from "~/components/homepage/Footer";
 
 export const meta: MetaFunction = () => {
   return [
     { title: "Pricing — Threadify" },
     { name: "description", content: "Simple, transparent pricing. Pay only for what you use. No subscriptions, no commitments." },
   ];
-};
+};  
 
 const FIFTEEN_DOLLARS_IN_MILLICENTS = 1_500_000;
 
@@ -31,8 +33,8 @@ const calculateExample = (totalMillicents: number, costMillicents: number) =>
   costMillicents > 0 ? Math.floor(totalMillicents / costMillicents) : 0;
 
 export const loader = async () => {
-  const apiUrl = process.env.THREADIFY_API_URL || "http://localhost:8081";
-  const response = await fetch(`${apiUrl}/v1/pricing`);
+  const { apiUrl } = getConfig();  
+  const response = await fetch(`${apiUrl}/api/pricing`);
   
   if (!response.ok) {
     throw new Error(`Failed to fetch pricing: ${response.statusText}`);
@@ -195,23 +197,7 @@ export default function Pricing() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-6 border-t border-gray-200 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-6">
-            <div className="flex items-center">
-              <ThreadifyLogo height={28} />
-            </div>
-            <div className="flex items-center gap-6">
-              <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-black transition-colors">Documentation</a>
-              <Link to="/pricing" className="text-sm text-gray-600 hover:text-black transition-colors">Pricing</Link>
-              <a href="mailto:support@threadify.dev" className="text-sm text-gray-600 hover:text-black transition-colors">Support</a>
-            </div>
-          </div>
-          <div className="text-center text-sm text-gray-500">
-            © {new Date().getFullYear()} Threadify. All rights reserved.
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

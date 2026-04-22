@@ -126,7 +126,7 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	now := time.Now()
 	var company *models.Company
 	var invitation *models.TeamInvitation
-	var userRole string = "owner" // Default to owner for new company creators
+	var userRole string = "admin" // Default to admin for new company creators
 
 	// Check if signing up via invitation
 	if req.InvitationToken != nil && *req.InvitationToken != "" {
@@ -202,6 +202,9 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 		JobRole:   normalizeOptionalString(req.JobRole),
 		CreatedAt: now,
 		UpdatedAt: now,
+		// Invited users join an existing company that is already fully set up
+		// (API keys exist, instrumentation done) — skip the getting-started page.
+		FirstInstrumentationDone: invitation != nil,
 	}
 
 	outboxEvent, err := s.buildRegisterAuthUserEvent(user, company, req.Password, req.FullName)

@@ -58,7 +58,7 @@ func setupTestCompanyAndCredits(t *testing.T, db *dbhelpers.Helpers, companyID, 
 	t.Helper()
 
 	db.CreateTestCompany(t, companyID, "Integration Test Company")
-	db.AssignRole(t, ownerUserID, "user", "owner")
+	db.AssignRole(t, ownerUserID, "user", "admin")
 	db.FundCreditAccount(t, companyID, 10_000_000)
 }
 
@@ -98,4 +98,3 @@ func CreateThreadWithRefsAndTimestamp(t *testing.T, pool *pgxpool.Pool, user *Te
 	dbhelpers.New(pool).CreateTestThreadWithRefsAndTimestamp(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, refs, startedAt)
 	return threadID
 }
-

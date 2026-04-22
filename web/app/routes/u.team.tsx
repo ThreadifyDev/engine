@@ -3,7 +3,7 @@ import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
 
 export const meta: MetaFunction = () => {
   return [
@@ -259,7 +259,19 @@ export default function Team() {
           </div>
         </div>
 
-        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
+        {error && (
+          <Alert
+            type="error"
+            message={error.message}
+            details={error.details}
+            className="mb-6"
+            action={
+              isCreditError(error.message)
+                ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+                : undefined
+            }
+          />
+        )}
         {successMessage && <Alert type="success" message={successMessage} className="mb-6" />}
 
         {/* Tabs */}
@@ -328,7 +340,7 @@ export default function Team() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm">
-                        {member.role !== 'owner' && member.id !== currentUserId && teamMembers.length > 1 && (
+                        {member.role !== 'admin' && member.id !== currentUserId && teamMembers.length > 1 && (
                           <button
                             onClick={() => handleRemoveMember(member.id)}
                             className="text-red-600 hover:text-red-800 font-medium transition-colors"

@@ -191,11 +191,14 @@ export default function PricingValue({ pricing }: PricingValueProps) {
 
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
           <p className="text-emerald-900 font-medium">
-            That's enough to create <strong className="text-emerald-700">{integerFormatter.format(example.contracts)} contracts</strong>, process
-            {" "}
-            <strong className="text-emerald-700">{compactFormatter.format(example.ingressOps)} thread writes</strong>, serve{" "}
-            <strong className="text-emerald-700">{integerFormatter.format(example.seats)} seats</strong>, and run{" "}
-            <strong className="text-emerald-700">{integerFormatter.format(example.llmTokens)} AI tokens</strong> worth of analysis.
+            With $15, you could create <strong className="text-emerald-700">{integerFormatter.format(example.contracts)} contracts</strong>,{" "}
+            <strong className="text-emerald-700 italic">or</strong> process{" "}
+            <strong className="text-emerald-700">{compactFormatter.format(example.ingressOps)} thread writes</strong>,{" "}
+            <strong className="text-emerald-700 italic">or</strong> serve{" "}
+            <strong className="text-emerald-700">{integerFormatter.format(example.seats)} seats</strong>,{" "}
+            <strong className="text-emerald-700 italic">or</strong> consume{" "}
+            <strong className="text-emerald-700">{integerFormatter.format(example.llmTokens)} AI tokens</strong>,{" "}
+            <strong className="text-emerald-700 italic">or</strong> any combination that totals $15.
           </p>
         </div>
       </div>

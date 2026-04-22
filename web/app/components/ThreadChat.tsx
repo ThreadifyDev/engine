@@ -875,11 +875,11 @@ export default function ThreadChat() {
                   <button
                     onClick={() => {
                       setIsDropdownOpen(false);
-                      navigate('/u/settings');
+                      navigate('/u/settings?tab=billing');
                     }}
                     className="flex-1 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
                   >
-                    Go to Settings to Top Up
+                    Go to Billing to Top Up
                   </button>
                 ) : (
                   <div className="flex gap-2 w-full">

@@ -24,6 +24,15 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
     }
   }, [creditAccount?.max_monthly_charge_millicents]);
 
+  const formatMicroCurrency = (millicents: number | undefined | null) => {
+    if (!millicents) return '0.00';
+    const dollars = millicents / 100000;
+    if (millicents % 1000 === 0) {
+      return dollars.toFixed(2);
+    }
+    return dollars.toFixed(5).replace(/0+$/, '');
+  };
+
   const handleTopUp = () => {
     const amount = showCustomInput ? parseFloat(customAmount) : topUpAmount;
     if (!isNaN(amount) && amount > 0) {
@@ -53,6 +62,15 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
     return `${day}${suffix(day)} ${month} ${year}`;
   };
 
+  const monthlyCharged = creditAccount?.monthly_charged_millicents || 0;
+  const monthlyLimit = creditAccount?.max_monthly_charge_millicents || 0;
+  const progressPercent = monthlyLimit > 0 ? Math.min(100, (monthlyCharged / monthlyLimit) * 100) : 0;
+  const progressColor = monthlyLimit > 0 && monthlyCharged >= monthlyLimit
+    ? 'bg-red-500'
+    : monthlyLimit > 0 && (monthlyCharged / monthlyLimit) >= 0.8
+    ? 'bg-yellow-500'
+    : 'bg-blue-500';
+
   return (
     <div key="billing-tab" className="max-w-6xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -64,16 +82,16 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
               <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-1">Current Balance</h3>
                 <div className="text-4xl font-bold text-gray-900">
-                  ${((creditAccount?.balance_millicents || 0) / 100000).toFixed(2)}
+                  ${formatMicroCurrency(creditAccount?.balance_millicents)}
                 </div>
               </div>
               <div className="text-right">
                 <div className="text-sm text-gray-500 mb-1">Monthly Usage</div>
                 <div className="text-2xl font-semibold text-gray-900">
-                  ${((creditAccount?.monthly_charged_millicents || 0) / 100000).toFixed(2)}
+                  ${formatMicroCurrency(creditAccount?.monthly_charged_millicents)}
                 </div>
                 <div className="text-xs text-gray-500">
-                  of ${((creditAccount?.max_monthly_charge_millicents || 0) / 100000).toFixed(2)} limit
+                  of ${formatMicroCurrency(creditAccount?.max_monthly_charge_millicents)} limit
                 </div>
               </div>
             </div>
@@ -82,14 +100,8 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
             <div className="mb-8">
               <div className="w-full bg-gray-100 rounded-full h-2">
                 <div 
-                  className={`h-2 rounded-full transition-all ${
-                    (creditAccount?.balance_millicents || 0) < (creditAccount?.monthly_charged_millicents || 0)
-                      ? 'bg-red-500' 
-                      : (creditAccount?.balance_millicents || 0) < (creditAccount?.max_monthly_charge_millicents || 0)
-                      ? 'bg-yellow-500'
-                      : 'bg-blue-500'
-                  }`}
-                  style={{ width: `${Math.min(100, ((creditAccount?.monthly_charged_millicents || 0) / Math.max(creditAccount?.balance_millicents || 1, 1)) * 100)}%` }}
+                  className={`h-2 rounded-full transition-all ${progressColor}`}
+                  style={{ width: `${progressPercent}%` }}
                 ></div>
               </div>
             </div>
@@ -181,7 +193,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
                   <div>
                     <div className="text-sm font-medium text-gray-900">Enabled</div>
                     <div className="text-xs text-gray-500">
-                      ${((creditAccount.auto_topup_millicents || 0) / 100000).toFixed(2)} when balance is low
+                      ${formatMicroCurrency(creditAccount.auto_topup_millicents)} when balance is low
                     </div>
                   </div>
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">

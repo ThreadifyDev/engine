@@ -11,8 +11,8 @@ import (
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
-	sharemodels "threadify-go/shared/models"
 	sharedmocks "threadify-go/shared/mocks"
+	sharemodels "threadify-go/shared/models"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +50,7 @@ func TestAuthService_Signup(t *testing.T) {
 				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(nil, nil)
 				deps.CompanyRepo.EXPECT().CreateTx(gomock.Any(), tx, gomock.Any()).Return(nil)
 				deps.UserRepo.EXPECT().CreateTx(gomock.Any(), tx, gomock.Any()).Return(nil)
-				deps.UserRoleRepo.EXPECT().AssignRoleToUserTx(gomock.Any(), tx, gomock.Any(), "owner", "system").Return(nil)
+				deps.UserRoleRepo.EXPECT().AssignRoleToUserTx(gomock.Any(), tx, gomock.Any(), "admin", "system").Return(nil)
 				deps.OutboxRepo.EXPECT().CreateTx(gomock.Any(), tx, gomock.Any()).Return(nil)
 				tx.EXPECT().Commit(gomock.Any()).Return(nil)
 			},
@@ -250,20 +250,20 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 			signupCredits:    100_000,
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
 				authClient.EXPECT().VerifyEmailWithOTP(gomock.Any(), email, token).Return("access_token", &sharedauth.AuthUserInfo{Sub: "auth_id", Email: email}, nil)
-					deps.UserRepo.EXPECT().FindByAuthUserID(gomock.Any(), "auth_id").Return(&models.User{ID: "user_123", CompanyID: companyID, Email: email, EmailVerified: false}, nil)
-					deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(nil, nil)
-					deps.PlanRepo.EXPECT().CreateCreditAccount(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, account *sharemodels.CreditAccount) error {
-						require.Equal(t, companyID, account.CompanyID)
-						require.Equal(t, int64(100_000), account.CreditBalanceMillicents)
-						require.Equal(t, int64(0), account.RateLimitTPS)
-						require.Equal(t, int64(0), account.PayloadLimitBytes)
-						return nil
-					})
-					deps.UserRepo.EXPECT().UpdateEmailVerified(gomock.Any(), "user_123", true).Return(nil)
-					deps.UserRepo.EXPECT().UpdateLastLogin(gomock.Any(), "user_123").Return(nil)
-					deps.EmailSvc.EXPECT().SendWelcomeEmail(gomock.Any(), email, gomock.Any()).Return(nil)
-				},
+				deps.UserRepo.EXPECT().FindByAuthUserID(gomock.Any(), "auth_id").Return(&models.User{ID: "user_123", CompanyID: companyID, Email: email, EmailVerified: false}, nil)
+				deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(nil, nil)
+				deps.PlanRepo.EXPECT().CreateCreditAccount(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, account *sharemodels.CreditAccount) error {
+					require.Equal(t, companyID, account.CompanyID)
+					require.Equal(t, int64(100_000), account.CreditBalanceMillicents)
+					require.Equal(t, int64(0), account.RateLimitTPS)
+					require.Equal(t, int64(0), account.PayloadLimitBytes)
+					return nil
+				})
+				deps.UserRepo.EXPECT().UpdateEmailVerified(gomock.Any(), "user_123", true).Return(nil)
+				deps.UserRepo.EXPECT().UpdateLastLogin(gomock.Any(), "user_123").Return(nil)
+				deps.EmailSvc.EXPECT().SendWelcomeEmail(gomock.Any(), email, gomock.Any()).Return(nil)
 			},
+		},
 		{
 			name:             "already_verified_does_not_send_welcome_or_provision",
 			configureCredits: true,

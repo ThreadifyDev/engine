@@ -1,8 +1,8 @@
 {
   "app_level": {
-    "owner": {
-      "name": "Owner",
-      "description": "Company owner with full access to all features",
+    "admin": {
+      "name": "Admin",
+      "description": "Company Admin with full access to all features except billing",
       "permissions": [
         "apikey.create",
         "apikey.read",
@@ -15,12 +15,11 @@
         "query.execution.*",
         "member.invite",
         "member.remove",
-        "member.view",
-        "billing.*"
+        "member.view"
       ]
     },
-    "standard_account": {
-      "name": "Standard Account",
+    "member": {
+      "name": "Member",
       "description": "Default role for user accounts",
       "permissions": [
         "apikey.create",
@@ -31,9 +30,16 @@
         "contract.update.*",
         "serviceaccount.*",
         "query.execution.*",
-        "member.invite",
-        "member.remove",
         "member.view"
+      ]
+    },
+    "viewer": {
+      "name": "Viewer",
+      "description": "Read-only access",
+      "permissions": [
+        "contract.read.*",
+        "member.view",
+        "query.execution.read"
       ]
     }
   },

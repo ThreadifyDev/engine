@@ -5,7 +5,7 @@ import { Key, Plus, Copy, Check, Trash2, Eye, EyeOff, X } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
 
 export const meta: MetaFunction = () => {
   return [
@@ -167,7 +167,19 @@ export default function APIKeys() {
         )}
 
         {/* Error Message */}
-        {error && <Alert type="error" message={error.message} details={error.details} className="mb-6" />}
+        {error && (
+          <Alert
+            type="error"
+            message={error.message}
+            details={error.details}
+            className="mb-6"
+            action={
+              isCreditError(error.message)
+                ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+                : undefined
+            }
+          />
+        )}
 
         {/* Create Button */}
         <div className="mb-6">
