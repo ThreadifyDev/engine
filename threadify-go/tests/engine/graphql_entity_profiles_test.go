@@ -228,7 +228,7 @@ func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	user := setupTestUser(t)
 
 	profileTypeID := uuid.NewString()
-	profileTypeName := "Customer Profiles " + uuid.NewString()[:8]
+	profileTypeName := "Customer Profiles"
 	profileTypeSlug := slug.ToSlug(profileTypeName)
 	_, err := env.Postgres.Pool.Exec(context.Background(), `
 		INSERT INTO entity_profile_type (id, company_id, name, type, slug, description, created_at, updated_at)
