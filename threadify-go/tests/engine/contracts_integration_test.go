@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/tests/internal/enginetest"
 )
 
 type testContract struct {
@@ -193,12 +194,12 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	t.Logf("test user: ID=%s CompanyID=%s", user.ID, user.CompanyID)
 
 	t.Run("preview_valid", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPost, "/v1/contracts/preview",
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts/preview",
 			[]byte(initialYAML), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"preview body: %s", resp.Body)
 
-		body := decodeJSONBody(t, resp)
+		body := enginetest.DecodeJSONBody(t, resp)
 
 		valid, ok := body["valid"].(bool)
 		require.True(t, ok, "'valid' field must be a bool; body: %s", resp.Body)
@@ -206,11 +207,11 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("preview_invalid_yaml", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPost, "/v1/contracts/preview",
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts/preview",
 			[]byte(invalidYAML), "text/plain", user.Token)
 
 		if resp.StatusCode == http.StatusOK {
-			body := decodeJSONBody(t, resp)
+			body := enginetest.DecodeJSONBody(t, resp)
 			valid, _ := body["valid"].(bool)
 			assert.False(t, valid,
 				"invalid YAML should have valid=false; body: %s", resp.Body)
@@ -223,7 +224,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	var contractID string
 
 	t.Run("create", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPost, "/v1/contracts",
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
 			[]byte(initialYAML), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"create body: %s", resp.Body)
@@ -261,7 +262,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("read", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
+		resp := httpc.DoWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
 			nil, "", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -277,12 +278,12 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPut, "/v1/contracts/"+contractID,
+		resp := httpc.DoWithAuth(t, http.MethodPut, "/v1/contracts/"+contractID,
 			[]byte(updatedYAML), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"update body: %s", resp.Body)
 
-		resp = doWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
+		resp = httpc.DoWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
 			nil, "", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -310,15 +311,15 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodDelete, "/v1/contracts/"+contractID,
+		resp := httpc.DoWithAuth(t, http.MethodDelete, "/v1/contracts/"+contractID,
 			nil, "", user.Token)
 
-		resp = doWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
+		resp = httpc.DoWithAuth(t, http.MethodGet, "/v1/contracts/"+contractID,
 			nil, "", user.Token)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode,
 			"deleted contract must return 404")
 
-		listResp := doWithAuth(t, http.MethodGet, "/v1/contracts",
+		listResp := httpc.DoWithAuth(t, http.MethodGet, "/v1/contracts",
 			nil, "", user.Token)
 		require.Equal(t, http.StatusOK, listResp.StatusCode)
 		list := requireContractList(t, listResp)
@@ -327,39 +328,39 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("create_invalid_yaml", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPost, "/v1/contracts",
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
 			[]byte(invalidYAML), "text/plain", user.Token)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
 			"body: %s", resp.Body)
 
-		body := decodeJSONBody(t, resp)
+		body := enginetest.DecodeJSONBody(t, resp)
 		msg, _ := body["message"].(string)
 		assert.NotEmpty(t, msg, "error response must include a message")
 	})
 
 	t.Run("read_not_found", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodGet,
+		resp := httpc.DoWithAuth(t, http.MethodGet,
 			"/v1/contracts/nonexistent_"+uuid.NewString()[:8],
 			nil, "", user.Token)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("update_not_found", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPut,
+		resp := httpc.DoWithAuth(t, http.MethodPut,
 			"/v1/contracts/nonexistent_"+uuid.NewString()[:8],
 			[]byte(initialYAML), "text/plain", user.Token)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("delete_not_found", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodDelete,
+		resp := httpc.DoWithAuth(t, http.MethodDelete,
 			"/v1/contracts/nonexistent_"+uuid.NewString()[:8],
 			nil, "", user.Token)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("create_duplicate_name", func(t *testing.T) {
-		resp := doWithAuth(t, http.MethodPost, "/v1/contracts",
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
 			[]byte(initialYAML), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"first create body: %s", resp.Body)
@@ -381,12 +382,12 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 			defer res.Body.Close()
 		})
 
-		resp = doWithAuth(t, http.MethodPost, "/v1/contracts",
+		resp = httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
 			[]byte(initialYAML), "text/plain", user.Token)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
 			"duplicate contract name must be rejected; body: %s", resp.Body)
 
-		body := decodeJSONBody(t, resp)
+		body := enginetest.DecodeJSONBody(t, resp)
 		msg, _ := body["message"].(string)
 		assert.Contains(t, msg, "already exists",
 			"error message should explain the conflict")
@@ -404,14 +405,14 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 			{http.MethodPut, "/v1/contracts/" + contractID, []byte(updatedYAML)},
 			{http.MethodDelete, "/v1/contracts/" + contractID, nil},
 		} {
-			resp := doWithAuth(t, tc.method, tc.path, tc.body, "text/plain", "")
+			resp := httpc.DoWithAuth(t, tc.method, tc.path, tc.body, "text/plain", "")
 			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
 				"%s %s should require auth", tc.method, tc.path)
 		}
 	})
 }
 
-func requireContractFromBody(t *testing.T, resp *TestResponse) testContractResponse {
+func requireContractFromBody(t *testing.T, resp *enginetest.TestResponse) testContractResponse {
 	t.Helper()
 	var result testContractResponse
 	require.NoError(t, json.Unmarshal(resp.Body, &result),
@@ -421,9 +422,9 @@ func requireContractFromBody(t *testing.T, resp *TestResponse) testContractRespo
 	return result
 }
 
-func requireContractList(t *testing.T, resp *TestResponse) []testContract {
+func requireContractList(t *testing.T, resp *enginetest.TestResponse) []testContract {
 	t.Helper()
-	body := decodeJSONBody(t, resp)
+	body := enginetest.DecodeJSONBody(t, resp)
 
 	if raw, ok := body["contracts"]; ok {
 		if raw == nil {

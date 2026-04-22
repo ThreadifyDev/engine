@@ -296,15 +296,11 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	}()
 
 	from := "threads t"
-	if actor != nil && *actor != "" {
-		from += " LEFT JOIN thread_activities ta ON t.id = ta.thread_id"
-	}
 
 	b := newThreadQueryBuilder("t.company_id = $1", companyID)
 	if actor != nil && *actor != "" {
-		b.where += fmt.Sprintf(" AND (ta.actor = $%d OR ta.actor_service = $%d)", b.argIdx, b.argIdx)
-		b.args = append(b.args, *actor)
-		b.argIdx++
+		// Filter by owner_id since actor column doesn't exist in threads table
+		b.addOptionalFilter("t.owner_id = $%d", actor)
 	}
 	if contractName != nil && *contractName != "" {
 		b.addOptionalFilter("t.contract_name = $%d", contractName)

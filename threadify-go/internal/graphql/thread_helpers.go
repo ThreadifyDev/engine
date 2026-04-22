@@ -21,7 +21,7 @@ func NormalizePagination(opts *ThreadQueryOptions) (limit, offset int) {
 			limit = MaxThreadsPerQuery
 		}
 	}
-	if opts.Offset != nil {
+	if opts.Offset != nil && *opts.Offset >= 0 {
 		offset = *opts.Offset
 	}
 	return limit, offset

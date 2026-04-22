@@ -192,7 +192,6 @@ func buildRouter(cfg *config.Config, d *deps, logger *zap.Logger) http.Handler {
 		}
 	}
 
-	// Initialize Lua script manager early (needed by threadRepo)
 	luaScriptManager := valkey.NewLuaScriptManager(d.valkey)
 	if err := luaScriptManager.LoadScripts(context.Background()); err != nil {
 		logger.Fatal("failed to load lua scripts", zap.Error(err))
@@ -449,23 +448,30 @@ func shutdownGuard(shuttingDown *atomic.Bool) gin.HandlerFunc {
 
 func graphqlMiddleware(h *handler.Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Transfer authentication context from Gin to GraphQL request
-		ctx := c.Request.Context()
+		req := c.Request
+		ctx := req.Context()
 
-		// Extract auth values from Gin context
-		if userID, exists := c.Get(sharedauth.CtxUserID); exists {
-			ctx = context.WithValue(ctx, sharedauth.CtxUserID, userID)
+		if v, ok := c.Get(sharedauth.CtxUserID); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxUserID, v)
 		}
-		if companyID, exists := c.Get(sharedauth.CtxCompanyID); exists {
-			ctx = context.WithValue(ctx, sharedauth.CtxCompanyID, companyID)
+		if v, ok := c.Get(sharedauth.CtxCompanyID); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxCompanyID, v)
 		}
-		if roles, exists := c.Get(sharedauth.CtxRoles); exists {
-			ctx = context.WithValue(ctx, sharedauth.CtxRoles, roles)
+		if v, ok := c.Get(sharedauth.CtxRoles); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxRoles, v)
+		}
+		if v, ok := c.Get(sharedauth.CtxAuthUserID); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxAuthUserID, v)
+		}
+		if v, ok := c.Get(sharedauth.CtxEmail); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxEmail, v)
+		}
+		if v, ok := c.Get(sharedauth.CtxAuthSub); ok {
+			ctx = context.WithValue(ctx, sharedauth.CtxAuthSub, v)
 		}
 
-		// Create new request with updated context
-		r := c.Request.WithContext(ctx)
-		h.ServeHTTP(c.Writer, r)
+		req = req.WithContext(ctx)
+		h.ServeHTTP(c.Writer, req)
 	}
 }
 
