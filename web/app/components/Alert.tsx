@@ -76,5 +76,14 @@ export default function Alert({ type, message, details, className = '', action }
 // Helper function to detect credit-related errors
 export function isCreditError(message: string): boolean {
   const lower = message.toLowerCase();
-  return lower.includes('credit') || lower.includes('insufficient') || lower.includes('out of credit') || lower.includes('ran out');
+  return (
+    lower.includes('insufficient credit') ||
+    lower.includes('no credit') ||
+    lower.includes('low credit') ||
+    lower.includes('please top up') ||
+    lower.includes('please purchase credit') ||
+    lower.includes('no billing account') ||
+    lower.includes('set up billing') ||
+    lower.includes('payment required')
+  );
 }

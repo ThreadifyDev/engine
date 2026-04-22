@@ -90,7 +90,7 @@
       "is_wildcard": false
     },
     {
-      "name": "member.remove",
+      "name": "member.delete",
       "description": "Remove members from the organization",
       "is_wildcard": false
     },

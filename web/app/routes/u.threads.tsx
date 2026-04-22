@@ -1,6 +1,6 @@
 import { useNavigate, useSearchParams } from '@remix-run/react';
 import { useState, useEffect } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight, PlusCircle } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 import { api } from '~/lib/api';
@@ -78,10 +78,10 @@ export default function ThreadsPage() {
       searchQuery: searchQuery || '',
       refs: refKey && refValue ? [{ key: refKey, value: refValue }] : [],
       timeRange: (timeRange as any) || 'all',
-      threadId,
-      contractName,
+      threadId: threadId || undefined,
+      contractName: contractName || undefined,
       contractVersion: contractVersion ? parseInt(contractVersion) : undefined,
-      status,
+      status: status || undefined,
     };
     setFilters(restoredFilters);
   }, []);
@@ -586,7 +586,7 @@ function AdvancedSearchFilters({
                     <button
                       type="button"
                       onClick={() => removeRefFilter(index)}
-                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                      className="p-2 text-red-500 hover:text-red-700 transition-colors"
                       title="Remove reference"
                     >
                       <X className="w-4 h-4" />

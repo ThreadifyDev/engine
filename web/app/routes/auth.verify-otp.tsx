@@ -147,7 +147,7 @@ export default function VerifyOTP() {
               minLength={8}
               value={formData.token}
               onChange={handleCodeChange}
-              className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black text-center text-2xl tracking-widest font-mono"
+              className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white text-center text-2xl tracking-widest font-mono font-bold"
               placeholder="00000000"
               autoComplete="one-time-code"
             />
@@ -160,7 +160,7 @@ export default function VerifyOTP() {
           <button
             type="submit"
             disabled={loading || formData.token.length !== 8}
-            className="w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {loading ? 'Verifying...' : 'Verify Code'}
           </button>

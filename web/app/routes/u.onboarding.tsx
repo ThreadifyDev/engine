@@ -177,7 +177,7 @@ export default function Onboarding() {
                   minLength={2}
                   value={formData.full_name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                   placeholder="John Doe"
                 />
               </div>
@@ -193,7 +193,7 @@ export default function Onboarding() {
                   required
                   value={formData.job_role}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select role</option>
                   <option value="Software Engineer">Software Engineer</option>
@@ -220,7 +220,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.job_role_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Enter your job role"
                   />
                 </div>
@@ -232,13 +232,13 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={handleSkip}
-                className="flex-1 border-2 border-black text-black py-3 px-4 font-medium hover:bg-gray-100 transition-colors"
+                className="flex-1 text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
               >
                 Skip for now
               </button>
               <button
                 type="submit"
-                className="flex-1 bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 transition-colors"
+                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 transition-all border-2 border-black"
               >
                 Continue
               </button>
@@ -270,7 +270,7 @@ export default function Onboarding() {
                   required
                   value={formData.industry}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select industry</option>
                   <option value="E-commerce">E-commerce</option>
@@ -298,7 +298,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.industry_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Enter your industry"
                   />
                 </div>
@@ -315,7 +315,7 @@ export default function Onboarding() {
                   required
                   value={formData.company_size}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select size</option>
                   <option value="small">Small (1-10 employees)</option>
@@ -336,7 +336,7 @@ export default function Onboarding() {
                   required
                   value={formData.use_case}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select use case</option>
                   <option value="Order Fulfillment">Order Fulfillment & Tracking</option>
@@ -365,7 +365,7 @@ export default function Onboarding() {
                     minLength={5}
                     value={formData.use_case_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Describe what you'll monitor with Threadify"
                   />
                 </div>
@@ -377,14 +377,14 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 border-2 border-black text-black py-3 px-4 font-medium hover:bg-gray-100 transition-colors"
+                className="flex-1 text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
               >
                 Back
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all border-2 border-black"
               >
                 {loading ? 'Completing...' : 'Complete Setup'}
               </button>

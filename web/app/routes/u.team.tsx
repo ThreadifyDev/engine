@@ -34,6 +34,7 @@ export default function Team() {
   const [inviting, setInviting] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [canViewMembers, setCanViewMembers] = useState(false);
   const [canInviteMembers, setCanInviteMembers] = useState(false);
@@ -141,9 +142,18 @@ export default function Team() {
     if (!window.confirm('Are you sure you want to remove this team member?')) return;
 
     try {
-      // TODO: Implement remove member API endpoint
-      setSuccessMessage('Member removed successfully');
-      window.location.reload();
+      setRemovingMemberId(memberId);
+      setError(null);
+      setSuccessMessage('');
+
+      const response = await api.removeTeamMember(memberId);
+
+      if (response.success) {
+        setSuccessMessage('Member removed successfully');
+        setTeamMembers(teamMembers.filter(m => m.id !== memberId));
+      } else {
+        setError({ message: response.error || 'Failed to remove member' });
+      }
     } catch (err) {
       if (err instanceof ValidationError) {
         setError({
@@ -153,6 +163,8 @@ export default function Team() {
       } else {
         setError({ message: err instanceof Error ? err.message : 'Failed to remove member' });
       }
+    } finally {
+      setRemovingMemberId(null);
     }
   };
 
@@ -343,9 +355,10 @@ export default function Team() {
                         {member.role !== 'admin' && member.id !== currentUserId && teamMembers.length > 1 && (
                           <button
                             onClick={() => handleRemoveMember(member.id)}
-                            className="text-red-600 hover:text-red-800 font-medium transition-colors"
+                            disabled={removingMemberId === member.id}
+                            className="text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-50"
                           >
-                            Remove
+                            {removingMemberId === member.id ? 'Removing...' : 'Remove'}
                           </button>
                         )}
                         {member.id === currentUserId && (
@@ -421,7 +434,7 @@ export default function Team() {
                               <button
                                 onClick={() => handleCancelInvitation(invitation.id, invitation.email)}
                                 disabled={resendingId === invitation.id || cancelingId === invitation.id}
-                                className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {cancelingId === invitation.id ? 'Canceling...' : 'Cancel'}
                               </button>
@@ -460,10 +473,10 @@ export default function Team() {
 
         {/* Invite Modal */}
         {showInviteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white border-4 border-black max-w-md w-full">
-            <div className="border-b-4 border-black p-6 flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Invite Team Member</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm transition-all">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border-2 border-black">
+            <div className="border-b-2 border-black p-6 flex justify-between items-center bg-white">
+              <h2 className="text-xl font-bold text-gray-900">Invite Team Member</h2>
               <button
                 onClick={() => setShowInviteModal(false)}
                 className="text-2xl font-bold hover:text-gray-600"
@@ -482,7 +495,7 @@ export default function Team() {
                   required
                   value={inviteForm.email}
                   onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  className="w-full px-4 py-3 rounded-lg border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-black focus:outline-none focus:ring-2 focus:ring-black transition-all outline-none bg-white font-medium"
                   placeholder="colleague@company.com"
                 />
               </div>
@@ -495,7 +508,7 @@ export default function Team() {
                   required
                   value={inviteForm.role}
                   onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                  className="w-full px-4 py-3 rounded-lg border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-black focus:outline-none focus:ring-2 focus:ring-black transition-all outline-none bg-white font-medium"
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
@@ -503,20 +516,20 @@ export default function Team() {
                 </select>
               </div>
 
-              <div className="flex gap-4">
-                <button
-                  type="submit"
-                  disabled={inviting}
-                  className="flex-1 px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {inviting ? 'Sending...' : 'Send Invite'}
-                </button>
+              <div className="flex justify-end items-center gap-6 mt-2">
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="px-6 py-3 border-2 border-black hover:bg-gray-100 transition-colors font-medium"
+                  className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={inviting}
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {inviting ? 'Sending...' : 'Send Invite'}
                 </button>
               </div>
             </form>

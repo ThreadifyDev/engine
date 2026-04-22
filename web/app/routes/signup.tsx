@@ -135,7 +135,7 @@ export default function Signup() {
                   minLength={2}
                   value={formData.company_name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                   placeholder="Acme Corp"
                 />
               </div>
@@ -145,7 +145,7 @@ export default function Signup() {
                 <label className="block text-sm font-medium text-black mb-1">
                   Company
                 </label>
-                <div className="w-full px-4 py-3 border-2 rounded-lg border-gray-300 bg-gray-50 text-gray-700">
+                <div className="w-full px-4 py-3 border-2 border-black rounded-xl bg-gray-50 text-gray-700 font-medium">
                   {companyName}
                 </div>
               </div>
@@ -164,9 +164,9 @@ export default function Signup() {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={!!invitationToken}
-                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none focus:ring-2 ${
+                className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none focus:ring-2 transition-all font-medium ${
                   invitationToken 
-                    ? 'border-gray-300 bg-gray-50 text-gray-700 cursor-not-allowed' 
+                    ? 'border-gray-300 bg-gray-50 text-gray-400 cursor-not-allowed' 
                     : 'border-black focus:ring-black'
                 }`}
                 placeholder="you@company.com"
@@ -187,7 +187,7 @@ export default function Signup() {
                   minLength={8}
                   value={formData.password}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 pr-12 border-2 rounded-lg border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 pr-12 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                   placeholder="Min. 8 characters"
                 />
                 <button
@@ -207,7 +207,7 @@ export default function Signup() {
           <button
             type="submit"
             disabled={loading || loadingInvitation}
-            className="w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {loading ? (invitationToken ? 'Joining team...' : 'Creating account...') : (invitationToken ? 'Join Team' : 'Create Account')}
           </button>

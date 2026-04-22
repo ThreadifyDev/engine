@@ -46,10 +46,6 @@ func RequirePermission(
 				return
 			}
 
-			if len(roleNames) == 0 {
-				roleNames = []string{"member"}
-			}
-
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
 		} else {
 			isActive, err := serviceAccountChecker.IsServiceAccountActive(c.Request.Context(), serviceAccountID)
@@ -117,10 +113,6 @@ func RequireResourcePermission(
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
 				return
-			}
-
-			if len(roleNames) == 0 {
-				roleNames = []string{"member"}
 			}
 
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")

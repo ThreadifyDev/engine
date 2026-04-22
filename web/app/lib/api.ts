@@ -313,6 +313,12 @@ class ApiClient {
     });
   }
 
+  async removeTeamMember(id: string): Promise<any> {
+    return this.request(`/team/members/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   async listInvitations(): Promise<{ invitations: any[] }> {
     return this.request('/team/invitations', {
       method: 'GET',
@@ -585,6 +591,7 @@ export interface EntityProfileType {
   id: string;
   company_id: string;
   name: string;
+  slug: string;
   type: string;
   description: string;
   created_at: string;
