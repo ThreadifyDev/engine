@@ -44,9 +44,13 @@ export default function ProfileLookupTab({ profileTypes }: ProfileLookupTabProps
                 required
               >
                 <option value="">Select a type...</option>
-                {profileTypes.map((pt) => (
-                  <option key={pt.id} value={pt.type}>{pt.name} ({pt.type})</option>
-                ))}
+                {profileTypes.map((pt) => 
+                  pt.type.map((t) => (
+                    <option key={`${pt.id}-${t}`} value={t}>
+                      {pt.name} ({t})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
             

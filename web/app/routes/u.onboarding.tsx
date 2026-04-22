@@ -45,13 +45,14 @@ export default function Onboarding() {
     }
     
     // Check if user joined via invitation (company info already exists)
-    // Only run once on mount
+    // Invited users have first_instrumentation_done = true
     const checkCompanyStatus = async () => {
       try {
         const response = await api.getUserProfile(true); // minimal=true for onboarding
         
-        // Backend now returns { company: { details_completed: boolean } }
-        if (response.company?.details_completed) {
+        // If user has first_instrumentation_done = true, they joined via invitation
+        // Skip company step since company details already exist
+        if (response.user?.first_instrumentation_done) {
           setSkipCompanyStep(true);
         }
       } catch (err) {
@@ -139,15 +140,17 @@ export default function Onboarding() {
             Threadify
           </h1>
           <div className="mt-6">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 1 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                1
+            {!skipCompanyStep && (
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 1 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
+                  1
+                </div>
+                <div className="w-12 h-0.5 bg-gray-300"></div>
+                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 2 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
+                  2
+                </div>
               </div>
-              <div className="w-12 h-0.5 bg-gray-300"></div>
-              <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 2 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                2
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -232,7 +235,7 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={handleSkip}
-                className="flex-1 text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                className="flex-1 text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
               >
                 Skip for now
               </button>
@@ -240,7 +243,7 @@ export default function Onboarding() {
                 type="submit"
                 className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 transition-all border-2 border-black"
               >
-                Continue
+                {skipCompanyStep ? 'Complete Setup' : 'Continue'}
               </button>
             </div>
           </form>

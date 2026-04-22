@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from '@remix-run/react';
+import { useParams, useNavigate, useSearchParams } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
 import { api, type EntityProfile } from '~/lib/api';
 import { graphqlClient, type Thread } from '~/lib/graphql';
@@ -28,7 +28,9 @@ export default function EntityProfileDetail() {
   const [profile, setProfile] = useState<EntityProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('tab') as TabType | null;
+  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview') ? urlTab : 'overview';
 
   useEffect(() => {
     if (!type || !refKey) {
@@ -76,7 +78,7 @@ export default function EntityProfileDetail() {
         <div className="p-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto mt-12">
           <button 
             onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
-            className="text-gray-500 hover:text-black mb-6 flex items-center gap-2 text-sm font-medium transition-colors"
+            className="text-red-700 hover:text-red-800 mb-6 flex items-center gap-2 text-sm font-medium transition-colors"
           >
             <ChevronLeft className="w-4 h-4" /> Back to Profiles
           </button>
@@ -111,7 +113,7 @@ export default function EntityProfileDetail() {
         {/* Back */}
         <button
           onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
-          className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
+          className="text-gray-500 hover:text-gray-900 mb-6 flex items-center text-sm font-medium transition-colors"
         >
           ← Back to Profiles
         </button>
@@ -123,13 +125,36 @@ export default function EntityProfileDetail() {
               <UserCircle className="w-6 h-6 text-gray-600" />
             </div>
             <div>
-              <h1 className="text-3xl font-semibold text-gray-900">
-                {profile.name || refKey}
-              </h1>
-              <p className="text-sm text-gray-500 font-mono mt-1">
-                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">{type}</span>
-                <span className="ml-2 text-gray-400">{refKey}</span>
-              </p>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-semibold text-gray-900">
+                  {profile.name || refKey}
+                </h1>
+                {profile.profileType?.name && (
+                  <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100">
+                    {profile.profileType.name}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {profile.profileType?.type?.map((key: string) => (
+                  <span 
+                    key={key}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider ${
+                      key === refKey 
+                        ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                        : 'bg-gray-100 text-gray-600 border border-gray-200'
+                    }`}
+                  >
+                    {key}
+                  </span>
+                ))}
+                {!profile.profileType && (
+                  <>
+                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-xs">{type}</span>
+                    <span className="ml-2 text-gray-400 font-mono text-xs">{refKey}</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -151,7 +176,7 @@ export default function EntityProfileDetail() {
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
             <button
-              onClick={() => setActiveTab('overview')}
+              onClick={() => setSearchParams(prev => { prev.set('tab', 'overview'); return prev; })}
               className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
                 activeTab === 'overview'
                   ? 'border-gray-900 text-gray-900'
@@ -162,7 +187,7 @@ export default function EntityProfileDetail() {
               Overview
             </button>
             <button
-              onClick={() => setActiveTab('history')}
+              onClick={() => setSearchParams(prev => { prev.set('tab', 'history'); return prev; })}
               className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
                 activeTab === 'history'
                   ? 'border-gray-900 text-gray-900'
@@ -178,7 +203,11 @@ export default function EntityProfileDetail() {
         {activeTab === 'overview' ? (
           <OverviewTab profile={profile} metrics={metrics} />
         ) : (
-          <HistoryTab refKey={refKey!} refValue={refKey!} typeKey={type!} navigate={navigate} />
+          <HistoryTab 
+            profileId={profile.id}
+            refValue={refKey!} 
+            navigate={navigate} 
+          />
         )}
       </div>
     </AppLayout>
@@ -255,13 +284,12 @@ function OverviewTab({ profile, metrics }: { profile: EntityProfile; metrics: an
 // --- History tab: threads referencing (ref_type=type, ref_value=refKey) ---
 
 function HistoryTab({
-  typeKey,
+  profileId,
   refValue,
   navigate,
 }: {
-  refKey: string;
+  profileId: string;
   refValue: string;
-  typeKey: string;
   navigate: (path: string) => void;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -278,10 +306,9 @@ function HistoryTab({
       try {
         setIsLoading(true);
         setError(null);
-        // Strict query — refKey=typeKey, refValue=refValue
-        const res = await graphqlClient.getThreadsByRef({
-          refKey: typeKey,
-          refValue,
+        // Query by profileId (backend resolves the reference keys)
+        const res = await graphqlClient.getEntityProfileHistory({
+          profileID: profileId,
         });
         setThreads(res.threads || []);
         setTotalCount(res.totalCount || 0);
@@ -291,7 +318,7 @@ function HistoryTab({
         setIsLoading(false);
       }
     })();
-  }, [typeKey, refValue]);
+  }, [profileId, refValue]);
 
   if (isLoading) {
     return (
@@ -315,7 +342,7 @@ function HistoryTab({
         <Search className="w-12 h-12 text-gray-300 mb-3" />
         <h3 className="text-lg font-medium text-gray-900">No threads referenced this entity</h3>
         <p className="text-gray-500 mt-1 max-w-md">
-          No threads have been recorded with <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">{typeKey}={refValue}</code>.
+          No threads have been recorded with <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">ID={refValue}</code>.
         </p>
       </div>
     );

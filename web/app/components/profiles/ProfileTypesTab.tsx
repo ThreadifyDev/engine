@@ -16,24 +16,31 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
   const navigate = useNavigate();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [createData, setCreateData] = useState({ name: '', type: '', description: '' });
+  const [createData, setCreateData] = useState<{ name: string; type: string[]; description: string }>({ name: '', type: [], description: '' });
   const [createError, setCreateError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<EntityProfileType | null>(null);
+  const [editError, setEditError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
+  const [persistedTypes, setPersistedTypes] = useState<string[]>([]);
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteData, setDeleteData] = useState<EntityProfileType | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createData.type.length === 0) {
+      setCreateError({ message: 'At least one Type Key is required.' });
+      return;
+    }
     setCreateError(null);
     try {
       setIsCreating(true);
       await api.createEntityProfileType(createData);
-      setCreateData({ name: '', type: '', description: '' });
+      setCreateData({ name: '', type: [], description: '' });
       setIsCreateModalOpen(false);
       await onRefresh();
     } catch (err: any) {
@@ -55,14 +62,28 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editData) return;
+    setEditError(null);
     try {
       setIsEditing(true);
-      await api.updateEntityProfileType(editData.id, { name: editData.name, description: editData.description });
+      await api.updateEntityProfileType(editData.id, { 
+        name: editData.name, 
+        type: editData.type,
+        description: editData.description 
+      });
       setIsEditModalOpen(false);
       setEditData(null);
       await onRefresh();
     } catch (err: any) {
-      alert(err.message || 'Failed to update profile type');
+      if (err instanceof ValidationError) {
+        setEditError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setEditError({
+          message: err.message || 'Failed to update profile type',
+        });
+      }
     } finally {
       setIsEditing(false);
     }
@@ -70,6 +91,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
 
   const confirmDelete = async () => {
     if (!deleteData) return;
+    setDeleteError(null);
     try {
       setIsDeleting(true);
       await api.archiveEntityProfileType(deleteData.id);
@@ -77,7 +99,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
       setDeleteData(null);
       await onRefresh();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete profile type');
+      setDeleteError(err.message || 'Failed to delete profile type');
     } finally {
       setIsDeleting(false);
     }
@@ -132,7 +154,12 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={(e) => { e.stopPropagation(); setEditData(pt); setIsEditModalOpen(true); }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setEditData(pt); 
+                      setPersistedTypes([...pt.type]);
+                      setIsEditModalOpen(true); 
+                    }}
                     className="p-1.5 text-gray-400 hover:text-black transition-colors rounded hover:bg-gray-100"
                     title="Edit"
                   >
@@ -149,7 +176,13 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
               </div>
 
               <h3 className="text-base font-semibold text-gray-900 mb-1">{pt.name}</h3>
-              <code className="text-xs font-mono text-gray-500 mb-3 inline-block">{pt.type}</code>
+              <div className="flex flex-wrap gap-1 mb-3">
+                {pt.type.map(t => (
+                  <code key={t} className="text-[10px] font-mono bg-gray-50 text-gray-500 px-1.5 py-0.5 border border-gray-200 rounded">
+                    {t}
+                  </code>
+                ))}
+              </div>
               <p className="text-sm text-gray-600 flex-1 line-clamp-2">
                 {pt.description || <span className="text-gray-400 italic">No description</span>}
               </p>
@@ -208,16 +241,15 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Type Key</label>
-                  <input
-                    type="text"
-                    required
-                    value={createData.type}
-                    onChange={e => setCreateData({...createData, type: e.target.value})}
-                    placeholder="e.g. courier_id (must match ref key in steps)"
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none font-mono text-sm"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Type Key(s)</label>
+                  <TagInput
+                    tags={createData.type}
+                    onChange={tags => setCreateData({...createData, type: tags})}
+                    placeholder="e.g. courier_id"
                   />
-                  <p className="text-xs text-gray-500 mt-1">This key must exactly match how this entity is referenced in thread steps.</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Press Enter, comma, or space to add a key. Keys must match how entities are referenced in thread steps.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
@@ -230,18 +262,18 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   />
                 </div>
               </div>
-              <div className="mt-8 flex justify-end gap-3">
+              <div className="mt-8 flex justify-end items-center gap-6">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded transition-colors text-sm font-medium"
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-4 py-2 bg-black text-white hover:bg-gray-800 rounded transition-colors text-sm font-medium disabled:opacity-50"
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                 >
                   {isCreating ? 'Creating...' : 'Create Type'}
                 </button>
@@ -258,13 +290,30 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h2 className="text-lg font-bold text-gray-900">Edit Profile Type</h2>
               <button 
-                onClick={() => { setIsEditModalOpen(false); setEditData(null); }}
+                onClick={() => { 
+                  setIsEditModalOpen(false); 
+                  setEditData(null);
+                  setEditError(null);
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleEdit} className="p-6">
+              {editError && (
+                <Alert
+                  type="error"
+                  message={editError.message}
+                  details={editError.details}
+                  className="mb-4"
+                  action={
+                    isCreditError(editError.message)
+                      ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+                      : undefined
+                  }
+                />
+              )}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
@@ -277,14 +326,16 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Type Key</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={editData.type}
-                    className="w-full px-3 py-2 border border-gray-200 bg-gray-50 text-gray-500 rounded outline-none font-mono text-sm cursor-not-allowed"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Type Key(s)</label>
+                  <TagInput
+                    tags={editData.type}
+                    persistedTags={persistedTypes}
+                    onChange={tags => setEditData({...editData, type: tags})}
+                    placeholder="Add more keys..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">The type key cannot be changed once created.</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Already persisted keys cannot be removed. You can add new keys.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
@@ -296,18 +347,22 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   />
                 </div>
               </div>
-              <div className="mt-8 flex justify-end gap-3">
+              <div className="mt-8 flex justify-end items-center gap-6">
                 <button
                   type="button"
-                  onClick={() => { setIsEditModalOpen(false); setEditData(null); }}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded transition-colors text-sm font-medium"
+                  onClick={() => { 
+                    setIsEditModalOpen(false); 
+                    setEditData(null);
+                    setEditError(null);
+                  }}
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isEditing}
-                  className="px-4 py-2 bg-black text-white hover:bg-gray-800 rounded transition-colors text-sm font-medium disabled:opacity-50"
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                 >
                   {isEditing ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -325,22 +380,33 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
               <h2 className="text-lg font-bold text-red-600">Delete Profile Type</h2>
             </div>
             <div className="p-6">
+              {deleteError && (
+                <Alert
+                  type="error"
+                  message={deleteError}
+                  className="mb-4"
+                />
+              )}
               <p className="text-gray-700 mb-6">
                 Are you sure you want to delete the <strong>{deleteData.name}</strong> profile type? 
                 This action cannot be undone and will prevent future threads from updating this profile.
               </p>
-              <div className="flex justify-end gap-3">
+              <div className="flex justify-end items-center gap-6">
                 <button
                   type="button"
-                  onClick={() => { setIsDeleteOpen(false); setDeleteData(null); }}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded transition-colors text-sm font-medium"
+                  onClick={() => { 
+                    setIsDeleteOpen(false); 
+                    setDeleteData(null);
+                    setDeleteError(null);
+                  }}
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmDelete}
                   disabled={isDeleting}
-                  className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded transition-colors text-sm font-medium disabled:opacity-50"
+                  className="px-8 py-3 bg-red-600 text-white hover:bg-red-700 rounded-xl transition-colors font-medium disabled:opacity-50"
                 >
                   {isDeleting ? 'Deleting...' : 'Delete'}
                 </button>
@@ -350,5 +416,77 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
         </div>
       )}
     </>
+  );
+}
+
+interface TagInputProps {
+  tags: string[];
+  persistedTags?: string[];
+  onChange: (tags: string[]) => void;
+  placeholder?: string;
+}
+
+function TagInput({ tags, persistedTags = [], onChange, placeholder }: TagInputProps) {
+  const [inputValue, setInputValue] = useState('');
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+      e.preventDefault();
+      const val = inputValue.trim().replace(/^,/, '');
+      if (val && !tags.includes(val)) {
+        onChange([...tags, val]);
+      }
+      setInputValue('');
+    } else if (e.key === 'Backspace' && !inputValue && tags.length > 0) {
+      const lastTag = tags[tags.length - 1];
+      if (!persistedTags.includes(lastTag)) {
+        onChange(tags.slice(0, -1));
+      }
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    if (persistedTags.includes(tagToRemove)) return;
+    onChange(tags.filter(t => t !== tagToRemove));
+  };
+
+  return (
+    <div className="w-full px-3 py-2 border border-gray-300 rounded focus-within:ring-1 focus-within:ring-black focus-within:border-black bg-white flex flex-wrap gap-2 items-center min-h-[42px]">
+      {tags.map(tag => {
+        const isPersisted = persistedTags.includes(tag);
+        return (
+          <span 
+            key={tag} 
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-sm font-mono ${
+              isPersisted ? 'bg-gray-100 text-gray-500 border border-gray-200' : 'bg-gray-900 text-white'
+            }`}
+          >
+            {tag}
+            {!isPersisted && (
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                className="hover:text-red-400 focus:outline-none ml-1"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            {isPersisted && (
+               <span className="w-3 h-3 flex items-center justify-center opacity-40">
+                 <Database className="w-2.5 h-2.5" />
+               </span>
+            )}
+          </span>
+        );
+      })}
+      <input
+        type="text"
+        value={inputValue}
+        onChange={e => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={tags.length === 0 ? placeholder : ''}
+        className="flex-1 min-w-[120px] outline-none text-sm font-mono h-6 bg-transparent"
+      />
+    </div>
   );
 }

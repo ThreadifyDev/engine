@@ -586,7 +586,7 @@ function AdvancedSearchFilters({
                     <button
                       type="button"
                       onClick={() => removeRefFilter(index)}
-                      className="p-2 text-red-500 hover:text-red-700 transition-colors"
+                      className="p-2 text-red-700 hover:text-red-800 transition-colors"
                       title="Remove reference"
                     >
                       <X className="w-4 h-4" />

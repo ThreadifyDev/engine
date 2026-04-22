@@ -202,7 +202,9 @@ func (r *ThreadRepository) GetThreadsByRef(ctx context.Context, refKey, refValue
 
 func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	ctx context.Context,
-	companyID, refKey, refValue string,
+	companyID string,
+	refKeys []string,
+	refValue string,
 	status, startedAfter, startedBefore *string,
 	limit, offset int,
 ) ([]*models.Thread, int, error) {
@@ -210,12 +212,15 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	var b *threadQueryBuilder
 
 	like := "%" + refValue + "%"
-	if refKey == "" {
+	if len(refKeys) == 0 {
 		from = "threads t JOIN thread_refs tr ON t.id = tr.thread_id"
 		b = newThreadQueryBuilder("t.company_id = $1 AND tr.ref_value ILIKE $2", companyID, like)
+	} else if len(refKeys) == 1 {
+		from = "threads t JOIN thread_refs tr ON t.id = tr.thread_id"
+		b = newThreadQueryBuilder("t.company_id = $1 AND tr.ref_key = $2 AND tr.ref_value ILIKE $3", companyID, refKeys[0], like)
 	} else {
 		from = "threads t JOIN thread_refs tr ON t.id = tr.thread_id"
-		b = newThreadQueryBuilder("t.company_id = $1 AND tr.ref_key = $2 AND tr.ref_value ILIKE $3", companyID, refKey, like)
+		b = newThreadQueryBuilder("t.company_id = $1 AND tr.ref_key = ANY($2) AND tr.ref_value ILIKE $3", companyID, refKeys, like)
 	}
 
 	b.addOptionalFilter("t.status = $%d", status)

@@ -108,6 +108,32 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 	return profileTypes, nil
 }
 
+func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error) {
+	query := `
+		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
+		FROM entity_profile_type
+		WHERE id = $1 AND archived_at IS NULL
+	`
+	var pt models.EntityProfileType
+	if err := r.pool.QueryRow(ctx, query, profileTypeID).Scan(
+		&pt.ID,
+		&pt.CompanyID,
+		&pt.Name,
+		&pt.Slug,
+		&pt.Type,
+		&pt.Description,
+		&pt.ArchivedAt,
+		&pt.CreatedAt,
+		&pt.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, serror.ErrEntityProfileTypeNotFound
+		}
+		return nil, fmt.Errorf("get entity profile type by id: %w", err)
+	}
+	return &pt, nil
+}
+
 func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at

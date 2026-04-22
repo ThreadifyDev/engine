@@ -89,7 +89,7 @@ export default function ContractDetail() {
             </p>
             <button
               onClick={() => navigate('/u/contracts')}
-              className="px-4 py-2 bg-black text-white hover:bg-gray-800"
+              className="text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
             >
               Back to Contracts
             </button>
@@ -216,26 +216,26 @@ export default function ContractDetail() {
                   {updateError}
                 </div>
               )}
-              <div className="flex gap-4">
-                <button
-                  type="submit"
-                  disabled={updating}
-                  className="flex-1 px-6 py-3 bg-black text-white hover:bg-gray-800 disabled:bg-gray-400 transition-colors font-medium"
-                >
-                  {updating ? 'Updating...' : 'Create New Version'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUpdateModal(false);
-                    setUpdateYaml('');
-                    setUpdateError('');
-                  }}
-                  className="flex-1 px-6 py-3 border-2 border-black hover:bg-gray-100 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-              </div>
+                <div className="flex justify-end items-center gap-6 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUpdateModal(false);
+                      setUpdateYaml('');
+                      setUpdateError('');
+                    }}
+                    className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={updating}
+                    className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
+                  >
+                    {updating ? 'Updating...' : 'Create New Version'}
+                  </button>
+                </div>
             </form>
           </div>
         </div>

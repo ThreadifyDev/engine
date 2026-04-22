@@ -254,7 +254,7 @@ func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	require.NoError(t, err)
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
-		Query: "query($type: String!) { entityProfilesByType(type: $type, limit: 10, offset: 0) { totalCount items { id refKey profileTypeId } } }",
+		Query: "query($type: String!) { entityProfilesByType(type: $type, limit: 10, offset: 0) { totalCount profileType { name } items { id refKey profileTypeId } } }",
 		Variables: map[string]interface{}{
 			"type": profileTypeSlug,
 		},
@@ -267,6 +267,10 @@ func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	count, ok := conn["totalCount"].(float64)
 	require.True(t, ok)
 	require.Equal(t, 2, int(count))
+
+	pType, ok := conn["profileType"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, profileTypeName, pType["name"])
 
 	items, ok := conn["items"].([]interface{})
 	require.True(t, ok)

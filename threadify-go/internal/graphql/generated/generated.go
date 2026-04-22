@@ -67,13 +67,15 @@ type ComplexityRoot struct {
 		LastActiveAt  func(childComplexity int) int
 		Metrics       func(childComplexity int) int
 		Name          func(childComplexity int) int
+		ProfileType   func(childComplexity int) int
 		ProfileTypeID func(childComplexity int) int
 		RefKey        func(childComplexity int) int
 	}
 
 	EntityProfileConnection struct {
-		Items      func(childComplexity int) int
-		TotalCount func(childComplexity int) int
+		Items       func(childComplexity int) int
+		ProfileType func(childComplexity int) int
+		TotalCount  func(childComplexity int) int
 	}
 
 	EntityProfileMetrics struct {
@@ -152,6 +154,7 @@ type ComplexityRoot struct {
 		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
 		EntityProfile         func(childComplexity int, id *string, refKey *string, typeArg *string) int
+		EntityProfileHistory  func(childComplexity int, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfileTypes    func(childComplexity int) int
 		EntityProfilesByType  func(childComplexity int, typeArg string, search *string, limit *int, offset *int) int
 		ResolveActors         func(childComplexity int, ids []string) int
@@ -332,6 +335,7 @@ type QueryResolver interface {
 	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
+	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
@@ -492,6 +496,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfile.Name(childComplexity), true
+	case "EntityProfile.profileType":
+		if e.ComplexityRoot.EntityProfile.ProfileType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.ProfileType(childComplexity), true
 	case "EntityProfile.profileTypeId":
 		if e.ComplexityRoot.EntityProfile.ProfileTypeID == nil {
 			break
@@ -511,6 +521,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfileConnection.Items(childComplexity), true
+	case "EntityProfileConnection.profileType":
+		if e.ComplexityRoot.EntityProfileConnection.ProfileType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.ProfileType(childComplexity), true
 	case "EntityProfileConnection.totalCount":
 		if e.ComplexityRoot.EntityProfileConnection.TotalCount == nil {
 			break
@@ -852,6 +868,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.EntityProfile(childComplexity, args["id"].(*string), args["refKey"].(*string), args["type"].(*string)), true
+	case "Query.entityProfileHistory":
+		if e.ComplexityRoot.Query.EntityProfileHistory == nil {
+			break
+		}
+
+		args, err := ec.field_Query_entityProfileHistory_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EntityProfileHistory(childComplexity, args["profileID"].(string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.entityProfileTypes":
 		if e.ComplexityRoot.Query.EntityProfileTypes == nil {
 			break
@@ -1960,6 +1987,16 @@ type Query {
     limit: Int = 50
     offset: Int = 0
   ): ThreadConnection!
+
+  # Get thread history for a specific entity profile
+  entityProfileHistory(
+    profileID: ID!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
@@ -2013,6 +2050,7 @@ type Query {
 type EntityProfileConnection {
   items: [EntityProfile!]!
   totalCount: Int!
+  profileType: EntityProfileType
 }
 
 type Mutation {
@@ -2130,6 +2168,7 @@ type EntityProfile {
   refKey: String!
   companyId: String!
   profileTypeId: String!
+  profileType: EntityProfileType
   name: String
   createdAt: String!
   lastActiveAt: String!
@@ -2204,6 +2243,42 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 		return nil, err
 	}
 	args["version"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_entityProfileHistory_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "profileID", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["profileID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg5
 	return args, nil
 }
 
@@ -3090,6 +3165,51 @@ func (ec *executionContext) fieldContext_EntityProfile_profileTypeId(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityProfile_profileType(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_profileType,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileType, nil
+		},
+		nil,
+		ec.marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_profileType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfileType_id(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfileType_companyId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfileType_name(ctx, field)
+			case "type":
+				return ec.fieldContext_EntityProfileType_type(ctx, field)
+			case "description":
+				return ec.fieldContext_EntityProfileType_description(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _EntityProfile_name(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3258,6 +3378,8 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context
 				return ec.fieldContext_EntityProfile_companyId(ctx, field)
 			case "profileTypeId":
 				return ec.fieldContext_EntityProfile_profileTypeId(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfile_profileType(ctx, field)
 			case "name":
 				return ec.fieldContext_EntityProfile_name(ctx, field)
 			case "createdAt":
@@ -3297,6 +3419,51 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_totalCount(_ co
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_profileType(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_profileType,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileType, nil
+		},
+		nil,
+		ec.marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_profileType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfileType_id(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfileType_companyId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfileType_name(ctx, field)
+			case "type":
+				return ec.fieldContext_EntityProfileType_type(ctx, field)
+			case "description":
+				return ec.fieldContext_EntityProfileType_description(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
 		},
 	}
 	return fc, nil
@@ -4954,6 +5121,53 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_entityProfileHistory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfileHistory,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EntityProfileHistory(ctx, fc.Args["profileID"].(string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfileHistory(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "threads":
+				return ec.fieldContext_ThreadConnection_threads(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_ThreadConnection_totalCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ThreadConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_entityProfileHistory_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_threadChain(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -5463,6 +5677,8 @@ func (ec *executionContext) fieldContext_Query_entityProfile(ctx context.Context
 				return ec.fieldContext_EntityProfile_companyId(ctx, field)
 			case "profileTypeId":
 				return ec.fieldContext_EntityProfile_profileTypeId(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfile_profileType(ctx, field)
 			case "name":
 				return ec.fieldContext_EntityProfile_name(ctx, field)
 			case "createdAt":
@@ -5563,6 +5779,8 @@ func (ec *executionContext) fieldContext_Query_entityProfilesByType(ctx context.
 				return ec.fieldContext_EntityProfileConnection_items(ctx, field)
 			case "totalCount":
 				return ec.fieldContext_EntityProfileConnection_totalCount(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfileConnection_profileType(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileConnection", field.Name)
 		},
@@ -10949,6 +11167,8 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "profileType":
+			out.Values[i] = ec._EntityProfile_profileType(ctx, field, obj)
 		case "name":
 			out.Values[i] = ec._EntityProfile_name(ctx, field, obj)
 		case "createdAt":
@@ -11007,6 +11227,8 @@ func (ec *executionContext) _EntityProfileConnection(ctx context.Context, sel as
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "profileType":
+			out.Values[i] = ec._EntityProfileConnection_profileType(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11745,6 +11967,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_threadsByRef(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfileHistory":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfileHistory(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -14609,6 +14853,13 @@ func (ec *executionContext) marshalOEntityProfileMetrics2ᚖgithubᚗcomᚋthrea
 		return graphql.Null
 	}
 	return ec._EntityProfileMetrics(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType(ctx context.Context, sel ast.SelectionSet, v *EntityProfileType) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EntityProfileType(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {

@@ -21,7 +21,7 @@ export default function TierSelectionModal({ isOpen, onClose, currentTier }: Tie
       const result = await checkoutMutation.mutateAsync({
         tier: tierName,
         billingCycle,
-      });
+      }) as any;
       if (result.checkout_url) {
         window.open(result.checkout_url, '_blank');
         onClose();
@@ -100,7 +100,7 @@ export default function TierSelectionModal({ isOpen, onClose, currentTier }: Tie
 
         {data?.tiers && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {data.tiers.map((tier) => {
+            {data.tiers.map((tier: any) => {
               const isCurrentTier = tier.name === currentTier;
               const isProcessing = selectedTier === tier.name;
 
@@ -189,7 +189,7 @@ export default function TierSelectionModal({ isOpen, onClose, currentTier }: Tie
                   <button
                     onClick={() => handleSelectTier(tier.name)}
                     disabled={isCurrentTier || isProcessing}
-                    className={`w-full py-3 font-medium transition-colors ${
+                    className={`w-full py-3 rounded-xl font-medium transition-colors ${
                       isCurrentTier
                         ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                         : isProcessing
@@ -272,6 +272,22 @@ export default function TierSelectionModal({ isOpen, onClose, currentTier }: Tie
             </div>
           </div>
         )}
+        <div className="mt-8 flex justify-end items-center gap-6">
+          <button
+            onClick={onClose}
+            className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
+          >
+            Cancel
+          </button>
+        </div>
+        <div className="mt-8 flex justify-end items-center gap-6">
+          <button
+            onClick={onClose}
+            className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

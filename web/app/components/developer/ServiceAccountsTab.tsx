@@ -226,7 +226,7 @@ export function ServiceAccountsTab() {
                     {formatDate(sa.created_at)}
                   </td>
                   <td className="px-4 sm:px-6 py-4 text-right">
-                    <div className="flex flex-col sm:flex-row gap-2 justify-end">
+                    <div className="flex flex-col sm:flex-row gap-4 justify-end items-center">
                       <button
                         onClick={() => handleViewPermissions(sa.role || 'standard_service')}
                         className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded"
@@ -241,7 +241,7 @@ export function ServiceAccountsTab() {
                       </button>
                       <button
                         onClick={() => handleDelete(sa.id)}
-                        className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded"
+                        className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                       >
                         Delete
                       </button>
@@ -311,21 +311,21 @@ export function ServiceAccountsTab() {
                 </p>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex justify-end items-center gap-6 mt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false);
                     setCreateForm({ name: '', description: '', role: roles[0]?.value || 'standard_service' });
                   }}
-                  className="flex-1 px-6 py-3 border border-gray-300 hover:bg-gray-100 transition-colors font-medium rounded"
+                  className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={createMutation.isPending}
-                  className="flex-1 px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 rounded"
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                 >
                   {createMutation.isPending ? 'Creating...' : 'Create'}
                 </button>

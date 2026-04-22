@@ -356,7 +356,7 @@ export default function Team() {
                           <button
                             onClick={() => handleRemoveMember(member.id)}
                             disabled={removingMemberId === member.id}
-                            className="text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-50"
+                            className="text-red-700 hover:text-red-800 font-medium transition-colors disabled:opacity-50"
                           >
                             {removingMemberId === member.id ? 'Removing...' : 'Remove'}
                           </button>
@@ -434,7 +434,7 @@ export default function Team() {
                               <button
                                 onClick={() => handleCancelInvitation(invitation.id, invitation.email)}
                                 disabled={resendingId === invitation.id || cancelingId === invitation.id}
-                                className="text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="text-red-700 hover:text-red-800 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {cancelingId === invitation.id ? 'Canceling...' : 'Cancel'}
                               </button>
@@ -495,7 +495,7 @@ export default function Team() {
                   required
                   value={inviteForm.email}
                   onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border-2 border-black focus:outline-none focus:ring-2 focus:ring-black transition-all outline-none bg-white font-medium"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-black transition-all outline-none bg-white font-medium"
                   placeholder="colleague@company.com"
                 />
               </div>
@@ -508,7 +508,7 @@ export default function Team() {
                   required
                   value={inviteForm.role}
                   onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border-2 border-black focus:outline-none focus:ring-2 focus:ring-black transition-all outline-none bg-white font-medium"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-black  transition-all outline-none bg-white font-medium"
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
@@ -520,7 +520,7 @@ export default function Team() {
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>

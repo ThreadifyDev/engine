@@ -192,7 +192,7 @@ export default function Contracts() {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
                 </button>

@@ -275,7 +275,7 @@ export default function ServiceAccounts() {
                         </button>
                         <button
                           onClick={() => handleDelete(sa.id)}
-                          className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                          className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                         >
                           Delete
                         </button>
@@ -352,7 +352,7 @@ export default function ServiceAccounts() {
                       setShowCreateModal(false);
                       setCreateForm({ name: '', description: '', role: roles[0]?.value || 'standard_service' });
                     }}
-                    className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
+                    className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                   >
                     Cancel
                   </button>

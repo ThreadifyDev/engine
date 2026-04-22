@@ -7,6 +7,7 @@ type EntityProfile struct {
 	RefKey        string                `json:"refKey"`
 	CompanyID     string                `json:"companyId"`
 	ProfileTypeID string                `json:"profileTypeId"`
+	ProfileType   *EntityProfileType    `json:"profileType,omitempty"`
 	Name          *string               `json:"name,omitempty"`
 	CreatedAt     string                `json:"createdAt"`
 	LastActiveAt  string                `json:"lastActiveAt"`
@@ -14,8 +15,9 @@ type EntityProfile struct {
 }
 
 type EntityProfileConnection struct {
-	Items      []*EntityProfile `json:"items"`
-	TotalCount int              `json:"totalCount"`
+	Items       []*EntityProfile   `json:"items"`
+	TotalCount  int                `json:"totalCount"`
+	ProfileType *EntityProfileType `json:"profileType,omitempty"`
 }
 
 type EntityProfileMetrics struct {
