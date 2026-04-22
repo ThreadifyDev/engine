@@ -521,6 +521,8 @@ func (s *NotificationService) processValidationNotifications(
 func getRequiredPermissionsForNotification(status, stepStatus, severity, violationType string) []string {
 	if status == "none" {
 		switch stepStatus {
+		case "cancelled", "completed":
+			return []string{fmt.Sprintf("notification.thread.%s.*", stepStatus)}
 		case "failed", "error":
 			return []string{"notification.step.failed.*", "notification.step.failed.own"}
 		case "success":

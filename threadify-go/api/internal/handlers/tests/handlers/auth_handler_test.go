@@ -129,7 +129,7 @@ func TestAuthHandler_AuthFlows(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AuthSvc.EXPECT().Logout(gomock.Any(), "valid-token").Return(nil)
 			},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:   "forgot_password_success",

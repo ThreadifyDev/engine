@@ -107,19 +107,23 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		threadID := uuid.NewString()
 
 		notification := models.ValidationNotification{
-			ThreadID:     threadID,
-			OwnerID:      ownerID,
-			StepName:     stepName,
-			ContractName: contractName,
-			Status:       "success",
-			Timestamp:    time.Now(),
-			Message:      "Test message",
+			ThreadID:         threadID,
+			OwnerID:          ownerID,
+			StepName:         stepName,
+			ContractName:     contractName,
+			Source:           models.NotificationSourceRule,
+			NotificationType: "validation.violated.timeout",
+			Status:           "violated",
+			ViolationType:    "timeout",
+			Severity:         "critical",
+			Timestamp:        time.Now(),
+			Message:          "Test message",
 		}
 
 		data, err := json.Marshal(notification)
 		require.NoError(t, err)
 
-		msgSubject := fmt.Sprintf("notifications.user.%s.validation.violated.%s.%s", ownerID, contractName, stepName)
+		msgSubject := fmt.Sprintf("notifications.user.%s.validation.violated.timeout.%s.%s", ownerID, contractName, stepName)
 		_, err = js.Publish(ctx, msgSubject, data)
 		require.NoError(t, err)
 
@@ -145,7 +149,8 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		assert.Equal(t, threadID, n.ThreadID)
 		assert.Equal(t, stepName, n.StepName)
 		assert.Equal(t, contractName, n.ContractName)
-		assert.Equal(t, "success", n.Status)
+		assert.Equal(t, "violated", n.Status)
+		assert.Equal(t, "validation.violated.timeout", n.NotificationType)
 
 		require.NoError(t, router.HandleAck(envelope.AckToken))
 	})

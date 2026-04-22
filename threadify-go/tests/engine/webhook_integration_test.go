@@ -7,18 +7,20 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/tests/internal/dbhelpers"
+	"github.com/threadify/engine/tests/internal/enginetest"
 )
 
 func TestWebhook_CheckoutCompleted_CreditTopup(t *testing.T) {
 	user := setupTestUser(t)
-	db := newDBHelpers(env.Postgres.Pool)
+	db := dbhelpers.New(env.Postgres.Pool)
 	vk := newValkeyHelpers(engineApp.Valkey())
 
 	externalCustomerID := db.GetExternalCustomerID(t, user.CompanyID)
 	topupAmount := int64(5_000_000)
 	balanceBefore := db.GetCreditBalance(t, user.CompanyID)
 
-	resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+	resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 		"Type":               "checkout.session.completed",
 		"ExternalCustomerID": externalCustomerID,
 		"AmountMillicents":   topupAmount,
@@ -34,11 +36,11 @@ func TestWebhook_CheckoutCompleted_CreditTopup(t *testing.T) {
 
 func TestWebhook_CheckoutCompleted_UnknownCustomer(t *testing.T) {
 	user := setupTestUser(t)
-	db := newDBHelpers(env.Postgres.Pool)
+	db := dbhelpers.New(env.Postgres.Pool)
 
 	balanceBefore := db.GetCreditBalance(t, user.CompanyID)
 
-	resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+	resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 		"Type":               "checkout.session.completed",
 		"ExternalCustomerID": "cus_doesnotexist_" + uuid.NewString()[:8],
 		"AmountMillicents":   int64(5_000_000),
@@ -52,7 +54,7 @@ func TestWebhook_CheckoutCompleted_UnknownCustomer(t *testing.T) {
 
 func TestWebhook_InvoicePaid_CreditsPendingTopup(t *testing.T) {
 	user := setupTestUser(t)
-	db := newDBHelpers(env.Postgres.Pool)
+	db := dbhelpers.New(env.Postgres.Pool)
 	vk := newValkeyHelpers(engineApp.Valkey())
 
 	invoiceID := "inv_" + uuid.NewString()[:16]
@@ -63,7 +65,7 @@ func TestWebhook_InvoicePaid_CreditsPendingTopup(t *testing.T) {
 
 	balanceBefore := vk.GetCreditBalance(t, user.CompanyID)
 
-	resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+	resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 		"Type":              "invoice.paid",
 		"ExternalInvoiceID": invoiceID,
 	})
@@ -78,11 +80,11 @@ func TestWebhook_InvoicePaid_CreditsPendingTopup(t *testing.T) {
 
 func TestWebhook_InvoicePaid_Unmatched(t *testing.T) {
 	user := setupTestUser(t)
-	db := newDBHelpers(env.Postgres.Pool)
+	db := dbhelpers.New(env.Postgres.Pool)
 
 	balanceBefore := db.GetCreditBalance(t, user.CompanyID)
 
-	resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+	resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 		"Type":              "invoice.paid",
 		"ExternalInvoiceID": "inv_" + uuid.NewString(),
 	})
@@ -94,12 +96,12 @@ func TestWebhook_InvoicePaid_Unmatched(t *testing.T) {
 
 func TestWebhook_InvoicePaymentFailed_MarksInvoice(t *testing.T) {
 	user := setupTestUser(t)
-	db := newDBHelpers(env.Postgres.Pool)
+	db := dbhelpers.New(env.Postgres.Pool)
 
 	invoiceID := "inv_" + uuid.NewString()[:16]
 	db.CreateTestInvoice(t, user.CompanyID, invoiceID, int64(1_000_000))
 
-	resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+	resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 		"Type":              "invoice.payment_failed",
 		"ExternalInvoiceID": invoiceID,
 	})
@@ -112,19 +114,19 @@ func TestWebhook_InvoicePaymentFailed_MarksInvoice(t *testing.T) {
 
 func TestWebhook_EdgeCases(t *testing.T) {
 	t.Run("malformed_json", func(t *testing.T) {
-		resp := doRaw(t, http.MethodPost, "/webhook",
+		resp := httpc.DoRaw(t, http.MethodPost, "/webhook",
 			[]byte(`{"Type": "checkout.session.completed", "AmountMillicents": "not-a-number"`),
 			"application/json")
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
-		body := decodeJSONBody(t, resp)
+		body := enginetest.DecodeJSONBody(t, resp)
 		_, hasError := body["error"]
 		assert.True(t, hasError,
 			"malformed JSON must return an error key; body: %s", resp.Body)
 	})
 
 	t.Run("unsupported_event_type", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type": "unknown.event.type",
 		})
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -132,7 +134,7 @@ func TestWebhook_EdgeCases(t *testing.T) {
 
 	t.Run("checkout_missing_company_id", func(t *testing.T) {
 		// No Metadata key at all — handler returns early with 200
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type":               "checkout.session.completed",
 			"ExternalCustomerID": "cus_" + uuid.NewString()[:8],
 			"AmountMillicents":   int64(5_000_000),
@@ -141,7 +143,7 @@ func TestWebhook_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("checkout_missing_customer_id", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type":               "checkout.session.completed",
 			"ExternalCustomerID": "",
 			"AmountMillicents":   int64(5_000_000),
@@ -153,7 +155,7 @@ func TestWebhook_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("checkout_zero_amount", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type":               "checkout.session.completed",
 			"ExternalCustomerID": "cus_" + uuid.NewString()[:8],
 			"AmountMillicents":   int64(0),
@@ -165,7 +167,7 @@ func TestWebhook_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("invoice_paid_missing_id", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type":              "invoice.paid",
 			"ExternalInvoiceID": "",
 		})
@@ -173,7 +175,7 @@ func TestWebhook_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("invoice_failed_missing_id", func(t *testing.T) {
-		resp := doJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
+		resp := httpc.DoJSON(t, http.MethodPost, "/webhook", map[string]interface{}{
 			"Type":              "invoice.payment_failed",
 			"ExternalInvoiceID": "",
 		})

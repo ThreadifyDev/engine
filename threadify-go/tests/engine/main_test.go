@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/threadify/engine/tests/internal/apihelper"
+	"github.com/threadify/engine/tests/internal/enginetest"
 	"github.com/threadify/engine/tests/internal/enginehelper"
 	"github.com/threadify/engine/tests/internal/testenv"
 	"go.uber.org/zap"
@@ -20,6 +21,7 @@ var (
 	supabase  *apihelper.FakeSupabase
 	engineApp *enginehelper.EngineApp
 	logger    *zap.Logger
+	httpc     *enginetest.HTTPClient
 )
 
 func TestMain(m *testing.M) {
@@ -61,6 +63,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	httpc = enginetest.NewHTTPClient(engineApp.BaseURL, engineApp.WSURL, engineApp.Client)
 
 	code := m.Run()
 

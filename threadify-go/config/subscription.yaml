@@ -6,6 +6,7 @@ billing:
   cancel_url: "http://localhost:3000/u/settings?tab=billing"
 
 subscription:
+  signup_credits_millicents: 100000 # $1.00 default seed on signup (0 falls back to service default)
   credit:
     ingress_cost_millicents: 3  # $0.00003 per thread create (3 millicents) - $15 = 500K threads
     egress_cost_millicents: 3      # $0.00003 per MB (3 millicents) - $15 = 500K MB

@@ -61,6 +61,20 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	// Enable signup credits provisioning for integration tests.
+	// The API config loader merges `subscription.yaml` from the same directory as `config.yaml`.
+	subscriptionPath := filepath.Join(tmpDir, "subscription.yaml")
+	subscriptionContents := `
+subscription:
+  signup_credits_millicents: 100000
+  credit:
+    rate_limit_tps: 60000
+    payload_limit_bytes: 1048576
+`
+	if err := os.WriteFile(subscriptionPath, []byte(subscriptionContents), 0o600); err != nil {
+		panic(err)
+	}
+
 	apiApp, err = apihelper.Start(testCtx, apihelper.StartOptions{
 		ConfigPath: cfgPath,
 	})

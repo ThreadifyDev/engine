@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/nats-io/nats.go v1.49.0
+	github.com/redis/go-redis/v9 v9.17.2
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
@@ -102,7 +103,6 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/redis/go-redis/v9 v9.17.2 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sashabaranov/go-openai v1.41.2 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
