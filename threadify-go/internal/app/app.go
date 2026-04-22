@@ -353,11 +353,7 @@ func buildRouter(cfg *config.Config, d *deps, logger *zap.Logger) http.Handler {
 
 	// Public endpoints (no auth required)
 	v1Public := r.Group("/v1")
-	v1Public.GET("/pricing", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"credit": cfg.Subscription.Credit,
-		})
-	})
+	v1Public.GET("/pricing", pricingHandler(cfg))
 
 	v1 := r.Group("/v1")
 	v1.Use(middleware.AuthMiddleware(authSvc, middleware.AuthDual))
@@ -386,6 +382,14 @@ func buildRouter(cfg *config.Config, d *deps, logger *zap.Logger) http.Handler {
 	}
 
 	return r
+}
+
+func pricingHandler(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"credit": cfg.Subscription.Credit,
+		})
+	}
 }
 
 func healthHandler(d *deps) gin.HandlerFunc {
