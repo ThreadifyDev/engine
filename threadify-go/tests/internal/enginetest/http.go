@@ -134,4 +134,3 @@ func ReadWSAction(t *testing.T, conn *websocket.Conn, action string, timeout tim
 		return msg["action"] == action
 	})
 }
-

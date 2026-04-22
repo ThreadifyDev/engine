@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,9 +95,8 @@ func TestGraphQL_EntityProfile_EmptyRefKey(t *testing.T) {
 		},
 	})
 
-	require.Empty(t, gqlResp.Errors)
-	profile := gqlResp.Data["entityProfile"]
-	require.Nil(t, profile) // Should be null for empty refKey
+	require.NotEmpty(t, gqlResp.Errors)
+	require.Equal(t, "must provide either id or both refKey and type", gqlResp.Errors[0]["message"])
 }
 
 func TestGraphQL_EntityProfile_EmptyType(t *testing.T) {
@@ -108,9 +110,8 @@ func TestGraphQL_EntityProfile_EmptyType(t *testing.T) {
 		},
 	})
 
-	require.Empty(t, gqlResp.Errors)
-	profile := gqlResp.Data["entityProfile"]
-	require.Nil(t, profile) // Should be null for empty type
+	require.NotEmpty(t, gqlResp.Errors)
+	require.Equal(t, "must provide either id or both refKey and type", gqlResp.Errors[0]["message"])
 }
 
 func TestGraphQL_EntityProfile_LongRefKey(t *testing.T) {
@@ -219,4 +220,60 @@ func TestGraphQL_EntityProfileTypes_EmptyResult(t *testing.T) {
 	types, ok := gqlResp.Data["entityProfileTypes"].([]interface{})
 	require.True(t, ok)
 	require.Len(t, types, 0) // Should be empty if no profile types configured
+}
+
+func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
+	user := setupTestUser(t)
+
+	profileTypeID := uuid.NewString()
+	profileTypeName := "Customer Profiles " + uuid.NewString()[:8]
+	_, err := env.Postgres.Pool.Exec(context.Background(), `
+		INSERT INTO entity_profile_type (id, company_id, name, type, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+	`, profileTypeID, user.CompanyID, profileTypeName, []string{"customer"}, "test type")
+	require.NoError(t, err)
+
+	olderID := uuid.NewString()
+	newerID := uuid.NewString()
+	olderLastActive := time.Now().Add(-2 * time.Hour).UTC()
+	newerLastActive := time.Now().Add(-1 * time.Hour).UTC()
+
+	_, err = env.Postgres.Pool.Exec(context.Background(), `
+		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+	`, olderID, user.CompanyID, profileTypeID, "Older Profile", "older_ref", olderLastActive)
+	require.NoError(t, err)
+
+	_, err = env.Postgres.Pool.Exec(context.Background(), `
+		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+	`, newerID, user.CompanyID, profileTypeID, "Newer Profile", "newer_ref", newerLastActive)
+	require.NoError(t, err)
+
+	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
+		Query: "query($type: String!) { entityProfilesByType(type: $type, limit: 10, offset: 0) { totalCount items { id refKey profileTypeId } } }",
+		Variables: map[string]interface{}{
+			"type": profileTypeName,
+		},
+	})
+
+	require.Empty(t, gqlResp.Errors)
+
+	conn, ok := gqlResp.Data["entityProfilesByType"].(map[string]interface{})
+	require.True(t, ok)
+	count, ok := conn["totalCount"].(float64)
+	require.True(t, ok)
+	require.Equal(t, 2, int(count))
+
+	items, ok := conn["items"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, items, 2)
+
+	// Ordered by lastActiveAt desc, so newer should come first.
+	first := items[0].(map[string]interface{})
+	second := items[1].(map[string]interface{})
+	require.Equal(t, newerID, first["id"])
+	require.Equal(t, olderID, second["id"])
+	require.Equal(t, profileTypeID, first["profileTypeId"])
+	require.Equal(t, profileTypeID, second["profileTypeId"])
 }

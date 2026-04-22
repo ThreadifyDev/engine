@@ -6,11 +6,16 @@ type EntityProfileType struct {
 	ID          string     `json:"id"`
 	CompanyID   string     `json:"company_id"`
 	Name        string     `json:"name"`
-	Type        string     `json:"type"`
+	Slug        string     `json:"slug"`
+	Type        []string   `json:"type"`
 	Description string     `json:"description,omitempty"`
 	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// TypesToAdd is used by update flows to append to Types.
+	// It is not part of the public JSON representation.
+	TypesToAdd []string `json:"-"`
 }
 
 type EntityProfile struct {

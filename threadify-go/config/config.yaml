@@ -219,7 +219,6 @@ web_api:
   cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
   frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
   outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
-  signup_credits_millicents: 100000  # $1.00 signup credit (millicents)
 
   # Email service (Plunk)
   email:

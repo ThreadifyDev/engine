@@ -116,13 +116,6 @@ func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFligh
 			maxAckPending = maxInFlight
 		}
 
-		// Always consume all notification subjects for this owner (regardless of current websocket
-		// subscriptions). We apply filtering at the router/session level.
-		//
-		// Rationale: updating JetStream consumer FilterSubjects while the consumer is actively
-		// consuming can be slow or non-deterministic under load. That can cause intermittent
-		// "missed" notifications in high-throughput test runs when a subscribe happens and a
-		// notification is published immediately after.
 		filterSubjects := []string{
 			fmt.Sprintf("%s.%s.>", natsrepo.PrefixNotificationsUser, ownerID),
 		}
@@ -457,9 +450,6 @@ func (r *NotificationRouter) updateConsumerMaxAckPending(ownerID string) error {
 }
 
 func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
-	// Kept for backward compatibility (and potential future use), but no longer used for the
-	// JetStream consumer filter configuration. Consumers always subscribe to all owner subjects,
-	// and per-session filtering happens in getMatchingSessions/eventTypeMatches.
 	filterMap := make(map[string]bool)
 	for _, sessionID := range r.sessionsByOwner[ownerID] {
 		session := r.sessions[sessionID]

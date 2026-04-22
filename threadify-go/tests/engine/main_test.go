@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/threadify/engine/tests/internal/apihelper"
-	"github.com/threadify/engine/tests/internal/enginetest"
 	"github.com/threadify/engine/tests/internal/enginehelper"
+	"github.com/threadify/engine/tests/internal/enginetest"
 	"github.com/threadify/engine/tests/internal/testenv"
 	"go.uber.org/zap"
 )

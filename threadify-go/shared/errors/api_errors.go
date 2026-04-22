@@ -6,16 +6,18 @@ import (
 
 // API-level sentinel errors.
 var (
-	ErrUserAlreadyExists            = NewDomainError("user with this email already exists", http.StatusConflict)
-	ErrInvalidCredentials           = NewDomainError("invalid email or password", http.StatusUnauthorized)
-	ErrInvalidEmail                 = NewDomainError("invalid email address", http.StatusBadRequest)
-	ErrAccountStillProvisioning     = NewDomainError("account is still being set up, please try again shortly", http.StatusServiceUnavailable)
-	ErrPasswordResetRequired        = NewDomainError("please use 'Forgot Password' to set up your account", http.StatusUnauthorized)
-	ErrJwtVerificationNotConfigured = NewDomainError("JWT verification not configured", http.StatusInternalServerError)
-	ErrExpiredToken                 = NewDomainError("token has expired", http.StatusUnauthorized)
-	ErrInvalidToken                 = NewDomainError("invalid or already used token", http.StatusUnauthorized)
-	ErrAuthInvalidToken             = NewDomainError("invalid or already used token", http.StatusUnprocessableEntity)
-	ErrRateLimit                    = NewDomainError("too many requests, please try again later", http.StatusTooManyRequests)
+	ErrUserAlreadyExists                = NewDomainError("user with this email already exists", http.StatusConflict)
+	ErrInvalidCredentials               = NewDomainError("invalid email or password", http.StatusUnauthorized)
+	ErrInvalidEmail                     = NewDomainError("invalid email address", http.StatusBadRequest)
+	ErrAccountStillProvisioning         = NewDomainError("account is still being set up, please try again shortly", http.StatusServiceUnavailable)
+	ErrPasswordResetRequired            = NewDomainError("please use 'Forgot Password' to set up your account", http.StatusUnauthorized)
+	ErrJwtVerificationNotConfigured     = NewDomainError("JWT verification not configured", http.StatusInternalServerError)
+	ErrExpiredToken                     = NewDomainError("token has expired", http.StatusUnauthorized)
+	ErrInvalidToken                     = NewDomainError("invalid or already used token", http.StatusUnauthorized)
+	ErrAuthInvalidToken                 = NewDomainError("invalid or already used token", http.StatusUnprocessableEntity)
+	ErrRateLimit                        = NewDomainError("too many requests, please try again later", http.StatusTooManyRequests)
+	ErrEntityProfileTypeNotFound        = NewDomainError("entity profile type not found", http.StatusNotFound)
+	ErrEntityProfileTypeExceedsMaxTypes = NewDomainError("entity profile type exceeds maximum number of types", http.StatusBadRequest)
 
 	// API Key errors
 	ErrApiKeyNameRequired        = NewDomainError("API key name is required", http.StatusBadRequest)

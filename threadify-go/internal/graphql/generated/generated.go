@@ -2000,7 +2000,7 @@ type Query {
   # Retrieve all configured entity profile types for the company
   entityProfileTypes: [EntityProfileType!]!
 
-  # List entity profiles for a given profile type (by type key). Supports
+  # List entity profiles for a given profile type (by profile type name). Supports
   # case-insensitive search across ref_key and name plus pagination.
   entityProfilesByType(
     type: String!
@@ -2140,7 +2140,7 @@ type EntityProfileType {
   id: String!
   companyId: String!
   name: String!
-  type: String!
+  type: [String!]!
   description: String
   createdAt: String!
   updatedAt: String!
@@ -3660,7 +3660,7 @@ func (ec *executionContext) _EntityProfileType_type(ctx context.Context, field g
 			return obj.Type, nil
 		},
 		nil,
-		ec.marshalNString2string,
+		ec.marshalNString2ᚕstringᚄ,
 		true,
 		true,
 	)

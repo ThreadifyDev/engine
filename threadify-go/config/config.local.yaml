@@ -208,7 +208,6 @@ web_api:
   port: 3001
   host: 0.0.0.0
   cors_origins: "$CORS_ORIGINS:http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
-  signup_credits_millicents: 100000  # $1.00 signup credit (millicents)
   
   # Email service (Plunk)
   email:

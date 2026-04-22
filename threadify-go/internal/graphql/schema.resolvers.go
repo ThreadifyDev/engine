@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	shderrors "threadify-go/shared/errors"
+	"threadify-go/shared/slug"
 	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
@@ -577,7 +578,7 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		searchVal = *search
 	}
 
-	items, total, err := r.entityProfileRepo.ListProfilesByType(ctx, companyID, typeArg, searchVal, limitVal, offsetVal)
+	items, total, err := r.entityProfileRepo.ListProfilesByType(ctx, companyID, slug.ToSlug(typeArg), searchVal, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to list entity profiles by type",
 			zap.String("company_id", companyID),
