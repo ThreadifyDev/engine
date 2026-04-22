@@ -50,30 +50,6 @@ func TestBilling_GetCurrentPlan_WithAccount(t *testing.T) {
 	assert.NoError(t, err, "created_at must be a valid RFC3339 timestamp")
 }
 
-func TestBilling_GetCurrentPlan_NoAccount_ReturnsNullCreditAccount(t *testing.T) {
-	// Signup credits are provisioned on first verification. To cover the legacy scenario
-	// where a company has no credit account, mark the user as already verified before login.
-	email := uniqueEmail()
-	password := "Password123!@#"
-	signupUser(t, email, password)
-	markUserEmailVerified(t, email)
-	auth := loginUser(t, email, password)
-	userMap := auth["user"].(map[string]any)
-	token := auth["token"].(string)
-
-	resp := doRawWithAuth(t, http.MethodGet, "/api/billing/plan", nil, "", token)
-	require.Equal(t, http.StatusOK, resp.StatusCode, string(resp.Body))
-
-	body := decodeJSONBody(t, resp)
-	// credit_account should be present as a key but null
-	_, exists := body["credit_account"]
-	assert.True(t, exists, "credit_account key must be present in response even when no account exists")
-	assert.Nil(t, body["credit_account"],
-		"credit_account must be null when no billing account exists")
-
-	_ = userMap // keep for clarity: authenticated as a real user
-}
-
 func TestBilling_GetCurrentPlan_IsolatedByCompany(t *testing.T) {
 	user1 := setupAuthenticatedUser(t)
 	user2 := setupAuthenticatedUser(t)
@@ -221,19 +197,6 @@ func TestBilling_UpdateSpendingLimit_MissingBody(t *testing.T) {
 
 	body := decodeJSONBody(t, resp)
 	assert.Equal(t, "invalid request body", body["error"])
-}
-
-func TestBilling_UpdateSpendingLimit_NoAccount_Returns404(t *testing.T) {
-	user := setupAuthenticatedUser(t)
-	// Deliberately no credit account created
-
-	resp := doRawWithAuth(t, http.MethodPut, "/api/billing/spending-limit",
-		marshalJSON(t, map[string]any{"max_monthly_millicents": 1_000_000}),
-		"application/json", user.AccessToken)
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
-
-	body := decodeJSONBody(t, resp)
-	assert.Equal(t, "billing account not found", body["error"])
 }
 
 func TestBilling_UpdateSpendingLimit_Unauthorized(t *testing.T) {

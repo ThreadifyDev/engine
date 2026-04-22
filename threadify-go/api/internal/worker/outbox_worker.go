@@ -90,6 +90,24 @@ func (w *OutboxWorker) Run(ctx context.Context, js jetstream.JetStream) {
 		w.logger.Error("outbox: failed to subscribe to NATS trigger", zap.Error(err))
 	}
 
+	var consumeCtx jetstream.ConsumeContext
+	if cons != nil {
+		consumeCtx, err = cons.Consume(func(msg jetstream.Msg) {
+			_ = msg.Ack()
+			w.Trigger()
+		}, jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, consumeErr error) {
+			if consumeErr != nil {
+				w.logger.Warn("outbox: NATS trigger consumer error", zap.Error(consumeErr))
+			}
+		}))
+		if err != nil {
+			w.logger.Warn("outbox: failed to start NATS trigger consumer; falling back to polling", zap.Error(err))
+		}
+	}
+	if consumeCtx != nil {
+		defer consumeCtx.Stop()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -97,15 +115,6 @@ func (w *OutboxWorker) Run(ctx context.Context, js jetstream.JetStream) {
 		case <-ticker.C:
 			w.processEvents(ctx)
 		case <-w.trigger:
-			if cons != nil {
-				batch, err := cons.Fetch(1, jetstream.FetchMaxWait(100*time.Millisecond))
-				if err == nil {
-					msg := <-batch.Messages()
-					if msg != nil {
-						msg.Ack()
-					}
-				}
-			}
 			w.processEvents(ctx)
 		}
 	}

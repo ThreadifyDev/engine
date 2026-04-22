@@ -10,7 +10,6 @@ import (
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
-	serror "threadify-go/shared/errors"
 	sharedmocks "threadify-go/shared/mocks"
 	sharemodels "threadify-go/shared/models"
 
@@ -100,6 +99,8 @@ func TestAuthService_Login(t *testing.T) {
 		clientIP = "127.0.0.1"
 	)
 
+	authUserID := "auth_user_id"
+
 	tests := []struct {
 		name      string
 		req       *models.LoginRequest
@@ -109,14 +110,30 @@ func TestAuthService_Login(t *testing.T) {
 		errType   error
 	}{
 		{
-			name: "success_supabase_login",
+			name: "success_supabase_login_verified_user",
 			req:  &models.LoginRequest{Email: email, Password: password},
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
-				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123"}, nil)
-				authClient.EXPECT().LoginWithPassword(gomock.Any(), email, password, clientIP).Return("auth_user_id", &sharedauth.AuthUserInfo{Email: email, Sub: "auth_user_id"}, nil)
-				deps.UserRepo.EXPECT().GetPasswordHash(gomock.Any(), email).Return("", nil)
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123", AuthUserID: &authUserID, EmailVerified: true, Email: email}, nil)
+				authClient.EXPECT().LoginWithPassword(gomock.Any(), email, password, clientIP).Return(authUserID, &sharedauth.AuthUserInfo{Email: email, Sub: authUserID, EmailVerified: true}, nil)
 				authClient.EXPECT().GenerateLoginOTP(gomock.Any(), email).Return("123456", nil)
 				deps.EmailSvc.EXPECT().SendLoginOTPEmail(gomock.Any(), email, "123456").Return(nil)
+			},
+			wantOTP: true,
+		},
+		{
+			name: "unverified_user_login_queues_verification_email",
+			req:  &models.LoginRequest{Email: email, Password: password},
+			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123", AuthUserID: &authUserID, EmailVerified: false, Email: email}, nil)
+				deps.OutboxRepo.EXPECT().ExistsPendingByReference(gomock.Any(), models.EventTypeSendVerificationEmail, "user_123").Return(false, nil)
+				deps.OutboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, event *models.OutboxEvent) error {
+						require.NotNil(t, event)
+						assert.Equal(t, models.EventTypeSendVerificationEmail, event.Type)
+						assert.Equal(t, "user_123", event.ReferenceID)
+						return nil
+					},
+				)
 			},
 			wantOTP: true,
 		},
@@ -125,12 +142,12 @@ func TestAuthService_Login(t *testing.T) {
 			req:  &models.LoginRequest{Email: email, Password: password},
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
 				hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123", AuthUserID: nil}, nil)
-				authClient.EXPECT().LoginWithPassword(gomock.Any(), email, password, clientIP).Return("", nil, sharedauth.ErrAuthInvalidCredentials)
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123", AuthUserID: nil, EmailVerified: true, Email: email}, nil)
 				deps.UserRepo.EXPECT().GetPasswordHash(gomock.Any(), email).Return(string(hash), nil)
 				deps.OutboxRepo.EXPECT().ExistsPendingByReference(gomock.Any(), models.EventTypeMigrateLegacyUser, "user_123").Return(false, nil)
 				deps.OutboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-				// Note: OTP is sent by the migration worker for legacy users, so GenerateLoginOTP is not called in the main login method for this path
+				authClient.EXPECT().GenerateLoginOTP(gomock.Any(), email).Return("123456", nil)
+				deps.EmailSvc.EXPECT().SendLoginOTPEmail(gomock.Any(), email, "123456").Return(nil)
 			},
 			wantOTP: true,
 		},
@@ -138,9 +155,8 @@ func TestAuthService_Login(t *testing.T) {
 			name: "invalid_credentials",
 			req:  &models.LoginRequest{Email: email, Password: "wrong_password"},
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
-				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123"}, nil)
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123", AuthUserID: &authUserID, EmailVerified: true, Email: email}, nil)
 				authClient.EXPECT().LoginWithPassword(gomock.Any(), email, "wrong_password", clientIP).Return("", nil, sharedauth.ErrAuthInvalidCredentials)
-				deps.UserRepo.EXPECT().GetPasswordHash(gomock.Any(), email).Return("", serror.ErrNotFound)
 			},
 			wantErr: true,
 			errType: service.ErrInvalidCredentials,
