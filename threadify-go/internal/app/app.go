@@ -27,13 +27,13 @@ import (
 	"github.com/threadify/engine/internal/graphql"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
@@ -605,5 +605,5 @@ func LoadConfig() (*config.Config, error) {
 		return nil, fmt.Errorf("merge subscription config: %w", err)
 	}
 
-	return config.LoadFromViper()
+	return config.LoadFromViper(v)
 }

@@ -570,7 +570,10 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 			return nil, nil // Not found or error
 		}
 		// Fetch profile type details
-		pType, _ := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get profile type: %w", err)
+		}
 
 		return &generated.EntityProfile{
 			ID:            profile.ID,

@@ -11,9 +11,17 @@ import (
 
 const defaultMetricsPort = 8082
 
-func LoadFromViper() (*Config, error) {
+func LoadFromViper(v *viper.Viper) (*Config, error) {
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+
+	var err error
+	if v != nil {
+		err = v.Unmarshal(&cfg)
+	} else {
+		err = viper.Unmarshal(&cfg)
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
