@@ -44,36 +44,28 @@ conn, err := threadify.Connect(ctx, "api-key",
 
 ### Start Thread
 ```go
-// No contract
-thread, err := conn.Start(ctx)
+// With label (Recommended)
+thread, err := conn.Start(ctx, "Checkout-123", "")
 if err != nil {
     log.Fatal(err)
 }
 
-// With service name
-thread, err := conn.Start(ctx, threadify.WithService("payment-service"))
+// With label and contract
+thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 if err != nil {
     log.Fatal(err)
 }
 
-// With contract
-thread, err := conn.Start(ctx, 
-    threadify.WithContract("order_fulfillment"),
+// With label, contract, and options
+thread, err := conn.Start(ctx, "Order-789", "order_fulfillment", 
     threadify.WithService("merchant-service"),
 )
 if err != nil {
     log.Fatal(err)
 }
-
-// With contract and specific role
-thread, err := conn.Start(ctx, 
-    threadify.WithContract("order_fulfillment"),
-    threadify.WithRole("participant"),
-)
-if err != nil {
-    log.Fatal(err)
-}
 ```
+
+> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
 
 ### Record Step
 ```go
@@ -535,7 +527,7 @@ func main() {
     }
     defer conn.Close()
     
-    thread, err := conn.Start(ctx)
+    thread, err := conn.Start(ctx, "", "Checkout Process")
     if err != nil {
         log.Fatal(err)
     }
