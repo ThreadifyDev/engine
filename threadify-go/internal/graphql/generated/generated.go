@@ -239,6 +239,7 @@ type ComplexityRoot struct {
 		HashChainStatus     func(childComplexity int) int
 		HashChainVerified   func(childComplexity int) int
 		ID                  func(childComplexity int) int
+		Label               func(childComplexity int) int
 		LastHash            func(childComplexity int) int
 		NotificationSummary func(childComplexity int) int
 		Notifications       func(childComplexity int, options *models.ThreadNotificationQueryOptions) int
@@ -1359,6 +1360,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Thread.ID(childComplexity), true
+	case "Thread.label":
+		if e.ComplexityRoot.Thread.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Thread.Label(childComplexity), true
 	case "Thread.lastHash":
 		if e.ComplexityRoot.Thread.LastHash == nil {
 			break
@@ -1858,6 +1865,7 @@ type SubStep {
 
 type Thread {
   id: ID!
+  label: String
   contractId: String
   contractVersion: Int
   contractName: String
@@ -4924,6 +4932,8 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -5195,6 +5205,8 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -7361,6 +7373,35 @@ func (ec *executionContext) fieldContext_Thread_id(_ context.Context, field grap
 	return fc, nil
 }
 
+func (ec *executionContext) _Thread_label(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_label,
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_contractId(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8012,6 +8053,8 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -8164,6 +8207,8 @@ func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Cont
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -12970,6 +13015,8 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "label":
+			out.Values[i] = ec._Thread_label(ctx, field, obj)
 		case "contractId":
 			out.Values[i] = ec._Thread_contractId(ctx, field, obj)
 		case "contractVersion":

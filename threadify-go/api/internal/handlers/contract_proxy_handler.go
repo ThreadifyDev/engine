@@ -107,7 +107,11 @@ func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaul
 }
 
 func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
-	h.proxyRequest(c, http.MethodGet, contractProxyPath, "", nil)
+	path := contractProxyPath
+	if c.Request.URL.RawQuery != "" {
+		path += "?" + c.Request.URL.RawQuery
+	}
+	h.proxyRequest(c, http.MethodGet, path, "", nil)
 }
 
 func (h *ContractProxyHandler) CreateContract(c *gin.Context) {

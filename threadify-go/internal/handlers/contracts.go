@@ -78,7 +78,12 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID)
+
+	search := c.Query("search")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID, search, limit, offset)
 	c.JSON(statusCode, response)
 }
 

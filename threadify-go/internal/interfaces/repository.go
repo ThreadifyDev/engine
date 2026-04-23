@@ -21,7 +21,7 @@ type ContractRepository interface {
 	GetByName(ctx context.Context, name string) (*models.Contract, error)
 	GetByNameSlim(ctx context.Context, name string) (*models.Contract, error)
 	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
-	GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error)
+	GetAllByOwner(ctx context.Context, ownerID string, search string, limit, offset int) ([]*models.Contract, int, error)
 	CountByCompany(ctx context.Context, companyID string) (int, error)
 	SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error
 

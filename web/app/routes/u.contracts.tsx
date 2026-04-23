@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
+
+const PAGE_SIZE = 20;
 
 export const meta: MetaFunction = () => {
   return [
@@ -18,6 +20,8 @@ export default function Contracts() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadForm, setUploadForm] = useState({ name: '', yaml: '' });
   const [uploading, setUploading] = useState(false);
@@ -31,19 +35,19 @@ export default function Contracts() {
       return;
     }
 
-    // Prevent double fetch in React strict mode
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-
     fetchContracts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only run once on mount
+  }, [offset]);
 
   const fetchContracts = async () => {
     try {
       setLoading(true);
-      const response = await api.getAllContracts();
+      const response = await api.getAllContracts({
+        limit: PAGE_SIZE,
+        offset: offset
+      });
       setContracts(response.contracts || []);
+      setTotal(response.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load contracts');
     } finally {
@@ -155,6 +159,30 @@ export default function Contracts() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {total > PAGE_SIZE && (
+          <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-6">
+            <div className="text-sm text-gray-500">
+              Showing {offset + 1} to {Math.min(offset + PAGE_SIZE, total)} of {total} results
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                disabled={offset === 0}
+                className="p-2 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+                disabled={offset + PAGE_SIZE >= total}
+                className="p-2 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 

@@ -373,6 +373,13 @@ function HistoryTab({
             : thread.refs
           : {};
 
+        const threadIdSummary = thread.id.split('-').pop() || '';
+        const threadTitle = thread.label 
+          ? `${thread.label} (${threadIdSummary})` 
+          : thread.contractName 
+            ? `${thread.contractName} (${threadIdSummary})` 
+            : threadIdSummary;
+
         return (
           <div
             key={thread.id}
@@ -382,13 +389,15 @@ function HistoryTab({
             <div className="flex justify-between items-start">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm text-gray-900 truncate">{thread.id}</h3>
+                  <h3 className="font-semibold text-sm text-gray-900 truncate">
+                    {threadTitle}
+                  </h3>
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
                 </div>
                 <p className="text-xs text-gray-500 font-mono mb-2 truncate">
                   {thread.contractName && thread.contractVersion
                     ? `${thread.contractName} v${thread.contractVersion}`
-                    : thread.contractName || '-'}
+                    : '-'}
                 </p>
                 <div className="flex items-center gap-3 text-xs text-gray-600">
                   {thread.startedAt && (

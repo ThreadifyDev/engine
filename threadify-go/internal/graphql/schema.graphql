@@ -67,6 +67,7 @@ type SubStep {
 
 type Thread {
   id: ID!
+  label: String
   contractId: String
   contractVersion: Int
   contractName: String
