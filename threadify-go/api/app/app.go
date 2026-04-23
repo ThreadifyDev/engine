@@ -19,6 +19,7 @@ import (
 
 	"threadify-go/api/internal/database"
 	"threadify-go/api/internal/handlers"
+	"threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/middleware"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
@@ -31,13 +32,18 @@ import (
 	sharedrepo "threadify-go/shared/repository"
 )
 
+const dbConnectTimeout = 15 * time.Second
+
 type App struct {
 	Handler http.Handler
 	pool    *pgxpool.Pool
 	svcs    *services
 }
 
-func (a *App) Close(ctx context.Context, logger *zap.Logger) error {
+func (a *App) Close(
+	ctx context.Context,
+	logger *zap.Logger,
+) error {
 	if a.svcs != nil {
 		a.svcs.close(logger)
 	}
@@ -47,8 +53,13 @@ func (a *App) Close(ctx context.Context, logger *zap.Logger) error {
 	return nil
 }
 
-func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, error) {
-	dbCtx, dbCancel := context.WithTimeout(ctx, 15*time.Second)
+func New(
+	ctx context.Context,
+	cfg *config.Config,
+	rbacPaths RBACPaths,
+	logger *zap.Logger,
+) (*App, error) {
+	dbCtx, dbCancel := context.WithTimeout(ctx, dbConnectTimeout)
 	defer dbCancel()
 
 	pool, err := initDB(dbCtx, cfg.Postgres.URL)
@@ -61,12 +72,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
-	permissionsPath, rolesPath, err := resolveRBACPaths(logger)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("resolve rbac paths: %w", err)
-	}
-	rbacLoader, err := rbac.NewLoader(permissionsPath, rolesPath)
+	rbacLoader, err := rbac.NewLoader(rbacPaths.Permissions, rbacPaths.Roles)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("load rbac: %w", err)
@@ -74,13 +80,13 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 
 	repos := initRepositories(pool)
 
-	svcs, err := initServices(cfg, pool, repos, logger)
+	svcs, err := initServices(cfg, pool, repos, rbacLoader, logger)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("init services: %w", err)
 	}
 
-	hdlrs := initHandlers(cfg, svcs, repos, rbacLoader, logger)
+	hdlrs := initHandlers(cfg, svcs, rbacLoader)
 	handler := buildRouter(cfg, svcs, repos, rbacLoader, hdlrs, logger)
 
 	return &App{
@@ -88,6 +94,34 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 		pool:    pool,
 		svcs:    svcs,
 	}, nil
+}
+
+type RBACPaths struct {
+	Permissions string
+	Roles       string
+}
+
+func ResolveRBACPaths(logger *zap.Logger) (RBACPaths, error) {
+	candidates := []string{
+		"/app/shared/rbac",
+		"./shared/rbac",
+		"../shared/rbac",
+		"../../shared/rbac",
+	}
+	for _, base := range candidates {
+		perms := base + "/permissions.json"
+		roles := base + "/roles.json"
+		if _, err := os.Stat(perms); err != nil {
+			continue
+		}
+		if _, err := os.Stat(roles); err != nil {
+			logger.Warn("found permissions.json but roles.json missing", zap.String("base", base))
+			continue
+		}
+		logger.Info("using RBAC paths", zap.String("base", base))
+		return RBACPaths{Permissions: perms, Roles: roles}, nil
+	}
+	return RBACPaths{}, errors.New("RBAC files not found in any known location; check deployment configuration")
 }
 
 type repositories struct {
@@ -103,41 +137,34 @@ type repositories struct {
 }
 
 func initRepositories(pool *pgxpool.Pool) *repositories {
-	userRepo := repository.NewUserRepository(pool)
-	companyRepo := repository.NewCompanyRepository(pool)
-	userRoleRepo := repository.NewUserRoleRepository(pool)
-	apiKeyRepo := repository.NewAPIKeyRepository(pool)
-	serviceAccountRepo := repository.NewServiceAccountRepository(pool)
-	planRepo := sharedrepo.NewPlanRepo(pool)
-	outboxRepo := repository.NewOutboxRepository(pool)
-	agentRepo := repository.NewAgentRepository(pool)
-	entityProfileTypeRepo := sharedrepo.NewEntityProfileTypeRepository(pool)
-
 	return &repositories{
-		user:              userRepo,
-		company:           companyRepo,
-		userRole:          userRoleRepo,
-		apiKey:            apiKeyRepo,
-		serviceAccount:    serviceAccountRepo,
-		plan:              planRepo,
-		outbox:            outboxRepo,
-		agent:             agentRepo,
-		entityProfileType: entityProfileTypeRepo,
+		user:              repository.NewUserRepository(pool),
+		company:           repository.NewCompanyRepository(pool),
+		userRole:          repository.NewUserRoleRepository(pool),
+		apiKey:            repository.NewAPIKeyRepository(pool),
+		serviceAccount:    repository.NewServiceAccountRepository(pool),
+		plan:              sharedrepo.NewPlanRepo(pool),
+		outbox:            repository.NewOutboxRepository(pool),
+		agent:             repository.NewAgentRepository(pool),
+		entityProfileType: sharedrepo.NewEntityProfileTypeRepository(pool),
 	}
 }
 
 type services struct {
-	natsClient            *nats.Client
-	authClient            sharedauth.AuthClient
-	authService           *service.AuthService
-	agentService          *service.AgentService
-	billingService        *billing.BillingService
-	teamInvitationService *service.TeamInvitationService
-	invoiceProvider       billing.BillingProvider
-	outboxRepo            repository.OutboxRepository
-	outboxTrigger         service.OutboxWorkerTrigger
-	workerCancel          context.CancelFunc
-	workerWg              sync.WaitGroup
+	natsClient               *nats.Client
+	authClient               sharedauth.AuthClient
+	authService              *service.AuthService
+	agentService             *service.AgentService
+	userService              *service.UserService
+	entityProfileTypeService *service.EntityProfileTypeService
+	serviceAccountService    *service.ServiceAccountService
+	apiKeySvc                *service.APIKeyService
+	billingService           *billing.BillingService
+	teamInvitationService    *service.TeamInvitationService
+	invoiceProvider          billing.BillingProvider
+	outboxTrigger            service.OutboxWorkerTrigger
+	workerCancel             context.CancelFunc
+	workerWg                 sync.WaitGroup
 }
 
 func (s *services) close(logger *zap.Logger) {
@@ -153,7 +180,23 @@ func (s *services) close(logger *zap.Logger) {
 	}
 }
 
-func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, logger *zap.Logger) (*services, error) {
+func initServices(
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	repos *repositories,
+	rbacLoader *rbac.Loader,
+	logger *zap.Logger,
+) (*services, error) {
+	encryptionKey := strings.TrimSpace(cfg.WebAPI.OutboxEncryptionKey)
+	if encryptionKey == "" {
+		return nil, errors.New("outbox_encryption_key is required in config.yaml (or set OUTBOX_ENCRYPTION_KEY env var)")
+	}
+
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("outbox_encryption_key is not valid hex: %w", err)
+	}
+
 	emailSvc, err := service.NewEmailService(
 		cfg.WebAPI.Email.PlunkAPIKey,
 		cfg.WebAPI.Email.PlunkAPIURL,
@@ -169,35 +212,79 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		return nil, fmt.Errorf("init auth client: %w", err)
 	}
 
-	encryptionKey := strings.TrimSpace(cfg.WebAPI.OutboxEncryptionKey)
-	if encryptionKey == "" {
-		return nil, errors.New("outbox_encryption_key is required in config.yaml (or set OUTBOX_ENCRYPTION_KEY env var)")
-	}
-
 	invoiceProvider, err := billing.InitializeProvider(cfg.Billing)
 	if err != nil {
 		return nil, fmt.Errorf("init billing provider: %w", err)
 	}
 
-	billingSvc := billing.NewBillingService(invoiceProvider, repos.plan, &cfg.Subscription, &cfg.Billing, logger)
+	nc, err := initNATS(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
 
+	outboxTrigger := service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
+
+	svcs := &services{
+		natsClient:      nc,
+		authClient:      authClient,
+		billingService:  billing.NewBillingService(invoiceProvider, repos.plan, &cfg.Subscription, &cfg.Billing, logger),
+		invoiceProvider: invoiceProvider,
+		outboxTrigger:   outboxTrigger,
+	}
+
+	startWorkers(svcs, cfg, pool, repos, authClient, emailSvc, key, nc, logger)
+
+	svcs.authService = initAuthService(cfg, database.WrapPool(pool), repos, authClient, emailSvc, outboxTrigger, key, logger)
+	svcs.userService = service.NewUserService(repos.user, repos.company, repos.userRole, repos.outbox, outboxTrigger, key, logger)
+	svcs.entityProfileTypeService = service.NewEntityProfileTypeService(repos.entityProfileType, logger)
+	svcs.serviceAccountService = service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
+	svcs.apiKeySvc = service.NewAPIKeyService(repos.apiKey, repos.serviceAccount, repos.userRole, rbacLoader, logger)
+	svcs.agentService = service.NewAgentService(
+		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
+		cfg.WebAPI.OpenAIAPIKey,
+		repos.agent,
+		cfg.WebAPI.Agent.MaxMessages,
+		cfg.WebAPI.Agent.MaxTokens,
+		cfg.WebAPI.Agent.SummaryMaxTokens,
+		logger,
+	)
+	svcs.teamInvitationService = service.NewTeamInvitationService(
+		repository.NewTeamInvitationRepository(pool),
+		repos.outbox,
+		outboxTrigger,
+		repos.user,
+		repos.company,
+		key,
+		cfg.WebAPI.FrontendURL,
+		logger,
+	)
+
+	return svcs, nil
+}
+
+func initNATS(cfg *config.Config, logger *zap.Logger) (*nats.Client, error) {
 	nc, err := nats.NewClient(&cfg.NATS, logger)
 	if err != nil {
 		return nil, fmt.Errorf("NATS unavailable: %w", err)
 	}
-
 	if err := nc.InitializeOutboxStream(context.Background()); err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("initialize NATS outbox stream: %w", err)
 	}
+	return nc, nil
+}
 
-	svcs := &services{
-		natsClient:      nc,
-		billingService:  billingSvc,
-		invoiceProvider: invoiceProvider,
-		outboxRepo:      repos.outbox,
-	}
-
+func startWorkers(
+	svcs *services,
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	repos *repositories,
+	authClient sharedauth.AuthClient,
+	emailSvc service.EmailService,
+	encryptionKey []byte,
+	nc *nats.Client,
+	logger *zap.Logger,
+) {
 	outboxWorker := worker.NewOutboxWorker(
 		pool,
 		repos.outbox,
@@ -222,12 +309,21 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		runPruner(workerCtx, repos.outbox, logger)
 	}()
 
-	logger.Info("outbox worker started (in-process)")
+	logger.Info("background workers started")
+}
 
-	outboxTrigger := service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
-	svcs.outboxTrigger = outboxTrigger
-
+func initAuthService(
+	cfg *config.Config,
+	pool interfaces.DBPool,
+	repos *repositories,
+	authClient sharedauth.AuthClient,
+	emailSvc service.EmailService,
+	outboxTrigger service.OutboxWorkerTrigger,
+	encryptionKey []byte,
+	logger *zap.Logger,
+) *service.AuthService {
 	teamInvitationRepo := repository.NewTeamInvitationRepository(pool)
+
 	authSvc := service.NewAuthService(
 		pool,
 		repos.user,
@@ -241,6 +337,7 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		encryptionKey,
 		logger,
 	)
+
 	authSvc.ConfigureSignupCredits(
 		repos.plan,
 		cfg.Subscription.SignupCreditsMillicents,
@@ -255,32 +352,7 @@ func initServices(cfg *config.Config, pool *pgxpool.Pool, repos *repositories, l
 		logger.Warn("JWKS URL not configured — token verification disabled")
 	}
 
-	agentSvc := service.NewAgentService(
-		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
-		cfg.WebAPI.OpenAIAPIKey,
-		repos.agent,
-		cfg.WebAPI.Agent.MaxMessages,
-		cfg.WebAPI.Agent.MaxTokens,
-		cfg.WebAPI.Agent.SummaryMaxTokens,
-		logger,
-	)
-
-	teamInvitationSvc := service.NewTeamInvitationService(
-		teamInvitationRepo,
-		repos.outbox,
-		outboxTrigger,
-		repos.user,
-		encryptionKey,
-		cfg.WebAPI.FrontendURL,
-		logger,
-	)
-
-	svcs.authClient = authClient
-	svcs.authService = authSvc
-	svcs.agentService = agentSvc
-	svcs.teamInvitationService = teamInvitationSvc
-
-	return svcs, nil
+	return authSvc
 }
 
 type appHandlers struct {
@@ -300,36 +372,37 @@ type appHandlers struct {
 	pricing            *handlers.PricingHandler
 }
 
-func initHandlers(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, logger *zap.Logger) *appHandlers {
-	apiKeySvc := service.NewAPIKeyService(repos.apiKey, repos.serviceAccount, repos.userRole, rbacLoader, logger)
-	serviceAccountSvc := service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
-	entityProfileTypeSvc := service.NewEntityProfileTypeService(repos.entityProfileType, logger)
-
-	encryptionKey, err := hex.DecodeString(cfg.WebAPI.OutboxEncryptionKey)
-	if err != nil {
-		logger.Warn("failed to decode outbox encryption key, using raw string", zap.Error(err))
-		encryptionKey = []byte(cfg.WebAPI.OutboxEncryptionKey)
-	}
-
+func initHandlers(
+	cfg *config.Config,
+	svcs *services,
+	rbacLoader *rbac.Loader,
+) *appHandlers {
 	return &appHandlers{
 		auth:               handlers.NewAuthHandler(svcs.authService),
-		user:               handlers.NewUserHandler(repos.user, repos.company, apiKeySvc, repos.userRole, svcs.authClient, repos.outbox, svcs.outboxTrigger, encryptionKey, logger),
-		apiKey:             handlers.NewAPIKeyHandler(apiKeySvc, repos.user),
-		serviceAccount:     handlers.NewServiceAccountHandler(serviceAccountSvc, rbacLoader),
+		user:               handlers.NewUserHandler(svcs.userService),
+		apiKey:             handlers.NewAPIKeyHandler(svcs.apiKeySvc),
+		serviceAccount:     handlers.NewServiceAccountHandler(svcs.serviceAccountService, rbacLoader),
 		role:               handlers.NewRoleHandler(rbacLoader),
 		codeSamples:        handlers.NewCodeSamplesHandler("./code_samples"),
 		contractProxy:      handlers.NewContractProxyHandler(cfg.WebAPI.ThreadifyEngine.URL),
-		graphqlProxy:       handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
-		agent:              handlers.NewAgentHandler(svcs.agentService, logger),
-		billing:            handlers.NewBillingHandler(svcs.billingService, logger),
-		teamInvitation:     handlers.NewTeamInvitationHandler(svcs.teamInvitationService, repos.company, logger),
-		entityProfileType:  handlers.NewEntityProfileTypeHandler(entityProfileTypeSvc),
-		entityProfileProxy: handlers.NewEntityProfileProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL, logger),
+		graphqlProxy:       handlers.NewGraphQLProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL),
+		agent:              handlers.NewAgentHandler(svcs.agentService),
+		billing:            handlers.NewBillingHandler(svcs.billingService),
+		teamInvitation:     handlers.NewTeamInvitationHandler(svcs.teamInvitationService),
+		entityProfileType:  handlers.NewEntityProfileTypeHandler(svcs.entityProfileTypeService),
+		entityProfileProxy: handlers.NewEntityProfileProxyHandler(cfg.WebAPI.ThreadifyEngine.GraphQLURL),
 		pricing:            handlers.NewPricingHandler(cfg.WebAPI.ThreadifyEngine.URL),
 	}
 }
 
-func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLoader *rbac.Loader, h *appHandlers, logger *zap.Logger) http.Handler {
+func buildRouter(
+	cfg *config.Config,
+	svcs *services,
+	repos *repositories,
+	rbacLoader *rbac.Loader,
+	h *appHandlers,
+	logger *zap.Logger,
+) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
@@ -357,7 +430,6 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
 	r.GET("/api/pricing", h.pricing.GetPricing)
-
 	r.POST("/api/team/invitation/validate", h.teamInvitation.ValidateInvitation)
 
 	requirePerm := func(perm string) gin.HandlerFunc {
@@ -445,9 +517,13 @@ func buildRouter(cfg *config.Config, svcs *services, repos *repositories, rbacLo
 }
 
 func corsMiddleware(originsCSV string) gin.HandlerFunc {
-	origins := strings.Split(originsCSV, ",")
-	for i, o := range origins {
-		origins[i] = strings.TrimSpace(o)
+	var origins []string
+	if strings.TrimSpace(originsCSV) != "" {
+		for _, o := range strings.Split(originsCSV, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				origins = append(origins, trimmed)
+			}
+		}
 	}
 	return cors.New(cors.Config{
 		AllowOrigins:     origins,
@@ -470,56 +546,11 @@ func initDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func loadConfig(logger *zap.Logger) (*config.Config, error) {
-	path, err := resolveConfigPath(logger)
-	if err != nil {
-		return nil, err
-	}
-	return config.Load(path)
-}
-
-func resolveConfigPath(logger *zap.Logger) (string, error) {
-	if p := os.Getenv("CONFIG_PATH"); p != "" {
-		logger.Info("using config path from CONFIG_PATH env", zap.String("path", p))
-		return p, nil
-	}
-	if _, err := os.Stat("/app/config/config.yaml"); err == nil {
-		logger.Info("using config path", zap.String("path", "/app/config/config.yaml"))
-		return "/app/config/config.yaml", nil
-	}
-
-	devPath := "../config/config.yaml"
-	if _, err := os.Stat(devPath); err == nil {
-		logger.Info("using config path (dev fallback)", zap.String("path", devPath))
-		return devPath, nil
-	}
-	return "", errors.New("config file not found: set CONFIG_PATH env var or provide /app/config/config.yaml")
-}
-
-func resolveRBACPaths(logger *zap.Logger) (string, string, error) {
-	candidates := []string{
-		"/app/shared/rbac",
-		"./shared/rbac",
-		"../shared/rbac",
-		"../../shared/rbac",
-	}
-	for _, base := range candidates {
-		perms := base + "/permissions.json"
-		roles := base + "/roles.json"
-		if _, err := os.Stat(perms); err != nil {
-			continue
-		}
-		if _, err := os.Stat(roles); err != nil {
-			logger.Warn("found permissions.json but roles.json missing", zap.String("base", base))
-			continue
-		}
-		logger.Info("using RBAC paths", zap.String("base", base))
-		return perms, roles, nil
-	}
-	return "", "", errors.New("RBAC files not found in any known location; check deployment configuration")
-}
-
-func runPruner(ctx context.Context, repo repository.OutboxRepository, logger *zap.Logger) {
+func runPruner(
+	ctx context.Context,
+	repo repository.OutboxRepository,
+	logger *zap.Logger,
+) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 

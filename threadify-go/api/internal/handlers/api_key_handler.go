@@ -3,8 +3,9 @@ package handlers
 import (
 	"net/http"
 	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/repository"
-	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/validation"
+	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -12,34 +13,42 @@ import (
 
 type APIKeyHandler struct {
 	apiKeyService iface.APIKeyService
-	userRepo      repository.UserRepository
 }
 
-func NewAPIKeyHandler(apiKeyService iface.APIKeyService, userRepo repository.UserRepository) *APIKeyHandler {
+func NewAPIKeyHandler(apiKeyService iface.APIKeyService) *APIKeyHandler {
 	return &APIKeyHandler{
 		apiKeyService: apiKeyService,
-		userRepo:      userRepo,
 	}
 }
 
 func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	companyID, _ := c.Get("companyID")
-
-	var req service.CreateAPIKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+	userID, exists := ctxString(c, sharedauth.CtxUserID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	companyID, exists := ctxString(c, sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	response, err := h.apiKeyService.CreateAPIKey(c.Request.Context(), userID.(string), companyID.(string), &req)
+	var req models.CreateAPIKeyRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	if err := validation.ValidateCreateAPIKeyRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+
+	response, err := h.apiKeyService.CreateAPIKey(c.Request.Context(), userID, companyID, &req)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		// Log the actual error for debugging
-		c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred.", "details": err.Error()})
 		return
 	}
@@ -49,9 +58,13 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 // ListAPIKeys returns all API keys for the company
 func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
-	companyID, _ := c.Get("companyID")
+	companyID, exists := ctxString(c, sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
-	keys, err := h.apiKeyService.ListAPIKeys(c.Request.Context(), companyID.(string))
+	keys, err := h.apiKeyService.ListAPIKeys(c.Request.Context(), companyID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -67,7 +80,11 @@ func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 }
 
 func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
-	companyID, _ := c.Get("companyID")
+	companyID, exists := ctxString(c, sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 	keyID := c.Param("id")
 
 	if keyID == "" {
@@ -75,7 +92,7 @@ func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
 		return
 	}
 
-	err := h.apiKeyService.RevokeAPIKey(c.Request.Context(), keyID, companyID.(string))
+	err := h.apiKeyService.RevokeAPIKey(c.Request.Context(), keyID, companyID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})

@@ -27,31 +27,6 @@ const (
 	ToolExecuteGraphQL = "execute_graphql"
 	ToolSaveContext    = "save_context"
 
-	// Skill Types
-	SkillSupport    = "support"
-	SkillOperations = "operations"
-	SkillBusiness   = "business"
-
-	// SSE Event Types
-	EventChunk        = "chunk"
-	EventSystem       = "system"
-	EventToolCall     = "tool_call"
-	EventConversation = "conversation"
-	EventDone         = "done"
-	EventError        = "error"
-
-	// Context Keys
-	ContextKeySummary = "conversation_summary"
-
-	// Roles
-	RoleUser      = "user"
-	RoleAssistant = "assistant"
-	RoleSystem    = "system"
-	RoleTool      = "tool"
-
-	// Tool Status
-	ToolStatusSuccess = "Context saved successfully"
-
 	// GraphQL Operations
 	queryCheckCredits = `query CheckCredits($meter: String, $amount: Int) {
 		checkCredits(meter: $meter, amount: $amount)
@@ -262,9 +237,6 @@ IMPORTANT:
 - Never output raw JSON - always summarize
 - Use save_context to remember important findings`
 
-// StreamHandler is a callback function for streaming SSE events back to the client.
-type StreamHandler func(eventType, data string)
-
 type AgentService struct {
 	threadifyEngineURL string
 	httpClient         *http.Client
@@ -305,7 +277,7 @@ func (s *AgentService) ChatStream(
 	conversationID string,
 	message string,
 	skill string,
-	onEvent StreamHandler,
+	onEvent models.StreamHandler,
 ) error {
 	var err error
 	if conversationID != "" {
@@ -347,7 +319,7 @@ func (s *AgentService) ChatStream(
 	err = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
 		ID:             uuid.New().String(),
 		ConversationID: convID,
-		Role:           RoleUser,
+		Role:           models.RoleUser,
 		Content:        message,
 	})
 	if err != nil {
@@ -397,7 +369,7 @@ func (s *AgentService) ChatStream(
 			delta := response.Choices[0].Delta
 			if delta.Content != "" {
 				currentContent += delta.Content
-				onEvent(EventChunk, delta.Content)
+				onEvent(models.EventChunk, delta.Content)
 			}
 
 			if len(delta.ToolCalls) > 0 {
@@ -425,7 +397,7 @@ func (s *AgentService) ChatStream(
 
 		// Handle tool calls
 		messages = append(messages, openai.ChatCompletionMessage{
-			Role: RoleAssistant,
+			Role: models.RoleAssistant,
 			ToolCalls: []openai.ToolCall{
 				{
 					ID:   currentToolId,
@@ -440,7 +412,7 @@ func (s *AgentService) ChatStream(
 
 		switch currentToolName {
 		case ToolExecuteGraphQL:
-			onEvent(EventSystem, "Querying Threadify Engine...")
+			onEvent(models.EventSystem, "Querying Threadify Engine...")
 
 			var args struct {
 				Query     string                 `json:"query"`
@@ -463,7 +435,7 @@ func (s *AgentService) ChatStream(
 			}
 
 			messages = append(messages, openai.ChatCompletionMessage{
-				Role:       RoleTool,
+				Role:       models.RoleTool,
 				Content:    engineOutput,
 				ToolCallID: currentToolId,
 			})
@@ -473,7 +445,7 @@ func (s *AgentService) ChatStream(
 				"query":    args.Query,
 				"response": engineOutput,
 			})
-			onEvent(EventToolCall, string(toolCallData))
+			onEvent(models.EventToolCall, string(toolCallData))
 			continue
 
 		case ToolSaveContext:
@@ -495,9 +467,9 @@ func (s *AgentService) ChatStream(
 				ContextValue:   args.Value,
 			})
 
-			toolOutput := ToolStatusSuccess
+			toolOutput := models.ToolStatusSuccess
 			messages = append(messages, openai.ChatCompletionMessage{
-				Role:       RoleTool,
+				Role:       models.RoleTool,
 				Content:    toolOutput,
 				ToolCallID: currentToolId,
 			})
@@ -527,8 +499,8 @@ func (s *AgentService) ChatStream(
 	if messageCount > 0 {
 		onEvent("message_count", fmt.Sprintf("%d", messageCount))
 	}
-	onEvent(EventConversation, convID)
-	onEvent(EventDone, "true")
+	onEvent(models.EventConversation, convID)
+	onEvent(models.EventDone, "true")
 
 	return nil
 }
@@ -620,7 +592,7 @@ func (s *AgentService) recordUsage(ctx context.Context, authHeader string, token
 func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, isNew bool, message string, skill string) []openai.ChatCompletionMessage {
 	var roleDescription string
 	switch skill {
-	case SkillSupport:
+	case models.SkillSupport:
 		roleDescription = `You are a Customer Support AI for Threadify. Your goal is to help support teams quickly diagnose and resolve customer issues.
 
 FOCUS:
@@ -633,7 +605,7 @@ RESPONSE STYLE:
 - Customer-friendly language
 - Clear problem identification
 - Actionable troubleshooting steps`
-	case SkillOperations:
+	case models.SkillOperations:
 		roleDescription = `You are an Operations AI for Threadify. Your goal is to monitor workflow execution and identify operational issues.
 
 FOCUS:
@@ -646,7 +618,7 @@ RESPONSE STYLE:
 - Process-oriented and actionable
 - Highlight anomalies and trends
 - Include metrics and counts`
-	case SkillBusiness:
+	case models.SkillBusiness:
 		roleDescription = `You are a Business Intelligence AI for Threadify. Your goal is to provide insights and analytics on workflow performance.
 
 FOCUS:
@@ -664,7 +636,7 @@ RESPONSE STYLE:
 	}
 
 	systemPrompt := openai.ChatCompletionMessage{
-		Role:    RoleSystem,
+		Role:    models.RoleSystem,
 		Content: roleDescription + "\n\n" + agentSystemPrompt,
 	}
 
@@ -678,7 +650,7 @@ RESPONSE STYLE:
 			for _, c := range contexts {
 				msg += fmt.Sprintf("- %s: %s\n", c.ContextKey, c.ContextValue)
 			}
-			messages = append(messages, openai.ChatCompletionMessage{Role: RoleSystem, Content: msg})
+			messages = append(messages, openai.ChatCompletionMessage{Role: models.RoleSystem, Content: msg})
 		}
 
 		history, _ := s.agentRepo.GetMessages(ctx, convID)
@@ -696,7 +668,7 @@ RESPONSE STYLE:
 		}
 	}
 
-	messages = append(messages, openai.ChatCompletionMessage{Role: RoleUser, Content: message})
+	messages = append(messages, openai.ChatCompletionMessage{Role: models.RoleUser, Content: message})
 	return messages
 }
 
@@ -765,16 +737,16 @@ func (s *AgentService) saveToolMessages(ctx context.Context, convID, toolCallID,
 	callsStr := string(calls)
 
 	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
-		ID: uuid.New().String(), ConversationID: convID, Role: RoleAssistant, ToolCalls: &callsStr,
+		ID: uuid.New().String(), ConversationID: convID, Role: models.RoleAssistant, ToolCalls: &callsStr,
 	})
 	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
-		ID: uuid.New().String(), ConversationID: convID, Role: RoleTool, Content: output, ToolCallID: &toolCallID,
+		ID: uuid.New().String(), ConversationID: convID, Role: models.RoleTool, Content: output, ToolCallID: &toolCallID,
 	})
 }
 
 func (s *AgentService) saveAssistantMessage(ctx context.Context, convID, content string) {
 	_ = s.agentRepo.AddMessage(ctx, &models.AgentMessage{
-		ID: uuid.New().String(), ConversationID: convID, Role: RoleAssistant, Content: content, CreatedAt: time.Now(),
+		ID: uuid.New().String(), ConversationID: convID, Role: models.RoleAssistant, Content: content, CreatedAt: time.Now(),
 	})
 }
 
@@ -831,7 +803,7 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 
 	var conversationHistory []openai.ChatCompletionMessage
 	for _, msg := range messages {
-		if msg.Role == RoleUser || (msg.Role == RoleAssistant && msg.Content != "") {
+		if msg.Role == models.RoleUser || (msg.Role == models.RoleAssistant && msg.Content != "") {
 			conversationHistory = append(conversationHistory, openai.ChatCompletionMessage{
 				Role:    msg.Role,
 				Content: msg.Content,
@@ -845,11 +817,11 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 			Model: ModelGPT4oMini,
 			Messages: []openai.ChatCompletionMessage{
 				{
-					Role:    RoleSystem,
+					Role:    models.RoleSystem,
 					Content: "You are a helpful assistant that creates concise summaries of conversations. Preserve all important facts, decisions, code snippets, thread IDs, technical details, and context. Be comprehensive but concise.",
 				},
 				{
-					Role:    RoleUser,
+					Role:    models.RoleUser,
 					Content: "Summarize the following conversation, preserving all important context and details:",
 				},
 			},
@@ -880,7 +852,7 @@ func (s *AgentService) ContinueConversation(ctx context.Context, userID, company
 		summaryCtx := &models.AgentContext{
 			ID:             uuid.New().String(),
 			ConversationID: newConvID,
-			ContextKey:     ContextKeySummary,
+			ContextKey:     models.ContextKeySummary,
 			ContextValue:   summary,
 		}
 		if err := s.agentRepo.SaveContext(ctx, summaryCtx); err != nil {

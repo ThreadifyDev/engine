@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/service/tests/common"
 	"threadify-go/shared/rbac"
 
@@ -55,13 +54,13 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *service.CreateAPIKeyRequest
+		req       *models.CreateAPIKeyRequest
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 	}{
 		{
 			name: "success_with_existing_sa",
-			req: &service.CreateAPIKeyRequest{
+			req: &models.CreateAPIKeyRequest{
 				Name:             "Test Key",
 				ServiceAccountID: strPtr("sa_123"),
 			},
@@ -72,7 +71,7 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 		},
 		{
 			name: "invalid_sa_role",
-			req: &service.CreateAPIKeyRequest{
+			req: &models.CreateAPIKeyRequest{
 				Name:                 "Invalid Role Key",
 				CreateServiceAccount: true,
 				ServiceAccountRole:   strPtr("invalid_role"),
@@ -82,7 +81,7 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 		},
 		{
 			name: "sa_not_found",
-			req: &service.CreateAPIKeyRequest{
+			req: &models.CreateAPIKeyRequest{
 				Name:             "Missing SA",
 				ServiceAccountID: strPtr("non_existent"),
 			},

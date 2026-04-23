@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 	"threadify-go/shared/rbac"
 
@@ -27,13 +27,12 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	userID := c.GetString("userID")
 
-	var req service.CreateServiceAccountRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var req *models.CreateServiceAccountRequest
+	if !bindJSON(c, &req) {
 		return
 	}
 
-	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(c.Request.Context(), companyID, userID, &req)
+	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(c.Request.Context(), companyID, userID, req)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -89,9 +88,8 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	id := c.Param("id")
 
-	var req service.UpdateServiceAccountRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var req models.UpdateServiceAccountRequest
+	if !bindJSON(c, &req) {
 		return
 	}
 

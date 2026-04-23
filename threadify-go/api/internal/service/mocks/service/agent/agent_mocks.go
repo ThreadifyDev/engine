@@ -8,7 +8,6 @@ import (
 	context "context"
 	reflect "reflect"
 	models "threadify-go/api/internal/models"
-	service "threadify-go/api/internal/service"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -37,7 +36,7 @@ func (m *MockAgentService) EXPECT() *MockAgentServiceMockRecorder {
 }
 
 // ChatStream mocks base method.
-func (m *MockAgentService) ChatStream(arg0 context.Context, arg1, arg2, arg3, arg4, arg5, arg6 string, arg7 service.StreamHandler) error {
+func (m *MockAgentService) ChatStream(arg0 context.Context, arg1, arg2, arg3, arg4, arg5, arg6 string, arg7 models.StreamHandler) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ChatStream", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 	ret0, _ := ret[0].(error)

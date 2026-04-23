@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/service/tests/common"
 
 	"github.com/golang/mock/gomock"
@@ -21,13 +20,13 @@ func TestServiceAccountService_CreateServiceAccount(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *service.CreateServiceAccountRequest
+		req       *models.CreateServiceAccountRequest
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 	}{
 		{
 			name: "success",
-			req: &service.CreateServiceAccountRequest{
+			req: &models.CreateServiceAccountRequest{
 				Name: "Test SA",
 				Role: "standard_service",
 			},
@@ -38,7 +37,7 @@ func TestServiceAccountService_CreateServiceAccount(t *testing.T) {
 		},
 		{
 			name: "invalid_role",
-			req: &service.CreateServiceAccountRequest{
+			req: &models.CreateServiceAccountRequest{
 				Name: "Evil SA",
 				Role: "admin",
 			},

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
@@ -22,7 +21,6 @@ type billingAPI interface {
 
 type BillingHandler struct {
 	billingService billingAPI
-	logger         *zap.Logger
 }
 
 type UpdateMaxMonthlyRequest struct {
@@ -49,7 +47,6 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		h.logger.Error("failed to fetch credit account for validation", zap.Error(err), zap.String("companyID", compID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify topup settings"})
 		return
 	}
@@ -76,11 +73,6 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		h.logger.Error("failed to update max monthly charge",
-			zap.Error(err),
-			zap.String("companyID", compID),
-			zap.Int64("max_monthly", req.MaxMonthlyChargeMillicents),
-		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update max monthly charge"})
 		return
 	}
@@ -90,11 +82,9 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 
 func NewBillingHandler(
 	billingService billingAPI,
-	logger *zap.Logger,
 ) *BillingHandler {
 	return &BillingHandler{
 		billingService: billingService,
-		logger:         logger,
 	}
 }
 
@@ -126,19 +116,11 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		*req.AmountMillicents,
 	)
 	if err != nil {
-		amount := int64(0)
-		if req.AmountMillicents != nil {
-			amount = *req.AmountMillicents
-		}
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		h.logger.Error("failed to create checkout session",
-			zap.Error(err),
-			zap.String("companyID", compID),
-			zap.Int64("amount_millicents", amount),
-		)
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create checkout session"})
 		return
 	}
@@ -194,7 +176,6 @@ func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		h.logger.Error("failed to get current billing info", zap.Error(err), zap.String("companyID", compID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve billing info"})
 		return
 	}

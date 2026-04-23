@@ -1,6 +1,7 @@
 server:
   port: 8081
   host: 0.0.0.0
+  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
 
 postgres:
   url: "$POSTGRES_URL:postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"

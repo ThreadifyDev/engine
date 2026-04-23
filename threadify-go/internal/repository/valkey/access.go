@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/shared/rbac"
-
 	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
@@ -20,7 +18,7 @@ import (
 type AccessRepository struct {
 	valkey        interfaces.ValkeyClient
 	postgresRepo  PostgresAccessRepository // For hot/cold fallback
-	rbacLoader    *rbac.Loader             // For dynamic permission-to-role mapping
+	rbacLoader    interfaces.RBACLoader    // For dynamic permission-to-role mapping
 	ttl           int                      // TTL in seconds for access keys
 	writeBackPool *workerpool.Pool         // For async cache write-backs
 	logger        *zap.Logger
@@ -54,7 +52,7 @@ func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRep
 }
 
 // SetRBACLoader sets the RBAC loader for dynamic permission-to-role mapping
-func (r *AccessRepository) SetRBACLoader(loader *rbac.Loader) {
+func (r *AccessRepository) SetRBACLoader(loader interfaces.RBACLoader) {
 	r.rbacLoader = loader
 }
 

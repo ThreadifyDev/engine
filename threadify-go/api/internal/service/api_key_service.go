@@ -37,21 +37,12 @@ func NewAPIKeyService(
 	}
 }
 
-type CreateAPIKeyRequest struct {
-	Name                 string  `json:"name" binding:"required"`
-	ExpiresIn            *int    `json:"expires_in"`
-	ServiceAccountID     *string `json:"service_account_id"`
-	CreateServiceAccount bool    `json:"create_service_account"`
-	ServiceAccountRole   *string `json:"service_account_role"`
-}
-
-type CreateAPIKeyResponse struct {
-	Key       string         `json:"key"`
-	KeyPrefix string         `json:"key_prefix"`
-	APIKey    *models.APIKey `json:"api_key"`
-}
-
-func (s *APIKeyService) CreateAPIKey(ctx context.Context, userID, companyID string, req *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error) {
+func (s *APIKeyService) CreateAPIKey(
+	ctx context.Context,
+	userID string,
+	companyID string,
+	req *models.CreateAPIKeyRequest,
+) (*models.CreateAPIKeyResponse, error) {
 	if req.Name == "" {
 		return nil, ErrApiKeyNameRequired
 	}
@@ -97,7 +88,7 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, userID, companyID stri
 	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
 		return nil, err
 	}
-	return &CreateAPIKeyResponse{
+	return &models.CreateAPIKeyResponse{
 		Key:       key,
 		KeyPrefix: keyPrefix,
 		APIKey:    apiKey,
@@ -106,7 +97,12 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, userID, companyID stri
 
 // resolveServiceAccount returns the service account ID to associate with the
 // new API key, creating one if necessary.
-func (s *APIKeyService) resolveServiceAccount(ctx context.Context, userID, companyID string, req *CreateAPIKeyRequest) (*string, error) {
+func (s *APIKeyService) resolveServiceAccount(
+	ctx context.Context,
+	userID string,
+	companyID string,
+	req *models.CreateAPIKeyRequest,
+) (*string, error) {
 	if req.ServiceAccountID != nil {
 		sa, err := s.serviceAccountRepo.FindByID(ctx, *req.ServiceAccountID)
 		if err != nil || sa == nil {

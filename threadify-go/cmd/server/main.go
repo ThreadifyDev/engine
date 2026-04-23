@@ -41,9 +41,6 @@ func main() {
 	if err != nil {
 		appLogger.Fatal("failed to initialize app", zap.Error(err))
 	}
-	defer engineApp.Close(ctx)
-
-	go startPprof(appLogger)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -52,6 +49,8 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	go startPprof(appLogger)
 
 	go func() {
 		appLogger.Info("starting server", zap.String("address", srv.Addr))
@@ -75,18 +74,18 @@ func waitForShutdown(logger *zap.Logger, srv *http.Server, a *app.App) {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
-	logger.Info("shutting down server...")
+	logger.Info("shutting down")
 
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("server forced to shutdown", zap.Error(err))
+		logger.Error("http shutdown error", zap.Error(err))
 	}
 
 	if err := a.Close(ctx); err != nil {
-		logger.Error("error closing app dependencies", zap.Error(err))
+		logger.Error("app close error", zap.Error(err))
 	}
 
-	logger.Info("server exited")
+	logger.Info("shutdown complete")
 }

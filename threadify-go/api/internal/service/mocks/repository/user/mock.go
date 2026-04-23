@@ -122,6 +122,20 @@ func (m *MockUserRepository) EXPECT() *MockUserRepositoryMockRecorder {
 	return m.recorder
 }
 
+// ArchiveUser mocks base method.
+func (m *MockUserRepository) ArchiveUser(ctx context.Context, userID, archivedEmail string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveUser", ctx, userID, archivedEmail)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveUser indicates an expected call of ArchiveUser.
+func (mr *MockUserRepositoryMockRecorder) ArchiveUser(ctx, userID, archivedEmail interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveUser", reflect.TypeOf((*MockUserRepository)(nil).ArchiveUser), ctx, userID, archivedEmail)
+}
+
 // ClearPasswordHash mocks base method.
 func (m *MockUserRepository) ClearPasswordHash(ctx context.Context, userID string) error {
 	m.ctrl.T.Helper()

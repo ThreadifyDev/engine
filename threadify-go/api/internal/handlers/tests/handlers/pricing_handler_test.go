@@ -1,10 +1,10 @@
-package handlers
+package tests
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+	"threadify-go/api/internal/handlers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -22,7 +22,7 @@ func TestPricingHandler_GetPricing_Success(t *testing.T) {
 	}))
 	defer engine.Close()
 
-	h := NewPricingHandler(engine.URL)
+	h := handlers.NewPricingHandler(engine.URL)
 
 	r := gin.New()
 	r.GET("/api/pricing", h.GetPricing)
@@ -39,9 +39,7 @@ func TestPricingHandler_GetPricing_Success(t *testing.T) {
 func TestPricingHandler_GetPricing_BadGateway_WhenEngineUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewPricingHandler("http://127.0.0.1:1")
-	// avoid waiting for the default timeout
-	h.httpClient.Timeout = 50 * time.Millisecond
+	h := handlers.NewPricingHandler("http://127.0.0.1:1")
 
 	r := gin.New()
 	r.GET("/api/pricing", h.GetPricing)

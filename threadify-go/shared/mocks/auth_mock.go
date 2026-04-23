@@ -49,6 +49,20 @@ func (mr *MockAuthClientMockRecorder) Authenticate(arg0, arg1, arg2, arg3 interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Authenticate", reflect.TypeOf((*MockAuthClient)(nil).Authenticate), arg0, arg1, arg2, arg3)
 }
 
+// DeleteUser mocks base method.
+func (m *MockAuthClient) DeleteUser(arg0 context.Context, arg1 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteUser", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteUser indicates an expected call of DeleteUser.
+func (mr *MockAuthClientMockRecorder) DeleteUser(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockAuthClient)(nil).DeleteUser), arg0, arg1)
+}
+
 // FindUserIDByEmail mocks base method.
 func (m *MockAuthClient) FindUserIDByEmail(arg0 context.Context, arg1 string) (string, error) {
 	m.ctrl.T.Helper()
@@ -195,6 +209,20 @@ func (m *MockAuthClient) UpdatePassword(arg0 context.Context, arg1, arg2, arg3 s
 func (mr *MockAuthClientMockRecorder) UpdatePassword(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePassword", reflect.TypeOf((*MockAuthClient)(nil).UpdatePassword), arg0, arg1, arg2, arg3)
+}
+
+// UpdateUserEmail mocks base method.
+func (m *MockAuthClient) UpdateUserEmail(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserEmail", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateUserEmail indicates an expected call of UpdateUserEmail.
+func (mr *MockAuthClientMockRecorder) UpdateUserEmail(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserEmail", reflect.TypeOf((*MockAuthClient)(nil).UpdateUserEmail), arg0, arg1, arg2)
 }
 
 // VerifyEmailWithOTP mocks base method.

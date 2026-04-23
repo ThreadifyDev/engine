@@ -39,7 +39,8 @@ func TestRoleHandler(t *testing.T) {
 		var resp struct {
 			Roles map[string]interface{} `json:"roles"`
 		}
-		assert.NoError(t, common.UnmarshalBody(w.Body.Bytes(), &resp))
+		common.UnmarshalBody(t, w.Body.Bytes(), &resp)
+		assert.NotNil(t, resp.Roles)
 		assert.NotNil(t, resp.Roles["app_level"])
 		assert.NotNil(t, resp.Roles["api_level"])
 		assert.NotNil(t, resp.Roles["runtime_level"])
@@ -54,7 +55,7 @@ func TestRoleHandler(t *testing.T) {
 				Level string               `json:"level"`
 				Roles map[string]rbac.Role `json:"roles"`
 			}
-			assert.NoError(t, common.UnmarshalBody(w.Body.Bytes(), &resp))
+			common.UnmarshalBody(t, w.Body.Bytes(), &resp)
 			assert.NotEmpty(t, resp.Roles)
 			assert.Equal(t, level, resp.Level)
 		}

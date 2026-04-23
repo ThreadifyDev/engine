@@ -2,13 +2,13 @@ package service
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/utils"
@@ -19,7 +19,6 @@ import (
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -32,10 +31,6 @@ const (
 
 type OutboxWorkerTrigger interface {
 	Trigger()
-}
-
-type DBPool interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 func newSignupCreditAccount(companyID string, billingCycleStart time.Time, balanceMillicents, rateLimitTPS, payloadLimitBytes int64) *sharemodels.CreditAccount {
@@ -54,7 +49,7 @@ func newSignupCreditAccount(companyID string, billingCycleStart time.Time, balan
 }
 
 type AuthService struct {
-	pool           DBPool
+	pool           interfaces.DBPool
 	userRepo       repository.UserRepository
 	companyRepo    repository.CompanyRepository
 	userRoleRepo   repository.UserRoleRepository
@@ -74,7 +69,7 @@ type AuthService struct {
 }
 
 func NewAuthService(
-	pool DBPool,
+	pool interfaces.DBPool,
 	userRepo repository.UserRepository,
 	companyRepo repository.CompanyRepository,
 	userRoleRepo repository.UserRoleRepository,
@@ -83,15 +78,9 @@ func NewAuthService(
 	outboxRepo repository.OutboxRepository,
 	invitationRepo repository.TeamInvitationRepository,
 	outboxWorker OutboxWorkerTrigger,
-	encryptionKey string,
+	encryptionKey []byte,
 	logger *zap.Logger,
 ) *AuthService {
-	key, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		logger.Error("failed to decode outbox encryption key", zap.Error(err))
-		key = []byte(encryptionKey)
-	}
-
 	return &AuthService{
 		pool:           pool,
 		userRepo:       userRepo,
@@ -102,7 +91,7 @@ func NewAuthService(
 		emailSvc:       emailSvc,
 		authClient:     authClient,
 		outboxWorker:   outboxWorker,
-		encryptionKey:  key,
+		encryptionKey:  encryptionKey,
 		logger:         logger,
 	}
 }

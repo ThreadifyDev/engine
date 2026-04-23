@@ -35,8 +35,9 @@ type Config struct {
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
-	Port int    `yaml:"port" mapstructure:"port"`
-	Host string `yaml:"host" mapstructure:"host"`
+	Port        int    `yaml:"port" mapstructure:"port"`
+	Host        string `yaml:"host" mapstructure:"host"`
+	CORSOrigins string `yaml:"cors_origins" mapstructure:"cors_origins"`
 }
 
 // PostgresConfig holds PostgreSQL configuration

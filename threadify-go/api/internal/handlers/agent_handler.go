@@ -6,24 +6,21 @@ import (
 
 	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/models"
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type AgentHandler struct {
 	agentSvc iface.AgentService
-	logger   *zap.Logger
 }
 
 func NewAgentHandler(
 	agentSvc iface.AgentService,
-	logger *zap.Logger,
 ) *AgentHandler {
 	return &AgentHandler{
 		agentSvc: agentSvc,
-		logger:   logger,
 	}
 }
 
@@ -92,15 +89,14 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		onEvent,
 	)
 	if err != nil {
-		h.logger.Error("chat stream failed", zap.Error(err))
-		c.SSEvent(service.EventError, err.Error())
+		c.SSEvent(models.EventError, err.Error())
 		c.Writer.Flush()
 	}
 }
 
 // GetConversations lists recent conversations for a user
 func (h *AgentHandler) GetConversations(c *gin.Context) {
-	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	_, ok := ctxString(c, sharedauth.CtxUserID)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -114,11 +110,6 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 
 	convs, err := h.agentSvc.GetConversations(c.Request.Context(), companyID)
 	if err != nil {
-		h.logger.Error("failed to load conversations",
-			zap.Error(err),
-			zap.String("user_id", userID),
-			zap.String("company_id", companyID),
-		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversations"})
 		return
 	}
@@ -131,7 +122,7 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 // GetConversation retrieves a specific conversation with its messages
 func (h *AgentHandler) GetConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	_, ok := ctxString(c, sharedauth.CtxUserID)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -151,11 +142,6 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 		case errors.Is(err, service.ErrForbidden):
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to view this conversation"})
 		default:
-			h.logger.Error("failed to load messages",
-				zap.Error(err),
-				zap.String("user_id", userID),
-				zap.String("conversation_id", convID),
-			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load messages"})
 		}
 		return
@@ -166,7 +152,7 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 
 func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 	convID := c.Param("id")
-	userID, ok := ctxString(c, sharedauth.CtxUserID)
+	_, ok := ctxString(c, sharedauth.CtxUserID)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -184,11 +170,6 @@ func (h *AgentHandler) DeleteConversation(c *gin.Context) {
 		case errors.Is(err, service.ErrForbidden):
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to delete this conversation"})
 		default:
-			h.logger.Error("failed to delete conversation",
-				zap.Error(err),
-				zap.String("user_id", userID),
-				zap.String("conversation_id", convID),
-			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
 		}
 		return
@@ -217,11 +198,6 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 		parentConvID,
 	)
 	if err != nil {
-		h.logger.Error("failed to continue conversation",
-			zap.Error(err),
-			zap.String("user_id", userID),
-			zap.String("parent_conversation_id", parentConvID),
-		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
 		return
 	}

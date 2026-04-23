@@ -15,7 +15,7 @@ import (
 )
 
 func newInvitationRouter(deps *common.MockedHandlers, companyID, userID string) *gin.Engine {
-	h := handlers.NewTeamInvitationHandler(deps.InvitationSvc, deps.CompanyRepo, deps.Logger)
+	h := handlers.NewTeamInvitationHandler(deps.InvitationSvc)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
 	r.POST("/invitations", h.SendInvitation)

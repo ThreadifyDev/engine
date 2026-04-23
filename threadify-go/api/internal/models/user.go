@@ -49,22 +49,6 @@ type Permission struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type APIKey struct {
-	ID               string     `json:"id"`
-	KeyHash          string     `json:"-"` // Never expose key hash
-	KeyPrefix        string     `json:"key_prefix"`
-	Name             string     `json:"name"`
-	UserID           *string    `json:"user_id,omitempty"`
-	ServiceAccountID *string    `json:"service_account_id,omitempty"`
-	CompanyID        string     `json:"company_id"`
-	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
-}
-
-// Request/Response DTOs
-
 type SignupRequest struct {
 	CompanyName     string  `json:"company_name"`
 	Email           string  `json:"email" binding:"required,email"`
@@ -115,4 +99,18 @@ type UpdateProfileRequest struct {
 	Industry    string `json:"industry"`
 	CompanySize string `json:"company_size"`
 	UseCase     string `json:"use_case"`
+}
+
+type UserProfileResult struct {
+	User    *User
+	Company *Company
+}
+
+type TeamMember struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	FullName  *string   `json:"full_name,omitempty"`
+	JobRole   *string   `json:"job_role,omitempty"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
 }

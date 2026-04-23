@@ -7,15 +7,13 @@ import (
 
 	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type teamInvitationRepository struct {
-	pool *pgxpool.Pool
+	pool DBExecer
 }
 
-func NewTeamInvitationRepository(pool *pgxpool.Pool) TeamInvitationRepository {
+func NewTeamInvitationRepository(pool DBExecer) TeamInvitationRepository {
 	return &teamInvitationRepository{pool: pool}
 }
 

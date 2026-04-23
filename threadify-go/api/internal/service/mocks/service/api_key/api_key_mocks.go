@@ -8,7 +8,6 @@ import (
 	context "context"
 	reflect "reflect"
 	models "threadify-go/api/internal/models"
-	service "threadify-go/api/internal/service"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -37,10 +36,10 @@ func (m *MockAPIKeyService) EXPECT() *MockAPIKeyServiceMockRecorder {
 }
 
 // CreateAPIKey mocks base method.
-func (m *MockAPIKeyService) CreateAPIKey(arg0 context.Context, arg1, arg2 string, arg3 *service.CreateAPIKeyRequest) (*service.CreateAPIKeyResponse, error) {
+func (m *MockAPIKeyService) CreateAPIKey(arg0 context.Context, arg1, arg2 string, arg3 *models.CreateAPIKeyRequest) (*models.CreateAPIKeyResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAPIKey", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(*service.CreateAPIKeyResponse)
+	ret0, _ := ret[0].(*models.CreateAPIKeyResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

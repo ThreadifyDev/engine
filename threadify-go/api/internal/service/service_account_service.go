@@ -28,19 +28,12 @@ func NewServiceAccountService(
 	}
 }
 
-type CreateServiceAccountRequest struct {
-	Name        string  `json:"name" binding:"required"`
-	Description *string `json:"description"`
-	Role        string  `json:"role" binding:"required"`
-}
-
-type UpdateServiceAccountRequest struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
-}
-
-func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, companyID, createdBy string, req *CreateServiceAccountRequest) (*models.ServiceAccount, error) {
+func (s *ServiceAccountService) CreateServiceAccount(
+	ctx context.Context,
+	companyID string,
+	createdBy string,
+	req *models.CreateServiceAccountRequest,
+) (*models.ServiceAccount, error) {
 	if req.Name == "" {
 		return nil, ErrServiceAccountNameRequired
 	}
@@ -70,11 +63,18 @@ func (s *ServiceAccountService) CreateServiceAccount(ctx context.Context, compan
 	return sa, nil
 }
 
-func (s *ServiceAccountService) ListServiceAccounts(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
+func (s *ServiceAccountService) ListServiceAccounts(
+	ctx context.Context,
+	companyID string,
+) ([]*models.ServiceAccount, error) {
 	return s.serviceAccountRepo.FindByCompanyID(ctx, companyID)
 }
 
-func (s *ServiceAccountService) GetServiceAccount(ctx context.Context, id, companyID string) (*models.ServiceAccount, error) {
+func (s *ServiceAccountService) GetServiceAccount(
+	ctx context.Context,
+	id string,
+	companyID string,
+) (*models.ServiceAccount, error) {
 	sa, err := s.serviceAccountRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -88,7 +88,12 @@ func (s *ServiceAccountService) GetServiceAccount(ctx context.Context, id, compa
 	return sa, nil
 }
 
-func (s *ServiceAccountService) UpdateServiceAccount(ctx context.Context, id, companyID string, req *UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
+func (s *ServiceAccountService) UpdateServiceAccount(
+	ctx context.Context,
+	id string,
+	companyID string,
+	req *models.UpdateServiceAccountRequest,
+) (*models.ServiceAccount, error) {
 	sa, err := s.GetServiceAccount(ctx, id, companyID)
 	if err != nil {
 		return nil, err
@@ -112,7 +117,11 @@ func (s *ServiceAccountService) UpdateServiceAccount(ctx context.Context, id, co
 	return sa, nil
 }
 
-func (s *ServiceAccountService) DeleteServiceAccount(ctx context.Context, id, companyID string) error {
+func (s *ServiceAccountService) DeleteServiceAccount(
+	ctx context.Context,
+	id string,
+	companyID string,
+) error {
 	sa, err := s.GetServiceAccount(ctx, id, companyID)
 	if err != nil {
 		return err

@@ -3,14 +3,13 @@ package middleware
 import (
 	"fmt"
 	"net/http"
-
 	sharedauth "threadify-go/shared/auth"
-	"threadify-go/shared/rbac"
 
 	"github.com/gin-gonic/gin"
+	"github.com/threadify/engine/internal/interfaces"
 )
 
-func ContractRBACMiddleware(rbacLoader *rbac.Loader, permission string) gin.HandlerFunc {
+func ContractRBACMiddleware(rbacLoader interfaces.RBACLoader, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, exists := c.Get(sharedauth.CtxUserID)
 		if !exists {

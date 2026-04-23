@@ -19,7 +19,10 @@ type EntityProfileTypeService struct {
 	logger *zap.Logger
 }
 
-func NewEntityProfileTypeService(repo repository.EntityProfileTypeRepository, logger *zap.Logger) *EntityProfileTypeService {
+func NewEntityProfileTypeService(
+	repo repository.EntityProfileTypeRepository,
+	logger *zap.Logger,
+) *EntityProfileTypeService {
 	return &EntityProfileTypeService{
 		repo:   repo,
 		logger: logger,
@@ -45,7 +48,11 @@ func normalizeTypes(types []string) []string {
 	return out
 }
 
-func (s *EntityProfileTypeService) CreateEntityProfileType(ctx context.Context, companyID string, req *models.CreateEntityProfileTypeRequest) (*sharedmodels.EntityProfileType, error) {
+func (s *EntityProfileTypeService) CreateEntityProfileType(
+	ctx context.Context,
+	companyID string,
+	req *models.CreateEntityProfileTypeRequest,
+) (*sharedmodels.EntityProfileType, error) {
 	profileType := &sharedmodels.EntityProfileType{
 		ID:          uuid.New().String(),
 		CompanyID:   companyID,
@@ -66,7 +73,10 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(ctx context.Context, 
 	return profileType, nil
 }
 
-func (s *EntityProfileTypeService) ListEntityProfileTypes(ctx context.Context, companyID string) ([]*sharedmodels.EntityProfileType, error) {
+func (s *EntityProfileTypeService) ListEntityProfileTypes(
+	ctx context.Context,
+	companyID string,
+) ([]*sharedmodels.EntityProfileType, error) {
 	types, err := s.repo.GetProfileTypesByCompanyID(ctx, companyID)
 	if err != nil {
 		s.logger.Error("failed to list entity profile types", zap.Error(err))
@@ -77,7 +87,11 @@ func (s *EntityProfileTypeService) ListEntityProfileTypes(ctx context.Context, c
 	return types, nil
 }
 
-func (s *EntityProfileTypeService) UpdateEntityProfileType(ctx context.Context, companyID, id string, req *models.UpdateEntityProfileTypeRequest) (*sharedmodels.EntityProfileType, error) {
+func (s *EntityProfileTypeService) UpdateEntityProfileType(
+	ctx context.Context,
+	companyID, id string,
+	req *models.UpdateEntityProfileTypeRequest,
+) (*sharedmodels.EntityProfileType, error) {
 	var nextTypes []string
 	if req.Type != nil {
 		nextTypes = normalizeTypes(req.Type)
@@ -101,7 +115,11 @@ func (s *EntityProfileTypeService) UpdateEntityProfileType(ctx context.Context, 
 	return profileType, nil
 }
 
-func (s *EntityProfileTypeService) ArchiveEntityProfileType(ctx context.Context, companyID, id string) error {
+func (s *EntityProfileTypeService) ArchiveEntityProfileType(
+	ctx context.Context,
+	companyID string,
+	id string,
+) error {
 	if err := s.repo.ArchiveProfileType(ctx, companyID, id); err != nil {
 		s.logger.Error("failed to archive entity profile type", zap.Error(err))
 		return err

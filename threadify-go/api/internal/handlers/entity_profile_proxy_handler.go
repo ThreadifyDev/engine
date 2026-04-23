@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 const entityProfileProxyTimeout = 15 * time.Second
@@ -18,14 +17,12 @@ const entityProfileProxyTimeout = 15 * time.Second
 type EntityProfileProxyHandler struct {
 	engineGraphQLURL string
 	httpClient       *http.Client
-	logger           *zap.Logger
 }
 
-func NewEntityProfileProxyHandler(engineGraphQLURL string, logger *zap.Logger) *EntityProfileProxyHandler {
+func NewEntityProfileProxyHandler(engineGraphQLURL string) *EntityProfileProxyHandler {
 	return &EntityProfileProxyHandler{
 		engineGraphQLURL: engineGraphQLURL,
 		httpClient:       &http.Client{Timeout: entityProfileProxyTimeout},
-		logger:           logger,
 	}
 }
 
@@ -61,7 +58,6 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 	}
 
 	if resp.StatusCode >= 400 {
-		h.logger.Warn("engine returned error", zap.Int("status", resp.StatusCode), zap.ByteString("body", respBody))
 		return nil, resp.StatusCode, fmt.Errorf("engine error")
 	}
 
@@ -71,10 +67,6 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 	}
 	if err := json.Unmarshal(respBody, &gqlResp); err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("invalid engine response: %w", err)
-	}
-
-	if len(gqlResp.Errors) > 0 && string(gqlResp.Errors) != "null" {
-		h.logger.Warn("graphql errors", zap.ByteString("errors", gqlResp.Errors))
 	}
 
 	return gqlResp.Data, http.StatusOK, nil

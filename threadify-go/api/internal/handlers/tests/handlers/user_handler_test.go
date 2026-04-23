@@ -13,11 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 func newUserRouter(deps *common.MockedHandlers, companyID, userID string) *gin.Engine {
-	h := handlers.NewUserHandler(deps.UserRepo, deps.CompanyRepo, deps.APIKeySvc, deps.UserRoleRepo, zap.NewNop())
+	h := handlers.NewUserHandler(deps.UserSvc)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
 
@@ -43,45 +42,51 @@ func TestUserHandler_GetProfile(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					FindByID(gomock.Any(), userID).
-					Return(&models.User{ID: userID, Email: "user@example.com"}, nil)
-				d.CompanyRepo.EXPECT().
-					FindByID(gomock.Any(), companyID).
-					Return(&models.Company{ID: companyID, Name: "Acme Corp"}, nil)
+				d.UserSvc.EXPECT().
+					GetProfile(gomock.Any(), userID, companyID).
+					Return(&models.UserProfileResult{
+						User:    &models.User{ID: userID, Email: "user@example.com"},
+						Company: &models.Company{ID: companyID, Name: "Acme Corp"},
+					}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "user_not_found",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					FindByID(gomock.Any(), userID).
+				d.UserSvc.EXPECT().
+					GetProfile(gomock.Any(), userID, companyID).
 					Return(nil, serror.ErrUserNotFound)
 			},
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name: "service_error_company",
+			name: "service_error",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
-				d.CompanyRepo.EXPECT().FindByID(gomock.Any(), companyID).Return(nil, errors.New("db fail"))
+				d.UserSvc.EXPECT().
+					GetProfile(gomock.Any(), userID, companyID).
+					Return(nil, errors.New("service fail"))
 			},
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			name: "minimal_profile_success",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
-				d.CompanyRepo.EXPECT().FindByID(gomock.Any(), companyID).Return(&models.Company{ID: companyID}, nil)
+				d.UserSvc.EXPECT().
+					GetProfile(gomock.Any(), userID, companyID).
+					Return(&models.UserProfileResult{
+						User:    &models.User{ID: userID},
+						Company: &models.Company{ID: companyID},
+					}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "company_forbidden",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
-				d.CompanyRepo.EXPECT().FindByID(gomock.Any(), companyID).Return(nil, serror.NewDomainError("Forbidden", http.StatusForbidden))
+				d.UserSvc.EXPECT().
+					GetProfile(gomock.Any(), userID, companyID).
+					Return(nil, serror.NewDomainError("Forbidden", http.StatusForbidden))
 			},
 			wantStatus: http.StatusForbidden,
 		},
@@ -116,12 +121,9 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 				"job_role":  "Manager",
 			},
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
-				d.CompanyRepo.EXPECT().FindByID(gomock.Any(), companyID).Return(&models.Company{
-					Industry: new(string),
-				}, nil)
-				d.UserRepo.EXPECT().UpdateProfile(gomock.Any(), userID, gomock.Any(), gomock.Any(), true).Return(nil)
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
+				d.UserSvc.EXPECT().
+					UpdateProfile(gomock.Any(), userID, companyID, gomock.Any()).
+					Return(&models.User{ID: userID}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -131,7 +133,7 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 				"full_name": "",
 			},
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
+				// Validation happens in handler before service call
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -143,10 +145,9 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 				"industry":  "Tech",
 			},
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
-				d.CompanyRepo.EXPECT().FindByID(gomock.Any(), companyID).Return(&models.Company{
-					Industry: new(string),
-				}, nil)
+				d.UserSvc.EXPECT().
+					UpdateProfile(gomock.Any(), userID, companyID, gomock.Any()).
+					Return(nil, serror.NewDomainError("Forbidden", http.StatusForbidden))
 			},
 			wantStatus: http.StatusForbidden,
 		},
@@ -154,7 +155,7 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 			name: "malformed_json",
 			body: "{bad}",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().FindByID(gomock.Any(), userID).Return(&models.User{ID: userID}, nil)
+				// Malformed JSON fails before service call
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -181,20 +182,17 @@ func TestUserHandler_ListTeamMembers(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					ListByCompanyID(gomock.Any(), companyID).
-					Return([]*models.User{{ID: "u1", Email: "u1@test.com"}}, nil)
-				d.UserRoleRepo.EXPECT().
-					GetUserRoles(gomock.Any(), "u1").
-					Return([]string{"admin"}, nil).AnyTimes()
+				d.UserSvc.EXPECT().
+					ListTeamMembers(gomock.Any(), companyID).
+					Return([]*models.TeamMember{{ID: "u1", Email: "u1@test.com", Role: "admin"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "service_error",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					ListByCompanyID(gomock.Any(), companyID).
+				d.UserSvc.EXPECT().
+					ListTeamMembers(gomock.Any(), companyID).
 					Return(nil, errors.New("db error"))
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -228,7 +226,9 @@ func TestUserHandler_RemoveTeamMember(t *testing.T) {
 			name:     "cannot_remove_self",
 			memberID: currentUserID,
 			setupMock: func(d *common.MockedHandlers) {
-				// No mocks needed for self-check
+				d.UserSvc.EXPECT().
+					RemoveTeamMember(gomock.Any(), currentUserID, companyID, currentUserID).
+					Return(serror.NewDomainError("Cannot remove yourself", http.StatusBadRequest))
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -236,9 +236,9 @@ func TestUserHandler_RemoveTeamMember(t *testing.T) {
 			name:     "user_not_found",
 			memberID: "non-existent",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					FindByID(gomock.Any(), "non-existent").
-					Return(nil, serror.ErrUserNotFound)
+				d.UserSvc.EXPECT().
+					RemoveTeamMember(gomock.Any(), currentUserID, companyID, "non-existent").
+					Return(serror.ErrUserNotFound)
 			},
 			wantStatus: http.StatusNotFound,
 		},
@@ -246,9 +246,9 @@ func TestUserHandler_RemoveTeamMember(t *testing.T) {
 			name:     "forbidden_cross_company",
 			memberID: "other_user",
 			setupMock: func(d *common.MockedHandlers) {
-				d.UserRepo.EXPECT().
-					FindByID(gomock.Any(), "other_user").
-					Return(&models.User{ID: "other_user", CompanyID: "other_comp"}, nil)
+				d.UserSvc.EXPECT().
+					RemoveTeamMember(gomock.Any(), currentUserID, companyID, "other_user").
+					Return(serror.NewDomainError("Forbidden", http.StatusForbidden))
 			},
 			wantStatus: http.StatusForbidden,
 		},

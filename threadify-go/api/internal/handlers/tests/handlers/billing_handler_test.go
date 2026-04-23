@@ -19,7 +19,7 @@ func TestBillingHandler_UpdateMaxMonthlyCharge(t *testing.T) {
 	const companyID = "comp_billing_1"
 
 	newRouter := func(deps *common.MockedHandlers) *gin.Engine {
-		h := handlers.NewBillingHandler(deps.BillingSvc, deps.Logger)
+		h := handlers.NewBillingHandler(deps.NewBillingService())
 		r := common.SetupTestRouter()
 		r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: "user_1"}))
 		r.PUT("/billing/spending-limit", h.UpdateMaxMonthlyCharge)
@@ -89,7 +89,7 @@ func TestBillingHandler_CreateCheckoutSession(t *testing.T) {
 	const companyID = "comp_billing_1"
 
 	newRouter := func(deps *common.MockedHandlers) *gin.Engine {
-		h := handlers.NewBillingHandler(deps.BillingSvc, deps.Logger)
+		h := handlers.NewBillingHandler(deps.NewBillingService())
 		r := common.SetupTestRouter()
 		r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: "user_1"}))
 		r.POST("/billing/topup", h.CreateCheckoutSession)
@@ -156,7 +156,7 @@ func TestBillingHandler_GetCurrentPlan(t *testing.T) {
 	const companyID = "comp_billing_1"
 
 	newRouter := func(deps *common.MockedHandlers) *gin.Engine {
-		h := handlers.NewBillingHandler(deps.BillingSvc, deps.Logger)
+		h := handlers.NewBillingHandler(deps.NewBillingService())
 		r := common.SetupTestRouter()
 		r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: "user_1"}))
 		r.GET("/billing/plan", h.GetCurrentPlan)

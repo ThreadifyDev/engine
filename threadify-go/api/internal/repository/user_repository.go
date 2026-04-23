@@ -225,6 +225,37 @@ func (r *userRepository) ClearPasswordHash(ctx context.Context, userID string) e
 	}
 	return nil
 }
+
+func (r *userRepository) ArchiveUser(ctx context.Context, userID, archivedEmail string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err = tx.Exec(ctx,
+		`DELETE FROM user_roles WHERE principal_id = $1 AND principal_type = 'user'`,
+		userID,
+	); err != nil {
+		return fmt.Errorf("remove user roles: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx,
+		`UPDATE users
+		    SET email = $1, company_id = NULL, password_hash = NULL,
+		        auth_user_id = NULL, updated_at = NOW()
+		  WHERE id = $2`,
+		archivedEmail, userID,
+	); err != nil {
+		return fmt.Errorf("archive user record: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit archive transaction: %w", err)
+	}
+	return nil
+}
+
 func (r *userRepository) Delete(ctx context.Context, id string) error {
 	return r.DeleteTx(ctx, r.pool, id)
 }

@@ -21,7 +21,7 @@ const (
 )
 
 func newAgentRouter(deps *common.MockedHandlers, routes func(*handlers.AgentHandler, *gin.Engine)) *gin.Engine {
-	h := handlers.NewAgentHandler(deps.AgentSvc, deps.Logger)
+	h := handlers.NewAgentHandler(deps.AgentSvc)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: agentCompanyID, UserID: agentUserID}))
 	routes(h, r)
@@ -132,7 +132,7 @@ func TestAgentHandler_Chat(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AgentSvc.EXPECT().
 					ChatStream(gomock.Any(), "Bearer token", agentUserID, agentCompanyID, "c1", "hi", gomock.Any(), gomock.Any()).
-					DoAndReturn(func(ctx, auth, u, c, conv, msg, skill interface{}, onEvent service.StreamHandler) error {
+					DoAndReturn(func(ctx, auth, u, c, conv, msg, skill interface{}, onEvent models.StreamHandler) error {
 						onEvent("message", "reply")
 						return nil
 					})

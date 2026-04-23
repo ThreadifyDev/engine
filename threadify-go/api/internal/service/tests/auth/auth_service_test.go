@@ -80,7 +80,7 @@ func TestAuthService_Signup(t *testing.T) {
 
 			tt.setupMock(deps, pool, tx)
 
-			svc := deps.NewAuthService(pool, authClient, nil, testEncryptionKey)
+			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
 
 			err := svc.Signup(context.Background(), tt.req)
 			if tt.wantErr {
@@ -174,7 +174,7 @@ func TestAuthService_Login(t *testing.T) {
 
 			tt.setupMock(deps, authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, testEncryptionKey)
+			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
 
 			resp, err := svc.Login(context.Background(), tt.req, clientIP)
 			if tt.wantErr {
@@ -225,7 +225,7 @@ func TestAuthService_ResetPassword(t *testing.T) {
 
 			tt.setupMock(authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, testEncryptionKey)
+			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
 			err := svc.ResetPassword(context.Background(), tt.req)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -323,7 +323,7 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 
 			tt.setupMock(deps, authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, testEncryptionKey)
+			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
 			if tt.configureCredits {
 				svc.ConfigureSignupCredits(deps.PlanRepo, tt.signupCredits, 0, 0)
 			}

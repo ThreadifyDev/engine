@@ -13,7 +13,11 @@ type NatsOutboxTrigger struct {
 	logger  *zap.Logger
 }
 
-func NewNatsOutboxTrigger(js jetstream.JetStream, subject string, logger *zap.Logger) *NatsOutboxTrigger {
+func NewNatsOutboxTrigger(
+	js jetstream.JetStream,
+	subject string,
+	logger *zap.Logger,
+) *NatsOutboxTrigger {
 	return &NatsOutboxTrigger{
 		js:      js,
 		subject: subject,

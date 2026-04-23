@@ -14,10 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	testEncryptionKey = "30313233343536373839616263646566" +
-		"30313233343536373839616263646566"
-	testFrontendURL = "https://app.threadify.ai"
+var (
+	testEncryptionKey = []byte("01234567890123456789abcdefabcdef")
+	testFrontendURL   = "https://app.threadify.ai"
 )
 
 func TestTeamInvitationService_SendInvitation(t *testing.T) {
@@ -108,6 +107,9 @@ func TestTeamInvitationService_ValidateToken(t *testing.T) {
 			svc := deps.NewTeamInvitationService(nil, testEncryptionKey, testFrontendURL)
 
 			deps.InvitationRepo.EXPECT().GetByToken(gomock.Any(), token).Return(tt.invitation, nil)
+			if tt.invitation != nil && tt.invitation.Status == "pending" && time.Now().Before(tt.invitation.ExpiresAt) {
+				deps.CompanyRepo.EXPECT().FindByID(gomock.Any(), tt.invitation.CompanyID).Return(&models.Company{Name: "Test Co"}, nil)
+			}
 
 			res, err := svc.ValidateToken(context.Background(), token)
 			if tt.wantErr != "" {
@@ -131,21 +133,21 @@ func TestTeamInvitationService_CancelInvitation(t *testing.T) {
 	}{
 		{
 			name: "success",
-			setupMock: func(deps *common.MockedDeps) {
-				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(nil)
+			setupMock: func(d *common.MockedDeps) {
+				d.InvitationRepo.EXPECT().Delete(gomock.Any(), invitationID).Return(nil)
 			},
 		},
 		{
 			name: "not_found",
-			setupMock: func(deps *common.MockedDeps) {
-				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(serror.ErrInvitationNotFound)
+			setupMock: func(d *common.MockedDeps) {
+				d.InvitationRepo.EXPECT().Delete(gomock.Any(), invitationID).Return(serror.ErrInvitationNotFound)
 			},
 			wantErr: true,
 		},
 		{
 			name: "error",
-			setupMock: func(deps *common.MockedDeps) {
-				deps.InvitationRepo.EXPECT().UpdateStatus(gomock.Any(), invitationID, "cancelled").Return(assert.AnError)
+			setupMock: func(d *common.MockedDeps) {
+				d.InvitationRepo.EXPECT().Delete(gomock.Any(), invitationID).Return(assert.AnError)
 			},
 			wantErr: true,
 		},

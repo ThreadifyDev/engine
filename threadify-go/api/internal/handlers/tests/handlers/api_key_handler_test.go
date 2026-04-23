@@ -8,7 +8,6 @@ import (
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	"threadify-go/api/internal/models"
-	apiservice "threadify-go/api/internal/service"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -17,7 +16,7 @@ import (
 )
 
 func newAPIKeyRouter(deps *common.MockedHandlers, companyID, userID string) *gin.Engine {
-	h := handlers.NewAPIKeyHandler(deps.APIKeySvc, deps.UserRepo)
+	h := handlers.NewAPIKeyHandler(deps.APIKeySvc)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
 	r.POST("/api-keys", h.CreateAPIKey)
@@ -44,7 +43,7 @@ func TestAPIKeyHandler_CreateAPIKey(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.APIKeySvc.EXPECT().
 					CreateAPIKey(gomock.Any(), userID, companyID, gomock.Any()).
-					Return(&apiservice.CreateAPIKeyResponse{
+					Return(&models.CreateAPIKeyResponse{
 						APIKey: &models.APIKey{ID: "key_1"},
 						Key:    "th_abc123",
 					}, nil)

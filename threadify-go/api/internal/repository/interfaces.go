@@ -34,6 +34,7 @@ type UserRepository interface {
 	GetPasswordChangedAt(ctx context.Context, id string) (*time.Time, error)
 	GetPasswordHash(ctx context.Context, email string) (string, error)
 	ClearPasswordHash(ctx context.Context, userID string) error
+	ArchiveUser(ctx context.Context, userID, archivedEmail string) error
 	Delete(ctx context.Context, id string) error
 	DeleteTx(ctx context.Context, execer DBExecer, id string) error
 }

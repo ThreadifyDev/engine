@@ -36,7 +36,12 @@ func Start(ctx context.Context, opts StartOptions) (*App, error) {
 
 	logger, _ := zap.NewDevelopment()
 
-	application, err := app.New(ctx, cfg, logger)
+	rbacPaths, err := app.ResolveRBACPaths(logger)
+	if err != nil {
+		return nil, fmt.Errorf("resolve rbac paths: %w", err)
+	}
+
+	application, err := app.New(ctx, cfg, rbacPaths, logger)
 	if err != nil {
 		return nil, fmt.Errorf("app initialize: %w", err)
 	}

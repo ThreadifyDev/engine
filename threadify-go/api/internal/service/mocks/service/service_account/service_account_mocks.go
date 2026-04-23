@@ -8,7 +8,6 @@ import (
 	context "context"
 	reflect "reflect"
 	models "threadify-go/api/internal/models"
-	service "threadify-go/api/internal/service"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -37,7 +36,7 @@ func (m *MockServiceAccountService) EXPECT() *MockServiceAccountServiceMockRecor
 }
 
 // CreateServiceAccount mocks base method.
-func (m *MockServiceAccountService) CreateServiceAccount(arg0 context.Context, arg1, arg2 string, arg3 *service.CreateServiceAccountRequest) (*models.ServiceAccount, error) {
+func (m *MockServiceAccountService) CreateServiceAccount(arg0 context.Context, arg1, arg2 string, arg3 *models.CreateServiceAccountRequest) (*models.ServiceAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateServiceAccount", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(*models.ServiceAccount)
@@ -96,7 +95,7 @@ func (mr *MockServiceAccountServiceMockRecorder) ListServiceAccounts(arg0, arg1 
 }
 
 // UpdateServiceAccount mocks base method.
-func (m *MockServiceAccountService) UpdateServiceAccount(arg0 context.Context, arg1, arg2 string, arg3 *service.UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
+func (m *MockServiceAccountService) UpdateServiceAccount(arg0 context.Context, arg1, arg2 string, arg3 *models.UpdateServiceAccountRequest) (*models.ServiceAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateServiceAccount", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(*models.ServiceAccount)

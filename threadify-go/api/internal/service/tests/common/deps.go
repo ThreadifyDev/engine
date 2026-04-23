@@ -3,6 +3,7 @@ package common
 import (
 	"testing"
 
+	"threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/service"
 	agentrepomocks "threadify-go/api/internal/service/mocks/repository/agent"
 	apikeyrepomocks "threadify-go/api/internal/service/mocks/repository/apikey"
@@ -13,12 +14,13 @@ import (
 	userrepomocks "threadify-go/api/internal/service/mocks/repository/user"
 	userrolerepomocks "threadify-go/api/internal/service/mocks/repository/userrole"
 	agentmocks "threadify-go/api/internal/service/mocks/service/agent"
-	apikeymocks "threadify-go/api/internal/service/mocks/service/apikey"
+	apikeymocks "threadify-go/api/internal/service/mocks/service/api_key"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	emailmocks "threadify-go/api/internal/service/mocks/service/email"
-	entityprofilemocks "threadify-go/api/internal/service/mocks/service/entityprofile"
-	invitationmocks "threadify-go/api/internal/service/mocks/service/invitation"
-	serviceaccountmocks "threadify-go/api/internal/service/mocks/service/serviceaccount"
+	entityprofilemocks "threadify-go/api/internal/service/mocks/service/entity_profile_type"
+	serviceaccountmocks "threadify-go/api/internal/service/mocks/service/service_account"
+	invitationmocks "threadify-go/api/internal/service/mocks/service/team_invitation"
+	usermocks "threadify-go/api/internal/service/mocks/service/user"
 	sharedauth "threadify-go/shared/auth"
 	sharedmocks "threadify-go/shared/mocks"
 	"threadify-go/shared/rbac"
@@ -48,6 +50,7 @@ type MockedDeps struct {
 	EmailSvc          *emailmocks.MockEmailService
 	ServiceAccountSvc *serviceaccountmocks.MockServiceAccountService
 	EntityProfileSvc  *entityprofilemocks.MockEntityProfileTypeService
+	UserSvc           *usermocks.MockUserService
 
 	Logger *zap.Logger
 }
@@ -80,7 +83,12 @@ func NewMockDeps(t *testing.T) *MockedDeps {
 	}
 }
 
-func (d *MockedDeps) NewAuthService(pool service.DBPool, authClient sharedauth.AuthClient, outboxWorker service.OutboxWorkerTrigger, encryptionKey string) *service.AuthService {
+func (d *MockedDeps) NewAuthService(
+	pool interfaces.DBPool,
+	authClient sharedauth.AuthClient,
+	outboxWorker service.OutboxWorkerTrigger,
+	encryptionKey []byte,
+) *service.AuthService {
 	return service.NewAuthService(
 		pool,
 		d.UserRepo,
@@ -106,12 +114,17 @@ func (d *MockedDeps) NewAPIKeyService(rbacLoader *rbac.Loader) *service.APIKeySe
 	)
 }
 
-func (d *MockedDeps) NewTeamInvitationService(outboxWorker service.OutboxWorkerTrigger, encryptionKey, frontendURL string) *service.TeamInvitationService {
+func (d *MockedDeps) NewTeamInvitationService(
+	outboxWorker service.OutboxWorkerTrigger,
+	encryptionKey []byte,
+	frontendURL string,
+) *service.TeamInvitationService {
 	return service.NewTeamInvitationService(
 		d.InvitationRepo,
 		d.OutboxRepo,
 		outboxWorker,
 		d.UserRepo,
+		d.CompanyRepo,
 		encryptionKey,
 		frontendURL,
 		d.Logger,

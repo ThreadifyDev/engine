@@ -5,13 +5,36 @@ import (
 	"time"
 
 	"threadify-go/api/internal/models"
-	apiservice "threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 	sharedmodels "threadify-go/shared/models"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/service_mocks.go -source=service.go
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/api_key/api_key_mocks.go threadify-go/api/internal/interfaces APIKeyService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/auth/auth_mocks.go threadify-go/api/internal/interfaces AuthService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/agent/agent_mocks.go threadify-go/api/internal/interfaces AgentService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/service_account/service_account_mocks.go threadify-go/api/internal/interfaces ServiceAccountService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/team_invitation/team_invitation_mocks.go threadify-go/api/internal/interfaces TeamInvitationService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/entity_profile_type/entity_profile_type_mocks.go threadify-go/api/internal/interfaces EntityProfileTypeService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/user/user_mocks.go threadify-go/api/internal/interfaces UserService
+//go:generate mockgen -package=svcmocks -destination=../service/mocks/service/auth/db_mocks.go threadify-go/api/internal/interfaces DBPool,Tx
 
+type Tx interface {
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
+	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
+}
+
+type DBPool interface {
+	Begin(ctx context.Context) (Tx, error)
+	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
+	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
+}
 type AuthService interface {
 	Signup(ctx context.Context, req *models.SignupRequest) error
 	Login(ctx context.Context, req *models.LoginRequest, clientIP string) (*models.AuthResponse, error)
@@ -25,7 +48,7 @@ type AuthService interface {
 }
 
 type APIKeyService interface {
-	CreateAPIKey(ctx context.Context, userID, companyID string, req *apiservice.CreateAPIKeyRequest) (*apiservice.CreateAPIKeyResponse, error)
+	CreateAPIKey(ctx context.Context, userID, companyID string, req *models.CreateAPIKeyRequest) (*models.CreateAPIKeyResponse, error)
 	ListAPIKeys(ctx context.Context, companyID string) ([]*models.APIKey, error)
 	RevokeAPIKey(ctx context.Context, keyID, companyID string) error
 	ValidateAPIKey(ctx context.Context, key string) (*models.APIKey, error)
@@ -33,7 +56,7 @@ type APIKeyService interface {
 
 type TeamInvitationService interface {
 	SendInvitation(ctx context.Context, companyID, email, role, invitedBy string, expiryDuration time.Duration) (*models.TeamInvitation, error)
-	ValidateToken(ctx context.Context, token string) (*models.TeamInvitation, error)
+	ValidateToken(ctx context.Context, token string) (*models.ValidateTokenResult, error)
 	MarkAccepted(ctx context.Context, invitationID, userID string) error
 	GetByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error)
 	GetByID(ctx context.Context, invitationID string) (*models.TeamInvitation, error)
@@ -43,7 +66,7 @@ type TeamInvitationService interface {
 }
 
 type AgentService interface {
-	ChatStream(ctx context.Context, authHeader, userID, companyID, conversationID, message, skill string, onEvent apiservice.StreamHandler) error
+	ChatStream(ctx context.Context, authHeader, userID, companyID, conversationID, message, skill string, onEvent models.StreamHandler) error
 	CheckCredits(ctx context.Context, authHeader string) (bool, error)
 	GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error)
 	GetMessagesForUser(ctx context.Context, companyID, convID string) ([]*models.AgentMessage, error)
@@ -52,10 +75,10 @@ type AgentService interface {
 }
 
 type ServiceAccountService interface {
-	CreateServiceAccount(ctx context.Context, companyID, createdBy string, req *apiservice.CreateServiceAccountRequest) (*models.ServiceAccount, error)
+	CreateServiceAccount(ctx context.Context, companyID, createdBy string, req *models.CreateServiceAccountRequest) (*models.ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, companyID string) ([]*models.ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id, companyID string) (*models.ServiceAccount, error)
-	UpdateServiceAccount(ctx context.Context, id, companyID string, req *apiservice.UpdateServiceAccountRequest) (*models.ServiceAccount, error)
+	UpdateServiceAccount(ctx context.Context, id, companyID string, req *models.UpdateServiceAccountRequest) (*models.ServiceAccount, error)
 	DeleteServiceAccount(ctx context.Context, id, companyID string) error
 }
 
@@ -64,4 +87,12 @@ type EntityProfileTypeService interface {
 	ListEntityProfileTypes(ctx context.Context, companyID string) ([]*sharedmodels.EntityProfileType, error)
 	UpdateEntityProfileType(ctx context.Context, companyID, id string, req *models.UpdateEntityProfileTypeRequest) (*sharedmodels.EntityProfileType, error)
 	ArchiveEntityProfileType(ctx context.Context, companyID, id string) error
+}
+
+type UserService interface {
+	GetProfile(ctx context.Context, userID, companyID string) (*models.UserProfileResult, error)
+	UpdateProfile(ctx context.Context, userID, companyID string, req *models.UpdateProfileRequest) (*models.User, error)
+	MarkInstrumentationDone(ctx context.Context, userID string) (*models.User, error)
+	ListTeamMembers(ctx context.Context, companyID string) ([]*models.TeamMember, error)
+	RemoveTeamMember(ctx context.Context, requesterID, companyID, targetUserID string) error
 }

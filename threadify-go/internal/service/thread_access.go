@@ -6,8 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"threadify-go/shared/rbac"
-
 	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
@@ -23,7 +21,7 @@ type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
 	cacheManager interfaces.CacheManager
 	luaScripts   *valkey.LuaScriptManager
-	rbacLoader   *rbac.Loader
+	rbacLoader   interfaces.RBACLoader
 	logger       *zap.Logger
 }
 
@@ -32,7 +30,7 @@ func NewThreadAccessService(
 	accessRepo *valkey.AccessRepository,
 	cacheManager interfaces.CacheManager,
 	luaScripts *valkey.LuaScriptManager,
-	rbacLoader *rbac.Loader,
+	rbacLoader interfaces.RBACLoader,
 	logger *zap.Logger,
 ) *ThreadAccessService {
 	return &ThreadAccessService{

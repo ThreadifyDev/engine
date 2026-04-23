@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,15 +45,9 @@ func NewOutboxWorker(
 	companyRepo repository.CompanyRepository,
 	authClient sharedauth.AuthClient,
 	emailSvc service.EmailService,
-	encryptionKey string,
+	encryptionKey []byte,
 	logger *zap.Logger,
 ) *OutboxWorker {
-	key, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		logger.Error("failed to decode outbox encryption key", zap.Error(err))
-		key = []byte(encryptionKey)
-	}
-
 	return &OutboxWorker{
 		pool:          pool,
 		outboxRepo:    outboxRepo,
@@ -62,7 +55,7 @@ func NewOutboxWorker(
 		companyRepo:   companyRepo,
 		authClient:    authClient,
 		emailSvc:      emailSvc,
-		encryptionKey: key,
+		encryptionKey: encryptionKey,
 		trigger:       make(chan struct{}, 1),
 		logger:        logger,
 	}

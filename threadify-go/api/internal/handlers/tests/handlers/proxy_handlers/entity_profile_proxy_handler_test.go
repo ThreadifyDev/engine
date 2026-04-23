@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
@@ -22,7 +21,7 @@ func TestEntityProfileProxyHandler(t *testing.T) {
 	defer backend.Close()
 
 	newRouter := func() *gin.Engine {
-		h := handlers.NewEntityProfileProxyHandler(backend.URL, zap.NewNop())
+		h := handlers.NewEntityProfileProxyHandler(backend.URL)
 		r := common.SetupTestRouter()
 		r.Use(func(c *gin.Context) {
 			c.Request.Header.Set("Authorization", "Bearer valid-token")
@@ -52,7 +51,7 @@ func TestEntityProfileProxyHandler(t *testing.T) {
 
 func TestEntityProfileProxyHandler_MissingAuth(t *testing.T) {
 	newRouter := func() *gin.Engine {
-		h := handlers.NewEntityProfileProxyHandler("http://dummy", zap.NewNop())
+		h := handlers.NewEntityProfileProxyHandler("http://dummy")
 		r := common.SetupTestRouter()
 		r.GET("/v1/entity-profile-types", h.ListEntityProfileTypes)
 		return r

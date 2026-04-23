@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -19,6 +18,7 @@ type TeamInvitationService struct {
 	outboxRepo     repository.OutboxRepository
 	outboxWorker   OutboxWorkerTrigger
 	userRepo       repository.UserRepository
+	companyRepo    repository.CompanyRepository
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
@@ -29,23 +29,18 @@ func NewTeamInvitationService(
 	outboxRepo repository.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
 	userRepo repository.UserRepository,
-	encryptionKey string,
+	companyRepo repository.CompanyRepository,
+	encryptionKey []byte,
 	frontendURL string,
 	logger *zap.Logger,
 ) *TeamInvitationService {
-	key, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		logger.Error("failed to decode outbox encryption key", zap.Error(err))
-		// Fallback to raw bytes if hex decoding fails
-		key = []byte(encryptionKey)
-	}
-
 	return &TeamInvitationService{
 		invitationRepo: invitationRepo,
 		outboxRepo:     outboxRepo,
 		outboxWorker:   outboxWorker,
 		userRepo:       userRepo,
-		encryptionKey:  key,
+		companyRepo:    companyRepo,
+		encryptionKey:  encryptionKey,
 		frontendURL:    frontendURL,
 		logger:         logger,
 	}
@@ -157,8 +152,7 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 	return nil
 }
 
-// ValidateToken checks if a token is valid and not expired
-func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string) (*models.TeamInvitation, error) {
+func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string) (*models.ValidateTokenResult, error) {
 	invitation, err := s.invitationRepo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("get invitation: %w", err)
@@ -176,7 +170,20 @@ func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string)
 		return nil, fmt.Errorf("invitation expired")
 	}
 
-	return invitation, nil
+	company, err := s.companyRepo.FindByID(ctx, invitation.CompanyID)
+	if err != nil {
+		return nil, fmt.Errorf("get company: %w", err)
+	}
+
+	var companyName string
+	if company != nil {
+		companyName = company.Name
+	}
+
+	return &models.ValidateTokenResult{
+		CompanyName: companyName,
+		Email:       invitation.Email,
+	}, nil
 }
 
 // MarkAccepted marks an invitation as accepted

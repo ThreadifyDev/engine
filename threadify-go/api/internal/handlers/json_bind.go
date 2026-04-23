@@ -53,7 +53,7 @@ func friendlyJSONError(err error) error {
 
 	switch {
 	case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF):
-		return errors.New("request body is required or malformed")
+		return errors.New("Invalid request body")
 
 	case errors.As(err, &syntaxErr):
 		return fmt.Errorf("malformed JSON at position %d", syntaxErr.Offset)

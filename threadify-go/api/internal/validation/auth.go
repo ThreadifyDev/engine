@@ -148,6 +148,23 @@ func ValidateLoginRequest(req *models.LoginRequest) error {
 	return b.err()
 }
 
+func ValidateCreateAPIKeyRequest(req *models.CreateAPIKeyRequest) error {
+	b := &validationBuilder{}
+	if req == nil {
+		b.add("request", "Request body is required")
+		return b.err()
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		b.add("name", "Name is required")
+	} else if utf8.RuneCountInString(req.Name) > 100 {
+		b.add("name", "Name exceeds maximum length")
+	}
+
+	return b.err()
+}
+
 func ValidateForgotPasswordRequest(req *models.ForgotPasswordRequest) error {
 	b := &validationBuilder{}
 	if req == nil {

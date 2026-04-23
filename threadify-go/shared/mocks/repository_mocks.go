@@ -8,6 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 	models "threadify-go/shared/models"
+	repository "threadify-go/shared/repository"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -216,6 +217,21 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) CreateProfileType(ctx, pr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProfileType", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).CreateProfileType), ctx, profileType)
 }
 
+// GetProfileTypeByID mocks base method.
+func (m *MockEntityProfileTypeRepository) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProfileTypeByID", ctx, profileTypeID)
+	ret0, _ := ret[0].(*models.EntityProfileType)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProfileTypeByID indicates an expected call of GetProfileTypeByID.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetProfileTypeByID(ctx, profileTypeID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProfileTypeByID", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).GetProfileTypeByID), ctx, profileTypeID)
+}
+
 // GetProfileTypeByType mocks base method.
 func (m *MockEntityProfileTypeRepository) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error) {
 	m.ctrl.T.Helper()
@@ -357,4 +373,20 @@ func (m *MockEntityProfileRepository) GetProfileWithMetrics(ctx context.Context,
 func (mr *MockEntityProfileRepositoryMockRecorder) GetProfileWithMetrics(ctx, companyID, typeName, refKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProfileWithMetrics", reflect.TypeOf((*MockEntityProfileRepository)(nil).GetProfileWithMetrics), ctx, companyID, typeName, refKey)
+}
+
+// ListProfilesByType mocks base method.
+func (m *MockEntityProfileRepository) ListProfilesByType(ctx context.Context, companyID, typeName, search string, limit, offset int) ([]*repository.ProfileWithMetrics, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProfilesByType", ctx, companyID, typeName, search, limit, offset)
+	ret0, _ := ret[0].([]*repository.ProfileWithMetrics)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListProfilesByType indicates an expected call of ListProfilesByType.
+func (mr *MockEntityProfileRepositoryMockRecorder) ListProfilesByType(ctx, companyID, typeName, search, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProfilesByType", reflect.TypeOf((*MockEntityProfileRepository)(nil).ListProfilesByType), ctx, companyID, typeName, search, limit, offset)
 }

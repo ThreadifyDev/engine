@@ -14,11 +14,12 @@ import (
 	userrepomocks "threadify-go/api/internal/service/mocks/repository/user"
 	userrolerepomocks "threadify-go/api/internal/service/mocks/repository/userrole"
 	agentmocks "threadify-go/api/internal/service/mocks/service/agent"
-	apikeymocks "threadify-go/api/internal/service/mocks/service/apikey"
+	apikeymocks "threadify-go/api/internal/service/mocks/service/api_key"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
-	entityprofilemocks "threadify-go/api/internal/service/mocks/service/entityprofile"
-	invitationmocks "threadify-go/api/internal/service/mocks/service/invitation"
-	serviceaccountmocks "threadify-go/api/internal/service/mocks/service/serviceaccount"
+	entityprofilemocks "threadify-go/api/internal/service/mocks/service/entity_profile_type"
+	serviceaccountmocks "threadify-go/api/internal/service/mocks/service/service_account"
+	invitationmocks "threadify-go/api/internal/service/mocks/service/team_invitation"
+	usermocks "threadify-go/api/internal/service/mocks/service/user"
 	sharedauth "threadify-go/shared/auth"
 	billingpkg "threadify-go/shared/billing"
 	billingmocks "threadify-go/shared/billing/mocks"
@@ -43,6 +44,7 @@ type MockedHandlers struct {
 	AgentSvc          *agentmocks.MockAgentService
 	ServiceAccountSvc *serviceaccountmocks.MockServiceAccountService
 	EntityProfileSvc  *entityprofilemocks.MockEntityProfileTypeService
+	UserSvc           *usermocks.MockUserService
 
 	// Repositories
 	UserRepo       *userrepomocks.MockUserRepository
@@ -54,7 +56,6 @@ type MockedHandlers struct {
 
 	BillingProvider *billingmocks.MockBillingProvider
 	PlanRepo        *billingmocks.MockPlanRepository
-	BillingSvc      *billingpkg.BillingService
 
 	Logger *zap.Logger
 }
@@ -63,21 +64,7 @@ func NewMockedHandlers(t *testing.T) *MockedHandlers {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)
-	t.Cleanup(ctrl.Finish)
-
-	billingProvider := billingmocks.NewMockBillingProvider(ctrl)
-	planRepo := billingmocks.NewMockPlanRepository(ctrl)
-	billingCfg := &config.BillingConfig{
-		SuccessURL: "http://ok",
-		CancelURL:  "http://cancel",
-	}
-	billingSvc := billingpkg.NewBillingService(
-		billingProvider,
-		planRepo,
-		&config.SubscriptionConfig{}, // placeholder
-		billingCfg,
-		zap.NewNop(),
-	)
+	t.Cleanup(func() { ctrl.Finish() })
 
 	return &MockedHandlers{
 		Ctrl: ctrl,
@@ -88,6 +75,7 @@ func NewMockedHandlers(t *testing.T) *MockedHandlers {
 		AgentSvc:          agentmocks.NewMockAgentService(ctrl),
 		ServiceAccountSvc: serviceaccountmocks.NewMockServiceAccountService(ctrl),
 		EntityProfileSvc:  entityprofilemocks.NewMockEntityProfileTypeService(ctrl),
+		UserSvc:           usermocks.NewMockUserService(ctrl),
 
 		UserRepo:       userrepomocks.NewMockUserRepository(ctrl),
 		UserRoleRepo:   userrolerepomocks.NewMockUserRoleRepository(ctrl),
@@ -96,12 +84,24 @@ func NewMockedHandlers(t *testing.T) *MockedHandlers {
 		APIKeyRepo:     apikeyrepomocks.NewMockAPIKeyRepository(ctrl),
 		InvitationRepo: invitationrepomocks.NewMockTeamInvitationRepository(ctrl),
 
-		BillingProvider: billingProvider,
-		PlanRepo:        planRepo,
-		BillingSvc:      billingSvc,
+		BillingProvider: billingmocks.NewMockBillingProvider(ctrl),
+		PlanRepo:        billingmocks.NewMockPlanRepository(ctrl),
 
 		Logger: zap.NewNop(),
 	}
+}
+
+func (m *MockedHandlers) NewBillingService() *billingpkg.BillingService {
+	return billingpkg.NewBillingService(
+		m.BillingProvider,
+		m.PlanRepo,
+		&config.SubscriptionConfig{},
+		&config.BillingConfig{
+			SuccessURL: "http://ok",
+			CancelURL:  "http://cancel",
+		},
+		m.Logger,
+	)
 }
 
 type RouterOption func(*gin.Engine)
@@ -122,32 +122,15 @@ func SetupTestRouter(opts ...RouterOption) *gin.Engine {
 
 func DoRequest(t *testing.T, r *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-
-	var req *http.Request
-	var err error
-
-	if body != nil {
-		var buf bytes.Buffer
-		err = json.NewEncoder(&buf).Encode(body)
-		require.NoError(t, err)
-		req, err = http.NewRequest(method, path, &buf)
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		req, err = http.NewRequest(method, path, http.NoBody)
-		require.NoError(t, err)
-	}
-
+	req := BuildRequest(t, method, path, body)
 	return DoRequestFromReq(t, r, req)
 }
 
 func DoRequestFromReq(t *testing.T, r *gin.Engine, req *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
-
 	if req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
@@ -159,10 +142,8 @@ func BuildRequest(t *testing.T, method, path string, body any) *http.Request {
 	var err error
 
 	if body != nil {
-		var buf bytes.Buffer
-		err = json.NewEncoder(&buf).Encode(body)
-		require.NoError(t, err)
-		req, err = http.NewRequest(method, path, &buf)
+		buf := encodeBody(t, body)
+		req, err = http.NewRequest(method, path, buf)
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 	} else {
@@ -171,6 +152,18 @@ func BuildRequest(t *testing.T, method, path string, body any) *http.Request {
 	}
 
 	return req
+}
+
+func encodeBody(t *testing.T, body any) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, json.NewEncoder(&buf).Encode(body))
+	return &buf
+}
+
+func UnmarshalBody(t *testing.T, data []byte, v any) {
+	t.Helper()
+	require.NoError(t, json.Unmarshal(data, v))
 }
 
 type AuthIDs struct {
@@ -190,8 +183,4 @@ func WithNoAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 	}
-}
-
-func UnmarshalBody(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
 }

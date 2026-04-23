@@ -33,7 +33,12 @@ func main() {
 		appLogger.Fatal("load config", zap.Error(err))
 	}
 
-	application, err := app.New(rootCtx, cfg, appLogger)
+	rbacPaths, err := app.ResolveRBACPaths(appLogger)
+	if err != nil {
+		appLogger.Fatal("resolve rbac paths", zap.Error(err))
+	}
+
+	application, err := app.New(rootCtx, cfg, rbacPaths, appLogger)
 	if err != nil {
 		appLogger.Fatal("initialize app", zap.Error(err))
 	}
@@ -63,7 +68,7 @@ func main() {
 		appLogger.Error("server forced shutdown", zap.Error(err))
 	}
 
-	if err := application.Close(context.Background(), appLogger); err != nil {
+	if err := application.Close(shutdownCtx, appLogger); err != nil {
 		appLogger.Error("app close error", zap.Error(err))
 	}
 
@@ -87,7 +92,6 @@ func resolveConfigPath(logger *zap.Logger) (string, error) {
 		logger.Info("using config path", zap.String("path", "/app/config/config.yaml"))
 		return "/app/config/config.yaml", nil
 	}
-
 	devPath := "../config/config.yaml"
 	if _, err := os.Stat(devPath); err == nil {
 		logger.Info("using config path (dev fallback)", zap.String("path", devPath))

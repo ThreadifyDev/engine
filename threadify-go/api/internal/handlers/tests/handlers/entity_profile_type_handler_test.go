@@ -48,7 +48,7 @@ func TestEntityProfileTypeHandler_CRUD(t *testing.T) {
 			body: map[string]any{
 				"name":        "Test Type",
 				"description": "Test Desc",
-				"types":       []string{"contract", "agreement"},
+				"type":        []string{"contract", "agreement"},
 			},
 			setupMock: func(d *common.MockedHandlers) {
 				d.EntityProfileSvc.EXPECT().
