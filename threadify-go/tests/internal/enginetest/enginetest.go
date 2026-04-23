@@ -3,6 +3,7 @@ package enginetest
 import (
 	"fmt"
 	"testing"
+	"threadify-go/shared/slug"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,8 @@ import (
 	"github.com/threadify/engine/tests/internal/dbhelpers"
 	"github.com/threadify/engine/tests/internal/testenv"
 )
+
+const defaultTestCredits int64 = 10_000_000
 
 type TestUser struct {
 	ID               string
@@ -31,7 +34,7 @@ func SetupTestUser(t *testing.T, env *testenv.Environment, supabase *apihelper.F
 
 	db := dbhelpers.New(env.Postgres.Pool)
 
-	setupTestCompanyAndCredits(t, db, companyID, userID)
+	setupTestCompany(t, db, companyID, userID)
 
 	db.CreateTestUser(t, userID, email, companyID)
 
@@ -54,47 +57,38 @@ func SetupTestUser(t *testing.T, env *testenv.Environment, supabase *apihelper.F
 	}
 }
 
-func setupTestCompanyAndCredits(t *testing.T, db *dbhelpers.Helpers, companyID, ownerUserID string) {
+func setupTestCompany(t *testing.T, db *dbhelpers.Helpers, companyID, ownerUserID string) {
 	t.Helper()
-
 	db.CreateTestCompany(t, companyID, "Integration Test Company")
 	db.AssignRole(t, ownerUserID, "user", "admin")
-	db.FundCreditAccount(t, companyID, 10_000_000)
+	db.FundCreditAccount(t, companyID, defaultTestCredits)
 }
 
-// --- Common DB fixtures (to keep DB ops out of individual test files) ---
-
-func CreateThread(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int) string {
+func CreateThread(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int, opts ...dbhelpers.ThreadOption) string {
 	t.Helper()
 	threadID := uuid.NewString()
-	dbhelpers.New(pool).CreateTestThread(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion)
+	dbhelpers.New(pool).CreateTestThread(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, opts...)
 	return threadID
 }
 
-func CreateThreadWithStatus(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int, status string) string {
+func CreateEntityProfileType(t *testing.T, pool *pgxpool.Pool, companyID, name string, refKeys []string) string {
 	t.Helper()
-	threadID := uuid.NewString()
-	dbhelpers.New(pool).CreateTestThreadWithStatus(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, status)
-	return threadID
+	id := uuid.NewString()
+	s := slug.ToSlug(name)
+	dbhelpers.New(pool).CreateEntityProfileType(t, id, companyID, name, refKeys, s)
+	return id
 }
 
-func CreateThreadWithRefs(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int, refs map[string]interface{}) string {
+func CreateEntityProfile(t *testing.T, pool *pgxpool.Pool, companyID, profileTypeID, name, refKey string) string {
 	t.Helper()
-	threadID := uuid.NewString()
-	dbhelpers.New(pool).CreateTestThreadWithRefs(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, refs)
-	return threadID
+	id := uuid.NewString()
+	dbhelpers.New(pool).CreateEntityProfile(t, id, companyID, profileTypeID, name, refKey)
+	return id
 }
 
-func CreateThreadWithRefsAndStatus(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int, refs map[string]interface{}, status string) string {
+func CreateEntityProfileWithTimestamp(t *testing.T, pool *pgxpool.Pool, companyID, profileTypeID, name, refKey string, timestamp time.Time) string {
 	t.Helper()
-	threadID := uuid.NewString()
-	dbhelpers.New(pool).CreateTestThreadWithRefsAndStatus(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, refs, status)
-	return threadID
-}
-
-func CreateThreadWithRefsAndTimestamp(t *testing.T, pool *pgxpool.Pool, user *TestUser, contractName string, contractVersion int, refs map[string]interface{}, startedAt time.Time) string {
-	t.Helper()
-	threadID := uuid.NewString()
-	dbhelpers.New(pool).CreateTestThreadWithRefsAndTimestamp(t, threadID, user.CompanyID, user.ServiceAccountID, contractName, contractVersion, refs, startedAt)
-	return threadID
+	id := uuid.NewString()
+	dbhelpers.New(pool).CreateEntityProfileWithTimestamp(t, id, companyID, profileTypeID, name, refKey, timestamp)
+	return id
 }

@@ -10,14 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
 type mockNATSClient struct {
-	fetchFn func(subject, consumerName string, timeout time.Duration) ([]byte, error)
+	fetchFn func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error)
 }
 
-func (m *mockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+func (m *mockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 	return m.fetchFn(subject, consumerName, timeout)
 }
 
@@ -31,7 +32,7 @@ func (m *mockNotificationHandler) HandleNotification(notification models.Validat
 
 func TestNotificationConsumer_Subscribe(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 			return nil, errors.New("timeout")
 		},
 	}
@@ -56,7 +57,7 @@ func TestNotificationConsumer_Subscribe(t *testing.T) {
 
 func TestNotificationConsumer_Unsubscribe(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 			return nil, errors.New("timeout")
 		},
 	}
@@ -98,10 +99,10 @@ func TestNotificationConsumer_Delivery(t *testing.T) {
 
 	fetchCount := 0
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 			fetchCount++
 			if fetchCount == 1 {
-				return data, nil
+				return &types.NATSMessage{Data: data}, nil
 			}
 			// Block subsequent calls to avoid spin loop in test
 			time.Sleep(100 * time.Millisecond)
@@ -126,7 +127,7 @@ func TestNotificationConsumer_Delivery(t *testing.T) {
 
 func TestNotificationConsumer_Stop(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 			time.Sleep(50 * time.Millisecond)
 			return nil, errors.New("stopped")
 		},

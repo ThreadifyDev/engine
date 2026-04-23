@@ -11,8 +11,8 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	interfaces "github.com/threadify/engine/internal/interfaces"
 	models "github.com/threadify/engine/internal/models"
+	types "github.com/threadify/engine/internal/types"
 )
 
 // MockContractRepository is a mock of ContractRepository interface.
@@ -38,19 +38,19 @@ func (m *MockContractRepository) EXPECT() *MockContractRepositoryMockRecorder {
 	return m.recorder
 }
 
-// CountByCompany mocks base method.
-func (m *MockContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
+// CountByOwner mocks base method.
+func (m *MockContractRepository) CountByOwner(ctx context.Context, ownerID string) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountByCompany", ctx, companyID)
+	ret := m.ctrl.Call(m, "CountByOwner", ctx, ownerID)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CountByCompany indicates an expected call of CountByCompany.
-func (mr *MockContractRepositoryMockRecorder) CountByCompany(ctx, companyID interface{}) *gomock.Call {
+// CountByOwner indicates an expected call of CountByOwner.
+func (mr *MockContractRepositoryMockRecorder) CountByOwner(ctx, ownerID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByCompany", reflect.TypeOf((*MockContractRepository)(nil).CountByCompany), ctx, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByOwner", reflect.TypeOf((*MockContractRepository)(nil).CountByOwner), ctx, ownerID)
 }
 
 // Create mocks base method.
@@ -95,34 +95,19 @@ func (mr *MockContractRepositoryMockRecorder) CreateVersion(ctx, v interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateVersion", reflect.TypeOf((*MockContractRepository)(nil).CreateVersion), ctx, v)
 }
 
-// Get mocks base method.
-func (m *MockContractRepository) Get(ctx context.Context, id string) (*models.Contract, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", ctx, id)
-	ret0, _ := ret[0].(*models.Contract)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Get indicates an expected call of Get.
-func (mr *MockContractRepositoryMockRecorder) Get(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockContractRepository)(nil).Get), ctx, id)
-}
-
 // GetAllByOwner mocks base method.
-func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
+func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts types.ContractListOptions) (types.ContractListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllByOwner", ctx, ownerID)
-	ret0, _ := ret[0].([]*models.Contract)
+	ret := m.ctrl.Call(m, "GetAllByOwner", ctx, ownerID, opts)
+	ret0, _ := ret[0].(types.ContractListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAllByOwner indicates an expected call of GetAllByOwner.
-func (mr *MockContractRepositoryMockRecorder) GetAllByOwner(ctx, ownerID interface{}) *gomock.Call {
+func (mr *MockContractRepositoryMockRecorder) GetAllByOwner(ctx, ownerID, opts interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllByOwner", reflect.TypeOf((*MockContractRepository)(nil).GetAllByOwner), ctx, ownerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllByOwner", reflect.TypeOf((*MockContractRepository)(nil).GetAllByOwner), ctx, ownerID, opts)
 }
 
 // GetAllVersions mocks base method.
@@ -200,19 +185,19 @@ func (mr *MockContractRepositoryMockRecorder) GetByNameAndCompany(ctx, name, com
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByNameAndCompany", reflect.TypeOf((*MockContractRepository)(nil).GetByNameAndCompany), ctx, name, companyID)
 }
 
-// GetByNameSlim mocks base method.
-func (m *MockContractRepository) GetByNameSlim(ctx context.Context, name string) (*models.Contract, error) {
+// GetByNameSummary mocks base method.
+func (m *MockContractRepository) GetByNameSummary(ctx context.Context, name string) (*models.Contract, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByNameSlim", ctx, name)
+	ret := m.ctrl.Call(m, "GetByNameSummary", ctx, name)
 	ret0, _ := ret[0].(*models.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetByNameSlim indicates an expected call of GetByNameSlim.
-func (mr *MockContractRepositoryMockRecorder) GetByNameSlim(ctx, name interface{}) *gomock.Call {
+// GetByNameSummary indicates an expected call of GetByNameSummary.
+func (mr *MockContractRepositoryMockRecorder) GetByNameSummary(ctx, name interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByNameSlim", reflect.TypeOf((*MockContractRepository)(nil).GetByNameSlim), ctx, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByNameSummary", reflect.TypeOf((*MockContractRepository)(nil).GetByNameSummary), ctx, name)
 }
 
 // GetLatestVersion mocks base method.
@@ -246,46 +231,46 @@ func (mr *MockContractRepositoryMockRecorder) GetVersion(ctx, contractID, versio
 }
 
 // SoftDelete mocks base method.
-func (m *MockContractRepository) SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error {
+func (m *MockContractRepository) SoftDelete(ctx context.Context, contractID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SoftDelete", ctx, contractID, updatedAt)
+	ret := m.ctrl.Call(m, "SoftDelete", ctx, contractID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SoftDelete indicates an expected call of SoftDelete.
-func (mr *MockContractRepositoryMockRecorder) SoftDelete(ctx, contractID, updatedAt interface{}) *gomock.Call {
+func (mr *MockContractRepositoryMockRecorder) SoftDelete(ctx, contractID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDelete", reflect.TypeOf((*MockContractRepository)(nil).SoftDelete), ctx, contractID, updatedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDelete", reflect.TypeOf((*MockContractRepository)(nil).SoftDelete), ctx, contractID)
 }
 
 // SoftDeleteVersion mocks base method.
-func (m *MockContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error {
+func (m *MockContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SoftDeleteVersion", ctx, contractID, version, updatedAt)
+	ret := m.ctrl.Call(m, "SoftDeleteVersion", ctx, contractID, version)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // SoftDeleteVersion indicates an expected call of SoftDeleteVersion.
-func (mr *MockContractRepositoryMockRecorder) SoftDeleteVersion(ctx, contractID, version, updatedAt interface{}) *gomock.Call {
+func (mr *MockContractRepositoryMockRecorder) SoftDeleteVersion(ctx, contractID, version interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteVersion", reflect.TypeOf((*MockContractRepository)(nil).SoftDeleteVersion), ctx, contractID, version, updatedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteVersion", reflect.TypeOf((*MockContractRepository)(nil).SoftDeleteVersion), ctx, contractID, version)
 }
 
 // Update mocks base method.
-func (m *MockContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
+func (m *MockContractRepository) Update(ctx context.Context, params types.UpdateContractParams) (*models.Contract, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", ctx, contractID, description, contentHash, latestVersion, updatedAt)
+	ret := m.ctrl.Call(m, "Update", ctx, params)
 	ret0, _ := ret[0].(*models.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Update indicates an expected call of Update.
-func (mr *MockContractRepositoryMockRecorder) Update(ctx, contractID, description, contentHash, latestVersion, updatedAt interface{}) *gomock.Call {
+func (mr *MockContractRepositoryMockRecorder) Update(ctx, params interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockContractRepository)(nil).Update), ctx, contractID, description, contentHash, latestVersion, updatedAt)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockContractRepository)(nil).Update), ctx, params)
 }
 
 // MockAuthRepository is a mock of AuthRepository interface.
@@ -501,6 +486,2323 @@ func (mr *MockBillingRepositoryMockRecorder) UpdateSnapshotPaymentStatus(ctx, sn
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSnapshotPaymentStatus", reflect.TypeOf((*MockBillingRepository)(nil).UpdateSnapshotPaymentStatus), ctx, snapshotID, status)
 }
 
+// MockValkeyStringClient is a mock of ValkeyStringClient interface.
+type MockValkeyStringClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyStringClientMockRecorder
+}
+
+// MockValkeyStringClientMockRecorder is the mock recorder for MockValkeyStringClient.
+type MockValkeyStringClientMockRecorder struct {
+	mock *MockValkeyStringClient
+}
+
+// NewMockValkeyStringClient creates a new mock instance.
+func NewMockValkeyStringClient(ctrl *gomock.Controller) *MockValkeyStringClient {
+	mock := &MockValkeyStringClient{ctrl: ctrl}
+	mock.recorder = &MockValkeyStringClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyStringClient) EXPECT() *MockValkeyStringClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockValkeyStringClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockValkeyStringClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockValkeyStringClient)(nil).Del), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockValkeyStringClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockValkeyStringClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockValkeyStringClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockValkeyStringClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockValkeyStringClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockValkeyStringClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockValkeyStringClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockValkeyStringClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockValkeyStringClient)(nil).Get), ctx, key)
+}
+
+// Keys mocks base method.
+func (m *MockValkeyStringClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockValkeyStringClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockValkeyStringClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockValkeyStringClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockValkeyStringClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockValkeyStringClient)(nil).MGet), varargs...)
+}
+
+// Set mocks base method.
+func (m *MockValkeyStringClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockValkeyStringClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockValkeyStringClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockValkeyStringClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockValkeyStringClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockValkeyStringClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockValkeyStringClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockValkeyStringClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockValkeyStringClient)(nil).TTL), ctx, key)
+}
+
+// MockValkeyHashClient is a mock of ValkeyHashClient interface.
+type MockValkeyHashClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyHashClientMockRecorder
+}
+
+// MockValkeyHashClientMockRecorder is the mock recorder for MockValkeyHashClient.
+type MockValkeyHashClientMockRecorder struct {
+	mock *MockValkeyHashClient
+}
+
+// NewMockValkeyHashClient creates a new mock instance.
+func NewMockValkeyHashClient(ctrl *gomock.Controller) *MockValkeyHashClient {
+	mock := &MockValkeyHashClient{ctrl: ctrl}
+	mock.recorder = &MockValkeyHashClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyHashClient) EXPECT() *MockValkeyHashClientMockRecorder {
+	return m.recorder
+}
+
+// HDel mocks base method.
+func (m *MockValkeyHashClient) HDel(ctx context.Context, key string, fields ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range fields {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HDel", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HDel indicates an expected call of HDel.
+func (mr *MockValkeyHashClientMockRecorder) HDel(ctx, key interface{}, fields ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, fields...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HDel", reflect.TypeOf((*MockValkeyHashClient)(nil).HDel), varargs...)
+}
+
+// HGet mocks base method.
+func (m *MockValkeyHashClient) HGet(ctx context.Context, key, field string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGet", ctx, key, field)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGet indicates an expected call of HGet.
+func (mr *MockValkeyHashClientMockRecorder) HGet(ctx, key, field interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGet", reflect.TypeOf((*MockValkeyHashClient)(nil).HGet), ctx, key, field)
+}
+
+// HGetAll mocks base method.
+func (m *MockValkeyHashClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGetAll", ctx, key)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGetAll indicates an expected call of HGetAll.
+func (mr *MockValkeyHashClientMockRecorder) HGetAll(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGetAll", reflect.TypeOf((*MockValkeyHashClient)(nil).HGetAll), ctx, key)
+}
+
+// HSet mocks base method.
+func (m *MockValkeyHashClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range values {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HSet", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HSet indicates an expected call of HSet.
+func (mr *MockValkeyHashClientMockRecorder) HSet(ctx, key interface{}, values ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, values...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockValkeyHashClient)(nil).HSet), varargs...)
+}
+
+// MockValkeySortedSetClient is a mock of ValkeySortedSetClient interface.
+type MockValkeySortedSetClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeySortedSetClientMockRecorder
+}
+
+// MockValkeySortedSetClientMockRecorder is the mock recorder for MockValkeySortedSetClient.
+type MockValkeySortedSetClientMockRecorder struct {
+	mock *MockValkeySortedSetClient
+}
+
+// NewMockValkeySortedSetClient creates a new mock instance.
+func NewMockValkeySortedSetClient(ctrl *gomock.Controller) *MockValkeySortedSetClient {
+	mock := &MockValkeySortedSetClient{ctrl: ctrl}
+	mock.recorder = &MockValkeySortedSetClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeySortedSetClient) EXPECT() *MockValkeySortedSetClientMockRecorder {
+	return m.recorder
+}
+
+// ZAdd mocks base method.
+func (m *MockValkeySortedSetClient) ZAdd(ctx context.Context, key string, score float64, member string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZAdd", ctx, key, score, member)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ZAdd indicates an expected call of ZAdd.
+func (mr *MockValkeySortedSetClientMockRecorder) ZAdd(ctx, key, score, member interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZAdd", reflect.TypeOf((*MockValkeySortedSetClient)(nil).ZAdd), ctx, key, score, member)
+}
+
+// ZCard mocks base method.
+func (m *MockValkeySortedSetClient) ZCard(ctx context.Context, key string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZCard", ctx, key)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ZCard indicates an expected call of ZCard.
+func (mr *MockValkeySortedSetClientMockRecorder) ZCard(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZCard", reflect.TypeOf((*MockValkeySortedSetClient)(nil).ZCard), ctx, key)
+}
+
+// ZRange mocks base method.
+func (m *MockValkeySortedSetClient) ZRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZRange", ctx, key, start, stop)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ZRange indicates an expected call of ZRange.
+func (mr *MockValkeySortedSetClientMockRecorder) ZRange(ctx, key, start, stop interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZRange", reflect.TypeOf((*MockValkeySortedSetClient)(nil).ZRange), ctx, key, start, stop)
+}
+
+// MockValkeySetClient is a mock of ValkeySetClient interface.
+type MockValkeySetClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeySetClientMockRecorder
+}
+
+// MockValkeySetClientMockRecorder is the mock recorder for MockValkeySetClient.
+type MockValkeySetClientMockRecorder struct {
+	mock *MockValkeySetClient
+}
+
+// NewMockValkeySetClient creates a new mock instance.
+func NewMockValkeySetClient(ctrl *gomock.Controller) *MockValkeySetClient {
+	mock := &MockValkeySetClient{ctrl: ctrl}
+	mock.recorder = &MockValkeySetClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeySetClient) EXPECT() *MockValkeySetClientMockRecorder {
+	return m.recorder
+}
+
+// SAdd mocks base method.
+func (m *MockValkeySetClient) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range members {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SAdd", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SAdd indicates an expected call of SAdd.
+func (mr *MockValkeySetClientMockRecorder) SAdd(ctx, key interface{}, members ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, members...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SAdd", reflect.TypeOf((*MockValkeySetClient)(nil).SAdd), varargs...)
+}
+
+// SMembers mocks base method.
+func (m *MockValkeySetClient) SMembers(ctx context.Context, key string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SMembers", ctx, key)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SMembers indicates an expected call of SMembers.
+func (mr *MockValkeySetClientMockRecorder) SMembers(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SMembers", reflect.TypeOf((*MockValkeySetClient)(nil).SMembers), ctx, key)
+}
+
+// SRem mocks base method.
+func (m *MockValkeySetClient) SRem(ctx context.Context, key string, members ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range members {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SRem", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SRem indicates an expected call of SRem.
+func (mr *MockValkeySetClientMockRecorder) SRem(ctx, key interface{}, members ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, members...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SRem", reflect.TypeOf((*MockValkeySetClient)(nil).SRem), varargs...)
+}
+
+// MockValkeyScriptClient is a mock of ValkeyScriptClient interface.
+type MockValkeyScriptClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyScriptClientMockRecorder
+}
+
+// MockValkeyScriptClientMockRecorder is the mock recorder for MockValkeyScriptClient.
+type MockValkeyScriptClientMockRecorder struct {
+	mock *MockValkeyScriptClient
+}
+
+// NewMockValkeyScriptClient creates a new mock instance.
+func NewMockValkeyScriptClient(ctrl *gomock.Controller) *MockValkeyScriptClient {
+	mock := &MockValkeyScriptClient{ctrl: ctrl}
+	mock.recorder = &MockValkeyScriptClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyScriptClient) EXPECT() *MockValkeyScriptClientMockRecorder {
+	return m.recorder
+}
+
+// Eval mocks base method.
+func (m *MockValkeyScriptClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockValkeyScriptClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockValkeyScriptClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockValkeyScriptClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockValkeyScriptClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockValkeyScriptClient)(nil).EvalSHA), varargs...)
+}
+
+// ScriptLoad mocks base method.
+func (m *MockValkeyScriptClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockValkeyScriptClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockValkeyScriptClient)(nil).ScriptLoad), ctx, script)
+}
+
+// MockValkeyStreamClient is a mock of ValkeyStreamClient interface.
+type MockValkeyStreamClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyStreamClientMockRecorder
+}
+
+// MockValkeyStreamClientMockRecorder is the mock recorder for MockValkeyStreamClient.
+type MockValkeyStreamClientMockRecorder struct {
+	mock *MockValkeyStreamClient
+}
+
+// NewMockValkeyStreamClient creates a new mock instance.
+func NewMockValkeyStreamClient(ctrl *gomock.Controller) *MockValkeyStreamClient {
+	mock := &MockValkeyStreamClient{ctrl: ctrl}
+	mock.recorder = &MockValkeyStreamClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyStreamClient) EXPECT() *MockValkeyStreamClientMockRecorder {
+	return m.recorder
+}
+
+// XAdd mocks base method.
+func (m *MockValkeyStreamClient) XAdd(ctx context.Context, stream, id string, values interface{}) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "XAdd", ctx, stream, id, values)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// XAdd indicates an expected call of XAdd.
+func (mr *MockValkeyStreamClientMockRecorder) XAdd(ctx, stream, id, values interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "XAdd", reflect.TypeOf((*MockValkeyStreamClient)(nil).XAdd), ctx, stream, id, values)
+}
+
+// MockValkeyPipelineProvider is a mock of ValkeyPipelineProvider interface.
+type MockValkeyPipelineProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyPipelineProviderMockRecorder
+}
+
+// MockValkeyPipelineProviderMockRecorder is the mock recorder for MockValkeyPipelineProvider.
+type MockValkeyPipelineProviderMockRecorder struct {
+	mock *MockValkeyPipelineProvider
+}
+
+// NewMockValkeyPipelineProvider creates a new mock instance.
+func NewMockValkeyPipelineProvider(ctrl *gomock.Controller) *MockValkeyPipelineProvider {
+	mock := &MockValkeyPipelineProvider{ctrl: ctrl}
+	mock.recorder = &MockValkeyPipelineProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyPipelineProvider) EXPECT() *MockValkeyPipelineProviderMockRecorder {
+	return m.recorder
+}
+
+// Pipeline mocks base method.
+func (m *MockValkeyPipelineProvider) Pipeline() types.ValkeyPipeline {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pipeline")
+	ret0, _ := ret[0].(types.ValkeyPipeline)
+	return ret0
+}
+
+// Pipeline indicates an expected call of Pipeline.
+func (mr *MockValkeyPipelineProviderMockRecorder) Pipeline() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pipeline", reflect.TypeOf((*MockValkeyPipelineProvider)(nil).Pipeline))
+}
+
+// MockValkeyBackoffExecutor is a mock of ValkeyBackoffExecutor interface.
+type MockValkeyBackoffExecutor struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyBackoffExecutorMockRecorder
+}
+
+// MockValkeyBackoffExecutorMockRecorder is the mock recorder for MockValkeyBackoffExecutor.
+type MockValkeyBackoffExecutorMockRecorder struct {
+	mock *MockValkeyBackoffExecutor
+}
+
+// NewMockValkeyBackoffExecutor creates a new mock instance.
+func NewMockValkeyBackoffExecutor(ctrl *gomock.Controller) *MockValkeyBackoffExecutor {
+	mock := &MockValkeyBackoffExecutor{ctrl: ctrl}
+	mock.recorder = &MockValkeyBackoffExecutorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyBackoffExecutor) EXPECT() *MockValkeyBackoffExecutorMockRecorder {
+	return m.recorder
+}
+
+// ExecuteWithBackoff mocks base method.
+func (m *MockValkeyBackoffExecutor) ExecuteWithBackoff(ctx context.Context, operation func() error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteWithBackoff", ctx, operation)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ExecuteWithBackoff indicates an expected call of ExecuteWithBackoff.
+func (mr *MockValkeyBackoffExecutorMockRecorder) ExecuteWithBackoff(ctx, operation interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithBackoff", reflect.TypeOf((*MockValkeyBackoffExecutor)(nil).ExecuteWithBackoff), ctx, operation)
+}
+
+// MockValkeyCreditAtomic is a mock of ValkeyCreditAtomic interface.
+type MockValkeyCreditAtomic struct {
+	ctrl     *gomock.Controller
+	recorder *MockValkeyCreditAtomicMockRecorder
+}
+
+// MockValkeyCreditAtomicMockRecorder is the mock recorder for MockValkeyCreditAtomic.
+type MockValkeyCreditAtomicMockRecorder struct {
+	mock *MockValkeyCreditAtomic
+}
+
+// NewMockValkeyCreditAtomic creates a new mock instance.
+func NewMockValkeyCreditAtomic(ctrl *gomock.Controller) *MockValkeyCreditAtomic {
+	mock := &MockValkeyCreditAtomic{ctrl: ctrl}
+	mock.recorder = &MockValkeyCreditAtomicMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValkeyCreditAtomic) EXPECT() *MockValkeyCreditAtomicMockRecorder {
+	return m.recorder
+}
+
+// ApplyCreditTopupAtomic mocks base method.
+func (m *MockValkeyCreditAtomic) ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyCreditTopupAtomic", ctx, balanceKey, pendingKey, amount)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ApplyCreditTopupAtomic indicates an expected call of ApplyCreditTopupAtomic.
+func (mr *MockValkeyCreditAtomicMockRecorder) ApplyCreditTopupAtomic(ctx, balanceKey, pendingKey, amount interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyCreditTopupAtomic", reflect.TypeOf((*MockValkeyCreditAtomic)(nil).ApplyCreditTopupAtomic), ctx, balanceKey, pendingKey, amount)
+}
+
+// MockValidationValkeyClient is a mock of ValidationValkeyClient interface.
+type MockValidationValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockValidationValkeyClientMockRecorder
+}
+
+// MockValidationValkeyClientMockRecorder is the mock recorder for MockValidationValkeyClient.
+type MockValidationValkeyClientMockRecorder struct {
+	mock *MockValidationValkeyClient
+}
+
+// NewMockValidationValkeyClient creates a new mock instance.
+func NewMockValidationValkeyClient(ctrl *gomock.Controller) *MockValidationValkeyClient {
+	mock := &MockValidationValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockValidationValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockValidationValkeyClient) EXPECT() *MockValidationValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockValidationValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockValidationValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockValidationValkeyClient)(nil).Del), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockValidationValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockValidationValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockValidationValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockValidationValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockValidationValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockValidationValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockValidationValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockValidationValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockValidationValkeyClient)(nil).Get), ctx, key)
+}
+
+// HDel mocks base method.
+func (m *MockValidationValkeyClient) HDel(ctx context.Context, key string, fields ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range fields {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HDel", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HDel indicates an expected call of HDel.
+func (mr *MockValidationValkeyClientMockRecorder) HDel(ctx, key interface{}, fields ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, fields...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HDel", reflect.TypeOf((*MockValidationValkeyClient)(nil).HDel), varargs...)
+}
+
+// HGet mocks base method.
+func (m *MockValidationValkeyClient) HGet(ctx context.Context, key, field string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGet", ctx, key, field)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGet indicates an expected call of HGet.
+func (mr *MockValidationValkeyClientMockRecorder) HGet(ctx, key, field interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGet", reflect.TypeOf((*MockValidationValkeyClient)(nil).HGet), ctx, key, field)
+}
+
+// HGetAll mocks base method.
+func (m *MockValidationValkeyClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGetAll", ctx, key)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGetAll indicates an expected call of HGetAll.
+func (mr *MockValidationValkeyClientMockRecorder) HGetAll(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGetAll", reflect.TypeOf((*MockValidationValkeyClient)(nil).HGetAll), ctx, key)
+}
+
+// HSet mocks base method.
+func (m *MockValidationValkeyClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range values {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HSet", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HSet indicates an expected call of HSet.
+func (mr *MockValidationValkeyClientMockRecorder) HSet(ctx, key interface{}, values ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, values...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockValidationValkeyClient)(nil).HSet), varargs...)
+}
+
+// Keys mocks base method.
+func (m *MockValidationValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockValidationValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockValidationValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockValidationValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockValidationValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockValidationValkeyClient)(nil).MGet), varargs...)
+}
+
+// Pipeline mocks base method.
+func (m *MockValidationValkeyClient) Pipeline() types.ValkeyPipeline {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pipeline")
+	ret0, _ := ret[0].(types.ValkeyPipeline)
+	return ret0
+}
+
+// Pipeline indicates an expected call of Pipeline.
+func (mr *MockValidationValkeyClientMockRecorder) Pipeline() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pipeline", reflect.TypeOf((*MockValidationValkeyClient)(nil).Pipeline))
+}
+
+// Set mocks base method.
+func (m *MockValidationValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockValidationValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockValidationValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockValidationValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockValidationValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockValidationValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockValidationValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockValidationValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockValidationValkeyClient)(nil).TTL), ctx, key)
+}
+
+// MockAccessValkeyClient is a mock of AccessValkeyClient interface.
+type MockAccessValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockAccessValkeyClientMockRecorder
+}
+
+// MockAccessValkeyClientMockRecorder is the mock recorder for MockAccessValkeyClient.
+type MockAccessValkeyClientMockRecorder struct {
+	mock *MockAccessValkeyClient
+}
+
+// NewMockAccessValkeyClient creates a new mock instance.
+func NewMockAccessValkeyClient(ctrl *gomock.Controller) *MockAccessValkeyClient {
+	mock := &MockAccessValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockAccessValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAccessValkeyClient) EXPECT() *MockAccessValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockAccessValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockAccessValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockAccessValkeyClient)(nil).Del), varargs...)
+}
+
+// Eval mocks base method.
+func (m *MockAccessValkeyClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockAccessValkeyClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockAccessValkeyClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockAccessValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockAccessValkeyClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockAccessValkeyClient)(nil).EvalSHA), varargs...)
+}
+
+// ExecuteWithBackoff mocks base method.
+func (m *MockAccessValkeyClient) ExecuteWithBackoff(ctx context.Context, operation func() error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExecuteWithBackoff", ctx, operation)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ExecuteWithBackoff indicates an expected call of ExecuteWithBackoff.
+func (mr *MockAccessValkeyClientMockRecorder) ExecuteWithBackoff(ctx, operation interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithBackoff", reflect.TypeOf((*MockAccessValkeyClient)(nil).ExecuteWithBackoff), ctx, operation)
+}
+
+// Exists mocks base method.
+func (m *MockAccessValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockAccessValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockAccessValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockAccessValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockAccessValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockAccessValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockAccessValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockAccessValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockAccessValkeyClient)(nil).Get), ctx, key)
+}
+
+// HDel mocks base method.
+func (m *MockAccessValkeyClient) HDel(ctx context.Context, key string, fields ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range fields {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HDel", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HDel indicates an expected call of HDel.
+func (mr *MockAccessValkeyClientMockRecorder) HDel(ctx, key interface{}, fields ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, fields...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HDel", reflect.TypeOf((*MockAccessValkeyClient)(nil).HDel), varargs...)
+}
+
+// HGet mocks base method.
+func (m *MockAccessValkeyClient) HGet(ctx context.Context, key, field string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGet", ctx, key, field)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGet indicates an expected call of HGet.
+func (mr *MockAccessValkeyClientMockRecorder) HGet(ctx, key, field interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGet", reflect.TypeOf((*MockAccessValkeyClient)(nil).HGet), ctx, key, field)
+}
+
+// HGetAll mocks base method.
+func (m *MockAccessValkeyClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGetAll", ctx, key)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGetAll indicates an expected call of HGetAll.
+func (mr *MockAccessValkeyClientMockRecorder) HGetAll(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGetAll", reflect.TypeOf((*MockAccessValkeyClient)(nil).HGetAll), ctx, key)
+}
+
+// HSet mocks base method.
+func (m *MockAccessValkeyClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range values {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HSet", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HSet indicates an expected call of HSet.
+func (mr *MockAccessValkeyClientMockRecorder) HSet(ctx, key interface{}, values ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, values...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockAccessValkeyClient)(nil).HSet), varargs...)
+}
+
+// Keys mocks base method.
+func (m *MockAccessValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockAccessValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockAccessValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockAccessValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockAccessValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockAccessValkeyClient)(nil).MGet), varargs...)
+}
+
+// Pipeline mocks base method.
+func (m *MockAccessValkeyClient) Pipeline() types.ValkeyPipeline {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pipeline")
+	ret0, _ := ret[0].(types.ValkeyPipeline)
+	return ret0
+}
+
+// Pipeline indicates an expected call of Pipeline.
+func (mr *MockAccessValkeyClientMockRecorder) Pipeline() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pipeline", reflect.TypeOf((*MockAccessValkeyClient)(nil).Pipeline))
+}
+
+// SAdd mocks base method.
+func (m *MockAccessValkeyClient) SAdd(ctx context.Context, key string, members ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range members {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SAdd", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SAdd indicates an expected call of SAdd.
+func (mr *MockAccessValkeyClientMockRecorder) SAdd(ctx, key interface{}, members ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, members...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SAdd", reflect.TypeOf((*MockAccessValkeyClient)(nil).SAdd), varargs...)
+}
+
+// SMembers mocks base method.
+func (m *MockAccessValkeyClient) SMembers(ctx context.Context, key string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SMembers", ctx, key)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SMembers indicates an expected call of SMembers.
+func (mr *MockAccessValkeyClientMockRecorder) SMembers(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SMembers", reflect.TypeOf((*MockAccessValkeyClient)(nil).SMembers), ctx, key)
+}
+
+// SRem mocks base method.
+func (m *MockAccessValkeyClient) SRem(ctx context.Context, key string, members ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range members {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SRem", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SRem indicates an expected call of SRem.
+func (mr *MockAccessValkeyClientMockRecorder) SRem(ctx, key interface{}, members ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, members...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SRem", reflect.TypeOf((*MockAccessValkeyClient)(nil).SRem), varargs...)
+}
+
+// ScriptLoad mocks base method.
+func (m *MockAccessValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockAccessValkeyClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockAccessValkeyClient)(nil).ScriptLoad), ctx, script)
+}
+
+// Set mocks base method.
+func (m *MockAccessValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockAccessValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockAccessValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockAccessValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockAccessValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockAccessValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockAccessValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockAccessValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockAccessValkeyClient)(nil).TTL), ctx, key)
+}
+
+// MockStepStateValkeyClient is a mock of StepStateValkeyClient interface.
+type MockStepStateValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockStepStateValkeyClientMockRecorder
+}
+
+// MockStepStateValkeyClientMockRecorder is the mock recorder for MockStepStateValkeyClient.
+type MockStepStateValkeyClientMockRecorder struct {
+	mock *MockStepStateValkeyClient
+}
+
+// NewMockStepStateValkeyClient creates a new mock instance.
+func NewMockStepStateValkeyClient(ctrl *gomock.Controller) *MockStepStateValkeyClient {
+	mock := &MockStepStateValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockStepStateValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockStepStateValkeyClient) EXPECT() *MockStepStateValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockStepStateValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockStepStateValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Del), varargs...)
+}
+
+// Eval mocks base method.
+func (m *MockStepStateValkeyClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockStepStateValkeyClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockStepStateValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockStepStateValkeyClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockStepStateValkeyClient)(nil).EvalSHA), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockStepStateValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockStepStateValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockStepStateValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockStepStateValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockStepStateValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockStepStateValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Get), ctx, key)
+}
+
+// HDel mocks base method.
+func (m *MockStepStateValkeyClient) HDel(ctx context.Context, key string, fields ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range fields {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HDel", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HDel indicates an expected call of HDel.
+func (mr *MockStepStateValkeyClientMockRecorder) HDel(ctx, key interface{}, fields ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, fields...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HDel", reflect.TypeOf((*MockStepStateValkeyClient)(nil).HDel), varargs...)
+}
+
+// HGet mocks base method.
+func (m *MockStepStateValkeyClient) HGet(ctx context.Context, key, field string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGet", ctx, key, field)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGet indicates an expected call of HGet.
+func (mr *MockStepStateValkeyClientMockRecorder) HGet(ctx, key, field interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGet", reflect.TypeOf((*MockStepStateValkeyClient)(nil).HGet), ctx, key, field)
+}
+
+// HGetAll mocks base method.
+func (m *MockStepStateValkeyClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGetAll", ctx, key)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGetAll indicates an expected call of HGetAll.
+func (mr *MockStepStateValkeyClientMockRecorder) HGetAll(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGetAll", reflect.TypeOf((*MockStepStateValkeyClient)(nil).HGetAll), ctx, key)
+}
+
+// HSet mocks base method.
+func (m *MockStepStateValkeyClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range values {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HSet", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HSet indicates an expected call of HSet.
+func (mr *MockStepStateValkeyClientMockRecorder) HSet(ctx, key interface{}, values ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, values...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockStepStateValkeyClient)(nil).HSet), varargs...)
+}
+
+// Keys mocks base method.
+func (m *MockStepStateValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockStepStateValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockStepStateValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockStepStateValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockStepStateValkeyClient)(nil).MGet), varargs...)
+}
+
+// ScriptLoad mocks base method.
+func (m *MockStepStateValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockStepStateValkeyClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockStepStateValkeyClient)(nil).ScriptLoad), ctx, script)
+}
+
+// Set mocks base method.
+func (m *MockStepStateValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockStepStateValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockStepStateValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockStepStateValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockStepStateValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockStepStateValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockStepStateValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockStepStateValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockStepStateValkeyClient)(nil).TTL), ctx, key)
+}
+
+// MockThreadValkeyClient is a mock of ThreadValkeyClient interface.
+type MockThreadValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockThreadValkeyClientMockRecorder
+}
+
+// MockThreadValkeyClientMockRecorder is the mock recorder for MockThreadValkeyClient.
+type MockThreadValkeyClientMockRecorder struct {
+	mock *MockThreadValkeyClient
+}
+
+// NewMockThreadValkeyClient creates a new mock instance.
+func NewMockThreadValkeyClient(ctrl *gomock.Controller) *MockThreadValkeyClient {
+	mock := &MockThreadValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockThreadValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockThreadValkeyClient) EXPECT() *MockThreadValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockThreadValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockThreadValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockThreadValkeyClient)(nil).Del), varargs...)
+}
+
+// Eval mocks base method.
+func (m *MockThreadValkeyClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockThreadValkeyClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockThreadValkeyClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockThreadValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockThreadValkeyClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockThreadValkeyClient)(nil).EvalSHA), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockThreadValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockThreadValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockThreadValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockThreadValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockThreadValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockThreadValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockThreadValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockThreadValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockThreadValkeyClient)(nil).Get), ctx, key)
+}
+
+// HDel mocks base method.
+func (m *MockThreadValkeyClient) HDel(ctx context.Context, key string, fields ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range fields {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HDel", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HDel indicates an expected call of HDel.
+func (mr *MockThreadValkeyClientMockRecorder) HDel(ctx, key interface{}, fields ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, fields...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HDel", reflect.TypeOf((*MockThreadValkeyClient)(nil).HDel), varargs...)
+}
+
+// HGet mocks base method.
+func (m *MockThreadValkeyClient) HGet(ctx context.Context, key, field string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGet", ctx, key, field)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGet indicates an expected call of HGet.
+func (mr *MockThreadValkeyClientMockRecorder) HGet(ctx, key, field interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGet", reflect.TypeOf((*MockThreadValkeyClient)(nil).HGet), ctx, key, field)
+}
+
+// HGetAll mocks base method.
+func (m *MockThreadValkeyClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HGetAll", ctx, key)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HGetAll indicates an expected call of HGetAll.
+func (mr *MockThreadValkeyClientMockRecorder) HGetAll(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HGetAll", reflect.TypeOf((*MockThreadValkeyClient)(nil).HGetAll), ctx, key)
+}
+
+// HSet mocks base method.
+func (m *MockThreadValkeyClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, key}
+	for _, a := range values {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "HSet", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HSet indicates an expected call of HSet.
+func (mr *MockThreadValkeyClientMockRecorder) HSet(ctx, key interface{}, values ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, key}, values...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockThreadValkeyClient)(nil).HSet), varargs...)
+}
+
+// Keys mocks base method.
+func (m *MockThreadValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockThreadValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockThreadValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockThreadValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockThreadValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockThreadValkeyClient)(nil).MGet), varargs...)
+}
+
+// Pipeline mocks base method.
+func (m *MockThreadValkeyClient) Pipeline() types.ValkeyPipeline {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pipeline")
+	ret0, _ := ret[0].(types.ValkeyPipeline)
+	return ret0
+}
+
+// Pipeline indicates an expected call of Pipeline.
+func (mr *MockThreadValkeyClientMockRecorder) Pipeline() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pipeline", reflect.TypeOf((*MockThreadValkeyClient)(nil).Pipeline))
+}
+
+// ScriptLoad mocks base method.
+func (m *MockThreadValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockThreadValkeyClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockThreadValkeyClient)(nil).ScriptLoad), ctx, script)
+}
+
+// Set mocks base method.
+func (m *MockThreadValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockThreadValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockThreadValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockThreadValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockThreadValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockThreadValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockThreadValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockThreadValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockThreadValkeyClient)(nil).TTL), ctx, key)
+}
+
+// ZAdd mocks base method.
+func (m *MockThreadValkeyClient) ZAdd(ctx context.Context, key string, score float64, member string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZAdd", ctx, key, score, member)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ZAdd indicates an expected call of ZAdd.
+func (mr *MockThreadValkeyClientMockRecorder) ZAdd(ctx, key, score, member interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZAdd", reflect.TypeOf((*MockThreadValkeyClient)(nil).ZAdd), ctx, key, score, member)
+}
+
+// ZCard mocks base method.
+func (m *MockThreadValkeyClient) ZCard(ctx context.Context, key string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZCard", ctx, key)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ZCard indicates an expected call of ZCard.
+func (mr *MockThreadValkeyClientMockRecorder) ZCard(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZCard", reflect.TypeOf((*MockThreadValkeyClient)(nil).ZCard), ctx, key)
+}
+
+// ZRange mocks base method.
+func (m *MockThreadValkeyClient) ZRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZRange", ctx, key, start, stop)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ZRange indicates an expected call of ZRange.
+func (mr *MockThreadValkeyClientMockRecorder) ZRange(ctx, key, start, stop interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZRange", reflect.TypeOf((*MockThreadValkeyClient)(nil).ZRange), ctx, key, start, stop)
+}
+
+// MockStepEventValkeyClient is a mock of StepEventValkeyClient interface.
+type MockStepEventValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockStepEventValkeyClientMockRecorder
+}
+
+// MockStepEventValkeyClientMockRecorder is the mock recorder for MockStepEventValkeyClient.
+type MockStepEventValkeyClientMockRecorder struct {
+	mock *MockStepEventValkeyClient
+}
+
+// NewMockStepEventValkeyClient creates a new mock instance.
+func NewMockStepEventValkeyClient(ctrl *gomock.Controller) *MockStepEventValkeyClient {
+	mock := &MockStepEventValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockStepEventValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockStepEventValkeyClient) EXPECT() *MockStepEventValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockStepEventValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockStepEventValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Del), varargs...)
+}
+
+// Eval mocks base method.
+func (m *MockStepEventValkeyClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockStepEventValkeyClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockStepEventValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockStepEventValkeyClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockStepEventValkeyClient)(nil).EvalSHA), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockStepEventValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockStepEventValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockStepEventValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockStepEventValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockStepEventValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockStepEventValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Get), ctx, key)
+}
+
+// Keys mocks base method.
+func (m *MockStepEventValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockStepEventValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockStepEventValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockStepEventValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockStepEventValkeyClient)(nil).MGet), varargs...)
+}
+
+// ScriptLoad mocks base method.
+func (m *MockStepEventValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockStepEventValkeyClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockStepEventValkeyClient)(nil).ScriptLoad), ctx, script)
+}
+
+// Set mocks base method.
+func (m *MockStepEventValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockStepEventValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockStepEventValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockStepEventValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockStepEventValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockStepEventValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockStepEventValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockStepEventValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockStepEventValkeyClient)(nil).TTL), ctx, key)
+}
+
+// MockPlanValkeyClient is a mock of PlanValkeyClient interface.
+type MockPlanValkeyClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockPlanValkeyClientMockRecorder
+}
+
+// MockPlanValkeyClientMockRecorder is the mock recorder for MockPlanValkeyClient.
+type MockPlanValkeyClientMockRecorder struct {
+	mock *MockPlanValkeyClient
+}
+
+// NewMockPlanValkeyClient creates a new mock instance.
+func NewMockPlanValkeyClient(ctrl *gomock.Controller) *MockPlanValkeyClient {
+	mock := &MockPlanValkeyClient{ctrl: ctrl}
+	mock.recorder = &MockPlanValkeyClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPlanValkeyClient) EXPECT() *MockPlanValkeyClientMockRecorder {
+	return m.recorder
+}
+
+// Del mocks base method.
+func (m *MockPlanValkeyClient) Del(ctx context.Context, keys ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Del", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Del indicates an expected call of Del.
+func (mr *MockPlanValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockPlanValkeyClient)(nil).Del), varargs...)
+}
+
+// Eval mocks base method.
+func (m *MockPlanValkeyClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, script, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Eval", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Eval indicates an expected call of Eval.
+func (mr *MockPlanValkeyClientMockRecorder) Eval(ctx, script, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, script, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Eval", reflect.TypeOf((*MockPlanValkeyClient)(nil).Eval), varargs...)
+}
+
+// EvalSHA mocks base method.
+func (m *MockPlanValkeyClient) EvalSHA(ctx context.Context, sha string, keys []string, args ...interface{}) (interface{}, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, sha, keys}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "EvalSHA", varargs...)
+	ret0, _ := ret[0].(interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EvalSHA indicates an expected call of EvalSHA.
+func (mr *MockPlanValkeyClientMockRecorder) EvalSHA(ctx, sha, keys interface{}, args ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, sha, keys}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EvalSHA", reflect.TypeOf((*MockPlanValkeyClient)(nil).EvalSHA), varargs...)
+}
+
+// Exists mocks base method.
+func (m *MockPlanValkeyClient) Exists(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Exists", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Exists indicates an expected call of Exists.
+func (mr *MockPlanValkeyClientMockRecorder) Exists(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exists", reflect.TypeOf((*MockPlanValkeyClient)(nil).Exists), ctx, key)
+}
+
+// Expire mocks base method.
+func (m *MockPlanValkeyClient) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Expire", ctx, key, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Expire indicates an expected call of Expire.
+func (mr *MockPlanValkeyClientMockRecorder) Expire(ctx, key, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Expire", reflect.TypeOf((*MockPlanValkeyClient)(nil).Expire), ctx, key, ttl)
+}
+
+// Get mocks base method.
+func (m *MockPlanValkeyClient) Get(ctx context.Context, key string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, key)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockPlanValkeyClientMockRecorder) Get(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockPlanValkeyClient)(nil).Get), ctx, key)
+}
+
+// Keys mocks base method.
+func (m *MockPlanValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Keys", ctx, pattern)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Keys indicates an expected call of Keys.
+func (mr *MockPlanValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockPlanValkeyClient)(nil).Keys), ctx, pattern)
+}
+
+// MGet mocks base method.
+func (m *MockPlanValkeyClient) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx}
+	for _, a := range keys {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "MGet", varargs...)
+	ret0, _ := ret[0].(map[string]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MGet indicates an expected call of MGet.
+func (mr *MockPlanValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx}, keys...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MGet", reflect.TypeOf((*MockPlanValkeyClient)(nil).MGet), varargs...)
+}
+
+// ScriptLoad mocks base method.
+func (m *MockPlanValkeyClient) ScriptLoad(ctx context.Context, script string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScriptLoad", ctx, script)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ScriptLoad indicates an expected call of ScriptLoad.
+func (mr *MockPlanValkeyClientMockRecorder) ScriptLoad(ctx, script interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScriptLoad", reflect.TypeOf((*MockPlanValkeyClient)(nil).ScriptLoad), ctx, script)
+}
+
+// Set mocks base method.
+func (m *MockPlanValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", ctx, key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockPlanValkeyClientMockRecorder) Set(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockPlanValkeyClient)(nil).Set), ctx, key, value, ttl)
+}
+
+// SetNX mocks base method.
+func (m *MockPlanValkeyClient) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetNX", ctx, key, value, ttl)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetNX indicates an expected call of SetNX.
+func (mr *MockPlanValkeyClientMockRecorder) SetNX(ctx, key, value, ttl interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNX", reflect.TypeOf((*MockPlanValkeyClient)(nil).SetNX), ctx, key, value, ttl)
+}
+
+// TTL mocks base method.
+func (m *MockPlanValkeyClient) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TTL", ctx, key)
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TTL indicates an expected call of TTL.
+func (mr *MockPlanValkeyClientMockRecorder) TTL(ctx, key interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TTL", reflect.TypeOf((*MockPlanValkeyClient)(nil).TTL), ctx, key)
+}
+
 // MockValkeyClient is a mock of ValkeyClient interface.
 type MockValkeyClient struct {
 	ctrl     *gomock.Controller
@@ -539,21 +2841,6 @@ func (mr *MockValkeyClientMockRecorder) ApplyCreditTopupAtomic(ctx, balanceKey, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyCreditTopupAtomic", reflect.TypeOf((*MockValkeyClient)(nil).ApplyCreditTopupAtomic), ctx, balanceKey, pendingKey, amount)
 }
 
-// DecrBy mocks base method.
-func (m *MockValkeyClient) DecrBy(ctx context.Context, key string, value int64) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DecrBy", ctx, key, value)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DecrBy indicates an expected call of DecrBy.
-func (mr *MockValkeyClientMockRecorder) DecrBy(ctx, key, value interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrBy", reflect.TypeOf((*MockValkeyClient)(nil).DecrBy), ctx, key, value)
-}
-
 // Del mocks base method.
 func (m *MockValkeyClient) Del(ctx context.Context, keys ...string) error {
 	m.ctrl.T.Helper()
@@ -571,20 +2858,6 @@ func (mr *MockValkeyClientMockRecorder) Del(ctx interface{}, keys ...interface{}
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]interface{}{ctx}, keys...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Del", reflect.TypeOf((*MockValkeyClient)(nil).Del), varargs...)
-}
-
-// Delete mocks base method.
-func (m *MockValkeyClient) Delete(ctx context.Context, key string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, key)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Delete indicates an expected call of Delete.
-func (mr *MockValkeyClientMockRecorder) Delete(ctx, key interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockValkeyClient)(nil).Delete), ctx, key)
 }
 
 // Eval mocks base method.
@@ -753,21 +3026,6 @@ func (mr *MockValkeyClientMockRecorder) HSet(ctx, key interface{}, values ...int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HSet", reflect.TypeOf((*MockValkeyClient)(nil).HSet), varargs...)
 }
 
-// IncrBy mocks base method.
-func (m *MockValkeyClient) IncrBy(ctx context.Context, key string, value int64) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IncrBy", ctx, key, value)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IncrBy indicates an expected call of IncrBy.
-func (mr *MockValkeyClientMockRecorder) IncrBy(ctx, key, value interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrBy", reflect.TypeOf((*MockValkeyClient)(nil).IncrBy), ctx, key, value)
-}
-
 // Keys mocks base method.
 func (m *MockValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -781,40 +3039,6 @@ func (m *MockValkeyClient) Keys(ctx context.Context, pattern string) ([]string, 
 func (mr *MockValkeyClientMockRecorder) Keys(ctx, pattern interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Keys", reflect.TypeOf((*MockValkeyClient)(nil).Keys), ctx, pattern)
-}
-
-// LPush mocks base method.
-func (m *MockValkeyClient) LPush(ctx context.Context, key string, values ...interface{}) error {
-	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx, key}
-	for _, a := range values {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "LPush", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// LPush indicates an expected call of LPush.
-func (mr *MockValkeyClientMockRecorder) LPush(ctx, key interface{}, values ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, key}, values...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LPush", reflect.TypeOf((*MockValkeyClient)(nil).LPush), varargs...)
-}
-
-// LRange mocks base method.
-func (m *MockValkeyClient) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LRange", ctx, key, start, stop)
-	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LRange indicates an expected call of LRange.
-func (mr *MockValkeyClientMockRecorder) LRange(ctx, key, start, stop interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LRange", reflect.TypeOf((*MockValkeyClient)(nil).LRange), ctx, key, start, stop)
 }
 
 // MGet mocks base method.
@@ -838,10 +3062,10 @@ func (mr *MockValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{
 }
 
 // Pipeline mocks base method.
-func (m *MockValkeyClient) Pipeline() interfaces.ValkeyPipeline {
+func (m *MockValkeyClient) Pipeline() types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1022,25 +3246,6 @@ func (mr *MockValkeyClientMockRecorder) ZRange(ctx, key, start, stop interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZRange", reflect.TypeOf((*MockValkeyClient)(nil).ZRange), ctx, key, start, stop)
 }
 
-// ZRem mocks base method.
-func (m *MockValkeyClient) ZRem(ctx context.Context, key string, members ...string) error {
-	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx, key}
-	for _, a := range members {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "ZRem", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ZRem indicates an expected call of ZRem.
-func (mr *MockValkeyClientMockRecorder) ZRem(ctx, key interface{}, members ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, key}, members...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZRem", reflect.TypeOf((*MockValkeyClient)(nil).ZRem), varargs...)
-}
-
 // MockValkeyPipeline is a mock of ValkeyPipeline interface.
 type MockValkeyPipeline struct {
 	ctrl     *gomock.Controller
@@ -1065,14 +3270,14 @@ func (m *MockValkeyPipeline) EXPECT() *MockValkeyPipelineMockRecorder {
 }
 
 // Del mocks base method.
-func (m *MockValkeyPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) Del(ctx context.Context, keys ...string) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
 	for _, a := range keys {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Del", varargs...)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1099,10 +3304,10 @@ func (mr *MockValkeyPipelineMockRecorder) Exec(ctx interface{}) *gomock.Call {
 }
 
 // Expire mocks base method.
-func (m *MockValkeyPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) Expire(ctx context.Context, key string, expiration time.Duration) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Expire", ctx, key, expiration)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1113,14 +3318,14 @@ func (mr *MockValkeyPipelineMockRecorder) Expire(ctx, key, expiration interface{
 }
 
 // HDel mocks base method.
-func (m *MockValkeyPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) HDel(ctx context.Context, key string, fields ...string) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range fields {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "HDel", varargs...)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1132,14 +3337,14 @@ func (mr *MockValkeyPipelineMockRecorder) HDel(ctx, key interface{}, fields ...i
 }
 
 // HSet mocks base method.
-func (m *MockValkeyPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) HSet(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range values {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "HSet", varargs...)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1151,14 +3356,14 @@ func (mr *MockValkeyPipelineMockRecorder) HSet(ctx, key interface{}, values ...i
 }
 
 // LPush mocks base method.
-func (m *MockValkeyPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) LPush(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range values {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "LPush", varargs...)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1170,10 +3375,10 @@ func (mr *MockValkeyPipelineMockRecorder) LPush(ctx, key interface{}, values ...
 }
 
 // Set mocks base method.
-func (m *MockValkeyPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+func (m *MockValkeyPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) types.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Set", ctx, key, value, expiration)
-	ret0, _ := ret[0].(interfaces.ValkeyPipeline)
+	ret0, _ := ret[0].(types.ValkeyPipeline)
 	return ret0
 }
 
@@ -1264,10 +3469,10 @@ func (mr *MockThreadRepositoryMockRecorder) ExtendTTL(ctx, threadID interface{})
 }
 
 // Get mocks base method.
-func (m *MockThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+func (m *MockThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
-	for _, a := range writeBack {
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Get", varargs...)
@@ -1277,9 +3482,9 @@ func (m *MockThreadRepository) Get(ctx context.Context, threadID string, writeBa
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockThreadRepositoryMockRecorder) Get(ctx, threadID interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockThreadRepositoryMockRecorder) Get(ctx, threadID interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID}, writeBack...)
+	varargs := append([]interface{}{ctx, threadID}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockThreadRepository)(nil).Get), varargs...)
 }
 
@@ -1299,10 +3504,10 @@ func (mr *MockThreadRepositoryMockRecorder) GetByOwner(ctx, ownerID interface{})
 }
 
 // GetCompletedSteps mocks base method.
-func (m *MockThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, writeBack ...bool) ([]string, error) {
+func (m *MockThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) ([]string, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
-	for _, a := range writeBack {
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetCompletedSteps", varargs...)
@@ -1312,17 +3517,17 @@ func (m *MockThreadRepository) GetCompletedSteps(ctx context.Context, threadID s
 }
 
 // GetCompletedSteps indicates an expected call of GetCompletedSteps.
-func (mr *MockThreadRepositoryMockRecorder) GetCompletedSteps(ctx, threadID interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockThreadRepositoryMockRecorder) GetCompletedSteps(ctx, threadID interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID}, writeBack...)
+	varargs := append([]interface{}{ctx, threadID}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCompletedSteps", reflect.TypeOf((*MockThreadRepository)(nil).GetCompletedSteps), varargs...)
 }
 
 // GetCompletedStepsCount mocks base method.
-func (m *MockThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, writeBack ...bool) (int64, error) {
+func (m *MockThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
-	for _, a := range writeBack {
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetCompletedStepsCount", varargs...)
@@ -1332,17 +3537,17 @@ func (m *MockThreadRepository) GetCompletedStepsCount(ctx context.Context, threa
 }
 
 // GetCompletedStepsCount indicates an expected call of GetCompletedStepsCount.
-func (mr *MockThreadRepositoryMockRecorder) GetCompletedStepsCount(ctx, threadID interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockThreadRepositoryMockRecorder) GetCompletedStepsCount(ctx, threadID interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID}, writeBack...)
+	varargs := append([]interface{}{ctx, threadID}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCompletedStepsCount", reflect.TypeOf((*MockThreadRepository)(nil).GetCompletedStepsCount), varargs...)
 }
 
 // GetStepStatus mocks base method.
-func (m *MockThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName, stepStatus, idempotencyKey string, writeBack ...bool) (string, error) {
+func (m *MockThreadRepository) GetStepStatus(ctx context.Context, query types.StepStatusQuery, opts ...types.ThreadReadOptions) (string, error) {
 	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx, threadID, stepName, stepStatus, idempotencyKey}
-	for _, a := range writeBack {
+	varargs := []interface{}{ctx, query}
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetStepStatus", varargs...)
@@ -1352,9 +3557,9 @@ func (m *MockThreadRepository) GetStepStatus(ctx context.Context, threadID, step
 }
 
 // GetStepStatus indicates an expected call of GetStepStatus.
-func (mr *MockThreadRepositoryMockRecorder) GetStepStatus(ctx, threadID, stepName, stepStatus, idempotencyKey interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockThreadRepositoryMockRecorder) GetStepStatus(ctx, query interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID, stepName, stepStatus, idempotencyKey}, writeBack...)
+	varargs := append([]interface{}{ctx, query}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStepStatus", reflect.TypeOf((*MockThreadRepository)(nil).GetStepStatus), varargs...)
 }
 
@@ -1410,58 +3615,58 @@ func (m *MockAccessRepository) EXPECT() *MockAccessRepositoryMockRecorder {
 }
 
 // GetAllAccess mocks base method.
-func (m *MockAccessRepository) GetAllAccess(ctx context.Context, threadID string, writeBack ...bool) (map[string]*interfaces.UserAccess, error) {
+func (m *MockAccessRepository) GetAllAccess(ctx context.Context, threadID string, opts ...types.AccessReadOptions) (map[string]*types.UserAccess, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
-	for _, a := range writeBack {
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetAllAccess", varargs...)
-	ret0, _ := ret[0].(map[string]*interfaces.UserAccess)
+	ret0, _ := ret[0].(map[string]*types.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAllAccess indicates an expected call of GetAllAccess.
-func (mr *MockAccessRepositoryMockRecorder) GetAllAccess(ctx, threadID interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockAccessRepositoryMockRecorder) GetAllAccess(ctx, threadID interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID}, writeBack...)
+	varargs := append([]interface{}{ctx, threadID}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllAccess", reflect.TypeOf((*MockAccessRepository)(nil).GetAllAccess), varargs...)
 }
 
 // GetUserAccess mocks base method.
-func (m *MockAccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, writeBack ...bool) (*interfaces.UserAccess, error) {
+func (m *MockAccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, opts ...types.AccessReadOptions) (*types.UserAccess, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID, userID}
-	for _, a := range writeBack {
+	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserAccess", varargs...)
-	ret0, _ := ret[0].(*interfaces.UserAccess)
+	ret0, _ := ret[0].(*types.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetUserAccess indicates an expected call of GetUserAccess.
-func (mr *MockAccessRepositoryMockRecorder) GetUserAccess(ctx, threadID, userID interface{}, writeBack ...interface{}) *gomock.Call {
+func (mr *MockAccessRepositoryMockRecorder) GetUserAccess(ctx, threadID, userID interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, threadID, userID}, writeBack...)
+	varargs := append([]interface{}{ctx, threadID, userID}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserAccess", reflect.TypeOf((*MockAccessRepository)(nil).GetUserAccess), varargs...)
 }
 
 // GrantOrUpdateAccess mocks base method.
-func (m *MockAccessRepository) GrantOrUpdateAccess(ctx context.Context, threadID, userID, role, runtimeRole string, permissions []string, invitedBy string, luaScripts interfaces.LuaScriptManager, threadData *string, threadTTL *int) (*interfaces.UserAccess, error) {
+func (m *MockAccessRepository) GrantOrUpdateAccess(ctx context.Context, params types.GrantAccessParams) (*types.UserAccess, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GrantOrUpdateAccess", ctx, threadID, userID, role, runtimeRole, permissions, invitedBy, luaScripts, threadData, threadTTL)
-	ret0, _ := ret[0].(*interfaces.UserAccess)
+	ret := m.ctrl.Call(m, "GrantOrUpdateAccess", ctx, params)
+	ret0, _ := ret[0].(*types.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GrantOrUpdateAccess indicates an expected call of GrantOrUpdateAccess.
-func (mr *MockAccessRepositoryMockRecorder) GrantOrUpdateAccess(ctx, threadID, userID, role, runtimeRole, permissions, invitedBy, luaScripts, threadData, threadTTL interface{}) *gomock.Call {
+func (mr *MockAccessRepositoryMockRecorder) GrantOrUpdateAccess(ctx, params interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GrantOrUpdateAccess", reflect.TypeOf((*MockAccessRepository)(nil).GrantOrUpdateAccess), ctx, threadID, userID, role, runtimeRole, permissions, invitedBy, luaScripts, threadData, threadTTL)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GrantOrUpdateAccess", reflect.TypeOf((*MockAccessRepository)(nil).GrantOrUpdateAccess), ctx, params)
 }
 
 // RevokeAccess mocks base method.
@@ -1476,6 +3681,151 @@ func (m *MockAccessRepository) RevokeAccess(ctx context.Context, threadID, userI
 func (mr *MockAccessRepositoryMockRecorder) RevokeAccess(ctx, threadID, userID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeAccess", reflect.TypeOf((*MockAccessRepository)(nil).RevokeAccess), ctx, threadID, userID)
+}
+
+// MockActivityEventRepository is a mock of ActivityEventRepository interface.
+type MockActivityEventRepository struct {
+	ctrl     *gomock.Controller
+	recorder *MockActivityEventRepositoryMockRecorder
+}
+
+// MockActivityEventRepositoryMockRecorder is the mock recorder for MockActivityEventRepository.
+type MockActivityEventRepositoryMockRecorder struct {
+	mock *MockActivityEventRepository
+}
+
+// NewMockActivityEventRepository creates a new mock instance.
+func NewMockActivityEventRepository(ctrl *gomock.Controller) *MockActivityEventRepository {
+	mock := &MockActivityEventRepository{ctrl: ctrl}
+	mock.recorder = &MockActivityEventRepositoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockActivityEventRepository) EXPECT() *MockActivityEventRepositoryMockRecorder {
+	return m.recorder
+}
+
+// RecordAccessGranted mocks base method.
+func (m *MockActivityEventRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordAccessGranted", ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordAccessGranted indicates an expected call of RecordAccessGranted.
+func (mr *MockActivityEventRepositoryMockRecorder) RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordAccessGranted", reflect.TypeOf((*MockActivityEventRepository)(nil).RecordAccessGranted), ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole)
+}
+
+// RecordInvitationUsed mocks base method.
+func (m *MockActivityEventRepository) RecordInvitationUsed(ctx context.Context, threadID, userID, role, invitedBy, serviceName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordInvitationUsed", ctx, threadID, userID, role, invitedBy, serviceName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordInvitationUsed indicates an expected call of RecordInvitationUsed.
+func (mr *MockActivityEventRepositoryMockRecorder) RecordInvitationUsed(ctx, threadID, userID, role, invitedBy, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordInvitationUsed", reflect.TypeOf((*MockActivityEventRepository)(nil).RecordInvitationUsed), ctx, threadID, userID, role, invitedBy, serviceName)
+}
+
+// RecordThreadCreated mocks base method.
+func (m *MockActivityEventRepository) RecordThreadCreated(ctx context.Context, threadID, creatorID, creatorRole, serviceName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordThreadCreated", ctx, threadID, creatorID, creatorRole, serviceName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordThreadCreated indicates an expected call of RecordThreadCreated.
+func (mr *MockActivityEventRepositoryMockRecorder) RecordThreadCreated(ctx, threadID, creatorID, creatorRole, serviceName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordThreadCreated", reflect.TypeOf((*MockActivityEventRepository)(nil).RecordThreadCreated), ctx, threadID, creatorID, creatorRole, serviceName)
+}
+
+// MockActivityArchiveRepository is a mock of ActivityArchiveRepository interface.
+type MockActivityArchiveRepository struct {
+	ctrl     *gomock.Controller
+	recorder *MockActivityArchiveRepositoryMockRecorder
+}
+
+// MockActivityArchiveRepositoryMockRecorder is the mock recorder for MockActivityArchiveRepository.
+type MockActivityArchiveRepositoryMockRecorder struct {
+	mock *MockActivityArchiveRepository
+}
+
+// NewMockActivityArchiveRepository creates a new mock instance.
+func NewMockActivityArchiveRepository(ctrl *gomock.Controller) *MockActivityArchiveRepository {
+	mock := &MockActivityArchiveRepository{ctrl: ctrl}
+	mock.recorder = &MockActivityArchiveRepositoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockActivityArchiveRepository) EXPECT() *MockActivityArchiveRepositoryMockRecorder {
+	return m.recorder
+}
+
+// ArchiveStepState mocks base method.
+func (m *MockActivityArchiveRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveStepState", ctx, stepState)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveStepState indicates an expected call of ArchiveStepState.
+func (mr *MockActivityArchiveRepositoryMockRecorder) ArchiveStepState(ctx, stepState interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveStepState", reflect.TypeOf((*MockActivityArchiveRepository)(nil).ArchiveStepState), ctx, stepState)
+}
+
+// ArchiveThreadMetadata mocks base method.
+func (m *MockActivityArchiveRepository) ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveThreadMetadata", ctx, thread, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveThreadMetadata indicates an expected call of ArchiveThreadMetadata.
+func (mr *MockActivityArchiveRepositoryMockRecorder) ArchiveThreadMetadata(ctx, thread, status interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveThreadMetadata", reflect.TypeOf((*MockActivityArchiveRepository)(nil).ArchiveThreadMetadata), ctx, thread, status)
+}
+
+// ArchiveValidationResults mocks base method.
+func (m *MockActivityArchiveRepository) ArchiveValidationResults(ctx context.Context, threadID, stepID, stepName, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ArchiveValidationResults", ctx, threadID, stepID, stepName, idempotencyKey, notifications, finalStatus, hasCriticalViolation)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ArchiveValidationResults indicates an expected call of ArchiveValidationResults.
+func (mr *MockActivityArchiveRepositoryMockRecorder) ArchiveValidationResults(ctx, threadID, stepID, stepName, idempotencyKey, notifications, finalStatus, hasCriticalViolation interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ArchiveValidationResults", reflect.TypeOf((*MockActivityArchiveRepository)(nil).ArchiveValidationResults), ctx, threadID, stepID, stepName, idempotencyKey, notifications, finalStatus, hasCriticalViolation)
+}
+
+// GetActivityLog mocks base method.
+func (m *MockActivityArchiveRepository) GetActivityLog(ctx context.Context, threadID string) ([]map[string]interface{}, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActivityLog", ctx, threadID)
+	ret0, _ := ret[0].([]map[string]interface{})
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActivityLog indicates an expected call of GetActivityLog.
+func (mr *MockActivityArchiveRepositoryMockRecorder) GetActivityLog(ctx, threadID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActivityLog", reflect.TypeOf((*MockActivityArchiveRepository)(nil).GetActivityLog), ctx, threadID)
 }
 
 // MockActivityRepository is a mock of ActivityRepository interface.
@@ -1502,7 +3852,7 @@ func (m *MockActivityRepository) EXPECT() *MockActivityRepositoryMockRecorder {
 }
 
 // ArchiveStepState mocks base method.
-func (m *MockActivityRepository) ArchiveStepState(ctx context.Context, stepState *interfaces.StepStateSnapshot) error {
+func (m *MockActivityRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveStepState", ctx, stepState)
 	ret0, _ := ret[0].(error)
@@ -1559,7 +3909,7 @@ func (mr *MockActivityRepositoryMockRecorder) GetActivityLog(ctx, threadID inter
 }
 
 // RecordAccessGranted mocks base method.
-func (m *MockActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+func (m *MockActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordAccessGranted", ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole)
 	ret0, _ := ret[0].(error)
@@ -1681,6 +4031,151 @@ func (mr *MockContractGraphRepositoryMockRecorder) Save(ctx, contractName, versi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockContractGraphRepository)(nil).Save), ctx, contractName, version, companyID, graph)
 }
 
+// MockLuaRegistry is a mock of LuaRegistry interface.
+type MockLuaRegistry struct {
+	ctrl     *gomock.Controller
+	recorder *MockLuaRegistryMockRecorder
+}
+
+// MockLuaRegistryMockRecorder is the mock recorder for MockLuaRegistry.
+type MockLuaRegistryMockRecorder struct {
+	mock *MockLuaRegistry
+}
+
+// NewMockLuaRegistry creates a new mock instance.
+func NewMockLuaRegistry(ctrl *gomock.Controller) *MockLuaRegistry {
+	mock := &MockLuaRegistry{ctrl: ctrl}
+	mock.recorder = &MockLuaRegistryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockLuaRegistry) EXPECT() *MockLuaRegistryMockRecorder {
+	return m.recorder
+}
+
+// GetScriptHash mocks base method.
+func (m *MockLuaRegistry) GetScriptHash(name string) (string, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetScriptHash", name)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetScriptHash indicates an expected call of GetScriptHash.
+func (mr *MockLuaRegistryMockRecorder) GetScriptHash(name interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScriptHash", reflect.TypeOf((*MockLuaRegistry)(nil).GetScriptHash), name)
+}
+
+// MockRateLimiter is a mock of RateLimiter interface.
+type MockRateLimiter struct {
+	ctrl     *gomock.Controller
+	recorder *MockRateLimiterMockRecorder
+}
+
+// MockRateLimiterMockRecorder is the mock recorder for MockRateLimiter.
+type MockRateLimiterMockRecorder struct {
+	mock *MockRateLimiter
+}
+
+// NewMockRateLimiter creates a new mock instance.
+func NewMockRateLimiter(ctrl *gomock.Controller) *MockRateLimiter {
+	mock := &MockRateLimiter{ctrl: ctrl}
+	mock.recorder = &MockRateLimiterMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRateLimiter) EXPECT() *MockRateLimiterMockRecorder {
+	return m.recorder
+}
+
+// CheckCompanyRateLimit mocks base method.
+func (m *MockRateLimiter) CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute, windowSeconds int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckCompanyRateLimit", ctx, companyID, requestsPerMinute, windowSeconds)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckCompanyRateLimit indicates an expected call of CheckCompanyRateLimit.
+func (mr *MockRateLimiterMockRecorder) CheckCompanyRateLimit(ctx, companyID, requestsPerMinute, windowSeconds interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckCompanyRateLimit", reflect.TypeOf((*MockRateLimiter)(nil).CheckCompanyRateLimit), ctx, companyID, requestsPerMinute, windowSeconds)
+}
+
+// CheckIPRateLimit mocks base method.
+func (m *MockRateLimiter) CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow, windowSeconds int) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckIPRateLimit", ctx, ip, requestsPerWindow, windowSeconds)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CheckIPRateLimit indicates an expected call of CheckIPRateLimit.
+func (mr *MockRateLimiterMockRecorder) CheckIPRateLimit(ctx, ip, requestsPerWindow, windowSeconds interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIPRateLimit", reflect.TypeOf((*MockRateLimiter)(nil).CheckIPRateLimit), ctx, ip, requestsPerWindow, windowSeconds)
+}
+
+// MockCreditManager is a mock of CreditManager interface.
+type MockCreditManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockCreditManagerMockRecorder
+}
+
+// MockCreditManagerMockRecorder is the mock recorder for MockCreditManager.
+type MockCreditManagerMockRecorder struct {
+	mock *MockCreditManager
+}
+
+// NewMockCreditManager creates a new mock instance.
+func NewMockCreditManager(ctrl *gomock.Controller) *MockCreditManager {
+	mock := &MockCreditManager{ctrl: ctrl}
+	mock.recorder = &MockCreditManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCreditManager) EXPECT() *MockCreditManagerMockRecorder {
+	return m.recorder
+}
+
+// DecrementCreditWithAutoTopup mocks base method.
+func (m *MockCreditManager) DecrementCreditWithAutoTopup(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecrementCreditWithAutoTopup", ctx, params)
+	ret0, _ := ret[0].(types.DebitResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DecrementCreditWithAutoTopup indicates an expected call of DecrementCreditWithAutoTopup.
+func (mr *MockCreditManagerMockRecorder) DecrementCreditWithAutoTopup(ctx, params interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementCreditWithAutoTopup", reflect.TypeOf((*MockCreditManager)(nil).DecrementCreditWithAutoTopup), ctx, params)
+}
+
+// GetAndResetCharged mocks base method.
+func (m *MockCreditManager) GetAndResetCharged(ctx context.Context, balanceKey, chargedKey string) (int64, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAndResetCharged", ctx, balanceKey, chargedKey)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetAndResetCharged indicates an expected call of GetAndResetCharged.
+func (mr *MockCreditManagerMockRecorder) GetAndResetCharged(ctx, balanceKey, chargedKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAndResetCharged", reflect.TypeOf((*MockCreditManager)(nil).GetAndResetCharged), ctx, balanceKey, chargedKey)
+}
+
 // MockLuaScriptManager is a mock of LuaScriptManager interface.
 type MockLuaScriptManager struct {
 	ctrl     *gomock.Controller
@@ -1735,10 +4230,10 @@ func (mr *MockLuaScriptManagerMockRecorder) CheckIPRateLimit(ctx, ip, requestsPe
 }
 
 // DecrementCreditWithAutoTopup mocks base method.
-func (m *MockLuaScriptManager) DecrementCreditWithAutoTopup(ctx context.Context, params *interfaces.DebitParams) (interfaces.DebitResult, error) {
+func (m *MockLuaScriptManager) DecrementCreditWithAutoTopup(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DecrementCreditWithAutoTopup", ctx, params)
-	ret0, _ := ret[0].(interfaces.DebitResult)
+	ret0, _ := ret[0].(types.DebitResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1804,10 +4299,10 @@ func (m *MockNATSClient) EXPECT() *MockNATSClientMockRecorder {
 }
 
 // FetchMessage mocks base method.
-func (m *MockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) ([]byte, error) {
+func (m *MockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FetchMessage", subject, consumerName, timeout)
-	ret0, _ := ret[0].([]byte)
+	ret0, _ := ret[0].(*types.NATSMessage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

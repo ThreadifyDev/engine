@@ -11,7 +11,7 @@ import (
 	billingmodels "threadify-go/shared/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -26,14 +26,14 @@ const (
 )
 
 type WebhookHandler struct {
-	provider   interfaces.WebhookProvider
-	billingSvc interfaces.BillingWebhookService
+	provider   types.WebhookProvider
+	billingSvc types.BillingWebhookService
 	logger     *zap.Logger
 }
 
 func NewWebhookHandler(
-	provider interfaces.WebhookProvider,
-	billingSvc interfaces.BillingWebhookService,
+	provider types.WebhookProvider,
+	billingSvc types.BillingWebhookService,
 	logger *zap.Logger,
 ) *WebhookHandler {
 	return &WebhookHandler{

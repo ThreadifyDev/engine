@@ -12,8 +12,8 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	interfaces "github.com/threadify/engine/internal/interfaces"
 	models "github.com/threadify/engine/internal/models"
+	types "github.com/threadify/engine/internal/types"
 	validator "github.com/threadify/engine/pkg/validator"
 )
 
@@ -719,18 +719,18 @@ func (mr *MockContractServiceMockRecorder) GetAllContractVersions(ctx, contractI
 }
 
 // GetAllContracts mocks base method.
-func (m *MockContractService) GetAllContracts(ctx context.Context, ownerID string) (int, interface{}) {
+func (m *MockContractService) GetAllContracts(ctx context.Context, ownerID, search string, limit, offset int) (int, interface{}) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllContracts", ctx, ownerID)
+	ret := m.ctrl.Call(m, "GetAllContracts", ctx, ownerID, search, limit, offset)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(interface{})
 	return ret0, ret1
 }
 
 // GetAllContracts indicates an expected call of GetAllContracts.
-func (mr *MockContractServiceMockRecorder) GetAllContracts(ctx, ownerID interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) GetAllContracts(ctx, ownerID, search, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllContracts", reflect.TypeOf((*MockContractService)(nil).GetAllContracts), ctx, ownerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllContracts", reflect.TypeOf((*MockContractService)(nil).GetAllContracts), ctx, ownerID, search, limit, offset)
 }
 
 // GetContract mocks base method.
@@ -1089,7 +1089,7 @@ func (mr *MockNotificationRouterMockRecorder) HandleAck(ackToken interface{}) *g
 }
 
 // HandleConnect mocks base method.
-func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn interfaces.WSConnection, connMutex interfaces.WSMutex) error {
+func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn types.WSConnection, connMutex types.WSMutex) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleConnect", sessionID, ownerID, maxInFlight, conn, connMutex)
 	ret0, _ := ret[0].(error)
@@ -1206,10 +1206,10 @@ func (mr *MockAuthServiceMockRecorder) GetUserRoles(ctx, userID, scope, expiresA
 }
 
 // ValidateApiKey mocks base method.
-func (m *MockAuthService) ValidateApiKey(apiKey string) (*interfaces.UserInfo, error) {
+func (m *MockAuthService) ValidateApiKey(apiKey string) (*types.UserInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateApiKey", apiKey)
-	ret0, _ := ret[0].(*interfaces.UserInfo)
+	ret0, _ := ret[0].(*types.UserInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

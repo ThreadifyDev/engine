@@ -11,7 +11,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/middleware"
 )
 
@@ -23,11 +23,11 @@ type PreviewResponse struct {
 }
 
 type ContractHandler struct {
-	contractService interfaces.ContractService
+	contractService types.ContractService
 	logger          *zap.Logger
 }
 
-func NewContractHandler(contractService interfaces.ContractService, logger *zap.Logger) *ContractHandler {
+func NewContractHandler(contractService types.ContractService, logger *zap.Logger) *ContractHandler {
 	return &ContractHandler{contractService: contractService, logger: logger}
 }
 

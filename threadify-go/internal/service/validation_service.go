@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -15,14 +15,12 @@ import (
 // and other compliance rules without blocking the main thread execution.
 // ValidationService handles all validation logic for threads and steps
 type ValidationService struct {
-	valkeyClient interfaces.ValkeyClient
-	threadRepo   interfaces.ThreadRepository
+	threadRepo   types.ThreadRepository
 }
 
 // NewValidationService creates a new validation service
-func NewValidationService(valkeyClient interfaces.ValkeyClient, threadRepo interfaces.ThreadRepository) *ValidationService {
+func NewValidationService(threadRepo types.ThreadRepository) *ValidationService {
 	return &ValidationService{
-		valkeyClient: valkeyClient,
 		threadRepo:   threadRepo,
 	}
 }
@@ -30,7 +28,7 @@ func NewValidationService(valkeyClient interfaces.ValkeyClient, threadRepo inter
 // GetCurrentSteps retrieves current step names from the sorted set
 func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string) []string {
 	// Use repository method instead of direct Valkey call
-	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID, true)
+	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return []string{}
 	}

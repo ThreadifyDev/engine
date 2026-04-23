@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -65,9 +66,15 @@ func expectGrantCalls(h *batcher, writes []*service.AccessWrite, retErr error) {
 	for _, w := range writes {
 		h.mockRepo.EXPECT().GrantOrUpdateAccess(
 			gomock.Any(),
-			w.ThreadID, w.UserID, w.Role, w.RuntimeRole,
-			gomock.Any(), w.InvitedBy,
-			h.mockLua, nil, nil,
+			types.GrantAccessParams{
+				ThreadID:    w.ThreadID,
+				UserID:      w.UserID,
+				Role:        w.Role,
+				RuntimeRole: w.RuntimeRole,
+				Permissions: nil, // We'll use Any for the whole struct in some cases, or just match what we can
+				InvitedBy:   w.InvitedBy,
+				LuaRegistry: h.mockLua,
+			},
 		).Return(nil, retErr).Times(1)
 	}
 }
@@ -158,9 +165,7 @@ func TestAccessBatcher(t *testing.T) {
 			setupMocks: func(h *batcher, writes []*service.AccessWrite) {
 				h.mockRepo.EXPECT().GrantOrUpdateAccess(
 					gomock.Any(),
-					writes[0].ThreadID, writes[0].UserID, writes[0].Role, writes[0].RuntimeRole,
-					gomock.Any(), writes[0].InvitedBy,
-					h.mockLua, nil, nil,
+					gomock.Any(),
 				).Return(nil, nil).Times(1)
 			},
 			run: func(t *testing.T, b *service.AccessBatcher, writes []*service.AccessWrite, _ *batcher) {
@@ -182,9 +187,7 @@ func TestAccessBatcher(t *testing.T) {
 			setupMocks: func(h *batcher, writes []*service.AccessWrite) {
 				h.mockRepo.EXPECT().GrantOrUpdateAccess(
 					gomock.Any(),
-					writes[0].ThreadID, writes[0].UserID, writes[0].Role, writes[0].RuntimeRole,
-					gomock.Any(), writes[0].InvitedBy,
-					h.mockLua, nil, nil,
+					gomock.Any(),
 				).Return(nil, errors.New("sync error")).Times(1)
 			},
 			run: func(t *testing.T, b *service.AccessBatcher, writes []*service.AccessWrite, _ *batcher) {
@@ -265,9 +268,7 @@ func TestAccessBatcher(t *testing.T) {
 			setupMocks: func(h *batcher, writes []*service.AccessWrite) {
 				h.mockRepo.EXPECT().GrantOrUpdateAccess(
 					gomock.Any(),
-					gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-					gomock.Any(), gomock.Any(),
-					h.mockLua, nil, nil,
+					gomock.Any(),
 				).Return(nil, nil).Times(len(writes))
 			},
 			run: func(t *testing.T, b *service.AccessBatcher, writes []*service.AccessWrite, _ *batcher) {

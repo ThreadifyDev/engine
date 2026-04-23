@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	"go.uber.org/zap"
@@ -147,7 +147,7 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 	return nil
 }
 
-func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
 	row := r.pool.QueryRow(ctx, `SELECT `+threadSelectCols+` FROM threads t WHERE t.id = $1`, threadID)
 	var thread models.Thread
 	if err := scanThreadRow(row, &thread); err != nil {
@@ -427,8 +427,8 @@ func (r *ThreadRepository) GetThreadRefsRepo() *ThreadRefsRepository {
 	return r.refsRepo
 }
 
-func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*interfaces.StepStateSnapshot, error) {
-	var s interfaces.StepStateSnapshot
+func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*types.StepStateSnapshot, error) {
+	var s types.StepStateSnapshot
 	var previousStep sql.NullString
 
 	err := r.pool.QueryRow(ctx, `
@@ -454,7 +454,7 @@ func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName,
 	return &s, nil
 }
 
-func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string) ([]interfaces.StepWithTimestamp, error) {
+func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string) ([]types.StepWithTimestamp, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT step_name, last_updated_at
 		FROM thread_step_states
@@ -467,9 +467,9 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 	}
 	defer rows.Close()
 
-	var steps []interfaces.StepWithTimestamp
+	var steps []types.StepWithTimestamp
 	for rows.Next() {
-		var step interfaces.StepWithTimestamp
+		var step types.StepWithTimestamp
 		var lastUpdatedAt string
 		if err := rows.Scan(&step.StepName, &lastUpdatedAt); err != nil {
 			continue
@@ -511,7 +511,7 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 
 	rows, err := r.pool.Query(ctx, `
 		WITH RECURSIVE thread_chain AS (
-			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
+			SELECT t.id, t.label, t.contract_id, t.contract_name, t.contract_version,
 			       t.owner_id, t.company_id, t.status, t.error,
 			       t.created_at, t.updated_at, t.completed_at, 1 AS depth
 			FROM threads t
@@ -519,7 +519,7 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 
 			UNION ALL
 
-			SELECT t.id, t.contract_id, t.contract_name, t.contract_version,
+			SELECT t.id, t.label, t.contract_id, t.contract_name, t.contract_version,
 			       t.owner_id, t.company_id, t.status, t.error,
 			       t.created_at, t.updated_at, t.completed_at, tc.depth+1
 			FROM threads t
@@ -529,7 +529,7 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 			  AND tc.depth < $3
 			  AND t.company_id = $2
 		)
-		SELECT id, contract_id, contract_name, contract_version,
+		SELECT id, label, contract_id, contract_name, contract_version,
 		       owner_id, company_id, status, error,
 		       created_at, updated_at, completed_at
 		FROM thread_chain ORDER BY depth ASC`,

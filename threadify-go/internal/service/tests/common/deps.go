@@ -67,6 +67,9 @@ func (d *MockedDependencies) NewPlanService(subCfg *config.SubscriptionConfig) *
 		d.ActorRepo,
 		subCfg,
 		d.Valkey,
+		d.Valkey,
+		d.Valkey,
+		d.Valkey,
 		d.Lua,
 		d.Logger,
 		0,
@@ -83,7 +86,7 @@ func (d *MockedDependencies) NewContractService() *service.ContractService {
 }
 
 func (d *MockedDependencies) NewValidationService() *service.ValidationService {
-	return service.NewValidationService(d.Valkey, d.ThreadRepo)
+	return service.NewValidationService(d.ThreadRepo)
 }
 
 func (d *MockedDependencies) NewAuthService(cacheTTL int) *service.AuthService {

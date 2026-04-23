@@ -20,7 +20,7 @@ import (
 )
 
 func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
-	svc := service.NewPlanService(nil, nil, nil, &config.SubscriptionConfig{}, nil, nil, zap.NewNop(), 0)
+	svc := service.NewPlanService(nil, nil, nil, &config.SubscriptionConfig{}, nil, nil, nil, nil, nil, zap.NewNop(), 0)
 
 	topupDisabled := func() *billingmodels.CreditAccount {
 		return &billingmodels.CreditAccount{
@@ -242,7 +242,7 @@ func TestCheckCreditAvailable_FailsClosedWhenValkeyIsUnavailable(t *testing.T) {
 		Return(nil, errors.New("valkey unavailable"))
 
 	svc := deps.NewPlanService(subCfg)
-	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractCreate, 1)
+	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractExecution, 1)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credit system temporarily unavailable")

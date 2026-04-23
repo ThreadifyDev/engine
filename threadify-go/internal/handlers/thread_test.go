@@ -11,7 +11,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
 )
@@ -218,7 +218,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			d := NewMockedEngineHandlers(t)
 			tt.setupMock(d)
 
-			var nRouter interfaces.NotificationRouter
+			var nRouter types.NotificationRouter
 			if tt.name != "subscribe_no_router" {
 				nRouter = d.NotificationRouter
 			}

@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"go.uber.org/zap"
 )
@@ -27,8 +27,8 @@ type TimeoutMonitor struct {
 	nc              *nats.Conn
 	js              jetstream.JetStream
 	kv              timeoutKV
-	threadRepo      interfaces.ThreadRepository
-	notificationPub interfaces.NotificationPublisher
+	threadRepo      types.ThreadRepository
+	notificationPub types.NotificationPublisher
 	logger          *zap.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -57,7 +57,7 @@ func TimeoutCancellationKey(timeoutID string) string {
 
 // NewTimeoutMonitorForTests constructs a TimeoutMonitor without performing any NATS/JetStream setup.
 // Intended for unit tests that exercise behaviour in isolation.
-func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub interfaces.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
+func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub types.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TimeoutMonitor{
 		kv:              kv,
@@ -71,8 +71,8 @@ func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub interfaces.Notifica
 // NewTimeoutMonitor creates a new timeout monitor service
 func NewTimeoutMonitor(
 	nc *nats.Conn,
-	threadRepo interfaces.ThreadRepository,
-	notificationPub interfaces.NotificationPublisher,
+	threadRepo types.ThreadRepository,
+	notificationPub types.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
 	js, err := jetstream.New(nc)

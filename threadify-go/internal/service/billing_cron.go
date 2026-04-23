@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/threadify/engine/internal/interfaces"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +20,6 @@ const (
 
 type BillingCron struct {
 	billingService *BillingOrchestrator
-	valkeyClient   interfaces.ValkeyClient
 	logger         *zap.Logger
 	js             jetstream.JetStream
 	stopChan       chan struct{}
@@ -30,13 +28,11 @@ type BillingCron struct {
 
 func NewBillingCron(
 	billingService *BillingOrchestrator,
-	valkeyClient interfaces.ValkeyClient,
 	js jetstream.JetStream,
 	logger *zap.Logger,
 ) *BillingCron {
 	return &BillingCron{
 		billingService: billingService,
-		valkeyClient:   valkeyClient,
 		js:             js,
 		logger:         logger,
 		stopChan:       make(chan struct{}),

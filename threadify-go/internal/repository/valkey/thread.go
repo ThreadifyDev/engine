@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
@@ -16,19 +16,27 @@ import (
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey            interfaces.ValkeyClient
+	valkey            types.ThreadValkeyClient
 	ttl               int // TTL in seconds
 	postgresRepo      *postgres.ThreadRepository
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
-	cacheManager      interfaces.CacheManager       // For duplicate detection via LRU cache
+	cacheManager      types.CacheManager       // For duplicate detection via LRU cache
 	writeBackPool     *workerpool.Pool              // For async cache write-backs
-	luaScripts        interfaces.LuaScriptManager   // For atomic Lua script operations
+	luaScripts        types.LuaScriptManager   // For atomic Lua script operations
 	logger            *zap.Logger
 }
 
 // NewThreadRepository creates a new thread repository with PostgreSQL fallback
 // PostgreSQL fallback is always required for production hot/cold architecture
-func NewThreadRepository(valkey interfaces.ValkeyClient, ttl int, postgresRepo *postgres.ThreadRepository, stepStatePostgres *postgres.StepStateRepository, cacheManager interfaces.CacheManager, luaScripts interfaces.LuaScriptManager, logger *zap.Logger) *ThreadRepository {
+func NewThreadRepository(
+	ttl int,
+	valkey types.ThreadValkeyClient,
+	postgresRepo *postgres.ThreadRepository,
+	stepStatePostgres *postgres.StepStateRepository,
+	cacheManager types.CacheManager,
+	luaScripts types.LuaScriptManager,
+	logger *zap.Logger,
+) *ThreadRepository {
 	return &ThreadRepository{
 		valkey:            valkey,
 		ttl:               ttl,
@@ -86,15 +94,10 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 }
 
 // Get retrieves a thread from Valkey (hot) or PostgreSQL (cold) with optional write-back
-// writeBack: if true, caches PostgreSQL data back to Valkey (defaults to false)
-func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
 	r.logger.Debug("Get thread called", zap.String("thread_id", threadID))
 
-	// Default writeBack to false
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
+	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	// Try Valkey first (hot data)
 	thread, err := r.getFromValkey(ctx, threadID)
@@ -197,7 +200,7 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 func (r *ThreadRepository) Delete(ctx context.Context, threadID string) error {
 	key := r.getThreadKey(threadID)
 
-	err := r.valkey.Delete(ctx, key)
+	err := r.valkey.Del(ctx, key)
 	if err != nil {
 		return fmt.Errorf("failed to delete thread: %w", err)
 	}

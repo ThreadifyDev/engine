@@ -10,7 +10,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/workerpool"
 	"golang.org/x/sync/singleflight"
@@ -23,7 +23,7 @@ const (
 
 // cachedUserInfo stores UserInfo with expiration time.
 type cachedUserInfo struct {
-	userInfo  *interfaces.UserInfo
+	userInfo  *types.UserInfo
 	expiresAt time.Time
 }
 
@@ -35,7 +35,7 @@ type cachedRoles struct {
 
 type AuthService struct {
 	db            *pgxpool.Pool
-	authRepo      interfaces.AuthRepository
+	authRepo      types.AuthRepository
 	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
 	rolesCache    sync.Map // key: userID:type   → *cachedRoles
 	cacheTTL      time.Duration
@@ -46,7 +46,7 @@ type AuthService struct {
 	sfRoles       singleflight.Group // Prevents cache stampedes on role lookup
 }
 
-func NewAuthService(authRepo interfaces.AuthRepository, cacheTTLSeconds int) *AuthService {
+func NewAuthService(authRepo types.AuthRepository, cacheTTLSeconds int) *AuthService {
 	ttl := time.Duration(cacheTTLSeconds) * time.Second
 	if cacheTTLSeconds <= 0 {
 		ttl = time.Duration(defaultCacheTTL) * time.Second
@@ -124,7 +124,7 @@ func (s *AuthService) performCleanup() {
 	}
 }
 
-func (s *AuthService) ValidateApiKey(apiKey string) (*interfaces.UserInfo, error) {
+func (s *AuthService) ValidateApiKey(apiKey string) (*types.UserInfo, error) {
 	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
@@ -169,10 +169,10 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*interfaces.UserInfo, error
 	if err != nil {
 		return nil, err
 	}
-	return v.(*interfaces.UserInfo), nil
+	return v.(*types.UserInfo), nil
 }
 
-func (s *AuthService) validateApiKeyFromDB(keyHash string) (*interfaces.UserInfo, error) {
+func (s *AuthService) validateApiKeyFromDB(keyHash string) (*types.UserInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -198,7 +198,7 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*interfaces.UserInfo
 	// 	})
 	// }
 
-	return &interfaces.UserInfo{
+	return &types.UserInfo{
 		OwnerID:   info.OwnerID,
 		CompanyID: info.CompanyID,
 		Role:      info.Role,

@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -24,7 +25,7 @@ func NewAccessRepository(pool *pgxpool.Pool) *AccessRepository {
 }
 
 // GetUserAccess retrieves user access from thread_access table
-func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error) {
+func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*types.UserAccess, error) {
 	query := `
 		SELECT roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
@@ -34,8 +35,9 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 	var rolesJSON []byte
 	var runtimeRole string
 	var permissions []string
-	var grantedBy, grantedAt, status string
-	var updatedAt sql.NullString
+	var grantedBy, status string
+	var grantedAt time.Time
+	var updatedAt sql.NullTime
 
 	err := r.pool.QueryRow(ctx, query, threadID, userID).Scan(
 		&rolesJSON,
@@ -60,7 +62,7 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 		return nil, fmt.Errorf("failed to parse roles: %w", err)
 	}
 
-	access := &interfaces.UserAccess{
+	access := &types.UserAccess{
 		Roles:       roles,
 		RuntimeRole: runtimeRole,
 		Permissions: permissions,
@@ -70,14 +72,14 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 	}
 
 	if updatedAt.Valid {
-		access.UpdatedAt = updatedAt.String
+		access.UpdatedAt = &updatedAt.Time
 	}
 
 	return access, nil
 }
 
 // GetAllAccess retrieves all user access for a thread from thread_access table
-func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error) {
+func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*types.UserAccess, error) {
 	query := `
 		SELECT user_id, roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
@@ -90,15 +92,16 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 	}
 	defer rows.Close()
 
-	result := make(map[string]*interfaces.UserAccess)
+	result := make(map[string]*types.UserAccess)
 
 	for rows.Next() {
 		var userID string
 		var rolesJSON []byte
 		var runtimeRole string
 		var permissions []string
-		var grantedBy, grantedAt, status string
-		var updatedAt sql.NullString
+		var grantedBy, status string
+		var grantedAt time.Time
+		var updatedAt sql.NullTime
 
 		err := rows.Scan(
 			&userID,
@@ -121,7 +124,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 			continue
 		}
 
-		result[userID] = &interfaces.UserAccess{
+		result[userID] = &types.UserAccess{
 			Roles:       roles,
 			RuntimeRole: runtimeRole,
 			Permissions: permissions,
@@ -131,7 +134,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 		}
 
 		if updatedAt.Valid {
-			result[userID].UpdatedAt = updatedAt.String
+			result[userID].UpdatedAt = &updatedAt.Time
 		}
 	}
 

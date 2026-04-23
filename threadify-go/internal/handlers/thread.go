@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
@@ -53,22 +53,22 @@ const (
 var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
-	threadService        interfaces.ThreadService
-	stepEventService     interfaces.StepEventProcessor
-	invitationService    interfaces.InvitationTokenService
-	notificationConsumer interfaces.NotificationConsumer
-	notificationRouter   interfaces.NotificationRouter
-	planService          interfaces.PlanService
-	valkeyClient         interfaces.ValkeyClient
+	threadService        types.ThreadService
+	stepEventService     types.StepEventProcessor
+	invitationService    types.InvitationTokenService
+	notificationConsumer types.NotificationConsumer
+	notificationRouter   types.NotificationRouter
+	planService          types.PlanService
+	valkeyClient         types.ValkeyClient
 	sessions             sync.Map
-	luaScriptManager     interfaces.LuaScriptManager
+	luaScriptManager     types.LuaScriptManager
 	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
 	logger               *zap.Logger
 }
 
 type WSSession struct {
-	conn      interfaces.WSConnection
+	conn      types.WSConnection
 	sessionID string
 	ownerID   string
 	companyID string
@@ -87,14 +87,14 @@ type NotificationACKMessage struct {
 }
 
 func NewWebSocketHandler(
-	threadService interfaces.ThreadService,
-	stepEventService interfaces.StepEventProcessor,
-	invitationService interfaces.InvitationTokenService,
-	notificationConsumer interfaces.NotificationConsumer,
-	notificationRouter interfaces.NotificationRouter,
-	planService interfaces.PlanService,
-	valkeyClient interfaces.ValkeyClient,
-	luaScriptManager interfaces.LuaScriptManager,
+	threadService types.ThreadService,
+	stepEventService types.StepEventProcessor,
+	invitationService types.InvitationTokenService,
+	notificationConsumer types.NotificationConsumer,
+	notificationRouter types.NotificationRouter,
+	planService types.PlanService,
+	valkeyClient types.ValkeyClient,
+	luaScriptManager types.LuaScriptManager,
 	rateLimitConfig *config.RateLimitConfig,
 	websocketConfig *config.WebSocketConfig,
 	logger *zap.Logger,
@@ -122,7 +122,7 @@ func NewWebSocketHandler(
 	}
 }
 
-func (s *WSSession) enforceCredits(planSvc interfaces.PlanService, action string) *models.ErrorResponse {
+func (s *WSSession) enforceCredits(planSvc types.PlanService, action string) *models.ErrorResponse {
 	if action == ActionConnect || action == ActionCloseThread || action == ActionThreadEnd || action == ActionCloseConnection || s.companyID == "" {
 		return nil
 	}

@@ -7,10 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 )
 
-func IPRateLimitMiddleware(luaScripts interfaces.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
+func IPRateLimitMiddleware(luaScripts types.LuaScriptManager, rateCfg *config.RateLimitConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip for health and metrics
 		path := c.Request.URL.Path

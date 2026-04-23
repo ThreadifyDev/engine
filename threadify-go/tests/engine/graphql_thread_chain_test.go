@@ -48,7 +48,6 @@ func TestGraphQL_ThreadChain_CompanyIsolation(t *testing.T) {
 	contractName := "gql_contract_" + uuid.NewString()[:8]
 	threadID := enginetest.CreateThread(t, env.Postgres.Pool, userA, contractName, 1)
 
-	// User A should see the thread
 	_, respA := doGraphQL(t, "", userA.ApiKey, graphQLRequest{
 		Query: "query($rootId: ID!) { threadChain(rootId: $rootId) { id } }",
 		Variables: map[string]interface{}{
@@ -60,7 +59,6 @@ func TestGraphQL_ThreadChain_CompanyIsolation(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, threadsA, 1)
 
-	// User B should not see User A's threads
 	_, respB := doGraphQL(t, "", userB.ApiKey, graphQLRequest{
 		Query: "query($rootId: ID!) { threadChain(rootId: $rootId) { id } }",
 		Variables: map[string]interface{}{
@@ -115,7 +113,6 @@ func TestGraphQL_ThreadChain_DefaultMaxDepth(t *testing.T) {
 	contractName := "gql_contract_" + uuid.NewString()[:8]
 	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1)
 
-	// Test default maxDepth (should be 3)
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($rootId: ID!) { threadChain(rootId: $rootId) { id } }",
 		Variables: map[string]interface{}{
@@ -161,4 +158,30 @@ func TestGraphQL_ThreadChain_NegativeMaxDepth_Clamped(t *testing.T) {
 	})
 
 	require.NotEmpty(t, gqlResp.Errors)
+}
+
+func TestGraphQL_Thread_ThreadChain(t *testing.T) {
+	user := setupTestUser(t)
+
+	contractName := "gql_contract_" + uuid.NewString()[:8]
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1)
+
+	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
+		Query: "query($id: ID!) { thread(id: $id) { id threadChain { id } } }",
+		Variables: map[string]interface{}{
+			"id": threadID,
+		},
+	})
+
+	require.Empty(t, gqlResp.Errors)
+	thread, ok := gqlResp.Data["thread"].(map[string]interface{})
+	require.True(t, ok)
+
+	chain, ok := thread["threadChain"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, chain, 1)
+
+	threadObj, ok := chain[0].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, threadID, threadObj["id"])
 }

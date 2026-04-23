@@ -8,7 +8,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-//go:generate mockgen -package=mocks -destination=mocks/archiver_mocks.go -source=interfaces.go
+//go:generate mockgen -package=mocks -destination=mocks/archiver_mocks.go -source=types.go
 
 type DBExecer interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)

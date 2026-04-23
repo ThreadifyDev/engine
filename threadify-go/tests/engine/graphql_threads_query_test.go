@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/tests/internal/dbhelpers"
 	"github.com/threadify/engine/tests/internal/enginetest"
 )
 
@@ -105,7 +106,9 @@ func TestGraphQL_Threads_ByStatus(t *testing.T) {
 
 	contractName := "gql_contract_" + uuid.NewString()[:8]
 	status := "running"
-	threadID := enginetest.CreateThreadWithStatus(t, env.Postgres.Pool, user, contractName, 1, status)
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Status: "running",
+	})
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($status: String) { threads(status: $status, limit: 10) { totalCount threads { id status } } }",
@@ -161,8 +164,9 @@ func TestGraphQL_Threads_MultipleFilters(t *testing.T) {
 
 	contractName := "gql_contract_" + uuid.NewString()[:8]
 	status := "running"
-	_ = enginetest.CreateThreadWithStatus(t, env.Postgres.Pool, user, contractName, 1, status)
-
+	_ = enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Status: "running",
+	})
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($contractName: String, $status: String) { threads(contractName: $contractName, status: $status, limit: 10) { totalCount threads { id contractName status } } }",
 		Variables: map[string]interface{}{

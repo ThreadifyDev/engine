@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -129,24 +130,14 @@ func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, cont
 	return tx.Commit(ctx)
 }
 
-func (r *ContractRepository) Update(ctx context.Context, contractID, description, contentHash string, latestVersion int, updatedAt time.Time) (*models.Contract, error) {
+func (r *ContractRepository) Update(ctx context.Context, params types.UpdateContractParams) (*models.Contract, error) {
 	query := `UPDATE contracts
 		SET description=$1, content_hash=$2, latest_version=$3, updated_at=$4
 		WHERE id=$5 AND is_deleted=false
 		RETURNING ` + contractCols
 
 	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, description, contentHash, latestVersion, updatedAt, contractID), &c); err != nil {
-		return nil, contractErr(err)
-	}
-	return &c, nil
-}
-
-func (r *ContractRepository) Get(ctx context.Context, id string) (*models.Contract, error) {
-	var c models.Contract
-	if err := scanContract(r.pool.QueryRow(ctx,
-		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND is_deleted=false`, id,
-	), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx, query, params.Description, params.ContentHash, params.LatestVersion, params.UpdatedAt, params.ContractID), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
@@ -194,9 +185,9 @@ func (r *ContractRepository) GetByName(ctx context.Context, name string) (*model
 	return &c, nil
 }
 
-// GetByNameSlim returns a partially-populated Contract (id, name, latest_version, owner_id only).
+// GetByNameSummary returns a partially-populated Contract (id, name, latest_version, owner_id only).
 // Do not use where a full Contract is expected.
-func (r *ContractRepository) GetByNameSlim(ctx context.Context, name string) (*models.Contract, error) {
+func (r *ContractRepository) GetByNameSummary(ctx context.Context, name string) (*models.Contract, error) {
 	var c models.Contract
 	if err := r.pool.QueryRow(ctx,
 		`SELECT id, name, latest_version, owner_id FROM contracts WHERE name=$1 AND is_deleted=false`, name,
@@ -206,42 +197,42 @@ func (r *ContractRepository) GetByNameSlim(ctx context.Context, name string) (*m
 	return &c, nil
 }
 
-func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, updatedAt time.Time) error {
+func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE contracts SET is_deleted=true, updated_at=$1 WHERE id=$2`,
-		updatedAt, contractID,
+		time.Now(), contractID,
 	)
 	return contractErr(err)
 }
 
-func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, search string, limit, offset int) ([]*models.Contract, int, error) {
+func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts types.ContractListOptions) (types.ContractListResult, error) {
 	query := `SELECT ` + contractCols + ` FROM contracts WHERE owner_id=$1 AND is_deleted=false`
 	countQuery := `SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`
 	args := []interface{}{ownerID}
 
-	if search != "" {
+	if opts.Search != "" {
 		filter := " AND name ILIKE $" + fmt.Sprint(len(args)+1)
 		query += filter
 		countQuery += filter
-		args = append(args, "%"+search+"%")
+		args = append(args, "%"+opts.Search+"%")
 	}
 
 	var total int
 	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count contracts by owner: %w", err)
+		return types.ContractListResult{}, fmt.Errorf("count contracts by owner: %w", err)
 	}
 
 	query += ` ORDER BY created_at DESC`
-	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", limit)
+	if opts.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", opts.Limit)
 	}
-	if offset > 0 {
-		query += fmt.Sprintf(" OFFSET %d", offset)
+	if opts.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", opts.Offset)
 	}
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("query contracts by owner: %w", err)
+		return types.ContractListResult{}, fmt.Errorf("query contracts by owner: %w", err)
 	}
 	defer rows.Close()
 
@@ -249,22 +240,22 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 	for rows.Next() {
 		var c models.Contract
 		if err := scanContract(rows, &c); err != nil {
-			return nil, 0, fmt.Errorf("scan contract: %w", err)
+			return types.ContractListResult{}, fmt.Errorf("scan contract: %w", err)
 		}
 		contracts = append(contracts, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterate contracts: %w", err)
+		return types.ContractListResult{}, fmt.Errorf("iterate contracts: %w", err)
 	}
-	return contracts, total, nil
+	return types.ContractListResult{Contracts: contracts, TotalCount: total}, nil
 }
 
-func (r *ContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
+func (r *ContractRepository) CountByOwner(ctx context.Context, ownerID string) (int, error) {
 	var count int
 	if err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM contracts WHERE company_id=$1 AND is_deleted=false`, companyID,
+		`SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`, ownerID,
 	).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count contracts by company: %w", err)
+		return 0, fmt.Errorf("count contracts by owner: %w", err)
 	}
 	return count, nil
 }
@@ -327,10 +318,10 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 	return versions, nil
 }
 
-func (r *ContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int, updatedAt time.Time) error {
+func (r *ContractRepository) SoftDeleteVersion(ctx context.Context, contractID string, version int) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE contract_versions SET is_deleted=true, updated_at=$1 WHERE contract_id=$2 AND version=$3`,
-		updatedAt, contractID, version,
+		time.Now(), contractID, version,
 	)
 	if err != nil {
 		return fmt.Errorf("soft delete version: %w", err)

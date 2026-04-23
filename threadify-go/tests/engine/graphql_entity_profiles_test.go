@@ -1,14 +1,12 @@
 package engine
 
 import (
-	"context"
 	"testing"
+	"threadify-go/shared/slug"
 	"time"
 
-	"threadify-go/shared/slug"
-
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/tests/internal/enginetest"
 )
 
 func TestGraphQL_EntityProfile_RequiresAuth(t *testing.T) {
@@ -227,31 +225,18 @@ func TestGraphQL_EntityProfileTypes_EmptyResult(t *testing.T) {
 func TestGraphQL_EntityProfilesByType_FiltersByProfileTypeName(t *testing.T) {
 	user := setupTestUser(t)
 
-	profileTypeID := uuid.NewString()
 	profileTypeName := "Customer Profiles"
-	profileTypeSlug := slug.ToSlug(profileTypeName)
-	_, err := env.Postgres.Pool.Exec(context.Background(), `
-		INSERT INTO entity_profile_type (id, company_id, name, type, slug, description, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-	`, profileTypeID, user.CompanyID, profileTypeName, []string{"customer"}, profileTypeSlug, "test type")
-	require.NoError(t, err)
+	refKey := "customer"
 
-	olderID := uuid.NewString()
-	newerID := uuid.NewString()
+	profileTypeID := enginetest.CreateEntityProfileType(t, env.Postgres.Pool, user.CompanyID, profileTypeName, []string{refKey})
+
 	olderLastActive := time.Now().Add(-2 * time.Hour).UTC()
 	newerLastActive := time.Now().Add(-1 * time.Hour).UTC()
 
-	_, err = env.Postgres.Pool.Exec(context.Background(), `
-		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-	`, olderID, user.CompanyID, profileTypeID, "Older Profile", "older_ref", olderLastActive)
-	require.NoError(t, err)
+	olderID := enginetest.CreateEntityProfileWithTimestamp(t, env.Postgres.Pool, user.CompanyID, profileTypeID, "Older Profile", "older_ref", olderLastActive)
+	newerID := enginetest.CreateEntityProfileWithTimestamp(t, env.Postgres.Pool, user.CompanyID, profileTypeID, "Newer Profile", "newer_ref", newerLastActive)
 
-	_, err = env.Postgres.Pool.Exec(context.Background(), `
-		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-	`, newerID, user.CompanyID, profileTypeID, "Newer Profile", "newer_ref", newerLastActive)
-	require.NoError(t, err)
+	profileTypeSlug := slug.ToSlug(profileTypeName)
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($type: String!) { entityProfilesByType(type: $type, limit: 10, offset: 0) { totalCount profileType { name } items { id refKey profileTypeId } } }",
