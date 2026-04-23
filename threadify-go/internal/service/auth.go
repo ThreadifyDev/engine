@@ -21,15 +21,9 @@ const (
 	maxCacheEntries = 100000 // Cap to prevent unbounded memory growth
 )
 
-type UserInfo struct {
-	OwnerID   string `json:"ownerId"`
-	CompanyID string `json:"companyId"`
-	Role      string `json:"role"`
-}
-
 // cachedUserInfo stores UserInfo with expiration time.
 type cachedUserInfo struct {
-	userInfo  *UserInfo
+	userInfo  *interfaces.UserInfo
 	expiresAt time.Time
 }
 
@@ -130,7 +124,7 @@ func (s *AuthService) performCleanup() {
 	}
 }
 
-func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
+func (s *AuthService) ValidateApiKey(apiKey string) (*interfaces.UserInfo, error) {
 	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
@@ -175,10 +169,10 @@ func (s *AuthService) ValidateApiKey(apiKey string) (*UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return v.(*UserInfo), nil
+	return v.(*interfaces.UserInfo), nil
 }
 
-func (s *AuthService) validateApiKeyFromDB(keyHash string) (*UserInfo, error) {
+func (s *AuthService) validateApiKeyFromDB(keyHash string) (*interfaces.UserInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -204,7 +198,7 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*UserInfo, error) {
 	// 	})
 	// }
 
-	return &UserInfo{
+	return &interfaces.UserInfo{
 		OwnerID:   info.OwnerID,
 		CompanyID: info.CompanyID,
 		Role:      info.Role,

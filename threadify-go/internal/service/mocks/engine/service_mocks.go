@@ -7,6 +7,8 @@ package enginemocks
 import (
 	context "context"
 	reflect "reflect"
+	auth "threadify-go/shared/auth"
+	rbac "threadify-go/shared/rbac"
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
@@ -1163,6 +1165,139 @@ func (m *MockNotificationPublisher) PublishNotification(ctx context.Context, not
 func (mr *MockNotificationPublisherMockRecorder) PublishNotification(ctx, notification interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishNotification", reflect.TypeOf((*MockNotificationPublisher)(nil).PublishNotification), ctx, notification)
+}
+
+// MockAuthService is a mock of AuthService interface.
+type MockAuthService struct {
+	ctrl     *gomock.Controller
+	recorder *MockAuthServiceMockRecorder
+}
+
+// MockAuthServiceMockRecorder is the mock recorder for MockAuthService.
+type MockAuthServiceMockRecorder struct {
+	mock *MockAuthService
+}
+
+// NewMockAuthService creates a new mock instance.
+func NewMockAuthService(ctrl *gomock.Controller) *MockAuthService {
+	mock := &MockAuthService{ctrl: ctrl}
+	mock.recorder = &MockAuthServiceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAuthService) EXPECT() *MockAuthServiceMockRecorder {
+	return m.recorder
+}
+
+// GetUserRoles mocks base method.
+func (m *MockAuthService) GetUserRoles(ctx context.Context, userID, scope string, expiresAt time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserRoles", ctx, userID, scope, expiresAt)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserRoles indicates an expected call of GetUserRoles.
+func (mr *MockAuthServiceMockRecorder) GetUserRoles(ctx, userID, scope, expiresAt interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserRoles", reflect.TypeOf((*MockAuthService)(nil).GetUserRoles), ctx, userID, scope, expiresAt)
+}
+
+// ValidateApiKey mocks base method.
+func (m *MockAuthService) ValidateApiKey(apiKey string) (*interfaces.UserInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateApiKey", apiKey)
+	ret0, _ := ret[0].(*interfaces.UserInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateApiKey indicates an expected call of ValidateApiKey.
+func (mr *MockAuthServiceMockRecorder) ValidateApiKey(apiKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateApiKey", reflect.TypeOf((*MockAuthService)(nil).ValidateApiKey), apiKey)
+}
+
+// VerifyToken mocks base method.
+func (m *MockAuthService) VerifyToken(ctx context.Context, token string) (*auth.TokenClaims, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyToken", ctx, token)
+	ret0, _ := ret[0].(*auth.TokenClaims)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// VerifyToken indicates an expected call of VerifyToken.
+func (mr *MockAuthServiceMockRecorder) VerifyToken(ctx, token interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyToken", reflect.TypeOf((*MockAuthService)(nil).VerifyToken), ctx, token)
+}
+
+// MockRBACLoader is a mock of RBACLoader interface.
+type MockRBACLoader struct {
+	ctrl     *gomock.Controller
+	recorder *MockRBACLoaderMockRecorder
+}
+
+// MockRBACLoaderMockRecorder is the mock recorder for MockRBACLoader.
+type MockRBACLoaderMockRecorder struct {
+	mock *MockRBACLoader
+}
+
+// NewMockRBACLoader creates a new mock instance.
+func NewMockRBACLoader(ctrl *gomock.Controller) *MockRBACLoader {
+	mock := &MockRBACLoader{ctrl: ctrl}
+	mock.recorder = &MockRBACLoaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRBACLoader) EXPECT() *MockRBACLoaderMockRecorder {
+	return m.recorder
+}
+
+// CheckPermission mocks base method.
+func (m *MockRBACLoader) CheckPermission(userPermissions []string, required string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CheckPermission", userPermissions, required)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// CheckPermission indicates an expected call of CheckPermission.
+func (mr *MockRBACLoaderMockRecorder) CheckPermission(userPermissions, required interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPermission", reflect.TypeOf((*MockRBACLoader)(nil).CheckPermission), userPermissions, required)
+}
+
+// GetPermissionsForRoles mocks base method.
+func (m *MockRBACLoader) GetPermissionsForRoles(roleNames []string, scopeLevel string) []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPermissionsForRoles", roleNames, scopeLevel)
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetPermissionsForRoles indicates an expected call of GetPermissionsForRoles.
+func (mr *MockRBACLoaderMockRecorder) GetPermissionsForRoles(roleNames, scopeLevel interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPermissionsForRoles", reflect.TypeOf((*MockRBACLoader)(nil).GetPermissionsForRoles), roleNames, scopeLevel)
+}
+
+// GetRolesByLevel mocks base method.
+func (m *MockRBACLoader) GetRolesByLevel(level string) map[string]rbac.Role {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRolesByLevel", level)
+	ret0, _ := ret[0].(map[string]rbac.Role)
+	return ret0
+}
+
+// GetRolesByLevel indicates an expected call of GetRolesByLevel.
+func (mr *MockRBACLoaderMockRecorder) GetRolesByLevel(level interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRolesByLevel", reflect.TypeOf((*MockRBACLoader)(nil).GetRolesByLevel), level)
 }
 
 // MockWSConnection is a mock of WSConnection interface.

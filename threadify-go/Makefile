@@ -9,6 +9,7 @@
 	test-shared test-all \
 	test-coverage-api test-coverage-shared \
 	mocks-engine mocks-api mocks-shared mocks-all \
+	test-engine \
 	lint fmt clean \
 	docker-up docker-down docker-logs dev
 
@@ -19,7 +20,7 @@ GOFMT ?= gofmt
 GOBIN ?= $(HOME)/go/bin
 MOCKGEN ?= $(GOBIN)/mockgen
 
-ENGINE_PKGS := $(shell $(GO) list ./... | grep -v archiver)
+ENGINE_PKGS := $(shell $(GO) list ./... | grep -v -E "/api|/archiver|/shared|/tests")
 
 .DEFAULT_GOAL := help
 
@@ -70,6 +71,10 @@ run-archiver: build-archiver-binary ## Build and run the archiver
 test-engine-integration: ## Run engine integration tests
 	@echo "Running engine integration tests..."
 	@cd tests && $(GO) test -v ./engine/... -count=1
+
+test-engine: ## Run all engine tests (unit)
+	@echo "Running engine unit tests..."
+	@$(GO) test $(ENGINE_PKGS) -count=1
 
 test-api-integration: ## Run API integration tests
 	@echo "Running API integration tests..."

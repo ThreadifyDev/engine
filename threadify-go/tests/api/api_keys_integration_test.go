@@ -75,7 +75,7 @@ func TestAPIKeys_Create_MissingName(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 	body := decodeJSONBody(t, resp)
-	assert.Equal(t, "Invalid request body", body["error"],
+	assert.Equal(t, "Validation failed", body["error"],
 		"missing name must return binding error before service validation")
 }
 

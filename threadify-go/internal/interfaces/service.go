@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"threadify-go/shared/billing"
+	"threadify-go/shared/rbac"
+
+	sharedauth "threadify-go/shared/auth"
 
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/pkg/validator"
@@ -136,6 +139,25 @@ type NotificationRouter interface {
 // NotificationPublisher defines the interface for publishing notifications.
 type NotificationPublisher interface {
 	PublishNotification(ctx context.Context, notification models.ValidationNotification) error
+}
+
+type UserInfo struct {
+	OwnerID   string
+	CompanyID string
+	Role      string
+}
+
+type AuthService interface {
+	ValidateApiKey(apiKey string) (*UserInfo, error)
+	VerifyToken(ctx context.Context, token string) (*sharedauth.TokenClaims, error)
+	GetUserRoles(ctx context.Context, userID, scope string, expiresAt time.Time) ([]string, error)
+}
+
+// RBACLoader defines the interface for RBAC operations
+type RBACLoader interface {
+	CheckPermission(userPermissions []string, required string) bool
+	GetRolesByLevel(level string) map[string]rbac.Role
+	GetPermissionsForRoles(roleNames []string, scopeLevel string) []string
 }
 
 // WSConnection is a mockable subset of websocket.Conn
