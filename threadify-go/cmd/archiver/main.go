@@ -51,7 +51,7 @@ func run(configPath string, logger *zap.Logger) error {
 		return fmt.Errorf("read config: %w", err)
 	}
 
-	cfg, err := appconfig.LoadFromViper()
+	cfg, err := appconfig.LoadFromViper(viper.GetViper())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
