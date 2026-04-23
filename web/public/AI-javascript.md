@@ -35,15 +35,17 @@ const connection = await Threadify.connect('api-key', 'my-service', {
 
 ### Start Thread
 ```javascript
-// No contract
-const thread = await connection.start();
+// With label (Recommended)
+const thread = await connection.start('Order-123');
 
-// With service name
-const thread = await connection.start('payment-service');
+// With label and contract
+const thread = await connection.start('Order-789', 'order_fulfillment');
 
-// With contract
-const thread = await connection.start('order_fulfillment', 'merchant-service');
+// With label, contract, and options
+const thread = await connection.start('Order-789', 'order_fulfillment', { serviceName: 'merchant-service' });
 ```
+
+> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
 
 ### Record Step
 ```javascript
@@ -261,7 +263,7 @@ await thread.addRefs({ customer_id: '123' });
 import { Threadify } from '@threadify/sdk';
 
 const connection = await Threadify.connect('api-key', 'checkout-service');
-const thread = await connection.start();
+const thread = await connection.start('Checkout Process');
 
 // Add external references to the thread
 await thread.addRefs({

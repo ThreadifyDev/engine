@@ -45,11 +45,12 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 **What it does:** Creates a new execution thread
 
 **Variants:**
-1. **No contract** - Simple workflow tracking
-2. **With service name** - Specify which service is starting
-3. **With contract** - Contract-based workflow with validation
+1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
+2. **With contract** - Contract-based workflow with validation
+3. **With service name** - Specify which service is starting
 
 **Parameters:**
+- `label` (optional, recommended) - A descriptive name for the thread
 - `contractName` (optional) - Name of contract to use
 - `serviceName` (optional) - Service identifier
 
