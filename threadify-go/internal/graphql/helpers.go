@@ -105,6 +105,9 @@ func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityPro
 }
 
 func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
+	if t == nil {
+		return nil
+	}
 	desc := t.Description
 	return &generated.EntityProfileType{
 		ID:          t.ID,
