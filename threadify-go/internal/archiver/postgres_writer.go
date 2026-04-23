@@ -403,7 +403,7 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
             v.ref_value::varchar
         FROM (VALUES ` + rb.placeholders() + `) AS v(thread_id, ref_key, ref_value)
         JOIN threads t ON t.id = v.thread_id
-        JOIN matched_types mt ON mt.company_id = t.company_id AND mt.type = v.ref_key
+        JOIN matched_types mt ON mt.company_id = t.company_id AND v.ref_key = ANY(mt.type)
     )
     INSERT INTO entity_profile (
         id, company_id, entity_profile_type_id,
