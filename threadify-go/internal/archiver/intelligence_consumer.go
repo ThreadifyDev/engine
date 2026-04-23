@@ -280,7 +280,7 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, pr
 			NOW()
 		FROM entity_profile ep
 		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id AND ept.archived_at IS NULL
-		JOIN thread_refs all_refs ON all_refs.ref_key = ept.type AND all_refs.ref_value = ep.ref_key
+		JOIN thread_refs all_refs ON all_refs.ref_key = ANY(ept.type) AND all_refs.ref_value = ep.ref_key
 		JOIN threads t ON t.id = all_refs.thread_id AND t.company_id = ep.company_id
 		LEFT JOIN LATERAL (
 			SELECT COUNT(DISTINCT tv.validation_id) AS violation_count
@@ -333,7 +333,7 @@ func (c *IntelligenceConsumer) recalculatePartnerCompatibility(ctx context.Conte
 			NOW()
 		FROM entity_profile ep
 		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id AND ept.archived_at IS NULL
-		JOIN thread_refs entity_refs ON entity_refs.ref_key = ept.type AND entity_refs.ref_value = ep.ref_key
+		JOIN thread_refs entity_refs ON entity_refs.ref_key = ANY(ept.type) AND entity_refs.ref_value = ep.ref_key
 		JOIN threads t ON t.id = entity_refs.thread_id AND t.company_id = ep.company_id
 		JOIN thread_refs partner_refs ON partner_refs.thread_id = t.id AND partner_refs.ref_key = 'partner_ref'
 		WHERE ep.id = ANY($1)
