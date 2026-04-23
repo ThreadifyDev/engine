@@ -214,13 +214,34 @@ func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string, 
 	return contractErr(err)
 }
 
-func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) ([]*models.Contract, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT `+contractCols+` FROM contracts WHERE owner_id=$1 AND is_deleted=false ORDER BY created_at DESC`,
-		ownerID,
-	)
+func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, search string, limit, offset int) ([]*models.Contract, int, error) {
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE owner_id=$1 AND is_deleted=false`
+	countQuery := `SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`
+	args := []interface{}{ownerID}
+
+	if search != "" {
+		filter := " AND name ILIKE $" + fmt.Sprint(len(args)+1)
+		query += filter
+		countQuery += filter
+		args = append(args, "%"+search+"%")
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count contracts by owner: %w", err)
+	}
+
+	query += ` ORDER BY created_at DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET %d", offset)
+	}
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query contracts by owner: %w", err)
+		return nil, 0, fmt.Errorf("query contracts by owner: %w", err)
 	}
 	defer rows.Close()
 
@@ -228,14 +249,14 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string) 
 	for rows.Next() {
 		var c models.Contract
 		if err := scanContract(rows, &c); err != nil {
-			return nil, fmt.Errorf("scan contract: %w", err)
+			return nil, 0, fmt.Errorf("scan contract: %w", err)
 		}
 		contracts = append(contracts, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate contracts: %w", err)
+		return nil, 0, fmt.Errorf("iterate contracts: %w", err)
 	}
-	return contracts, nil
+	return contracts, total, nil
 }
 
 func (r *ContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {

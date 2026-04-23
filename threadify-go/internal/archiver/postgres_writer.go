@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	billingmodels "threadify-go/shared/models"
 	"time"
 
-	billingmodels "threadify-go/shared/models"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"go.uber.org/zap"
 )
@@ -35,6 +36,18 @@ const creditUpsertQuery = `
         last_sync_event_id                = EXCLUDED.last_sync_event_id,
         updated_at                        = NOW()
     WHERE credit_accounts.last_sync_event_id IS DISTINCT FROM EXCLUDED.last_sync_event_id`
+
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23503"
+	}
+	// Fallback for wrapped errors or different drivers
+	if strings.Contains(err.Error(), "23503") || strings.Contains(err.Error(), "foreign key constraint") {
+		return true
+	}
+	return false
+}
 
 type rowBuilder struct {
 	cols   int
@@ -192,7 +205,7 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		9: "COALESCE($%d::timestamptz, NOW())",
 	}
 
-	const cols = 10
+	const cols = 11
 	rb := newRowBuilder(cols)
 	var skipped int
 
@@ -223,16 +236,17 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		}
 
 		rb.addRaw(tsOverride,
-			e.Data["threadId"],
-			companyID,
-			e.Data["contractId"],
-			e.Data["contractName"],
-			contractVersion,
-			ownerID,
-			e.Data["error"],
-			e.Data["status"],
-			nullableStr(ts),
-			nullableStr(ts),
+			e.Data["threadId"],     // 1
+			companyID,              // 2
+			e.Data["contractId"],   // 3
+			e.Data["contractName"], // 4
+			contractVersion,        // 5
+			ownerID,                // 6
+			e.Data["error"],        // 7
+			e.Data["status"],       // 8
+			nullableStr(ts),        // 9 (created_at)
+			nullableStr(ts),        // 10 (updated_at)
+			e.Data["label"],        // 11
 		)
 	}
 
@@ -241,25 +255,29 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		return nil
 	}
 
-	query := `INSERT INTO threads (
-		id, company_id, contract_id, contract_name, contract_version,
-		owner_id, error, status, created_at, updated_at
-	) VALUES ` + rb.placeholders() + `
-	ON CONFLICT (id) DO UPDATE SET
-		company_id       = EXCLUDED.company_id,
-		contract_id      = EXCLUDED.contract_id,
-		contract_name    = EXCLUDED.contract_name,
-		contract_version = EXCLUDED.contract_version,
-		owner_id         = COALESCE(EXCLUDED.owner_id, threads.owner_id),
-		error            = EXCLUDED.error,
-		status           = CASE 
-		                     WHEN threads.status IN ('completed', 'cancelled') 
-		                     THEN threads.status
-		                     ELSE EXCLUDED.status
-		                   END,
-		updated_at       = COALESCE(EXCLUDED.updated_at, NOW())`
+	query := "INSERT INTO threads (" +
+		"id, company_id, contract_id, contract_name, contract_version, " +
+		"owner_id, error, status, created_at, updated_at, label" +
+		") VALUES " + rb.placeholders() +
+		" ON CONFLICT (id) DO UPDATE SET " +
+		"company_id = EXCLUDED.company_id, " +
+		"contract_id = EXCLUDED.contract_id, " +
+		"contract_name = EXCLUDED.contract_name, " +
+		"contract_version = EXCLUDED.contract_version, " +
+		"owner_id = COALESCE(EXCLUDED.owner_id, threads.owner_id), " +
+		"error = EXCLUDED.error, " +
+		"status = CASE WHEN threads.status IN ('completed', 'cancelled') THEN threads.status ELSE EXCLUDED.status END, " +
+		"updated_at = COALESCE(EXCLUDED.updated_at, NOW()), " +
+		"label = EXCLUDED.label"
 
 	if err := w.batchExec(ctx, "batch upsert threads", query, rb.Values); err != nil {
+		w.logger.Error("batch upsert threads failed",
+			zap.Int("cols", cols),
+			zap.Int("values", len(rb.Values)),
+			zap.Int("rows", rb.len()),
+			zap.String("query", query),
+			zap.Error(err),
+		)
 		return err
 	}
 
@@ -376,6 +394,9 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 	}
 
 	if rb.len() == 0 {
+		if skipped > 0 {
+			return nil, ErrThreadNotFound
+		}
 		return nil, nil
 	}
 
@@ -526,6 +547,9 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 		status       = EXCLUDED.status`
 
 	if err := w.batchExec(ctx, "write thread access", query, rb.Values); err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrThreadNotFound
+		}
 		return err
 	}
 
@@ -569,6 +593,9 @@ func (w *PostgresWriter) WriteThreadValidations(ctx context.Context, events []St
 	) VALUES ` + rb.placeholders() + ` ON CONFLICT (validation_id) DO NOTHING`
 
 	if err := w.batchExec(ctx, "write validation results", query, rb.Values); err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrThreadNotFound
+		}
 		return err
 	}
 
@@ -609,6 +636,9 @@ func (w *PostgresWriter) WriteThreadNotifications(ctx context.Context, events []
 	) VALUES ` + rb.placeholders() + ` ON CONFLICT (notification_id) DO NOTHING`
 
 	if err := w.batchExec(ctx, "write thread notifications", query, rb.Values); err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrThreadNotFound
+		}
 		return err
 	}
 
@@ -715,6 +745,9 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 	) VALUES ` + rb.placeholders()
 
 	if err := w.batchExec(ctx, "write activity log", query, rb.Values); err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrThreadNotFound
+		}
 		return err
 	}
 

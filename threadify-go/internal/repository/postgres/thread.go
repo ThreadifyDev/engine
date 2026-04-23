@@ -18,7 +18,7 @@ import (
 )
 
 // threadSelectCols is the canonical column list for full thread SELECT queries.
-const threadSelectCols = `t.id, t.contract_id, t.contract_name, t.contract_version,
+const threadSelectCols = `t.id, t.label, t.contract_id, t.contract_name, t.contract_version,
 	t.owner_id, t.company_id, t.status, t.error,
 	t.created_at, t.updated_at, t.completed_at`
 
@@ -34,21 +34,24 @@ func NewThreadRepository(pool *pgxpool.Pool) *ThreadRepository {
 	}
 }
 
-// scanThreadRow scans a full thread row (11 columns matching threadSelectCols) into thread.
 func scanThreadRow(row pgx.Row, thread *models.Thread) error {
 	var createdAt, updatedAt time.Time
 	var completedAt *time.Time
 	var contractID, contractName *string
 	var contractVersion *int
-	var status, errorMsg *string
+	var status, errorMsg, label *string
 
 	if err := row.Scan(
-		&thread.ID, &contractID, &contractName, &contractVersion,
+		&thread.ID, &label, &contractID, &contractName, &contractVersion,
 		&thread.OwnerID, &thread.CompanyID,
 		&status, &errorMsg,
 		&createdAt, &updatedAt, &completedAt,
 	); err != nil {
 		return err
+	}
+
+	if label != nil {
+		thread.Label = *label
 	}
 
 	if contractID != nil {
@@ -123,17 +126,20 @@ func (b *threadQueryBuilder) paginatedArgs(limit, offset int) []interface{} {
 func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO threads (
-			id, contract_id, contract_version, owner_id, company_id,
-			created_at, updated_at, error
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			id, label, contract_id, contract_name, contract_version, owner_id, company_id,
+			status, created_at, updated_at, error
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (id) DO UPDATE SET
+			label            = EXCLUDED.label,
 			contract_id      = EXCLUDED.contract_id,
+			contract_name    = EXCLUDED.contract_name,
 			contract_version = EXCLUDED.contract_version,
+			status           = EXCLUDED.status,
 			updated_at       = EXCLUDED.updated_at,
 			error            = EXCLUDED.error`,
-		thread.ID, thread.ContractID, thread.ContractVersion,
+		thread.ID, thread.Label, thread.ContractID, thread.ContractName, thread.ContractVersion,
 		thread.OwnerID, thread.CompanyID,
-		thread.StartedAt, time.Now(), thread.Error,
+		thread.Status, thread.StartedAt, time.Now(), thread.Error,
 	)
 	if err != nil {
 		return fmt.Errorf("save thread: %w", err)
@@ -141,45 +147,15 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 	return nil
 }
 
-func (r *ThreadRepository) Get(ctx context.Context, threadID string) (*models.Thread, error) {
-	query := `
-		SELECT id, contract_id, contract_version, owner_id, company_id,
-		       created_at, updated_at, error, status, contract_name
-		FROM threads WHERE id = $1`
-
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, writeBack ...bool) (*models.Thread, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+threadSelectCols+` FROM threads t WHERE t.id = $1`, threadID)
 	var thread models.Thread
-	var createdAt, updatedAt time.Time
-	var contractID, contractName, errorMsg sql.NullString
-	var contractVersion sql.NullInt32
-	var status string
-
-	err := r.pool.QueryRow(ctx, query, threadID).Scan(
-		&thread.ID, &contractID, &contractVersion,
-		&thread.OwnerID, &thread.CompanyID,
-		&createdAt, &updatedAt, &errorMsg, &status, &contractName,
-	)
-	if err != nil {
+	if err := scanThreadRow(row, &thread); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, shderrors.ErrThreadNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
 	}
-
-	if contractID.Valid {
-		thread.ContractID = &contractID.String
-	}
-	if contractVersion.Valid {
-		v := int(contractVersion.Int32)
-		thread.ContractVersion = &v
-	}
-	if errorMsg.Valid {
-		thread.Error = errorMsg.String
-	}
-	if contractName.Valid {
-		thread.ContractName = contractName.String
-	}
-	thread.StartedAt = createdAt
-	thread.Status = models.ThreadStatus(status)
 	return &thread, nil
 }
 
@@ -374,7 +350,7 @@ func (r *ThreadRepository) QueryThreadsByContract(
 
 func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*models.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
+		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
 		FROM threads WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		ownerID, limit, offset,
 	)
@@ -387,7 +363,7 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 
 func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string, limit, offset int) ([]*models.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
+		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
 		FROM threads WHERE contract_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		contractID, limit, offset,
 	)
@@ -594,12 +570,16 @@ func scanSimpleThreadRows(rows pgx.Rows) ([]*models.Thread, error) {
 	for rows.Next() {
 		var t models.Thread
 		var createdAt, updatedAt time.Time
+		var label *string
 		if err := rows.Scan(
-			&t.ID, &t.ContractID, &t.ContractVersion,
+			&t.ID, &label, &t.ContractID, &t.ContractVersion,
 			&t.OwnerID, &t.CompanyID,
 			&createdAt, &updatedAt, &t.Error,
 		); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
+		}
+		if label != nil {
+			t.Label = *label
 		}
 		t.StartedAt = createdAt
 		threads = append(threads, &t)

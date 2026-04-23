@@ -126,6 +126,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE TABLE IF NOT EXISTS threads (
 		id VARCHAR(255) PRIMARY KEY,
+		label VARCHAR(255),
 		contract_id VARCHAR(255),
 		contract_name VARCHAR(255),
 		contract_version INT,
@@ -141,6 +142,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	);
 
 	-- Add missing columns for existing databases (migration safety)
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS label VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;

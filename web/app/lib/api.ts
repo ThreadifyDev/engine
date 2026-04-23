@@ -345,8 +345,15 @@ class ApiClient {
   }
 
   // Contract Management (proxy to ThreadifyEngine)
-  async getAllContracts(): Promise<any> {
-    return this.request('/contracts');
+  async getAllContracts(params?: { search?: string; limit?: number; offset?: number }): Promise<any> {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.offset) query.append('offset', params.offset.toString());
+
+    const queryString = query.toString();
+    const endpoint = `/contracts${queryString ? `?${queryString}` : ''}`;
+    return this.request(endpoint);
   }
 
   async createContract(data: { name: string; yaml: string }): Promise<any> {

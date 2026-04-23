@@ -36,6 +36,7 @@ type Thread struct {
 	Refs            map[string]string `json:"refs,omitempty"`         // New field for external references
 	OwnerID         string            `json:"ownerId"`
 	CompanyID       string            `json:"companyId"`           // Company ID for multi-tenancy
+	Label           string            `json:"label,omitempty"`     // New field for user-friendly thread label
 	CreatedBy       string            `json:"createdBy,omitempty"` // User or service account that created the thread
 	Status          ThreadStatus      `json:"-"`                   // Status comes from meta hash, not JSON
 	LastHash        string            `json:"lastHash"`

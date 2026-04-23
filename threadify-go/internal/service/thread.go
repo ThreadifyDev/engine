@@ -220,6 +220,11 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	threadID := uuid.New().String()
 
+	label := req.Label
+	if label == "" && req.Refs != nil {
+		label = req.Refs["label"]
+	}
+
 	var contractIDPtr *string
 	if contractUUID != "" {
 		contractIDPtr = &contractUUID
@@ -231,6 +236,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	thread := &models.Thread{
 		ID:              threadID,
+		Label:           label,
 		ContractID:      contractIDPtr,
 		ContractName:    parsedContractName,
 		ContractVersion: contractVersionPtr,
@@ -268,8 +274,18 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	}
 
 	s.cacheManager.SetThread(threadID, thread)
-	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
-	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
+
+	// Consolidate archival publication into a single sequential goroutine to minimize race conditions in the archiver.
+	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, access, runtimeRole)
+
+	// Process refs in hot cache (Valkey) if provided
+	if len(req.Refs) > 0 {
+		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := s.repo.AddRefs(refsCtx, threadID, req.Refs); err != nil {
+			s.logger.Warn("failed to store refs in cache", zap.String("thread", threadID), zap.Error(err))
+		}
+		refsCancel()
+	}
 
 	// Schedule thread max duration timeout if contract has max_duration validation
 	if contractGraph != nil && s.notificationService != nil {
@@ -903,23 +919,9 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 	return count > 0
 }
 
-// recordThreadCreationActivity persists a thread creation event asynchronously.
-func (s *ThreadService) recordThreadCreationActivity(threadID, ownerID string, access *interfaces.UserAccess, runtimeRole string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	serviceName := ""
-	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
-		serviceName = client.ServiceName
-	}
-	if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, runtimeRole); err != nil {
-		s.logger.Warn("failed to record access granted activity",
-			zap.String("thread_id", threadID), zap.Error(err))
-	}
-}
-
-// publishThreadMetadataAsync publishes thread metadata and initial activity log to NATS.
-func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID string, thread *models.Thread, role string) {
+// publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
+// It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *models.Thread, role string, access *interfaces.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",
@@ -945,6 +947,7 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 
 	if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
 		"threadId":        threadID,
+		"label":           thread.Label,
 		"ownerId":         ownerID,
 		"companyId":       companyID,
 		"contractId":      contractID,
@@ -961,6 +964,27 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 		s.publishRefsToNATSWithContext(pubCtx, threadID, thread.Refs)
 	}
 
+	// 2. Publish Owner Access (subject: access.thread)
+	if access != nil {
+		rolesJSON, _ := json.Marshal(access.Roles)
+		permissionsJSON, _ := json.Marshal(access.Permissions)
+
+		if err := s.natsArchivalPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
+			"threadId":     threadID,
+			"userId":       ownerID,
+			"roles":        string(rolesJSON),
+			"runtime_role": runtimeRole,
+			"permissions":  string(permissionsJSON),
+			"grantedBy":    "self",
+			"grantedAt":    access.GrantedAt,
+			"status":       access.Status,
+			"eventType":    "access_granted",
+		}); err != nil {
+			s.logger.Error("failed to publish owner access to NATS", zap.Error(err))
+		}
+	}
+
+	// 3. Publish Activity Log (subject: activity.log)
 	serviceName := ""
 	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
 		serviceName = client.ServiceName

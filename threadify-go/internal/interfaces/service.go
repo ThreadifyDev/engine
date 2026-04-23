@@ -89,7 +89,7 @@ type TimeoutMonitor interface {
 
 // ContractService defines the interface for contract management
 type ContractService interface {
-	GetAllContracts(ctx context.Context, ownerID string) (int, interface{})
+	GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{})
 	CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{})
 	GetContract(ctx context.Context, contractID, requesterID string, version *int) (int, interface{})
 	UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{})

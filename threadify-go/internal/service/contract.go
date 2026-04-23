@@ -297,15 +297,15 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 	return 200, map[string]string{"message": "Contract deleted successfully"}
 }
 
-func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string) (int, interface{}) {
-	contracts, err := s.repo.GetAllByOwner(ctx, ownerID)
+func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{}) {
+	contracts, total, err := s.repo.GetAllByOwner(ctx, ownerID, search, limit, offset)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to retrieve contracts"}
 	}
 
 	return 200, map[string]interface{}{
 		"contracts": contracts,
-		"total":     len(contracts),
+		"total":     total,
 	}
 }
 

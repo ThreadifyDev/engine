@@ -174,6 +174,7 @@ export interface ActorInfo {
 
 export interface Thread {
   id: string;
+  label?: string;
   contractId?: string;
   contractVersion?: number;
   contractName?: string;
@@ -256,6 +257,7 @@ class GraphQLClient {
       query GetThread($id: ID!) {
         thread(id: $id) {
           id
+          label
           contractId
           contractVersion
           contractName
@@ -476,6 +478,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -523,6 +526,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -570,6 +574,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -614,6 +619,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
