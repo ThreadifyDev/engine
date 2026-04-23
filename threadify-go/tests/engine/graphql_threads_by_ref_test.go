@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/tests/internal/dbhelpers"
 	"github.com/threadify/engine/tests/internal/enginetest"
 )
 
@@ -26,7 +27,11 @@ func TestGraphQL_ThreadsByRef_ByKeyAndValue(t *testing.T) {
 	refValue := "order_12345"
 
 	// Create thread with reference
-	threadID := enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue})
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Refs: map[string]interface{}{
+			refKey: refValue,
+		},
+	})
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($refKey: String, $refValue: String!) { threadsByRef(refKey: $refKey, refValue: $refValue, limit: 10) { totalCount threads { id } } }",
@@ -59,7 +64,11 @@ func TestGraphQL_ThreadsByRef_ByValueOnly(t *testing.T) {
 	refValue := "customer_67890"
 
 	// Create thread with reference
-	threadID := enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue})
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Refs: map[string]interface{}{
+			refKey: refValue,
+		},
+	})
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($refValue: String!) { threadsByRef(refValue: $refValue, limit: 10) { totalCount threads { id } } }",
@@ -91,10 +100,12 @@ func TestGraphQL_ThreadsByRef_CompanyIsolation(t *testing.T) {
 	refKey := "order_id"
 	refValue := "order_54321"
 
-	// Create thread for User A with reference
-	_ = enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, userA, contractName, 1, map[string]interface{}{refKey: refValue})
+	_ = enginetest.CreateThread(t, env.Postgres.Pool, userA, contractName, 1, dbhelpers.ThreadOption{
+		Refs: map[string]interface{}{
+			refKey: refValue,
+		},
+	})
 
-	// User A should see the thread
 	_, respA := doGraphQL(t, "", userA.ApiKey, graphQLRequest{
 		Query: "query($refValue: String!) { threadsByRef(refValue: $refValue, limit: 10) { totalCount } }",
 		Variables: map[string]interface{}{
@@ -108,7 +119,6 @@ func TestGraphQL_ThreadsByRef_CompanyIsolation(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 1, int(countA))
 
-	// User B should not see User A's threads
 	_, respB := doGraphQL(t, "", userB.ApiKey, graphQLRequest{
 		Query: "query($refValue: String!) { threadsByRef(refValue: $refValue, limit: 10) { totalCount } }",
 		Variables: map[string]interface{}{
@@ -130,10 +140,13 @@ func TestGraphQL_ThreadsByRef_MultipleThreadsSameRef(t *testing.T) {
 	refKey := "batch_id"
 	refValue := "batch_999"
 
-	// Create multiple threads with same reference
 	threadIDs := make([]string, 3)
 	for i := 0; i < 3; i++ {
-		threadIDs[i] = enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue})
+		threadIDs[i] = enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+			Refs: map[string]interface{}{
+				refKey: refValue,
+			},
+		})
 	}
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
@@ -167,9 +180,10 @@ func TestGraphQL_ThreadsByRef_MultipleRefsSameThread(t *testing.T) {
 		"customer_id": "customer_222",
 		"product_id":  "product_333",
 	}
-	threadID := enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, refs)
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Refs: refs,
+	})
 
-	// Search by each reference key-value pair
 	testCases := []struct {
 		refKey   string
 		refValue string
@@ -212,8 +226,12 @@ func TestGraphQL_ThreadsByRef_WithStatusFilter(t *testing.T) {
 	refValue := "order_777"
 	status := "completed"
 
-	// Create thread with reference and status
-	threadID := enginetest.CreateThreadWithRefsAndStatus(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue}, status)
+	threadID := enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Refs: map[string]interface{}{
+			refKey: refValue,
+		},
+		Status: status,
+	})
 
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($refKey: String, $refValue: String!, $status: String) { threadsByRef(refKey: $refKey, refValue: $refValue, status: $status, limit: 10) { totalCount threads { id status } } }",
@@ -247,11 +265,14 @@ func TestGraphQL_ThreadsByRef_WithDateFilters(t *testing.T) {
 	refKey := "order_id"
 	refValue := "order_666"
 
-	// Create thread with reference and specific timestamp
 	startedAt := time.Now().Add(-1 * time.Hour)
-	_ = enginetest.CreateThreadWithRefsAndTimestamp(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue}, startedAt)
+	_ = enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+		Refs: map[string]interface{}{
+			refKey: refValue,
+		},
+		StartedAt: &startedAt,
+	})
 
-	// Query for threads started in the last hour
 	twoHoursAgo := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
 	now := time.Now().Format(time.RFC3339)
 
@@ -298,12 +319,14 @@ func TestGraphQL_ThreadsByRef_Pagination(t *testing.T) {
 	refKey := "batch_id"
 	refValue := "batch_pagination_test"
 
-	// Create multiple threads with same reference for pagination testing
 	for i := 0; i < 5; i++ {
-		_ = enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue})
+		_ = enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+			Refs: map[string]interface{}{
+				refKey: refValue,
+			},
+		})
 	}
 
-	// Test limit
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($refKey: String, $refValue: String!, $limit: Int) { threadsByRef(refKey: $refKey, refValue: $refValue, limit: $limit) { totalCount threads { id } } }",
 		Variables: map[string]interface{}{
@@ -332,13 +355,15 @@ func TestGraphQL_ThreadsByRef_Offset(t *testing.T) {
 	refKey := "batch_id"
 	refValue := "batch_offset_test"
 
-	// Create multiple threads with same reference
 	threadIDs := make([]string, 5)
 	for i := 0; i < 5; i++ {
-		threadIDs[i] = enginetest.CreateThreadWithRefs(t, env.Postgres.Pool, user, contractName, 1, map[string]interface{}{refKey: refValue})
+		threadIDs[i] = enginetest.CreateThread(t, env.Postgres.Pool, user, contractName, 1, dbhelpers.ThreadOption{
+			Refs: map[string]interface{}{
+				refKey: refValue,
+			},
+		})
 	}
 
-	// Test offset
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
 		Query: "query($refKey: String, $refValue: String!, $offset: Int, $limit: Int) { threadsByRef(refKey: $refKey, refValue: $refValue, offset: $offset, limit: $limit) { totalCount threads { id } } }",
 		Variables: map[string]interface{}{

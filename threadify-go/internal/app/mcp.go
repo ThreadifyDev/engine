@@ -14,7 +14,7 @@ import (
 	mcp "github.com/metoro-io/mcp-golang"
 	mcptransport "github.com/metoro-io/mcp-golang/transport/http"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +34,7 @@ func pullContextAuthMiddleware() gin.HandlerFunc {
 // graphQLQuery executes a GraphQL query against the local engine endpoint and
 // returns the result as a JSON string wrapped in an MCP ToolResponse.
 // The X-API-Key is forwarded from the context so auth is preserved end-to-end.
-func graphQLQuery(ctx context.Context, apiPort int, cfg *config.Config, planSvc interfaces.PlanService, logger *zap.Logger, query string, variables map[string]interface{}) (*mcp.ToolResponse, error) {
+func graphQLQuery(ctx context.Context, apiPort int, cfg *config.Config, planSvc types.PlanService, logger *zap.Logger, query string, variables map[string]interface{}) (*mcp.ToolResponse, error) {
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"query":     query,
 		"variables": variables,
@@ -94,7 +94,7 @@ func mustRegister(name string, err error, logger *zap.Logger) {
 	}
 }
 
-func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc interfaces.PlanService, logger *zap.Logger) {
+func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc types.PlanService, logger *zap.Logger) {
 	mcpTransport := mcptransport.NewGinTransport()
 	mcpSrv := mcp.NewServer(
 		mcpTransport,

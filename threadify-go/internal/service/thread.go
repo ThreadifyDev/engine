@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
@@ -39,14 +39,14 @@ var fallbackValidRoles = map[string]bool{
 
 // ThreadService orchestrates thread operations across multiple repositories.
 type ThreadService struct {
-	repo                  interfaces.ThreadRepository
-	accessRepo            interfaces.AccessRepository
-	activityRepo          interfaces.ActivityRepository
-	graphRepo             interfaces.ContractGraphRepository
-	stepEventService      interfaces.StepEventProcessor
-	cacheManager          interfaces.CacheManager
-	connectionMgr         interfaces.ConnectionManager
-	contractValidator     interfaces.ContractGraphValidator
+	repo                  types.ThreadRepository
+	accessRepo            types.AccessRepository
+	activityRepo          types.ActivityRepository
+	graphRepo             types.ContractGraphRepository
+	stepEventService      types.StepEventProcessor
+	cacheManager          types.CacheManager
+	connectionMgr         types.ConnectionManager
+	contractValidator     types.ContractGraphValidator
 	authService           *AuthService
 	accessService         *ThreadAccessService
 	validationService     *ValidationService
@@ -54,8 +54,8 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
-	planService           interfaces.PlanService
-	valkeyClient          interfaces.ValkeyClient
+	planService           types.PlanService
+	valkeyClient          types.ThreadValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	rbacLoader            *rbac.Loader
@@ -74,11 +74,11 @@ func NewThreadService(
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
 	natsClient *natsrepo.Client,
-	natsPublisher interfaces.NotificationPublisher,
+	natsPublisher types.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
-	planService interfaces.PlanService,
-	cacheManager interfaces.CacheManager,
+	planService types.PlanService,
+	cacheManager types.CacheManager,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -104,7 +104,7 @@ func NewThreadService(
 	return svc
 }
 
-func (s *ThreadService) GetNotificationConsumer() interfaces.NotificationConsumer {
+func (s *ThreadService) GetNotificationConsumer() types.NotificationConsumer {
 	return s.notificationConsumer
 }
 
@@ -373,7 +373,12 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	if idempotencyKey != "" {
 		idempCtx, idempCancel := context.WithTimeout(ctx, 5*time.Second)
 		t = time.Now()
-		existingStatus, err := s.repo.GetStepStatus(idempCtx, req.ThreadID, req.StepName, req.Status, idempotencyKey, true)
+		existingStatus, err := s.repo.GetStepStatus(idempCtx, types.StepStatusQuery{
+			ThreadID:       req.ThreadID,
+			StepName:       req.StepName,
+			ExpectedStatus: req.Status,
+			IdempotencyKey: idempotencyKey,
+		}, types.ThreadReadOptions{WriteBack: true})
 		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
@@ -826,7 +831,7 @@ func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	thread, err := s.repo.Get(ctx, threadID, true)
+	thread, err := s.repo.Get(ctx, threadID, types.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
@@ -904,7 +909,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
 }
 
-func (s *ThreadService) GetContractValidator() interfaces.ContractGraphValidator {
+func (s *ThreadService) GetContractValidator() types.ContractGraphValidator {
 	return s.contractValidator
 }
 
@@ -912,7 +917,7 @@ func (s *ThreadService) GetContractValidator() interfaces.ContractGraphValidator
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, true)
+	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, types.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return false
 	}
@@ -921,7 +926,7 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 
 // publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
 // It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
-func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *models.Thread, role string, access *interfaces.UserAccess, runtimeRole string) {
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *models.Thread, role string, access *types.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",

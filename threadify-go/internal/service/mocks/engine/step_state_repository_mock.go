@@ -9,7 +9,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	interfaces "github.com/threadify/engine/internal/interfaces"
+	types "github.com/threadify/engine/internal/types"
 )
 
 // MockStepStateRepository is a mock of StepStateRepository interface.
@@ -50,10 +50,10 @@ func (mr *MockStepStateRepositoryMockRecorder) LoadScripts(ctx interface{}) *gom
 }
 
 // ValidateAndUpdateStepState mocks base method.
-func (m *MockStepStateRepository) ValidateAndUpdateStepState(ctx context.Context, params interfaces.ValidateStepParams) (*interfaces.StepStateResult, error) {
+func (m *MockStepStateRepository) ValidateAndUpdateStepState(ctx context.Context, params types.ValidateStepParams) (*types.StepStateResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateAndUpdateStepState", ctx, params)
-	ret0, _ := ret[0].(*interfaces.StepStateResult)
+	ret0, _ := ret[0].(*types.StepStateResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

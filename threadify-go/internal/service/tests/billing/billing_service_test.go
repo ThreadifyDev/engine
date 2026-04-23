@@ -25,6 +25,8 @@ func newBillingOrchestratorForTest(deps *common.MockedDependencies) *service.Bil
 		&sharedconfig.SubscriptionConfig{},
 		&sharedconfig.BillingConfig{},
 		deps.Valkey,
+		deps.Valkey,
+		deps.Valkey,
 		deps.PlanSvc,
 		deps.Logger,
 	)
@@ -248,7 +250,7 @@ func TestBillingOrchestrator_ApplyCreditTopup_AtomicFailureRollsBackIdempotencyK
 	deps.Valkey.EXPECT().
 		ApplyCreditTopupAtomic(gomock.Any(), keys.Balance, keys.Pending, int64(15000)).
 		Return(int64(0), errors.New("atomic apply failed"))
-	deps.Valkey.EXPECT().Delete(gomock.Any(), appliedKey).Return(nil)
+	deps.Valkey.EXPECT().Del(gomock.Any(), appliedKey).Return(nil)
 
 	err := svc.ApplyCreditTopup(context.Background(), snapshot)
 	require.Error(t, err)
@@ -270,7 +272,7 @@ func TestBillingOrchestrator_ApplyCreditTopup_AtomicFailureWithRollbackDeleteErr
 	deps.Valkey.EXPECT().
 		ApplyCreditTopupAtomic(gomock.Any(), keys.Balance, keys.Pending, int64(20000)).
 		Return(int64(0), errors.New("atomic apply failed"))
-	deps.Valkey.EXPECT().Delete(gomock.Any(), appliedKey).Return(errors.New("delete failed"))
+	deps.Valkey.EXPECT().Del(gomock.Any(), appliedKey).Return(errors.New("delete failed"))
 
 	err := svc.ApplyCreditTopup(context.Background(), snapshot)
 	require.Error(t, err)
@@ -285,7 +287,7 @@ func TestBillingOrchestrator_ClearCreditTopupPending_DeletesPendingKey(t *testin
 	keys := billing.KeysFor(companyID)
 	svc := newBillingOrchestratorForTest(deps)
 
-	deps.Valkey.EXPECT().Delete(gomock.Any(), keys.Pending).Return(nil)
+	deps.Valkey.EXPECT().Del(gomock.Any(), keys.Pending).Return(nil)
 
 	err := svc.ClearCreditTopupPending(context.Background(), companyID)
 	require.NoError(t, err)

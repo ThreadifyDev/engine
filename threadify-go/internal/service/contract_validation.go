@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
@@ -14,9 +14,9 @@ import (
 
 // ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
-	graphRepo    interfaces.ContractGraphRepository
+	graphRepo    types.ContractGraphRepository
 	contractRepo contractRepo
-	cacheManager interfaces.CacheManager
+	cacheManager types.CacheManager
 	logger       *zap.Logger
 }
 
@@ -28,9 +28,9 @@ type contractRepo interface {
 // NewContractValidationServiceFromParts creates a ContractValidationService from explicit parts.
 // This is primarily intended for tests.
 func NewContractValidationServiceFromParts(
-	graphRepo interfaces.ContractGraphRepository,
+	graphRepo types.ContractGraphRepository,
 	contractRepo contractRepo,
-	cacheManager interfaces.CacheManager,
+	cacheManager types.CacheManager,
 	logger *zap.Logger,
 ) *ContractValidationService {
 	return &ContractValidationService{
@@ -42,7 +42,7 @@ func NewContractValidationServiceFromParts(
 }
 
 // NewContractValidationService creates a new contract validation service.
-func NewContractValidationService(graphRepo interfaces.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) interfaces.ContractGraphValidator {
+func NewContractValidationService(graphRepo types.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager types.CacheManager, logger *zap.Logger) types.ContractGraphValidator {
 	return &ContractValidationService{
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,

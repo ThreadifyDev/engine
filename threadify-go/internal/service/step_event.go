@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -20,8 +20,8 @@ import (
 )
 
 type StepEventService struct {
-	valkeyRepo       interfaces.ValkeyClient
-	threadRepo       interfaces.ThreadRepository
+	valkeyRepo       types.StepEventValkeyClient
+	threadRepo       types.ThreadRepository
 	natsPublisher    *natsrepo.ArchivalPublisher
 	config           *config.Config
 	logger           *zap.Logger
@@ -30,8 +30,8 @@ type StepEventService struct {
 }
 
 func NewStepEventService(
-	valkeyRepo interfaces.ValkeyClient,
-	threadRepo interfaces.ThreadRepository,
+	valkeyRepo types.StepEventValkeyClient,
+	threadRepo types.ThreadRepository,
 	natsPublisher *natsrepo.ArchivalPublisher,
 	cfg *config.Config,
 	logger *zap.Logger,

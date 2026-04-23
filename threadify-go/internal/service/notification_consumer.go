@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"go.uber.org/zap"
 )
@@ -19,7 +19,7 @@ type NotificationHandler interface {
 }
 
 type NotificationConsumer struct {
-	client        interfaces.NATSClient
+	client        types.NATSClient
 	scopeResolver *ScopeResolver
 	handlers      map[string]NotificationHandler
 	subscriptions map[string]context.CancelFunc
@@ -31,7 +31,7 @@ type NotificationConsumer struct {
 
 // NewNotificationConsumer creates a new notification consumer.
 func NewNotificationConsumer(
-	client interfaces.NATSClient,
+	client types.NATSClient,
 	scopeResolver *ScopeResolver,
 	logger *zap.Logger,
 ) *NotificationConsumer {
@@ -123,7 +123,7 @@ func (nc *NotificationConsumer) consumeNotifications(ctx context.Context, key, s
 		}
 
 		var notification models.ValidationNotification
-		if err := json.Unmarshal(msg, &notification); err != nil {
+		if err := json.Unmarshal(msg.Data, &notification); err != nil {
 			nc.logger.Error("failed to unmarshal notification",
 				zap.String("sub_key", key),
 				zap.Error(err),

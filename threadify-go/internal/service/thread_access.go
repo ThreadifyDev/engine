@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
@@ -19,18 +19,18 @@ import (
 // Permissions are resolved from runtime_role via the RBAC loader (no per-user storage needed).
 type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
-	cacheManager interfaces.CacheManager
+	cacheManager types.CacheManager
 	luaScripts   *valkey.LuaScriptManager
-	rbacLoader   interfaces.RBACLoader
+	rbacLoader   types.RBACLoader
 	logger       *zap.Logger
 }
 
 // NewThreadAccessService creates a new thread access service.
 func NewThreadAccessService(
 	accessRepo *valkey.AccessRepository,
-	cacheManager interfaces.CacheManager,
+	cacheManager types.CacheManager,
 	luaScripts *valkey.LuaScriptManager,
-	rbacLoader interfaces.RBACLoader,
+	rbacLoader types.RBACLoader,
 	logger *zap.Logger,
 ) *ThreadAccessService {
 	return &ThreadAccessService{
@@ -93,11 +93,15 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if _, err := s.accessRepo.GrantOrUpdateAccess(
-		timeoutCtx,
-		threadID, userID, role, runtimeRole, permissions, invitedBy,
-		s.luaScripts, nil, nil,
-	); err != nil {
+	if _, err := s.accessRepo.GrantOrUpdateAccess(timeoutCtx, types.GrantAccessParams{
+		ThreadID:    threadID,
+		UserID:      userID,
+		Role:        role,
+		RuntimeRole: runtimeRole,
+		Permissions: permissions,
+		InvitedBy:   invitedBy,
+		LuaRegistry: s.luaScripts,
+	}); err != nil {
 		return fmt.Errorf("failed to grant/update access: %w", err)
 	}
 
@@ -112,18 +116,23 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 	threadID, userID, role, runtimeRole string,
 	threadData *string,
 	threadTTL *int,
-) (*interfaces.UserAccess, error) {
+) (*types.UserAccess, error) {
 	rbacStart := perf.Now()
 	permissions, _ := s.resolveAndCachePermissions(runtimeRole)
 	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(perf.Since(rbacStart).Seconds())
 
 	repoStart := perf.Now()
-	access, err := s.accessRepo.GrantOrUpdateAccess(
-		ctx,
-		threadID, userID, role, runtimeRole, permissions,
-		"self", // invitedBy for creator
-		s.luaScripts, threadData, threadTTL,
-	)
+	access, err := s.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+		ThreadID:    threadID,
+		UserID:      userID,
+		Role:        role,
+		RuntimeRole: runtimeRole,
+		Permissions: permissions,
+		InvitedBy:   "self", // invitedBy for creator
+		LuaRegistry: s.luaScripts,
+		ThreadData:  threadData,
+		ThreadTTL:   threadTTL,
+	})
 	metrics.OperationDuration.WithLabelValues("redis_thread_create", "lua_script_exec").Observe(perf.Since(repoStart).Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("failed to grant access with thread creation: %w", err)

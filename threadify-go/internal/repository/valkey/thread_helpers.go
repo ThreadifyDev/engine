@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"go.uber.org/zap"
 )
@@ -33,9 +34,9 @@ func (r *ThreadRepository) extendAllThreadTTLs(ctx context.Context, threadID str
 }
 
 // GetStepStatus checks step status in cache, Valkey, or PostgreSQL with optional write-back
-func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName, stepStatus, idempotencyKey string, writeBack ...bool) (string, error) {
-	stepKey := stepName + ":" + idempotencyKey
-	stepHashKey := "thread:" + threadID + ":steps:" + stepKey
+func (r *ThreadRepository) GetStepStatus(ctx context.Context, query types.StepStatusQuery, opts ...types.ThreadReadOptions) (string, error) {
+	stepKey := query.StepName + ":" + query.IdempotencyKey
+	stepHashKey := "thread:" + query.ThreadID + ":steps:" + stepKey
 
 	// 1. Check in-memory LRU cache first (fastest - catches duplicates immediately)
 	if r.cacheManager != nil {
@@ -55,19 +56,15 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, threadID, stepName
 	}
 
 	// Step not found - add it to LRU cache
-	// TODO: Re-enable thread existence check if duplicate detection issues arise
 	if r.cacheManager != nil {
-		r.cacheManager.SetStepStatus(stepHashKey, stepStatus)
+		r.cacheManager.SetStepStatus(stepHashKey, query.ExpectedStatus)
 	}
 	return "", nil
 }
 
 // GetCompletedStepsCount returns count of completed steps
-func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, writeBack ...bool) (int64, error) {
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
+func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (int64, error) {
+	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", threadID)
 
@@ -132,11 +129,8 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 }
 
 // GetCompletedSteps returns list of completed step names
-func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, writeBack ...bool) ([]string, error) {
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
+func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) ([]string, error) {
+	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	currentStepsKey := "thread:" + threadID + ":current_steps"
 

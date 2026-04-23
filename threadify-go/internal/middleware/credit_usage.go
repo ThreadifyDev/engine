@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 
@@ -19,7 +19,7 @@ const (
 	egressTimeout = 5 * time.Second
 )
 
-func CreditUsageMiddleware(planSvc interfaces.PlanService, logger *zap.Logger) gin.HandlerFunc {
+func CreditUsageMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" {
@@ -103,7 +103,7 @@ func CreditUsageMiddleware(planSvc interfaces.PlanService, logger *zap.Logger) g
 	}
 }
 
-func EgressMiddleware(planSvc interfaces.PlanService, logger *zap.Logger) gin.HandlerFunc {
+func EgressMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 

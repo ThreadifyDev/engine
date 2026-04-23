@@ -50,15 +50,6 @@ const (
 	MeterContractVersion   = billingmodels.MeterContractVersion
 	MeterSeatCreate        = billingmodels.MeterSeatCreate
 	MeterLLMTokenUsage     = billingmodels.MeterLLMTokenUsage
-
-	// Deprecated: Use MeterIngress
-	MeterBandwidthIngress = billingmodels.MeterIngress
-	// Deprecated: Use MeterEgress
-	MeterBandwidthEgress = billingmodels.MeterEgress
-	// Deprecated: Use MeterContractExecution
-	MeterContractCreate = billingmodels.MeterContractExecution
-	// Deprecated: Use MeterContractVersion
-	MeterContractVersionCreate = billingmodels.MeterContractVersion
 )
 
 var (

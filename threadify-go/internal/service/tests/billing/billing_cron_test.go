@@ -30,7 +30,6 @@ func newCronWithOrchestrator(deps *common.MockedDependencies) *service.BillingCr
 	return service.NewBillingCron(
 		newBillingOrchestratorForTest(deps),
 		nil,
-		nil,
 		zap.NewNop(),
 	)
 }
@@ -42,7 +41,7 @@ func TestBillingCron_HandleCreditTopup_MalformedPayloadReturnsPermanent(t *testi
 	msg := natsmocks.NewMockMsg(ctrl)
 	msg.EXPECT().Data().Return([]byte("{bad-json"))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "unmarshal credit topup")
@@ -55,7 +54,7 @@ func TestBillingCron_HandleCreditTopup_MissingRequiredFieldsReturnsPermanent(t *
 	msg := natsmocks.NewMockMsg(ctrl)
 	msg.EXPECT().Data().Return([]byte(`{"event_id":"evt-1","amount":"1000"}`))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "invalid credit topup event")
@@ -73,7 +72,7 @@ func TestBillingCron_HandleCreditTopup_InvalidAmountReturnsPermanent(t *testing.
 		"amount":12.34
 	}`))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "parse credit amount")
@@ -90,7 +89,7 @@ func TestBillingCron_HandleCreditTopup_MissingAmountReturnsPermanent(t *testing.
 		"billing_cycle_start":"2026-04-01T00:00:00Z"
 	}`))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "parse credit amount")
@@ -108,7 +107,7 @@ func TestBillingCron_HandleCreditTopup_NonPositiveAmountReturnsPermanent(t *test
 		"amount":"0"
 	}`))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "invalid credit topup amount")
@@ -126,7 +125,7 @@ func TestBillingCron_HandleCreditTopup_InvalidBillingCycleReturnsPermanent(t *te
 		"amount":"1000"
 	}`))
 
-	cron := service.NewBillingCron(nil, nil, nil, zap.NewNop())
+	cron := service.NewBillingCron(nil, nil, zap.NewNop())
 	err := cron.HandleCreditTopup(msg)
 
 	requirePermanentError(t, err, "invalid billing_cycle_start")

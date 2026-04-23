@@ -212,7 +212,7 @@ func TestCheckCreditAvailable_InsufficientBalanceWithTopupDisabled(t *testing.T)
 
 	svc := deps.NewPlanService(subCfg)
 
-	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractCreate, 1)
+	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractExecution, 1)
 	require.ErrorIs(t, err, service.ErrInsufficientCredit)
 }
 
@@ -243,6 +243,6 @@ func TestCheckCreditAvailable_SucceedsAfterTopupEnabled(t *testing.T) {
 
 	svc := deps.NewPlanService(subCfg)
 
-	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractCreate, 1)
+	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractExecution, 1)
 	require.NoError(t, err)
 }

@@ -2,7 +2,7 @@ package service
 
 import (
 	"github.com/nats-io/nats.go"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -10,8 +10,8 @@ import (
 // This is a standalone function that can be called when ready to integrate
 func InitializeTimeoutMonitor(
 	nc *nats.Conn,
-	threadRepo interfaces.ThreadRepository,
-	notificationPub interfaces.NotificationPublisher,
+	threadRepo types.ThreadRepository,
+	notificationPub types.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
 	monitor, err := NewTimeoutMonitor(nc, threadRepo, notificationPub, logger)

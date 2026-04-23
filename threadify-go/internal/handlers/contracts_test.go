@@ -28,7 +28,7 @@ func TestContractHandler_GetAllContracts(t *testing.T) {
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetAllContracts(gomock.Any(), testUserID).
+					GetAllContracts(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(http.StatusOK, map[string]interface{}{"contracts": []interface{}{}})
 			},
 			wantStatus: http.StatusOK,
@@ -44,7 +44,7 @@ func TestContractHandler_GetAllContracts(t *testing.T) {
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetAllContracts(gomock.Any(), testUserID).
+					GetAllContracts(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 			},
 			wantStatus: http.StatusInternalServerError,

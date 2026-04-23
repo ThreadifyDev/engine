@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
@@ -19,7 +19,6 @@ var errNATSPublisherNotAvailable = errors.New("NATS publisher not available")
 
 // ActivityRepository handles stream and event operations in Valkey
 type ActivityRepository struct {
-	valkey        interfaces.ValkeyClient
 	natsPublisher *natsrepo.ArchivalPublisher
 	postgresRepo  PostgresActivityRepository // For hot/cold fallback
 	logger        *zap.Logger
@@ -31,18 +30,16 @@ type PostgresActivityRepository interface {
 }
 
 // NewActivityRepository creates a new activity repository
-func NewActivityRepository(valkey interfaces.ValkeyClient, natsPublisher *natsrepo.ArchivalPublisher, logger *zap.Logger) *ActivityRepository {
+func NewActivityRepository(natsPublisher *natsrepo.ArchivalPublisher, logger *zap.Logger) *ActivityRepository {
 	return &ActivityRepository{
-		valkey:        valkey,
 		natsPublisher: natsPublisher,
 		logger:        logger,
 	}
 }
 
 // NewActivityRepositoryWithPostgres creates a new activity repository with PostgreSQL fallback
-func NewActivityRepositoryWithPostgres(valkey interfaces.ValkeyClient, natsPublisher *natsrepo.ArchivalPublisher, postgresRepo PostgresActivityRepository, logger *zap.Logger) *ActivityRepository {
+func NewActivityRepositoryWithPostgres(natsPublisher *natsrepo.ArchivalPublisher, postgresRepo PostgresActivityRepository, logger *zap.Logger) *ActivityRepository {
 	return &ActivityRepository{
-		valkey:        valkey,
 		natsPublisher: natsPublisher,
 		postgresRepo:  postgresRepo,
 		logger:        logger,
@@ -58,7 +55,7 @@ func (r *ActivityRepository) publishWithTimeout(ctx context.Context, publish fun
 }
 
 // RecordAccessGranted records an access granted event to streams
-func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *interfaces.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	if r.natsPublisher == nil {
 		return nil
 	}
@@ -307,7 +304,7 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 
 // ArchiveStepState publishes step state snapshot to NATS for archival to Postgres.
 // SYNCHRONOUS - Critical for PostgreSQL persistence (DB-first architecture).
-func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *interfaces.StepStateSnapshot) error {
+func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
 	if r.natsPublisher == nil {
 		return errNATSPublisherNotAvailable
 	}

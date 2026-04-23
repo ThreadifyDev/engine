@@ -13,7 +13,7 @@ import (
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -24,27 +24,33 @@ const (
 
 type BillingOrchestrator struct {
 	*billing.BillingService
-	billingRepo  interfaces.BillingRepository
-	valkeyClient interfaces.ValkeyClient
-	planSvc      interfaces.PlanService
+	billingRepo  types.BillingRepository
+	valkey       types.ValkeyStringClient
+	creditAtomic types.ValkeyCreditAtomic
+	streamClient types.ValkeyStreamClient
+	planSvc      types.PlanService
 	logger       *zap.Logger
 }
 
 func NewBillingOrchestrator(
 	billingProvider billing.BillingProvider,
 	planRepo sharedrepo.PlanRepository,
-	billingRepo interfaces.BillingRepository,
+	billingRepo types.BillingRepository,
 	subConfig *sharedconfig.SubscriptionConfig,
 	billingConfig *sharedconfig.BillingConfig,
-	valkeyClient interfaces.ValkeyClient,
-	planSvc interfaces.PlanService,
+	valkey types.ValkeyStringClient,
+	creditAtomic types.ValkeyCreditAtomic,
+	streamClient types.ValkeyStreamClient,
+	planSvc types.PlanService,
 	logger *zap.Logger,
 ) *BillingOrchestrator {
 	sharedSvc := billing.NewBillingService(billingProvider, planRepo, subConfig, billingConfig, logger)
 	return &BillingOrchestrator{
 		BillingService: sharedSvc,
 		billingRepo:    billingRepo,
-		valkeyClient:   valkeyClient,
+		valkey:         valkey,
+		creditAtomic:   creditAtomic,
+		streamClient:   streamClient,
 		planSvc:        planSvc,
 		logger:         logger,
 	}
@@ -140,7 +146,7 @@ func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *bi
 		appliedKey = database.CreditTopupAppliedKeyPrefix + snapshot.ExternalInvoiceID
 	}
 
-	applied, err := s.valkeyClient.SetNX(ctx, appliedKey, "1", creditTopupAppliedKeyTTL)
+	applied, err := s.valkey.SetNX(ctx, appliedKey, "1", creditTopupAppliedKeyTTL)
 	if err != nil {
 		s.logger.Error("failed to mark credit topup as applied", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
 		return fmt.Errorf("apply credit topup: mark applied: %w", err)
@@ -153,8 +159,8 @@ func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *bi
 
 	keys := billing.KeysFor(snapshot.CompanyID)
 
-	if _, err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
-		_ = s.valkeyClient.Delete(ctx, appliedKey)
+	if _, err := s.creditAtomic.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
+		_ = s.valkey.Del(ctx, appliedKey)
 		s.logger.Error("failed to apply credit topup", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
 		return fmt.Errorf("apply credit topup: %w", err)
 	}
@@ -167,7 +173,7 @@ func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *bi
 
 func (s *BillingOrchestrator) ClearCreditTopupPending(ctx context.Context, companyID string) error {
 	keys := billing.KeysFor(companyID)
-	return s.valkeyClient.Delete(ctx, keys.Pending)
+	return s.valkey.Del(ctx, keys.Pending)
 }
 
 func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, companyID string, amountMillicents int64, billingCycleStart time.Time) {
@@ -180,7 +186,7 @@ func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, comp
 		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
-	if _, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
+	if _, err := s.streamClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
 		s.logger.Error("failed to write credit topup event to outbox (fail-open)",
 			zap.String("company_id", companyID),
 			zap.Int64("amount_millicents", amountMillicents),

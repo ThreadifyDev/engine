@@ -8,7 +8,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -33,12 +33,12 @@ type ThreadServiceBuilder struct {
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
 	natsClient            *natsrepo.Client
-	natsPublisher         interfaces.NotificationPublisher
+	natsPublisher         types.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
-	planService           interfaces.PlanService
+	planService           types.PlanService
 	workerPools           *workerpool.Pools
-	cacheManager          interfaces.CacheManager
+	cacheManager          types.CacheManager
 	logger                *zap.Logger
 }
 
@@ -82,7 +82,7 @@ func (b *ThreadServiceBuilder) WithNATSClient(client *natsrepo.Client) *ThreadSe
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithNATSPublisher(publisher interfaces.NotificationPublisher) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithNATSPublisher(publisher types.NotificationPublisher) *ThreadServiceBuilder {
 	b.natsPublisher = publisher
 	return b
 }
@@ -97,7 +97,7 @@ func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *Thread
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithPlanService(planService interfaces.PlanService) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithPlanService(planService types.PlanService) *ThreadServiceBuilder {
 	b.planService = planService
 	return b
 }
@@ -107,7 +107,7 @@ func (b *ThreadServiceBuilder) WithWorkerPools(pools *workerpool.Pools) *ThreadS
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithCacheManager(cm interfaces.CacheManager) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithCacheManager(cm types.CacheManager) *ThreadServiceBuilder {
 	b.cacheManager = cm
 	return b
 }
@@ -135,7 +135,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(b.valkeyService, postgresAccessRepo, accessTTLSeconds, b.logger)
 
 	stepStateRepo := valkey.NewStepStateRepository(b.valkeyService, stepStateTTLSeconds, b.logger)
-	activityRepo := valkey.NewActivityRepository(b.valkeyService, b.natsArchivalPublisher, b.logger)
+	activityRepo := valkey.NewActivityRepository(b.natsArchivalPublisher, b.logger)
 
 	// --- Lua scripts ---
 
@@ -174,7 +174,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		cacheService = NewCacheService(b.logger)
 	}
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader, b.logger)
-	validationService := NewValidationService(b.valkeyService, b.threadRepo)
+	validationService := NewValidationService(b.threadRepo)
 
 	// Initialize timeout monitor if NATS client is available
 	var timeoutMonitor *TimeoutMonitor

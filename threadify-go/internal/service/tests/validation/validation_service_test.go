@@ -11,6 +11,7 @@ import (
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
+	"github.com/threadify/engine/internal/types"
 )
 
 func TestValidationService_GetCurrentSteps(t *testing.T) {
@@ -21,18 +22,18 @@ func TestValidationService_GetCurrentSteps(t *testing.T) {
 
 	ctx := context.Background()
 	threadID := "thread-123"
-	svc := service.NewValidationService(nil, threadRepo)
+	svc := service.NewValidationService(threadRepo)
 
 	t.Run("successfully parses step names from keys", func(t *testing.T) {
 		mockSteps := []string{"order_placed:idemp1", "payment_validation:idemp2", "custom_step"}
-		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, true).Return(mockSteps, nil)
+		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true}).Return(mockSteps, nil)
 
 		got := svc.GetCurrentSteps(ctx, threadID)
 		assert.Equal(t, []string{"order_placed", "payment_validation", "custom_step"}, got)
 	})
 
 	t.Run("returns empty slice on repository error", func(t *testing.T) {
-		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, true).Return(nil, assert.AnError)
+		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true}).Return(nil, assert.AnError)
 
 		got := svc.GetCurrentSteps(ctx, threadID)
 		assert.Equal(t, []string{}, got)

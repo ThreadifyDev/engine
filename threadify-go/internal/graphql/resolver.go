@@ -3,7 +3,7 @@ package graphql
 import (
 	sharedrepo "threadify-go/shared/repository"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
@@ -16,7 +16,7 @@ type Resolver struct {
 	validationRepo        *valkey.ValidationRepository
 	accessRepo            *valkey.AccessRepository // For permission checks (hot path)
 	threadAccessService   *service.ThreadAccessService
-	contractValidator     interfaces.ContractGraphValidator
+	contractValidator     types.ContractGraphValidator
 	contractRepo          *postgres.ContractRepository
 	refsRepo              *postgres.ThreadRefsRepository         // For batch loading refs
 	stepStatePostgres     *postgres.StepStateRepository          // For batch loading steps
@@ -26,7 +26,7 @@ type Resolver struct {
 	subStepRepo           *postgres.SubStepRepository            // For querying sub-steps
 	entityProfileRepo     sharedrepo.EntityProfileRepository
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository
-	planService           interfaces.PlanService
+	planService           types.PlanService
 	logger                *zap.Logger
 }
 
@@ -36,7 +36,7 @@ func NewResolver(
 	validationRepo *valkey.ValidationRepository,
 	accessRepo *valkey.AccessRepository,
 	threadAccessService *service.ThreadAccessService,
-	contractValidator interfaces.ContractGraphValidator,
+	contractValidator types.ContractGraphValidator,
 	contractRepo *postgres.ContractRepository,
 	refsRepo *postgres.ThreadRefsRepository,
 	stepStatePostgres *postgres.StepStateRepository,
@@ -46,7 +46,7 @@ func NewResolver(
 	subStepRepo *postgres.SubStepRepository,
 	entityProfileRepo sharedrepo.EntityProfileRepository,
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository,
-	planService interfaces.PlanService,
+	planService types.PlanService,
 	logger *zap.Logger,
 ) *Resolver {
 	return &Resolver{

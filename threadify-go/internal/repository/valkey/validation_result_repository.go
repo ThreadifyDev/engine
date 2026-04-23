@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
@@ -33,14 +33,14 @@ import (
 // - Async write-back failures are logged but don't block requests
 // - Context cancellation prevents orphaned goroutines on shutdown
 type ValidationRepository struct {
-	client        interfaces.ValkeyClient
+	client        types.ValidationValkeyClient
 	postgresRepo  *postgres.ValidationRepository
 	ttl           time.Duration
 	writeBackPool *workerpool.Pool
 	logger        *zap.Logger
 }
 
-func NewValidationRepository(client interfaces.ValkeyClient, logger *zap.Logger) *ValidationRepository {
+func NewValidationRepository(client types.ValidationValkeyClient, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client: client,
 		ttl:    24 * time.Hour,
@@ -48,7 +48,7 @@ func NewValidationRepository(client interfaces.ValkeyClient, logger *zap.Logger)
 	}
 }
 
-func NewValidationRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.ValidationRepository, logger *zap.Logger) *ValidationRepository {
+func NewValidationRepositoryWithPostgres(client types.ValidationValkeyClient, postgresRepo *postgres.ValidationRepository, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client:       client,
 		postgresRepo: postgresRepo,
@@ -290,7 +290,7 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	userID string,
-	permCheck *PermissionCheckResult,
+	permCheck *types.PermissionCheckResult,
 	options *models.ValidationQueryOptions,
 ) ([]*models.ValidationResultInfo, error) {
 	// If no access, return empty

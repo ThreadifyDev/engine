@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 )
 
@@ -136,7 +136,7 @@ func TestLuaScriptManager_CheckRateLimit(t *testing.T) {
 }
 
 func TestLuaScriptManager_DecrementCreditWithAutoTopup(t *testing.T) {
-	params := &interfaces.DebitParams{
+	params := &types.DebitParams{
 		BalanceKey:        "bal",
 		ChargedKey:        "char",
 		StreamKey:         "stream",

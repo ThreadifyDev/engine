@@ -27,7 +27,7 @@ import (
 	"github.com/threadify/engine/internal/graphql"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -77,7 +77,7 @@ type services struct {
 	invitation          *service.InvitationTokenService
 	billingOrchestrator *service.BillingOrchestrator
 	luaScriptManager    *valkey.LuaScriptManager
-	rbacLoader          interfaces.RBACLoader
+	rbacLoader          types.RBACLoader
 }
 
 type appHandlers struct {
@@ -239,7 +239,7 @@ func initRepositories(
 	cfg *config.Config,
 	inf *infra,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader interfaces.RBACLoader,
+	rbacLoader types.RBACLoader,
 	logger *zap.Logger) (*repositories, error) {
 	r := &repositories{}
 
@@ -266,14 +266,14 @@ func initRepositories(
 	cacheManager := service.NewCacheService(logger)
 
 	threadCache := valkey.NewThreadRepository(
-		inf.valkey, threadTTL,
+		threadTTL, inf.valkey,
 		r.thread, r.stepState,
 		cacheManager, luaScriptManager, logger,
 	)
 	threadCache.SetWriteBackPool(inf.workerPools.WriteBack)
 	r.threadCache = threadCache
 
-	r.stepStateCache = valkey.NewStepStateRepositoryWithPostgres(inf.valkey, r.stepState, stepEventTTL, logger)
+	r.stepStateCache = valkey.NewStepStateRepositoryWithPostgres(stepEventTTL, inf.valkey, r.stepState, logger)
 
 	r.validationCache = valkey.NewValidationRepositoryWithPostgres(inf.valkey, r.validation, logger)
 
@@ -295,7 +295,7 @@ func initServices(
 	inf *infra,
 	repos *repositories,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader interfaces.RBACLoader,
+	rbacLoader types.RBACLoader,
 	logger *zap.Logger,
 ) (*services, error) {
 	svcs := &services{
@@ -333,7 +333,7 @@ func initServices(
 	// --- plan ---
 	planSvc := service.NewPlanService(
 		repos.plan, repos.contract, repos.actor,
-		&cfg.Subscription, inf.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs,
+		&cfg.Subscription, inf.valkey, inf.valkey, inf.valkey, inf.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs,
 	)
 	svcs.plan = planSvc
 
@@ -348,7 +348,7 @@ func initServices(
 	billingOrchestrator := service.NewBillingOrchestrator(
 		billingProvider, repos.plan, repos.billing,
 		&cfg.Subscription, &cfg.Billing,
-		inf.valkey, planSvc, logger,
+		inf.valkey, inf.valkey, inf.valkey, planSvc, logger,
 	)
 	svcs.billingOrchestrator = billingOrchestrator
 
@@ -357,7 +357,7 @@ func initServices(
 	if err != nil {
 		return nil, fmt.Errorf("init jetstream: %w", err)
 	}
-	sm.Register(service.NewBillingCron(billingOrchestrator, inf.valkey, js, logger))
+	sm.Register(service.NewBillingCron(billingOrchestrator, js, logger))
 
 	// --- contract ---
 	svcs.contract = service.NewContractService(repos.contract, planSvc, logger)
@@ -493,7 +493,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	return r
 }
 
-func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac interfaces.RBACLoader, plan interfaces.PlanService, logger *zap.Logger) {
+func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac types.RBACLoader, plan types.PlanService, logger *zap.Logger) {
 	ch := hdlrs.contractHandler
 
 	contracts := rg.Group("/contracts")

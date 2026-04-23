@@ -12,7 +12,7 @@ import (
 	"threadify-go/shared/rbac"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -25,17 +25,17 @@ import (
 // and manages the archival of validation notifications without blocking main execution.
 type NotificationService struct {
 	validationService     *ValidationService
-	activityRepo          interfaces.ActivityRepository
-	stepStateRepo         interfaces.StepStateRepository
-	threadRepo            interfaces.ThreadRepository
-	cacheManager          interfaces.CacheManager
-	natsPublisher         interfaces.NotificationPublisher
+	activityRepo          types.ActivityRepository
+	stepStateRepo         types.StepStateRepository
+	threadRepo            types.ThreadRepository
+	cacheManager          types.CacheManager
+	natsPublisher         types.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	threadAccessService   *ThreadAccessService
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
-	timeoutMonitor        interfaces.TimeoutMonitor
+	timeoutMonitor        types.TimeoutMonitor
 	logger                *zap.Logger
 }
 
@@ -70,17 +70,17 @@ func GetRequiredPermissionsForNotification(status, stepStatus, severity, violati
 // NewNotificationService creates a new notification service.
 func NewNotificationService(
 	validationService *ValidationService,
-	activityRepo interfaces.ActivityRepository,
-	stepStateRepo interfaces.StepStateRepository,
-	threadRepo interfaces.ThreadRepository,
-	cacheManager interfaces.CacheManager,
-	natsPublisher interfaces.NotificationPublisher,
+	activityRepo types.ActivityRepository,
+	stepStateRepo types.StepStateRepository,
+	threadRepo types.ThreadRepository,
+	cacheManager types.CacheManager,
+	natsPublisher types.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
-	timeoutMonitor interfaces.TimeoutMonitor,
+	timeoutMonitor types.TimeoutMonitor,
 	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
@@ -308,7 +308,7 @@ func (s *NotificationService) processValidationNotifications(
 	)
 
 	hasCriticalViolation := false
-	var existingViolations []interfaces.Violation
+	var existingViolations []types.Violation
 
 	for _, notif := range notifications {
 		if notif.Severity == string(models.SeverityCritical) {
@@ -317,7 +317,7 @@ func (s *NotificationService) processValidationNotifications(
 				zap.String("message", notif.Message),
 			)
 			hasCriticalViolation = true
-			existingViolations = append(existingViolations, interfaces.Violation{
+			existingViolations = append(existingViolations, types.Violation{
 				Type:     notif.ViolationType,
 				Severity: notif.Severity,
 				Message:  notif.Message,
@@ -780,9 +780,9 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n models.
 func buildValidateStepParams(
 	threadID, stepID, stepName, idempotencyKey, status, ownerID string,
 	isTerminal bool,
-	existingViolations []interfaces.Violation,
+	existingViolations []types.Violation,
 	graph *models.ContractGraph,
-) interfaces.ValidateStepParams {
+) types.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
 	terminalSteps := []string{}
@@ -801,7 +801,7 @@ func buildValidateStepParams(
 		}
 	}
 
-	return interfaces.ValidateStepParams{
+	return types.ValidateStepParams{
 		ThreadID:               threadID,
 		StepID:                 stepID,
 		StepName:               stepName,
@@ -824,22 +824,36 @@ func buildStepStateSnapshot(
 	req *models.RecordEventRequest,
 	retryCount int,
 	firstSeenAt, previousStep string,
-) *interfaces.StepStateSnapshot {
+) *types.StepStateSnapshot {
 	now := time.Now().Format(time.RFC3339Nano)
 	if firstSeenAt == "" {
 		firstSeenAt = now
 	}
-	return &interfaces.StepStateSnapshot{
+	parsedFirstSeen, _ := time.Parse(time.RFC3339Nano, firstSeenAt)
+	parsedLastUpdated, _ := time.Parse(time.RFC3339Nano, now)
+	var startedAt, finishedAt *time.Time
+	if req.StartedAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.StartedAt); err == nil {
+			startedAt = &t
+		}
+	}
+	if req.FinishedAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.FinishedAt); err == nil {
+			finishedAt = &t
+		}
+	}
+
+	return &types.StepStateSnapshot{
 		ID:             stepID,
 		ThreadID:       threadID,
 		StepName:       stepName,
 		IdempotencyKey: idempotencyKey,
 		Status:         status,
 		RetryCount:     retryCount,
-		FirstSeenAt:    firstSeenAt,
-		LastUpdatedAt:  now,
-		StartedAt:      req.StartedAt,
-		FinishedAt:     req.FinishedAt,
+		FirstSeenAt:    parsedFirstSeen,
+		LastUpdatedAt:  parsedLastUpdated,
+		StartedAt:      startedAt,
+		FinishedAt:     finishedAt,
 		PreviousStep:   previousStep,
 		Actor:          ownerID,
 		ActorService:   req.ServiceName,

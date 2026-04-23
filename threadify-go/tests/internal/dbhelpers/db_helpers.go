@@ -16,6 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type ThreadOption struct {
+	Status    string
+	Refs      map[string]interface{}
+	StartedAt *time.Time
+}
+
 type Helpers struct {
 	pool *pgxpool.Pool
 }
@@ -38,16 +44,49 @@ func (db *Helpers) CreateTestUser(t *testing.T, userID, email, companyID string)
 	require.NoError(t, err)
 }
 
-func (db *Helpers) CreateTestThread(t *testing.T, threadID, companyID, ownerID, contractName string, contractVersion int) {
+func (db *Helpers) CreateTestThread(
+	t *testing.T,
+	threadID, companyID, ownerID, contractName string,
+	contractVersion int,
+	opts ...ThreadOption,
+) {
 	t.Helper()
+
+	var opt ThreadOption
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	status := opt.Status
+	if status == "" {
+		status = "active"
+	}
+
+	startedAt := time.Now()
+	if opt.StartedAt != nil {
+		startedAt = *opt.StartedAt
+	}
+
 	_, err := db.pool.Exec(context.Background(), `
 		INSERT INTO threads (
 			id, contract_name, contract_version, owner_id, company_id, status, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW())
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
 		ON CONFLICT (id) DO NOTHING`,
-		threadID, contractName, contractVersion, ownerID, companyID,
+		threadID, contractName, contractVersion, ownerID, companyID, status, startedAt,
 	)
 	require.NoError(t, err)
+
+	for refKey, refValue := range opt.Refs {
+		_, err := db.pool.Exec(context.Background(), `
+			INSERT INTO thread_refs (thread_id, ref_key, ref_value, created_at, updated_at)
+			VALUES ($1, $2, $3, NOW(), NOW())
+			ON CONFLICT (thread_id, ref_key) DO UPDATE SET
+				ref_value = EXCLUDED.ref_value,
+				updated_at = NOW()`,
+			threadID, refKey, fmt.Sprintf("%v", refValue),
+		)
+		require.NoError(t, err)
+	}
 }
 
 func (db *Helpers) CreateTestServiceAccount(t *testing.T, saID, name, companyID string) {
@@ -214,4 +253,31 @@ func (db *Helpers) CreateTestThreadWithRefsAndTimestamp(t *testing.T, threadID, 
 		)
 		require.NoError(t, err)
 	}
+}
+
+func (db *Helpers) CreateEntityProfileType(t *testing.T, id, companyID, name string, refKeys []string, slug string) {
+	t.Helper()
+	_, err := db.pool.Exec(context.Background(), `
+		INSERT INTO entity_profile_type (id, company_id, name, type, slug, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'test type', NOW(), NOW())
+	`, id, companyID, name, refKeys, slug)
+	require.NoError(t, err)
+}
+
+func (db *Helpers) CreateEntityProfile(t *testing.T, id, companyID, profileTypeID, name, refKey string) {
+	t.Helper()
+	_, err := db.pool.Exec(context.Background(), `
+		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+	`, id, companyID, profileTypeID, name, refKey)
+	require.NoError(t, err)
+}
+
+func (db *Helpers) CreateEntityProfileWithTimestamp(t *testing.T, id, companyID, profileTypeID, name, refKey string, timestamp time.Time) {
+	t.Helper()
+	_, err := db.pool.Exec(context.Background(), `
+		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
+	`, id, companyID, profileTypeID, name, refKey, timestamp)
+	require.NoError(t, err)
 }

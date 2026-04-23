@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
 // ContractGraphRepository handles contract graph caching in Valkey (Redis)
 type ContractGraphRepository struct {
-	valkey interfaces.ValkeyClient
+	valkey types.ValkeyStringClient
 	ttl    int // TTL in seconds
 }
 
 // NewContractGraphRepository creates a new contract graph repository
-func NewContractGraphRepository(valkey interfaces.ValkeyClient, ttl int) *ContractGraphRepository {
+func NewContractGraphRepository(valkey types.ValkeyStringClient, ttl int) *ContractGraphRepository {
 	return &ContractGraphRepository{
 		valkey: valkey,
 		ttl:    ttl,
@@ -72,7 +72,7 @@ func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, 
 func (r *ContractGraphRepository) Delete(ctx context.Context, contractName string, version int, companyID string) error {
 	key := r.getGraphKey(contractName, version, companyID)
 
-	err := r.valkey.Delete(ctx, key)
+	err := r.valkey.Del(ctx, key)
 	if err != nil {
 		return fmt.Errorf("failed to delete contract graph: %w", err)
 	}
@@ -115,7 +115,7 @@ func (r *ContractGraphRepository) DeleteByContract(ctx context.Context, contract
 
 	// Delete all matching keys
 	for _, key := range keys {
-		if err := r.valkey.Delete(ctx, key); err != nil {
+		if err := r.valkey.Del(ctx, key); err != nil {
 			return fmt.Errorf("failed to delete contract graph key %s: %w", key, err)
 		}
 	}

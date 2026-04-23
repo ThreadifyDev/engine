@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -89,11 +89,14 @@ func nextBillingCycle(cycleStart, now time.Time) (time.Time, bool) {
 
 type PlanService struct {
 	planRepo         sharedrepo.PlanRepository
-	contractRepo     interfaces.ContractRepository
-	actorRepo        interfaces.ActorRepository
+	contractRepo     types.ContractRepository
+	actorRepo        types.ActorRepository
 	subConfig        *config.SubscriptionConfig
-	valkeyClient     interfaces.ValkeyClient
-	luaScripts       interfaces.LuaScriptManager
+	valkey           types.PlanValkeyClient
+	pipelineProvider types.ValkeyPipelineProvider
+	creditAtomic     types.ValkeyCreditAtomic
+	streamClient     types.ValkeyStreamClient
+	luaScripts       types.LuaScriptManager
 	logger           *zap.Logger
 	cacheTTL         time.Duration
 	sfGroup          singleflight.Group
@@ -102,11 +105,14 @@ type PlanService struct {
 
 func NewPlanService(
 	planRepo sharedrepo.PlanRepository,
-	contractRepo interfaces.ContractRepository,
-	actorRepo interfaces.ActorRepository,
+	contractRepo types.ContractRepository,
+	actorRepo types.ActorRepository,
 	subConfig *config.SubscriptionConfig,
-	valkeyClient interfaces.ValkeyClient,
-	luaScripts interfaces.LuaScriptManager,
+	valkey types.PlanValkeyClient,
+	pipelineProvider types.ValkeyPipelineProvider,
+	creditAtomic types.ValkeyCreditAtomic,
+	streamClient types.ValkeyStreamClient,
+	luaScripts types.LuaScriptManager,
 	logger *zap.Logger,
 	cacheTTLMs int,
 ) *PlanService {
@@ -120,7 +126,10 @@ func NewPlanService(
 		contractRepo:     contractRepo,
 		actorRepo:        actorRepo,
 		subConfig:        subConfig,
-		valkeyClient:     valkeyClient,
+		valkey:           valkey,
+		pipelineProvider: pipelineProvider,
+		creditAtomic:     creditAtomic,
+		streamClient:     streamClient,
 		luaScripts:       luaScripts,
 		logger:           logger,
 		cacheTTL:         ttl,
@@ -182,7 +191,7 @@ func (s *PlanService) applyManualTopup(
 
 	keys := billing.KeysFor(companyID)
 
-	_, getErr := s.valkeyClient.Get(ctx, keys.Balance)
+	_, getErr := s.valkey.Get(ctx, keys.Balance)
 	if getErr != nil {
 		if !errors.Is(getErr, redis.Nil) {
 			return fmt.Errorf("manual topup - checking valkey balance: %w", getErr)
@@ -196,7 +205,7 @@ func (s *PlanService) applyManualTopup(
 		}
 	}
 
-	newBalance, err := s.valkeyClient.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amount)
+	newBalance, err := s.creditAtomic.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amount)
 	if err != nil {
 		return fmt.Errorf("manual topup - apply credit atomic: %w", err)
 	}
@@ -266,7 +275,7 @@ func (s *PlanService) seedCreditKeys(ctx context.Context, companyID string, acco
 		zap.Int64("charged", account.CreditMonthlyChargedMillicents),
 	)
 
-	pipe := s.valkeyClient.Pipeline()
+	pipe := s.pipelineProvider.Pipeline()
 	pipe.Set(ctx, keys.Balance, strconv.FormatInt(account.CreditBalanceMillicents, 10), 0)
 	pipe.Set(ctx, keys.Charged, strconv.FormatInt(account.CreditMonthlyChargedMillicents, 10), 0)
 	pipe.Del(ctx, keys.Pending)
@@ -435,7 +444,7 @@ func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 	}
 }
 
-func (s *PlanService) invokeDebit(ctx context.Context, params *interfaces.DebitParams) (interfaces.DebitResult, error) {
+func (s *PlanService) invokeDebit(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
 	return s.luaScripts.DecrementCreditWithAutoTopup(ctx, params)
 }
 
@@ -458,7 +467,7 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 	topupEventID := uuid.NewString()
 	now := time.Now().UTC()
 
-	params := &interfaces.DebitParams{
+	params := &types.DebitParams{
 		BalanceKey:        keys.Balance,
 		ChargedKey:        keys.Charged,
 		PendingKey:        keys.Pending,
@@ -517,7 +526,7 @@ func (s *PlanService) writeUsageToOutbox(
 		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
-	if _, err := s.valkeyClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
+	if _, err := s.streamClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
 		s.logger.Error("failed to write usage event to outbox (fail-open)",
 			zap.String("company_id", companyID),
 			zap.String("meter", meter),
@@ -536,7 +545,7 @@ type CreditState struct {
 
 func (s *PlanService) readCreditState(ctx context.Context, companyID string) (CreditState, error) {
 	keys := billing.KeysFor(companyID)
-	vals, err := s.valkeyClient.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
+	vals, err := s.valkey.MGet(ctx, keys.Balance, keys.Charged, keys.Pending)
 	if err != nil {
 		return CreditState{}, err
 	}
@@ -674,7 +683,7 @@ func (s *PlanService) acquireRolloverLock(ctx context.Context) (release func(), 
 	lockKey := database.CreditRolloverLockKey
 	lockValue := uuid.NewString()
 
-	acquired, err := s.valkeyClient.SetNX(ctx, lockKey, lockValue, rolloverLockTTL)
+	acquired, err := s.valkey.SetNX(ctx, lockKey, lockValue, rolloverLockTTL)
 	if err != nil {
 		s.logger.Warn("failed to acquire rollover lock; aborting rollover to be safe", zap.Error(err))
 		return nil, fmt.Errorf("rollover lock unavailable: %w", err)
@@ -686,7 +695,7 @@ func (s *PlanService) acquireRolloverLock(ctx context.Context) (release func(), 
 
 	release = func() {
 		const script = `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`
-		if _, err := s.valkeyClient.Eval(ctx, script, []string{lockKey}, lockValue); err != nil {
+		if _, err := s.valkey.Eval(ctx, script, []string{lockKey}, lockValue); err != nil {
 			s.logger.Warn("failed to release rollover lock", zap.Error(err))
 		}
 	}
@@ -790,14 +799,14 @@ func (s *PlanService) createRolloverAccount(
 }
 
 func (s *PlanService) InvalidatePlanCache(ctx context.Context, companyID string) {
-	if err := s.valkeyClient.Delete(ctx, database.PlanCachePrefix+companyID); err != nil {
+	if err := s.valkey.Del(ctx, database.PlanCachePrefix+companyID); err != nil {
 		s.logger.Warn("failed to invalidate plan cache", zap.String("company_id", companyID), zap.Error(err))
 	}
 	s.sfGroup.Forget(companyID)
 }
 
 func (s *PlanService) getCacheEntry(ctx context.Context, companyID string) *CachedPlan {
-	cached, err := s.valkeyClient.Get(ctx, database.PlanCachePrefix+companyID)
+	cached, err := s.valkey.Get(ctx, database.PlanCachePrefix+companyID)
 	if err != nil || cached == "" {
 		return nil
 	}
@@ -817,5 +826,5 @@ func (s *PlanService) setCacheEntry(ctx context.Context, companyID string, cp *C
 	if jitterRange := int64(ttl / cacheTTLJitterFraction); jitterRange > 0 {
 		ttl += time.Duration(rand.Int63n(jitterRange*cacheTTLJitterMultiplier)) - time.Duration(jitterRange)
 	}
-	_ = s.valkeyClient.Set(ctx, database.PlanCachePrefix+companyID, string(data), ttl)
+	_ = s.valkey.Set(ctx, database.PlanCachePrefix+companyID, string(data), ttl)
 }

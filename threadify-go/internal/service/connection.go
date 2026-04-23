@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -19,7 +19,7 @@ type ConnectionService struct {
 }
 
 // NewConnectionService creates a new connection service.
-func NewConnectionService(logger *zap.Logger) interfaces.ConnectionManager {
+func NewConnectionService(logger *zap.Logger) types.ConnectionManager {
 	return &ConnectionService{
 		clients:       make(map[string]*models.ConnectedClient),
 		sessionCounts: make(map[string]int),

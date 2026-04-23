@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -26,8 +26,8 @@ type AccessBatcher struct {
 	buffer        chan *AccessWrite
 	batchSize     int
 	flushInterval time.Duration
-	accessRepo    interfaces.AccessRepository
-	luaScripts    interfaces.LuaScriptManager
+	accessRepo    types.AccessRepository
+	luaScripts    types.LuaScriptManager
 	stopChan      chan struct{}
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
@@ -39,8 +39,8 @@ func NewAccessBatcher(
 	bufferSize int,
 	batchSize int,
 	flushInterval time.Duration,
-	accessRepo interfaces.AccessRepository,
-	luaScripts interfaces.LuaScriptManager,
+	accessRepo types.AccessRepository,
+	luaScripts types.LuaScriptManager,
 	logger *zap.Logger,
 ) *AccessBatcher {
 	return &AccessBatcher{
@@ -151,18 +151,15 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 	errorCount := 0
 
 	for _, write := range batch {
-		_, err := b.accessRepo.GrantOrUpdateAccess(
-			ctx,
-			write.ThreadID,
-			write.UserID,
-			write.Role,
-			write.RuntimeRole,
-			write.Permissions,
-			write.InvitedBy,
-			b.luaScripts,
-			nil, // threadData — not creating thread
-			nil, // threadTTL — not creating thread
-		)
+		_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+			ThreadID:    write.ThreadID,
+			UserID:      write.UserID,
+			Role:        write.Role,
+			RuntimeRole: write.RuntimeRole,
+			Permissions: write.Permissions,
+			InvitedBy:   write.InvitedBy,
+			LuaRegistry: b.luaScripts,
+		})
 		if err != nil {
 			b.logger.Error("failed to grant access in batch",
 				zap.String("thread_id", write.ThreadID),
@@ -189,18 +186,15 @@ func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := b.accessRepo.GrantOrUpdateAccess(
-		ctx,
-		write.ThreadID,
-		write.UserID,
-		write.Role,
-		write.RuntimeRole,
-		write.Permissions,
-		write.InvitedBy,
-		b.luaScripts,
-		nil, // threadData
-		nil, // threadTTL
-	)
+	_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+		ThreadID:    write.ThreadID,
+		UserID:      write.UserID,
+		Role:        write.Role,
+		RuntimeRole: write.RuntimeRole,
+		Permissions: write.Permissions,
+		InvitedBy:   write.InvitedBy,
+		LuaRegistry: b.luaScripts,
+	})
 	return err
 }
 

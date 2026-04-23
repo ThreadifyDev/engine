@@ -7,7 +7,7 @@ import (
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
 	"github.com/redis/go-redis/v9"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 )
 
 type ValkeyService struct {
@@ -168,10 +168,6 @@ func (v *ValkeyService) TTL(ctx context.Context, key string) (time.Duration, err
 	return v.Client.TTL(ctx, key).Result()
 }
 
-func (v *ValkeyService) Delete(ctx context.Context, key string) error {
-	return v.Client.Del(ctx, key).Err()
-}
-
 // LPush adds items to the left of a Redis list
 func (v *ValkeyService) LPush(ctx context.Context, key string, values ...interface{}) error {
 	return v.Client.LPush(ctx, key, values...).Err()
@@ -208,7 +204,7 @@ func (v *ValkeyService) ZRange(ctx context.Context, key string, start, stop int6
 }
 
 // Pipeline creates a new Redis pipeline
-func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
+func (v *ValkeyService) Pipeline() types.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
 }
 
@@ -300,32 +296,32 @@ type RedisPipeline struct {
 	pipe redis.Pipeliner
 }
 
-func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	p.pipe.HSet(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) types.ValkeyPipeline {
 	p.pipe.HDel(ctx, key, fields...)
 	return p
 }
 
-func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	p.pipe.LPush(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) types.ValkeyPipeline {
 	p.pipe.Set(ctx, key, value, expiration)
 	return p
 }
 
-func (p *RedisPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Del(ctx context.Context, keys ...string) types.ValkeyPipeline {
 	p.pipe.Del(ctx, keys...)
 	return p
 }
 
-func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) types.ValkeyPipeline {
 	p.pipe.Expire(ctx, key, expiration)
 	return p
 }

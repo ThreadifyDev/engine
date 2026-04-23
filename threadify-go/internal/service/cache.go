@@ -8,7 +8,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/spf13/viper"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -24,7 +24,7 @@ type CacheService struct {
 
 // NewCacheService creates a new cache service with LRU eviction.
 // Cache sizes are configurable via config.yaml under cache.lru.
-func NewCacheService(logger *zap.Logger) interfaces.CacheManager {
+func NewCacheService(logger *zap.Logger) types.CacheManager {
 	viper.SetDefault("cache.lru.contract_cache_size", 1000)
 	viper.SetDefault("cache.lru.thread_cache_size", 10000)
 	viper.SetDefault("cache.lru.role_cache_size", 50000)
