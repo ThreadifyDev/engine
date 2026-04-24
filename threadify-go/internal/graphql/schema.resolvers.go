@@ -594,7 +594,25 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 			return nil, nil
 		}
 		// Fetch profile type details
-		pType, _ := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		if err != nil {
+			r.logger.Warn("could not fetch profile type details",
+				zap.String("profile_id", profile.ID),
+				zap.String("type", *typeArg),
+				zap.Error(err),
+			)
+			return &generated.EntityProfile{
+				ID:            profile.ID,
+				RefKey:        profile.RefKey,
+				CompanyID:     profile.CompanyID,
+				ProfileTypeID: profile.ProfileTypeID,
+				ProfileType:   nil,
+				Name:          &profile.Name,
+				CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+				LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+				Metrics:       toGraphQLMetrics(metrics),
+			}, nil
+		}
 
 		return &generated.EntityProfile{
 			ID:            profile.ID,
@@ -661,16 +679,6 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		return nil, apperrors.NewInternalError("Failed to list entity profiles", err)
 	}
 
-	// Fetch profile type details for the connection
-	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
-	if err != nil {
-		r.logger.Warn("could not fetch profile type details for connection",
-			zap.String("company_id", companyID),
-			zap.String("type", typeArg),
-			zap.Error(err),
-		)
-	}
-
 	out := make([]*generated.EntityProfile, 0, len(items))
 	for _, it := range items {
 		p := it.Profile
@@ -685,6 +693,20 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 			LastActiveAt:  p.LastActiveAt.Format(time.RFC3339),
 			Metrics:       toGraphQLMetrics(it.Metrics),
 		})
+	}
+
+	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
+	if err != nil {
+		r.logger.Warn("could not fetch profile type details for connection",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+		return &generated.EntityProfileConnection{
+			Items:       out,
+			TotalCount:  total,
+			ProfileType: nil,
+		}, nil
 	}
 
 	return &generated.EntityProfileConnection{
