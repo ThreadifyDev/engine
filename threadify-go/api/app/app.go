@@ -409,6 +409,7 @@ func buildRouter(
 	r.Use(middleware.RecoveryWithLogger(logger))
 	r.Use(corsMiddleware(cfg.WebAPI.CORSOrigins))
 	r.Use(middleware.RequestLogger(logger))
+	r.Use(middleware.TimeoutMiddleware(10 * time.Second))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "threadify-web-api"})

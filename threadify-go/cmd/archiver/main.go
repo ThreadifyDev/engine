@@ -44,15 +44,7 @@ func main() {
 }
 
 func run(configPath string, logger *zap.Logger) error {
-	v := viper.New()
-	v.SetConfigFile(configPath)
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	if err := v.ReadInConfig(); err != nil {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	cfg, err := appconfig.LoadFromViper(v)
+	cfg, err := appconfig.LoadFromViper(viper.GetViper())
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
