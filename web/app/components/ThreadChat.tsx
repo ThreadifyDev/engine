@@ -3,7 +3,52 @@ import { useNavigate } from '@remix-run/react';
 import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, Plus, X, AlertTriangle, AlertCircle } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
+import yaml from 'js-yaml';
 import ContractGraphView from './ContractGraphView';
+
+/**
+ * Robustly repairs and formats YAML content, handling common LLM mashup bugs
+ */
+const formatAndCleanYaml = (input: string): string => {
+  if (!input) return '';
+  
+  let cleaned = input.trim();
+  
+  // 1. Aggressive repair for mashed keywords (universal logic)
+  const keywords = [
+    'contract_name', 'version', 'description', 'entry_points', 
+    'parties', 'steps', 'transitions', 'terminal_steps', 
+    'id', 'owner', 'type', 'business_context', 'required', 'from', 'to'
+  ];
+  
+  for (const key of keywords) {
+    // Fix mashed: [prevChar][keyword]:[value] -> [prevChar]\n[keyword]:[value]
+    // Only if prevChar is [a-z0-9\]}] (value ending char)
+    const regex = new RegExp(`([a-z0-9\\]}])(${key}:)`, 'gi');
+    cleaned = cleaned.replace(regex, '$1\n$2');
+  }
+
+  // 2. Fix specific case: terminal_ steps (mashup repair)
+  cleaned = cleaned.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
+
+  // 3. Try parsing with js-yaml to get high-quality formatting
+  try {
+    const doc = yaml.load(cleaned);
+    if (doc && typeof doc === 'object') {
+       return yaml.dump(doc, { 
+         indent: 2, 
+         lineWidth: -1, // No line wrapping for values to avoid breakage
+         noRefs: true,
+         sortKeys: false // Preserve order
+       });
+    }
+  } catch (e) {
+    // If parsing fails (usually because it's partial during streaming), 
+    // we just return the regex-repaired version
+  }
+  
+  return cleaned;
+};
 
 interface Message {
   id: string;
@@ -26,6 +71,8 @@ interface Message {
 interface Conversation {
   id: string;
   title: string;
+  message_count: number;
+  token_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -48,6 +95,8 @@ export default function ThreadChat() {
   const [limitError, setLimitError] = useState<string | null>(null);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [copiedThreadId, setCopiedThreadId] = useState<string | null>(null);
+  const [maxTokens, setMaxTokens] = useState(100000);
+  const [maxMessages, setMaxMessages] = useState(50);
   
   // Contract Preview State
   const [previewData, setPreviewData] = useState<{ yaml: string, response: any } | null>(null);
@@ -62,13 +111,16 @@ export default function ThreadChat() {
 
   // Load conversations on mount and restore last conversation
   useEffect(() => {
-    loadConversations();
-
-    // Restore last conversation from localStorage
-    const lastConversationId = localStorage.getItem('lastConversationId');
-    if (lastConversationId) {
-      loadConversation(lastConversationId);
-    }
+    const init = async () => {
+      const convs = await loadConversations();
+      
+      // Restore last conversation from localStorage
+      const lastConversationId = localStorage.getItem('lastConversationId');
+      if (lastConversationId) {
+        loadConversation(lastConversationId, convs);
+      }
+    };
+    init();
   }, []);
 
   // Close dropdown when clicking outside
@@ -82,23 +134,28 @@ export default function ThreadChat() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const loadConversations = async () => {
+  const loadConversations = async (): Promise<Conversation[]> => {
     try {
       const response = await api.getChatConversations();
-      console.log('Conversations loaded:', response);
-      setConversations(response.conversations || []);
+      const convs = response.conversations || [];
+      setConversations(convs);
+
+      if (response.max_tokens) setMaxTokens(response.max_tokens);
+      if (response.max_messages) setMaxMessages(response.max_messages);
 
       // Proactive credit check
       if (response.credits_available === false) {
         setLimitError('Insufficient credits. Please top up your account to continue using the AI agent.');
       }
+      return convs;
     } catch (error) {
       console.error('Failed to load conversations:', error);
+      return [];
       // Silent fail - user will see empty conversation list
     }
   };
 
-  const loadConversation = async (convId: string) => {
+  const loadConversation = async (convId: string, convs?: Conversation[]) => {
     try {
       const response = await api.getChatMessageHistory(convId);
       const allMessages = response.messages;
@@ -114,10 +171,26 @@ export default function ThreadChat() {
           continue;
         }
 
+        // UI cleanup for common AI formatting quirks (Aggressive Regex)
+        let content = msg.content;
+        // Fix mashed keywords at start or inside text (EXCLUDING underscores to not break terminal_steps)
+        content = content.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
+        content = content.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
+        content = content.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
+        content = content.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
+        content = content.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+        
+        // Final fallback to repair what we might have broken or what AI broke
+        content = content.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
+        
+        // Ensure code block delimiters have newlines
+        content = content.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
+        content = content.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
+
         const processedMsg: Message = {
           id: msg.id,
           role: msg.role,
-          content: msg.content,
+          content: content,
           timestamp: new Date(msg.created_at),
         };
 
@@ -151,6 +224,36 @@ export default function ThreadChat() {
             }
           }
         }
+        // Smart contract detection fallback for history
+        if (!processedMsg.contractPreview) {
+          const hasMarkdownYaml = processedMsg.content.includes('```yaml');
+          const hasRawYaml = processedMsg.content.includes('contract_name:') && processedMsg.content.includes('steps:');
+          
+          if (hasMarkdownYaml || hasRawYaml) {
+            let yamlText = '';
+            if (hasMarkdownYaml) {
+              const start = processedMsg.content.indexOf('```yaml') + 7;
+              const end = processedMsg.content.indexOf('```', start);
+              yamlText = (end !== -1 ? processedMsg.content.slice(start, end) : processedMsg.content.slice(start)).trim();
+            } else {
+              // Try to find start of YAML block (fuzzy search for first key: value pair)
+              const match = processedMsg.content.match(/[a-z0-9_]+:\s*[^\n]+/i);
+              if (match) {
+                 yamlText = processedMsg.content.slice(match.index).trim();
+              }
+            }
+
+            if (yamlText.length > 20) {
+              const formattedYaml = formatAndCleanYaml(yamlText);
+              const engineResponseStr = processedMsg.relatedToolCall?.response;
+              let engineResponse = null;
+              if (engineResponseStr) {
+                try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
+              }
+              processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
+            }
+          }
+        }
 
         processedMessages.push(processedMsg);
       }
@@ -158,6 +261,14 @@ export default function ThreadChat() {
       setMessages(processedMessages);
       setConversationId(convId);
       setIsDropdownOpen(false);
+
+      // Restore counts from the conversation metadata
+      const targetConvs = convs || conversations;
+      const currentConv = targetConvs.find(c => c.id === convId);
+      if (currentConv) {
+        setTokenCount(currentConv.token_count || 0);
+        setMessageCount(currentConv.message_count || 0);
+      }
       setSearchQuery('');
       
       // Reset token/message counts and limit error when switching conversations
@@ -375,11 +486,79 @@ export default function ThreadChat() {
               if (currentEvent === 'chunk') {
                 // Text content from LLM
                 assistantContent += data;
-                setMessages(prev => prev.map(msg =>
-                  msg.id === assistantMessageId
-                    ? { ...msg, content: assistantContent }
-                    : msg
-                ));
+                
+                // UI cleanup for live stream (Aggressive Regex)
+                let displayContent = assistantContent;
+                // Fix mashed keywords (EXCLUDING underscores)
+                displayContent = displayContent.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
+                displayContent = displayContent.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
+                displayContent = displayContent.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
+                displayContent = displayContent.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
+                displayContent = displayContent.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+                
+                // Final fallback repair
+                displayContent = displayContent.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
+
+                // Ensure code block delimiters have newlines
+                displayContent = displayContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
+                displayContent = displayContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
+                
+                // Smart contract detection (Fuzzy - look for markdown or structural YAML keys)
+                const hasMarkdownYaml = assistantContent.includes('```yaml');
+                const hasRawYaml = /([a-z0-9_]+:\s*[^\n]+[\n\r]*){3,}/i.test(assistantContent);
+                
+                if (hasMarkdownYaml || hasRawYaml) {
+                  let yamlText = '';
+                  if (hasMarkdownYaml) {
+                    const start = assistantContent.indexOf('```yaml') + 7;
+                    const end = assistantContent.indexOf('```', start);
+                    yamlText = (end !== -1 ? assistantContent.slice(start, end) : assistantContent.slice(start)).trim();
+                  } else {
+                    const match = assistantContent.match(/[a-z0-9_]+:\s*[^\n]+/i);
+                    if (match) {
+                      yamlText = assistantContent.slice(match.index).trim();
+                    }
+                  }
+
+                  if (yamlText.length > 20) {
+                    // During streaming, only use regex-based repair for speed/stability
+                    // Wait, actually let's keep the cleaned one for basic structure
+                    const cleanedYaml = yamlText.replace(/([a-z0-9\]}])(version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:|id:|owner:|type:|business_context:|required:|from:|to:)/gi, '$1\n$2');
+                    
+                    setMessages(prev => prev.map(msg => {
+                      if (msg.id === assistantMessageId) {
+                        // Preserve engine response if we already have a real graph
+                        const hasRealGraph = (msg.contractPreview?.response as any)?.graph;
+                        const engineResponse = hasRealGraph ? msg.contractPreview?.response : (msg.relatedToolCall?.response ? (() => {
+                          try { return JSON.parse(msg.relatedToolCall.response); } catch(e) { return null; }
+                        })() : null);
+
+                        const contractPreview = { yaml: cleanedYaml, response: engineResponse };
+                        
+                        // Automatically open preview when contract is first detected
+                        if (!msg.contractPreview && engineResponse) {
+                          setPreviewData(contractPreview);
+                          setIsPreviewOpen(true);
+                        }
+                        
+                        return { ...msg, content: displayContent, contractPreview };
+                      }
+                      return msg;
+                    }));
+                  } else {
+                    setMessages(prev => prev.map(msg =>
+                      msg.id === assistantMessageId
+                        ? { ...msg, content: displayContent }
+                        : msg
+                    ));
+                  }
+                } else {
+                  setMessages(prev => prev.map(msg =>
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: displayContent }
+                      : msg
+                  ));
+                }
               } else if (currentEvent === 'conversation') {
                 // Conversation ID
                 if (!conversationId) {
@@ -425,9 +604,7 @@ export default function ThreadChat() {
               } else if (currentEvent === 'contract_preview') {
                 try {
                   const previewCallData = JSON.parse(data.trim());
-                  console.log('[CONTRACT_PREVIEW] Raw data:', previewCallData);
                   const engineResponse = JSON.parse(previewCallData.response);
-                  console.log('[CONTRACT_PREVIEW] Parsed engine response:', engineResponse);
                   
                   const contractData = {
                     yaml: previewCallData.yaml,
@@ -444,7 +621,7 @@ export default function ThreadChat() {
                       : msg
                   ));
                 } catch (e) {
-                  console.error('[CONTRACT_PREVIEW] Parse error:', e);
+                  // Ignore parsing errors
                 }
               } else if (currentEvent === 'error') {
                 // Error from backend
@@ -460,7 +637,19 @@ export default function ThreadChat() {
                 setIsLoading(false);
                 break;
               } else if (currentEvent === 'done') {
-                // Stream complete
+                // Stream complete - Apply final library-grade formatting to YAML
+                setMessages(prev => prev.map(msg => {
+                  if (msg.id === assistantMessageId && msg.contractPreview) {
+                    return {
+                      ...msg,
+                      contractPreview: {
+                        ...msg.contractPreview,
+                        yaml: formatAndCleanYaml(msg.contractPreview.yaml)
+                      }
+                    };
+                  }
+                  return msg;
+                }));
                 break;
               }
 
@@ -658,9 +847,9 @@ export default function ThreadChat() {
                         }
                         
                         return isInline ? (
-                          <code className="bg-gray-200 px-1 rounded" {...props}>{children}</code>
+                          <code className="bg-gray-200 px-1 rounded break-words" {...props}>{children}</code>
                         ) : (
-                          <code className="block bg-gray-200 p-2 rounded" {...props}>{children}</code>
+                          <code className="block bg-gray-200 p-2 rounded whitespace-pre-wrap break-words max-w-full overflow-x-auto" {...props}>{children}</code>
                         );
                       },
                       p: ({ children }) => {
@@ -784,9 +973,29 @@ export default function ThreadChat() {
                 <div className="flex items-center gap-2">
                   {message.contractPreview && (
                     <button
-                      onClick={() => {
-                        setPreviewData(message.contractPreview!);
+                      onClick={async () => {
+                        const preview = message.contractPreview!;
+                        setPreviewData(preview);
                         setIsPreviewOpen(true);
+                        
+                        // If no graph data available, fetch it proactively
+                        if (!preview.response || !(preview.response as any).graph) {
+                          setIsUpdatingPreview(true);
+                          try {
+                            const result = await api.previewContract({ yaml: preview.yaml });
+                            const updatedPreview = { ...preview, response: result };
+                            setPreviewData(updatedPreview);
+                            
+                            // Also update the message state so we don't fetch again
+                            setMessages(prev => prev.map(m => 
+                              m.id === message.id ? { ...m, contractPreview: updatedPreview } : m
+                            ));
+                          } catch (err) {
+                            console.error('Failed to auto-preview:', err);
+                          } finally {
+                            setIsUpdatingPreview(false);
+                          }
+                        }
                       }}
                       className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-800 transition-colors font-medium"
                     >
@@ -952,14 +1161,14 @@ export default function ThreadChat() {
                 <div className="flex items-center gap-1">
                   <div className="w-12 h-0.5 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className={`h-full transition-all ${tokenCount > 180000 ? 'bg-red-500' : tokenCount > 150000 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                      style={{ width: `${Math.min((tokenCount / 200000) * 100, 100)}%` }}
+                      className={`h-full transition-all ${tokenCount > (maxTokens * 0.9) ? 'bg-red-500' : tokenCount > (maxTokens * 0.75) ? 'bg-yellow-500' : 'bg-green-500'}`}
+                      style={{ width: `${Math.min((tokenCount / maxTokens) * 100, 100)}%` }}
                     />
                   </div>
                   <span className="font-mono">{(tokenCount / 1000).toFixed(0)}k</span>
                 </div>
                 <span>•</span>
-                <span className="font-mono">{messageCount}/50</span>
+                <span className="font-mono">{messageCount}/{maxMessages}</span>
               </div>
             )}
           </div>
