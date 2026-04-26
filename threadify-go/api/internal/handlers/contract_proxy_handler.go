@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"threadify-go/api/internal/service"
 	"time"
 
@@ -119,17 +118,7 @@ func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
 }
 
 func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
-	if ct := c.GetHeader(service.HeaderContentType); !strings.HasPrefix(ct, "application/json") {
-		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "Content-Type must be application/json"})
-		return
-	}
-
-	var body map[string]interface{}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-	h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, "", body)
+	h.proxyRawBody(c, http.MethodPost, contractProxyPreviewPath, contentTypeTextPlain)
 }
 
 func (h *ContractProxyHandler) GetContract(c *gin.Context) {

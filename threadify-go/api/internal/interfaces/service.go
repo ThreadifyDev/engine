@@ -67,11 +67,14 @@ type TeamInvitationService interface {
 
 type AgentService interface {
 	ChatStream(ctx context.Context, authHeader, userID, companyID, conversationID, message, skill string, onEvent models.StreamHandler) error
+	ChatStreamEino(ctx context.Context, authHeader, userID, companyID, conversationID, message, skill string, onEvent models.StreamHandler) error
 	CheckCredits(ctx context.Context, authHeader string) (bool, error)
 	GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error)
 	GetMessagesForUser(ctx context.Context, companyID, convID string) ([]*models.AgentMessage, error)
 	DeleteConversation(ctx context.Context, companyID, convID string) error
 	ContinueConversation(ctx context.Context, userID, companyID, parentConvID string) (string, string, string, error)
+	GetMaxMessages() int
+	GetMaxTokens() int
 }
 
 type ServiceAccountService interface {

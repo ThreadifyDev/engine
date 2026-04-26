@@ -379,7 +379,10 @@ class ApiClient {
   async previewContract(data: { yaml: string }): Promise<any> {
     return this.request('/contracts/preview', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers: {
+        'Content-Type': 'application/x-yaml',
+      },
+      body: data.yaml,
     });
   }
 
@@ -524,7 +527,7 @@ class ApiClient {
     return this.post('/chat/ask', { message, conversation_id: conversationId });
   }
 
-  async getChatConversations(): Promise<{ conversations: any[]; credits_available?: boolean }> {
+  async getChatConversations(): Promise<{ conversations: any[]; credits_available?: boolean; max_tokens?: number; max_messages?: number }> {
     return this.request('/chat/conversations');
   }
 

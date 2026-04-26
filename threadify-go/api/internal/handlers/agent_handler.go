@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
@@ -78,7 +78,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		c.Writer.Flush()
 	}
 
-	err := h.agentSvc.ChatStream(
+	err := h.agentSvc.ChatStreamEino(
 		c.Request.Context(),
 		authHeader,
 		userID,
@@ -116,6 +116,8 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"conversations": convs,
+		"max_tokens":    h.agentSvc.GetMaxTokens(),
+		"max_messages":  h.agentSvc.GetMaxMessages(),
 	})
 }
 

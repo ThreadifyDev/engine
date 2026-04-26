@@ -49,6 +49,20 @@ func (mr *MockAgentServiceMockRecorder) ChatStream(arg0, arg1, arg2, arg3, arg4,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChatStream", reflect.TypeOf((*MockAgentService)(nil).ChatStream), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 }
 
+// ChatStreamEino mocks base method.
+func (m *MockAgentService) ChatStreamEino(arg0 context.Context, arg1, arg2, arg3, arg4, arg5, arg6 string, arg7 models.StreamHandler) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ChatStreamEino", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ChatStreamEino indicates an expected call of ChatStreamEino.
+func (mr *MockAgentServiceMockRecorder) ChatStreamEino(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ChatStreamEino", reflect.TypeOf((*MockAgentService)(nil).ChatStreamEino), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+}
+
 // CheckCredits mocks base method.
 func (m *MockAgentService) CheckCredits(arg0 context.Context, arg1 string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -123,4 +137,32 @@ func (m *MockAgentService) GetMessagesForUser(arg0 context.Context, arg1, arg2 s
 func (mr *MockAgentServiceMockRecorder) GetMessagesForUser(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMessagesForUser", reflect.TypeOf((*MockAgentService)(nil).GetMessagesForUser), arg0, arg1, arg2)
+}
+
+// GetMaxMessages mocks base method.
+func (m *MockAgentService) GetMaxMessages() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMaxMessages")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetMaxMessages indicates an expected call of GetMaxMessages.
+func (mr *MockAgentServiceMockRecorder) GetMaxMessages() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMaxMessages", reflect.TypeOf((*MockAgentService)(nil).GetMaxMessages))
+}
+
+// GetMaxTokens mocks base method.
+func (m *MockAgentService) GetMaxTokens() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMaxTokens")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetMaxTokens indicates an expected call of GetMaxTokens.
+func (mr *MockAgentServiceMockRecorder) GetMaxTokens() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMaxTokens", reflect.TypeOf((*MockAgentService)(nil).GetMaxTokens))
 }

@@ -1,7 +1,7 @@
 billing:
   provider: stripe
-  webhook_secret: ""
-  secret_key: ""
+  webhook_secret: "whsec_d34c24264e0a1f03a082e3d452f98e80095f9e0555f0cd08d0de02b411a8c7be"
+  secret_key: "sk_test_51TEDPTF0QwoPK2TLjG27qX5698tcj7HsEsakfEBGV3Xu1UrSOkHd0pulExBqKiRlxDrK9KKBnsrA0osl9Cj9cIGf00myAqLlRz"
   success_url: "http://localhost:3000/u/settings?tab=billing"
   cancel_url: "http://localhost:3000/u/settings?tab=billing"
 
