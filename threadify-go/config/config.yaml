@@ -1,9 +1,10 @@
 server:
   port: 8081
   host: 0.0.0.0
+  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
 
 postgres:
-  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
+  url: "$POSTGRES_URL:postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
   max_connections: 25
   max_idle_connections: 5
 
@@ -25,7 +26,6 @@ redis:
 
 auth_provider: supabase
 
-
 supabase:
   url: "$SUPABASE_URL:"
   publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
@@ -34,9 +34,10 @@ supabase:
 
 
 jwks:
-  url: "$JWKS_URL:"                      
+  url: "$JWKS_URL:"
   audience: "$JWKS_AUDIENCE:authenticated" 
-  issuer: "$JWKS_ISSUER:"            
+  issuer: "$JWKS_ISSUER"    
+        
 
 queue:
   ttl_seconds: 7776000
@@ -104,7 +105,7 @@ security:
   # Generate with: openssl rand -hex 32
   # Keep all versions forever to verify old chains after key rotation
   hash_chain_secrets:
-    v1: "ND0984hrt87o3gwfeldgdbgcyho7*G*Dkg2fdwcjrshgfhsfgdhcedgrgd"
+    v1: "$HASH_CHAIN_SECRET_V1:ND0984hrt87o3gwfeldgdbgcyho7*G*Dkg2fdwcjrshgfhsfgdhcedgrgd"
   hash_chain_current_version: "v1"
 
 # Timeout configuration for context operations
@@ -223,8 +224,8 @@ web_api:
   # Email service (Plunk)
   email:
     plunk_api_key: "$PLUNK_API_KEY:"
-    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.com"
-    plunk_api_url: "$PLUNK_API_URL:https://api.useplunk.com/v1/send"
+    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
+    plunk_api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
   
   # Threadify Engine integration
   threadify_engine:
@@ -244,7 +245,7 @@ web_api:
   # AI Agent conversation limits
   agent:
     max_messages: 100    # Maximum messages per conversation
-    max_tokens: 1000  # Maximum tokens per conversation (1M tokens)
+    max_tokens: 100000  # Maximum tokens per conversation (100K tokens)
     summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency

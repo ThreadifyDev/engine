@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/types"
 )
 
 type ClientQueue struct {
-	valkey interfaces.ValkeyClient
+	valkey types.ValkeyStringClient
 	ttl    time.Duration
 }
 
-func NewClientQueue(valkey interfaces.ValkeyClient, ttlSeconds int) *ClientQueue {
+func NewClientQueue(valkey types.ValkeyStringClient, ttlSeconds int) *ClientQueue {
 	return &ClientQueue{
 		valkey: valkey,
 		ttl:    time.Duration(ttlSeconds) * time.Second,
@@ -49,5 +49,5 @@ func (q *ClientQueue) GetClient(ownerID string) (*models.ConnectedClient, error)
 
 func (q *ClientQueue) RemoveClient(ownerID string) error {
 	key := fmt.Sprintf("client:%s", ownerID)
-	return q.valkey.Delete(context.Background(), key)
+	return q.valkey.Del(context.Background(), key)
 }

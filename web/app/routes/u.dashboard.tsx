@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { api, type User } from '~/lib/api';
 import { CheckCircle, XCircle } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Dashboard - Threadify" },
+    { name: "description", content: "Your Threadify dashboard" },
+  ];
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -42,10 +50,10 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="p-12">
+      <div className="p-8">
         {/* Welcome Section */}
-        <div className="mb-12">
-          <h2 className="text-4xl font-bold text-black mb-2">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-black mb-2">
             Welcome back{user.full_name ? `, ${user.full_name}` : ''}!
           </h2>
           <p className="text-gray-600">
@@ -130,7 +138,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <button className="mt-6 bg-black text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
+          <button onClick={() => window.open("https://docs.threadify.dev", "_blank")} className="mt-6 bg-black text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition-colors">
             View Documentation
           </button>
         </div>

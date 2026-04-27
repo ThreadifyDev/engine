@@ -18,13 +18,14 @@ type User struct {
 }
 
 type Company struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Industry  *string   `json:"industry,omitempty"`
-	Size      *string   `json:"size,omitempty"` // small, medium, large, enterprise
-	UseCase   *string   `json:"use_case,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	ExternalCustomerID string    `json:"-"`
+	Industry           *string   `json:"industry,omitempty"`
+	Size               *string   `json:"size,omitempty"` // small, medium, large, enterprise
+	UseCase            *string   `json:"use_case,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type ServiceAccount struct {
@@ -48,31 +49,16 @@ type Permission struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type APIKey struct {
-	ID               string     `json:"id"`
-	KeyHash          string     `json:"-"` // Never expose key hash
-	KeyPrefix        string     `json:"key_prefix"`
-	Name             string     `json:"name"`
-	UserID           *string    `json:"user_id,omitempty"`
-	ServiceAccountID *string    `json:"service_account_id,omitempty"`
-	CompanyID        string     `json:"company_id"`
-	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
-}
-
-// Request/Response DTOs
-
 type SignupRequest struct {
-	CompanyName string  `json:"company_name" binding:"required,min=2,max=255"`
-	Email       string  `json:"email" binding:"required,email"`
-	Password    string  `json:"password" binding:"required,min=12,max=128"`
-	FullName    string  `json:"full_name"`
-	JobRole     string  `json:"job_role"`
-	Industry    *string `json:"industry"`
-	CompanySize *string `json:"company_size"`
-	UseCase     *string `json:"use_case"`
+	CompanyName     string  `json:"company_name"`
+	Email           string  `json:"email" binding:"required,email"`
+	Password        string  `json:"password" binding:"required,min=12,max=128"`
+	FullName        string  `json:"full_name"`
+	JobRole         string  `json:"job_role"`
+	Industry        *string `json:"industry"`
+	CompanySize     *string `json:"company_size"`
+	UseCase         *string `json:"use_case"`
+	InvitationToken *string `json:"invitation_token"`
 }
 
 type LoginRequest struct {
@@ -81,6 +67,7 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
+	Email                     string `json:"email,omitempty"`
 	Token                     string `json:"token,omitempty"`
 	User                      *User  `json:"user,omitempty"`
 	OTPRequired               bool   `json:"otp_required"`
@@ -112,4 +99,18 @@ type UpdateProfileRequest struct {
 	Industry    string `json:"industry"`
 	CompanySize string `json:"company_size"`
 	UseCase     string `json:"use_case"`
+}
+
+type UserProfileResult struct {
+	User    *User
+	Company *Company
+}
+
+type TeamMember struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	FullName  *string   `json:"full_name,omitempty"`
+	JobRole   *string   `json:"job_role,omitempty"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
 }

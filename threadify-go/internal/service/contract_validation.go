@@ -6,23 +6,43 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
 
-// ContractValidationService implements the ContractValidator interface.
+// ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
-	graphRepo    interfaces.ContractGraphRepository
-	contractRepo *postgres.ContractRepository
-	cacheManager interfaces.CacheManager
+	graphRepo    types.ContractGraphRepository
+	contractRepo contractRepo
+	cacheManager types.CacheManager
 	logger       *zap.Logger
 }
 
+type contractRepo interface {
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
+	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
+}
+
+// NewContractValidationServiceFromParts creates a ContractValidationService from explicit parts.
+// This is primarily intended for tests.
+func NewContractValidationServiceFromParts(
+	graphRepo types.ContractGraphRepository,
+	contractRepo contractRepo,
+	cacheManager types.CacheManager,
+	logger *zap.Logger,
+) *ContractValidationService {
+	return &ContractValidationService{
+		graphRepo:    graphRepo,
+		contractRepo: contractRepo,
+		cacheManager: cacheManager,
+		logger:       logger,
+	}
+}
+
 // NewContractValidationService creates a new contract validation service.
-// contractRepo can be nil for testing (will skip PostgreSQL fallback).
-func NewContractValidationService(graphRepo interfaces.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager interfaces.CacheManager, logger *zap.Logger) interfaces.ContractValidator {
+func NewContractValidationService(graphRepo types.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager types.CacheManager, logger *zap.Logger) types.ContractGraphValidator {
 	return &ContractValidationService{
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,

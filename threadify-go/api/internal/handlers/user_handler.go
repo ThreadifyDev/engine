@@ -1,38 +1,71 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
+
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
+	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
+
+	"errors"
 
 	"github.com/gin-gonic/gin"
 )
 
 type UserHandler struct {
-	userRepo      *repository.UserRepository
-	companyRepo   *repository.CompanyRepository
-	apiKeyService *service.APIKeyService
+	userService iface.UserService
 }
 
-func NewUserHandler(
-	userRepo *repository.UserRepository,
-	companyRepo *repository.CompanyRepository,
-	apiKeyService *service.APIKeyService,
-) *UserHandler {
+func NewUserHandler(userService iface.UserService) *UserHandler {
 	return &UserHandler{
-		userRepo:      userRepo,
-		companyRepo:   companyRepo,
-		apiKeyService: apiKeyService,
+		userService: userService,
 	}
 }
 
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	userCtx := getUserAndCompanyID(c)
+	if userCtx == nil {
+		return
+	}
+
+	result, err := h.userService.GetProfile(c.Request.Context(), userCtx.UserID, userCtx.CompanyID)
+	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		return
+	}
+
+	minimal := c.Query("minimal") == "true"
+
+	var companyData gin.H
+	company := result.Company
+	if minimal {
+		companyData = gin.H{
+			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
+		}
+	} else {
+		companyData = gin.H{
+			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
+			"industry":          stringPtrToString(company.Industry),
+			"company_size":      stringPtrToString(company.Size),
+			"use_case":          stringPtrToString(company.UseCase),
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user":    result.User,
+		"company": companyData,
+	})
+}
+
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	userID, companyID, ok := getUserAndCompanyID(c)
-	if !ok {
+	userCtx := getUserAndCompanyID(c)
+	if userCtx == nil {
 		return
 	}
 
@@ -55,17 +88,17 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	if err := h.userRepo.UpdateProfile(userID, &req.FullName, &req.JobRole, true); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
+	user, err := h.userService.UpdateProfile(c.Request.Context(), userCtx.UserID, userCtx.CompanyID, &req)
+	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
-	if err := h.companyRepo.UpdateDetails(companyID, &req.Industry, &req.CompanySize, &req.UseCase); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update company details"})
-		return
-	}
-
-	h.respondWithUser(c, userID, "Profile updated successfully")
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully", "user": user})
 }
 
 func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
@@ -74,18 +107,71 @@ func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
 		return
 	}
 
-	if err := h.userRepo.MarkFirstInstrumentationDone(userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update instrumentation status"})
+	user, err := h.userService.MarkInstrumentationDone(c.Request.Context(), userID)
+	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
-	h.respondWithUser(c, userID, "Instrumentation status updated")
+	c.JSON(http.StatusOK, gin.H{"message": "Instrumentation status updated", "user": user})
 }
 
-// helpers
+func (h *UserHandler) ListTeamMembers(c *gin.Context) {
+	userCtx := getUserAndCompanyID(c)
+	if userCtx == nil {
+		return
+	}
+
+	members, err := h.userService.ListTeamMembers(c.Request.Context(), userCtx.CompanyID)
+	if err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve team members"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"members": members})
+}
+
+func (h *UserHandler) RemoveTeamMember(c *gin.Context) {
+	userCtx := getUserAndCompanyID(c)
+	if userCtx == nil {
+		return
+	}
+
+	targetUserID := c.Param("id")
+	if targetUserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	if err := h.userService.RemoveTeamMember(c.Request.Context(), userCtx.UserID, userCtx.CompanyID, targetUserID); err != nil {
+		if de := serror.GetDomainError(err); de != nil {
+			c.JSON(de.Code, gin.H{"error": de.Message})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Member removed successfully"})
+}
+
+func stringPtrToString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
 func getUserID(c *gin.Context) (string, bool) {
-	userID, exists := c.Get("userID")
+	userID, exists := c.Get(sharedauth.CtxUserID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return "", false
@@ -93,32 +179,21 @@ func getUserID(c *gin.Context) (string, bool) {
 	return userID.(string), true
 }
 
-func getUserAndCompanyID(c *gin.Context) (string, string, bool) {
-	userID, ok := getUserID(c)
-	if !ok {
-		return "", "", false
-	}
-	companyID, exists := c.Get("companyID")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return "", "", false
-	}
-	return userID, companyID.(string), true
+type userContext struct {
+	UserID    string
+	CompanyID string
 }
 
-func (h *UserHandler) respondWithUser(c *gin.Context, userID, message string) {
-	user, err := h.userRepo.FindByID(userID)
-	if err != nil {
-		if errors.Is(err, serror.ErrUserNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
-		return
+func getUserAndCompanyID(c *gin.Context) *userContext {
+	userID, exists := c.Get(sharedauth.CtxUserID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return nil
 	}
-	if user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return nil
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "user": user})
+	return &userContext{UserID: userID.(string), CompanyID: companyID.(string)}
 }

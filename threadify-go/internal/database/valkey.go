@@ -7,7 +7,7 @@ import (
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
 	"github.com/redis/go-redis/v9"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 )
 
 type ValkeyService struct {
@@ -99,6 +99,25 @@ func (v *ValkeyService) SetNX(ctx context.Context, key string, value interface{}
 	return v.Client.SetNX(ctx, key, value, ttl).Result()
 }
 
+func (v *ValkeyService) MGet(ctx context.Context, keys ...string) (map[string]string, error) {
+	if len(keys) == 0 {
+		return map[string]string{}, nil
+	}
+	vals, err := v.Client.MGet(ctx, keys...).Result()
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(keys))
+	for i, key := range keys {
+		if vals[i] == nil {
+			result[key] = ""
+		} else {
+			result[key] = fmt.Sprintf("%v", vals[i])
+		}
+	}
+	return result, nil
+}
+
 func (v *ValkeyService) Get(ctx context.Context, key string) (string, error) {
 	return v.Client.Get(ctx, key).Result()
 }
@@ -149,10 +168,6 @@ func (v *ValkeyService) TTL(ctx context.Context, key string) (time.Duration, err
 	return v.Client.TTL(ctx, key).Result()
 }
 
-func (v *ValkeyService) Delete(ctx context.Context, key string) error {
-	return v.Client.Del(ctx, key).Err()
-}
-
 // LPush adds items to the left of a Redis list
 func (v *ValkeyService) LPush(ctx context.Context, key string, values ...interface{}) error {
 	return v.Client.LPush(ctx, key, values...).Err()
@@ -189,7 +204,7 @@ func (v *ValkeyService) ZRange(ctx context.Context, key string, start, stop int6
 }
 
 // Pipeline creates a new Redis pipeline
-func (v *ValkeyService) Pipeline() interfaces.ValkeyPipeline {
+func (v *ValkeyService) Pipeline() types.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
 }
 
@@ -225,6 +240,18 @@ func (v *ValkeyService) IncrBy(ctx context.Context, key string, value int64) (in
 	return v.Client.IncrBy(ctx, key, value).Result()
 }
 
+// ApplyCreditTopupAtomic pipelines INCRBY on balanceKey and DEL on pendingKey
+// in a single round trip so a crash can't leave pendingKey permanently set.
+func (v *ValkeyService) ApplyCreditTopupAtomic(ctx context.Context, balanceKey, pendingKey string, amount int64) (int64, error) {
+	pipe := v.Client.Pipeline()
+	incrCmd := pipe.IncrBy(ctx, balanceKey, amount)
+	pipe.Del(ctx, pendingKey)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, err
+	}
+	return incrCmd.Val(), nil
+}
+
 // SAdd adds members to a SET
 func (v *ValkeyService) SAdd(ctx context.Context, key string, members ...interface{}) error {
 	return v.Client.SAdd(ctx, key, members...).Err()
@@ -240,37 +267,61 @@ func (v *ValkeyService) SRem(ctx context.Context, key string, members ...interfa
 	return v.Client.SRem(ctx, key, members...).Err()
 }
 
+// XAdd adds an entry to a stream
+func (v *ValkeyService) XAdd(ctx context.Context, stream string, id string, values interface{}) (string, error) {
+	return v.Client.XAdd(ctx, &redis.XAddArgs{
+		Stream: stream,
+		ID:     id,
+		Values: values,
+	}).Result()
+}
+
+// XGroupCreateMkStream creates a consumer group and stream if missing.
+func (v *ValkeyService) XGroupCreateMkStream(ctx context.Context, stream, group, start string) error {
+	return v.Client.XGroupCreateMkStream(ctx, stream, group, start).Err()
+}
+
+// XReadGroup reads messages from a consumer group.
+func (v *ValkeyService) XReadGroup(ctx context.Context, args *redis.XReadGroupArgs) ([]redis.XStream, error) {
+	return v.Client.XReadGroup(ctx, args).Result()
+}
+
+// XAck acknowledges stream entries in a consumer group.
+func (v *ValkeyService) XAck(ctx context.Context, stream, group string, ids ...string) error {
+	return v.Client.XAck(ctx, stream, group, ids...).Err()
+}
+
 // RedisPipeline implements the ValkeyPipeline interface
 type RedisPipeline struct {
 	pipe redis.Pipeliner
 }
 
-func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	p.pipe.HSet(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) types.ValkeyPipeline {
 	p.pipe.HDel(ctx, key, fields...)
 	return p
 }
 
-func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
 	p.pipe.LPush(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) types.ValkeyPipeline {
 	p.pipe.Set(ctx, key, value, expiration)
 	return p
 }
 
-func (p *RedisPipeline) Del(ctx context.Context, keys ...string) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Del(ctx context.Context, keys ...string) types.ValkeyPipeline {
 	p.pipe.Del(ctx, keys...)
 	return p
 }
 
-func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) interfaces.ValkeyPipeline {
+func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) types.ValkeyPipeline {
 	p.pipe.Expire(ctx, key, expiration)
 	return p
 }

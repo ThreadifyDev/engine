@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,8 @@ import (
 	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/nats"
 
-	natsio "github.com/nats-io/nats.go"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
@@ -27,39 +27,35 @@ const (
 )
 
 type OutboxWorker struct {
-	outboxRepo    *repository.OutboxRepository
-	userRepo      *repository.UserRepository
-	companyRepo   *repository.CompanyRepository
+	pool          *pgxpool.Pool
+	outboxRepo    repository.OutboxRepository
+	userRepo      repository.UserRepository
+	companyRepo   repository.CompanyRepository
 	authClient    sharedauth.AuthClient
-	emailSvc      *service.EmailService
+	emailSvc      service.EmailService
 	encryptionKey []byte
 	trigger       chan struct{}
 	logger        *zap.Logger
 }
 
 func NewOutboxWorker(
-	outboxRepo *repository.OutboxRepository,
-	userRepo *repository.UserRepository,
-	companyRepo *repository.CompanyRepository,
+	pool *pgxpool.Pool,
+	outboxRepo repository.OutboxRepository,
+	userRepo repository.UserRepository,
+	companyRepo repository.CompanyRepository,
 	authClient sharedauth.AuthClient,
-	emailSvc *service.EmailService,
-	encryptionKey string,
+	emailSvc service.EmailService,
+	encryptionKey []byte,
 	logger *zap.Logger,
 ) *OutboxWorker {
-	key, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		logger.Error("failed to decode outbox encryption key", zap.Error(err))
-		// Fallback to raw bytes if hex decoding fails.
-		key = []byte(encryptionKey)
-	}
-
 	return &OutboxWorker{
+		pool:          pool,
 		outboxRepo:    outboxRepo,
 		userRepo:      userRepo,
 		companyRepo:   companyRepo,
 		authClient:    authClient,
 		emailSvc:      emailSvc,
-		encryptionKey: key,
+		encryptionKey: encryptionKey,
 		trigger:       make(chan struct{}, 1),
 		logger:        logger,
 	}
@@ -72,15 +68,37 @@ func (w *OutboxWorker) Trigger() {
 	}
 }
 
-func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
+func (w *OutboxWorker) Run(ctx context.Context, js jetstream.JetStream) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	sub, err := js.PullSubscribe(nats.SubjectOutboxTrigger, "outbox-worker")
+	consumerConfig := jetstream.ConsumerConfig{
+		Durable:       "outbox-worker",
+		FilterSubject: nats.SubjectOutboxTrigger,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	}
+
+	cons, err := js.CreateOrUpdateConsumer(ctx, nats.StreamOutboxTriggers, consumerConfig)
 	if err != nil {
 		w.logger.Error("outbox: failed to subscribe to NATS trigger", zap.Error(err))
-	} else {
-		defer sub.Unsubscribe()
+	}
+
+	var consumeCtx jetstream.ConsumeContext
+	if cons != nil {
+		consumeCtx, err = cons.Consume(func(msg jetstream.Msg) {
+			_ = msg.Ack()
+			w.Trigger()
+		}, jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, consumeErr error) {
+			if consumeErr != nil {
+				w.logger.Warn("outbox: NATS trigger consumer error", zap.Error(consumeErr))
+			}
+		}))
+		if err != nil {
+			w.logger.Warn("outbox: failed to start NATS trigger consumer; falling back to polling", zap.Error(err))
+		}
+	}
+	if consumeCtx != nil {
+		defer consumeCtx.Stop()
 	}
 
 	for {
@@ -90,19 +108,13 @@ func (w *OutboxWorker) Run(ctx context.Context, js natsio.JetStreamContext) {
 		case <-ticker.C:
 			w.processEvents(ctx)
 		case <-w.trigger:
-			if sub != nil {
-				msgs, err := sub.Fetch(1, natsio.MaxWait(100*time.Millisecond))
-				if err == nil && len(msgs) > 0 {
-					msgs[0].Ack()
-				}
-			}
 			w.processEvents(ctx)
 		}
 	}
 }
 
 func (w *OutboxWorker) processEvents(ctx context.Context) {
-	events, err := w.outboxRepo.FetchPendingDue(batchSize)
+	events, err := w.outboxRepo.FetchPendingDue(ctx, batchSize)
 	if err != nil {
 		w.logger.Error("outbox: failed to fetch pending events", zap.Error(err))
 		return
@@ -126,7 +138,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 				retryExp = 20
 			}
 			backoff := time.Duration(math.Pow(2, float64(retryExp))) * backoffDelay
-			if err := w.outboxRepo.MarkFailedWithRetry(event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
+			if err := w.outboxRepo.MarkFailedWithRetry(ctx, event.ID, err.Error(), time.Now().Add(backoff)); err != nil {
 				w.logger.Error("outbox: failed to mark event for retry",
 					zap.String("event_id", event.ID),
 					zap.Error(err),
@@ -135,7 +147,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 			continue
 		}
 
-		if err := w.outboxRepo.MarkDone(event.ID); err != nil {
+		if err := w.outboxRepo.MarkDone(ctx, event.ID); err != nil {
 			w.logger.Error("outbox: failed to mark event as done",
 				zap.String("event_id", event.ID),
 				zap.Error(err),
@@ -185,6 +197,18 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleMigrateLegacyUser(ctx, data)
+	case models.EventTypeSendTeamInvitation:
+		w.logger.Debug("outbox: dispatching send-team-invitation",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleSendTeamInvitation(ctx, data)
+	case models.EventTypeUpdateAuthUserEmail:
+		w.logger.Debug("outbox: dispatching update-auth-user-email",
+			zap.String("event_id", event.ID),
+			zap.String("reference_id", event.ReferenceID),
+		)
+		return w.handleUpdateAuthUserEmail(ctx, data)
 	default:
 		return fmt.Errorf("unknown event type: %s", event.Type)
 	}
@@ -202,7 +226,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		fullName = val
 	}
 
-	user, err := w.userRepo.FindByID(userID)
+	user, err := w.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
@@ -225,7 +249,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 			return nil
 		}
 
-		if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
+		if err := w.userRepo.UpdateAuthUserID(ctx, userID, authUserID); err != nil {
 			return fmt.Errorf("update auth user ID: %w", err)
 		}
 
@@ -235,7 +259,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		)
 	}
 
-	alreadyQueued, err := w.outboxRepo.ExistsByReference(models.EventTypeSendVerificationEmail, userID)
+	alreadyQueued, err := w.outboxRepo.ExistsByReference(ctx, models.EventTypeSendVerificationEmail, userID)
 	if err != nil {
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}
@@ -246,10 +270,10 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		return nil
 	}
 
-	return w.queueVerificationEmail(userID, email)
+	return w.queueVerificationEmail(ctx, userID, email)
 }
 
-func (w *OutboxWorker) queueVerificationEmail(userID, email string) error {
+func (w *OutboxWorker) queueVerificationEmail(ctx context.Context, userID, email string) error {
 	payload, err := json.Marshal(map[string]string{"email": email})
 	if err != nil {
 		return fmt.Errorf("marshal email event payload: %w", err)
@@ -265,7 +289,7 @@ func (w *OutboxWorker) queueVerificationEmail(userID, email string) error {
 		payload[i] = 0
 	}
 
-	if err := w.outboxRepo.Create(&models.OutboxEvent{
+	if err := w.outboxRepo.Create(ctx, &models.OutboxEvent{
 		ID:          utils.GenerateID(),
 		Type:        models.EventTypeSendVerificationEmail,
 		Payload:     encrypted,
@@ -316,19 +340,19 @@ func (w *OutboxWorker) resolveAuthUserID(ctx context.Context, email, password, f
 }
 
 func (w *OutboxWorker) cleanupUser(ctx context.Context, userID, companyID string) error {
-	tx, err := w.userRepo.GetDB().BeginTx(ctx, nil)
+	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin cleanup transaction: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if err := w.userRepo.DeleteTx(tx, userID); err != nil {
+	if err := w.userRepo.DeleteTx(ctx, tx, userID); err != nil {
 		return fmt.Errorf("cleanup delete user: %w", err)
 	}
-	if err := w.companyRepo.DeleteTx(tx, companyID); err != nil {
+	if err := w.companyRepo.DeleteTx(ctx, tx, companyID); err != nil {
 		return fmt.Errorf("cleanup delete company: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit cleanup transaction: %w", err)
 	}
 
@@ -345,7 +369,7 @@ func (w *OutboxWorker) handleSendVerificationEmail(ctx context.Context, data map
 		return err
 	}
 
-	if u, err := w.userRepo.FindByEmail(email); err == nil && u != nil && u.EmailVerified {
+	if u, err := w.userRepo.FindByEmail(ctx, email); err == nil && u != nil && u.EmailVerified {
 		w.logger.Debug("outbox: user already verified, skipping email")
 		return nil
 	}
@@ -397,7 +421,7 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		zap.String("source", source),
 	)
 
-	user, err := w.userRepo.FindByEmail(email)
+	user, err := w.userRepo.FindByEmail(ctx, email)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
@@ -410,17 +434,29 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		return nil
 	}
 
+	// Get full name
 	var fullName string
 	if user.FullName != nil {
 		fullName = *user.FullName
 	}
+
+	// Create user in Supabase with password
 	authUserID, err := w.authClient.RegisterUser(ctx, email, password, fullName, userID, user.CompanyID)
 	if err != nil {
 		return fmt.Errorf("register user in Supabase: %w", err)
 	}
 
-	if err := w.userRepo.UpdateAuthUserID(userID, authUserID); err != nil {
+	if err := w.userRepo.UpdateAuthUserID(ctx, userID, authUserID); err != nil {
 		return fmt.Errorf("update auth_user_id: %w", err)
+	}
+
+	// Clear password_hash after successful migration
+	if err := w.userRepo.ClearPasswordHash(ctx, userID); err != nil {
+		w.logger.Error("outbox: failed to clear password hash after migration",
+			zap.Error(err),
+			zap.String("user_id", userID),
+		)
+		// Don't fail the migration - password_hash will be cleared on next login attempt
 	}
 
 	w.logger.Debug("outbox: legacy user migration completed",
@@ -428,32 +464,81 @@ func (w *OutboxWorker) handleMigrateLegacyUser(ctx context.Context, data map[str
 		zap.String("auth_user_id", authUserID),
 	)
 
-	return w.sendPostMigrationEmail(ctx, email, userID, source)
+	// Send appropriate email based on source
+	if source == "forgot_password" {
+		// Generate password reset token for the newly created Supabase user
+		resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+		if err != nil {
+			return fmt.Errorf("generate password reset token: %w", err)
+		}
+
+		// Send password reset email
+		if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
+			return fmt.Errorf("send password reset email: %w", err)
+		}
+
+		w.logger.Info("outbox: password reset email sent for migrated user",
+			zap.String("user_id", userID),
+			zap.String("email", email),
+		)
+	} else {
+		// For login source, OTP verification email is queued separately
+		otpCode, err := w.authClient.GenerateLoginOTP(ctx, email)
+		if err != nil {
+			w.logger.Error("outbox: failed to generate otp", zap.Error(err))
+			return fmt.Errorf("failed to generate login verification code")
+		}
+
+		if err := w.emailSvc.SendLoginOTPEmail(ctx, email, otpCode); err != nil {
+			w.logger.Error("outbox: failed to send otp email", zap.Error(err))
+			return fmt.Errorf("failed to send login verification email")
+		}
+	}
+
+	return nil
 }
 
-func (w *OutboxWorker) sendPostMigrationEmail(ctx context.Context, email, userID, source string) error {
-	if source != models.MigrationSourceForgotPassword {
-		token, err := w.authClient.GenerateLoginOTP(ctx, email)
-		if err != nil {
-			return fmt.Errorf("generate verification otp: %w", err)
-		}
-		if err := w.emailSvc.SendVerificationEmail(ctx, email, token); err != nil {
-			return fmt.Errorf("send verification email: %w", err)
-		}
-		return nil
-	}
-
-	resetToken, err := w.authClient.GeneratePasswordResetToken(ctx, email)
+func (w *OutboxWorker) handleSendTeamInvitation(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "email", "role", "invite_link")
 	if err != nil {
-		return fmt.Errorf("generate password reset token: %w", err)
+		return err
+	}
+	email, role, inviteLink := fields[0], fields[1], fields[2]
+
+	w.logger.Debug("outbox: sending team invitation email",
+		zap.String("email", email),
+		zap.String("role", role),
+	)
+
+	if err := w.emailSvc.SendTeamInvitationEmail(ctx, email, role, inviteLink); err != nil {
+		return fmt.Errorf("send team invitation email: %w", err)
 	}
 
-	if err := w.emailSvc.SendPasswordResetEmail(ctx, email, resetToken); err != nil {
-		return fmt.Errorf("send password reset email: %w", err)
+	w.logger.Info("outbox: team invitation email sent",
+		zap.String("email", email),
+	)
+	return nil
+}
+
+func (w *OutboxWorker) handleUpdateAuthUserEmail(ctx context.Context, data map[string]string) error {
+	fields, err := getFields(data, "auth_user_id", "new_email")
+	if err != nil {
+		return err
+	}
+	authUserID, newEmail := fields[0], fields[1]
+
+	w.logger.Debug("outbox: updating Supabase user email",
+		zap.String("auth_user_id", authUserID),
+		zap.String("new_email", newEmail),
+	)
+
+	if err := w.authClient.UpdateUserEmail(ctx, authUserID, newEmail); err != nil {
+		return fmt.Errorf("update Supabase user email: %w", err)
 	}
 
-	w.logger.Info("outbox: password reset email sent for migrated user",
-		zap.String("user_id", userID),
+	w.logger.Info("outbox: Supabase user email updated",
+		zap.String("auth_user_id", authUserID),
+		zap.String("new_email", newEmail),
 	)
 	return nil
 }

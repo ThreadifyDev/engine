@@ -1,8 +1,16 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
 import { CheckCircle } from 'lucide-react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Reset Password - Threadify" },
+    { name: "description", content: "Set a new password for your Threadify account" },
+  ];
+};
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -13,7 +21,7 @@ export default function ResetPassword() {
     password: '',
     confirmPassword: '',
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tokenValid, setTokenValid] = useState(true);
@@ -21,28 +29,28 @@ export default function ResetPassword() {
   useEffect(() => {
     if (!token) {
       setTokenValid(false);
-      setError('Invalid or missing reset token');
+      setError({ message: 'Invalid or missing reset token' });
     }
   }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
 
     // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
+      setError({ message: 'Passwords do not match' });
       return;
     }
 
     // Validate password strength
     if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
+      setError({ message: 'Password must be at least 8 characters long' });
       return;
     }
 
     if (!token) {
-      setError('Invalid reset token');
+      setError({ message: 'Invalid reset token' });
       return;
     }
 
@@ -56,7 +64,16 @@ export default function ResetPassword() {
         navigate('/login');
       }, 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset password');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to reset password',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -149,7 +166,7 @@ export default function ResetPassword() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && <Alert type="error" message={error} />}
+          {error && <Alert type="error" message={error.message} details={error.details} />}
 
           <div className="space-y-4">
             {/* New Password */}

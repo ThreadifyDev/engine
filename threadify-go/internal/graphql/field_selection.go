@@ -39,10 +39,20 @@ func ExtractFieldSelections(ctx context.Context) *FieldSelection {
 		return selection
 	}
 
-	// Collect all requested fields
-	for _, field := range graphql.CollectFieldsCtx(ctx, nil) {
-		selection.Add(field.Name)
+	// Collect all requested fields recursively
+	var collectSelections func(selections []graphql.CollectedField)
+	collectSelections = func(selections []graphql.CollectedField) {
+		for _, field := range selections {
+			selection.Add(field.Name)
+			if field.Selections != nil {
+				// We need to pass satisfiers, but for simple field names we can just pass empty string slice
+				childSelections := graphql.CollectFields(graphql.GetOperationContext(ctx), field.Selections, nil)
+				collectSelections(childSelections)
+			}
+		}
 	}
+
+	collectSelections(graphql.CollectFieldsCtx(ctx, nil))
 
 	return selection
 }

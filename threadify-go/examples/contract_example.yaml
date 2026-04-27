@@ -90,30 +90,36 @@ transitions:
   - from: order_placed
     to:
       - payment_validation
+    timeout: 2m
     max_retries: 3
 
   - from: payment_validation
     to:
       - payment_validated
       - order_cancelled
+    timeout: 30s
     max_retries: 3
 
   - from: payment_validated
     to:
       - fulfillment_ready
+    timeout: 5m
 
   - from: fulfillment_ready
     to:
       - shipped
+    timeout: 4h
 
   - from: shipped
     to:
       - delivered
       - delivery_failed
+    timeout: 72h
 
   - from: delivery_failed
     to:
       - shipped
+    timeout: 1h
     max_retries: 2
 
 # Terminal steps - where threads can end

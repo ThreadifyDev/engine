@@ -100,8 +100,22 @@ func ValidateSignupRequest(req *models.SignupRequest) error {
 	req.Email = normalizeEmail(req.Email)
 	validateEmail("email", req.Email, b)
 
+	// Company name is required UNLESS invitation token is provided
 	req.CompanyName = strings.TrimSpace(req.CompanyName)
-	validateCompanyName(req.CompanyName, b)
+	hasInvitationToken := req.InvitationToken != nil && strings.TrimSpace(*req.InvitationToken) != ""
+
+	if !hasInvitationToken {
+		validateCompanyName(req.CompanyName, b)
+	} else if req.CompanyName != "" {
+		// If invitation token is provided and company name is also provided, validate it
+		validateCompanyName(req.CompanyName, b)
+	}
+
+	// Ensure at least one of company_name or invitation_token is provided
+	if req.CompanyName == "" && !hasInvitationToken {
+		b.add("company_name", "Either company name or invitation token is required")
+	}
+
 	validatePassword(req.Password, b)
 
 	req.FullName = normalizeOptionalText("full_name", req.FullName, maxFullNameLen, namePattern, b)
@@ -129,6 +143,23 @@ func ValidateLoginRequest(req *models.LoginRequest) error {
 		b.add("password", "Password exceeds maximum length")
 	} else if hasControlChars(req.Password) {
 		b.add("password", "Password contains invalid characters")
+	}
+
+	return b.err()
+}
+
+func ValidateCreateAPIKeyRequest(req *models.CreateAPIKeyRequest) error {
+	b := &validationBuilder{}
+	if req == nil {
+		b.add("request", "Request body is required")
+		return b.err()
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		b.add("name", "Name is required")
+	} else if utf8.RuneCountInString(req.Name) > 100 {
+		b.add("name", "Name exceeds maximum length")
 	}
 
 	return b.err()

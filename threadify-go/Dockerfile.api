@@ -7,20 +7,14 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy shared directory first (required by api module's replace directive)
+# Copy all necessary files for go mod download
 COPY shared/ ./shared/
+COPY config/ ./config/
+COPY api/ ./api/
 
-# Copy api module files
-COPY api/go.mod api/go.sum ./api/
-
-# Set working directory to api
+# Set working directory to api and download dependencies
 WORKDIR /app/api
-
-# Download dependencies
 RUN go mod download
-
-# Copy api source code
-COPY api/ ./
 
 # Build the application with optimizations
 RUN CGO_ENABLED=0 GOOS=linux go build \
@@ -34,10 +28,11 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy the binary, RBAC files, and code samples (distroless already runs as nonroot user)
+# Copy the binary, RBAC files, config files, and code samples (distroless already runs as nonroot user)
 COPY --from=builder /app/bin/server /app/server
 COPY --from=builder /app/shared/rbac /app/shared/rbac
 COPY --from=builder /app/api/code_samples /app/code_samples
+COPY --from=builder /app/config/subscription.yaml /app/config/subscription.yaml
 
 # Expose ports
 EXPOSE 8081 3001

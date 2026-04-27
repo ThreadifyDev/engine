@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useSearchParams, Link } from '@remix-run/react';
-import { api, type VerifyOTPData } from '~/lib/api';
+import { api, type VerifyOTPData, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Verify OTP - Threadify" },
+    { name: "description", content: "Verify your email with the one-time password" },
+  ];
+};
 
 export default function VerifyOTP() {
   const navigate = useNavigate();
@@ -9,9 +17,11 @@ export default function VerifyOTP() {
   const email = searchParams.get('email') || '';
   const isLoginFlow = searchParams.get('type') === 'login';
 
-
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
+  const [formData, setFormData] = useState<VerifyOTPData>({
+    email: email,
+    token: '',
+  });
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
@@ -24,13 +34,13 @@ export default function VerifyOTP() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
+    setResendMessage('');
     setLoading(true);
 
     try {
-      const data: VerifyOTPData = { email, token: code };
-      const response = await api.verifyOTP(data);
       // Store token and user info
+      const response = await api.verifyOTP(formData);
       api.setToken(response.token);
       api.setUser(response.user);
 
@@ -43,7 +53,38 @@ export default function VerifyOTP() {
         navigate('/u/dashboard');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Verification failed');
+      const errorMessage = err instanceof Error ? err.message : 'Verification failed';
+      
+      // Check if token has expired (only auto-resend for expiration, not invalid tokens)
+      if (errorMessage.toLowerCase().includes('token has expired')) {
+        // Automatically resend the OTP
+        setResending(true);
+        try {
+          await api.resendVerificationEmail({ email });
+          setError({
+            message: 'Token has expired. A new code has been sent to your email!',
+          });
+          setFormData({ ...formData, token: '' }); // Clear the expired token
+        } catch (resendErr) {
+          setError({
+            message: 'Token has expired. Failed to send new code. Please try again.',
+          });
+        } finally {
+          setResending(false);
+        }
+      } else {
+        // Handle other errors normally
+        if (err instanceof ValidationError) {
+          setError({
+            message: err.message,
+            details: err.details,
+          });
+        } else {
+          setError({
+            message: errorMessage,
+          });
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -51,10 +92,11 @@ export default function VerifyOTP() {
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '').slice(0, 8);
-    setCode(value);
+    setFormData({ ...formData, token: value });
   };
 
   const handleResendVerification = async () => {
+    setError(null);
     setResendMessage('');
     setResending(true);
 
@@ -88,7 +130,7 @@ export default function VerifyOTP() {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && <Alert type="error" message={error} />}
+          {error && <Alert type="error" message={error.message} details={error.details} />}
 
           <div>
             <label htmlFor="code" className="block text-sm font-medium text-black mb-1">
@@ -103,9 +145,9 @@ export default function VerifyOTP() {
               required
               maxLength={8}
               minLength={8}
-              value={code}
+              value={formData.token}
               onChange={handleCodeChange}
-              className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black text-center text-2xl tracking-widest font-mono"
+              className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white text-center text-2xl tracking-widest font-mono font-bold"
               placeholder="00000000"
               autoComplete="one-time-code"
             />
@@ -117,8 +159,8 @@ export default function VerifyOTP() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || code.length !== 8}
-            className="w-full bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={loading || formData.token.length !== 8}
+            className="w-full bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {loading ? 'Verifying...' : 'Verify Code'}
           </button>
@@ -131,33 +173,31 @@ export default function VerifyOTP() {
           </div>
         </form>
 
-        {/* Resend Code — only shown on signup flow */}
-        {!isLoginFlow && (
-          <div className="space-y-3">
-            {resendMessage && (
-              <div className={`px-4 py-3 text-sm text-center ${resendMessage.includes('Failed') || resendMessage.includes('error')
-                ? 'bg-red-50 text-red-800 border-2 border-red-500'
-                : 'bg-green-50 text-green-800 border-2 border-green-500'
-                }`}>
-                {resendMessage}
-              </div>
-            )}
-
-            <div className="text-center">
-              <p className="text-sm text-gray-600">
-                Didn't receive the code?{' '}
-                <button
-                  type="button"
-                  className="text-black font-medium hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={handleResendVerification}
-                  disabled={resending}
-                >
-                  {resending ? 'Sending...' : 'Resend'}
-                </button>
-              </p>
+        {/* Resend Code */}
+        <div className="space-y-3">
+          {resendMessage && (
+            <div className={`px-4 py-3 text-sm text-center ${resendMessage.includes('Failed') || resendMessage.includes('error')
+              ? 'bg-red-50 text-red-800 border-2 border-red-500'
+              : 'bg-green-50 text-green-800 border-2 border-green-500'
+              }`}>
+              {resendMessage}
             </div>
+          )}
+
+          <div className="text-center">
+            <p className="text-sm text-gray-600">
+              Didn't receive the code?{' '}
+              <button
+                type="button"
+                className="text-black font-medium hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleResendVerification}
+                disabled={resending}
+              >
+                {resending ? 'Sending...' : 'Resend'}
+              </button>
+            </p>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

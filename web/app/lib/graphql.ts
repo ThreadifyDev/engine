@@ -174,6 +174,7 @@ export interface ActorInfo {
 
 export interface Thread {
   id: string;
+  label?: string;
   contractId?: string;
   contractVersion?: number;
   contractName?: string;
@@ -201,10 +202,10 @@ class GraphQLClient {
     // Make GraphQL request through the Web API proxy
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     // Use Web API URL from runtime configuration
-    const apiUrl = typeof window !== 'undefined' 
+    const apiUrl = typeof window !== 'undefined'
       ? this.getApiUrl()
       : 'http://localhost:3001';
-    
+
     const response = await fetch(`${apiUrl}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
       headers: {
@@ -256,6 +257,7 @@ class GraphQLClient {
       query GetThread($id: ID!) {
         thread(id: $id) {
           id
+          label
           contractId
           contractVersion
           contractName
@@ -476,6 +478,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -523,6 +526,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -570,6 +574,7 @@ class GraphQLClient {
         ) {
           threads {
             id
+            label
             contractName
             contractVersion
             status
@@ -585,6 +590,51 @@ class GraphQLClient {
 
     const data = await this.request<{ threadsByRef: { threads: Thread[]; totalCount: number } }>(query, options);
     return { threads: data.threadsByRef.threads, totalCount: data.threadsByRef.totalCount };
+  }
+
+  async getEntityProfileHistory(options: {
+    profileID: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+    startedAfter?: string;
+    startedBefore?: string;
+  }): Promise<{ threads: Thread[]; totalCount: number }> {
+    const query = `
+      query GetEntityProfileHistory(
+        $profileID: ID!
+        $status: String
+        $limit: Int
+        $offset: Int
+        $startedAfter: String
+        $startedBefore: String
+      ) {
+        entityProfileHistory(
+          profileID: $profileID
+          status: $status
+          limit: $limit
+          offset: $offset
+          startedAfter: $startedAfter
+          startedBefore: $startedBefore
+        ) {
+          threads {
+            id
+            label
+            contractName
+            contractVersion
+            status
+            refs
+            startedAt
+            completedAt
+            error
+          }
+          totalCount
+        }
+      }
+    `;
+
+    const data = await this.request<{ entityProfileHistory: { threads: Thread[]; totalCount: number } }>(query, options);
+    return { threads: data.entityProfileHistory.threads, totalCount: data.entityProfileHistory.totalCount };
   }
 
   async verifyThreadIntegrity(threadId: string): Promise<HashChainStatus> {
@@ -640,7 +690,7 @@ class GraphQLClient {
     }
 
     const response = await this.request<{ contractGraph: any }>(query, variables);
-    
+
     // Nodes might come as array or object depending on GraphQL schema
     // If array, convert to map. If already object, leave as is.
     const contractGraph = response.contractGraph;
@@ -654,9 +704,96 @@ class GraphQLClient {
       }
       // If it's already an object/map, no conversion needed
     }
-    
+
     return contractGraph;
   }
+
+  async getEntityProfilesByType(options: {
+    type: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[] } }> {
+    const query = `
+      query EntityProfilesByType($type: String!, $search: String, $limit: Int, $offset: Int) {
+        entityProfilesByType(type: $type, search: $search, limit: $limit, offset: $offset) {
+          totalCount
+          profileType {
+            name
+            type
+          }
+          items {
+            id
+            refKey
+            name
+            lastActiveAt
+            metrics {
+              totalDeliveries
+              deliveryHealthScore
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.request<{
+      entityProfilesByType: {
+        items: EntityProfileListItem[];
+        totalCount: number;
+        profileType?: { name: string; type: string[] };
+      };
+    }>(query, {
+      type: options.type,
+      search: options.search ?? null,
+      limit: options.limit ?? 20,
+      offset: options.offset ?? 0,
+    });
+    return data.entityProfilesByType;
+  }
+
+  async getEntityProfile(options: { id?: string; refKey?: string; type?: string }): Promise<any> {
+    const query = `
+      query EntityProfile($id: String, $refKey: String, $type: String) {
+        entityProfile(id: $id, refKey: $refKey, type: $type) {
+          id
+          refKey
+          companyId
+          profileTypeId
+          profileType {
+            name
+            type
+          }
+          name
+          createdAt
+          lastActiveAt
+          metrics {
+            entityProfileId
+            totalDeliveries
+            completedSuccessfully
+            validationViolations
+            deliveryHealthScore
+            prevDeliveryHealthScore
+            healthTrendSlope
+            averageDeliveryTimeMs
+            lastCalculatedAt
+          }
+        }
+      }
+    `;
+
+    const data = await this.request<{ entityProfile: any }>(query, options);
+    return data.entityProfile;
+  }
+}
+
+export interface EntityProfileListItem {
+  id: string;
+  refKey: string;
+  name: string | null;
+  lastActiveAt: string;
+  metrics: {
+    totalDeliveries: number;
+    deliveryHealthScore: number | null;
+  } | null;
 }
 
 export const graphqlClient = new GraphQLClient();

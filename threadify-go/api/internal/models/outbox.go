@@ -15,6 +15,8 @@ const (
 	EventTypeSendVerificationEmail  = "send_verification_email"
 	EventTypeSendPasswordResetEmail = "send_password_reset_email"
 	EventTypeMigrateLegacyUser      = "migrate_legacy_user"
+	EventTypeSendTeamInvitation     = "send_team_invitation"
+	EventTypeUpdateAuthUserEmail    = "update_auth_user_email"
 
 	MigrationSourceLogin          = "login"
 	MigrationSourceForgotPassword = "forgot_password"

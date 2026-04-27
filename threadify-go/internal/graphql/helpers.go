@@ -3,7 +3,12 @@ package graphql
 import (
 	"context"
 	"fmt"
+	"time"
+
 	sharedauth "threadify-go/shared/auth"
+	sharedmodels "threadify-go/shared/models"
+
+	"github.com/threadify/engine/internal/graphql/generated"
 )
 
 // Context keys for caching
@@ -73,4 +78,41 @@ func getCachedSteps(ctx context.Context, threadID string) (steps interface{}, fo
 	}
 	steps, found = cache[threadID]
 	return steps, found
+}
+
+func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityProfileMetrics {
+	if m == nil {
+		return nil
+	}
+	out := &generated.EntityProfileMetrics{
+		EntityProfileID:         m.EntityProfileID,
+		TotalDeliveries:         m.TotalDeliveries,
+		CompletedSuccessfully:   m.CompletedSuccessfully,
+		ValidationViolations:    m.ValidationViolations,
+		DeliveryHealthScore:     m.DeliveryHealthScore,
+		PrevDeliveryHealthScore: m.PrevDeliveryHealthScore,
+		HealthTrendSlope:        m.HealthTrendSlope,
+	}
+	if m.AverageDeliveryTimeMs != nil {
+		v := int(*m.AverageDeliveryTimeMs)
+		out.AverageDeliveryTimeMs = &v
+	}
+	if m.LastCalculatedAt != nil {
+		v := m.LastCalculatedAt.Format(time.RFC3339)
+		out.LastCalculatedAt = &v
+	}
+	return out
+}
+
+func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
+	desc := t.Description
+	return &generated.EntityProfileType{
+		ID:          t.ID,
+		CompanyID:   t.CompanyID,
+		Name:        t.Name,
+		Type:        t.Type,
+		Description: &desc,
+		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+	}
 }

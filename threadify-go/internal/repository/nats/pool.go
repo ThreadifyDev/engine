@@ -1,6 +1,7 @@
 package nats
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 
@@ -33,6 +34,18 @@ func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error
 			return nil, fmt.Errorf("create NATS client %d: %w", i, err)
 		}
 		pool.clients[i] = client
+	}
+
+	initClient, err := NewClient(cfg, logger)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("create NATS init client: %w", err)
+	}
+	defer initClient.Close()
+
+	if err := initClient.InitStreams(context.Background()); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("initialize NATS streams: %w", err)
 	}
 
 	logger.Info("created NATS pool", zap.Int("connections", size))

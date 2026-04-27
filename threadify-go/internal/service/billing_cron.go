@@ -1,197 +1,238 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
-	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/repository/postgres"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
+const (
+	creditTopupHandleTimeout   = 30 * time.Second
+	creditTopupConsumerBackoff = 5 * time.Second
+)
+
 type BillingCron struct {
-	planRepo       *postgres.PlanRepository
-	billingRepo    *postgres.BillingRepository
-	billingService *BillingService
-	valkeyClient   interfaces.ValkeyClient
+	billingService *BillingOrchestrator
 	logger         *zap.Logger
-	cron           *cron.Cron
+	js             jetstream.JetStream
+	stopChan       chan struct{}
+	stopOnce       sync.Once
 }
 
 func NewBillingCron(
-	planRepo *postgres.PlanRepository,
-	billingRepo *postgres.BillingRepository,
-	billingService *BillingService,
-	valkeyClient interfaces.ValkeyClient,
+	billingService *BillingOrchestrator,
+	js jetstream.JetStream,
 	logger *zap.Logger,
 ) *BillingCron {
 	return &BillingCron{
-		planRepo:       planRepo,
-		billingRepo:    billingRepo,
 		billingService: billingService,
-		valkeyClient:   valkeyClient,
+		js:             js,
 		logger:         logger,
-		cron:           cron.New(cron.WithLocation(time.UTC)),
+		stopChan:       make(chan struct{}),
 	}
 }
 
 func (c *BillingCron) Start() error {
-	_, err := c.cron.AddFunc("0 0 * * *", func() {
-		ctx := context.Background()
-		c.runWithLock(ctx)
-	})
-	if err != nil {
-		c.logger.Error("failed to schedule billing cron", zap.Error(err))
-		return err
-	}
+	c.logger.Info("billing consumers starting")
 
-	c.cron.Start()
-	c.logger.Info("billing cron started — scheduled to run daily at 00:00 UTC")
+	if c.js != nil {
+		go c.startCreditTopupConsumer()
+	}
+	go c.startRolloverWorker()
+
 	return nil
-}
-
-func (c *BillingCron) runWithLock(ctx context.Context) {
-	lockKey := "cron:billing:lock:" + time.Now().UTC().Format("2006-01-02")
-	const lockTTL = 30 * time.Minute
-
-	success, err := c.valkeyClient.SetNX(ctx, lockKey, "locked", lockTTL)
-	if err != nil {
-		c.logger.Error("billing cron: failed to check distributed lock", zap.Error(err))
-		return
-	}
-	if !success {
-		return
-	}
-
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := c.valkeyClient.Expire(context.Background(), lockKey, lockTTL); err != nil {
-					c.logger.Error("billing cron: failed to renew lock heartbeat", zap.Error(err))
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	c.logger.Info("billing cron: acquired leader lock, starting daily run")
-	c.processAll(ctx)
 }
 
 func (c *BillingCron) Stop() error {
-	if c.cron != nil {
-		c.cron.Stop()
-	}
+	c.stopOnce.Do(func() { close(c.stopChan) })
 	return nil
 }
 
-type billingJob struct {
-	due         bool
-	periodStart time.Time
-	periodEnd   time.Time
-	reason      models.SnapshotReason
-}
-
-func (c *BillingCron) processAll(ctx context.Context) {
-	plans, err := c.planRepo.ListActivePlans(ctx)
-	if err != nil {
-		c.logger.Error("billing cron: failed to list active plans", zap.Error(err))
-		return
-	}
-
-	now := time.Now().UTC()
-	var processed, skipped int
-
-	for _, plan := range plans {
-		job := c.isDue(ctx, &plan, now)
-		if !job.due {
-			skipped++
-			continue
+func (c *BillingCron) startCreditTopupConsumer() {
+	for {
+		select {
+		case <-c.stopChan:
+			return
+		default:
 		}
 
-		if err := c.billingService.SnapshotAndBill(ctx, plan.CompanyID, job.periodStart, job.periodEnd, job.reason); err != nil {
-			c.logger.Error("billing cron: snapshot failed",
-				zap.String("company_id", plan.CompanyID),
+		if err := c.runCreditTopupConsumer(); err != nil {
+			c.logger.Error("credit topup consumer exited with error, will reconnect",
 				zap.Error(err),
+				zap.Duration("backoff", creditTopupConsumerBackoff),
 			)
-			continue
-		}
-
-		processed++
-	}
-
-	c.logger.Info("billing cron: daily run complete",
-		zap.Int("processed", processed),
-		zap.Int("skipped", skipped),
-		zap.Int("total", len(plans)),
-	)
-}
-
-func (c *BillingCron) isDue(ctx context.Context, plan *models.CompanyPlan, now time.Time) billingJob {
-	lastSnapshot, err := c.billingRepo.FindLatestSnapshot(ctx, plan.CompanyID)
-	if err != nil {
-		c.logger.Warn("billing cron: failed to find latest snapshot, skipping",
-			zap.String("company_id", plan.CompanyID),
-			zap.Error(err),
-		)
-		return billingJob{due: false}
-	}
-
-	var lastPeriodEnd time.Time
-	if lastSnapshot != nil {
-		lastPeriodEnd = lastSnapshot.PeriodEnd
-	} else {
-		lastPeriodEnd = plan.BillingStart
-	}
-
-	nextDue := lastPeriodEnd.AddDate(0, 1, 0)
-
-	gracePeriod := 15 * time.Minute
-	safeToBillThreshold := nextDue.Add(gracePeriod)
-
-	if now.Before(safeToBillThreshold) {
-		if plan.BillingCycle == models.BillingCycleYearly && now.After(plan.BillingEnd.Add(gracePeriod)) {
-			return billingJob{
-				due:         true,
-				periodStart: lastPeriodEnd,
-				periodEnd:   plan.BillingEnd,
-				reason:      models.SnapshotReasonYearlyRenewal,
+			select {
+			case <-c.stopChan:
+				return
+			case <-time.After(creditTopupConsumerBackoff):
 			}
 		}
-		return billingJob{due: false}
+
+	}
+}
+
+func (c *BillingCron) runCreditTopupConsumer() error {
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	consumer, err := c.js.CreateOrUpdateConsumer(setupCtx, "usage_sync", jetstream.ConsumerConfig{
+		Durable:       "billing-credit-topup",
+		FilterSubject: "credit.topup",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})
+	setupCancel()
+	if err != nil {
+		return fmt.Errorf("create credit topup consumer: %w", err)
 	}
 
-	switch plan.BillingCycle {
-	case models.BillingCycleMonthly:
-		return billingJob{
-			due:         true,
-			periodStart: lastPeriodEnd,
-			periodEnd:   nextDue,
-			reason:      models.SnapshotReasonMonthlyRenewal,
+	iter, err := consumer.Messages()
+	if err != nil {
+		return fmt.Errorf("get credit topup messages: %w", err)
+	}
+	defer iter.Stop()
+
+	c.logger.Info("credit topup consumer started")
+
+	for {
+		msg, err := iter.Next()
+		if err != nil {
+			if errors.Is(err, jetstream.ErrMsgIteratorClosed) {
+				select {
+				case <-c.stopChan:
+					c.logger.Debug("credit topup iterator closed during shutdown")
+					return nil
+				default:
+					return fmt.Errorf("credit topup iterator closed unexpectedly")
+				}
+			}
+			select {
+			case <-c.stopChan:
+				return nil
+			default:
+				return fmt.Errorf("unexpected iterator error: %w", err)
+			}
 		}
 
-	case models.BillingCycleYearly:
-		isYearEnd := now.After(plan.BillingEnd.Add(gracePeriod))
-		reason := models.SnapshotReasonOverageOnly
-		if isYearEnd {
-			reason = models.SnapshotReasonYearlyRenewal
-		}
-		return billingJob{
-			due:         true,
-			periodStart: lastPeriodEnd,
-			periodEnd:   nextDue,
-			reason:      reason,
+		if err := c.handleCreditTopup(msg); err != nil {
+			var permErr *permanentError
+			if errors.As(err, &permErr) {
+				c.logger.Error("permanent credit topup failure, terminating message",
+					zap.Error(err),
+					zap.Binary("payload", msg.Data()),
+				)
+				msg.Term()
+			} else {
+				c.logger.Error("transient credit topup failure, will retry", zap.Error(err))
+				msg.Nak()
+			}
+		} else {
+			msg.Ack()
 		}
 	}
+}
 
-	return billingJob{due: false}
+type permanentError struct {
+	cause error
+}
+
+func (e *permanentError) Error() string { return e.cause.Error() }
+func (e *permanentError) Unwrap() error { return e.cause }
+
+func permanent(err error) error { return &permanentError{cause: err} }
+
+// PermanentError is an exported alias for permanentError (primarily for tests).
+type PermanentError = permanentError
+
+type creditTopupEvent struct {
+	CompanyID         string      `json:"company_id"`
+	EventID           string      `json:"event_id"`
+	BillingCycleStart string      `json:"billing_cycle_start"`
+	Amount            json.Number `json:"amount"`
+}
+
+func (c *BillingCron) handleCreditTopup(msg jetstream.Msg) error {
+	dec := json.NewDecoder(bytes.NewReader(msg.Data()))
+	dec.UseNumber()
+	var event creditTopupEvent
+	if err := dec.Decode(&event); err != nil {
+		return permanent(fmt.Errorf("unmarshal credit topup: %w", err))
+	}
+
+	if event.CompanyID == "" || event.BillingCycleStart == "" {
+		return permanent(fmt.Errorf("invalid credit topup event: company_id=%q billing_cycle_start=%q",
+			event.CompanyID, event.BillingCycleStart))
+	}
+
+	amountMillicents, err := event.Amount.Int64()
+	if err != nil {
+		return permanent(fmt.Errorf("parse credit amount %q: %w", event.Amount, err))
+	}
+
+	if amountMillicents <= 0 {
+		c.logger.Warn("credit topup event has non-positive amount, terminating",
+			zap.String("company_id", event.CompanyID),
+			zap.Int64("amount_millicents", amountMillicents),
+			zap.String("event_id", event.EventID),
+		)
+		return permanent(fmt.Errorf("invalid credit topup amount: %d millicents (company: %s, event: %s)",
+			amountMillicents, event.CompanyID, event.EventID))
+	}
+
+	billingCycleStart, err := time.Parse(time.RFC3339Nano, event.BillingCycleStart)
+	if err != nil {
+		return permanent(fmt.Errorf("invalid billing_cycle_start %q: %w", event.BillingCycleStart, err))
+	}
+
+	c.logger.Info("processing durable credit topup trigger",
+		zap.String("company_id", event.CompanyID),
+		zap.Int64("amount_millicents", amountMillicents),
+		zap.String("event_id", event.EventID),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), creditTopupHandleTimeout)
+	defer cancel()
+
+	return c.billingService.ChargeCreditTopup(ctx, event.CompanyID, event.EventID, billingCycleStart, amountMillicents)
+}
+
+// HandleCreditTopup is an exported wrapper around handleCreditTopup (primarily for tests).
+func (c *BillingCron) HandleCreditTopup(msg jetstream.Msg) error {
+	return c.handleCreditTopup(msg)
+}
+
+func (c *BillingCron) startRolloverWorker() {
+	c.logger.Info("billing rollover worker started")
+
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	c.runRollover()
+
+	for {
+		select {
+		case <-c.stopChan:
+			return
+		case <-ticker.C:
+			c.runRollover()
+		}
+	}
+}
+
+func (c *BillingCron) runRollover() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	err := c.billingService.ProcessRollovers(ctx)
+	cancel()
+	if err != nil {
+		c.logger.Error("failed to process billing rollovers", zap.Error(err))
+	}
+}
+
+// RunRollover is an exported wrapper around runRollover (primarily for tests).
+func (c *BillingCron) RunRollover() {
+	c.runRollover()
 }

@@ -11,21 +11,23 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/middleware"
-	"github.com/threadify/engine/internal/service"
 )
 
 type PreviewResponse struct {
-	Valid  bool     `json:"valid"`
-	Errors []string `json:"errors,omitempty"`
+	Valid    bool        `json:"valid"`
+	Errors   []string    `json:"errors,omitempty"`
+	Graph    interface{} `json:"graph,omitempty"`
+	Contract interface{} `json:"contract,omitempty"`
 }
 
 type ContractHandler struct {
-	contractService *service.ContractService
+	contractService types.ContractService
 	logger          *zap.Logger
 }
 
-func NewContractHandler(contractService *service.ContractService, logger *zap.Logger) *ContractHandler {
+func NewContractHandler(contractService types.ContractService, logger *zap.Logger) *ContractHandler {
 	return &ContractHandler{contractService: contractService, logger: logger}
 }
 
@@ -76,7 +78,12 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 	if !ok {
 		return
 	}
-	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID)
+
+	search := c.Query("search")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID, search, limit, offset)
 	c.JSON(statusCode, response)
 }
 
@@ -200,7 +207,7 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	_, _, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
+	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
 	if err != nil {
 		h.logger.Error("failed to preview contract", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})
@@ -216,5 +223,9 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, PreviewResponse{Valid: true})
+	c.JSON(http.StatusOK, PreviewResponse{
+		Valid:    true,
+		Graph:    graph,
+		Contract: contract,
+	})
 }

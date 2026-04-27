@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Onboarding - Threadify" },
+    { name: "description", content: "Complete your Threadify onboarding" },
+  ];
+};
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -17,8 +25,9 @@ export default function Onboarding() {
     use_case: '',
     use_case_other: '',
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [skipCompanyStep, setSkipCompanyStep] = useState(false);
 
   useEffect(() => {
     // Redirect if not authenticated
@@ -27,15 +36,43 @@ export default function Onboarding() {
       return;
     }
 
+    const user = api.getStoredUser();
+    
     // Redirect if already onboarded
     if (user?.onboarding_completed) {
       navigate('/u/dashboard');
+      return;
     }
-  }, [navigate, user]);
+    
+    // Check if user joined via invitation (company info already exists)
+    // Invited users have first_instrumentation_done = true
+    const checkCompanyStatus = async () => {
+      try {
+        const response = await api.getUserProfile(true); // minimal=true for onboarding
+        
+        // If user has first_instrumentation_done = true, they joined via invitation
+        // Skip company step since company details already exist
+        if (response.user?.first_instrumentation_done) {
+          setSkipCompanyStep(true);
+        }
+      } catch (err) {
+        // If we can't check, default to showing both steps
+        console.error('Failed to check company status:', err);
+      }
+    };
+    
+    checkCompanyStatus();
+  }, [navigate]); // Only run on mount and when navigate changes
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
-    setStep(2);
+    
+    // If company step should be skipped, submit directly
+    if (skipCompanyStep) {
+      handleSubmit(e);
+    } else {
+      setStep(2);
+    }
   };
 
   const handleBack = () => {
@@ -44,18 +81,22 @@ export default function Onboarding() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setLoading(true);
 
     try {
       // Prepare data - use "Other" text if selected, otherwise use dropdown value
-      const profileData = {
+      const profileData: any = {
         full_name: formData.full_name,
         job_role: formData.job_role === 'Other' ? formData.job_role_other : formData.job_role,
-        industry: formData.industry === 'Other' ? formData.industry_other : formData.industry,
-        company_size: formData.company_size,
-        use_case: formData.use_case === 'Other' ? formData.use_case_other : formData.use_case,
       };
+      
+      // Only include company data if we're not skipping the company step
+      if (!skipCompanyStep) {
+        profileData.industry = formData.industry === 'Other' ? formData.industry_other : formData.industry;
+        profileData.company_size = formData.company_size;
+        profileData.use_case = formData.use_case === 'Other' ? formData.use_case_other : formData.use_case;
+      }
 
       // Call API to update profile
       const response = await api.updateProfile(profileData);
@@ -67,7 +108,16 @@ export default function Onboarding() {
       // Navigate to getting-started (mandatory, non-skippable)
       navigate('/u/getting-started');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete onboarding');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to complete onboarding',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -90,15 +140,17 @@ export default function Onboarding() {
             Threadify
           </h1>
           <div className="mt-6">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 1 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                1
+            {!skipCompanyStep && (
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 1 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
+                  1
+                </div>
+                <div className="w-12 h-0.5 bg-gray-300"></div>
+                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 2 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
+                  2
+                </div>
               </div>
-              <div className="w-12 h-0.5 bg-gray-300"></div>
-              <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 2 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                2
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -112,7 +164,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && <Alert type="error" message={error} />}
+            {error && <Alert type="error" message={error.message} details={error.details} />}
 
             <div className="space-y-4">
               {/* Full Name */}
@@ -128,7 +180,7 @@ export default function Onboarding() {
                   minLength={2}
                   value={formData.full_name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                   placeholder="John Doe"
                 />
               </div>
@@ -144,7 +196,7 @@ export default function Onboarding() {
                   required
                   value={formData.job_role}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select role</option>
                   <option value="Software Engineer">Software Engineer</option>
@@ -171,7 +223,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.job_role_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Enter your job role"
                   />
                 </div>
@@ -183,15 +235,15 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={handleSkip}
-                className="flex-1 border-2 border-black text-black py-3 px-4 font-medium hover:bg-gray-100 transition-colors"
+                className="flex-1 text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
               >
                 Skip for now
               </button>
               <button
                 type="submit"
-                className="flex-1 bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 transition-colors"
+                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 transition-all border-2 border-black"
               >
-                Continue
+                {skipCompanyStep ? 'Complete Setup' : 'Continue'}
               </button>
             </div>
           </form>
@@ -207,7 +259,7 @@ export default function Onboarding() {
               </p>
             </div>
 
-            {error && <Alert type="error" message={error} />}
+            {error && <Alert type="error" message={error.message} details={error.details} />}
 
             <div className="space-y-4">
               {/* Industry */}
@@ -221,7 +273,7 @@ export default function Onboarding() {
                   required
                   value={formData.industry}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select industry</option>
                   <option value="E-commerce">E-commerce</option>
@@ -249,7 +301,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.industry_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Enter your industry"
                   />
                 </div>
@@ -266,7 +318,7 @@ export default function Onboarding() {
                   required
                   value={formData.company_size}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select size</option>
                   <option value="small">Small (1-10 employees)</option>
@@ -287,7 +339,7 @@ export default function Onboarding() {
                   required
                   value={formData.use_case}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                 >
                   <option value="">Select use case</option>
                   <option value="Order Fulfillment">Order Fulfillment & Tracking</option>
@@ -316,7 +368,7 @@ export default function Onboarding() {
                     minLength={5}
                     value={formData.use_case_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black focus:outline-none focus:ring-2 focus:ring-black"
+                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
                     placeholder="Describe what you'll monitor with Threadify"
                   />
                 </div>
@@ -328,14 +380,14 @@ export default function Onboarding() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 border-2 border-black text-black py-3 px-4 font-medium hover:bg-gray-100 transition-colors"
+                className="flex-1 text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
               >
                 Back
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-black text-white py-3 px-4 font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all border-2 border-black"
               >
                 {loading ? 'Completing...' : 'Complete Setup'}
               </button>

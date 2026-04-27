@@ -1,0 +1,23 @@
+{{template "_header.html" .}}
+<h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.5px;">
+    You're invited to join a team on Threadify
+</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#374151;">
+    You've been invited to collaborate on Threadify. Click the button below to accept your invitation and create your account.
+</p>
+<div style="margin:0 0 24px;">
+    <a href="{{.ActionURL}}" 
+       style="display:inline-block;padding:12px 32px;background-color:#111827;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;">
+        Accept Invitation
+    </a>
+</div>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#6b7280;">
+    Or copy and paste this link into your browser:
+</p>
+<p style="margin:0 0 24px;font-size:13px;line-height:1.6;color:#6b7280;word-break:break-all;">
+    {{.ActionURL}}
+</p>
+<p style="margin:0;font-size:13px;line-height:1.6;color:#9ca3af;">
+    This invitation will expire in 7 days. If you didn't expect this invitation, you can safely ignore this email.
+</p>
+{{template "_footer.html" .}}

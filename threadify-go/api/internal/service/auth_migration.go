@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -11,10 +12,12 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *AuthService) queueLegacyUserMigration(userID, email, password, source string) error {
+// queueLegacyUserMigration queues a migration event for a legacy user
+// source: "login" or "forgot_password" - determines which email to send after migration
+func (s *AuthService) queueLegacyUserMigration(ctx context.Context, userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
-	inflight, err := s.outboxRepo.ExistsPendingByReference(models.EventTypeMigrateLegacyUser, userID)
+	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, models.EventTypeMigrateLegacyUser, userID)
 	if err != nil {
 		return fmt.Errorf("check inflight migration: %w", err)
 	}
@@ -22,16 +25,14 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 		s.logger.Debug("migration already queued for user", zap.String("user_id", userID))
 		return nil
 	}
-	data := map[string]string{
-		"email":   email,
-		"user_id": userID,
-		"source":  source,
-	}
-	if password != "" {
-		data["password"] = password
-	}
 
-	payload, err := json.Marshal(data)
+	// Payload contains email, user_id, password, and source
+	payload, err := json.Marshal(map[string]string{
+		"email":    email,
+		"user_id":  userID,
+		"password": password,
+		"source":   source, // "login" or "forgot_password"
+	})
 	if err != nil {
 		return fmt.Errorf("marshal migration event payload: %w", err)
 	}
@@ -47,7 +48,7 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 	for i := range payload {
 		payload[i] = 0
 	}
-	if err := s.outboxRepo.Create(&models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &models.OutboxEvent{
 		ID:          utils.GenerateID(),
 		Type:        models.EventTypeMigrateLegacyUser,
 		Payload:     encrypted,
@@ -63,10 +64,7 @@ func (s *AuthService) queueLegacyUserMigration(userID, email, password, source s
 		s.outboxWorker.Trigger()
 	}
 
-	s.logger.Debug("legacy user migration queued via outbox",
-		zap.String("user_id", userID),
-		zap.String("email", email),
-	)
+	s.logger.Info("legacy user migration queued via outbox")
 
 	return nil
 }

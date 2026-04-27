@@ -2,388 +2,225 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
+	"threadify-go/shared/billing"
+	sharedconfig "threadify-go/shared/config"
+	"threadify-go/shared/database"
+	billingmodels "threadify-go/shared/models"
+	sharedrepo "threadify-go/shared/repository"
+
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/interfaces"
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/repository/postgres"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
-type BillingService struct {
-	planRepo        *postgres.PlanRepository
-	billingRepo     *postgres.BillingRepository
-	subscriptionCfg *config.SubscriptionConfig
-	valkeyClient    interfaces.ValkeyClient
-	invoiceProvider interfaces.InvoiceProvider
-	planSvc         *PlanService
-	logger          *zap.Logger
+const (
+	creditTopupAppliedKeyTTL = 90 * 24 * time.Hour
+	millicentsPerCent        = 1000
+)
+
+type BillingOrchestrator struct {
+	*billing.BillingService
+	billingRepo  types.BillingRepository
+	valkey       types.ValkeyStringClient
+	creditAtomic types.ValkeyCreditAtomic
+	streamClient types.ValkeyStreamClient
+	planSvc      types.PlanService
+	logger       *zap.Logger
 }
 
-func NewBillingService(
-	planRepo *postgres.PlanRepository,
-	billingRepo *postgres.BillingRepository,
-	subscriptionCfg *config.SubscriptionConfig,
-	valkeyClient interfaces.ValkeyClient,
-	invoiceProvider interfaces.InvoiceProvider,
-	planSvc *PlanService,
+func NewBillingOrchestrator(
+	billingProvider billing.BillingProvider,
+	planRepo sharedrepo.PlanRepository,
+	billingRepo types.BillingRepository,
+	subConfig *sharedconfig.SubscriptionConfig,
+	billingConfig *sharedconfig.BillingConfig,
+	valkey types.ValkeyStringClient,
+	creditAtomic types.ValkeyCreditAtomic,
+	streamClient types.ValkeyStreamClient,
+	planSvc types.PlanService,
 	logger *zap.Logger,
-) *BillingService {
-	return &BillingService{
-		planRepo:        planRepo,
-		billingRepo:     billingRepo,
-		subscriptionCfg: subscriptionCfg,
-		valkeyClient:    valkeyClient,
-		invoiceProvider: invoiceProvider,
-		planSvc:         planSvc,
-		logger:          logger,
+) *BillingOrchestrator {
+	sharedSvc := billing.NewBillingService(billingProvider, planRepo, subConfig, billingConfig, logger)
+	return &BillingOrchestrator{
+		BillingService: sharedSvc,
+		billingRepo:    billingRepo,
+		valkey:         valkey,
+		creditAtomic:   creditAtomic,
+		streamClient:   streamClient,
+		planSvc:        planSvc,
+		logger:         logger,
 	}
 }
 
-func (s *BillingService) SnapshotAndBill(ctx context.Context, companyID string, periodStart, periodEnd time.Time, reason models.SnapshotReason) error {
-	plan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
+func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID string, eventID string, billingCycleStart time.Time, amountMillicents int64) error {
+	amountCents := amountMillicents / millicentsPerCent
+	if amountCents <= 0 {
+		return nil
+	}
+
+	account, err := s.PlanRepo.GetCreditAccount(ctx, companyID)
 	if err != nil {
-		return fmt.Errorf("find plan for billing: %w", err)
-	}
-	if plan == nil {
-		return fmt.Errorf("no plan found for company %s", companyID)
+		return fmt.Errorf("find credit account for credit topup: %w", err)
 	}
 
-	meter, err := s.planRepo.FindCurrentUsageMeter(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("find usage meter for billing: %w", err)
-	}
-	if meter == nil {
-		return fmt.Errorf("no usage meter found for company %s", companyID)
+	if account.CreditAutoTopupMillicents <= 0 || account.CreditMaxMonthlyChargeMillicents <= 0 {
+		return fmt.Errorf("auto-topup disabled for company %s", companyID)
 	}
 
-	tierCfg := s.subscriptionCfg.GetTierLimits(string(plan.SubscriptionTier))
-	if tierCfg == nil {
-		return fmt.Errorf("unknown tier %q for company %s", plan.SubscriptionTier, companyID)
+	paymentStatus := billingmodels.PaymentStatusPending
+	if s.BillingProvider.SkipInvoicing() {
+		paymentStatus = billingmodels.PaymentStatusPaid
 	}
 
-	ingressFinal := meter.BandwidthIngressBalance
-	egressFinal := meter.BandwidthEgressBalance
+	now := time.Now().UTC()
 
-	if !tierCfg.OverageAllowed {
-		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)); ok {
-			ingressFinal = balance
-		} else {
-			s.logger.Warn("billing: using stale postgres ingress balance — live valkey counter unavailable",
-				zap.String("company_id", companyID),
-				zap.Int64("postgres_balance", ingressFinal),
-			)
-		}
-
-		if balance, ok := s.readBalanceFromValkey(ctx, fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)); ok {
-			egressFinal = balance
-		} else {
-			s.logger.Warn("billing: using stale postgres egress balance — live valkey counter unavailable",
-				zap.String("company_id", companyID),
-				zap.Int64("postgres_balance", egressFinal),
-			)
-		}
+	snapshotID := eventID
+	if snapshotID == "" {
+		snapshotID = uuid.New().String()
 	}
 
-	meterForBilling := *meter
-	meterForBilling.BandwidthIngressBalance = ingressFinal
-	meterForBilling.BandwidthEgressBalance = egressFinal
-
-	lineItems := calculateOverageLineItems(&meterForBilling, tierCfg)
-
-	var totalCents int64
-	for _, item := range lineItems {
-		totalCents += item.AmountCents
-	}
-
-	consecutiveCount := 0
-	prevSnapshot, err := s.billingRepo.FindLatestSnapshot(ctx, companyID)
-	if err != nil {
-		s.logger.Warn("failed to find previous snapshot, starting count at 0",
-			zap.String("company_id", companyID),
-			zap.Error(err),
-		)
-	}
-
-	hasOverage := len(lineItems) > 0 && totalCents > 0
-	if hasOverage {
-		if prevSnapshot != nil {
-			consecutiveCount = prevSnapshot.ConsecutiveOverageCount + 1
-		} else {
-			consecutiveCount = 1
-		}
-	}
-
-	isCycleEnd := reason == models.SnapshotReasonMonthlyRenewal || reason == models.SnapshotReasonYearlyRenewal
-
-	paymentStatus := models.PaymentStatusNoCharge
-	if totalCents > 0 && !s.invoiceProvider.SkipInvoicing() {
-		paymentStatus = models.PaymentStatusPending
-	}
-
-	snapshot := &models.BillingSnapshot{
-		ID:                      uuid.New().String(),
-		CompanyID:               companyID,
-		Tier:                    plan.SubscriptionTier,
-		PeriodStart:             periodStart,
-		PeriodEnd:               periodEnd,
-		Reason:                  reason,
-		IsCycleEnd:              isCycleEnd,
-		IngressBalanceFinal:     ingressFinal,
-		EgressBalanceFinal:      egressFinal,
-		MaxIngress:              meter.MaxBandwidthIngress,
-		MaxEgress:               meter.MaxBandwidthEgress,
-		LineItems:               lineItems,
-		TotalCents:              totalCents,
-		ProviderName:            s.invoiceProvider.Name(),
-		ConsecutiveOverageCount: consecutiveCount,
-		PaymentStatus:           paymentStatus,
-		ExternalCustomerID:      plan.ExternalCustomerID,
-		ExternalSubscriptionID:  plan.ExternalSubscriptionID,
+	snapshot := &billingmodels.BillingSnapshot{
+		ID:                 snapshotID,
+		CompanyID:          companyID,
+		PeriodStart:        billingCycleStart,
+		PeriodEnd:          now,
+		TotalCents:         amountCents,
+		Reason:             billingmodels.SnapshotReasonCreditTopup,
+		ProviderName:       s.BillingProvider.Name(),
+		PaymentStatus:      paymentStatus,
+		ExternalCustomerID: account.ExternalCustomerID,
+		CreatedAt:          now,
 	}
 
 	if err := s.billingRepo.CreateSnapshot(ctx, snapshot); err != nil {
-		return fmt.Errorf("persist billing snapshot: %w", err)
+		return fmt.Errorf("persist credit topup snapshot: %w", err)
 	}
 
-	if totalCents > 0 && !s.invoiceProvider.SkipInvoicing() {
-		result, invoiceErr := s.invoiceProvider.IssueOverage(ctx, snapshot)
-
+	if !s.BillingProvider.SkipInvoicing() {
+		result, invoiceErr := s.BillingProvider.IssueTopupInvoice(snapshot)
 		if result != nil && result.ExternalInvoiceID != "" {
 			snapshot.ExternalInvoiceID = result.ExternalInvoiceID
-			if repoErr := s.billingRepo.UpdateSnapshotInvoiceID(ctx, snapshot.ID, result.ExternalInvoiceID); repoErr != nil {
-				s.logger.Error("CRITICAL: failed to persist external invoice ID — manual reconciliation required",
+			if updateErr := s.billingRepo.UpdateSnapshotInvoiceID(ctx, snapshot.ID, result.ExternalInvoiceID); updateErr != nil {
+				s.logger.Error("failed to persist invoice ID on snapshot",
 					zap.String("snapshot_id", snapshot.ID),
-					zap.String("external_invoice_id", result.ExternalInvoiceID),
-					zap.String("company_id", companyID),
-					zap.Error(repoErr),
+					zap.String("invoice_id", result.ExternalInvoiceID),
+					zap.Error(updateErr),
 				)
 			}
 		}
 
 		if invoiceErr != nil {
-			newStatus := models.PaymentStatusFailed
-			if reason == models.SnapshotReasonOverageOnly {
-				s.logger.Error("immediate overage invoice failed — stripe webhook will handle suspension",
+			s.logger.Error("failed to create credit topup invoice", zap.Error(invoiceErr), zap.String("company_id", companyID))
+			if updateErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, billingmodels.PaymentStatusFailed); updateErr != nil {
+				s.logger.Warn("failed to mark snapshot as failed after invoice error — snapshot may be stuck in Pending",
+					zap.String("snapshot_id", snapshot.ID),
 					zap.String("company_id", companyID),
-					zap.String("snapshot_id", snapshot.ID),
-					zap.Error(invoiceErr),
-				)
-			} else {
-				s.logger.Error("failed to queue overage items on upcoming subscription invoice — no webhook will fire, manual retry required",
-					zap.String("company_id", companyID),
-					zap.String("snapshot_id", snapshot.ID),
-					zap.String("reason", string(reason)),
-					zap.Error(invoiceErr),
+					zap.Error(updateErr),
 				)
 			}
-			if repoErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, newStatus); repoErr != nil {
-				s.logger.Error("failed to persist invoice failure status",
-					zap.String("snapshot_id", snapshot.ID),
-					zap.Error(repoErr),
-				)
-			}
-			snapshot.PaymentStatus = newStatus
-		} else if result == nil || strings.TrimSpace(result.ExternalInvoiceID) == "" {
-			newStatus := models.PaymentStatusFailed
-			if repoErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, newStatus); repoErr != nil {
-				s.logger.Error("failed to persist missing-invoice failure status",
-					zap.String("snapshot_id", snapshot.ID),
-					zap.Error(repoErr),
-				)
-			}
-			snapshot.PaymentStatus = newStatus
-			s.logger.Error("invoice provider returned success without external invoice ID",
-				zap.String("company_id", companyID),
-				zap.String("snapshot_id", snapshot.ID),
-				zap.String("provider", s.invoiceProvider.Name()),
-			)
+			snapshot.PaymentStatus = billingmodels.PaymentStatusFailed
 		}
 	}
 
-	s.logger.Info("billing snapshot created",
+	s.logger.Info("credit topup snapshot created and billed",
 		zap.String("company_id", companyID),
-		zap.String("tier", string(plan.SubscriptionTier)),
-		zap.Int64("total_cents", totalCents),
-		zap.Int("consecutive_overage", consecutiveCount),
-		zap.String("reason", string(reason)),
+		zap.Int64("total_cents", amountCents),
 		zap.String("payment_status", string(snapshot.PaymentStatus)),
 	)
 
-	if reason == models.SnapshotReasonOverageOnly {
-		if err := s.resetBalances(ctx, companyID, tierCfg); err != nil {
-			return fmt.Errorf("reset balances: %w", err)
-		}
-	}
-
 	return nil
 }
 
-func (s *BillingService) RenewAndReset(ctx context.Context, companyID string, snapshot *models.BillingSnapshot) error {
-	plan, err := s.planRepo.FindPlanByCompanyID(ctx, companyID)
+func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *billingmodels.BillingSnapshot) error {
+	amountMillicents := snapshot.TotalCents * millicentsPerCent
+	if amountMillicents <= 0 {
+		return nil
+	}
+
+	appliedKey := database.CreditTopupAppliedKeyPrefix + snapshot.ID
+	if snapshot.ExternalInvoiceID != "" {
+		appliedKey = database.CreditTopupAppliedKeyPrefix + snapshot.ExternalInvoiceID
+	}
+
+	applied, err := s.valkey.SetNX(ctx, appliedKey, "1", creditTopupAppliedKeyTTL)
 	if err != nil {
-		return fmt.Errorf("renew and reset: find plan: %w", err)
-	}
-	if plan == nil {
-		return fmt.Errorf("renew and reset: no plan found for company %s", companyID)
+		s.logger.Error("failed to mark credit topup as applied", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
+		return fmt.Errorf("apply credit topup: mark applied: %w", err)
 	}
 
-	tierCfg := s.subscriptionCfg.GetTierLimits(string(plan.SubscriptionTier))
-	if tierCfg == nil {
-		return fmt.Errorf("renew and reset: unknown tier %q for company %s", plan.SubscriptionTier, companyID)
+	if !applied {
+		s.logger.Info("credit topup already applied", zap.String("company_id", snapshot.CompanyID))
+		return nil
 	}
 
-	if err := s.planSvc.RenewSubscriptionFromBillingEnd(ctx, companyID, plan.SubscriptionTier, plan.BillingCycle, plan.BillingEnd, plan.ExternalCustomerID, plan.ExternalSubscriptionID); err != nil {
-		return fmt.Errorf("renew and reset: renew subscription: %w", err)
+	keys := billing.KeysFor(snapshot.CompanyID)
+
+	if _, err := s.creditAtomic.ApplyCreditTopupAtomic(ctx, keys.Balance, keys.Pending, amountMillicents); err != nil {
+		_ = s.valkey.Del(ctx, appliedKey)
+		s.logger.Error("failed to apply credit topup", zap.Error(err), zap.String("company_id", snapshot.CompanyID))
+		return fmt.Errorf("apply credit topup: %w", err)
 	}
 
-	if err := s.resetBalances(ctx, companyID, tierCfg); err != nil {
-		return fmt.Errorf("renew and reset: reset balances: %w", err)
-	}
+	s.planSvc.InvalidatePlanCache(ctx, snapshot.CompanyID)
 
+	s.writeCreditTopupToOutbox(ctx, snapshot.CompanyID, amountMillicents, snapshot.PeriodStart)
 	return nil
 }
 
-func (s *BillingService) readBalanceFromValkey(ctx context.Context, key string) (int64, bool) {
-	raw, err := s.valkeyClient.Get(ctx, key)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return 0, false
+func (s *BillingOrchestrator) ClearCreditTopupPending(ctx context.Context, companyID string) error {
+	keys := billing.KeysFor(companyID)
+	return s.valkey.Del(ctx, keys.Pending)
+}
+
+func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, companyID string, amountMillicents int64, billingCycleStart time.Time) {
+	eventData := map[string]interface{}{
+		fieldEventID:           uuid.NewString(),
+		fieldCompanyID:         companyID,
+		fieldMeter:             billingmodels.MeterCreditTopup,
+		fieldAmount:            strconv.FormatInt(amountMillicents, 10),
+		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339Nano),
+		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
-	value, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	if parseErr != nil {
-		s.logger.Warn("failed to parse valkey meter balance, falling back to postgres value",
-			zap.String("key", key),
-			zap.String("value", raw),
-			zap.Error(parseErr),
+	if _, err := s.streamClient.XAdd(ctx, database.UsageOutboxStreamKey, "*", eventData); err != nil {
+		s.logger.Error("failed to write credit topup event to outbox (fail-open)",
+			zap.String("company_id", companyID),
+			zap.Int64("amount_millicents", amountMillicents),
+			zap.Error(err),
 		)
-		return 0, false
 	}
-	return value, true
+
+	s.logger.Debug("credit topup event written to outbox", zap.String("company_id", companyID), zap.Int64("amount_millicents", amountMillicents))
 }
 
-func (s *BillingService) resetBalances(ctx context.Context, companyID string, tierCfg *config.TierLimits) error {
-	ingressKey := fmt.Sprintf("%singress:%s", database.BalanceKeyPrefix, companyID)
-	egressKey := fmt.Sprintf("%segress:%s", database.BalanceKeyPrefix, companyID)
-
-	var resetErr error
-
-	if err := s.valkeyClient.Set(ctx, ingressKey, fmt.Sprintf("%d", tierCfg.BandwidthIngress), 0); err != nil {
-		s.logger.Error("failed to reset valkey ingress balance", zap.Error(err))
-		resetErr = errors.Join(resetErr, fmt.Errorf("reset valkey ingress balance: %w", err))
-	}
-	if err := s.valkeyClient.Set(ctx, egressKey, fmt.Sprintf("%d", tierCfg.BandwidthEgress), 0); err != nil {
-		s.logger.Error("failed to reset valkey egress balance", zap.Error(err))
-		resetErr = errors.Join(resetErr, fmt.Errorf("reset valkey egress balance: %w", err))
-	}
-
-	cacheKey := fmt.Sprintf("%s%s", database.PlanCachePrefix, companyID)
-	if err := s.valkeyClient.Delete(ctx, cacheKey); err != nil {
-		s.logger.Warn("failed to invalidate plan cache on cycle reset", zap.Error(err))
-	}
-
-	if err := s.planRepo.ResetMeterBalances(ctx, companyID, tierCfg.BandwidthIngress, tierCfg.BandwidthEgress); err != nil {
-		s.logger.Error("failed to reset postgres balances on cycle reset", zap.Error(err))
-		resetErr = errors.Join(resetErr, fmt.Errorf("reset postgres balances: %w", err))
-	}
-
-	if resetErr != nil {
-		return resetErr
-	}
-
-	s.logger.Info("balances reset for new cycle",
-		zap.String("company_id", companyID),
-		zap.Int64("new_ingress", tierCfg.BandwidthIngress),
-		zap.Int64("new_egress", tierCfg.BandwidthEgress),
-	)
-	return nil
+func (s *BillingOrchestrator) LinkAndMarkSnapshotPaid(ctx context.Context, snapshotID string, externalInvoiceID string) error {
+	return s.billingRepo.MarkSnapshotPaidByID(ctx, snapshotID, externalInvoiceID)
 }
 
-func (s *BillingService) SuspendCompany(ctx context.Context, companyID string) error {
-	key := database.SuspendedPlanPrefix + companyID
-	if err := s.valkeyClient.Set(ctx, key, "1", 0); err != nil {
-		return fmt.Errorf("suspend company: %w", err)
-	}
-	s.logger.Warn("company suspended", zap.String("company_id", companyID))
-	return nil
-}
-
-func (s *BillingService) LiftSuspension(ctx context.Context, companyID string) error {
-	key := database.SuspendedPlanPrefix + companyID
-	if err := s.valkeyClient.Delete(ctx, key); err != nil {
-		return fmt.Errorf("lift suspension: %w", err)
-	}
-	s.logger.Info("company suspension lifted", zap.String("company_id", companyID))
-	return nil
-}
-
-func (s *BillingService) CancelPlan(ctx context.Context, companyID string) error {
-	if err := s.planRepo.MarkPlanCancelled(ctx, companyID); err != nil {
-		return fmt.Errorf("cancel plan: %w", err)
-	}
-	if err := s.SuspendCompany(ctx, companyID); err != nil {
-		return fmt.Errorf("cancel plan: suspend: %w", err)
-	}
-	s.logger.Warn("plan cancelled", zap.String("company_id", companyID))
-	return nil
-}
-
-func (s *BillingService) MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error {
+func (s *BillingOrchestrator) MarkSnapshotPaid(ctx context.Context, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotPaidByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingService) MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error {
+func (s *BillingOrchestrator) MarkSnapshotFailed(ctx context.Context, externalInvoiceID string) error {
 	return s.billingRepo.MarkSnapshotFailedByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingService) GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
-	return s.planRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
-}
-
-func (s *BillingService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error) {
+func (s *BillingOrchestrator) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billingmodels.BillingSnapshot, error) {
 	return s.billingRepo.FindSnapshotByInvoiceID(ctx, externalInvoiceID)
 }
 
-func calculateOverageLineItems(meter *models.UsageMeter, tierCfg *config.TierLimits) []models.InvoiceLineItem {
-	var items []models.InvoiceLineItem
+func (s *BillingOrchestrator) GetCompanyIDByExternalCustomerID(ctx context.Context, externalCustomerID string) (string, error) {
+	return s.PlanRepo.FindCompanyByExternalCustomerID(ctx, externalCustomerID)
+}
 
-	if meter.BandwidthIngressBalance < 0 && tierCfg.BandwidthIngressOverageCentsPerMillion > 0 {
-		overage := -meter.BandwidthIngressBalance
-		millions := overage / 1_000_000
-		if overage%1_000_000 > 0 {
-			millions++
-		}
-		items = append(items, models.InvoiceLineItem{
-			Meter:       "bandwidth_ingress",
-			OverageQty:  overage,
-			UnitLabel:   "per 1M requests",
-			RateCents:   tierCfg.BandwidthIngressOverageCentsPerMillion,
-			AmountCents: millions * int64(tierCfg.BandwidthIngressOverageCentsPerMillion),
-		})
-	}
+func (s *BillingOrchestrator) ProvisionSubscription(ctx context.Context, companyID string, externalCustomerID string, initialAmount int64) error {
+	return s.planSvc.ProvisionSubscription(ctx, companyID, externalCustomerID, initialAmount)
+}
 
-	if meter.BandwidthEgressBalance < 0 && tierCfg.BandwidthEgressOverageCentsPerGB > 0 {
-		overage := -meter.BandwidthEgressBalance
-		const gb = 1_073_741_824
-		gbs := overage / gb
-		if overage%gb > 0 {
-			gbs++
-		}
-		items = append(items, models.InvoiceLineItem{
-			Meter:       "bandwidth_egress",
-			OverageQty:  overage,
-			UnitLabel:   "per GB",
-			RateCents:   tierCfg.BandwidthEgressOverageCentsPerGB,
-			AmountCents: gbs * int64(tierCfg.BandwidthEgressOverageCentsPerGB),
-		})
-	}
-
-	return items
+func (s *BillingOrchestrator) ProcessRollovers(ctx context.Context) error {
+	return s.planSvc.ProcessRollovers(ctx)
 }

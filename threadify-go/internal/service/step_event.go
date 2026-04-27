@@ -8,20 +8,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
-	"github.com/threadify/engine/internal/repository/valkey"
 	"go.uber.org/zap"
 )
 
 type StepEventService struct {
-	valkeyRepo       interfaces.ValkeyClient
-	threadRepo       *valkey.ThreadRepository
+	valkeyRepo       types.StepEventValkeyClient
+	threadRepo       types.ThreadRepository
 	natsPublisher    *natsrepo.ArchivalPublisher
 	config           *config.Config
 	logger           *zap.Logger
@@ -30,8 +30,8 @@ type StepEventService struct {
 }
 
 func NewStepEventService(
-	valkeyRepo interfaces.ValkeyClient,
-	threadRepo *valkey.ThreadRepository,
+	valkeyRepo types.StepEventValkeyClient,
+	threadRepo types.ThreadRepository,
 	natsPublisher *natsrepo.ArchivalPublisher,
 	cfg *config.Config,
 	logger *zap.Logger,
@@ -67,6 +67,11 @@ func loadLuaScript(filename string) (string, error) {
 	paths := []string{
 		filepath.Join("internal", "repository", "valkey", "lua", filename),
 		filepath.Join("threadify-go", "internal", "repository", "valkey", "lua", filename),
+	}
+	// Prefer an absolute path relative to this source file so tests can run from any working directory.
+	if _, thisFile, _, ok := runtime.Caller(0); ok {
+		serviceDir := filepath.Dir(thisFile) // .../internal/service
+		paths = append([]string{filepath.Join(serviceDir, "..", "repository", "valkey", "lua", filename)}, paths...)
 	}
 	for _, path := range paths {
 		if data, err := os.ReadFile(path); err == nil {

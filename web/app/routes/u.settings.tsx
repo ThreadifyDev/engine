@@ -1,16 +1,41 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
-import { api, type User } from '~/lib/api';
+import { useNavigate, useSearchParams } from '@remix-run/react';
+import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
+import { ProfileTab } from '~/components/settings/ProfileTab';
+import { BillingTab } from '~/components/settings/BillingTab';
+import { CompanyTab } from '~/components/settings/CompanyTab';
+
+function formatBillingDate(dateString: string): string {
+  const date = new Date(dateString);
+  const day = date.getDate();
+  const month = date.toLocaleDateString('en-US', { month: 'short' });
+  const year = date.getFullYear();
+  
+  // Add ordinal suffix (st, nd, rd, th)
+  const suffix = (day: number) => {
+    if (day > 3 && day < 21) return 'th';
+    switch (day % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  };
+  
+  return `${day}${suffix(day)} ${month} ${year}`;
+}
 
 export default function Settings() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'company'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing'>('profile');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState('');
+  const [billingInfo, setBillingInfo] = useState<GetCurrentPlanResponse | null>(null);
 
   // Profile form
   const [profileForm, setProfileForm] = useState({
@@ -24,6 +49,14 @@ export default function Settings() {
     company_size: '',
     use_case: '',
   });
+
+  useEffect(() => {
+    // Check for tab in query params
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile') {
+      setActiveTab(tabParam as any);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     // Check authentication
@@ -40,14 +73,105 @@ export default function Settings() {
         full_name: storedUser.full_name || '',
         job_role: storedUser.job_role || '',
       });
-      // Company info would come from a separate API call
     }
+
+    // Load company info
+    loadCompanyInfo();
+    loadBillingInfo();
   }, [navigate]);
+
+  const loadCompanyInfo = async () => {
+    try {
+      const response = await api.getUserProfile();
+      if (response.company) {
+        setCompanyForm({
+          industry: response.company.industry || '',
+          company_size: response.company.company_size || '',
+          use_case: response.company.use_case || '',
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load company info:', err);
+    }
+  };
+
+  const loadBillingInfo = async () => {
+    try {
+      const response = await api.getBillingInfo();
+      setBillingInfo(response);
+    } catch (err) {
+      console.error('Failed to load billing info:', err);
+    }
+  };
+
+  const handleTopUp = async (amount: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (isNaN(amount) || amount <= 0) {
+        throw new Error('Please enter a valid top-up amount');
+      }
+      
+      // Convert USD to millicents (1 USD = 100,000 millicents)
+      const amountMillicents = Math.round(amount * 100000);
+      const response = await api.createCheckoutSession(amountMillicents);
+      if (response.url) {
+        window.location.href = response.url;
+      } else {
+        throw new Error('No checkout URL returned from server');
+      }
+    } catch (err: any) {
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err.message || 'Failed to initiate checkout',
+        });
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateMonthlyLimit = async (limitStr: string) => {
+    setLoading(true);
+    setError(null);
+    setSuccess('');
+    try {
+      const limit = parseFloat(limitStr);
+
+      if (isNaN(limit) || limit <= 0) {
+        throw new Error('Please enter a valid monthly spending limit');
+      }
+      
+      // Convert USD to millicents (1 USD = 100,000 millicents)
+      const maxLimitMillicents = Math.round(limit * 100000);
+
+      await api.updateMonthlyLimit(maxLimitMillicents);
+      setSuccess('Monthly spending limit updated successfully!');
+      await loadBillingInfo(); // Reload billing info
+    } catch (err: any) {
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err.message || 'Failed to update monthly limit',
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
     setSuccess('');
 
     try {
@@ -59,7 +183,16 @@ export default function Settings() {
       setUser(response.user);
       setSuccess('Profile updated successfully!');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({
+          message: err instanceof Error ? err.message : 'Failed to update profile',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -76,191 +209,88 @@ export default function Settings() {
         </div>
 
         {/* Tabs */}
-        <div className="border-b-2 border-black mb-8">
+        <div className="mb-8">
           <div className="flex gap-4">
             <button
-              onClick={() => setActiveTab('profile')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              onClick={() => navigate('?tab=profile')}
+              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
                 activeTab === 'profile'
-                  ? 'border-b-4 border-black -mb-0.5'
-                  : 'text-gray-600 hover:text-black'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
               }`}
             >
               Profile
             </button>
             <button
-              onClick={() => setActiveTab('company')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              onClick={() => navigate('?tab=company')}
+              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
                 activeTab === 'company'
-                  ? 'border-b-4 border-black -mb-0.5'
-                  : 'text-gray-600 hover:text-black'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
               }`}
             >
               Company
+            </button>
+            <button
+              onClick={() => navigate('?tab=billing')}
+              className={`px-3 font-medium transition-colors rounded-lg ${
+                activeTab === 'billing'
+                  ? 'bg-black text-white -mb-0.5'
+                  : 'text-gray-800 hover:text-black'
+              }`}
+            >
+              Billing & Credits
             </button>
           </div>
         </div>
 
         {/* Messages */}
-        {error && <Alert type="error" message={error} className="mb-6" />}
+        {error && (
+          <Alert
+            type="error"
+            message={error.message}
+            details={error.details}
+            className="mb-6"
+            action={
+              isCreditError(error.message)
+                ? { label: 'Go to Billing', onClick: () => navigate('?tab=billing'), variant: 'primary' }
+                : undefined
+            }
+          />
+        )}
         {success && (
           <div className="bg-green-600 text-white px-4 py-3 mb-6">
             {success}
           </div>
         )}
 
-        {/* Profile Tab */}
         {activeTab === 'profile' && (
-          <form onSubmit={handleProfileUpdate} className="space-y-6">
-            <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
-              <h3 className="text-xl font-bold mb-6">Personal Information</h3>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={user?.email || ''}
-                    disabled
-                    className="w-full px-4 py-3 border-2 border-gray-300 bg-gray-100 cursor-not-allowed"
-                  />
-                  <p className="text-sm text-gray-600 mt-1">
-                    Email cannot be changed
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Full Name <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={profileForm.full_name}
-                    onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Job Role <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={profileForm.job_role}
-                    onChange={(e) => setProfileForm({ ...profileForm, job_role: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </form>
+          <ProfileTab
+            user={user}
+            profileForm={profileForm}
+            setProfileForm={setProfileForm}
+            loading={loading}
+            onSubmit={handleProfileUpdate}
+          />
         )}
 
-        {/* Company Tab */}
+        {activeTab === 'billing' && (
+          <BillingTab
+            billingInfo={billingInfo}
+            loading={loading}
+            onTopUp={handleTopUp}
+            onUpdateMonthlyLimit={handleUpdateMonthlyLimit}
+          />
+        )}
+
         {activeTab === 'company' && (
-          <form onSubmit={handleProfileUpdate} className="space-y-6">
-            <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm">
-              <h3 className="text-xl font-bold mb-6">Company Information</h3>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Company Name
-                  </label>
-                  <input
-                    type="text"
-                    value={user?.company_name || ''}
-                    disabled
-                    className="w-full px-4 py-3 border-2 border-gray-300 bg-gray-100 cursor-not-allowed"
-                  />
-                  <p className="text-sm text-gray-600 mt-1">
-                    Company name cannot be changed
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Industry <span className="text-red-600">*</span>
-                  </label>
-                  <select
-                    required
-                    value={companyForm.industry}
-                    onChange={(e) => setCompanyForm({ ...companyForm, industry: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
-                  >
-                    <option value="">Select industry</option>
-                    <option value="E-commerce">E-commerce</option>
-                    <option value="SaaS">SaaS</option>
-                    <option value="FinTech">FinTech</option>
-                    <option value="Healthcare">Healthcare</option>
-                    <option value="Logistics">Logistics & Supply Chain</option>
-                    <option value="Manufacturing">Manufacturing</option>
-                    <option value="Retail">Retail</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Company Size <span className="text-red-600">*</span>
-                  </label>
-                  <select
-                    required
-                    value={companyForm.company_size}
-                    onChange={(e) => setCompanyForm({ ...companyForm, company_size: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
-                  >
-                    <option value="">Select size</option>
-                    <option value="small">Small (1-10 employees)</option>
-                    <option value="medium">Medium (11-50 employees)</option>
-                    <option value="large">Large (51-200 employees)</option>
-                    <option value="enterprise">Enterprise (200+ employees)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">
-                    Primary Use Case <span className="text-red-600">*</span>
-                  </label>
-                  <select
-                    required
-                    value={companyForm.use_case}
-                    onChange={(e) => setCompanyForm({ ...companyForm, use_case: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white"
-                  >
-                    <option value="">Select use case</option>
-                    <option value="Order Processing">Order Processing</option>
-                    <option value="Approval Workflows">Approval Workflows</option>
-                    <option value="Payment Processing">Payment Processing</option>
-                    <option value="Customer Onboarding">Customer Onboarding</option>
-                    <option value="Logistics Tracking">Logistics Tracking</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </form>
+          <CompanyTab
+            user={user}
+            companyForm={companyForm}
+            setCompanyForm={setCompanyForm}
+            loading={loading}
+            onSubmit={handleProfileUpdate}
+          />
         )}
       </div>
     </AppLayout>

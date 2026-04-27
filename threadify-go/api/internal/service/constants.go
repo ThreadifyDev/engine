@@ -14,8 +14,11 @@ var (
 	ErrJwtVerificationNotConfigured = serror.ErrJwtVerificationNotConfigured
 	ErrExpiredToken                 = serror.ErrExpiredToken
 	ErrInvalidToken                 = serror.ErrInvalidToken
+	ErrAuthInvalidToken             = serror.ErrAuthInvalidToken
 	ErrRateLimit                    = serror.ErrRateLimit
 	ErrInternalServerError          = serror.ErrInternalServerError
+	ErrNotFound                     = serror.ErrNotFound
+	ErrForbidden                    = serror.ErrForbidden
 
 	// API Key errors
 	ErrApiKeyNameRequired        = serror.ErrApiKeyNameRequired
@@ -33,6 +36,10 @@ var (
 	ErrServiceAccountNameRequired = serror.ErrServiceAccountNameRequired
 	ErrInvalidRoleAPI             = serror.ErrInvalidRoleAPI
 	ErrUserNotFound               = serror.ErrUserNotFound
+	ErrPaymentRequired            = serror.ErrPaymentRequired
+
+	// Invitation errors
+	ErrInvitationNotFound = serror.ErrInvitationNotFound
 )
 
 // HTTP Header constants.

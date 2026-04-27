@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -17,7 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
@@ -38,14 +39,14 @@ var fallbackValidRoles = map[string]bool{
 
 // ThreadService orchestrates thread operations across multiple repositories.
 type ThreadService struct {
-	repo                  interfaces.ThreadRepository
-	accessRepo            interfaces.AccessRepository
-	activityRepo          interfaces.ActivityRepository
-	graphRepo             interfaces.ContractGraphRepository
-	stepEventService      interfaces.StepEventProcessor
-	cacheManager          interfaces.CacheManager
-	connectionMgr         interfaces.ConnectionManager
-	contractValidator     interfaces.ContractValidator
+	repo                  types.ThreadRepository
+	accessRepo            types.AccessRepository
+	activityRepo          types.ActivityRepository
+	graphRepo             types.ContractGraphRepository
+	stepEventService      types.StepEventProcessor
+	cacheManager          types.CacheManager
+	connectionMgr         types.ConnectionManager
+	contractValidator     types.ContractGraphValidator
 	authService           *AuthService
 	accessService         *ThreadAccessService
 	validationService     *ValidationService
@@ -53,8 +54,8 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
-	planService           *PlanService
-	valkeyClient          interfaces.ValkeyClient
+	planService           types.PlanService
+	valkeyClient          types.ThreadValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	rbacLoader            *rbac.Loader
@@ -72,10 +73,12 @@ func NewThreadService(
 	stepEventService *StepEventService,
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
-	natsPublisher NotificationPublisher,
+	natsClient *natsrepo.Client,
+	natsPublisher types.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
-	planService *PlanService,
+	planService types.PlanService,
+	cacheManager types.CacheManager,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -86,10 +89,12 @@ func NewThreadService(
 		WithStepEventService(stepEventService).
 		WithThreadRepository(threadRepo).
 		WithContractTTL(contractTTLSeconds).
+		WithNATSClient(natsClient).
 		WithNATSPublisher(natsPublisher).
 		WithNATSArchivalPublisher(natsArchivalPublisher).
 		WithAuthService(authService).
 		WithPlanService(planService).
+		WithCacheManager(cacheManager).
 		WithWorkerPools(workerPools).
 		WithLogger(logger).
 		Build()
@@ -99,7 +104,7 @@ func NewThreadService(
 	return svc
 }
 
-func (s *ThreadService) GetNotificationConsumer() *NotificationConsumer {
+func (s *ThreadService) GetNotificationConsumer() types.NotificationConsumer {
 	return s.notificationConsumer
 }
 
@@ -113,15 +118,37 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
 	}
 
-	meter, err := s.planService.GetCurrentLimits(ctx, userInfo.CompanyID)
+	meter, err := s.planService.CheckBalancePositive(ctx, userInfo.CompanyID)
 	if err != nil {
-		if errors.Is(err, ErrSubscriptionExpired) {
-			return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "subscription expired"}
+		switch {
+		case errors.Is(err, ErrNoAccount):
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "No billing account found. Please set up a credit account in the dashboard.",
+			}
+		case errors.Is(err, ErrInsufficientCredit):
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "Insufficient credits. Please top up your account to continue.",
+			}
+		default:
+			s.logger.Error("failed to verify limits during connect", zap.Error(err), zap.String("company_id", userInfo.CompanyID))
+			return &models.ConnectResponse{
+				Action:  ActionConnect,
+				Status:  StepStatusError,
+				Message: "Failed to verify credit account status. Please try again later.",
+			}
 		}
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to verify subscription"}
 	}
+
 	if meter == nil {
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "active subscription required"}
+		return &models.ConnectResponse{
+			Action:  ActionConnect,
+			Status:  StepStatusError,
+			Message: "Credit account details are currently unavailable. Please contact support.",
+		}
 	}
 
 	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
@@ -152,12 +179,13 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		return errResp("Role is required when contract name is provided")
 	}
 
-	if err := s.planService.CheckIngressQuota(ctx, companyID, 1); err != nil {
+	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
 		return errResp("Cannot start thread: " + err.Error())
 	}
 
 	var contractVersion int
 	var parsedContractName, contractUUID string
+	var contractGraph *models.ContractGraph
 
 	if req.ContractName != "" {
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
@@ -170,6 +198,17 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		}
 		contractVersion = actualVersion
 
+		// Get contract graph (already cached from LoadContractGraphIntoCache above)
+		contractGraph, err = s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
+		if err != nil {
+			return errResp("Failed to load contract graph")
+		}
+
+		// Validate role against contract parties
+		if len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, req.Role) {
+			return errResp("Role '" + req.Role + "' is not defined in contract parties")
+		}
+
 		t = time.Now()
 		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
 		metrics.OperationDuration.WithLabelValues(ActionStartThread, "contract_fetch").Observe(time.Since(t).Seconds())
@@ -180,6 +219,11 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	}
 
 	threadID := uuid.New().String()
+
+	label := req.Label
+	if label == "" && req.Refs != nil {
+		label = req.Refs["label"]
+	}
 
 	var contractIDPtr *string
 	if contractUUID != "" {
@@ -192,6 +236,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	thread := &models.Thread{
 		ID:              threadID,
+		Label:           label,
 		ContractID:      contractIDPtr,
 		ContractName:    parsedContractName,
 		ContractVersion: contractVersionPtr,
@@ -209,20 +254,8 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	createCtx, createCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer createCancel()
 
-	// CRITICAL: Creator must always receive the "owner" runtime_role.
-	t := time.Now()
-	runtimeRole, err := s.scopeResolver.ResolveScope(createCtx, threadID, ownerID, creatorRole, true, nil)
-	metrics.OperationDuration.WithLabelValues(ActionStartThread, "rbac_resolve").Observe(time.Since(t).Seconds())
-	if err != nil {
-		s.logger.Error("failed to resolve runtime_role for creator",
-			zap.String("owner", ownerID), zap.String("thread", threadID), zap.Error(err))
-		return errResp("System error: failed to assign creator permissions")
-	}
-	if runtimeRole != "owner" {
-		s.logger.Error("creator got invalid runtime_role",
-			zap.String("owner", ownerID), zap.String("role", runtimeRole), zap.String("thread", threadID))
-		return errResp("System error: invalid creator permissions")
-	}
+	// Thread creator always gets "owner" runtime_role (invariant)
+	runtimeRole := "owner"
 
 	threadDataBytes, err := thread.ToJSON()
 	if err != nil {
@@ -231,7 +264,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	threadDataStr := string(threadDataBytes)
 	threadTTLSeconds := 18000 // 5 hours
 
-	t = time.Now()
+	t := time.Now()
 	access, err := s.accessService.GrantAccessWithThreadCreation(
 		createCtx, threadID, ownerID, creatorRole, runtimeRole, &threadDataStr, &threadTTLSeconds,
 	)
@@ -241,11 +274,27 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	}
 
 	s.cacheManager.SetThread(threadID, thread)
-	go s.recordThreadCreationActivity(threadID, ownerID, access, runtimeRole)
-	go s.publishThreadMetadataAsync(threadID, ownerID, companyID, thread, req.Role)
 
-	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
-		s.logger.Warn("failed to decrement ingress for thread creation", zap.String("company_id", companyID), zap.Error(err))
+	// Consolidate archival publication into a single sequential goroutine to minimize race conditions in the archiver.
+	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, access, runtimeRole)
+
+	// Process refs in hot cache (Valkey) if provided
+	if len(req.Refs) > 0 {
+		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := s.repo.AddRefs(refsCtx, threadID, req.Refs); err != nil {
+			s.logger.Warn("failed to store refs in cache", zap.String("thread", threadID), zap.Error(err))
+		}
+		refsCancel()
+	}
+
+	// Schedule thread max duration timeout if contract has max_duration validation
+	if contractGraph != nil && s.notificationService != nil {
+		go func(graph *models.ContractGraph) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, thread.StartedAt)
+		}(contractGraph)
 	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
@@ -275,6 +324,16 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 	if err := validateRecordEventRequest(req); err != nil {
 		return errResp(err.Error())
+	}
+
+	account, err := s.planService.GetCurrentLimits(ctx, companyID)
+	if err != nil {
+		return errResp("Failed to verify subscription: " + err.Error())
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	if err := s.planService.CheckPayloadSize(ctx, account, int64(len(reqBytes))); err != nil {
+		return errResp("PAYLOAD_TOO_LARGE: " + err.Error())
 	}
 
 	t := time.Now()
@@ -314,7 +373,12 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	if idempotencyKey != "" {
 		idempCtx, idempCancel := context.WithTimeout(ctx, 5*time.Second)
 		t = time.Now()
-		existingStatus, err := s.repo.GetStepStatus(idempCtx, req.ThreadID, req.StepName, req.Status, idempotencyKey, true)
+		existingStatus, err := s.repo.GetStepStatus(idempCtx, types.StepStatusQuery{
+			ThreadID:       req.ThreadID,
+			StepName:       req.StepName,
+			ExpectedStatus: req.Status,
+			IdempotencyKey: idempotencyKey,
+		}, types.ThreadReadOptions{WriteBack: true})
 		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
@@ -425,15 +489,8 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		Metadata:       req.ThreadifyMetadata,
 	}
 
-	totalToMeter := int64(len(req.SubSteps))
-	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed {
-		totalToMeter++
-	}
-
-	if totalToMeter > 0 {
-		if err := s.planService.CheckIngressQuota(ctx, companyID, totalToMeter); err != nil {
-			return errResp(err.Error())
-		}
+	if err := s.planService.DecrementIngress(ctx, companyID, int64(len(reqBytes))); err != nil {
+		return errResp("Insufficient credit: " + err.Error())
 	}
 
 	t = time.Now()
@@ -441,13 +498,6 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		return errResp("failed to process step event")
 	}
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_event_process").Observe(time.Since(t).Seconds())
-
-	if totalToMeter > 0 {
-		if err := s.planService.DecrementIngress(ctx, companyID, totalToMeter); err != nil {
-			s.logger.Warn("failed to meter step recording", zap.String("company", companyID), zap.Int64("count", totalToMeter), zap.Error(err))
-			return errResp(err.Error())
-		}
-	}
 
 	if len(req.Refs) > 0 {
 		refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -686,27 +736,27 @@ func (s *ThreadService) EndThread(
 		return ErrFailedToGetThread
 	}
 
-	// Early exit: if Valkey already shows "completed" or "cancelled", skip.
+	// Early exit: if Valkey already shows "completed" or "cancelled", return error.
 	// The NotificationService updates Valkey synchronously on terminal step completion,
-	// so this guard will catch disconnect events that arrive after completion.
+	// so this guard will catch duplicate EndThread calls.
 	if thread.Status == models.ThreadStatusCompleted || thread.Status == models.ThreadStatusCancelled {
-		s.logger.Debug("thread already terminal, skipping EndThread",
+		s.logger.Debug("thread already terminal, rejecting EndThread",
 			zap.String("thread_id", threadID),
 			zap.String("current_status", string(thread.Status)))
-		return nil
+		return ErrThreadAlreadyEnded
 	}
 
 	if status == ThreadStatusCompleted && thread.ContractID != nil && *thread.ContractID != "" {
 		return ErrCannotManuallyCompleteThreadLinkedToContract
 	}
 
-	// 1. Update Valkey asynchronously via writeback pool.
-	s.writeBackPool.Submit(func(ctx context.Context) {
-		if err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt); err != nil {
-			s.logger.Warn("failed to update thread status in Valkey",
-				zap.String("thread_id", threadID), zap.Error(err))
-		}
-	})
+	// 1. Update Valkey status SYNCHRONOUSLY using atomic Lua script.
+	// This prevents race conditions with double-ending or concurrent terminal step completion.
+	if err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt); err != nil {
+		s.logger.Warn("failed to update thread status in Valkey",
+			zap.String("thread_id", threadID), zap.Error(err))
+		// Continue with archival even if Valkey update fails
+	}
 
 	// 2. Archive thread metadata.
 	if s.natsArchivalPublisher != nil {
@@ -751,6 +801,7 @@ func (s *ThreadService) EndThread(
 	if s.notificationService != nil {
 		s.notificationService.submitNotificationJob(models.ValidationNotification{
 			ThreadID:         threadID,
+			StepName:         "global",
 			OwnerID:          actorID,
 			Timestamp:        recordedAt,
 			StepStatus:       status,
@@ -780,7 +831,7 @@ func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	thread, err := s.repo.Get(ctx, threadID, true)
+	thread, err := s.repo.Get(ctx, threadID, types.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
@@ -858,7 +909,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
 }
 
-func (s *ThreadService) GetContractValidator() interfaces.ContractValidator {
+func (s *ThreadService) GetContractValidator() types.ContractGraphValidator {
 	return s.contractValidator
 }
 
@@ -866,30 +917,16 @@ func (s *ThreadService) GetContractValidator() interfaces.ContractValidator {
 func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, true)
+	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, types.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return false
 	}
 	return count > 0
 }
 
-// recordThreadCreationActivity persists a thread creation event asynchronously.
-func (s *ThreadService) recordThreadCreationActivity(threadID, ownerID string, access *interfaces.UserAccess, runtimeRole string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	serviceName := ""
-	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
-		serviceName = client.ServiceName
-	}
-	if err := s.activityRepo.RecordAccessGranted(ctx, threadID, ownerID, access, "self", serviceName, runtimeRole); err != nil {
-		s.logger.Warn("failed to record access granted activity",
-			zap.String("thread_id", threadID), zap.Error(err))
-	}
-}
-
-// publishThreadMetadataAsync publishes thread metadata and initial activity log to NATS.
-func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID string, thread *models.Thread, role string) {
+// publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
+// It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *models.Thread, role string, access *types.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",
@@ -915,11 +952,13 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 
 	if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
 		"threadId":        threadID,
+		"label":           thread.Label,
 		"ownerId":         ownerID,
 		"companyId":       companyID,
 		"contractId":      contractID,
 		"contractName":    thread.ContractName,
 		"contractVersion": contractVersion,
+		"status":          string(thread.Status),
 		"error":           "",
 		"startedAt":       thread.StartedAt.Format(time.RFC3339),
 	}); err != nil {
@@ -930,6 +969,27 @@ func (s *ThreadService) publishThreadMetadataAsync(threadID, ownerID, companyID 
 		s.publishRefsToNATSWithContext(pubCtx, threadID, thread.Refs)
 	}
 
+	// 2. Publish Owner Access (subject: access.thread)
+	if access != nil {
+		rolesJSON, _ := json.Marshal(access.Roles)
+		permissionsJSON, _ := json.Marshal(access.Permissions)
+
+		if err := s.natsArchivalPublisher.PublishThreadAccess(pubCtx, map[string]interface{}{
+			"threadId":     threadID,
+			"userId":       ownerID,
+			"roles":        string(rolesJSON),
+			"runtime_role": runtimeRole,
+			"permissions":  string(permissionsJSON),
+			"grantedBy":    "self",
+			"grantedAt":    access.GrantedAt,
+			"status":       access.Status,
+			"eventType":    "access_granted",
+		}); err != nil {
+			s.logger.Error("failed to publish owner access to NATS", zap.Error(err))
+		}
+	}
+
+	// 3. Publish Activity Log (subject: activity.log)
 	serviceName := ""
 	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
 		serviceName = client.ServiceName
@@ -991,6 +1051,11 @@ func parseContractIdentifier(identifier string) (name string, version int) {
 	return identifier, 0
 }
 
+// ParseContractIdentifier is an exported wrapper around parseContractIdentifier (primarily for tests).
+func ParseContractIdentifier(identifier string) (name string, version int) {
+	return parseContractIdentifier(identifier)
+}
+
 // validateRecordEventRequest checks that all required fields are present.
 func validateRecordEventRequest(req *models.RecordEventRequest) error {
 	switch {
@@ -1008,4 +1073,9 @@ func validateRecordEventRequest(req *models.RecordEventRequest) error {
 		return errors.New("Context is required")
 	}
 	return nil
+}
+
+// ValidateRecordEventRequest is an exported wrapper around validateRecordEventRequest (primarily for tests).
+func ValidateRecordEventRequest(req *models.RecordEventRequest) error {
+	return validateRecordEventRequest(req)
 }

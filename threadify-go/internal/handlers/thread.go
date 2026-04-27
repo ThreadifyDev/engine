@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -16,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
@@ -52,22 +53,22 @@ const (
 var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
-	threadService        *service.ThreadService
-	stepEventService     *service.StepEventService
-	invitationService    *service.InvitationTokenService
-	notificationConsumer *service.NotificationConsumer
-	notificationRouter   *NotificationRouter
-	planService          *service.PlanService
-	valkeyClient         interfaces.ValkeyClient
+	threadService        types.ThreadService
+	stepEventService     types.StepEventProcessor
+	invitationService    types.InvitationTokenService
+	notificationConsumer types.NotificationConsumer
+	notificationRouter   types.NotificationRouter
+	planService          types.PlanService
+	valkeyClient         types.ValkeyClient
 	sessions             sync.Map
-	luaScriptManager     interfaces.LuaScriptManager
+	luaScriptManager     types.LuaScriptManager
 	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
 	logger               *zap.Logger
 }
 
 type WSSession struct {
-	conn      *websocket.Conn
+	conn      types.WSConnection
 	sessionID string
 	ownerID   string
 	companyID string
@@ -82,18 +83,18 @@ type NotificationACKMessage struct {
 	NotificationID string `json:"notification_id"`
 	ThreadID       string `json:"thread_id"`
 	Processed      bool   `json:"processed"`
-	AckToken       string `json:"ackToken"`
+	AckToken       string `json:"ack_token"`
 }
 
 func NewWebSocketHandler(
-	threadService *service.ThreadService,
-	stepEventService *service.StepEventService,
-	invitationService *service.InvitationTokenService,
-	notificationConsumer *service.NotificationConsumer,
-	notificationRouter *NotificationRouter,
-	planService *service.PlanService,
-	valkeyClient interfaces.ValkeyClient,
-	luaScriptManager interfaces.LuaScriptManager,
+	threadService types.ThreadService,
+	stepEventService types.StepEventProcessor,
+	invitationService types.InvitationTokenService,
+	notificationConsumer types.NotificationConsumer,
+	notificationRouter types.NotificationRouter,
+	planService types.PlanService,
+	valkeyClient types.ValkeyClient,
+	luaScriptManager types.LuaScriptManager,
 	rateLimitConfig *config.RateLimitConfig,
 	websocketConfig *config.WebSocketConfig,
 	logger *zap.Logger,
@@ -119,6 +120,39 @@ func NewWebSocketHandler(
 		websocketConfig:      websocketConfig,
 		logger:               logger,
 	}
+}
+
+func (s *WSSession) enforceCredits(planSvc types.PlanService, action string) *models.ErrorResponse {
+	if action == ActionConnect || action == ActionCloseThread || action == ActionThreadEnd || action == ActionCloseConnection || s.companyID == "" {
+		return nil
+	}
+
+	checkCtx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+	_, err := planSvc.CheckBalancePositive(checkCtx, s.companyID)
+	cancel()
+
+	if err != nil {
+		if errors.Is(err, service.ErrNoAccount) {
+			return &models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: "Payment required: Set up a billing account to continue using the service.",
+			}
+		}
+		if errors.Is(err, service.ErrInsufficientCredit) {
+			return &models.ErrorResponse{
+				Action:  action,
+				Status:  StatusError,
+				Message: "Payment required: Your credit balance is exhausted. Please top up to continue.",
+			}
+		}
+		return &models.ErrorResponse{
+			Action:  action,
+			Status:  StatusError,
+			Message: "Unable to verify credit balance. Please try again.",
+		}
+	}
+	return nil
 }
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
@@ -189,58 +223,8 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		metrics.RequestDuration.WithLabelValues(action).Observe(duration.Seconds())
 	}()
 
-	if action != ActionConnect && session.companyID != "" {
-		checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-		meter, err := h.planService.GetCurrentLimits(checkCtx, session.companyID)
-		cancel()
-		if err != nil || meter == nil {
-			return models.ErrorResponse{
-				Action:  action,
-				Status:  StatusError,
-				Message: "Active subscription required. Please check your billing status.",
-			}
-		}
-
-		if int64(len(msgBytes)) > meter.MaxPayloadBytes {
-			return models.ErrorResponse{
-				Action:  action,
-				Status:  StatusError,
-				Message: fmt.Sprintf("Payload size %d bytes exceeds your plan limit of %d bytes. Please upgrade your plan.", len(msgBytes), meter.MaxPayloadBytes),
-			}
-		}
-
-		if h.rateLimitConfig != nil && meter.MaxRateLimit > 0 && h.luaScriptManager != nil {
-			windowSeconds := h.rateLimitConfig.WindowSeconds
-			if windowSeconds <= 0 {
-				windowSeconds = 60
-			}
-
-			redisTimeout := time.Duration(h.rateLimitConfig.RedisTimeoutMs) * time.Millisecond
-			if redisTimeout <= 0 {
-				redisTimeout = 5 * time.Millisecond
-			}
-			rlCtx, rlCancel := context.WithTimeout(session.ctx, redisTimeout)
-			allowed, rlErr := h.luaScriptManager.CheckCompanyRateLimit(
-				rlCtx,
-				session.companyID,
-				meter.MaxRateLimit*windowSeconds,
-				windowSeconds,
-			)
-			rlCancel()
-			if rlErr != nil {
-				h.logger.Warn("company rate-limit check failed; failing open",
-					zap.String("company_id", session.companyID),
-					zap.String("action", action),
-					zap.Error(rlErr),
-				)
-			} else if !allowed {
-				return models.ErrorResponse{
-					Action:  action,
-					Status:  StatusError,
-					Message: "Rate limit exceeded. Please slow down.",
-				}
-			}
-		}
+	if errResp := session.enforceCredits(h.planService, action); errResp != nil {
+		return *errResp
 	}
 
 	switch action {
@@ -256,16 +240,11 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session)
 
-			// Tighten read limit after auth using plan payload limits.
 			checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
-			meter, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
+			_, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
 			cancel()
-			if meterErr == nil && meter != nil && meter.MaxPayloadBytes > 0 {
-				connLimit := meter.MaxPayloadBytes + readLimitOverheadBytes
-				if connLimit < 1 {
-					connLimit = defaultWebSocketReadLimitBytes
-				}
-				session.conn.SetReadLimit(connLimit)
+			if meterErr != nil {
+				h.logger.Error("connect: failed to verify credit account", zap.Error(meterErr))
 			}
 
 			if h.notificationRouter != nil {
@@ -335,7 +314,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			EventTypes []string `json:"eventTypes"`
 		}
 		json.Unmarshal(msgBytes, &req) //nolint:errcheck
-		return h.handleSubscribe(session, req.StepName)
+		return h.handleSubscribe(session, req.StepName, req.EventTypes)
 
 	case ActionUnsubscribe:
 		var req struct {
@@ -410,9 +389,9 @@ func (h *WebSocketHandler) unsubscribeFromNotifications(session *WSSession) {
 	}
 }
 
-func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw string) interface{} {
+func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw string, eventTypes []string) interface{} {
 	if stepNameRaw == "" {
-		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: "Step name is required"}
+		stepNameRaw = "global"
 	}
 	if h.notificationRouter == nil {
 		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: "Notification router not available"}
@@ -429,7 +408,7 @@ func (h *WebSocketHandler) handleSubscribe(session *WSSession, stepNameRaw strin
 		stepName = stepNameRaw
 	}
 
-	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName); err != nil {
+	if err := h.notificationRouter.HandleSubscribe(session.sessionID, stepName, contractName, eventTypes); err != nil {
 		return models.ErrorResponse{Action: ActionSubscribe, Status: StatusError, Message: fmt.Sprintf("Failed to subscribe: %v", err)}
 	}
 	return map[string]interface{}{"action": ActionSubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Subscribed to %s", stepNameRaw)}
@@ -463,7 +442,7 @@ func (h *WebSocketHandler) handleThreadEnd(session *WSSession, threadID, status,
 	defer cancel()
 
 	recordedAt := time.Now()
-	if err := h.threadService.EndThread(ctx, threadID, session.ownerID, "", status, reason, recordedAt); err != nil {
+	if err := h.threadService.EndThread(ctx, threadID, session.ownerID, service.ActorServiceRuleEngine, status, reason, recordedAt); err != nil {
 		return models.ErrorResponse{Action: ActionThreadEnd, Status: StatusError, Message: "Failed to end thread: " + err.Error()}
 	}
 

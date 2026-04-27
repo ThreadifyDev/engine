@@ -106,7 +106,11 @@ func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaul
 }
 
 func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
-	h.proxyRequest(c, http.MethodGet, contractProxyPath, "", nil)
+	path := contractProxyPath
+	if c.Request.URL.RawQuery != "" {
+		path += "?" + c.Request.URL.RawQuery
+	}
+	h.proxyRequest(c, http.MethodGet, path, "", nil)
 }
 
 func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
@@ -114,12 +118,7 @@ func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
 }
 
 func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
-	var body map[string]interface{}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-	h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, "", body)
+	h.proxyRawBody(c, http.MethodPost, contractProxyPreviewPath, contentTypeTextPlain)
 }
 
 func (h *ContractProxyHandler) GetContract(c *gin.Context) {

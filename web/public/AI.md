@@ -5,7 +5,7 @@
 For implementation syntax in your language, see:
 - **JavaScript/TypeScript**: [AI-javascript.md](https://threadify.dev/AI-javascript.md)
 - **Python**: [AI-python.md](https://threadify.dev/AI-python.md) (Coming Soon)
-- **Go**: [AI-go.md](https://threadify.dev/AI-go.md) (Coming Soon)
+- **Go**: [AI-go.md](https://threadify.dev/AI-go.md)
 
 ---
 
@@ -45,11 +45,12 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 **What it does:** Creates a new execution thread
 
 **Variants:**
-1. **No contract** - Simple workflow tracking
-2. **With service name** - Specify which service is starting
-3. **With contract** - Contract-based workflow with validation
+1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
+2. **With contract** - Contract-based workflow with validation
+3. **With service name** - Specify which service is starting
 
 **Parameters:**
+- `label` (optional, recommended) - A descriptive name for the thread
 - `contractName` (optional) - Name of contract to use
 - `serviceName` (optional) - Service identifier
 
@@ -169,9 +170,25 @@ Every step must have one of three statuses:
 
 ---
 
+### 9. Retrieving Thread Data
+
+**What it does:** Query thread execution data for analysis
+
+**Important:** `getThread()` returns a **read-only** thread object. To add steps or modify a thread, you must use `join()`.
+
+**Use cases:**
+- Analyze completed threads
+- Debug execution flow
+- Generate reports
+- Display thread history
+
+**To modify a thread:** Use `join()` to get write access and record new steps.
+
+---
+
 ### 10. Joining Threads
 
-**What it does:** Join an existing thread
+**What it does:** Join an existing thread to add steps or modify it
 
 **Variants:**
 1. **With invitation token** - External parties
@@ -181,7 +198,9 @@ Every step must have one of three statuses:
 - `token` - JWT invitation token
 - OR
 - `threadId` - Thread ID to join
-- `role` - Role for access control
+- `role` - Role for access control (`owner`, `participant`, `observer`, `external`)
+
+**Returns:** Thread instance with write access (can record steps)
 
 ---
 
@@ -232,6 +251,69 @@ transitions:
 
 ---
 
+## MCP Integration (Model Context Protocol)
+
+**What it does:** Enables AI assistants and automation tools to query Threadify execution graphs
+
+**Available via:** Native MCP server at `/threadify-go/.mcp/server.json`
+
+### MCP Tools
+
+| Tool | Purpose | Example Query |
+|------|---------|---------------|
+| `get_thread` | Retrieve complete thread execution | "Show me thread abc-123 with all steps" |
+| `search_threads` | Find threads with filters | "Find all failed checkout threads from last hour" |
+| `verify_thread_integrity` | Validate cryptographic hash chain | "Verify integrity of thread abc-123" |
+| `contract_graph` | Get workflow structure | "Show me the checkout contract graph" |
+| `resolve_actors` | Convert UUIDs to names | "Who executed payment_authorized in thread abc-123?" |
+| `graphql_query` | Custom precise queries | Execute any GraphQL query |
+
+### MCP Use Cases
+
+✅ **Debugging Silent Failures**
+- "Why did payment succeed but order never shipped?"
+- MCP reveals which step failed silently after payment
+
+✅ **Compliance Verification**
+- "Prove credit checks always run before loan approval"
+- MCP validates hash chains and execution order
+
+✅ **Performance Analysis**
+- "What's the bottleneck in our checkout flow?"
+- MCP shows average step durations
+
+### MCP Configuration
+
+**Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "threadify": {
+      "command": "npx",
+      "args": ["-y", "@threadify/mcp-server"],
+      "env": {
+        "THREADIFY_API_KEY": "your-api-key",
+        "THREADIFY_URL": "https://mcp.threadify.dev"
+      }
+    }
+  }
+}
+```
+
+**Cline (VS Code):**
+Add to MCP settings with same configuration structure.
+
+**Custom Integration:**
+Use any MCP SDK to connect and call tools programmatically.
+
+### MCP Resources
+
+- `graphql://schema` - Complete GraphQL schema for advanced queries
+
+**Learn more:** https://docs.threadify.dev/core-concepts/mcp-integration
+
+---
+
 ## When to Use Threadify
 
 ✅ **Good fit:**
@@ -253,3 +335,4 @@ transitions:
 - Quickstart: https://docs.threadify.dev/quickstart
 - Core Concepts: https://docs.threadify.dev/core-concepts/overview
 - API Reference: https://docs.threadify.dev/api-reference/overview
+- MCP Integration: https://docs.threadify.dev/core-concepts/mcp-integration

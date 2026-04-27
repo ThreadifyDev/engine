@@ -1,17 +1,20 @@
 package nats
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
 type Client struct {
 	conn   *nats.Conn
-	js     nats.JetStreamContext
+	js     jetstream.JetStream
 	cfg    *config.NATSConfig
 	logger *zap.Logger
 }
@@ -27,7 +30,7 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 		return nil, fmt.Errorf("connect to message broker: %w", err)
 	}
 
-	js, err := nc.JetStream()
+	js, err := jetstream.New(nc, jetstream.WithPublishAsyncMaxPending(256))
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("initialize message broker: %w", err)
@@ -35,8 +38,12 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 
 	c := &Client{conn: nc, js: js, cfg: cfg, logger: logger}
 
+	return c, nil
+}
+
+func (c *Client) InitStreams(ctx context.Context) error {
 	steps := []struct {
-		fn  func() error
+		fn  func(context.Context) error
 		msg string
 	}{
 		{c.initializeNotificationStream, "initialize notifications"},
@@ -45,36 +52,31 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 		{c.initializeOutboxStream, "initialize outbox triggers"},
 	}
 	for _, step := range steps {
-		if err := step.fn(); err != nil {
-			nc.Close()
-			return nil, fmt.Errorf("%s: %w", step.msg, err)
-		}
-	}
-
-	return c, nil
-}
-
-// ensureStream creates or updates a JetStream stream.
-func (c *Client) ensureStream(cfg *nats.StreamConfig) error {
-	if _, err := c.js.AddStream(cfg); err != nil {
-		if _, err = c.js.UpdateStream(cfg); err != nil {
-			return fmt.Errorf("create/update stream %q: %w", cfg.Name, err)
+		if err := step.fn(ctx); err != nil {
+			return fmt.Errorf("%s: %w", step.msg, err)
 		}
 	}
 	return nil
 }
 
-func (c *Client) initializeNotificationStream() error {
-	err := c.ensureStream(&nats.StreamConfig{
+func (c *Client) ensureStream(ctx context.Context, cfg jetstream.StreamConfig) error {
+	if _, err := c.js.CreateOrUpdateStream(ctx, cfg); err != nil {
+		return fmt.Errorf("create/update stream %q: %w", cfg.Name, err)
+	}
+	return nil
+}
+
+func (c *Client) initializeNotificationStream(ctx context.Context) error {
+	err := c.ensureStream(ctx, jetstream.StreamConfig{
 		Name:       c.cfg.StreamName,
 		Subjects:   []string{SubjectNotificationsUser},
-		Retention:  nats.LimitsPolicy,
+		Retention:  jetstream.LimitsPolicy,
 		MaxAge:     3 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
+		Storage:    jetstream.FileStorage,
 		Replicas:   1,
-		Discard:    nats.DiscardOld,
-		MaxMsgs:    -1,
-		MaxBytes:   -1,
+		Discard:    jetstream.DiscardOld,
+		MaxMsgs:    0,
+		MaxBytes:   0,
 		Duplicates: 5 * time.Minute,
 	})
 	if err != nil {
@@ -84,15 +86,15 @@ func (c *Client) initializeNotificationStream() error {
 	return nil
 }
 
-func (c *Client) initializeDeadLetterQueue() error {
-	err := c.ensureStream(&nats.StreamConfig{
+func (c *Client) initializeDeadLetterQueue(ctx context.Context) error {
+	err := c.ensureStream(ctx, jetstream.StreamConfig{
 		Name:      StreamNotificationsDLQ,
 		Subjects:  []string{SubjectNotificationsDLQ},
-		Retention: nats.LimitsPolicy,
+		Retention: jetstream.LimitsPolicy,
 		MaxAge:    7 * 24 * time.Hour,
-		Storage:   nats.FileStorage,
+		Storage:   jetstream.FileStorage,
 		Replicas:  1,
-		Discard:   nats.DiscardOld,
+		Discard:   jetstream.DiscardOld,
 		MaxMsgs:   10000,
 		MaxBytes:  100 * 1024 * 1024,
 	})
@@ -103,7 +105,7 @@ func (c *Client) initializeDeadLetterQueue() error {
 	return nil
 }
 
-func (c *Client) initializeArchivalStreams() error {
+func (c *Client) initializeArchivalStreams(ctx context.Context) error {
 	streams := []struct {
 		name    string
 		subject []string
@@ -113,20 +115,21 @@ func (c *Client) initializeArchivalStreams() error {
 		{StreamThreadAccess, []string{SubjectThreadAccess}},
 		{StreamThreadValidations, []string{SubjectThreadValidations}},
 		{StreamStepState, []string{SubjectStepState}},
-		{StreamUsageSync, []string{SubjectUsageSync}},
+		{StreamUsageSync, []string{SubjectUsageSync, SubjectCreditTopup}},
+		{StreamProfileRecalculate, []string{SubjectProfileRecalculate}},
 	}
 
 	for _, stream := range streams {
-		if err := c.ensureStream(&nats.StreamConfig{
+		if err := c.ensureStream(ctx, jetstream.StreamConfig{
 			Name:       stream.name,
 			Subjects:   stream.subject,
-			Retention:  nats.LimitsPolicy,
+			Retention:  jetstream.LimitsPolicy,
 			MaxAge:     24 * time.Hour,
-			Storage:    nats.FileStorage,
+			Storage:    jetstream.FileStorage,
 			Replicas:   1,
-			Discard:    nats.DiscardOld,
-			MaxMsgs:    -1,
-			MaxBytes:   -1,
+			Discard:    jetstream.DiscardOld,
+			MaxMsgs:    0,
+			MaxBytes:   0,
 			Duplicates: 5 * time.Minute,
 		}); err != nil {
 			return err
@@ -135,17 +138,17 @@ func (c *Client) initializeArchivalStreams() error {
 	return nil
 }
 
-func (c *Client) initializeOutboxStream() error {
-	err := c.ensureStream(&nats.StreamConfig{
+func (c *Client) initializeOutboxStream(ctx context.Context) error {
+	err := c.ensureStream(ctx, jetstream.StreamConfig{
 		Name:      StreamOutboxTriggers,
 		Subjects:  []string{SubjectOutboxTrigger},
-		Retention: nats.WorkQueuePolicy,
+		Retention: jetstream.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
-		Storage:   nats.FileStorage,
+		Storage:   jetstream.FileStorage,
 		Replicas:  1,
-		Discard:   nats.DiscardOld,
-		MaxMsgs:   -1,
-		MaxBytes:  -1,
+		Discard:   jetstream.DiscardOld,
+		MaxMsgs:   0,
+		MaxBytes:  0,
 	})
 	if err != nil {
 		return err
@@ -154,7 +157,7 @@ func (c *Client) initializeOutboxStream() error {
 	return nil
 }
 
-func (c *Client) JetStream() nats.JetStreamContext {
+func (c *Client) JetStream() jetstream.JetStream {
 	return c.js
 }
 
@@ -172,36 +175,36 @@ func (c *Client) IsConnected() bool {
 	return c.conn != nil && c.conn.IsConnected()
 }
 
-func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duration) ([]byte, error) {
-	consumerConfig := &nats.ConsumerConfig{
+func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
+	defer cancel()
+
+	consumerConfig := jetstream.ConsumerConfig{
 		Durable:       consumerName,
 		FilterSubject: subject,
-		AckPolicy:     nats.AckExplicitPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       time.Duration(c.cfg.AckWaitSeconds) * time.Second,
 		MaxDeliver:    3,
-		DeliverPolicy: nats.DeliverNewPolicy,
+		DeliverPolicy: jetstream.DeliverNewPolicy,
 	}
 
-	if _, err := c.js.AddConsumer(c.cfg.StreamName, consumerConfig); err != nil && err != nats.ErrConsumerNameAlreadyInUse {
+	cons, err := c.js.CreateOrUpdateConsumer(ctx, c.cfg.StreamName, consumerConfig)
+	if err != nil {
 		return nil, fmt.Errorf("create consumer: %w", err)
 	}
 
-	sub, err := c.js.PullSubscribe(subject, consumerName)
-	if err != nil {
-		return nil, fmt.Errorf("create pull subscription: %w", err)
-	}
-	defer sub.Unsubscribe()
-
-	msgs, err := sub.Fetch(1, nats.MaxWait(timeout))
+	batch, err := cons.Fetch(1, jetstream.FetchMaxWait(timeout))
 	if err != nil {
 		return nil, err
 	}
-	if len(msgs) == 0 {
+
+	msg := <-batch.Messages()
+	if msg == nil {
 		return nil, fmt.Errorf("no messages available")
 	}
 
-	if err := msgs[0].Ack(); err != nil {
+	if err := msg.Ack(); err != nil {
 		return nil, fmt.Errorf("ACK message: %w", err)
 	}
-	return msgs[0].Data, nil
+	return &types.NATSMessage{Subject: msg.Subject(), Data: msg.Data()}, nil
 }

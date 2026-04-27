@@ -2,6 +2,38 @@ package models
 
 import "time"
 
+// StreamHandler is a callback function for streaming SSE events back to the client.
+type StreamHandler func(eventType, data string)
+
+const (
+	// Skill Types
+	SkillAuto    = "auto"
+	SkillSupport = "support"
+	SkillDesign  = "design"
+
+	// SSE Event Types
+	EventChunk        = "chunk"
+	EventSystem       = "system"
+	EventToolCall     = "tool_call"
+	EventConversation = "conversation"
+	EventDone         = "done"
+	EventError        = "error"
+	EventTokens       = "tokens"
+	EventMessageCount = "message_count"
+
+	// Context Keys
+	ContextKeySummary = "conversation_summary"
+
+	// Roles
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleSystem    = "system"
+	RoleTool      = "tool"
+
+	// Tool Status
+	ToolStatusSuccess = "Context saved successfully"
+)
+
 type AgentConversation struct {
 	ID           string    `json:"id"`
 	UserID       string    `json:"user_id"`

@@ -7,10 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/shared/rbac"
-
 	backoff "github.com/cenkalti/backoff/v4"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/workerpool"
 	"go.uber.org/zap"
@@ -18,9 +16,9 @@ import (
 
 // AccessRepository handles role and permission management in Valkey
 type AccessRepository struct {
-	valkey        interfaces.ValkeyClient
+	valkey        types.AccessValkeyClient
 	postgresRepo  PostgresAccessRepository // For hot/cold fallback
-	rbacLoader    *rbac.Loader             // For dynamic permission-to-role mapping
+	rbacLoader    types.RBACLoader    // For dynamic permission-to-role mapping
 	ttl           int                      // TTL in seconds for access keys
 	writeBackPool *workerpool.Pool         // For async cache write-backs
 	logger        *zap.Logger
@@ -28,14 +26,14 @@ type AccessRepository struct {
 
 // PostgresAccessRepository defines the interface for PostgreSQL access operations
 type PostgresAccessRepository interface {
-	GetUserAccess(ctx context.Context, threadID, userID string) (*interfaces.UserAccess, error)
-	GetAllAccess(ctx context.Context, threadID string) (map[string]*interfaces.UserAccess, error)
+	GetUserAccess(ctx context.Context, threadID, userID string) (*types.UserAccess, error)
+	GetAllAccess(ctx context.Context, threadID string) (map[string]*types.UserAccess, error)
 	GetUsersByRuntimeRoles(ctx context.Context, threadID string, runtimeRoles []string) ([]models.UserRoleInfo, error)
 	GetUsersByPermissions(ctx context.Context, threadID string, requiredPermissions []string) ([]models.UserPermissionInfo, error)
 }
 
 // NewAccessRepository creates a new access repository
-func NewAccessRepository(valkey interfaces.ValkeyClient, ttl int, logger *zap.Logger) *AccessRepository {
+func NewAccessRepository(valkey types.AccessValkeyClient, ttl int, logger *zap.Logger) *AccessRepository {
 	return &AccessRepository{
 		valkey: valkey,
 		ttl:    ttl,
@@ -44,7 +42,7 @@ func NewAccessRepository(valkey interfaces.ValkeyClient, ttl int, logger *zap.Lo
 }
 
 // NewAccessRepositoryWithPostgres creates a new access repository with PostgreSQL fallback
-func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRepo PostgresAccessRepository, ttl int, logger *zap.Logger) *AccessRepository {
+func NewAccessRepositoryWithPostgres(valkey types.AccessValkeyClient, postgresRepo PostgresAccessRepository, ttl int, logger *zap.Logger) *AccessRepository {
 	return &AccessRepository{
 		valkey:       valkey,
 		postgresRepo: postgresRepo,
@@ -54,7 +52,7 @@ func NewAccessRepositoryWithPostgres(valkey interfaces.ValkeyClient, postgresRep
 }
 
 // SetRBACLoader sets the RBAC loader for dynamic permission-to-role mapping
-func (r *AccessRepository) SetRBACLoader(loader *rbac.Loader) {
+func (r *AccessRepository) SetRBACLoader(loader types.RBACLoader) {
 	r.rbacLoader = loader
 }
 
@@ -72,24 +70,12 @@ func (r *AccessRepository) SetWriteBackPool(pool *workerpool.Pool) {
 // Returns the updated UserAccess object so service layer can pass it to ActivityRepository
 // Optional threadData parameter enables atomic thread creation to prevent orphaned threads
 // Note: runtime_role is stored in both Valkey (for fast permission checks) and PostgreSQL (via ActivityRepository)
-func (r *AccessRepository) GrantOrUpdateAccess(
-	ctx context.Context,
-	threadID, userID string,
-	role string,
-	runtimeRole string,
-	permissions []string,
-	invitedBy string,
-	luaScripts interfaces.LuaScriptManager,
-	threadData *string,
-	threadTTL *int,
-) (*interfaces.UserAccess, error) {
-	var result *interfaces.UserAccess
+func (r *AccessRepository) GrantOrUpdateAccess(ctx context.Context, params types.GrantAccessParams) (*types.UserAccess, error) {
+	var result *types.UserAccess
 
 	// Use existing ExecuteWithBackoff for retry logic (10ms initial, 100ms max, 500ms total)
 	err := r.valkey.ExecuteWithBackoff(ctx, func() error {
-		access, err := r.attemptGrantOrUpdateAccess(
-			ctx, threadID, userID, role, runtimeRole, permissions, invitedBy, luaScripts, threadData, threadTTL,
-		)
+		access, err := r.attemptGrantOrUpdateAccess(ctx, params)
 		if err != nil {
 			// Check if error is retryable (concurrent creation detected)
 			// Note: Lua script atomicity prevents races during role addition to existing users
@@ -114,25 +100,15 @@ func (r *AccessRepository) GrantOrUpdateAccess(
 // Extracted from GrantOrUpdateAccess to enable retry logic
 // Supports atomic thread creation via optional threadData and threadTTL parameters
 // Note: runtime_role must be passed in and will be stored in Valkey for fast permission checks
-func (r *AccessRepository) attemptGrantOrUpdateAccess(
-	ctx context.Context,
-	threadID, userID string,
-	role string,
-	runtimeRole string,
-	permissions []string,
-	invitedBy string,
-	luaScripts interfaces.LuaScriptManager,
-	threadData *string,
-	threadTTL *int,
-) (*interfaces.UserAccess, error) {
-	roleIndexKey := r.getRoleIndexKey(threadID)
-	accessKey := r.getAccessKey(threadID)
-	threadKey := r.getThreadKey(threadID)
+func (r *AccessRepository) attemptGrantOrUpdateAccess(ctx context.Context, params types.GrantAccessParams) (*types.UserAccess, error) {
+	roleIndexKey := r.getRoleIndexKey(params.ThreadID)
+	accessKey := r.getAccessKey(params.ThreadID)
+	threadKey := r.getThreadKey(params.ThreadID)
 
 	timestamp := time.Now().Format(time.RFC3339)
 
 	// Execute unified Lua script with role_index
-	scriptHash, exists := luaScripts.GetScriptHash("grant_or_update_access")
+	scriptHash, exists := params.LuaRegistry.GetScriptHash("grant_or_update_access")
 	if !exists {
 		return nil, fmt.Errorf("script grant_or_update_access not loaded")
 	}
@@ -140,15 +116,15 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 	// Prepare optional thread creation parameters
 	threadJSON := ""
 	ttl := "0"
-	if threadData != nil && *threadData != "" {
-		threadJSON = *threadData
+	if params.ThreadData != nil && *params.ThreadData != "" {
+		threadJSON = *params.ThreadData
 	}
-	if threadTTL != nil && *threadTTL > 0 {
-		ttl = fmt.Sprintf("%d", *threadTTL)
+	if params.ThreadTTL != nil && *params.ThreadTTL > 0 {
+		ttl = fmt.Sprintf("%d", *params.ThreadTTL)
 	}
 
 	// Serialize permissions to JSON for Lua script
-	permissionsJSON, err := json.Marshal(permissions)
+	permissionsJSON, err := json.Marshal(params.Permissions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal permissions: %w", err)
 	}
@@ -157,10 +133,10 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		ctx,
 		scriptHash,
 		[]string{roleIndexKey, accessKey, threadKey}, // KEYS[1], KEYS[2], KEYS[3]
-		invitedBy,               // ARGV[1]
-		userID,                  // ARGV[2]
-		role,                    // ARGV[3]
-		runtimeRole,             // ARGV[4] - runtime_role for permission checks
+		params.InvitedBy,        // ARGV[1]
+		params.UserID,           // ARGV[2]
+		params.Role,             // ARGV[3]
+		params.RuntimeRole,      // ARGV[4] - runtime_role for permission checks
 		string(permissionsJSON), // ARGV[5] - resolved permissions as JSON array
 		timestamp,               // ARGV[6]
 		"active",                // ARGV[7]
@@ -178,7 +154,7 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 		return nil, fmt.Errorf("unexpected result type from Lua script: %T", result)
 	}
 
-	var access interfaces.UserAccess
+	var access types.UserAccess
 	if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
 		return nil, fmt.Errorf("failed to parse access result: %w", err)
 	}
@@ -187,18 +163,15 @@ func (r *AccessRepository) attemptGrantOrUpdateAccess(
 }
 
 // GetUserAccess retrieves access for a user in a thread with optional PostgreSQL fallback
-func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, writeBack ...bool) (*interfaces.UserAccess, error) {
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
+func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, opts ...types.AccessReadOptions) (*types.UserAccess, error) {
+	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	key := r.getAccessKey(threadID)
 
 	// Try Valkey first
 	accessJSON, err := r.valkey.HGet(ctx, key, userID)
 	if err == nil && accessJSON != "" {
-		var access interfaces.UserAccess
+		var access types.UserAccess
 		if err := json.Unmarshal([]byte(accessJSON), &access); err == nil {
 			return &access, nil
 		}
@@ -241,20 +214,17 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 }
 
 // GetAllAccess gets all access grants for a thread with optional PostgreSQL fallback
-func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, writeBack ...bool) (map[string]*interfaces.UserAccess, error) {
-	shouldWriteBack := false
-	if len(writeBack) > 0 {
-		shouldWriteBack = writeBack[0]
-	}
+func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, opts ...types.AccessReadOptions) (map[string]*types.UserAccess, error) {
+	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	key := r.getAccessKey(threadID)
 
 	// Try Valkey first
 	accessMap, err := r.valkey.HGetAll(ctx, key)
 	if err == nil && len(accessMap) > 0 {
-		result := make(map[string]*interfaces.UserAccess)
+		result := make(map[string]*types.UserAccess)
 		for userID, accessJSON := range accessMap {
-			var access interfaces.UserAccess
+			var access types.UserAccess
 			if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
 				continue // Skip invalid entries
 			}
@@ -265,7 +235,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string, wr
 
 	// Fallback to PostgreSQL
 	if r.postgresRepo == nil {
-		return make(map[string]*interfaces.UserAccess), nil
+		return make(map[string]*types.UserAccess), nil
 	}
 
 	r.logger.Info("Cache miss for thread access, querying PostgreSQL", zap.String("thread_id", threadID))
@@ -323,7 +293,7 @@ func (r *AccessRepository) getThreadKey(threadID string) string {
 }
 
 // writeAccessToValkey writes access back to Valkey in the same format as GrantOrUpdateAccess
-func (r *AccessRepository) writeAccessToValkey(ctx context.Context, threadID, userID string, access *interfaces.UserAccess) error {
+func (r *AccessRepository) writeAccessToValkey(ctx context.Context, threadID, userID string, access *types.UserAccess) error {
 	key := r.getAccessKey(threadID)
 
 	// Serialize access to JSON (same format as GrantOrUpdateAccess)
@@ -535,7 +505,7 @@ func (r *AccessRepository) GetUsersByPermissions(
 			continue // Skip if user not found
 		}
 
-		var access interfaces.UserAccess
+		var access types.UserAccess
 		if err := json.Unmarshal([]byte(accessJSON), &access); err != nil {
 			continue // Skip invalid entries
 		}
@@ -636,25 +606,16 @@ func (r *AccessRepository) getUsersByRoleKey(threadID, runtimeRole string) strin
 	return fmt.Sprintf("thread:%s:users:%s", threadID, runtimeRole)
 }
 
-// PermissionCheckResult contains the result of a permission check
-type PermissionCheckResult struct {
-	HasAccess   bool     // User has some form of read access
-	HasFullRead bool     // User has thread.read.* (can see all data)
-	HasOwnRead  bool     // User has thread.read.own (can only see own data)
-	Permissions []string // User's full permissions array
-	RuntimeRole string   // User's runtime role
-}
-
 // CheckUserReadPermission checks if a user has read permission for a thread
 // Returns detailed permission info for filtering decisions
 // Hot path: Valkey first, PostgreSQL fallback
-func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID, userID string) (*PermissionCheckResult, error) {
+func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID, userID string) (*types.PermissionCheckResult, error) {
 	key := r.getAccessKey(threadID)
 
 	// Try Valkey first (hot path)
 	accessJSON, err := r.valkey.HGet(ctx, key, userID)
 	if err == nil && accessJSON != "" {
-		var access interfaces.UserAccess
+		var access types.UserAccess
 		if err := json.Unmarshal([]byte(accessJSON), &access); err == nil {
 			return r.evaluateReadPermissions(&access), nil
 		}
@@ -662,7 +623,7 @@ func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID
 
 	// Fallback to PostgreSQL
 	if r.postgresRepo == nil {
-		return &PermissionCheckResult{HasAccess: false}, nil
+		return &types.PermissionCheckResult{HasAccess: false}, nil
 	}
 
 	r.logger.Info("Cache miss for permission check, querying PostgreSQL",
@@ -671,7 +632,7 @@ func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID
 
 	access, err := r.postgresRepo.GetUserAccess(ctx, threadID, userID)
 	if err != nil {
-		return &PermissionCheckResult{HasAccess: false}, nil
+		return &types.PermissionCheckResult{HasAccess: false}, nil
 	}
 
 	// Async write-back via worker pool
@@ -687,8 +648,8 @@ func (r *AccessRepository) CheckUserReadPermission(ctx context.Context, threadID
 }
 
 // evaluateReadPermissions evaluates read permissions from UserAccess
-func (r *AccessRepository) evaluateReadPermissions(access *interfaces.UserAccess) *PermissionCheckResult {
-	result := &PermissionCheckResult{
+func (r *AccessRepository) evaluateReadPermissions(access *types.UserAccess) *types.PermissionCheckResult {
+	result := &types.PermissionCheckResult{
 		HasAccess:   false,
 		HasFullRead: false,
 		HasOwnRead:  false,

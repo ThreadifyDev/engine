@@ -1,19 +1,21 @@
 package nats
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"threadify-go/shared/config"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"go.uber.org/zap"
 )
 
 // Client wraps NATS connection and JetStream context
 type Client struct {
 	conn   *nats.Conn
-	js     nats.JetStreamContext
+	js     jetstream.JetStream
 	cfg    *config.NATSConfig
 	logger *zap.Logger
 }
@@ -32,8 +34,7 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 		return nil, fmt.Errorf("failed to connect to message broker")
 	}
 
-	// Create JetStream context
-	js, err := nc.JetStream()
+	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
 		logger.Error("failed to create JetStream context", zap.Error(err))
@@ -50,32 +51,32 @@ func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
 	return client, nil
 }
 
-func (c *Client) InitializeOutboxStream() error {
-	streamConfig := &nats.StreamConfig{
+func (c *Client) InitializeOutboxStream(ctx context.Context) error {
+	streamConfig := jetstream.StreamConfig{
 		Name:      StreamOutboxTriggers,
 		Subjects:  []string{SubjectOutboxTrigger},
-		Retention: nats.WorkQueuePolicy,
+		Retention: jetstream.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
-		Storage:   nats.FileStorage,
+		Storage:   jetstream.FileStorage,
 		Replicas:  1,
-		Discard:   nats.DiscardOld,
-		NoAck:     false,
+		Discard:   jetstream.DiscardOld,
 	}
 
-	_, err := c.js.AddStream(streamConfig)
+	_, err := c.js.CreateOrUpdateStream(ctx, streamConfig)
 	if err != nil {
-		_, err = c.js.UpdateStream(streamConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create/update outbox stream: %w", err)
-		}
+		return fmt.Errorf("failed to create/update outbox stream: %w", err)
 	}
 
 	c.logger.Info("initialized OUTBOX_TRIGGERS stream")
 	return nil
 }
 
-func (c *Client) JetStream() nats.JetStreamContext {
+func (c *Client) JetStream() jetstream.JetStream {
 	return c.js
+}
+
+func (c *Client) Conn() *nats.Conn {
+	return c.conn
 }
 
 func (c *Client) Close() {

@@ -48,10 +48,28 @@ func (p *Publisher) PublishNotification(ctx context.Context, notification models
 		return fmt.Errorf("marshal notification: %w", err)
 	}
 
-	if _, err = p.client.JetStream().Publish(subject, data); err != nil {
+	// Use PublishAsync with timeout to prevent indefinite hangs
+	p.client.logger.Debug("starting NATS publish", zap.String("subject", subject))
+
+	js := p.client.JetStream()
+	pubAck, err := js.PublishAsync(subject, data)
+	if err != nil {
+		p.client.logger.Error("PublishAsync failed immediately", zap.Error(err), zap.String("subject", subject))
 		return fmt.Errorf("publish to NATS: %w", err)
 	}
 
-	p.client.logger.Debug("published notification", zap.String("subject", subject))
-	return nil
+	p.client.logger.Debug("waiting for publish acknowledgment", zap.String("subject", subject))
+
+	// Wait for acknowledgment with timeout from context
+	select {
+	case <-pubAck.Ok():
+		p.client.logger.Debug("published notification", zap.String("subject", subject))
+		return nil
+	case err := <-pubAck.Err():
+		p.client.logger.Error("publish acknowledgment error", zap.Error(err), zap.String("subject", subject))
+		return fmt.Errorf("publish to NATS: %w", err)
+	case <-ctx.Done():
+		p.client.logger.Error("publish context timeout", zap.Error(ctx.Err()), zap.String("subject", subject))
+		return fmt.Errorf("publish to NATS: %w", ctx.Err())
+	}
 }

@@ -30,6 +30,7 @@ type ResolverRoot interface {
 	Graph() GraphResolver
 	GraphNode() GraphNodeResolver
 	HashChainStatus() HashChainStatusResolver
+	Mutation() MutationResolver
 	NotificationConfig() NotificationConfigResolver
 	Query() QueryResolver
 	StepHistory() StepHistoryResolver
@@ -57,6 +58,46 @@ type ComplexityRoot struct {
 		Parties            func(childComplexity int) int
 		Transitions        func(childComplexity int) int
 		Validation         func(childComplexity int) int
+	}
+
+	EntityProfile struct {
+		CompanyID     func(childComplexity int) int
+		CreatedAt     func(childComplexity int) int
+		ID            func(childComplexity int) int
+		LastActiveAt  func(childComplexity int) int
+		Metrics       func(childComplexity int) int
+		Name          func(childComplexity int) int
+		ProfileType   func(childComplexity int) int
+		ProfileTypeID func(childComplexity int) int
+		RefKey        func(childComplexity int) int
+	}
+
+	EntityProfileConnection struct {
+		Items       func(childComplexity int) int
+		ProfileType func(childComplexity int) int
+		TotalCount  func(childComplexity int) int
+	}
+
+	EntityProfileMetrics struct {
+		AverageDeliveryTimeMs   func(childComplexity int) int
+		CompletedSuccessfully   func(childComplexity int) int
+		DeliveryHealthScore     func(childComplexity int) int
+		EntityProfileID         func(childComplexity int) int
+		HealthTrendSlope        func(childComplexity int) int
+		LastCalculatedAt        func(childComplexity int) int
+		PrevDeliveryHealthScore func(childComplexity int) int
+		TotalDeliveries         func(childComplexity int) int
+		ValidationViolations    func(childComplexity int) int
+	}
+
+	EntityProfileType struct {
+		CompanyID   func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		Description func(childComplexity int) int
+		ID          func(childComplexity int) int
+		Name        func(childComplexity int) int
+		Type        func(childComplexity int) int
+		UpdatedAt   func(childComplexity int) int
 	}
 
 	Graph struct {
@@ -87,6 +128,10 @@ type ComplexityRoot struct {
 		Verified       func(childComplexity int) int
 	}
 
+	Mutation struct {
+		RecordLLMUsage func(childComplexity int, tokens int) int
+	}
+
 	NotificationConfig struct {
 		DefaultScope func(childComplexity int) int
 		RoleDefaults func(childComplexity int) int
@@ -106,7 +151,12 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
+		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
+		EntityProfile         func(childComplexity int, id *string, refKey *string, typeArg *string) int
+		EntityProfileHistory  func(childComplexity int, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
+		EntityProfileTypes    func(childComplexity int) int
+		EntityProfilesByType  func(childComplexity int, typeArg string, search *string, limit *int, offset *int) int
 		ResolveActors         func(childComplexity int, ids []string) int
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread                func(childComplexity int, id string) int
@@ -189,6 +239,7 @@ type ComplexityRoot struct {
 		HashChainStatus     func(childComplexity int) int
 		HashChainVerified   func(childComplexity int) int
 		ID                  func(childComplexity int) int
+		Label               func(childComplexity int) int
 		LastHash            func(childComplexity int) int
 		NotificationSummary func(childComplexity int) int
 		Notifications       func(childComplexity int, options *models.ThreadNotificationQueryOptions) int
@@ -224,9 +275,9 @@ type ComplexityRoot struct {
 	}
 
 	Transition struct {
-		CanRetry   func(childComplexity int) int
 		From       func(childComplexity int) int
 		MaxRetries func(childComplexity int) int
+		Timeout    func(childComplexity int) int
 		To         func(childComplexity int) int
 	}
 
@@ -274,6 +325,9 @@ type HashChainStatusResolver interface {
 
 	BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error)
 }
+type MutationResolver interface {
+	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
+}
 type NotificationConfigResolver interface {
 	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
 }
@@ -282,6 +336,7 @@ type QueryResolver interface {
 	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
+	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
@@ -289,6 +344,10 @@ type QueryResolver interface {
 	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
 	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
 	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
+	CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error)
+	EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*EntityProfile, error)
+	EntityProfileTypes(ctx context.Context) ([]*EntityProfileType, error)
+	EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*EntityProfileConnection, error)
 }
 type StepHistoryResolver interface {
 	Error(ctx context.Context, obj *models.StepHistory) (*string, error)
@@ -401,6 +460,178 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ContractGraph.Validation(childComplexity), true
+
+	case "EntityProfile.companyId":
+		if e.ComplexityRoot.EntityProfile.CompanyID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.CompanyID(childComplexity), true
+	case "EntityProfile.createdAt":
+		if e.ComplexityRoot.EntityProfile.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.CreatedAt(childComplexity), true
+	case "EntityProfile.id":
+		if e.ComplexityRoot.EntityProfile.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.ID(childComplexity), true
+	case "EntityProfile.lastActiveAt":
+		if e.ComplexityRoot.EntityProfile.LastActiveAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.LastActiveAt(childComplexity), true
+	case "EntityProfile.metrics":
+		if e.ComplexityRoot.EntityProfile.Metrics == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.Metrics(childComplexity), true
+	case "EntityProfile.name":
+		if e.ComplexityRoot.EntityProfile.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.Name(childComplexity), true
+	case "EntityProfile.profileType":
+		if e.ComplexityRoot.EntityProfile.ProfileType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.ProfileType(childComplexity), true
+	case "EntityProfile.profileTypeId":
+		if e.ComplexityRoot.EntityProfile.ProfileTypeID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.ProfileTypeID(childComplexity), true
+	case "EntityProfile.refKey":
+		if e.ComplexityRoot.EntityProfile.RefKey == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfile.RefKey(childComplexity), true
+
+	case "EntityProfileConnection.items":
+		if e.ComplexityRoot.EntityProfileConnection.Items == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.Items(childComplexity), true
+	case "EntityProfileConnection.profileType":
+		if e.ComplexityRoot.EntityProfileConnection.ProfileType == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.ProfileType(childComplexity), true
+	case "EntityProfileConnection.totalCount":
+		if e.ComplexityRoot.EntityProfileConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileConnection.TotalCount(childComplexity), true
+
+	case "EntityProfileMetrics.averageDeliveryTimeMs":
+		if e.ComplexityRoot.EntityProfileMetrics.AverageDeliveryTimeMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.AverageDeliveryTimeMs(childComplexity), true
+	case "EntityProfileMetrics.completedSuccessfully":
+		if e.ComplexityRoot.EntityProfileMetrics.CompletedSuccessfully == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.CompletedSuccessfully(childComplexity), true
+	case "EntityProfileMetrics.deliveryHealthScore":
+		if e.ComplexityRoot.EntityProfileMetrics.DeliveryHealthScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.DeliveryHealthScore(childComplexity), true
+	case "EntityProfileMetrics.entityProfileId":
+		if e.ComplexityRoot.EntityProfileMetrics.EntityProfileID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.EntityProfileID(childComplexity), true
+	case "EntityProfileMetrics.healthTrendSlope":
+		if e.ComplexityRoot.EntityProfileMetrics.HealthTrendSlope == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.HealthTrendSlope(childComplexity), true
+	case "EntityProfileMetrics.lastCalculatedAt":
+		if e.ComplexityRoot.EntityProfileMetrics.LastCalculatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.LastCalculatedAt(childComplexity), true
+	case "EntityProfileMetrics.prevDeliveryHealthScore":
+		if e.ComplexityRoot.EntityProfileMetrics.PrevDeliveryHealthScore == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.PrevDeliveryHealthScore(childComplexity), true
+	case "EntityProfileMetrics.totalDeliveries":
+		if e.ComplexityRoot.EntityProfileMetrics.TotalDeliveries == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.TotalDeliveries(childComplexity), true
+	case "EntityProfileMetrics.validationViolations":
+		if e.ComplexityRoot.EntityProfileMetrics.ValidationViolations == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileMetrics.ValidationViolations(childComplexity), true
+
+	case "EntityProfileType.companyId":
+		if e.ComplexityRoot.EntityProfileType.CompanyID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.CompanyID(childComplexity), true
+	case "EntityProfileType.createdAt":
+		if e.ComplexityRoot.EntityProfileType.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.CreatedAt(childComplexity), true
+	case "EntityProfileType.description":
+		if e.ComplexityRoot.EntityProfileType.Description == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.Description(childComplexity), true
+	case "EntityProfileType.id":
+		if e.ComplexityRoot.EntityProfileType.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.ID(childComplexity), true
+	case "EntityProfileType.name":
+		if e.ComplexityRoot.EntityProfileType.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.Name(childComplexity), true
+	case "EntityProfileType.type":
+		if e.ComplexityRoot.EntityProfileType.Type == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.Type(childComplexity), true
+	case "EntityProfileType.updatedAt":
+		if e.ComplexityRoot.EntityProfileType.UpdatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.UpdatedAt(childComplexity), true
 
 	case "Graph.entryPoints":
 		if e.ComplexityRoot.Graph.EntryPoints == nil {
@@ -519,6 +750,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.HashChainStatus.Verified(childComplexity), true
 
+	case "Mutation.recordLLMUsage":
+		if e.ComplexityRoot.Mutation.RecordLLMUsage == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_recordLLMUsage_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RecordLLMUsage(childComplexity, args["tokens"].(int)), true
+
 	case "NotificationConfig.defaultScope":
 		if e.ComplexityRoot.NotificationConfig.DefaultScope == nil {
 			break
@@ -593,6 +836,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.NotificationSummary.WarningCount(childComplexity), true
 
+	case "Query.checkCredits":
+		if e.ComplexityRoot.Query.CheckCredits == nil {
+			break
+		}
+
+		args, err := ec.field_Query_checkCredits_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.CheckCredits(childComplexity, args["meter"].(*string), args["amount"].(*int)), true
 	case "Query.contractGraph":
 		if e.ComplexityRoot.Query.ContractGraph == nil {
 			break
@@ -604,6 +858,45 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ContractGraph(childComplexity, args["name"].(string), args["version"].(*int)), true
+	case "Query.entityProfile":
+		if e.ComplexityRoot.Query.EntityProfile == nil {
+			break
+		}
+
+		args, err := ec.field_Query_entityProfile_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EntityProfile(childComplexity, args["id"].(*string), args["refKey"].(*string), args["type"].(*string)), true
+	case "Query.entityProfileHistory":
+		if e.ComplexityRoot.Query.EntityProfileHistory == nil {
+			break
+		}
+
+		args, err := ec.field_Query_entityProfileHistory_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EntityProfileHistory(childComplexity, args["profileID"].(string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+	case "Query.entityProfileTypes":
+		if e.ComplexityRoot.Query.EntityProfileTypes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.EntityProfileTypes(childComplexity), true
+	case "Query.entityProfilesByType":
+		if e.ComplexityRoot.Query.EntityProfilesByType == nil {
+			break
+		}
+
+		args, err := ec.field_Query_entityProfilesByType_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.EntityProfilesByType(childComplexity, args["type"].(string), args["search"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 
 	case "Query.resolveActors":
 		if e.ComplexityRoot.Query.ResolveActors == nil {
@@ -1067,6 +1360,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Thread.ID(childComplexity), true
+	case "Thread.label":
+		if e.ComplexityRoot.Thread.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Thread.Label(childComplexity), true
 	case "Thread.lastHash":
 		if e.ComplexityRoot.Thread.LastHash == nil {
 			break
@@ -1246,12 +1545,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ThreadNotification.ViolationType(childComplexity), true
 
-	case "Transition.canRetry":
-		if e.ComplexityRoot.Transition.CanRetry == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Transition.CanRetry(childComplexity), true
 	case "Transition.from":
 		if e.ComplexityRoot.Transition.From == nil {
 			break
@@ -1264,6 +1557,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Transition.MaxRetries(childComplexity), true
+	case "Transition.timeout":
+		if e.ComplexityRoot.Transition.Timeout == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Transition.Timeout(childComplexity), true
 	case "Transition.to":
 		if e.ComplexityRoot.Transition.To == nil {
 			break
@@ -1456,6 +1755,21 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 
 			return &response
 		}
+	case ast.Mutation:
+		return func(ctx context.Context) *graphql.Response {
+			if !first {
+				return nil
+			}
+			first = false
+			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
+			data := ec._Mutation(ctx, opCtx.Operation.SelectionSet)
+			var buf bytes.Buffer
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
+		}
 
 	default:
 		return graphql.OneShot(graphql.ErrorResponse(ctx, "unsupported GraphQL operation"))
@@ -1551,6 +1865,7 @@ type SubStep {
 
 type Thread {
   id: ID!
+  label: String
   contractId: String
   contractVersion: Int
   contractName: String
@@ -1624,7 +1939,7 @@ type GraphNode {
 type Transition {
   from: String!
   to: [String!]!
-  canRetry: Boolean!
+  timeout: String
   maxRetries: Int!
 }
 
@@ -1680,6 +1995,16 @@ type Query {
     limit: Int = 50
     offset: Int = 0
   ): ThreadConnection!
+
+  # Get thread history for a specific entity profile
+  entityProfileHistory(
+    profileID: ID!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
@@ -1709,6 +2034,36 @@ type Query {
   
   # Verify hash integrity for a single step
   verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+
+  # Verify if the company has sufficient credits (amount: millicents, meter: meter name)
+  # If amount/meter are omitted, performs a basic active account check.
+  checkCredits(meter: String, amount: Int): Boolean!
+
+  # Retrieve an entity profile and its intelligence metrics
+  entityProfile(id: String, refKey: String, type: String): EntityProfile
+
+  # Retrieve all configured entity profile types for the company
+  entityProfileTypes: [EntityProfileType!]!
+
+  # List entity profiles for a given profile type (by profile type name). Supports
+  # case-insensitive search across ref_key and name plus pagination.
+  entityProfilesByType(
+    type: String!
+    search: String
+    limit: Int
+    offset: Int
+  ): EntityProfileConnection!
+}
+
+type EntityProfileConnection {
+  items: [EntityProfile!]!
+  totalCount: Int!
+  profileType: EntityProfileType
+}
+
+type Mutation {
+  # Record LLM token usage for the authenticated company
+  recordLLMUsage(tokens: Int!): Boolean!
 }
 
 type StepIntegrityStatus {
@@ -1803,6 +2158,40 @@ type ActorInfo {
   type: String!
   companyName: String
 }
+
+type EntityProfileMetrics {
+  entityProfileId: String!
+  totalDeliveries: Int!
+  completedSuccessfully: Int!
+  validationViolations: Int!
+  deliveryHealthScore: Float
+  prevDeliveryHealthScore: Float
+  healthTrendSlope: Float
+  averageDeliveryTimeMs: Int
+  lastCalculatedAt: String
+}
+
+type EntityProfile {
+  id: String!
+  refKey: String!
+  companyId: String!
+  profileTypeId: String!
+  profileType: EntityProfileType
+  name: String
+  createdAt: String!
+  lastActiveAt: String!
+  metrics: EntityProfileMetrics
+}
+
+type EntityProfileType {
+  id: String!
+  companyId: String!
+  name: String!
+  type: [String!]!
+  description: String
+  createdAt: String!
+  updatedAt: String!
+}
 `, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
@@ -1810,6 +2199,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // endregion ************************** generated!.gotpl **************************
 
 // region    ***************************** args.gotpl *****************************
+
+func (ec *executionContext) field_Mutation_recordLLMUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "tokens", ec.unmarshalNInt2int)
+	if err != nil {
+		return nil, err
+	}
+	args["tokens"] = arg0
+	return args, nil
+}
 
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
@@ -1819,6 +2219,22 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_checkCredits_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "meter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["meter"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "amount", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["amount"] = arg1
 	return args, nil
 }
 
@@ -1835,6 +2251,89 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 		return nil, err
 	}
 	args["version"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_entityProfileHistory_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "profileID", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["profileID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "status", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["status"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg5
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_entityProfile_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "refKey", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["refKey"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["type"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_entityProfilesByType_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "type", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["type"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "search", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["search"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg3
 	return args, nil
 }
 
@@ -2446,8 +2945,8 @@ func (ec *executionContext) fieldContext_ContractGraph_transitions(_ context.Con
 				return ec.fieldContext_Transition_from(ctx, field)
 			case "to":
 				return ec.fieldContext_Transition_to(ctx, field)
-			case "canRetry":
-				return ec.fieldContext_Transition_canRetry(ctx, field)
+			case "timeout":
+				return ec.fieldContext_Transition_timeout(ctx, field)
 			case "maxRetries":
 				return ec.fieldContext_Transition_maxRetries(ctx, field)
 			}
@@ -2553,6 +3052,890 @@ func (ec *executionContext) fieldContext_ContractGraph_notificationConfig(_ cont
 				return ec.fieldContext_NotificationConfig_roleDefaults(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type NotificationConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_id(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_refKey(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_refKey,
+		func(ctx context.Context) (any, error) {
+			return obj.RefKey, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_refKey(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_companyId(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_companyId,
+		func(ctx context.Context) (any, error) {
+			return obj.CompanyID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_companyId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_profileTypeId(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_profileTypeId,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileTypeID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_profileTypeId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_profileType(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_profileType,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileType, nil
+		},
+		nil,
+		ec.marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_profileType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfileType_id(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfileType_companyId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfileType_name(ctx, field)
+			case "type":
+				return ec.fieldContext_EntityProfileType_type(ctx, field)
+			case "description":
+				return ec.fieldContext_EntityProfileType_description(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_name(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_createdAt(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_lastActiveAt(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_lastActiveAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastActiveAt, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_lastActiveAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfile_metrics(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_metrics,
+		func(ctx context.Context) (any, error) {
+			return obj.Metrics, nil
+		},
+		nil,
+		ec.marshalOEntityProfileMetrics2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileMetrics,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_metrics(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "entityProfileId":
+				return ec.fieldContext_EntityProfileMetrics_entityProfileId(ctx, field)
+			case "totalDeliveries":
+				return ec.fieldContext_EntityProfileMetrics_totalDeliveries(ctx, field)
+			case "completedSuccessfully":
+				return ec.fieldContext_EntityProfileMetrics_completedSuccessfully(ctx, field)
+			case "validationViolations":
+				return ec.fieldContext_EntityProfileMetrics_validationViolations(ctx, field)
+			case "deliveryHealthScore":
+				return ec.fieldContext_EntityProfileMetrics_deliveryHealthScore(ctx, field)
+			case "prevDeliveryHealthScore":
+				return ec.fieldContext_EntityProfileMetrics_prevDeliveryHealthScore(ctx, field)
+			case "healthTrendSlope":
+				return ec.fieldContext_EntityProfileMetrics_healthTrendSlope(ctx, field)
+			case "averageDeliveryTimeMs":
+				return ec.fieldContext_EntityProfileMetrics_averageDeliveryTimeMs(ctx, field)
+			case "lastCalculatedAt":
+				return ec.fieldContext_EntityProfileMetrics_lastCalculatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileMetrics", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_items(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_items,
+		func(ctx context.Context) (any, error) {
+			return obj.Items, nil
+		},
+		nil,
+		ec.marshalNEntityProfile2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfile_id(ctx, field)
+			case "refKey":
+				return ec.fieldContext_EntityProfile_refKey(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfile_companyId(ctx, field)
+			case "profileTypeId":
+				return ec.fieldContext_EntityProfile_profileTypeId(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfile_profileType(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfile_name(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfile_createdAt(ctx, field)
+			case "lastActiveAt":
+				return ec.fieldContext_EntityProfile_lastActiveAt(ctx, field)
+			case "metrics":
+				return ec.fieldContext_EntityProfile_metrics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_totalCount,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileConnection_profileType(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileConnection_profileType,
+		func(ctx context.Context) (any, error) {
+			return obj.ProfileType, nil
+		},
+		nil,
+		ec.marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileConnection_profileType(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfileType_id(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfileType_companyId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfileType_name(ctx, field)
+			case "type":
+				return ec.fieldContext_EntityProfileType_type(ctx, field)
+			case "description":
+				return ec.fieldContext_EntityProfileType_description(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_entityProfileId(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_entityProfileId,
+		func(ctx context.Context) (any, error) {
+			return obj.EntityProfileID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_entityProfileId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_totalDeliveries(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_totalDeliveries,
+		func(ctx context.Context) (any, error) {
+			return obj.TotalDeliveries, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_totalDeliveries(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_completedSuccessfully(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_completedSuccessfully,
+		func(ctx context.Context) (any, error) {
+			return obj.CompletedSuccessfully, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_completedSuccessfully(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_validationViolations(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_validationViolations,
+		func(ctx context.Context) (any, error) {
+			return obj.ValidationViolations, nil
+		},
+		nil,
+		ec.marshalNInt2int,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_validationViolations(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_deliveryHealthScore(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_deliveryHealthScore,
+		func(ctx context.Context) (any, error) {
+			return obj.DeliveryHealthScore, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_deliveryHealthScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_prevDeliveryHealthScore(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_prevDeliveryHealthScore,
+		func(ctx context.Context) (any, error) {
+			return obj.PrevDeliveryHealthScore, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_prevDeliveryHealthScore(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_healthTrendSlope(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_healthTrendSlope,
+		func(ctx context.Context) (any, error) {
+			return obj.HealthTrendSlope, nil
+		},
+		nil,
+		ec.marshalOFloat2ᚖfloat64,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_healthTrendSlope(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Float does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_averageDeliveryTimeMs(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_averageDeliveryTimeMs,
+		func(ctx context.Context) (any, error) {
+			return obj.AverageDeliveryTimeMs, nil
+		},
+		nil,
+		ec.marshalOInt2ᚖint,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_averageDeliveryTimeMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileMetrics_lastCalculatedAt(ctx context.Context, field graphql.CollectedField, obj *EntityProfileMetrics) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileMetrics_lastCalculatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.LastCalculatedAt, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileMetrics_lastCalculatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileMetrics",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_id(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_companyId(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_companyId,
+		func(ctx context.Context) (any, error) {
+			return obj.CompanyID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_companyId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_name(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_type(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_type,
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_description(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_description,
+		func(ctx context.Context) (any, error) {
+			return obj.Description, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_description(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_createdAt(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_createdAt,
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityProfileType_updatedAt(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_updatedAt,
+		func(ctx context.Context) (any, error) {
+			return obj.UpdatedAt, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_updatedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -3133,6 +4516,47 @@ func (ec *executionContext) fieldContext_HashChainStatus_error(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_recordLLMUsage(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_recordLLMUsage,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RecordLLMUsage(ctx, fc.Args["tokens"].(int))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_recordLLMUsage(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_recordLLMUsage_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _NotificationConfig_defaultScope(ctx context.Context, field graphql.CollectedField, obj *models.NotificationConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3508,6 +4932,8 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -3705,6 +5131,53 @@ func (ec *executionContext) fieldContext_Query_threadsByRef(ctx context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_entityProfileHistory(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfileHistory,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EntityProfileHistory(ctx, fc.Args["profileID"].(string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfileHistory(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "threads":
+				return ec.fieldContext_ThreadConnection_threads(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_ThreadConnection_totalCount(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ThreadConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_entityProfileHistory_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_threadChain(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3732,6 +5205,8 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -4134,6 +5609,202 @@ func (ec *executionContext) fieldContext_Query_verifyStepIntegrity(ctx context.C
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_verifyStepIntegrity_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_checkCredits(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_checkCredits,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().CheckCredits(ctx, fc.Args["meter"].(*string), fc.Args["amount"].(*int))
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_checkCredits(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_checkCredits_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_entityProfile(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfile,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EntityProfile(ctx, fc.Args["id"].(*string), fc.Args["refKey"].(*string), fc.Args["type"].(*string))
+		},
+		nil,
+		ec.marshalOEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfile(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfile_id(ctx, field)
+			case "refKey":
+				return ec.fieldContext_EntityProfile_refKey(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfile_companyId(ctx, field)
+			case "profileTypeId":
+				return ec.fieldContext_EntityProfile_profileTypeId(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfile_profileType(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfile_name(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfile_createdAt(ctx, field)
+			case "lastActiveAt":
+				return ec.fieldContext_EntityProfile_lastActiveAt(ctx, field)
+			case "metrics":
+				return ec.fieldContext_EntityProfile_metrics(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_entityProfile_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_entityProfileTypes(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfileTypes,
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().EntityProfileTypes(ctx)
+		},
+		nil,
+		ec.marshalNEntityProfileType2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileTypeᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfileTypes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityProfileType_id(ctx, field)
+			case "companyId":
+				return ec.fieldContext_EntityProfileType_companyId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityProfileType_name(ctx, field)
+			case "type":
+				return ec.fieldContext_EntityProfileType_type(ctx, field)
+			case "description":
+				return ec.fieldContext_EntityProfileType_description(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_entityProfilesByType(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_entityProfilesByType,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().EntityProfilesByType(ctx, fc.Args["type"].(string), fc.Args["search"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNEntityProfileConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_entityProfilesByType(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "items":
+				return ec.fieldContext_EntityProfileConnection_items(ctx, field)
+			case "totalCount":
+				return ec.fieldContext_EntityProfileConnection_totalCount(ctx, field)
+			case "profileType":
+				return ec.fieldContext_EntityProfileConnection_profileType(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityProfileConnection", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_entityProfilesByType_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -5702,6 +7373,35 @@ func (ec *executionContext) fieldContext_Thread_id(_ context.Context, field grap
 	return fc, nil
 }
 
+func (ec *executionContext) _Thread_label(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_label,
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		ec.marshalOString2string,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_contractId(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6353,6 +8053,8 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -6505,6 +8207,8 @@ func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Cont
 			switch field.Name {
 			case "id":
 				return ec.fieldContext_Thread_id(ctx, field)
+			case "label":
+				return ec.fieldContext_Thread_label(ctx, field)
 			case "contractId":
 				return ec.fieldContext_Thread_contractId(ctx, field)
 			case "contractVersion":
@@ -7043,30 +8747,30 @@ func (ec *executionContext) fieldContext_Transition_to(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_canRetry(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_timeout(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
-		ec.fieldContext_Transition_canRetry,
+		ec.fieldContext_Transition_timeout,
 		func(ctx context.Context) (any, error) {
-			return obj.CanRetry, nil
+			return obj.Timeout, nil
 		},
 		nil,
-		ec.marshalNBoolean2bool,
+		ec.marshalOString2string,
 		true,
-		true,
+		false,
 	)
 }
 
-func (ec *executionContext) fieldContext_Transition_canRetry(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Transition_timeout(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Transition",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Boolean does not have child fields")
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -9477,6 +11181,252 @@ func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var entityProfileImplementors = []string{"EntityProfile"}
+
+func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.SelectionSet, obj *EntityProfile) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityProfileImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityProfile")
+		case "id":
+			out.Values[i] = ec._EntityProfile_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "refKey":
+			out.Values[i] = ec._EntityProfile_refKey(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "companyId":
+			out.Values[i] = ec._EntityProfile_companyId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "profileTypeId":
+			out.Values[i] = ec._EntityProfile_profileTypeId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "profileType":
+			out.Values[i] = ec._EntityProfile_profileType(ctx, field, obj)
+		case "name":
+			out.Values[i] = ec._EntityProfile_name(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._EntityProfile_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "lastActiveAt":
+			out.Values[i] = ec._EntityProfile_lastActiveAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "metrics":
+			out.Values[i] = ec._EntityProfile_metrics(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var entityProfileConnectionImplementors = []string{"EntityProfileConnection"}
+
+func (ec *executionContext) _EntityProfileConnection(ctx context.Context, sel ast.SelectionSet, obj *EntityProfileConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityProfileConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityProfileConnection")
+		case "items":
+			out.Values[i] = ec._EntityProfileConnection_items(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._EntityProfileConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "profileType":
+			out.Values[i] = ec._EntityProfileConnection_profileType(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var entityProfileMetricsImplementors = []string{"EntityProfileMetrics"}
+
+func (ec *executionContext) _EntityProfileMetrics(ctx context.Context, sel ast.SelectionSet, obj *EntityProfileMetrics) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityProfileMetricsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityProfileMetrics")
+		case "entityProfileId":
+			out.Values[i] = ec._EntityProfileMetrics_entityProfileId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalDeliveries":
+			out.Values[i] = ec._EntityProfileMetrics_totalDeliveries(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "completedSuccessfully":
+			out.Values[i] = ec._EntityProfileMetrics_completedSuccessfully(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "validationViolations":
+			out.Values[i] = ec._EntityProfileMetrics_validationViolations(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deliveryHealthScore":
+			out.Values[i] = ec._EntityProfileMetrics_deliveryHealthScore(ctx, field, obj)
+		case "prevDeliveryHealthScore":
+			out.Values[i] = ec._EntityProfileMetrics_prevDeliveryHealthScore(ctx, field, obj)
+		case "healthTrendSlope":
+			out.Values[i] = ec._EntityProfileMetrics_healthTrendSlope(ctx, field, obj)
+		case "averageDeliveryTimeMs":
+			out.Values[i] = ec._EntityProfileMetrics_averageDeliveryTimeMs(ctx, field, obj)
+		case "lastCalculatedAt":
+			out.Values[i] = ec._EntityProfileMetrics_lastCalculatedAt(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var entityProfileTypeImplementors = []string{"EntityProfileType"}
+
+func (ec *executionContext) _EntityProfileType(ctx context.Context, sel ast.SelectionSet, obj *EntityProfileType) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityProfileTypeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityProfileType")
+		case "id":
+			out.Values[i] = ec._EntityProfileType_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "companyId":
+			out.Values[i] = ec._EntityProfileType_companyId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._EntityProfileType_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "type":
+			out.Values[i] = ec._EntityProfileType_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "description":
+			out.Values[i] = ec._EntityProfileType_description(ctx, field, obj)
+		case "createdAt":
+			out.Values[i] = ec._EntityProfileType_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updatedAt":
+			out.Values[i] = ec._EntityProfileType_updatedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var graphImplementors = []string{"Graph"}
 
 func (ec *executionContext) _Graph(ctx context.Context, sel ast.SelectionSet, obj *models.Graph) graphql.Marshaler {
@@ -9768,6 +11718,55 @@ func (ec *executionContext) _HashChainStatus(ctx context.Context, sel ast.Select
 	return out
 }
 
+var mutationImplementors = []string{"Mutation"}
+
+func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, mutationImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Mutation",
+	})
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		innerCtx := graphql.WithRootFieldContext(ctx, &graphql.RootFieldContext{
+			Object: field.Name,
+			Field:  field,
+		})
+
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Mutation")
+		case "recordLLMUsage":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_recordLLMUsage(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var notificationConfigImplementors = []string{"NotificationConfig"}
 
 func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationConfig) graphql.Marshaler {
@@ -10025,6 +12024,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfileHistory":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfileHistory(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "threadChain":
 			field := field
 
@@ -10167,6 +12188,91 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_verifyStepIntegrity(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "checkCredits":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_checkCredits(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfile":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfile(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfileTypes":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfileTypes(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "entityProfilesByType":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_entityProfilesByType(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -10909,6 +13015,8 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "label":
+			out.Values[i] = ec._Thread_label(ctx, field, obj)
 		case "contractId":
 			out.Values[i] = ec._Thread_contractId(ctx, field, obj)
 		case "contractVersion":
@@ -11548,11 +13656,8 @@ func (ec *executionContext) _Transition(ctx context.Context, sel ast.SelectionSe
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "canRetry":
-			out.Values[i] = ec._Transition_canRetry(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
+		case "timeout":
+			out.Values[i] = ec._Transition_timeout(ctx, field, obj)
 		case "maxRetries":
 			out.Values[i] = ec._Transition_maxRetries(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -12202,6 +14307,72 @@ func (ec *executionContext) marshalNContractGraph2ᚖgithubᚗcomᚋthreadifyᚋ
 	return ec._ContractGraph(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNEntityProfile2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileᚄ(ctx context.Context, sel ast.SelectionSet, v []*EntityProfile) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx context.Context, sel ast.SelectionSet, v *EntityProfile) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityProfile(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEntityProfileConnection2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection(ctx context.Context, sel ast.SelectionSet, v EntityProfileConnection) graphql.Marshaler {
+	return ec._EntityProfileConnection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEntityProfileConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileConnection(ctx context.Context, sel ast.SelectionSet, v *EntityProfileConnection) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityProfileConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEntityProfileType2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileTypeᚄ(ctx context.Context, sel ast.SelectionSet, v []*EntityProfileType) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType(ctx context.Context, sel ast.SelectionSet, v *EntityProfileType) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityProfileType(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraph(ctx context.Context, sel ast.SelectionSet, v models.Graph) graphql.Marshaler {
 	return ec._Graph(ctx, sel, &v)
 }
@@ -12715,6 +14886,44 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx context.Context, sel ast.SelectionSet, v *EntityProfile) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EntityProfile(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEntityProfileMetrics2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileMetrics(ctx context.Context, sel ast.SelectionSet, v *EntityProfileMetrics) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EntityProfileMetrics(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfileType(ctx context.Context, sel ast.SelectionSet, v *EntityProfileType) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._EntityProfileType(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalFloatContext(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel ast.SelectionSet, v *float64) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	res := graphql.MarshalFloatContext(*v)
+	return graphql.WrapContextMarshaler(ctx, res)
 }
 
 func (ec *executionContext) marshalOHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *models.HashChainStatus) graphql.Marshaler {

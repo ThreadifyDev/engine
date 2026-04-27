@@ -1,17 +1,25 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { Key, Check } from 'lucide-react';
-import { api } from '~/lib/api';
+import { Key, Plus, Copy, Check, Trash2, Eye, EyeOff, X } from 'lucide-react';
+import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
-import Alert from '~/components/Alert';
+import Alert, { isCreditError } from '~/components/Alert';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "API Keys - Threadify" },
+    { name: "description", content: "Manage your API keys" },
+  ];
+};
 
 export default function APIKeys() {
   const navigate = useNavigate();
   const { roles, isLoading: rolesLoading } = useServiceAccountRoles();
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [expiresIn, setExpiresIn] = useState<string>('never');
@@ -20,6 +28,8 @@ export default function APIKeys() {
   const [copySuccess, setCopySuccess] = useState(false);
   const [createServiceAccount, setCreateServiceAccount] = useState(true);
   const [serviceAccountRole, setServiceAccountRole] = useState('standard_service');
+  const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
+  const [selectedServiceAccountId, setSelectedServiceAccountId] = useState<string>('');
 
   // Set default role when roles are loaded
   useEffect(() => {
@@ -36,7 +46,17 @@ export default function APIKeys() {
       return;
     }
     fetchAPIKeys();
+    fetchServiceAccounts();
   }, [navigate]);
+
+  const fetchServiceAccounts = async () => {
+    try {
+      const response = await api.listServiceAccounts();
+      setServiceAccounts(response.service_accounts || []);
+    } catch (err) {
+      console.error('Failed to load service accounts:', err);
+    }
+  };
 
   const fetchAPIKeys = async () => {
     try {
@@ -44,7 +64,14 @@ export default function APIKeys() {
       const response = await api.listAPIKeys();
       setApiKeys(response.api_keys || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load API keys');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to load API keys' });
+      }
     } finally {
       setLoading(false);
     }
@@ -52,7 +79,7 @@ export default function APIKeys() {
 
   const handleCreateKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setCreating(true);
 
     try {
@@ -60,6 +87,7 @@ export default function APIKeys() {
       const response = await api.createAPIKey({
         name: newKeyName,
         expires_in: expiresInDays,
+        service_account_id: !createServiceAccount && selectedServiceAccountId ? selectedServiceAccountId : undefined,
         create_service_account: createServiceAccount,
         service_account_role: createServiceAccount ? serviceAccountRole : undefined,
       });
@@ -68,10 +96,18 @@ export default function APIKeys() {
       setNewKeyName('');
       setExpiresIn('never');
       setCreateServiceAccount(true);
+      setSelectedServiceAccountId('');
       setServiceAccountRole('developer');
       await fetchAPIKeys();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create API key');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to create API key' });
+      }
     } finally {
       setCreating(false);
     }
@@ -86,7 +122,14 @@ export default function APIKeys() {
       await api.revokeAPIKey(keyId);
       await fetchAPIKeys();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke API key');
+      if (err instanceof ValidationError) {
+        setError({
+          message: err.message,
+          details: err.details,
+        });
+      } else {
+        setError({ message: err instanceof Error ? err.message : 'Failed to revoke API key' });
+      }
     }
   };
 
@@ -110,7 +153,7 @@ export default function APIKeys() {
       <div className="p-8">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">API Keys</h1>
+          <h1 className="text-2xl font-bold mb-2">API Keys</h1>
           <p className="text-gray-600">
             Manage your API keys for authenticating with the Threadify API
           </p>
@@ -124,7 +167,19 @@ export default function APIKeys() {
         )}
 
         {/* Error Message */}
-        {error && <Alert type="error" message={error} className="mb-6" />}
+        {error && (
+          <Alert
+            type="error"
+            message={error.message}
+            details={error.details}
+            className="mb-6"
+            action={
+              isCreditError(error.message)
+                ? { label: 'Go to Billing', onClick: () => navigate('/u/settings?tab=billing'), variant: 'primary' }
+                : undefined
+            }
+          />
+        )}
 
         {/* Create Button */}
         <div className="mb-6">
@@ -198,7 +253,7 @@ export default function APIKeys() {
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleRevokeKey(key.id, key.name)}
-                        className="px-4 py-2 border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors text-sm font-medium rounded"
+                        className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                       >
                         Revoke
                       </button>
@@ -294,12 +349,34 @@ export default function APIKeys() {
                         className="w-4 h-4 text-black border-gray-300 rounded focus:ring-black"
                       />
                       <label htmlFor="createServiceAccount" className="ml-2 text-sm font-medium text-gray-700">
-                        Create service account with this API key
+                        Create new service account
                       </label>
                     </div>
                     <p className="text-xs text-gray-600 mb-3">
                       Service accounts provide role-based access control for your API keys
                     </p>
+                    
+                    {!createServiceAccount && (
+                      <div className="mb-3">
+                        <label htmlFor="existingServiceAccount" className="block text-sm font-medium text-gray-700 mb-2">
+                          Select Existing Service Account
+                        </label>
+                        <select
+                          id="existingServiceAccount"
+                          value={selectedServiceAccountId}
+                          onChange={(e) => setSelectedServiceAccountId(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white text-sm"
+                          required={!createServiceAccount}
+                        >
+                          <option value="">Select a service account...</option>
+                          {serviceAccounts.map((sa) => (
+                            <option key={sa.id} value={sa.id}>
+                              {sa.name} {!sa.is_active ? '(Inactive)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     
                     {createServiceAccount && (
                       <div>
@@ -329,7 +406,7 @@ export default function APIKeys() {
                     )}
                   </div>
 
-                  <div className="flex gap-4">
+                  <div className="flex justify-end items-center gap-6 mt-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -337,14 +414,14 @@ export default function APIKeys() {
                         setNewKeyName('');
                         setExpiresIn('never');
                       }}
-                      className="flex-1 px-6 py-3 border border-gray-300 hover:bg-gray-100 transition-colors font-medium rounded"
+                      className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={creating}
-                      className="flex-1 px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 rounded"
+                      className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                     >
                       {creating ? 'Creating...' : 'Create Key'}
                     </button>

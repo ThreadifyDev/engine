@@ -4,24 +4,24 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
 type ServiceManager struct {
-	services []interfaces.BackgroundService
+	services []types.BackgroundService
 	logger   *zap.Logger
 	mu       sync.Mutex
 }
 
 func NewServiceManager(logger *zap.Logger) *ServiceManager {
 	return &ServiceManager{
-		services: make([]interfaces.BackgroundService, 0),
+		services: make([]types.BackgroundService, 0),
 		logger:   logger,
 	}
 }
 
-func (m *ServiceManager) Register(s interfaces.BackgroundService) {
+func (m *ServiceManager) Register(s types.BackgroundService) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.services = append(m.services, s)

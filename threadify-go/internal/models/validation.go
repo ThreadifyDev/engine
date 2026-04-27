@@ -38,9 +38,32 @@ const (
 type NotificationSource string
 
 const (
-	NotificationSourceExecution  NotificationSource = "execution"  // SDK-reported step status
-	NotificationSourceValidation NotificationSource = "validation" // Contract validation result
-	NotificationSourceThread     NotificationSource = "thread"     // Thread-level events
+	NotificationSourceStep   NotificationSource = "step"   // SDK-reported step status (was: execution)
+	NotificationSourceRule   NotificationSource = "rule"   // Contract validation result (was: validation)
+	NotificationSourceThread NotificationSource = "thread" // Thread-level events
+)
+
+// NotificationType represents the full notification type
+type NotificationType string
+
+const (
+	// Step notifications (execution events)
+	NotificationTypeStepSuccess NotificationType = "step.success"
+	NotificationTypeStepFailed  NotificationType = "step.failed"
+	NotificationTypeStepError   NotificationType = "step.error"
+
+	// Rule notifications (validation events)
+	NotificationTypeRuleViolated NotificationType = "rule.violated"
+	NotificationTypeRulePassed   NotificationType = "rule.passed"
+
+	// Specific rule violation types
+	NotificationTypeRuleViolatedTimeout    NotificationType = "rule.violated.timeout"
+	NotificationTypeRuleViolatedRetryLimit NotificationType = "rule.violated.retry_limit"
+	NotificationTypeRuleViolatedCritical   NotificationType = "rule.violated.critical"
+
+	// Thread notifications
+	NotificationTypeThreadCompleted NotificationType = "thread.completed"
+	NotificationTypeThreadCancelled NotificationType = "thread.cancelled"
 )
 
 // ThreadViolation tracks all failed steps in a thread
@@ -72,8 +95,8 @@ type ValidationNotification struct {
 	ContractName   string `json:"contractName"` // Contract name (empty for non-contract threads)
 
 	// Notification metadata
-	Source           NotificationSource `json:"source"`           // execution, validation, or thread
-	NotificationType string             `json:"notificationType"` // e.g., "execution.failed", "validation.violated"
+	Source           NotificationSource `json:"source"`           // step, rule, or thread
+	NotificationType string             `json:"notificationType"` // e.g., "step.failed", "rule.violated"
 
 	// Status (always present)
 	StepStatus string `json:"stepStatus"` // User's set status: "success", "failed", "error"

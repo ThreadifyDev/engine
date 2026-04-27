@@ -67,6 +67,7 @@ type SubStep {
 
 type Thread {
   id: ID!
+  label: String
   contractId: String
   contractVersion: Int
   contractName: String
@@ -140,7 +141,7 @@ type GraphNode {
 type Transition {
   from: String!
   to: [String!]!
-  canRetry: Boolean!
+  timeout: String
   maxRetries: Int!
 }
 
@@ -196,6 +197,16 @@ type Query {
     limit: Int = 50
     offset: Int = 0
   ): ThreadConnection!
+
+  # Get thread history for a specific entity profile
+  entityProfileHistory(
+    profileID: ID!
+    status: String
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): ThreadConnection!
   
   # Get thread chain starting from root, following linkedThread relationships
   threadChain(rootId: ID!, maxDepth: Int = 3): [Thread!]!
@@ -225,6 +236,36 @@ type Query {
   
   # Verify hash integrity for a single step
   verifyStepIntegrity(threadId: String!, stepName: String!, idempotencyKey: String!): StepIntegrityStatus!
+
+  # Verify if the company has sufficient credits (amount: millicents, meter: meter name)
+  # If amount/meter are omitted, performs a basic active account check.
+  checkCredits(meter: String, amount: Int): Boolean!
+
+  # Retrieve an entity profile and its intelligence metrics
+  entityProfile(id: String, refKey: String, type: String): EntityProfile
+
+  # Retrieve all configured entity profile types for the company
+  entityProfileTypes: [EntityProfileType!]!
+
+  # List entity profiles for a given profile type (by profile type name). Supports
+  # case-insensitive search across ref_key and name plus pagination.
+  entityProfilesByType(
+    type: String!
+    search: String
+    limit: Int
+    offset: Int
+  ): EntityProfileConnection!
+}
+
+type EntityProfileConnection {
+  items: [EntityProfile!]!
+  totalCount: Int!
+  profileType: EntityProfileType
+}
+
+type Mutation {
+  # Record LLM token usage for the authenticated company
+  recordLLMUsage(tokens: Int!): Boolean!
 }
 
 type StepIntegrityStatus {
@@ -318,4 +359,38 @@ type ActorInfo {
   name: String!
   type: String!
   companyName: String
+}
+
+type EntityProfileMetrics {
+  entityProfileId: String!
+  totalDeliveries: Int!
+  completedSuccessfully: Int!
+  validationViolations: Int!
+  deliveryHealthScore: Float
+  prevDeliveryHealthScore: Float
+  healthTrendSlope: Float
+  averageDeliveryTimeMs: Int
+  lastCalculatedAt: String
+}
+
+type EntityProfile {
+  id: String!
+  refKey: String!
+  companyId: String!
+  profileTypeId: String!
+  profileType: EntityProfileType
+  name: String
+  createdAt: String!
+  lastActiveAt: String!
+  metrics: EntityProfileMetrics
+}
+
+type EntityProfileType {
+  id: String!
+  companyId: String!
+  name: String!
+  type: [String!]!
+  description: String
+  createdAt: String!
+  updatedAt: String!
 }

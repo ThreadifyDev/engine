@@ -30,6 +30,8 @@ func AuthAccessTokenAuth(authService *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
+		// Use internal UserID for RBAC role lookups (user_roles table stores by internal ID)
+		// AuthUserID is only used as Supabase bridge, not for internal operations
 		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user")
 		if err == nil && len(dbRoles) > 0 {
 			claims.Roles = dbRoles

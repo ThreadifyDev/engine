@@ -42,43 +42,68 @@ type Loader struct {
 	mu          sync.RWMutex
 }
 
-// NewLoader creates a new RBAC loader
+// NewLoader creates a new RBAC loader reading from disk
 func NewLoader(permissionsPath, rolesPath string) (*Loader, error) {
 	loader := &Loader{}
 
 	// Load permissions
-	if err := loader.loadPermissions(permissionsPath); err != nil {
-		return nil, fmt.Errorf("failed to load permissions: %w", err)
+	pData, err := os.ReadFile(permissionsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read permissions: %w", err)
+	}
+	if err := loader.loadPermissions(pData); err != nil {
+		return nil, fmt.Errorf("failed to parse permissions: %w", err)
 	}
 
 	// Load roles
-	if err := loader.loadRoles(rolesPath); err != nil {
-		return nil, fmt.Errorf("failed to load roles: %w", err)
+	rData, err := os.ReadFile(rolesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read roles: %w", err)
+	}
+	if err := loader.loadRoles(rData); err != nil {
+		return nil, fmt.Errorf("failed to parse roles: %w", err)
 	}
 
 	return loader, nil
 }
 
-// loadPermissions loads permissions from JSON file
-func (l *Loader) loadPermissions(path string) error {
-	data, err := os.ReadFile(path)
+// NewLoaderFromFS creates a new RBAC loader reading from an embedded filesystem
+func NewLoaderFromFS(fs interface {
+	ReadFile(name string) ([]byte, error)
+}, permissionsPath, rolesPath string) (*Loader, error) {
+	loader := &Loader{}
+
+	// Load permissions
+	pData, err := fs.ReadFile(permissionsPath)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to read permissions from FS: %w", err)
+	}
+	if err := loader.loadPermissions(pData); err != nil {
+		return nil, fmt.Errorf("failed to parse permissions: %w", err)
 	}
 
+	// Load roles
+	rData, err := fs.ReadFile(rolesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read roles from FS: %w", err)
+	}
+	if err := loader.loadRoles(rData); err != nil {
+		return nil, fmt.Errorf("failed to parse roles: %w", err)
+	}
+
+	return loader, nil
+}
+
+// loadPermissions unmarshals permissions from JSON data
+func (l *Loader) loadPermissions(data []byte) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	return json.Unmarshal(data, &l.permissions)
 }
 
-// loadRoles loads roles from JSON file
-func (l *Loader) loadRoles(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
+// loadRoles unmarshals roles from JSON data
+func (l *Loader) loadRoles(data []byte) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -186,10 +211,19 @@ func (l *Loader) GetRolesByLevel(level string) map[string]Role {
 	}
 }
 
-// Reload reloads permissions and roles from JSON files
+// Reload reloads permissions and roles from disk
 func (l *Loader) Reload(permissionsPath, rolesPath string) error {
-	if err := l.loadPermissions(permissionsPath); err != nil {
+	pData, err := os.ReadFile(permissionsPath)
+	if err != nil {
 		return err
 	}
-	return l.loadRoles(rolesPath)
+	if err := l.loadPermissions(pData); err != nil {
+		return err
+	}
+
+	rData, err := os.ReadFile(rolesPath)
+	if err != nil {
+		return err
+	}
+	return l.loadRoles(rData)
 }

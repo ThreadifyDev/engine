@@ -17,19 +17,20 @@ type apiError struct {
 }
 
 func bindJSON(c *gin.Context, dst any) bool {
-	if err := decodeJSON(c.Request, dst); err != nil {
+	if err := decodeJSONRequest(c, dst); err != nil {
 		c.JSON(http.StatusBadRequest, apiError{Error: err.Error()})
 		return false
 	}
 	return true
 }
 
-func decodeJSON(r *http.Request, dst any) error {
+func decodeJSONRequest(c *gin.Context, dst any) error {
+	r := c.Request
 	if r.Body == nil {
 		return errors.New("request body is required")
 	}
 
-	r.Body = http.MaxBytesReader(nil, r.Body, maxRequestBodyBytes)
+	r.Body = http.MaxBytesReader(c.Writer, r.Body, maxRequestBodyBytes)
 
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -52,7 +53,7 @@ func friendlyJSONError(err error) error {
 
 	switch {
 	case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF):
-		return errors.New("request body is required or malformed")
+		return errors.New("Invalid request body")
 
 	case errors.As(err, &syntaxErr):
 		return fmt.Errorf("malformed JSON at position %d", syntaxErr.Offset)

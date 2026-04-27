@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -19,7 +19,7 @@ type ConnectionService struct {
 }
 
 // NewConnectionService creates a new connection service.
-func NewConnectionService(logger *zap.Logger) interfaces.ConnectionManager {
+func NewConnectionService(logger *zap.Logger) types.ConnectionManager {
 	return &ConnectionService{
 		clients:       make(map[string]*models.ConnectedClient),
 		sessionCounts: make(map[string]int),
@@ -118,4 +118,12 @@ func (c *ConnectionService) GetClientCompany(ownerID string) (string, bool) {
 		return "", false
 	}
 	return client.CompanyID, true
+}
+
+// GetSessionCount returns the number of active sessions for an owner.
+// Returns 0 when the owner is not connected.
+func (c *ConnectionService) GetSessionCount(ownerID string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sessionCounts[ownerID]
 }

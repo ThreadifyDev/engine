@@ -4,18 +4,19 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	iface "threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/validation"
+	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
+	authService iface.AuthService
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
+func NewAuthHandler(authService iface.AuthService) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 	}
@@ -128,9 +129,6 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &req)
 	if err != nil {
-		if respondValidationError(c, err) {
-			return
-		}
 		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
 		c.JSON(statusCode, gin.H{"error": message})
 		return
@@ -149,11 +147,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	token := parts[1]
 	if err := h.authService.Logout(c.Request.Context(), token); err != nil {
-		c.JSON(http.StatusOK, gin.H{"message": "Logged out."})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or revoked token"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully."})
+	c.Status(http.StatusNoContent)
 }
 
 func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
@@ -176,36 +174,16 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "If an account exists with this email and is not verified, a verification email will be sent.",
+		"message": "If an account exists with this email, a verification email will be sent.",
 	})
 }
 
 func authErrorResponse(err error, fallbackStatus int, fallbackMessage string) (int, string) {
-	var requestValidationErr *validation.RequestValidationError
-	if errors.As(err, &requestValidationErr) {
-		return http.StatusBadRequest, requestValidationErr.FirstMessage()
+	if de := serror.GetDomainError(err); de != nil {
+		return de.Code, de.Message
 	}
 
-	switch {
-	case errors.Is(err, service.ErrUserAlreadyExists):
-		return http.StatusConflict, service.ErrUserAlreadyExists.Error()
-	case errors.Is(err, service.ErrInvalidCredentials):
-		return http.StatusUnauthorized, service.ErrInvalidCredentials.Error()
-	case errors.Is(err, service.ErrInvalidEmail):
-		return http.StatusBadRequest, service.ErrInvalidEmail.Error()
-	case errors.Is(err, service.ErrAccountStillProvisioning):
-		return http.StatusServiceUnavailable, service.ErrAccountStillProvisioning.Error()
-	case errors.Is(err, service.ErrPasswordResetRequired):
-		return http.StatusUnauthorized, service.ErrPasswordResetRequired.Error()
-	case errors.Is(err, service.ErrExpiredToken):
-		return http.StatusBadRequest, service.ErrExpiredToken.Error()
-	case errors.Is(err, service.ErrInvalidToken):
-		return http.StatusBadRequest, service.ErrInvalidToken.Error()
-	case errors.Is(err, service.ErrRateLimit):
-		return http.StatusTooManyRequests, service.ErrRateLimit.Error()
-	default:
-		return fallbackStatus, service.ErrInternalServerError.Error()
-	}
+	return fallbackStatus, fallbackMessage
 }
 
 func respondValidationError(c *gin.Context, err error) bool {
