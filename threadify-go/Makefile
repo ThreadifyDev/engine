@@ -66,7 +66,7 @@ run-api: build-api ## Build and run the Web API server
 
 run-archiver: build-archiver-binary ## Build and run the archiver
 	@lsof -ti:8082 | xargs kill -9 2>/dev/null || true
-	./bin/archiver
+	./bin/archiver --config=config/config.yaml
 
 test-engine-integration: ## Run engine integration tests
 	@echo "Running engine integration tests..."
