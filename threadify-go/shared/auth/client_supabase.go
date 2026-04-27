@@ -364,6 +364,50 @@ func (s *supabaseClient) FindUserIDByEmail(ctx context.Context, email string) (s
 	return "", ErrAuthUserNotFound
 }
 
+func (s *supabaseClient) UpdateUserEmail(ctx context.Context, authUserID, newEmail string) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	id := strings.TrimSpace(authUserID)
+	if id == "" {
+		return errors.New("auth user ID is required")
+	}
+
+	email := strings.TrimSpace(newEmail)
+	if email == "" {
+		return errors.New("new email is required")
+	}
+
+	var resp supabaseUserResponse
+	if err := s.adminPut(ctx, "/auth/v1/admin/users/"+id, map[string]interface{}{"email": email}, &resp); err != nil {
+		var httpErr *supabaseHTTPError
+		if errors.As(err, &httpErr) {
+			return httpErr
+		}
+		return fmt.Errorf("update user email: %w", err)
+	}
+	return nil
+}
+
+func (s *supabaseClient) DeleteUser(ctx context.Context, authUserID string) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	id := strings.TrimSpace(authUserID)
+	if id == "" {
+		return errors.New("auth user ID is required")
+	}
+
+	if err := s.adminDelete(ctx, "/auth/v1/admin/users/"+id, nil); err != nil {
+		var httpErr *supabaseHTTPError
+		if errors.As(err, &httpErr) {
+			return httpErr
+		}
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
+}
+
 func (s *supabaseClient) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -385,6 +429,10 @@ func (s *supabaseClient) adminPut(ctx context.Context, path string, body, out in
 
 func (s *supabaseClient) adminGet(ctx context.Context, path string, out interface{}) error {
 	return s.do(ctx, http.MethodGet, path, s.secretKey, "", nil, out)
+}
+
+func (s *supabaseClient) adminDelete(ctx context.Context, path string, out interface{}) error {
+	return s.do(ctx, http.MethodDelete, path, s.secretKey, "", nil, out)
 }
 
 func (s *supabaseClient) bearerGet(ctx context.Context, path, token string, out interface{}) error {

@@ -1,6 +1,8 @@
 package service
 
 import (
+	billingmodels "threadify-go/shared/models"
+
 	"github.com/threadify/engine/internal/models"
 )
 
@@ -39,4 +41,28 @@ const (
 const (
 	ActivityTypeValidationResult = "validation_result"
 	ActorServiceRuleEngine       = "rule_engine"
+)
+
+const (
+	MeterIngress           = billingmodels.MeterIngress
+	MeterEgress            = billingmodels.MeterEgress
+	MeterContractExecution = billingmodels.MeterContractExecution
+	MeterContractVersion   = billingmodels.MeterContractVersion
+	MeterSeatCreate        = billingmodels.MeterSeatCreate
+	MeterLLMTokenUsage     = billingmodels.MeterLLMTokenUsage
+)
+
+var (
+	MeterCreditSpend        = billingmodels.MeterCreditSpend
+	MeterCreditTopup        = billingmodels.MeterCreditTopup
+	MeterCreditTopupRequest = billingmodels.MeterCreditTopupRequest
+)
+
+const (
+	fieldEventID           = billingmodels.FieldEventID
+	fieldCompanyID         = billingmodels.FieldCompanyID
+	fieldMeter             = billingmodels.FieldMeter
+	fieldAmount            = billingmodels.FieldAmount
+	fieldBillingCycleStart = billingmodels.FieldBillingCycleStart
+	fieldTimestamp         = billingmodels.FieldTimestamp
 )

@@ -1,16 +1,45 @@
 {
   "app_level": {
-    "standard_account": {
-      "name": "Standard Account",
+    "admin": {
+      "name": "Admin",
+      "description": "Company Admin with full access to all features except billing",
+      "permissions": [
+        "apikey.create",
+        "apikey.read",
+        "apikey.delete",
+        "contract.read.*",
+        "contract.create",
+        "contract.update.*",
+        "contract.delete.*",
+        "serviceaccount.*",
+        "query.execution.*",
+        "member.invite",
+        "member.delete",
+        "member.view"
+      ]
+    },
+    "member": {
+      "name": "Member",
       "description": "Default role for user accounts",
       "permissions": [
         "apikey.create",
         "apikey.read",
+        "apikey.delete",
         "contract.read.*",
         "contract.create",
         "contract.update.*",
         "serviceaccount.*",
-        "query.execution.*"
+        "query.execution.*",
+        "member.view"
+      ]
+    },
+    "viewer": {
+      "name": "Viewer",
+      "description": "Read-only access",
+      "permissions": [
+        "contract.read.*",
+        "member.view",
+        "query.execution.read"
       ]
     }
   },
@@ -43,8 +72,8 @@
         "thread.write.*",
         "thread.invite",
         "thread.end",
-        "notification.execution.*",
-        "notification.validation.*",
+        "notification.step.*",
+        "notification.rule.*",
         "notification.thread.*"
       ]
     },
@@ -55,12 +84,12 @@
         "thread.read.*",
         "thread.write.*",
         "thread.end",
-        "notification.execution.failed.own",
-        "notification.execution.success.own",
-        "notification.validation.violated.own",
-        "notification.validation.violated.timeout.own",
-        "notification.validation.violated.retry_limit.own",
-        "notification.validation.passed.own"
+        "notification.step.failed.own",
+        "notification.step.success.own",
+        "notification.rule.violated.own",
+        "notification.rule.violated.timeout.own",
+        "notification.rule.violated.retry_limit.own",
+        "notification.rule.passed.own"
       ]
     },
     "observer": {
@@ -69,9 +98,9 @@
       "permissions": [
         "thread.read.*",
         "thread.write.*",
-        "notification.validation.violated.critical",
-        "notification.validation.violated.timeout.*",
-        "notification.validation.violated.retry_limit.*"
+        "notification.rule.violated.critical",
+        "notification.rule.violated.timeout.*",
+        "notification.rule.violated.retry_limit.*"
       ]
     },
     "external": {
@@ -80,8 +109,8 @@
       "permissions": [
         "thread.read.own",
         "thread.write.*",
-        "notification.execution.failed.own",
-        "notification.execution.success.own"
+        "notification.step.failed.own",
+        "notification.step.success.own"
       ]
     }
   }

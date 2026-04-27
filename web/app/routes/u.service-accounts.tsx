@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
@@ -6,10 +7,17 @@ import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import { useServiceAccounts, useCreateServiceAccount, useToggleServiceAccount, useDeleteServiceAccount } from '~/hooks/useServiceAccounts';
 
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Service Accounts - Threadify" },
+    { name: "description", content: "Manage your service accounts" },
+  ];
+};
+
 const ROLE_COLORS: Record<string, string> = {
   standard_service: 'bg-blue-50 text-blue-700 border-blue-200 text-xs px-2 py-0.5 rounded-full',
   reader: 'bg-gray-50 text-gray-700 border-gray-200 text-xs px-2 py-0.5 rounded-full',
-  standard_account: 'bg-purple-50 text-purple-700 border-purple-200 text-xs px-2 py-0.5 rounded-full',
+  member: 'bg-purple-50 text-purple-700 border-purple-200 text-xs px-2 py-0.5 rounded-full',
 };
 
 export default function ServiceAccounts() {
@@ -155,7 +163,7 @@ export default function ServiceAccounts() {
 
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8">
+      <div className="p-8">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Service Accounts</h1>
@@ -267,7 +275,7 @@ export default function ServiceAccounts() {
                         </button>
                         <button
                           onClick={() => handleDelete(sa.id)}
-                          className="px-3 py-1 text-sm border border-red-600 text-red-600 hover:bg-red-600 hover:text-white transition-colors rounded"
+                          className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                         >
                           Delete
                         </button>
@@ -326,7 +334,7 @@ export default function ServiceAccounts() {
                     onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white"
                   >
-                    {roles.map((role) => (
+                    {(roles || []).map((role) => (
                       <option key={role.value} value={role.value}>
                         {role.label} - {role.description}
                       </option>
@@ -337,21 +345,21 @@ export default function ServiceAccounts() {
                   </p>
                 </div>
 
-                <div className="flex gap-4">
+                <div className="flex justify-end items-center gap-6 mt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setShowCreateModal(false);
                       setCreateForm({ name: '', description: '', role: roles[0]?.value || 'standard_service' });
                     }}
-                    className="flex-1 px-6 py-3 border border-gray-300 hover:bg-gray-100 transition-colors font-medium rounded"
+                    className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={createMutation.isPending}
-                    className="flex-1 px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 rounded"
+                    className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                   >
                     {createMutation.isPending ? 'Creating...' : 'Create'}
                   </button>

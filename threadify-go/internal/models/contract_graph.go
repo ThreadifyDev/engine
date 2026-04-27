@@ -27,8 +27,8 @@ type GraphNode struct {
 	Mode            string      `json:"mode,omitempty"`  // "all_of" or "any_of" for groups
 	Required        bool        `json:"required"`
 	DependsOn       []string    `json:"depends_on,omitempty"` // Steps that must complete before this step
-	Next            []string    `json:"next"`            // Steps that can be transitioned to from this step
-	Steps           []string    `json:"steps,omitempty"` // For parallel_group type
+	Next            []string    `json:"next"`                 // Steps that can be transitioned to from this step
+	Steps           []string    `json:"steps,omitempty"`      // For parallel_group type
 	Timeout         string      `json:"timeout,omitempty"`
 	MaxDuration     string      `json:"max_duration,omitempty"`     // For groups
 	BusinessContext interface{} `json:"business_context,omitempty"` // Can be BusinessContextV3 struct
@@ -85,7 +85,7 @@ type Validation struct {
 type Transition struct {
 	From       string   `yaml:"from" json:"From"`
 	To         []string `yaml:"to" json:"To"`
-	CanRetry   bool     `yaml:"can_retry,omitempty" json:"CanRetry,omitempty"`
+	Timeout    string   `yaml:"timeout,omitempty" json:"Timeout,omitempty"`
 	MaxRetries int      `yaml:"max_retries,omitempty" json:"MaxRetries,omitempty"`
 }
 

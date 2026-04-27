@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -9,11 +11,36 @@ import (
 
 const defaultMetricsPort = 8082
 
-func LoadFromViper() (*Config, error) {
+func LoadFromViper(v *viper.Viper) (*Config, error) {
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+
+	var err error
+	if v != nil {
+		err = v.Unmarshal(&cfg)
+	} else {
+		err = viper.Unmarshal(&cfg)
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+
+	// Expand environment variables for PostgreSQL URL
+	cfg.Postgres.URL = expandEnv(cfg.Postgres.URL)
+
+	// Expand environment variables for JWKS configuration
+	cfg.JWKS.URL = expandEnv(cfg.JWKS.URL)
+	cfg.JWKS.Audience = expandEnv(cfg.JWKS.Audience)
+	cfg.JWKS.Issuer = expandEnv(cfg.JWKS.Issuer)
+
+	// Expand environment variables for hash chain secrets
+	for key, secret := range cfg.Security.HashChainSecrets {
+		cfg.Security.HashChainSecrets[key] = expandEnv(secret)
+	}
+
+	// Expand environment variables for billing configuration
+	cfg.Billing.SecretKey = expandEnv(cfg.Billing.SecretKey)
+	cfg.Billing.WebhookSecret = expandEnv(cfg.Billing.WebhookSecret)
 
 	cfg.Archiver.Retry.InitialBackoff = time.Duration(cfg.Archiver.Retry.InitialBackoffMs) * time.Millisecond
 	cfg.Archiver.Retry.MaxBackoff = time.Duration(cfg.Archiver.Retry.MaxBackoffMs) * time.Millisecond
@@ -24,4 +51,24 @@ func LoadFromViper() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// expandEnv expands environment variables in the format "$VAR:default"
+// If the environment variable is not set, it returns the default value after the colon
+func expandEnv(value string) string {
+	if !strings.HasPrefix(value, "$") {
+		return value
+	}
+
+	parts := strings.SplitN(value[1:], ":", 2)
+	envVar := parts[0]
+	defaultVal := ""
+	if len(parts) == 2 {
+		defaultVal = parts[1]
+	}
+
+	if val := os.Getenv(envVar); val != "" {
+		return val
+	}
+	return defaultVal
 }

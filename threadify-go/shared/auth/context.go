@@ -1,7 +1,9 @@
 package auth
 
 const (
-	CtxUserID = "userID"
+	CtxUserID = "userID" // Internal Threadify user ID
+
+	CtxAuthUserID = "authUserID" // Supabase auth_user_id (for RBAC)
 
 	CtxCompanyID = "companyID"
 
@@ -14,4 +16,6 @@ const (
 	CtxClaims = "claims"
 
 	CtxOwnerID = "ownerId"
+
+	CtxCreditAccount = "creditAccount"
 )

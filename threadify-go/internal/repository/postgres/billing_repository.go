@@ -2,12 +2,12 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+
+	billingmodels "threadify-go/shared/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
 )
 
 var ErrSnapshotAlreadyExists = fmt.Errorf("billing snapshot already exists for this period")
@@ -20,34 +20,23 @@ func NewBillingRepository(pool *pgxpool.Pool) *BillingRepository {
 	return &BillingRepository{pool: pool}
 }
 
-func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models.BillingSnapshot) error {
-	lineItemsJSON, err := json.Marshal(snapshot.LineItems)
-	if err != nil {
-		return fmt.Errorf("marshal line items: %w", err)
-	}
-
+func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *billingmodels.BillingSnapshot) error {
 	const query = `
 		INSERT INTO billing_snapshots (
-			id, company_id, tier, reason, period_start, period_end, is_cycle_end,
-			ingress_balance_final, egress_balance_final,
-			max_ingress, max_egress,
-			line_items_json, total_cents,
+			id, company_id, reason, period_start, period_end,
+			total_cents,
 			provider_name, external_invoice_id,
-			external_customer_id, external_subscription_id, payment_status,
-			consecutive_overage_count,
+			external_customer_id, payment_status,
 			created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
-		ON CONFLICT (company_id, period_end) DO NOTHING
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+		ON CONFLICT (id) DO NOTHING
 	`
 	tag, err := r.pool.Exec(ctx, query,
-		snapshot.ID, snapshot.CompanyID, snapshot.Tier, snapshot.Reason,
-		snapshot.PeriodStart, snapshot.PeriodEnd, snapshot.IsCycleEnd,
-		snapshot.IngressBalanceFinal, snapshot.EgressBalanceFinal,
-		snapshot.MaxIngress, snapshot.MaxEgress,
-		lineItemsJSON, snapshot.TotalCents,
+		snapshot.ID, snapshot.CompanyID, snapshot.Reason,
+		snapshot.PeriodStart, snapshot.PeriodEnd,
+		snapshot.TotalCents,
 		snapshot.ProviderName, snapshot.ExternalInvoiceID,
-		snapshot.ExternalCustomerID, snapshot.ExternalSubscriptionID, snapshot.PaymentStatus,
-		snapshot.ConsecutiveOverageCount,
+		snapshot.ExternalCustomerID, snapshot.PaymentStatus,
 	)
 	if err != nil {
 		return fmt.Errorf("create billing snapshot: %w", err)
@@ -58,68 +47,18 @@ func (r *BillingRepository) CreateSnapshot(ctx context.Context, snapshot *models
 	return nil
 }
 
-func (r *BillingRepository) FindLatestSnapshot(ctx context.Context, companyID string) (*models.BillingSnapshot, error) {
+func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billingmodels.BillingSnapshot, error) {
 	const query = `
-		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
-			ingress_balance_final, egress_balance_final,
-			max_ingress, max_egress,
-			line_items_json, total_cents,
+		SELECT id, company_id, reason, period_start, period_end,
+			total_cents,
 			provider_name, external_invoice_id,
-			external_customer_id, external_subscription_id, payment_status,
-			consecutive_overage_count, created_at
-		FROM billing_snapshots
-		WHERE company_id = $1
-		ORDER BY period_end DESC
-		LIMIT 1
-	`
-	return r.scanSnapshot(r.pool.QueryRow(ctx, query, companyID))
-}
-
-func (r *BillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error) {
-	const query = `
-		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
-			ingress_balance_final, egress_balance_final,
-			max_ingress, max_egress,
-			line_items_json, total_cents,
-			provider_name, external_invoice_id,
-			external_customer_id, external_subscription_id, payment_status,
-			consecutive_overage_count, created_at
+			external_customer_id, payment_status,
+			created_at
 		FROM billing_snapshots
 		WHERE external_invoice_id = $1
 		LIMIT 1
 	`
 	return r.scanSnapshot(r.pool.QueryRow(ctx, query, externalInvoiceID))
-}
-
-func (r *BillingRepository) ListSnapshots(ctx context.Context, companyID string, limit int) ([]models.BillingSnapshot, error) {
-	const query = `
-		SELECT id, company_id, tier, reason, period_start, period_end, is_cycle_end,
-			ingress_balance_final, egress_balance_final,
-			max_ingress, max_egress,
-			line_items_json, total_cents,
-			provider_name, external_invoice_id,
-			external_customer_id, external_subscription_id, payment_status,
-			consecutive_overage_count, created_at
-		FROM billing_snapshots
-		WHERE company_id = $1
-		ORDER BY period_end DESC
-		LIMIT $2
-	`
-	rows, err := r.pool.Query(ctx, query, companyID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list billing snapshots: %w", err)
-	}
-	defer rows.Close()
-
-	var snapshots []models.BillingSnapshot
-	for rows.Next() {
-		s, err := r.scanSnapshot(rows)
-		if err != nil {
-			return nil, err
-		}
-		snapshots = append(snapshots, *s)
-	}
-	return snapshots, rows.Err()
 }
 
 func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapshotID string, invoiceID string) error {
@@ -138,7 +77,7 @@ func (r *BillingRepository) UpdateSnapshotInvoiceID(ctx context.Context, snapsho
 	return nil
 }
 
-func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status models.PaymentStatus) error {
+func (r *BillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billingmodels.PaymentStatus) error {
 	const query = `
 		UPDATE billing_snapshots
 		SET payment_status = $1
@@ -158,7 +97,17 @@ func (r *BillingRepository) MarkSnapshotPaidByInvoiceID(ctx context.Context, ext
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(models.PaymentStatusPaid), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusPaid), externalInvoiceID)
+	return err
+}
+
+func (r *BillingRepository) MarkSnapshotPaidByID(ctx context.Context, snapshotID string, externalInvoiceID string) error {
+	const query = `
+		UPDATE billing_snapshots 
+		SET payment_status = $1, external_invoice_id = $2 
+		WHERE id = $3
+	`
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusPaid), externalInvoiceID, snapshotID)
 	return err
 }
 
@@ -166,7 +115,7 @@ func (r *BillingRepository) MarkSnapshotFailedByInvoiceID(ctx context.Context, e
 	const query = `
 		UPDATE billing_snapshots SET payment_status = $1 WHERE external_invoice_id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, string(models.PaymentStatusFailed), externalInvoiceID)
+	_, err := r.pool.Exec(ctx, query, string(billingmodels.PaymentStatusFailed), externalInvoiceID)
 	return err
 }
 
@@ -174,27 +123,21 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-func (r *BillingRepository) scanSnapshot(row scannable) (*models.BillingSnapshot, error) {
-	var s models.BillingSnapshot
-	var lineItemsJSON []byte
+func (r *BillingRepository) scanSnapshot(row scannable) (*billingmodels.BillingSnapshot, error) {
+	var s billingmodels.BillingSnapshot
 
 	err := row.Scan(
-		&s.ID, &s.CompanyID, &s.Tier, &s.Reason, &s.PeriodStart, &s.PeriodEnd, &s.IsCycleEnd,
-		&s.IngressBalanceFinal, &s.EgressBalanceFinal,
-		&s.MaxIngress, &s.MaxEgress,
-		&lineItemsJSON, &s.TotalCents,
+		&s.ID, &s.CompanyID, &s.Reason, &s.PeriodStart, &s.PeriodEnd,
+		&s.TotalCents,
 		&s.ProviderName, &s.ExternalInvoiceID,
-		&s.ExternalCustomerID, &s.ExternalSubscriptionID, &s.PaymentStatus,
-		&s.ConsecutiveOverageCount, &s.CreatedAt,
+		&s.ExternalCustomerID, &s.PaymentStatus,
+		&s.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan billing snapshot: %w", err)
-	}
-	if err := json.Unmarshal(lineItemsJSON, &s.LineItems); err != nil {
-		return nil, fmt.Errorf("unmarshal line items: %w", err)
 	}
 	return &s, nil
 }

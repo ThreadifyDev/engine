@@ -313,6 +313,21 @@ if #allViolations > 0 then
     redis.call('HSET', violationsKey, stepID, violationsJSON)
 end
 
+-- Check if thread is already terminal (prevent adding steps to ended threads)
+local currentThreadStatus = redis.call('HGET', metaKey, 'status')
+if currentThreadStatus == 'completed' or currentThreadStatus == 'cancelled' then
+    return cjson.encode({
+        status = 'error',
+        violations = {{
+            violationType = 'thread_already_terminal',
+            severity = 'critical',
+            message = 'Cannot add steps to ' .. currentThreadStatus .. ' thread'
+        }},
+        retryCount = 0,
+        hasCriticalViolation = true
+    })
+end
+
 -- Update thread status if terminal step and success
 if isTerminalStep == 'true' and status == 'success' and not hasCriticalViolation then
     redis.call('HSET', metaKey,

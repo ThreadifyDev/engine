@@ -1,7 +1,9 @@
 package graphql
 
 import (
-	"github.com/threadify/engine/internal/interfaces"
+	sharedrepo "threadify-go/shared/repository"
+
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
@@ -9,21 +11,23 @@ import (
 )
 
 type Resolver struct {
-	threadRepo          *valkey.ThreadRepository
-	stepStateRepo       *valkey.StepStateRepository
-	validationRepo      *valkey.ValidationRepository
-	accessRepo          *valkey.AccessRepository // For permission checks (hot path)
-	threadAccessService *service.ThreadAccessService
-	contractValidator   interfaces.ContractValidator
-	contractRepo        *postgres.ContractRepository
-	refsRepo            *postgres.ThreadRefsRepository         // For batch loading refs
-	stepStatePostgres   *postgres.StepStateRepository          // For batch loading steps
-	activityRepo        *postgres.ActivityRepository           // For hash chain verification
-	actorRepo           *postgres.ActorRepository              // For resolving actor names
-	notificationRepo    *postgres.ThreadNotificationRepository // For querying thread notifications
-	subStepRepo         *postgres.SubStepRepository            // For querying sub-steps
-	planService         *service.PlanService
-	logger              *zap.Logger
+	threadRepo            *valkey.ThreadRepository
+	stepStateRepo         *valkey.StepStateRepository
+	validationRepo        *valkey.ValidationRepository
+	accessRepo            *valkey.AccessRepository // For permission checks (hot path)
+	threadAccessService   *service.ThreadAccessService
+	contractValidator     types.ContractGraphValidator
+	contractRepo          *postgres.ContractRepository
+	refsRepo              *postgres.ThreadRefsRepository         // For batch loading refs
+	stepStatePostgres     *postgres.StepStateRepository          // For batch loading steps
+	activityRepo          *postgres.ActivityRepository           // For hash chain verification
+	actorRepo             *postgres.ActorRepository              // For resolving actor names
+	notificationRepo      *postgres.ThreadNotificationRepository // For querying thread notifications
+	subStepRepo           *postgres.SubStepRepository            // For querying sub-steps
+	entityProfileRepo     sharedrepo.EntityProfileRepository
+	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository
+	planService           types.PlanService
+	logger                *zap.Logger
 }
 
 func NewResolver(
@@ -32,7 +36,7 @@ func NewResolver(
 	validationRepo *valkey.ValidationRepository,
 	accessRepo *valkey.AccessRepository,
 	threadAccessService *service.ThreadAccessService,
-	contractValidator interfaces.ContractValidator,
+	contractValidator types.ContractGraphValidator,
 	contractRepo *postgres.ContractRepository,
 	refsRepo *postgres.ThreadRefsRepository,
 	stepStatePostgres *postgres.StepStateRepository,
@@ -40,24 +44,28 @@ func NewResolver(
 	actorRepo *postgres.ActorRepository,
 	notificationRepo *postgres.ThreadNotificationRepository,
 	subStepRepo *postgres.SubStepRepository,
-	planService *service.PlanService,
+	entityProfileRepo sharedrepo.EntityProfileRepository,
+	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository,
+	planService types.PlanService,
 	logger *zap.Logger,
 ) *Resolver {
 	return &Resolver{
-		threadRepo:          threadRepo,
-		stepStateRepo:       stepStateRepo,
-		validationRepo:      validationRepo,
-		accessRepo:          accessRepo,
-		threadAccessService: threadAccessService,
-		contractValidator:   contractValidator,
-		contractRepo:        contractRepo,
-		refsRepo:            refsRepo,
-		stepStatePostgres:   stepStatePostgres,
-		activityRepo:        activityRepo,
-		actorRepo:           actorRepo,
-		notificationRepo:    notificationRepo,
-		subStepRepo:         subStepRepo,
-		planService:         planService,
-		logger:              logger,
+		threadRepo:            threadRepo,
+		stepStateRepo:         stepStateRepo,
+		validationRepo:        validationRepo,
+		accessRepo:            accessRepo,
+		threadAccessService:   threadAccessService,
+		contractValidator:     contractValidator,
+		contractRepo:          contractRepo,
+		refsRepo:              refsRepo,
+		stepStatePostgres:     stepStatePostgres,
+		activityRepo:          activityRepo,
+		actorRepo:             actorRepo,
+		notificationRepo:      notificationRepo,
+		subStepRepo:           subStepRepo,
+		entityProfileRepo:     entityProfileRepo,
+		entityProfileTypeRepo: entityProfileTypeRepo,
+		planService:           planService,
+		logger:                logger,
 	}
 }

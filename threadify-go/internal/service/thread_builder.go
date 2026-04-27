@@ -8,6 +8,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/types"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -31,11 +32,13 @@ type ThreadServiceBuilder struct {
 	stepEventService      *StepEventService
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
-	natsPublisher         NotificationPublisher
+	natsClient            *natsrepo.Client
+	natsPublisher         types.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
-	planService           *PlanService
+	planService           types.PlanService
 	workerPools           *workerpool.Pools
+	cacheManager          types.CacheManager
 	logger                *zap.Logger
 }
 
@@ -74,7 +77,12 @@ func (b *ThreadServiceBuilder) WithContractTTL(ttl int) *ThreadServiceBuilder {
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithNATSPublisher(publisher NotificationPublisher) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithNATSClient(client *natsrepo.Client) *ThreadServiceBuilder {
+	b.natsClient = client
+	return b
+}
+
+func (b *ThreadServiceBuilder) WithNATSPublisher(publisher types.NotificationPublisher) *ThreadServiceBuilder {
 	b.natsPublisher = publisher
 	return b
 }
@@ -89,13 +97,18 @@ func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *Thread
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithPlanService(planService *PlanService) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithPlanService(planService types.PlanService) *ThreadServiceBuilder {
 	b.planService = planService
 	return b
 }
 
 func (b *ThreadServiceBuilder) WithWorkerPools(pools *workerpool.Pools) *ThreadServiceBuilder {
 	b.workerPools = pools
+	return b
+}
+
+func (b *ThreadServiceBuilder) WithCacheManager(cm types.CacheManager) *ThreadServiceBuilder {
+	b.cacheManager = cm
 	return b
 }
 
@@ -122,7 +135,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	accessRepoWithPostgres := valkey.NewAccessRepositoryWithPostgres(b.valkeyService, postgresAccessRepo, accessTTLSeconds, b.logger)
 
 	stepStateRepo := valkey.NewStepStateRepository(b.valkeyService, stepStateTTLSeconds, b.logger)
-	activityRepo := valkey.NewActivityRepository(b.valkeyService, b.natsArchivalPublisher, b.logger)
+	activityRepo := valkey.NewActivityRepository(b.natsArchivalPublisher, b.logger)
 
 	// --- Lua scripts ---
 
@@ -156,16 +169,42 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	// --- Services ---
 
-	cacheService := NewCacheService(b.logger)
+	cacheService := b.cacheManager
+	if cacheService == nil {
+		cacheService = NewCacheService(b.logger)
+	}
 	accessService := NewThreadAccessService(accessRepoWithPostgres, cacheService, luaScripts, rbacLoader, b.logger)
-	validationService := NewValidationService(b.valkeyService, b.threadRepo)
+	validationService := NewValidationService(b.threadRepo)
+
+	// Initialize timeout monitor if NATS client is available
+	var timeoutMonitor *TimeoutMonitor
+	if b.natsClient != nil && b.natsPublisher != nil {
+		var err error
+		timeoutMonitor, err = InitializeTimeoutMonitor(
+			b.natsClient.Conn(),
+			b.threadRepo,
+			b.natsPublisher,
+			b.logger,
+		)
+		if err != nil {
+			b.logger.Warn("failed to initialize timeout monitor", zap.Error(err))
+		}
+	}
+
 	notificationService := NewNotificationService(
 		validationService, activityRepo, stepStateRepo, b.threadRepo, cacheService,
 		b.natsPublisher, b.natsArchivalPublisher,
 		accessService, rbacLoader,
 		validationPool, notificationPool,
+		timeoutMonitor,
 		b.logger,
 	)
+
+	scopeResolver := NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger)
+	var notificationConsumer *NotificationConsumer
+	if b.natsClient != nil {
+		notificationConsumer = NewNotificationConsumer(b.natsClient, scopeResolver, b.logger)
+	}
 
 	return &ThreadService{
 		repo:                  b.threadRepo,
@@ -181,8 +220,8 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		validationService:     validationService,
 		notificationService:   notificationService,
 		invitationService:     NewInvitationTokenService(b.cfg.JWT.Secret, b.cfg.JWT.Issuer),
-		scopeResolver:         NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger),
-		notificationConsumer:  nil,
+		scopeResolver:         scopeResolver,
+		notificationConsumer:  notificationConsumer,
 		planService:           b.planService,
 		valkeyClient:          b.valkeyService,
 		luaScripts:            luaScripts,

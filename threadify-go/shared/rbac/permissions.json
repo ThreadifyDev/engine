@@ -85,6 +85,21 @@
       "is_wildcard": true
     },
     {
+      "name": "member.invite",
+      "description": "Invite members to the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.delete",
+      "description": "Remove members from the organization",
+      "is_wildcard": false
+    },
+    {
+      "name": "member.view",
+      "description": "View members in the organization",
+      "is_wildcard": false
+    },
+    {
       "name": "serviceaccount.create",
       "description": "Create service accounts",
       "is_wildcard": false
@@ -107,77 +122,77 @@
   ],
   "runtime_level": [
     {
-      "name": "notification.execution.*",
+      "name": "notification.step.*",
       "description": "All step execution status notifications (SDK-reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.execution.failed.*",
+      "name": "notification.step.failed.*",
       "description": "Step execution failures (SDK reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.execution.failed.own",
+      "name": "notification.step.failed.own",
       "description": "Own step execution failures",
       "is_wildcard": false
     },
     {
-      "name": "notification.execution.success.*",
+      "name": "notification.step.success.*",
       "description": "Step execution successes (SDK reported)",
       "is_wildcard": true
     },
     {
-      "name": "notification.execution.success.own",
+      "name": "notification.step.success.own",
       "description": "Own step execution successes",
       "is_wildcard": false
     },
     {
-      "name": "notification.validation.*",
+      "name": "notification.rule.*",
       "description": "All contract validation notifications",
       "is_wildcard": true
     },
     {
-      "name": "notification.validation.violated.*",
+      "name": "notification.rule.violated.*",
       "description": "All contract violations (business rules, timeout, retries)",
       "is_wildcard": true
     },
     {
-      "name": "notification.validation.violated.critical",
+      "name": "notification.rule.violated.critical",
       "description": "Critical contract violations only",
       "is_wildcard": false
     },
     {
-      "name": "notification.validation.violated.own",
+      "name": "notification.rule.violated.own",
       "description": "Own contract violations",
       "is_wildcard": false
     },
     {
-      "name": "notification.validation.violated.timeout.*",
+      "name": "notification.rule.violated.timeout.*",
       "description": "Step duration exceeded (contract rule)",
       "is_wildcard": true
     },
     {
-      "name": "notification.validation.violated.timeout.own",
+      "name": "notification.rule.violated.timeout.own",
       "description": "Own step duration exceeded",
       "is_wildcard": false
     },
     {
-      "name": "notification.validation.violated.retry_limit.*",
+      "name": "notification.rule.violated.retry_limit.*",
       "description": "Max retries exceeded (contract rule)",
       "is_wildcard": true
     },
     {
-      "name": "notification.validation.violated.retry_limit.own",
+      "name": "notification.rule.violated.retry_limit.own",
       "description": "Own max retries exceeded",
       "is_wildcard": false
     },
     {
-      "name": "notification.validation.passed.*",
+      "name": "notification.rule.passed.*",
       "description": "Contract validations passed",
       "is_wildcard": true
     },
     {
-      "name": "notification.validation.passed.own",
+      "name": "notification.rule.passed.own",
       "description": "Own contract validations passed",
       "is_wildcard": false
     },

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
@@ -31,9 +31,9 @@ func parseTimestamp(s string) (time.Time, error) {
 //go:embed lua/validate_and_update_step_state.lua
 var validateAndUpdateStepStateScript string
 
-// StepStateRepository implements interfaces.StepStateRepository
+// StepStateRepository implements types.StepStateRepository
 type StepStateRepository struct {
-	client       interfaces.ValkeyClient
+	client       types.StepStateValkeyClient
 	scriptHashes map[string]string
 	postgresRepo *postgres.StepStateRepository // For PostgreSQL fallback
 	ttl          int                           // TTL in seconds for step keys
@@ -41,7 +41,7 @@ type StepStateRepository struct {
 }
 
 // NewStepStateRepository creates a new step state repository
-func NewStepStateRepository(client interfaces.ValkeyClient, ttl int, logger *zap.Logger) interfaces.StepStateRepository {
+func NewStepStateRepository(client types.StepStateValkeyClient, ttl int, logger *zap.Logger) types.StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
@@ -52,7 +52,12 @@ func NewStepStateRepository(client interfaces.ValkeyClient, ttl int, logger *zap
 }
 
 // NewStepStateRepositoryWithPostgres creates a new step state repository with PostgreSQL fallback
-func NewStepStateRepositoryWithPostgres(client interfaces.ValkeyClient, postgresRepo *postgres.StepStateRepository, ttl int, logger *zap.Logger) *StepStateRepository {
+func NewStepStateRepositoryWithPostgres(
+	ttl int,
+	client types.StepStateValkeyClient,
+	postgresRepo *postgres.StepStateRepository,
+	logger *zap.Logger,
+) *StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
@@ -77,8 +82,8 @@ func (r *StepStateRepository) LoadScripts(ctx context.Context) error {
 // ValidateAndUpdateStepState implements the interface
 func (r *StepStateRepository) ValidateAndUpdateStepState(
 	ctx context.Context,
-	params interfaces.ValidateStepParams,
-) (*interfaces.StepStateResult, error) {
+	params types.ValidateStepParams,
+) (*types.StepStateResult, error) {
 
 	// Marshal parameters to JSON
 	existingViolationsJSON := "[]"
@@ -182,7 +187,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 	}
 
 	// Parse JSON response
-	var luaResult interfaces.StepStateResult
+	var luaResult types.StepStateResult
 	if err := json.Unmarshal([]byte(resultStr), &luaResult); err != nil {
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
@@ -493,7 +498,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	userID string,
-	permCheck *PermissionCheckResult,
+	permCheck *types.PermissionCheckResult,
 	stepName *string,
 	idempotencyKey *string,
 	status *string,

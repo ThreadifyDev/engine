@@ -12,7 +12,7 @@ import (
 	"threadify-go/shared/rbac"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/interfaces"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -20,42 +20,67 @@ import (
 	"go.uber.org/zap"
 )
 
-// NotificationPublisher defines the interface for publishing notifications.
-type NotificationPublisher interface {
-	PublishNotification(ctx context.Context, notification models.ValidationNotification) error
-}
-
 // NotificationService orchestrates async validation and notification archival.
 // It handles non-blocking validation processing, stores validation results in streams,
 // and manages the archival of validation notifications without blocking main execution.
 type NotificationService struct {
 	validationService     *ValidationService
-	activityRepo          interfaces.ActivityRepository
-	stepStateRepo         interfaces.StepStateRepository
-	threadRepo            interfaces.ThreadRepository
-	cacheManager          interfaces.CacheManager
-	natsPublisher         NotificationPublisher
+	activityRepo          types.ActivityRepository
+	stepStateRepo         types.StepStateRepository
+	threadRepo            types.ThreadRepository
+	cacheManager          types.CacheManager
+	natsPublisher         types.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	threadAccessService   *ThreadAccessService
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
+	timeoutMonitor        types.TimeoutMonitor
 	logger                *zap.Logger
+}
+
+// ShouldReceiveNotification exports shouldReceiveNotification for use in tests and other packages.
+func (s *NotificationService) ShouldReceiveNotification(
+	userPerms, requiredPerms []string,
+	userID, stepOwnerID string,
+) bool {
+	return s.shouldReceiveNotification(userPerms, requiredPerms, userID, stepOwnerID)
+}
+
+// ScheduleThreadMaxDurationTimeout exports scheduleThreadMaxDurationTimeout for tests.
+func (s *NotificationService) ScheduleThreadMaxDurationTimeout(ctx context.Context, threadID string, graph *models.ContractGraph, thread *models.Thread, now time.Time) {
+	s.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, now)
+}
+
+// CancelThreadMaxDurationTimeout exports cancelThreadMaxDurationTimeout for tests.
+func (s *NotificationService) CancelThreadMaxDurationTimeout(ctx context.Context, threadID string) {
+	s.cancelThreadMaxDurationTimeout(ctx, threadID)
+}
+
+// HandleNoContractStep exports handleNoContractStep for tests.
+func (s *NotificationService) HandleNoContractStep(ctx context.Context, threadID, stepID, stepName, ownerID string, req *models.RecordEventRequest, thread *models.Thread) {
+	s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
+}
+
+// GetRequiredPermissionsForNotification exports getRequiredPermissionsForNotification.
+func GetRequiredPermissionsForNotification(status, stepStatus, severity, violationType string) []string {
+	return getRequiredPermissionsForNotification(status, stepStatus, severity, violationType)
 }
 
 // NewNotificationService creates a new notification service.
 func NewNotificationService(
 	validationService *ValidationService,
-	activityRepo interfaces.ActivityRepository,
-	stepStateRepo interfaces.StepStateRepository,
-	threadRepo interfaces.ThreadRepository,
-	cacheManager interfaces.CacheManager,
-	natsPublisher NotificationPublisher,
+	activityRepo types.ActivityRepository,
+	stepStateRepo types.StepStateRepository,
+	threadRepo types.ThreadRepository,
+	cacheManager types.CacheManager,
+	natsPublisher types.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
+	timeoutMonitor types.TimeoutMonitor,
 	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
@@ -70,6 +95,7 @@ func NewNotificationService(
 		rbacLoader:            rbacLoader,
 		validationPool:        validationPool,
 		notificationPool:      notificationPool,
+		timeoutMonitor:        timeoutMonitor,
 		logger:                logger,
 	}
 }
@@ -92,6 +118,11 @@ func (s *NotificationService) PerformAsyncValidation(
 			zap.String("step_name", stepName),
 		)
 
+		// Cancel any pending timeouts waiting for this step to start
+		if s.timeoutMonitor != nil && graph != nil {
+			s.cancelPendingTimeoutsForStep(ctx, threadID, stepName, graph)
+		}
+
 		if graph == nil {
 			s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
 			return
@@ -111,6 +142,23 @@ func (s *NotificationService) PerformAsyncValidation(
 		}
 
 		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req)
+
+		// Schedule transition timeouts AFTER validations complete (inside worker pool)
+		// This ensures scheduling happens in the same async context as cancellation
+		if req.Status == StepStatusSuccess && s.timeoutMonitor != nil && graph != nil {
+			// Check if there are critical violations that would prevent timeout scheduling
+			hasCriticalViolation := false
+			for _, notif := range notifications {
+				if notif.Severity == "critical" {
+					hasCriticalViolation = true
+					break
+				}
+			}
+			if !hasCriticalViolation {
+				s.scheduleTransitionTimeouts(ctx, threadID, stepName, req, graph, thread)
+			}
+		}
+
 		s.logger.Debug("completed validation", zap.String("thread_id", threadID))
 	})
 
@@ -260,7 +308,7 @@ func (s *NotificationService) processValidationNotifications(
 	)
 
 	hasCriticalViolation := false
-	var existingViolations []interfaces.Violation
+	var existingViolations []types.Violation
 
 	for _, notif := range notifications {
 		if notif.Severity == string(models.SeverityCritical) {
@@ -269,7 +317,7 @@ func (s *NotificationService) processValidationNotifications(
 				zap.String("message", notif.Message),
 			)
 			hasCriticalViolation = true
-			existingViolations = append(existingViolations, interfaces.Violation{
+			existingViolations = append(existingViolations, types.Violation{
 				Type:     notif.ViolationType,
 				Severity: notif.Severity,
 				Message:  notif.Message,
@@ -386,9 +434,15 @@ func (s *NotificationService) processValidationNotifications(
 		go s.publishDualNotifications(context.Background(), executionNotif, validationNotif)
 	}
 
+	// NOTE: Timeout scheduling moved to PerformAsyncValidation worker pool
+	// to prevent race conditions with cancellation logic
+
 	// Handle terminal step completion.
 	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
 		s.logger.Info("thread marked as COMPLETED", zap.String("thread_id", threadID))
+
+		// Cancel thread max duration timeout
+		s.cancelThreadMaxDurationTimeout(ctx, threadID)
 
 		// Update Valkey status to "completed" SYNCHRONOUSLY.
 		// This is critical: it must happen before any WebSocket disconnect can call EndThread.
@@ -467,10 +521,12 @@ func (s *NotificationService) processValidationNotifications(
 func getRequiredPermissionsForNotification(status, stepStatus, severity, violationType string) []string {
 	if status == "none" {
 		switch stepStatus {
+		case "cancelled", "completed":
+			return []string{fmt.Sprintf("notification.thread.%s.*", stepStatus)}
 		case "failed", "error":
-			return []string{"notification.execution.failed.*", "notification.execution.failed.own"}
+			return []string{"notification.step.failed.*", "notification.step.failed.own"}
 		case "success":
-			return []string{"notification.execution.success.*", "notification.execution.success.own"}
+			return []string{"notification.step.success.*", "notification.step.success.own"}
 		default:
 			return nil
 		}
@@ -478,20 +534,20 @@ func getRequiredPermissionsForNotification(status, stepStatus, severity, violati
 
 	switch status {
 	case "violated":
-		base := []string{"notification.validation.violated.*", "notification.validation.violated.own"}
+		base := []string{"notification.rule.violated.*", "notification.rule.violated.own"}
 		switch violationType {
 		case "step_timeout_exceeded":
-			return append(base, "notification.validation.violated.timeout.*", "notification.validation.violated.timeout.own")
+			return append(base, "notification.rule.violated.timeout.*", "notification.rule.violated.timeout.own")
 		case "retry_limit_exceeded":
-			return append(base, "notification.validation.violated.retry_limit.*", "notification.validation.violated.retry_limit.own")
+			return append(base, "notification.rule.violated.retry_limit.*", "notification.rule.violated.retry_limit.own")
 		}
 		if severity == "critical" {
-			return append(base, "notification.validation.violated.critical")
+			return append(base, "notification.rule.violated.critical")
 		}
 		return base
 
 	case "passed":
-		return []string{"notification.validation.passed.*", "notification.validation.passed.own"}
+		return []string{"notification.rule.passed.*", "notification.rule.passed.own"}
 
 	default:
 		return nil
@@ -508,11 +564,11 @@ func (s *NotificationService) submitNotificationJob(notification models.Validati
 // publishToAuthorizedMembers publishes a notification to all thread members with appropriate permissions.
 func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, notification models.ValidationNotification) {
 	if notification.Status == "none" {
-		notification.Source = models.NotificationSourceExecution
-		notification.NotificationType = fmt.Sprintf("execution.%s", notification.StepStatus)
+		notification.Source = models.NotificationSourceStep
+		notification.NotificationType = fmt.Sprintf("step.%s", notification.StepStatus)
 	} else {
-		notification.Source = models.NotificationSourceValidation
-		notification.NotificationType = fmt.Sprintf("validation.%s", notification.Status)
+		notification.Source = models.NotificationSourceRule
+		notification.NotificationType = fmt.Sprintf("rule.%s", notification.Status)
 	}
 
 	requiredPerms := getRequiredPermissionsForNotification(
@@ -553,7 +609,7 @@ func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, no
 		zap.Strings("perms", requiredPerms),
 	)
 
-	shouldArchive := notification.Source == models.NotificationSourceValidation &&
+	shouldArchive := notification.Source == models.NotificationSourceRule &&
 		(notification.Status == "violated" || notification.Severity == "warning")
 
 	if s.natsArchivalPublisher != nil && publishedCount > 0 && shouldArchive {
@@ -568,10 +624,10 @@ func (s *NotificationService) publishDualNotifications(
 	ctx context.Context,
 	executionNotif, validationNotif models.ValidationNotification,
 ) {
-	executionNotif.Source = models.NotificationSourceExecution
-	executionNotif.NotificationType = fmt.Sprintf("execution.%s", executionNotif.StepStatus)
-	validationNotif.Source = models.NotificationSourceValidation
-	validationNotif.NotificationType = fmt.Sprintf("validation.%s", validationNotif.Status)
+	executionNotif.Source = models.NotificationSourceStep
+	executionNotif.NotificationType = fmt.Sprintf("step.%s", executionNotif.StepStatus)
+	validationNotif.Source = models.NotificationSourceRule
+	validationNotif.NotificationType = fmt.Sprintf("rule.%s", validationNotif.Status)
 
 	executionPerms := getRequiredPermissionsForNotification(
 		executionNotif.Status, executionNotif.StepStatus, executionNotif.Severity, executionNotif.ViolationType,
@@ -652,19 +708,29 @@ func (s *NotificationService) shouldReceiveNotification(
 	userID, stepOwnerID string,
 ) bool {
 	for _, userPerm := range userPerms {
+		hasOwn := strings.HasSuffix(userPerm, ".own")
+		isOwner := userID == stepOwnerID
+
 		for _, reqPerm := range requiredPerms {
+			// If user has .own, they MUST be the owner for this perm to match.
+			if hasOwn {
+				if !isOwner {
+					continue
+				}
+				ownBase := strings.TrimSuffix(userPerm, ".own")
+				if ownBase == reqPerm || ownBase == strings.TrimSuffix(reqPerm, ".*") || ownBase == strings.TrimSuffix(reqPerm, ".own") {
+					return true
+				}
+				continue
+			}
+
+			// Global match (exact or wildcard)
 			if userPerm == reqPerm {
 				return true
 			}
 			if strings.HasSuffix(userPerm, ".*") {
 				prefix := strings.TrimSuffix(userPerm, ".*")
 				if strings.HasPrefix(reqPerm, prefix) {
-					return true
-				}
-			}
-			if strings.HasSuffix(userPerm, ".own") && userID == stepOwnerID {
-				ownBase := strings.TrimSuffix(userPerm, ".own")
-				if ownBase == strings.TrimSuffix(reqPerm, ".*") || ownBase == strings.TrimSuffix(reqPerm, ".own") {
 					return true
 				}
 			}
@@ -714,9 +780,9 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n models.
 func buildValidateStepParams(
 	threadID, stepID, stepName, idempotencyKey, status, ownerID string,
 	isTerminal bool,
-	existingViolations []interfaces.Violation,
+	existingViolations []types.Violation,
 	graph *models.ContractGraph,
-) interfaces.ValidateStepParams {
+) types.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
 	terminalSteps := []string{}
@@ -735,7 +801,7 @@ func buildValidateStepParams(
 		}
 	}
 
-	return interfaces.ValidateStepParams{
+	return types.ValidateStepParams{
 		ThreadID:               threadID,
 		StepID:                 stepID,
 		StepName:               stepName,
@@ -758,22 +824,36 @@ func buildStepStateSnapshot(
 	req *models.RecordEventRequest,
 	retryCount int,
 	firstSeenAt, previousStep string,
-) *interfaces.StepStateSnapshot {
+) *types.StepStateSnapshot {
 	now := time.Now().Format(time.RFC3339Nano)
 	if firstSeenAt == "" {
 		firstSeenAt = now
 	}
-	return &interfaces.StepStateSnapshot{
+	parsedFirstSeen, _ := time.Parse(time.RFC3339Nano, firstSeenAt)
+	parsedLastUpdated, _ := time.Parse(time.RFC3339Nano, now)
+	var startedAt, finishedAt *time.Time
+	if req.StartedAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.StartedAt); err == nil {
+			startedAt = &t
+		}
+	}
+	if req.FinishedAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.FinishedAt); err == nil {
+			finishedAt = &t
+		}
+	}
+
+	return &types.StepStateSnapshot{
 		ID:             stepID,
 		ThreadID:       threadID,
 		StepName:       stepName,
 		IdempotencyKey: idempotencyKey,
 		Status:         status,
 		RetryCount:     retryCount,
-		FirstSeenAt:    firstSeenAt,
-		LastUpdatedAt:  now,
-		StartedAt:      req.StartedAt,
-		FinishedAt:     req.FinishedAt,
+		FirstSeenAt:    parsedFirstSeen,
+		LastUpdatedAt:  parsedLastUpdated,
+		StartedAt:      startedAt,
+		FinishedAt:     finishedAt,
 		PreviousStep:   previousStep,
 		Actor:          ownerID,
 		ActorService:   req.ServiceName,
@@ -807,4 +887,144 @@ func ensureDetails(d map[string]interface{}) map[string]interface{} {
 		return d
 	}
 	return make(map[string]interface{})
+}
+
+// cancelPendingTimeoutsForStep cancels any pending timeouts waiting for this step to start
+func (s *NotificationService) cancelPendingTimeoutsForStep(
+	ctx context.Context,
+	threadID string,
+	stepName string,
+	graph *models.ContractGraph,
+) {
+	// Find all transitions that have this step as a target
+	var incomingTransitions []models.Transition
+	for _, transition := range graph.Transitions {
+		for _, toStep := range transition.To {
+			if toStep == stepName {
+				incomingTransitions = append(incomingTransitions, transition)
+				break
+			}
+		}
+	}
+
+	if len(incomingTransitions) == 0 {
+		return
+	}
+
+	// Cancel timeout for each incoming transition
+	for _, transition := range incomingTransitions {
+		// Reconstruct the timeout ID that was used when scheduling
+		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
+
+		if err := s.timeoutMonitor.CancelTimeout(timeoutID, threadID, fmt.Sprintf("step '%s' started", stepName)); err != nil {
+			s.logger.Warn("failed to cancel timeout",
+				zap.String("timeout_id", timeoutID),
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to_step", stepName),
+				zap.Error(err),
+			)
+		} else {
+			s.logger.Debug("cancelled timeout",
+				zap.String("timeout_id", timeoutID),
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to_step", stepName),
+			)
+		}
+	}
+}
+
+// scheduleTransitionTimeouts schedules timeout events for all outgoing transitions from the current step
+func (s *NotificationService) scheduleTransitionTimeouts(
+	ctx context.Context,
+	threadID string,
+	stepName string,
+	req *models.RecordEventRequest,
+	graph *models.ContractGraph,
+	thread *models.Thread,
+) {
+	// Find transitions from this step
+	var outgoingTransitions []models.Transition
+	for _, transition := range graph.Transitions {
+		if transition.From == stepName {
+			outgoingTransitions = append(outgoingTransitions, transition)
+		}
+	}
+
+	if len(outgoingTransitions) == 0 {
+		return
+	}
+
+	// Parse startedAt timestamp
+	startedAt, err := time.Parse(time.RFC3339, req.StartedAt)
+	if err != nil {
+		s.logger.Warn("failed to parse startedAt for timeout scheduling",
+			zap.String("thread_id", threadID),
+			zap.String("step_name", stepName),
+			zap.Error(err),
+		)
+		return
+	}
+
+	// Schedule timeout for each outgoing transition that has a timeout defined
+	for _, transition := range outgoingTransitions {
+		if transition.Timeout == "" {
+			continue
+		}
+
+		// Parse timeout duration
+		timeout, err := time.ParseDuration(transition.Timeout)
+		if err != nil {
+			s.logger.Warn("invalid timeout duration format",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("timeout", transition.Timeout),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Calculate deadline: startedAt + timeout
+		deadline := startedAt.Add(timeout)
+
+		// Generate timeout ID for deduplication and cancellation
+		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
+
+		// Create timeout event
+		timeoutEvent := models.TimeoutEvent{
+			ID:           timeoutID,
+			ThreadID:     threadID,
+			Type:         models.TimeoutTypeTransition,
+			FromStep:     transition.From,
+			ToStep:       strings.Join(transition.To, ","), // Store as comma-separated for multiple targets
+			Timeout:      transition.Timeout,
+			ScheduledAt:  time.Now(),
+			DeadlineAt:   deadline,
+			ContractName: thread.ContractName,
+			Metadata: map[string]interface{}{
+				"owner_id":        thread.OwnerID,
+				"step_name":       req.StepName,
+				"idempotency_key": req.IdempotencyKey,
+			},
+		}
+
+		// Schedule the timeout
+		if err := s.timeoutMonitor.ScheduleTimeout(timeoutEvent); err != nil {
+			s.logger.Error("failed to schedule transition timeout",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to", strings.Join(transition.To, ",")),
+				zap.Error(err),
+			)
+		} else {
+			s.logger.Debug("scheduled transition timeout",
+				zap.String("thread_id", threadID),
+				zap.String("from", transition.From),
+				zap.String("to", strings.Join(transition.To, ",")),
+				zap.Duration("timeout", timeout),
+				zap.Time("deadline", deadline),
+			)
+		}
+	}
 }

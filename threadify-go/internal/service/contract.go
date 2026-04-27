@@ -14,8 +14,8 @@ import (
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -24,9 +24,9 @@ import (
 // status code mapping to the handler layer.
 
 type ContractService struct {
-	repo      *postgres.ContractRepository
-	planSvc   *PlanService
-	validator *validator.ContractValidator
+	repo      types.ContractRepository
+	planSvc   types.PlanService
+	validator types.ContractValidator
 	logger    *zap.Logger
 }
 
@@ -41,7 +41,7 @@ type ContractWithOwnershipResponse struct {
 	IsOwner         bool                    `json:"isOwner"`
 }
 
-func NewContractService(repo *postgres.ContractRepository, planSvc *PlanService, logger *zap.Logger) *ContractService {
+func NewContractService(repo types.ContractRepository, planSvc types.PlanService, logger *zap.Logger) *ContractService {
 	return &ContractService{
 		repo:      repo,
 		planSvc:   planSvc,
@@ -50,8 +50,37 @@ func NewContractService(repo *postgres.ContractRepository, planSvc *PlanService,
 	}
 }
 
+// NewContractServiceWithValidator allows injecting a custom contract validator (useful for tests).
+// If v is nil, a default validator is used.
+func NewContractServiceWithValidator(
+	repo types.ContractRepository,
+	planSvc types.PlanService,
+	v types.ContractValidator,
+	logger *zap.Logger,
+) *ContractService {
+	if v == nil {
+		v = validator.NewContractValidator()
+	}
+	return &ContractService{
+		repo:      repo,
+		planSvc:   planSvc,
+		validator: v,
+		logger:    logger,
+	}
+}
+
 func (s *ContractService) CountContractsByCompany(ctx context.Context, companyID string) (int, error) {
-	return s.repo.CountByCompany(ctx, companyID)
+	return s.repo.CountByOwner(ctx, companyID)
+}
+
+func (s *ContractService) enforceCredits(ctx context.Context, companyID string) (int, interface{}) {
+	if err := s.planSvc.CheckCreditAvailable(ctx, companyID, MeterContractExecution, 1); err != nil {
+		if errors.Is(err, ErrInsufficientCredit) || errors.Is(err, ErrNoAccount) {
+			return 402, map[string]string{"message": err.Error()}
+		}
+		return 500, map[string]string{"message": "Failed to verify credit balance"}
+	}
+	return 0, nil
 }
 
 // PreviewContract validates YAML and builds a contract graph without persisting.
@@ -78,6 +107,10 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		}
 	}
 
+	if status, resp := s.enforceCredits(ctx, companyID); status != 0 {
+		return status, resp
+	}
+
 	contract.Version = 1
 
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
@@ -102,24 +135,6 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:     now,
 	}
 
-	if s.planSvc != nil {
-		if _, err := s.planSvc.ClaimContractSlot(ctx, companyID); err != nil {
-			s.logger.Warn("contract slot claim denied", zap.String("company_id", companyID), zap.Error(err))
-			return 403, map[string]string{"message": err.Error()}
-		}
-	}
-
-	if err := s.repo.Create(ctx, contractModel); err != nil {
-		if s.planSvc != nil {
-			s.planSvc.ReleaseContractSlot(ctx, companyID) // Rollback
-		}
-		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
-			return 400, map[string]string{"message": "Contract with this name already exists"}
-		}
-		s.logger.Error("failed to create contract", zap.Error(err))
-		return 500, map[string]string{"message": "Failed to create contract"}
-	}
-
 	graphJSON, err := buildGraphJSON(contentOnlyJSON)
 	if err != nil {
 		return 500, map[string]string{"message": err.Error()}
@@ -139,11 +154,19 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		UpdatedAt:   now,
 	}
 
-	if err := s.repo.CreateVersion(ctx, versionModel); err != nil {
-		return 500, map[string]string{"message": "Failed to create contract version"}
+	// Atomically create both contract and version in a single transaction
+	if err := s.repo.CreateContractWithVersion(ctx, contractModel, versionModel); err != nil {
+		if errors.Is(err, shderrors.ErrContractAlreadyExists) {
+			return 400, map[string]string{"message": "Contract with this name already exists"}
+		}
+		s.logger.Error("failed to create contract with version", zap.Error(err))
+		return 500, map[string]string{"message": "Failed to create contract"}
 	}
 
-	// Quota claimed above
+	if err := s.planSvc.ChargeContract(ctx, companyID); err != nil {
+		s.logger.Error("charge contract failed", zap.String("company_id", companyID), zap.Error(err))
+		return 402, map[string]string{"message": err.Error()}
+	}
 
 	return 200, ContractResponse{
 		Contract:        contractModel,
@@ -172,6 +195,10 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		}
 	}
 
+	if status, resp := s.enforceCredits(ctx, existingContract.CompanyID); status != 0 {
+		return status, resp
+	}
+
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to serialize contract"}
@@ -183,12 +210,16 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 400, map[string]string{"message": "Contract content has not changed"}
 	}
 
-	// nextVersion is always existingContract.LatestVersion+1 regardless of contract.Version,
-	// since the DB is the source of truth for sequential versioning.
 	nextVersion := existingContract.LatestVersion + 1
 	now := time.Now()
 
-	updatedContract, err := s.repo.Update(ctx, contractID, contract.Description, contentHash, nextVersion, now)
+	updatedContract, err := s.repo.Update(ctx, types.UpdateContractParams{
+		ContractID:    contractID,
+		Description:   contract.Description,
+		ContentHash:   contentHash,
+		LatestVersion: nextVersion,
+		UpdatedAt:     now,
+	})
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to update contract"}
 	}
@@ -210,6 +241,11 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		IsDeleted:   false,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+	}
+
+	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
+		s.logger.Error("charge contract version failed", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
+		return 402, map[string]string{"message": err.Error()}
 	}
 
 	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {
@@ -260,27 +296,26 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 		return 400, map[string]string{"message": "Contract is already deleted"}
 	}
 
-	if err := s.repo.SoftDelete(ctx, contractID, time.Now()); err != nil {
+	if err := s.repo.SoftDelete(ctx, contractID); err != nil {
 		return 500, map[string]string{"message": "Failed to delete contract"}
-	}
-
-	// Decrement cached contract count
-	if s.planSvc != nil {
-		s.planSvc.ReleaseContractSlot(ctx, contract.CompanyID)
 	}
 
 	return 200, map[string]string{"message": "Contract deleted successfully"}
 }
 
-func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string) (int, interface{}) {
-	contracts, err := s.repo.GetAllByOwner(ctx, ownerID)
+func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{}) {
+	result, err := s.repo.GetAllByOwner(ctx, ownerID, types.ContractListOptions{
+		Search: search,
+		Limit:  limit,
+		Offset: offset,
+	})
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to retrieve contracts"}
 	}
 
 	return 200, map[string]interface{}{
-		"contracts": contracts,
-		"total":     len(contracts),
+		"contracts": result.Contracts,
+		"total":     result.TotalCount,
 	}
 }
 
@@ -369,7 +404,7 @@ func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID 
 		return 400, map[string]string{"message": "Contract version is already deleted"}
 	}
 
-	if err := s.repo.SoftDeleteVersion(ctx, contractID, version, time.Now()); err != nil {
+	if err := s.repo.SoftDeleteVersion(ctx, contractID, version); err != nil {
 		return 500, map[string]string{"message": "Failed to delete contract version"}
 	}
 

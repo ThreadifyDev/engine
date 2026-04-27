@@ -36,6 +36,14 @@ func (db *PostgresDB) Close() {
 }
 
 func (db *PostgresDB) InitSchema(ctx context.Context) error {
+	// Acquire a PostgreSQL session-level advisory lock so concurrent processes
+	// (server + archiver) don't race to execute the same DDL simultaneously.
+	// Key 1 is arbitrary but must be the same across all callers.
+	const lockKey = 1
+	if _, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+		return fmt.Errorf("failed to acquire schema lock: %w", err)
+	}
+	defer db.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
 	schema := `
 	-- Shared tables (also created by Web API for independence)
 	CREATE TABLE IF NOT EXISTS companies (
@@ -45,7 +53,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		size VARCHAR(50),
 		use_case TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		external_customer_id VARCHAR(255)
 	);
 
 	CREATE TABLE IF NOT EXISTS users (
@@ -102,7 +111,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		yaml_content TEXT,
 		content_hash VARCHAR(64) NOT NULL,
 		contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
-		created_by VARCHAR(255) NOT NULL DEFAULT 'Martins Joseph',
+		created_by VARCHAR(255) NOT NULL DEFAULT '',
 		graph JSONB,
 		is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -117,6 +126,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE TABLE IF NOT EXISTS threads (
 		id VARCHAR(255) PRIMARY KEY,
+		label VARCHAR(255),
 		contract_id VARCHAR(255),
 		contract_name VARCHAR(255),
 		contract_version INT,
@@ -132,6 +142,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	);
 
 	-- Add missing columns for existing databases (migration safety)
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS label VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS contract_name VARCHAR(255);
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
@@ -186,6 +197,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	
 	-- Keep contract_id index for backward compatibility
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
+	
+	CREATE INDEX IF NOT EXISTS idx_threads_company_id ON threads(company_id);
 
 	CREATE TABLE IF NOT EXISTS thread_refs (
 		thread_id VARCHAR(255) NOT NULL,
@@ -205,6 +218,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Enhanced index for threadsByRef with date filtering
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_key_value_created 
 		ON thread_refs(ref_key, ref_value, created_at DESC);
+	
+	CREATE INDEX IF NOT EXISTS idx_thread_refs_lookup_optimized 
+		ON thread_refs(ref_key, ref_value, thread_id);
 
 	CREATE TABLE IF NOT EXISTS thread_activities (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,8 +238,22 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		started_at TIMESTAMP,
 		finished_at TIMESTAMP,
 		metadata JSONB,
-		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
 	);
+
+	-- Migration: Add foreign key constraint to thread_activities if it doesn't exist
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint 
+			WHERE conname = 'thread_activities_thread_id_fkey'
+		) THEN
+			ALTER TABLE thread_activities 
+				ADD CONSTRAINT thread_activities_thread_id_fkey 
+				FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE;
+		END IF;
+	END $$;
 
 	-- Migration: Add content_hash column if it doesn't exist (for existing databases)
 	ALTER TABLE thread_activities ADD COLUMN IF NOT EXISTS content_hash TEXT;
@@ -744,7 +774,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- User roles table (for RBAC)
 	-- Engine uses principal_id/principal_type for polymorphism (users + service accounts)
 	CREATE TABLE IF NOT EXISTS user_roles (
-		id VARCHAR(255),
 		principal_id VARCHAR(255) NOT NULL,
 		principal_type VARCHAR(50) NOT NULL DEFAULT 'user',
 		role_name VARCHAR(100) NOT NULL,
@@ -752,9 +781,31 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		assigned_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (principal_id, role_name)
 	);
+	ALTER TABLE user_roles DROP COLUMN IF EXISTS id;
 
 	CREATE INDEX IF NOT EXISTS idx_user_roles_principal ON user_roles(principal_id);
 	CREATE INDEX IF NOT EXISTS idx_user_roles_type ON user_roles(principal_type);
+
+	-- Team invitations table
+	CREATE TABLE IF NOT EXISTS team_invitations (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		email VARCHAR(255) NOT NULL,
+		role VARCHAR(50) NOT NULL,
+		invited_by VARCHAR(255) NOT NULL,
+		status VARCHAR(50) NOT NULL,
+		token VARCHAR(500) UNIQUE NOT NULL,
+		expires_at TIMESTAMP NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		accepted_at TIMESTAMP,
+		accepted_by_user_id VARCHAR(255),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+		FOREIGN KEY (invited_by) REFERENCES users(id),
+		FOREIGN KEY (accepted_by_user_id) REFERENCES users(id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_company_email ON team_invitations(company_id, email);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON team_invitations(token);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_status_expires ON team_invitations(status, expires_at);
 
 	-- ========================================
 	-- TRIGGERS FOR AUTO-UPDATED TIMESTAMPS
@@ -781,6 +832,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	DROP TRIGGER IF EXISTS update_service_accounts_updated_at ON service_accounts;
 	CREATE TRIGGER update_service_accounts_updated_at BEFORE UPDATE ON service_accounts
 		FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+	-- Add updated_at column to api_keys if it doesn't exist
+	ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
 
 	DROP TRIGGER IF EXISTS update_api_keys_updated_at ON api_keys;
 	CREATE TRIGGER update_api_keys_updated_at BEFORE UPDATE ON api_keys
@@ -855,93 +909,141 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE outbox_events ADD COLUMN IF NOT EXISTS reference_id TEXT;
 	CREATE INDEX IF NOT EXISTS idx_outbox_reference_id ON outbox_events(reference_id);
 
-	-- Company subscription plans
-	CREATE TABLE IF NOT EXISTS company_plans (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL UNIQUE,
-	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
-	billing_cycle            VARCHAR(20)  NOT NULL DEFAULT 'monthly',
-	billing_start            TIMESTAMP    NOT NULL,
-	billing_end              TIMESTAMP    NOT NULL,
-	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
-	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
-	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	status                   VARCHAR(50)  NOT NULL DEFAULT 'active',
-	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	ALTER TABLE companies ADD COLUMN IF NOT EXISTS external_customer_id VARCHAR(255);
 
-CREATE INDEX IF NOT EXISTS idx_company_plans_company ON company_plans(company_id);
+	CREATE TABLE IF NOT EXISTS credit_accounts (
+		id                       VARCHAR(255) PRIMARY KEY,
+		company_id               VARCHAR(255) NOT NULL,
+		billing_cycle_start      TIMESTAMP    NOT NULL,
+		credit_balance_millicents BIGINT      NOT NULL DEFAULT 0,
+		credit_min_balance_millicents BIGINT  NOT NULL DEFAULT 0,
+		credit_max_monthly_charge_millicents BIGINT NOT NULL DEFAULT 0,
+		credit_auto_topup_millicents BIGINT   NOT NULL DEFAULT 0,
+		credit_monthly_charged_millicents BIGINT NOT NULL DEFAULT 0,
+		last_sync_event_id       VARCHAR(255),
+		rate_limit_tps           BIGINT,
+		payload_limit_bytes      BIGINT,
+		created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+		updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, billing_cycle_start),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 
-CREATE TABLE IF NOT EXISTS usage_meters (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL,
-	subscription_tier        VARCHAR(50)  NOT NULL DEFAULT 'starter',
-	billing_cycle_start      TIMESTAMP    NOT NULL,
-	billing_end              TIMESTAMP    NOT NULL,
-	bandwidth_ingress_balance BIGINT      NOT NULL,
-	bandwidth_egress_balance  BIGINT      NOT NULL,
-	max_bandwidth_ingress    BIGINT       NOT NULL,
-	max_bandwidth_egress     BIGINT       NOT NULL,
-	max_team_seats           INT          NOT NULL,
-	max_contract_limit       INT          NOT NULL,
-	max_rate_limit           INT          NOT NULL,
-	max_payload_bytes        BIGINT       NOT NULL,
-	hot_storage_days         INT          NOT NULL DEFAULT 7,
-	cold_storage_days        INT          NOT NULL DEFAULT 0,
-	support                  VARCHAR(50)  NOT NULL DEFAULT 'community',
-	created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-	UNIQUE(company_id, billing_cycle_start),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	CREATE INDEX IF NOT EXISTS idx_credit_accounts_company ON credit_accounts(company_id);
+	
+	CREATE TABLE IF NOT EXISTS billing_snapshots (
+		id                       VARCHAR(255) PRIMARY KEY,
+		company_id               VARCHAR(255) NOT NULL,
+		reason                   TEXT,
+		period_start             TIMESTAMPTZ  NOT NULL,
+		period_end               TIMESTAMPTZ  NOT NULL,
+		total_cents              BIGINT       NOT NULL DEFAULT 0,
+		provider_name            VARCHAR(50)  NOT NULL DEFAULT '',
+		external_invoice_id      VARCHAR(255) NOT NULL DEFAULT '',
+		external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
+		payment_status           VARCHAR(50)  NOT NULL DEFAULT 'no_charge',
+		created_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 
-CREATE INDEX IF NOT EXISTS idx_usage_meters_company ON usage_meters(company_id);
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
+		ON billing_snapshots(company_id, period_end DESC);
 
-CREATE TABLE IF NOT EXISTS billing_snapshots (
-	id                       VARCHAR(255) PRIMARY KEY,
-	company_id               VARCHAR(255) NOT NULL,
-	tier                     VARCHAR(50)  NOT NULL,
-	reason                   TEXT,
-	period_start             TIMESTAMPTZ  NOT NULL,
-	period_end               TIMESTAMPTZ  NOT NULL,
-	is_cycle_end             BOOLEAN      NOT NULL DEFAULT false,
-	ingress_balance_final    BIGINT       NOT NULL,
-	egress_balance_final     BIGINT       NOT NULL,
-	max_ingress              BIGINT       NOT NULL,
-	max_egress               BIGINT       NOT NULL,
-	line_items_json          JSONB        NOT NULL DEFAULT '[]',
-	total_cents              BIGINT       NOT NULL DEFAULT 0,
-	provider_name            VARCHAR(50)  NOT NULL DEFAULT '',
-	external_invoice_id      VARCHAR(255) NOT NULL DEFAULT '',
-	external_customer_id     VARCHAR(255) NOT NULL DEFAULT '',
-	external_subscription_id VARCHAR(255) NOT NULL DEFAULT '',
-	payment_status           VARCHAR(50)  NOT NULL DEFAULT 'no_charge',
-	consecutive_overage_count INT         NOT NULL DEFAULT 0,
-	created_at               TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-	UNIQUE(company_id, period_end),
-	FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
-);
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
+		ON billing_snapshots(external_invoice_id);
 
-CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
-	ON billing_snapshots(company_id, period_end DESC);
+	CREATE TABLE IF NOT EXISTS entity_profile_type (
+		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		name VARCHAR(255) NOT NULL,
+		type VARCHAR(255) NOT NULL,
+		description TEXT,
+		archived_at TIMESTAMP,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, type),
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
 
-CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
-	ON billing_snapshots(external_invoice_id)
-	WHERE external_invoice_id != '';
+	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_company ON entity_profile_type(company_id);
 
-CREATE TABLE IF NOT EXISTS usage_sync_events (
-	event_id     VARCHAR(255) NOT NULL,
-	company_id   VARCHAR(255) NOT NULL,
-	meter        VARCHAR(64)  NOT NULL,
-	amount       BIGINT       NOT NULL,
-	occurred_at  TIMESTAMPTZ  NOT NULL,
-	processed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-	status       VARCHAR(20)  NOT NULL DEFAULT 'processed',
-	PRIMARY KEY (event_id, occurred_at)
-) PARTITION BY RANGE (occurred_at);
--- Partitions managed via pg_partman (monthly interval, 2-month retention).
--- Run pg_partman maintenance to create new partitions.
+	DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'entity_profile_type'
+        AND column_name = 'type'
+        AND data_type != 'ARRAY'
+    ) THEN
+        ALTER TABLE entity_profile_type
+            ALTER COLUMN type TYPE TEXT[] USING ARRAY[type];
+    END IF;
+END $$;
+
+	ALTER TABLE entity_profile_type
+    ALTER COLUMN type SET DEFAULT '{}';
+
+	ALTER TABLE entity_profile_type ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+
+	UPDATE entity_profile_type
+	SET slug = LOWER(REPLACE(TRIM(name), ' ', '-'))
+	WHERE slug IS NULL;
+
+	DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'uq_entity_profile_type_company_slug'
+    ) THEN
+        ALTER TABLE entity_profile_type
+            ADD CONSTRAINT uq_entity_profile_type_company_slug
+            UNIQUE(company_id, slug);
+    END IF;
+END $$;
+
+	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_slug
+		ON entity_profile_type(company_id, slug);
+
+	CREATE TABLE IF NOT EXISTS entity_profile (
+		id VARCHAR(255) PRIMARY KEY,
+		ref_key VARCHAR(255) NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
+		entity_profile_type_id VARCHAR(255) NOT NULL,
+		name VARCHAR(255),
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		last_active_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		UNIQUE(company_id, entity_profile_type_id, ref_key),
+		FOREIGN KEY (entity_profile_type_id) REFERENCES entity_profile_type(id) ON DELETE CASCADE,
+		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS entity_profile_metrics (
+		entity_profile_id VARCHAR(255) PRIMARY KEY,
+		total_deliveries INT NOT NULL DEFAULT 0,
+		completed_successfully INT NOT NULL DEFAULT 0,
+		validation_violations INT NOT NULL DEFAULT 0,
+		delivery_health_score DECIMAL(5,2),
+		prev_delivery_health_score DECIMAL(5,2),
+		health_trend_slope DECIMAL(5,2),
+		average_delivery_time_ms BIGINT,
+		last_calculated_at TIMESTAMP,
+		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
+	);
+
+	ALTER TABLE entity_profile_metrics ADD COLUMN IF NOT EXISTS prev_delivery_health_score DECIMAL(5,2);
+	
+
+	CREATE TABLE IF NOT EXISTS entity_partner_compatibility (
+		id UUID PRIMARY KEY,
+		entity_profile_id VARCHAR(255) NOT NULL,
+		partner_ref VARCHAR(255) NOT NULL,
+		total_interactions INT NOT NULL DEFAULT 0,
+		successful_interactions INT NOT NULL DEFAULT 0,
+		compatibility_score DECIMAL(5,2),
+		last_calculated_at TIMESTAMP,
+		UNIQUE(entity_profile_id, partner_ref),
+		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
+	);
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err

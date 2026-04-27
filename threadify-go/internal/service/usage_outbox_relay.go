@@ -4,54 +4,91 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"threadify-go/shared/database"
+
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-	"github.com/threadify/engine/internal/database"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
 const (
+	stopTimeout = 20 * time.Second
+
 	usageOutboxGroupName = "usage-outbox-relay"
+
 	usageOutboxBatchSize = int64(200)
+	blockDuration        = 2 * time.Second
+	noBlock              = time.Duration(0)
+	stalePELThreshold    = 5 * time.Minute
+
+	errorBackoff = 500 * time.Millisecond
+	emptyBackoff = 250 * time.Millisecond
 
 	streamStartPending = "0"
 	streamStartNew     = ">"
-	noBlock            = time.Duration(0)
-	blockDuration      = 2 * time.Second
-	errorBackoff       = 500 * time.Millisecond
-	emptyBackoff       = 250 * time.Millisecond
-	stalePELThreshold  = 5 * time.Minute
-	stopTimeout        = 20 * time.Second
-
-	fieldEventID           = "event_id"
-	fieldCompanyID         = "company_id"
-	fieldMeter             = "meter"
-	fieldAmount            = "amount"
-	fieldBillingCycleStart = "billing_cycle_start"
-	fieldTimestamp         = "timestamp"
 )
 
 type UsageOutboxRelay struct {
-	valkey        *database.ValkeyService
-	natsPublisher *natsrepo.ArchivalPublisher
+	valkey        UsageOutboxValkey
+	natsPublisher UsageOutboxPublisher
 	logger        *zap.Logger
 	consumerName  string
+	forwarder     UsageOutboxBatchForwarder
+	sleeper       UsageOutboxSleeper
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
 	doneCh   chan struct{}
 }
 
+//go:generate mockgen -package=usageoutboxmocks -destination=mocks/usageoutbox/usage_outbox_mocks.go -source=usage_outbox_relay.go
+type UsageOutboxPublisher interface {
+	PublishCreditTopupTrigger(ctx context.Context, event map[string]interface{}) error
+	PublishUsageSyncBatch(ctx context.Context, events []map[string]interface{}) error
+}
+
+type UsageOutboxValkey interface {
+	XGroupCreateMkStream(ctx context.Context, stream, group, start string) error
+	XReadGroup(ctx context.Context, args *redis.XReadGroupArgs) ([]redis.XStream, error)
+	XAck(ctx context.Context, stream, group string, ids ...string) error
+}
+
+type UsageOutboxBatchForwarder interface {
+	ForwardBatch(ctx context.Context, streamStart string, block time.Duration) (int, error)
+}
+
+type UsageOutboxSleeper interface {
+	Sleep(ctx context.Context, d time.Duration)
+}
+
+type usageOutboxDefaultForwarder struct {
+	relay *UsageOutboxRelay
+}
+
+func (f usageOutboxDefaultForwarder) ForwardBatch(ctx context.Context, streamStart string, block time.Duration) (int, error) {
+	return f.relay.forwardBatch(ctx, streamStart, block)
+}
+
+type usageOutboxDefaultSleeper struct{}
+
+func (usageOutboxDefaultSleeper) Sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
+}
+
 func NewUsageOutboxRelay(
-	valkey *database.ValkeyService,
-	natsPublisher *natsrepo.ArchivalPublisher,
+	valkey UsageOutboxValkey,
+	natsPublisher UsageOutboxPublisher,
 	logger *zap.Logger,
 ) *UsageOutboxRelay {
-	return &UsageOutboxRelay{
+	relay := &UsageOutboxRelay{
 		valkey:        valkey,
 		natsPublisher: natsPublisher,
 		logger:        logger,
@@ -59,6 +96,29 @@ func NewUsageOutboxRelay(
 		stopCh:        make(chan struct{}),
 		doneCh:        make(chan struct{}),
 	}
+	relay.forwarder = usageOutboxDefaultForwarder{relay: relay}
+	relay.sleeper = usageOutboxDefaultSleeper{}
+	return relay
+}
+
+// SetForwarder overrides the batch forwarder implementation (primarily for tests).
+// If f is nil, the default forwarder is restored.
+func (r *UsageOutboxRelay) SetForwarder(f UsageOutboxBatchForwarder) {
+	if f == nil {
+		r.forwarder = usageOutboxDefaultForwarder{relay: r}
+		return
+	}
+	r.forwarder = f
+}
+
+// SetSleeper overrides the sleeper implementation (primarily for tests).
+// If s is nil, the default sleeper is restored.
+func (r *UsageOutboxRelay) SetSleeper(s UsageOutboxSleeper) {
+	if s == nil {
+		r.sleeper = usageOutboxDefaultSleeper{}
+		return
+	}
+	r.sleeper = s
 }
 
 func buildConsumerName() string {
@@ -69,7 +129,7 @@ func buildConsumerName() string {
 }
 
 func (r *UsageOutboxRelay) Start() error {
-	if r.valkey == nil || r.valkey.Client == nil {
+	if r.valkey == nil {
 		return fmt.Errorf("usage outbox relay: valkey client is required")
 	}
 	if r.natsPublisher == nil {
@@ -79,7 +139,7 @@ func (r *UsageOutboxRelay) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := r.valkey.Client.XGroupCreateMkStream(ctx, database.UsageOutboxStreamKey, usageOutboxGroupName, "0").Err(); err != nil {
+	if err := r.valkey.XGroupCreateMkStream(ctx, database.UsageOutboxStreamKey, usageOutboxGroupName, "0"); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
 			return fmt.Errorf("create usage outbox consumer group: %w", err)
 		}
@@ -112,6 +172,13 @@ func (r *UsageOutboxRelay) Stop() error {
 func (r *UsageOutboxRelay) run() {
 	defer close(r.doneCh)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-r.stopCh
+		cancel()
+	}()
+
 	for {
 		select {
 		case <-r.stopCh:
@@ -119,48 +186,75 @@ func (r *UsageOutboxRelay) run() {
 		default:
 		}
 
-		processedPending, err := r.forwardBatch(streamStartPending, noBlock)
+		attempted, err := r.forwarder.ForwardBatch(ctx, streamStartPending, noBlock)
 		if err != nil {
 			r.logger.Error("usage outbox relay: failed to process pending messages", zap.Error(err))
-			time.Sleep(errorBackoff)
+			r.sleeper.Sleep(ctx, errorBackoff)
 			continue
 		}
-		if processedPending > 0 {
+		if attempted > 0 {
 			continue
 		}
 
-		if _, err := r.forwardBatch(streamStartNew, blockDuration); err != nil {
-			if err != redis.Nil {
-				r.logger.Error("usage outbox relay: failed to process new messages", zap.Error(err))
+		_, err = r.forwarder.ForwardBatch(ctx, streamStartNew, blockDuration)
+		if err != nil {
+			if err == redis.Nil || err == context.Canceled {
+				r.sleeper.Sleep(ctx, emptyBackoff)
+				continue
 			}
-			time.Sleep(emptyBackoff)
+			r.logger.Error("usage outbox relay: failed to process new messages", zap.Error(err))
+			r.sleeper.Sleep(ctx, errorBackoff)
 		}
 	}
 }
 
-func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+type aggregateKey struct {
+	companyID         string
+	meter             string
+	billingCycleStart string
+	eventID           string
+}
 
-	streams, err := r.valkey.Client.XReadGroup(ctx, &redis.XReadGroupArgs{
+type bucket struct {
+	companyID         string
+	meter             string
+	billingCycleStart string
+	amount            int64
+	eventID           string
+	timestamp         string
+}
+
+func isCreditMeter(meter string) bool {
+	return meter == MeterCreditSpend || meter == MeterCreditTopup || meter == MeterCreditTopupRequest
+}
+
+func (r *UsageOutboxRelay) forwardBatch(ctx context.Context, streamStart string, block time.Duration) (int, error) {
+	readCtx, readCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer readCancel()
+
+	streams, err := r.valkey.XReadGroup(readCtx, &redis.XReadGroupArgs{
 		Group:    usageOutboxGroupName,
 		Consumer: r.consumerName,
 		Streams:  []string{database.UsageOutboxStreamKey, streamStart},
 		Count:    usageOutboxBatchSize,
 		Block:    block,
 		NoAck:    false,
-	}).Result()
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	var batchEvents []map[string]interface{}
-	var batchIDs []string
+	msgIDToKey := make(map[string]aggregateKey)
+	window := make(map[aggregateKey]*bucket)
+	var allIDs []string
 	var poisonIDs []string
 
 	for _, stream := range streams {
 		for _, msg := range stream.Messages {
-			r.warnIfStale(msg.ID)
+			if streamStart == streamStartPending {
+				r.warnIfStale(msg.ID)
+			}
+			allIDs = append(allIDs, msg.ID)
 
 			event, ok := mapUsageOutboxEvent(msg.Values)
 			if !ok {
@@ -172,43 +266,151 @@ func (r *UsageOutboxRelay) forwardBatch(streamStart string, block time.Duration)
 				continue
 			}
 
-			batchEvents = append(batchEvents, event)
-			batchIDs = append(batchIDs, msg.ID)
+			companyID, _ := event[fieldCompanyID].(string)
+			meter, _ := event[fieldMeter].(string)
+			billingCycleStart, _ := event[fieldBillingCycleStart].(string)
+			timestamp, _ := event[fieldTimestamp].(string)
+			eventID, _ := event[fieldEventID].(string)
+
+			rawAmount := event[fieldAmount]
+			amount, err := parseRelayAmount(rawAmount)
+			if err != nil {
+				poisonIDs = append(poisonIDs, msg.ID)
+				r.logger.Warn("dropping usage outbox message with unparseable amount",
+					zap.String("stream_id", msg.ID),
+					zap.String("meter", meter),
+					zap.Any("amount", rawAmount),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			if amount == 0 {
+				poisonIDs = append(poisonIDs, msg.ID)
+				r.logger.Debug("silently dropping zero-amount outbox message",
+					zap.String("stream_id", msg.ID),
+					zap.String("meter", meter),
+				)
+				continue
+			}
+
+			keyEventID := ""
+			if isCreditMeter(meter) {
+				keyEventID = eventID
+			}
+
+			key := aggregateKey{
+				companyID:         companyID,
+				meter:             meter,
+				billingCycleStart: billingCycleStart,
+				eventID:           keyEventID,
+			}
+			msgIDToKey[msg.ID] = key
+
+			if b, exists := window[key]; exists {
+				b.amount += amount
+				b.timestamp = timestamp
+				if !isCreditMeter(meter) {
+					b.eventID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(b.eventID+":"+eventID)).String()
+				}
+			} else {
+				window[key] = &bucket{
+					companyID:         companyID,
+					meter:             meter,
+					billingCycleStart: billingCycleStart,
+					amount:            amount,
+					eventID:           eventID,
+					timestamp:         timestamp,
+				}
+			}
 		}
 	}
 
 	if len(poisonIDs) > 0 {
-		poisonCtx, poisonCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = r.valkey.Client.XAck(poisonCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, poisonIDs...).Err()
+		poisonCtx, poisonCancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = r.valkey.XAck(poisonCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, poisonIDs...)
 		poisonCancel()
 	}
 
-	if len(batchEvents) == 0 {
-		return 0, nil
+	attempted := len(allIDs) - len(poisonIDs)
+
+	if len(window) == 0 {
+		return attempted, nil
 	}
 
-	pubCtx, pubCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	publishErr := r.natsPublisher.PublishUsageSyncBatch(pubCtx, batchEvents)
-	pubCancel()
+	r.logger.Debug("usage outbox relay: aggregated batch",
+		zap.Int("raw_events", attempted),
+		zap.Int("poison_dropped", len(poisonIDs)),
+		zap.Int("buckets", len(window)),
+	)
 
-	if publishErr != nil {
-		return 0, fmt.Errorf("publish usage batch to NATS: %w", publishErr)
+	pubCtx, pubCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer pubCancel()
+
+	var syncEvents []map[string]interface{}
+	failedKeys := make(map[aggregateKey]struct{})
+
+	for key, b := range window {
+		if b.meter == MeterCreditTopupRequest {
+			if err := r.natsPublisher.PublishCreditTopupTrigger(pubCtx, bucketToMap(b)); err != nil {
+				r.logger.Error("failed to publish credit topup trigger to NATS",
+					zap.String("company_id", b.companyID),
+					zap.Error(err),
+				)
+				failedKeys[key] = struct{}{}
+			}
+		} else {
+			syncEvents = append(syncEvents, bucketToMap(b))
+		}
 	}
 
-	ackCtx, ackCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	ackErr := r.valkey.Client.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, batchIDs...).Err()
-	ackCancel()
-
-	if ackErr != nil {
-		return 0, fmt.Errorf("ack usage outbox messages: %w", ackErr)
+	if len(syncEvents) > 0 {
+		r.logger.Debug("usage outbox relay: aggregated batch",
+			zap.Int("sync_events", len(syncEvents)),
+			zap.Any("sync_events", syncEvents),
+		)
+		if err := r.natsPublisher.PublishUsageSyncBatch(pubCtx, syncEvents); err != nil {
+			r.logger.Error("failed to publish usage sync batch to NATS", zap.Error(err))
+			for key, b := range window {
+				if b.meter != MeterCreditTopupRequest {
+					failedKeys[key] = struct{}{}
+				}
+			}
+		}
 	}
 
-	return len(batchEvents), nil
+	var ackIDs []string
+	for _, id := range allIDs {
+		key, mapped := msgIDToKey[id]
+		if !mapped {
+			continue
+		}
+		if _, failed := failedKeys[key]; !failed {
+			ackIDs = append(ackIDs, id)
+		}
+	}
+
+	if len(ackIDs) > 0 {
+		ackCtx, ackCancel := context.WithTimeout(ctx, 5*time.Second)
+		if ackErr := r.valkey.XAck(ackCtx, database.UsageOutboxStreamKey, usageOutboxGroupName, ackIDs...); ackErr != nil {
+			r.logger.Warn("failed to ACK outbox entries — may be redelivered",
+				zap.Int("count", len(ackIDs)),
+				zap.Error(ackErr),
+			)
+		}
+		ackCancel()
+	}
+
+	return attempted, nil
 }
 
 func (r *UsageOutboxRelay) warnIfStale(msgID string) {
-	var ms int64
-	if _, err := fmt.Sscanf(msgID, "%d-", &ms); err != nil {
+	parts := strings.SplitN(msgID, "-", 2)
+	if len(parts) < 2 {
+		return
+	}
+	ms, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
 		return
 	}
 	age := time.Since(time.UnixMilli(ms))
@@ -241,4 +443,38 @@ func mapUsageOutboxEvent(values map[string]interface{}) (map[string]interface{},
 	}
 
 	return event, true
+}
+
+// MapUsageOutboxEvent is an exported wrapper around mapUsageOutboxEvent (primarily for tests).
+func MapUsageOutboxEvent(values map[string]interface{}) (map[string]interface{}, bool) {
+	return mapUsageOutboxEvent(values)
+}
+
+func parseRelayAmount(v interface{}) (int64, error) {
+	switch value := v.(type) {
+	case string:
+		return strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	case int64:
+		return value, nil
+	case float64:
+		return int64(value), nil
+	default:
+		return 0, fmt.Errorf("unsupported amount type %T", v)
+	}
+}
+
+// ParseRelayAmount is an exported wrapper around parseRelayAmount (primarily for tests).
+func ParseRelayAmount(v interface{}) (int64, error) {
+	return parseRelayAmount(v)
+}
+
+func bucketToMap(b *bucket) map[string]interface{} {
+	return map[string]interface{}{
+		fieldEventID:           b.eventID,
+		fieldCompanyID:         b.companyID,
+		fieldMeter:             b.meter,
+		fieldAmount:            strconv.FormatInt(b.amount, 10),
+		fieldBillingCycleStart: b.billingCycleStart,
+		fieldTimestamp:         b.timestamp,
+	}
 }

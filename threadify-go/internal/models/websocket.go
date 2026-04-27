@@ -19,6 +19,7 @@ type ConnectResponse struct {
 
 type StartThreadRequest struct {
 	Action       string            `json:"action"`
+	Label        string            `json:"label,omitempty"` // New field
 	ContractName string            `json:"contractName"`
 	Role         string            `json:"role"`
 	Refs         map[string]string `json:"refs,omitempty"`

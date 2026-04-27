@@ -180,7 +180,7 @@ web_api:
   cors_origins: "${CORS_ORIGINS:-http://localhost:3000}"
   email:
     plunk_api_key: "${PLUNK_API_KEY}"
-    plunk_from_email: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
+    plunk_from_email: "${PLUNK_FROM_EMAIL:-noreply@threadify.dev}"
   threadify_engine:
     url: "${THREADIFY_ENGINE_URL:-http://localhost:8081}"
     graphql_url: "${THREADIFY_GRAPHQL_URL:-http://localhost:8081/graphql}"

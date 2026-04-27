@@ -20,7 +20,8 @@ import (
 
 type TokenClaims struct {
 	Sub           string
-	UserID        string
+	AuthUserID    string // Supabase auth_user_id (same as Sub)
+	UserID        string // Internal Threadify user ID from user_metadata.threadify_user_id
 	CompanyID     string
 	Email         string
 	EmailVerified bool
@@ -258,17 +259,18 @@ func extractClaims(c jwt.MapClaims) *TokenClaims {
 		}
 	}
 
+	// Set AuthUserID to sub (Supabase auth_user_id)
+	tc.AuthUserID = tc.Sub
+
 	if meta := firstMeta(c); meta != nil {
+		// Get internal Threadify user ID from metadata
 		tc.UserID = claimStr(meta, "threadify_user_id")
 		tc.CompanyID = claimStr(meta, "threadify_company_id")
 
 		if !tc.EmailVerified {
-			tc.EmailVerified = claimBool(meta, "email_verified")
+			tc.UserID = claimStr(meta, "threadify_user_id")
+			tc.CompanyID = claimStr(meta, "threadify_company_id")
 		}
-	}
-
-	if tc.UserID == "" {
-		tc.UserID = tc.Sub
 	}
 
 	if r := claimStr(c, "role"); r != "" {

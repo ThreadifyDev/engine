@@ -48,7 +48,7 @@ type BusinessContext struct {
 type Transition struct {
 	From       string   `yaml:"from"`
 	To         []string `yaml:"to"`
-	CanRetry   bool     `yaml:"can_retry,omitempty"`
+	Timeout    string   `yaml:"timeout,omitempty"`
 	MaxRetries int      `yaml:"max_retries,omitempty"`
 }
 

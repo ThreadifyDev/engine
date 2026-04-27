@@ -1,15 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
+
+const PAGE_SIZE = 20;
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Contracts - Threadify" },
+    { name: "description", content: "Enforce your service delivery workflow as contracts" },
+  ];
+};
 
 export default function Contracts() {
   const navigate = useNavigate();
   const [contracts, setContracts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadForm, setUploadForm] = useState({ name: '', yaml: '' });
   const [uploading, setUploading] = useState(false);
@@ -23,19 +35,19 @@ export default function Contracts() {
       return;
     }
 
-    // Prevent double fetch in React strict mode
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-
     fetchContracts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array - only run once on mount
+  }, [offset]);
 
   const fetchContracts = async () => {
     try {
       setLoading(true);
-      const response = await api.getAllContracts();
+      const response = await api.getAllContracts({
+        limit: PAGE_SIZE,
+        offset: offset
+      });
       setContracts(response.contracts || []);
+      setTotal(response.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load contracts');
     } finally {
@@ -78,12 +90,12 @@ export default function Contracts() {
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
             <p className="text-gray-600">
-              Manage your workflow contracts and validation rules
+              Enforce your service delivery workflow as contracts
             </p>
           </div>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
+            className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
           >
             Upload Contract
           </button>
@@ -107,7 +119,7 @@ export default function Contracts() {
             </p>
             <button
               onClick={() => setShowUploadModal(true)}
-              className="px-6 py-3 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors font-medium"
+              className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
             >
               Upload Contract
             </button>
@@ -139,7 +151,7 @@ export default function Contracts() {
                       e.stopPropagation();
                       handleDelete(contract.id);
                     }}
-                    className="p-2 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors"
+                    className="p-2 text-red-500 hover:text-red-700 transition-colors"
                     title="Delete contract"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -150,12 +162,36 @@ export default function Contracts() {
           </div>
         )}
 
+        {total > PAGE_SIZE && (
+          <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-6">
+            <div className="text-sm text-gray-500">
+              Showing {offset + 1} to {Math.min(offset + PAGE_SIZE, total)} of {total} results
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                disabled={offset === 0}
+                className="p-2 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setOffset(offset + PAGE_SIZE)}
+                disabled={offset + PAGE_SIZE >= total}
+                className="p-2 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Upload Modal */}
         {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white border-4 border-black max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="border-b-4 border-black p-6 flex justify-between items-center">
-              <h2 className="text-2xl font-bold">Upload Contract</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm transition-all">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border-2 border-black">
+            <div className="border-b-2 border-black p-6 flex justify-between items-center bg-white">
+              <h2 className="text-xl font-bold text-gray-900">Upload Contract</h2>
               <button
                 onClick={() => setShowUploadModal(false)}
                 className="text-2xl font-bold hover:text-gray-600"
@@ -180,20 +216,20 @@ export default function Contracts() {
                 </p>
               </div>
 
-              <div className="flex gap-4">
-                <button
-                  type="submit"
-                  disabled={uploading}
-                  className="flex-1 px-6 py-3 bg-gray-900 text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
-                >
-                  {uploading ? 'Uploading...' : 'Upload Contract'}
-                </button>
+              <div className="flex justify-end items-center gap-6 mt-2">
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="px-6 py-3 bg-white border border-gray-300 hover:bg-gray-50 transition-colors font-medium text-gray-700 rounded-lg"
+                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading ? 'Uploading...' : 'Upload Contract'}
                 </button>
               </div>
             </form>

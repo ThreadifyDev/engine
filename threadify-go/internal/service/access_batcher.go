@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -26,9 +26,10 @@ type AccessBatcher struct {
 	buffer        chan *AccessWrite
 	batchSize     int
 	flushInterval time.Duration
-	accessRepo    *valkey.AccessRepository
-	luaScripts    *valkey.LuaScriptManager
+	accessRepo    types.AccessRepository
+	luaScripts    types.LuaScriptManager
 	stopChan      chan struct{}
+	stopOnce      sync.Once
 	wg            sync.WaitGroup
 	logger        *zap.Logger
 }
@@ -38,8 +39,8 @@ func NewAccessBatcher(
 	bufferSize int,
 	batchSize int,
 	flushInterval time.Duration,
-	accessRepo *valkey.AccessRepository,
-	luaScripts *valkey.LuaScriptManager,
+	accessRepo types.AccessRepository,
+	luaScripts types.LuaScriptManager,
 	logger *zap.Logger,
 ) *AccessBatcher {
 	return &AccessBatcher{
@@ -65,7 +66,9 @@ func (b *AccessBatcher) Start() {
 
 // Stop gracefully stops the batcher, drains the buffer, and flushes remaining items.
 func (b *AccessBatcher) Stop() {
-	close(b.stopChan)
+	b.stopOnce.Do(func() {
+		close(b.stopChan)
+	})
 	b.wg.Wait()
 	b.logger.Info("access batcher stopped")
 }
@@ -73,6 +76,12 @@ func (b *AccessBatcher) Stop() {
 // Write queues an access write operation (non-blocking).
 // Falls back to a synchronous write if the buffer is full.
 func (b *AccessBatcher) Write(write *AccessWrite) error {
+	select {
+	case <-b.stopChan:
+		return context.Canceled
+	default:
+	}
+
 	select {
 	case b.buffer <- write:
 		return nil
@@ -142,18 +151,15 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 	errorCount := 0
 
 	for _, write := range batch {
-		_, err := b.accessRepo.GrantOrUpdateAccess(
-			ctx,
-			write.ThreadID,
-			write.UserID,
-			write.Role,
-			write.RuntimeRole,
-			write.Permissions,
-			write.InvitedBy,
-			b.luaScripts,
-			nil, // threadData — not creating thread
-			nil, // threadTTL — not creating thread
-		)
+		_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+			ThreadID:    write.ThreadID,
+			UserID:      write.UserID,
+			Role:        write.Role,
+			RuntimeRole: write.RuntimeRole,
+			Permissions: write.Permissions,
+			InvitedBy:   write.InvitedBy,
+			LuaRegistry: b.luaScripts,
+		})
 		if err != nil {
 			b.logger.Error("failed to grant access in batch",
 				zap.String("thread_id", write.ThreadID),
@@ -180,18 +186,15 @@ func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := b.accessRepo.GrantOrUpdateAccess(
-		ctx,
-		write.ThreadID,
-		write.UserID,
-		write.Role,
-		write.RuntimeRole,
-		write.Permissions,
-		write.InvitedBy,
-		b.luaScripts,
-		nil, // threadData
-		nil, // threadTTL
-	)
+	_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+		ThreadID:    write.ThreadID,
+		UserID:      write.UserID,
+		Role:        write.Role,
+		RuntimeRole: write.RuntimeRole,
+		Permissions: write.Permissions,
+		InvitedBy:   write.InvitedBy,
+		LuaRegistry: b.luaScripts,
+	})
 	return err
 }
 

@@ -11,12 +11,14 @@ import (
 	"errors"
 	"fmt"
 	shderrors "threadify-go/shared/errors"
+	"threadify-go/shared/slug"
 	"time"
 
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
+	"github.com/threadify/engine/internal/service"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"go.uber.org/zap"
 )
@@ -63,6 +65,20 @@ func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.Hash
 	return &brokenAt, nil
 }
 
+// RecordLLMUsage is the resolver for the recordLLMUsage mutation.
+func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if err := r.planService.DecrementLLMUsage(ctx, companyID, int64(tokens)); err != nil {
+		return false, fmt.Errorf("failed to record LLM usage: %w", err)
+	}
+
+	return true, nil
+}
+
 // RoleDefaults is the resolver for the roleDefaults field.
 func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
 	if obj.RoleDefaults == nil {
@@ -103,6 +119,11 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 		}
 		// Return other errors as-is (database errors, connection errors, etc.)
 		return nil, fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	// Batch load refs if requested in selections
+	if err := r.BatchLoadThreadData(ctx, []*models.Thread{thread}); err != nil {
+		return nil, err
 	}
 
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
@@ -223,18 +244,18 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
 	}
 
-	// Convert refKey pointer to string (empty string if nil)
-	refKeyVal := ""
-	if refKey != nil {
-		refKeyVal = *refKey
+	// Convert refKey pointer to slice
+	var refKeys []string
+	if refKey != nil && *refKey != "" {
+		refKeys = []string{*refKey}
 	}
 
 	// Query threads by ref (this method already filters by company)
-	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeyVal, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeys, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to query threads by ref",
 			zap.String("company_id", companyID),
-			zap.String("ref_key", refKeyVal),
+			zap.Strings("ref_keys", refKeys),
 			zap.String("ref_value", refValue),
 			zap.Error(err),
 		)
@@ -242,6 +263,63 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	}
 
 	// Batch load refs if needed
+	if len(threads) > 0 {
+		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
+			return nil, err
+		}
+	}
+
+	return &models.ThreadConnection{
+		Threads:    threads,
+		TotalCount: totalCount,
+	}, nil
+}
+
+// EntityProfileHistory is the resolver for the entityProfileHistory field.
+func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+	// 1. Get user info from context (companyID for security)
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	// 2. Fetch Entity Profile
+	profile, _, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get entity profile: %w", err)
+	}
+
+	// 3. Fetch Entity Profile Type to get refKeys
+	profileType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+	if err != nil {
+		r.logger.Warn("failed to fetch profile type for history", zap.Error(err), zap.String("profile_type_id", profile.ProfileTypeID))
+	}
+
+	var refKeys []string
+	if profileType != nil {
+		refKeys = profileType.Type
+	}
+
+	// 4. Query threads by refKeys and profile.RefKey (the identifier value)
+	limitVal, offsetVal := NormalizePagination(&ThreadQueryOptions{Limit: limit, Offset: offset})
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeys, profile.RefKey, status, startedAfter, startedBefore, limitVal, offsetVal)
+	if err != nil {
+		r.logger.Error("failed to query entity profile history",
+			zap.String("company_id", companyID),
+			zap.String("profile_id", profileID),
+			zap.Strings("ref_keys", refKeys),
+			zap.String("ref_value", profile.RefKey),
+			zap.Error(err),
+		)
+		return nil, apperrors.NewInternalError("Failed to query thread history", err)
+	}
+
+	// 5. Batch load refs if needed
 	if len(threads) > 0 {
 		if err := r.BatchLoadThreadData(ctx, threads); err != nil {
 			return nil, err
@@ -450,6 +528,192 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 	}
 
 	return status, nil
+}
+
+// CheckCredits is the resolver for the checkCredits field.
+func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authentication required: %w", err)
+	}
+
+	meterVal := ""
+	if meter != nil {
+		meterVal = *meter
+	}
+
+	amountVal := int64(0)
+	if amount != nil {
+		amountVal = int64(*amount)
+	}
+
+	if err := r.planService.CheckCreditAvailable(ctx, companyID, meterVal, amountVal); err != nil {
+		if errors.Is(err, service.ErrInsufficientCredit) || errors.Is(err, service.ErrNoAccount) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check credits: %w", err)
+	}
+
+	return true, nil
+}
+
+// EntityProfile is the resolver for the entityProfile field.
+func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*generated.EntityProfile, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	if id != nil && *id != "" {
+		profile, metrics, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, *id)
+		if err != nil || profile == nil {
+			return nil, nil // Not found or error
+		}
+		// Fetch profile type details
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get profile type: %w", err)
+		}
+
+		return &generated.EntityProfile{
+			ID:            profile.ID,
+			RefKey:        profile.RefKey,
+			CompanyID:     profile.CompanyID,
+			ProfileTypeID: profile.ProfileTypeID,
+			ProfileType:   toGraphQLProfileType(pType),
+			Name:          &profile.Name,
+			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(metrics),
+		}, nil
+	}
+
+	if refKey != nil && typeArg != nil && *refKey != "" && *typeArg != "" {
+		profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, *typeArg, *refKey)
+		if err != nil || profile == nil {
+			return nil, nil
+		}
+		// Fetch profile type details
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, profile.ProfileTypeID)
+		if err != nil {
+			r.logger.Warn("could not fetch profile type details",
+				zap.String("profile_id", profile.ID),
+				zap.String("type", *typeArg),
+				zap.Error(err),
+			)
+			return &generated.EntityProfile{
+				ID:            profile.ID,
+				RefKey:        profile.RefKey,
+				CompanyID:     profile.CompanyID,
+				ProfileTypeID: profile.ProfileTypeID,
+				ProfileType:   nil,
+				Name:          &profile.Name,
+				CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+				LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+				Metrics:       toGraphQLMetrics(metrics),
+			}, nil
+		}
+
+		return &generated.EntityProfile{
+			ID:            profile.ID,
+			RefKey:        profile.RefKey,
+			CompanyID:     profile.CompanyID,
+			ProfileTypeID: profile.ProfileTypeID,
+			ProfileType:   toGraphQLProfileType(pType),
+			Name:          &profile.Name,
+			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(metrics),
+		}, nil
+	}
+
+	return nil, fmt.Errorf("must provide either id or both refKey and type")
+}
+
+// EntityProfileTypes is the resolver for the entityProfileTypes field.
+func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.EntityProfileType, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	types, err := r.entityProfileTypeRepo.GetProfileTypesByCompanyID(ctx, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch entity profile types: %w", err)
+	}
+
+	result := make([]*generated.EntityProfileType, len(types))
+	for i, t := range types {
+		result[i] = toGraphQLProfileType(t)
+	}
+	return result, nil
+}
+
+// EntityProfilesByType is the resolver for the entityProfilesByType field.
+func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*generated.EntityProfileConnection, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	limitVal := 20
+	if limit != nil {
+		limitVal = *limit
+	}
+	offsetVal := 0
+	if offset != nil {
+		offsetVal = *offset
+	}
+	searchVal := ""
+	if search != nil {
+		searchVal = *search
+	}
+
+	items, total, err := r.entityProfileRepo.ListProfilesByType(ctx, companyID, slug.ToSlug(typeArg), searchVal, limitVal, offsetVal)
+	if err != nil {
+		r.logger.Error("failed to list entity profiles by type",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+		return nil, apperrors.NewInternalError("Failed to list entity profiles", err)
+	}
+
+	out := make([]*generated.EntityProfile, 0, len(items))
+	for _, it := range items {
+		p := it.Profile
+		name := p.Name
+		out = append(out, &generated.EntityProfile{
+			ID:            p.ID,
+			RefKey:        p.RefKey,
+			CompanyID:     p.CompanyID,
+			ProfileTypeID: p.ProfileTypeID,
+			Name:          &name,
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			LastActiveAt:  p.LastActiveAt.Format(time.RFC3339),
+			Metrics:       toGraphQLMetrics(it.Metrics),
+		})
+	}
+
+	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
+	if err != nil {
+		r.logger.Warn("could not fetch profile type details for connection",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+		return &generated.EntityProfileConnection{
+			Items:       out,
+			TotalCount:  total,
+			ProfileType: nil,
+		}, nil
+	}
+
+	return &generated.EntityProfileConnection{
+		Items:       out,
+		TotalCount:  total,
+		ProfileType: toGraphQLProfileType(pt),
+	}, nil
 }
 
 // Error is the resolver for the error field on StepHistory.
@@ -802,7 +1066,7 @@ func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, 
 	// Permission already checked by parent Thread query
 	// If we got here, user has access to the thread
 
-	// Get postgres notification repository
+	// Get postgres notification repositoryle
 	postgresNotificationRepo := r.notificationRepo
 	if postgresNotificationRepo == nil {
 		return nil, fmt.Errorf("no notification repository configured")
@@ -873,7 +1137,7 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread
 // Details is the resolver for the details field.
 func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
 	// Return details as JSON string
-	if obj.Details == nil || len(obj.Details) == 0 {
+	if len(obj.Details) == 0 {
 		emptyJSON := "{}"
 		return &emptyJSON, nil
 	}
@@ -909,6 +1173,9 @@ func (r *Resolver) HashChainStatus() generated.HashChainStatusResolver {
 	return &hashChainStatusResolver{r}
 }
 
+// Mutation returns generated.MutationResolver implementation.
+func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
+
 // NotificationConfig returns generated.NotificationConfigResolver implementation.
 func (r *Resolver) NotificationConfig() generated.NotificationConfigResolver {
 	return &notificationConfigResolver{r}
@@ -942,6 +1209,7 @@ func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver
 type graphResolver struct{ *Resolver }
 type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
+type mutationResolver struct{ *Resolver }
 type notificationConfigResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
 type stepHistoryResolver struct{ *Resolver }

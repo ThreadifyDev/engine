@@ -44,36 +44,28 @@ conn, err := threadify.Connect(ctx, "api-key",
 
 ### Start Thread
 ```go
-// No contract
-thread, err := conn.Start(ctx)
+// With label (Recommended)
+thread, err := conn.Start(ctx, "Checkout-123", "")
 if err != nil {
     log.Fatal(err)
 }
 
-// With service name
-thread, err := conn.Start(ctx, threadify.WithService("payment-service"))
+// With label and contract
+thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 if err != nil {
     log.Fatal(err)
 }
 
-// With contract
-thread, err := conn.Start(ctx, 
-    threadify.WithContract("order_fulfillment"),
+// With label, contract, and options
+thread, err := conn.Start(ctx, "Order-789", "order_fulfillment", 
     threadify.WithService("merchant-service"),
 )
 if err != nil {
     log.Fatal(err)
 }
-
-// With contract and specific role
-thread, err := conn.Start(ctx, 
-    threadify.WithContract("order_fulfillment"),
-    threadify.WithRole("merchant"),
-)
-if err != nil {
-    log.Fatal(err)
-}
 ```
+
+> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
 
 ### Record Step
 ```go
@@ -253,24 +245,27 @@ for _, thread := range threads {
 
 ### Retrieve Thread Data
 
+**Important:** `GetThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `Join()`.
+
 **Recommended:** Use `GetCompleteData()` for efficiency (single query):
 
 ```go
 // Wait for archival (1-2 seconds)
 time.Sleep(2 * time.Second)
 
+// Get thread for READ-ONLY access
 thread, err := conn.GetThread(ctx, threadID)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get everything in one query (recommended)
-completeData, err := thread.GetCompleteData(ctx, &threadify.CompleteDataOptions{
-    StepHistoryLimit: 50,  // History per step
-    ValidationLimit:  10,  // Validation results
+completeData, err := thread.GetCompleteData(ctx, &threadify.devpleteDataOptions{
+	StepHistoryLimit: 50,  // History per step
+	ValidationLimit:  10,  // Validation results
 })
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Access: completeData.Steps, completeData.ValidationResults, etc.
@@ -279,21 +274,41 @@ if err != nil {
 **Alternative:** Separate queries (use only if you need partial data):
 
 ```go
+// Read-only access
 thread, err := conn.GetThread(ctx, threadID)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get steps only
 steps, err := thread.Steps(ctx, "order_placed", "", "success")
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
 
 // Get validations only
 validations, err := thread.ValidationResults(ctx, 10)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
+}
+```
+
+**To modify a thread:** Use `Join()` instead:
+
+```go
+// Join thread to add steps
+thread, err := conn.Join(ctx, 
+	threadify.WithJoinThreadID(threadID),
+	threadify.WithJoinRole("participant"),
+)
+if err != nil {
+	log.Fatal(err)
+}
+
+// Now you can record steps
+_, err = thread.Step("new_step").Success(ctx)
+if err != nil {
+	log.Fatal(err)
 }
 ```
 
@@ -382,7 +397,7 @@ if err != nil {
 ```go
 // Create invitation for external party
 invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
-    Role:        "logistics",
+    Role:        "participant",
     AccessLevel: "external",  // Optional, defaults to "external"
     ExpiresIn:   "48h",        // Optional, defaults to "24h"
 })
@@ -512,7 +527,7 @@ func main() {
     }
     defer conn.Close()
     
-    thread, err := conn.Start(ctx)
+    thread, err := conn.Start(ctx, "", "Checkout Process")
     if err != nil {
         log.Fatal(err)
     }

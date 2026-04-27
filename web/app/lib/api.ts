@@ -22,7 +22,7 @@ export class ValidationError extends Error {
 }
 
 export interface SignupData {
-  company_name: string;
+  company_name?: string;
   email: string;
   password: string;
   full_name: string;
@@ -30,6 +30,7 @@ export interface SignupData {
   industry?: string;
   company_size?: string;
   use_case?: string;
+  invitation_token?: string;
 }
 
 export interface LoginData {
@@ -80,6 +81,23 @@ export interface LoginResponse {
 
 export interface ApiError {
   error: string;
+}
+
+export interface CreditAccountDTO {
+  id: string;
+  company_id: string;
+  billing_cycle_start: string;
+  balance_millicents: number;
+  min_balance_millicents: number;
+  max_monthly_charge_millicents: number;
+  auto_topup_millicents: number;
+  monthly_charged_millicents: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GetCurrentPlanResponse {
+  credit_account: CreditAccountDTO | null;
 }
 
 class ApiClient {
@@ -137,7 +155,19 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const errorMessage = data.error || data.message || 'An error occurred';
+      // Prefer 'message' field for user-friendly errors, fallback to 'error' field
+      let errorMessage = data.message || data.error || 'An error occurred';
+
+      // Cleanup internal billing error prefixes
+      if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
+        const jsonPart = errorMessage.split('payment required: insufficient credits: ')[1];
+        try {
+          const parsed = JSON.parse(jsonPart);
+          if (parsed.message) errorMessage = parsed.message;
+        } catch (e) {
+          // Keep original if parsing fails
+        }
+      }
 
       // Handle invalid token by logging out (only for authenticated requests)
       // Don't redirect on login failures (which also return 401)
@@ -270,9 +300,60 @@ class ApiClient {
     });
   }
 
+  async getUserProfile(minimal?: boolean): Promise<{ user: User; company: any }> {
+    const params = minimal ? '?minimal=true' : '';
+    return this.request(`/user/profile${params}`, {
+      method: 'GET',
+    });
+  }
+
+  async getTeamMembers(): Promise<{ members: User[] }> {
+    return this.request('/team/members', {
+      method: 'GET',
+    });
+  }
+
+  async removeTeamMember(id: string): Promise<any> {
+    return this.request(`/team/members/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listInvitations(): Promise<{ invitations: any[] }> {
+    return this.request('/team/invitations', {
+      method: 'GET',
+    });
+  }
+
+  async sendTeamInvitation(data: { email: string; role: string }): Promise<any> {
+    return this.request('/team/invitations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async resendInvitation(id: string): Promise<any> {
+    return this.request(`/team/invitations/${id}/resend`, {
+      method: 'POST',
+    });
+  }
+
+  async cancelInvitation(id: string): Promise<any> {
+    return this.request(`/team/invitations/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Contract Management (proxy to ThreadifyEngine)
-  async getAllContracts(): Promise<any> {
-    return this.request('/contracts');
+  async getAllContracts(params?: { search?: string; limit?: number; offset?: number }): Promise<any> {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.offset) query.append('offset', params.offset.toString());
+
+    const queryString = query.toString();
+    const endpoint = `/contracts${queryString ? `?${queryString}` : ''}`;
+    return this.request(endpoint);
   }
 
   async createContract(data: { name: string; yaml: string }): Promise<any> {
@@ -298,7 +379,10 @@ class ApiClient {
   async previewContract(data: { yaml: string }): Promise<any> {
     return this.request('/contracts/preview', {
       method: 'POST',
-      body: JSON.stringify(data),
+      headers: {
+        'Content-Type': 'application/x-yaml',
+      },
+      body: data.yaml,
     });
   }
 
@@ -341,6 +425,13 @@ class ApiClient {
     return this.request('/service-accounts', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async validateInvitation(token: string): Promise<{ company_name: string; email: string }> {
+    return this.request('/team/invitation/validate', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
     });
   }
 
@@ -398,6 +489,7 @@ class ApiClient {
   async createAPIKey(data: {
     name: string;
     expires_in?: number;
+    service_account_id?: string;
     create_service_account?: boolean;
     service_account_role?: string;
   }): Promise<{
@@ -435,7 +527,7 @@ class ApiClient {
     return this.post('/chat/ask', { message, conversation_id: conversationId });
   }
 
-  async getChatConversations(): Promise<{ conversations: any[] }> {
+  async getChatConversations(): Promise<{ conversations: any[]; credits_available?: boolean; max_tokens?: number; max_messages?: number }> {
     return this.request('/chat/conversations');
   }
 
@@ -454,6 +546,90 @@ class ApiClient {
   async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
     return this.request(`/code-samples?codeType=${codeType}`);
   }
+
+  async getBillingInfo(): Promise<GetCurrentPlanResponse> {
+    return this.request('/billing/plan');
+  }
+
+  async createCheckoutSession(amountMillicents: number): Promise<{ url: string }> {
+    return this.post('/billing/checkout', {
+      amount_millicents: amountMillicents,
+    });
+  }
+
+  async updateMonthlyLimit(maxMonthlyMillicents: number): Promise<{ status: string }> {
+    return this.request('/billing/spending-limit', {
+      method: 'PUT',
+      body: JSON.stringify({
+        max_monthly_millicents: maxMonthlyMillicents,
+      }),
+    });
+  }
+
+  // --- Entity Profile Management ---
+  async createEntityProfileType(data: { name: string; type: string[]; description?: string }): Promise<any> {
+    return this.post('/entity-profile-types', data);
+  }
+
+  async listEntityProfileTypes(): Promise<any> {
+    return this.request('/entity-profile-types');
+  }
+
+  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string }): Promise<any> {
+    return this.request(`/entity-profile-types/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async archiveEntityProfileType(id: string): Promise<any> {
+    return this.delete(`/entity-profile-types/${id}`);
+  }
+
+  async listEntityProfileTypesProxy(): Promise<any> {
+    return this.request('/entity-profiles/types');
+  }
+
+  async getEntityProfile(refKey: string, type: string): Promise<any> {
+    // Note: Use encodeURIComponent to safely pass refKey and type
+    return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
+  }
+
+}
+
+export interface EntityProfileType {
+  id: string;
+  company_id: string;
+  name: string;
+  slug: string;
+  type: string[];
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityProfileMetrics {
+  entityProfileId: string;
+  totalDeliveries: number;
+  completedSuccessfully: number;
+  validationViolations: number;
+  deliveryHealthScore: number | null;
+  prevDeliveryHealthScore: number | null;
+  healthTrendSlope: number | null;
+  averageDeliveryTimeMs: number;
+  lastCalculatedAt: string;
+}
+
+export interface EntityProfile {
+  id: string;
+  refKey: string;
+  companyId: string;
+  profileTypeId: string;
+  profileType?: EntityProfileType;
+  name: string;
+  createdAt: string;
+  lastActiveAt: string;
+  metrics: EntityProfileMetrics;
 }
 
 export const api = new ApiClient(API_BASE_URL);

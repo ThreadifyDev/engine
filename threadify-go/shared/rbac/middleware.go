@@ -1,6 +1,7 @@
 package rbac
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,14 +9,14 @@ import (
 
 // UserRoleGetter interface for getting user roles from database
 type UserRoleGetter interface {
-	GetUserRoles(userID string) ([]string, error)
-	GetServiceAccountRoles(serviceAccountID string) ([]string, error)
+	GetUserRoles(ctx context.Context, userID string) ([]string, error)
+	GetServiceAccountRoles(ctx context.Context, serviceAccountID string) ([]string, error)
 }
 
 // ServiceAccountChecker interface for checking service account status
 type ServiceAccountChecker interface {
-	IsServiceAccountActive(id string) (bool, error)
-	UpdateLastUsed(id string) error
+	IsServiceAccountActive(ctx context.Context, id string) (bool, error)
+	UpdateLastUsed(ctx context.Context, id string) error
 }
 
 // RequirePermission checks if the authenticated user/service account has the required permission
@@ -38,20 +39,16 @@ func RequirePermission(
 		var permissions []string
 
 		if userID != "" {
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+			roleNames, err := userRoleRepo.GetUserRoles(c.Request.Context(), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
 				return
 			}
 
-			if len(roleNames) == 0 {
-				roleNames = []string{"standard_account"}
-			}
-
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
 		} else {
-			isActive, err := serviceAccountChecker.IsServiceAccountActive(serviceAccountID)
+			isActive, err := serviceAccountChecker.IsServiceAccountActive(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Service account not found"})
 				c.Abort()
@@ -64,7 +61,7 @@ func RequirePermission(
 				return
 			}
 
-			roleNames, err := userRoleRepo.GetServiceAccountRoles(serviceAccountID)
+			roleNames, err := userRoleRepo.GetServiceAccountRoles(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load service account roles"})
 				c.Abort()
@@ -111,20 +108,16 @@ func RequireResourcePermission(
 		var permissions []string
 
 		if userID != "" {
-			roleNames, err := userRoleRepo.GetUserRoles(userID)
+			roleNames, err := userRoleRepo.GetUserRoles(c.Request.Context(), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user roles"})
 				c.Abort()
 				return
 			}
 
-			if len(roleNames) == 0 {
-				roleNames = []string{"standard_account"}
-			}
-
 			permissions = loader.GetPermissionsForRoles(roleNames, "app_level")
 		} else {
-			isActive, err := serviceAccountChecker.IsServiceAccountActive(serviceAccountID)
+			isActive, err := serviceAccountChecker.IsServiceAccountActive(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Service account not found"})
 				c.Abort()
@@ -137,7 +130,7 @@ func RequireResourcePermission(
 				return
 			}
 
-			roleNames, err := userRoleRepo.GetServiceAccountRoles(serviceAccountID)
+			roleNames, err := userRoleRepo.GetServiceAccountRoles(c.Request.Context(), serviceAccountID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load service account roles"})
 				c.Abort()

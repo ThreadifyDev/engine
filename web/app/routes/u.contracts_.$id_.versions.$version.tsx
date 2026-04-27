@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
+import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import { graphqlClient } from '~/lib/graphql';
 import SideNav from '~/components/SideNav';
 import ContractGraphView from '~/components/ContractGraphView';
+
+export const meta: MetaFunction = () => {
+  return [
+    { title: "Contract Version - Threadify" },
+    { name: "description", content: "View contract version details" },
+  ];
+};
 
 type TabType = 'diagram' | 'yaml';
 
@@ -71,7 +79,7 @@ export default function ContractVersionDetail() {
             <p className="text-red-600 mb-4">{error}</p>
             <button
               onClick={() => navigate(`/u/contracts/${id}`)}
-              className="px-4 py-2 bg-black text-white hover:bg-gray-800"
+              className="text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
             >
               Back to Contract
             </button>
@@ -90,7 +98,7 @@ export default function ContractVersionDetail() {
           <div className="mb-8">
             <button
               onClick={() => navigate(`/u/contracts/${id}`)}
-              className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
+              className="text-gray-500 hover:text-gray-900 mb-6 flex items-center text-sm font-medium transition-colors"
             >
               ← Back to Contract
             </button>

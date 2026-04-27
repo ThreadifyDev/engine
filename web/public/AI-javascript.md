@@ -35,15 +35,17 @@ const connection = await Threadify.connect('api-key', 'my-service', {
 
 ### Start Thread
 ```javascript
-// No contract
-const thread = await connection.start();
+// With label (Recommended)
+const thread = await connection.start('Order-123');
 
-// With service name
-const thread = await connection.start('payment-service');
+// With label and contract
+const thread = await connection.start('Order-789', 'order_fulfillment');
 
-// With contract
-const thread = await connection.start('order_fulfillment', 'merchant-service');
+// With label, contract, and options
+const thread = await connection.start('Order-789', 'order_fulfillment', { serviceName: 'merchant-service' });
 ```
+
+> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
 
 ### Record Step
 ```javascript
@@ -128,12 +130,15 @@ await childThread.linkThread(parentThread.id, 'parent');
 
 ### Retrieve Thread Data
 
+**Important:** `getThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `join()`.
+
 **Recommended:** Use `getCompleteData()` for efficiency (single query):
 
 ```javascript
 // Wait for archival (1-2 seconds)
 await new Promise(resolve => setTimeout(resolve, 2000));
 
+// Get thread for READ-ONLY access
 const thread = await connection.getThread(threadId);
 
 // Get everything in one query (recommended)
@@ -147,9 +152,19 @@ const data = await thread.getCompleteData({
 
 **Alternative:** Separate queries (use only if you need partial data):
 ```javascript
+// Read-only access
 const thread = await connection.getThread(threadId);
 const steps = await thread.steps();                    // All steps
 const validations = await thread.validationResults();  // All validations
+```
+
+**To modify a thread:** Use `join()` instead:
+```javascript
+// Join thread to add steps
+const thread = await connection.join(threadId, 'participant');
+
+// Now you can record steps
+await thread.step('new_step').success();
 ```
 
 ### Query Thread Chain
@@ -248,7 +263,7 @@ await thread.addRefs({ customer_id: '123' });
 import { Threadify } from '@threadify/sdk';
 
 const connection = await Threadify.connect('api-key', 'checkout-service');
-const thread = await connection.start();
+const thread = await connection.start('Checkout Process');
 
 // Add external references to the thread
 await thread.addRefs({

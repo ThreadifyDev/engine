@@ -10,6 +10,8 @@ import ReactFlow, {
   MarkerType,
   Position,
   Handle,
+  useReactFlow,
+  ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Clock, CheckCircle2, AlertCircle, Search, X, ChevronRight, AlertTriangle, Hash, Code, Copy, Check, Star } from 'lucide-react';
@@ -198,7 +200,7 @@ function getLayoutedElements(
   return { nodes: layoutedNodes, edges };
 }
 
-export default function ContractGraphView({ contractName, version, graphData }: ContractGraphViewProps) {
+function ContractGraphViewInner({ contractName, version, graphData }: ContractGraphViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -208,6 +210,7 @@ export default function ContractGraphView({ contractName, version, graphData }: 
   const [showValidation, setShowValidation] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const { fitView } = useReactFlow();
 
   // Build transition map for retry info
   const transitionMap = useMemo(() => {
@@ -294,6 +297,20 @@ export default function ContractGraphView({ contractName, version, graphData }: 
     setNodes(layoutedNodes);
     setEdges(layoutedEdges);
   }, [graphData, transitionMap, setNodes, setEdges]);
+
+  // Auto-fit view when nodes are loaded
+  useEffect(() => {
+    if (nodes.length > 0) {
+      // Small delay to ensure nodes are rendered before fitting
+      setTimeout(() => {
+        fitView({ 
+          padding: 0.2,
+          includeHiddenNodes: false,
+          duration: 400,
+        });
+      }, 100);
+    }
+  }, [nodes.length, fitView]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -631,5 +648,14 @@ function ContractStepDetail({
         </div>
       )}
     </div>
+  );
+}
+
+// Wrapper component with ReactFlowProvider
+export default function ContractGraphView(props: ContractGraphViewProps) {
+  return (
+    <ReactFlowProvider>
+      <ContractGraphViewInner {...props} />
+    </ReactFlowProvider>
   );
 }
