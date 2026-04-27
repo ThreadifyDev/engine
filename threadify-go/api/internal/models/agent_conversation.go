@@ -7,21 +7,19 @@ type StreamHandler func(eventType, data string)
 
 const (
 	// Skill Types
-	SkillSupport    = "support"
-	SkillOperations = "operations"
-	SkillBusiness   = "business"
-	SkillDesign     = "design"
+	SkillAuto    = "auto"
+	SkillSupport = "support"
+	SkillDesign  = "design"
 
 	// SSE Event Types
-	EventChunk           = "chunk"
-	EventSystem          = "system"
-	EventToolCall        = "tool_call"
-	EventConversation    = "conversation"
-	EventDone            = "done"
-	EventError           = "error"
-	EventContractPreview = "contract_preview"
-	EventTokens          = "tokens"
-	EventMessageCount    = "message_count"
+	EventChunk        = "chunk"
+	EventSystem       = "system"
+	EventToolCall     = "tool_call"
+	EventConversation = "conversation"
+	EventDone         = "done"
+	EventError        = "error"
+	EventTokens       = "tokens"
+	EventMessageCount = "message_count"
 
 	// Context Keys
 	ContextKeySummary = "conversation_summary"

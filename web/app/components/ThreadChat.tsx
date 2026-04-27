@@ -5,6 +5,8 @@ import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';
 import yaml from 'js-yaml';
 import ContractGraphView from './ContractGraphView';
+import { useToast } from '~/hooks/useToast';
+import ToastContainer from './ToastContainer';
 
 /**
  * Robustly repairs and formats YAML content, handling common LLM mashup bugs
@@ -14,40 +16,65 @@ const formatAndCleanYaml = (input: string): string => {
   
   let cleaned = input.trim();
   
-  // 1. Aggressive repair for mashed keywords (universal logic)
-  const keywords = [
-    'contract_name', 'version', 'description', 'entry_points', 
-    'parties', 'steps', 'transitions', 'terminal_steps', 
-    'id', 'owner', 'type', 'business_context', 'required', 'from', 'to'
-  ];
+  // 1. Fix list items that are mashed together: "  - id: foo    owner:" -> "  - id: foo\n    owner:"
+  // Match list items and add proper line breaks
+  cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s{2,})([a-z_]+:)/gi, '$1\n    $3');
   
-  for (const key of keywords) {
-    // Fix mashed: [prevChar][keyword]:[value] -> [prevChar]\n[keyword]:[value]
-    // Only if prevChar is [a-z0-9\]}] (value ending char)
-    const regex = new RegExp(`([a-z0-9\\]}])(${key}:)`, 'gi');
-    cleaned = cleaned.replace(regex, '$1\n$2');
-  }
-
-  // 2. Fix specific case: terminal_ steps (mashup repair)
+  // 2. Fix top-level properties mashed together
+  cleaned = cleaned.replace(/([^\s\n])([a-z_]+:)/gi, (match, char, keyword) => {
+    // Don't split if it's part of a word (e.g., "checkout-service")
+    if (char.match(/[a-z_-]/i)) return match;
+    return `${char}\n${keyword}`;
+  });
+  
+  // 3. Fix list items at start of line that are mashed: "  - id: foo  - id: bar" -> "  - id: foo\n  - id: bar"
+  cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s+)(-\s+[a-z_]+:)/gi, '$1\n$3');
+  
+  // 4. Fix terminal_steps mashup
   cleaned = cleaned.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
 
-  // 3. Try parsing with js-yaml to get high-quality formatting
+  // Try parsing with js-yaml to get high-quality formatting
   try {
     const doc = yaml.load(cleaned);
     if (doc && typeof doc === 'object') {
        return yaml.dump(doc, { 
          indent: 2, 
-         lineWidth: -1, // No line wrapping for values to avoid breakage
+         lineWidth: -1, // No line wrapping
          noRefs: true,
          sortKeys: false // Preserve order
        });
     }
   } catch (e) {
-    // If parsing fails (usually because it's partial during streaming), 
-    // we just return the regex-repaired version
+    console.warn('[formatAndCleanYaml] YAML parsing failed after repairs:', e);
+    // Return the repaired version even if it can't be parsed
   }
   
   return cleaned;
+};
+
+/**
+ * Detects and extracts YAML contract from message content
+ * Returns null if no contract found
+ */
+const extractContractYaml = (content: string): string | null => {
+  if (!content) return null;
+  
+  // Try to extract from code block first
+  const codeBlockMatch = content.match(/```yaml\n?([\s\S]*?)```/);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    const yamlContent = codeBlockMatch[1].trim();
+    // Verify it looks like a contract
+    if (yamlContent.includes('contract_name:')) {
+      return yamlContent;
+    }
+  }
+  
+  // Fallback: check if content itself contains contract_name
+  if (content.includes('contract_name:')) {
+    return content.trim();
+  }
+  
+  return null;
 };
 
 interface Message {
@@ -77,10 +104,11 @@ interface Conversation {
   updated_at: string;
 }
 
-type Skill = 'support' | 'operations' | 'business';
+type Skill = 'auto' | 'support' | 'design';
 
 export default function ThreadChat() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -88,7 +116,7 @@ export default function ThreadChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSkill, setSelectedSkill] = useState<Skill>('support');
+  const [selectedSkill, setSelectedSkill] = useState<Skill>('auto');
   const [tokenCount, setTokenCount] = useState(0);
   const [messageCount, setMessageCount] = useState(0);
   const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
@@ -270,10 +298,6 @@ export default function ThreadChat() {
         setMessageCount(currentConv.message_count || 0);
       }
       setSearchQuery('');
-      
-      // Reset token/message counts and limit error when switching conversations
-      setTokenCount(0);
-      setMessageCount(0);
       setLimitError(null);
       
       // Save to localStorage for auto-restore on next visit
@@ -323,7 +347,7 @@ export default function ThreadChat() {
       // Reload conversations list
       loadConversations();
     } catch (error) {
-      alert('Failed to continue conversation with context');
+      toast.error('Failed to continue conversation with context');
     } finally {
       setIsGeneratingSummary(false);
     }
@@ -348,7 +372,7 @@ export default function ThreadChat() {
       // Refresh conversation list
       loadConversations();
     } catch (error) {
-      alert('Failed to delete conversation');
+      toast.error('Failed to delete conversation');
     }
   };
 
@@ -422,6 +446,7 @@ export default function ThreadChat() {
         body: JSON.stringify({
           message: userInput,
           conversation_id: conversationId,
+          skill: selectedSkill,
         }),
       });
 
@@ -601,28 +626,6 @@ export default function ThreadChat() {
                 } catch (e) {
                   // Ignore parsing errors
                 }
-              } else if (currentEvent === 'contract_preview') {
-                try {
-                  const previewCallData = JSON.parse(data.trim());
-                  const engineResponse = JSON.parse(previewCallData.response);
-                  
-                  const contractData = {
-                    yaml: previewCallData.yaml,
-                    response: engineResponse
-                  };
-                  
-                  setPreviewData(contractData);
-                  setIsPreviewOpen(true);
-                  
-                  // Store contract preview in the assistant message for later viewing
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === assistantMessageId 
-                      ? { ...msg, contractPreview: contractData }
-                      : msg
-                  ));
-                } catch (e) {
-                  // Ignore parsing errors
-                }
               } else if (currentEvent === 'error') {
                 // Error from backend
                 const errorMsg = data.trim();
@@ -637,19 +640,107 @@ export default function ThreadChat() {
                 setIsLoading(false);
                 break;
               } else if (currentEvent === 'done') {
-                // Stream complete - Apply final library-grade formatting to YAML
-                setMessages(prev => prev.map(msg => {
-                  if (msg.id === assistantMessageId && msg.contractPreview) {
-                    return {
-                      ...msg,
-                      contractPreview: {
-                        ...msg.contractPreview,
-                        yaml: formatAndCleanYaml(msg.contractPreview.yaml)
+                // Stream complete - Check for YAML contract and open preview
+                setMessages(prev => {
+                  const updatedMessages = prev.map(msg => {
+                    if (msg.id === assistantMessageId) {
+                      // Apply the same content cleanup as loadConversation
+                      let cleanedContent = msg.content;
+                      cleanedContent = cleanedContent.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
+                      cleanedContent = cleanedContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
+                      cleanedContent = cleanedContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
+                      
+                      // Extract YAML from cleaned content
+                      const yamlContent = extractContractYaml(cleanedContent);
+                      
+                      if (yamlContent) {
+                        console.log('[YAML Format] Extracted YAML (first 200 chars):', yamlContent.substring(0, 200));
+                        
+                        // Format and validate YAML using js-yaml
+                        let formattedYaml = yamlContent;
+                        let parseError = null;
+                        
+                        try {
+                          // Apply formatAndCleanYaml which already does parse + dump internally
+                          console.log('[YAML Format] Calling formatAndCleanYaml...');
+                          formattedYaml = formatAndCleanYaml(yamlContent);
+                          console.log('[YAML Format] Successfully formatted! (first 200 chars):', formattedYaml.substring(0, 200));
+                        } catch (e) {
+                          console.warn('[YAML Format] Formatting failed:', e);
+                          // If even formatAndCleanYaml fails, use original
+                          formattedYaml = yamlContent;
+                          parseError = e instanceof Error ? e.message : 'Invalid YAML format';
+                        }
+                        
+                        // Replace malformed YAML in cleaned content with formatted version
+                        const updatedContent = cleanedContent.includes('```yaml')
+                          ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\``)
+                          : cleanedContent;
+                        
+                        console.log('[YAML Format] Updated content (first 200 chars):', updatedContent.substring(0, 200));
+                        
+                        // Call preview API to get graph data
+                        api.previewContract({ yaml: formattedYaml })
+                          .then(result => {
+                            const contractData = {
+                              yaml: formattedYaml,
+                              response: result
+                            };
+                            
+                            // Update message with cleaned content and contract preview
+                            setMessages(msgs => msgs.map(m => 
+                              m.id === assistantMessageId 
+                                ? { ...m, content: updatedContent, contractPreview: contractData }
+                                : m
+                            ));
+                            
+                            // Open preview panel
+                            setPreviewData(contractData);
+                            setIsPreviewOpen(true);
+                          })
+                          .catch(err => {
+                            console.error('[Contract Preview] Failed to generate graph:', err);
+                            // Still save the YAML even if graph generation fails
+                            const contractData = {
+                              yaml: formattedYaml,
+                              response: { 
+                                errors: [{ 
+                                  message: parseError || 'Failed to generate graph preview',
+                                  details: err instanceof Error ? err.message : String(err)
+                                }] 
+                              }
+                            };
+                            setMessages(msgs => msgs.map(m => 
+                              m.id === assistantMessageId 
+                                ? { ...m, content: updatedContent, contractPreview: contractData }
+                                : m
+                            ));
+                          });
+                        
+                        return msg;
                       }
-                    };
-                  }
-                  return msg;
-                }));
+                      
+                      // If there's an existing contract preview, format it
+                      if (msg.contractPreview) {
+                        return {
+                          ...msg,
+                          contractPreview: {
+                            ...msg.contractPreview,
+                            yaml: formatAndCleanYaml(msg.contractPreview.yaml)
+                          }
+                        };
+                      }
+                    }
+                    return msg;
+                  });
+                  
+                  return updatedMessages;
+                });
                 break;
               }
 
@@ -681,13 +772,13 @@ export default function ThreadChat() {
         yaml: previewData.yaml,
       });
       
-      alert('Contract created successfully!');
+      toast.success('Contract created successfully!');
       setIsPreviewOpen(false);
       setPreviewData(null);
       
     } catch (err: any) {
       console.error('Create contract error:', err);
-      alert(err.message || 'An error occurred while creating the contract');
+      toast.error(err.message || 'An error occurred while creating the contract');
     } finally {
       setIsCreatingContract(false);
     }
@@ -1146,14 +1237,14 @@ export default function ThreadChat() {
                 onChange={(e) => setSelectedSkill(e.target.value as Skill)}
                 className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white text-gray-700"
               >
+                <option value="auto">Auto</option>
                 <option value="support">Support</option>
-                <option value="operations">Operations</option>
-                <option value="business">Business</option>
+                <option value="design">Contract Builder</option>
               </select>
               <span className="text-xs text-gray-500">
-                {selectedSkill === 'support' && 'Customer troubleshooting'}
-                {selectedSkill === 'operations' && 'Workflow monitoring & reliability'}
-                {selectedSkill === 'business' && 'Analytics & insights'}
+                {selectedSkill === 'auto' && 'AI chooses best agent'}
+                {selectedSkill === 'support' && 'Thread analysis & troubleshooting'}
+                {selectedSkill === 'design' && 'Contract generation from threads'}
               </span>
             </div>
             {conversationId && (tokenCount > 0 || messageCount > 0) && (
@@ -1306,7 +1397,7 @@ export default function ThreadChat() {
                         setActiveTab('diagram');
                       } catch (err) {
                         console.error('Preview error:', err);
-                        alert(`Failed to update preview: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                        toast.error(`Failed to update preview: ${err instanceof Error ? err.message : 'Unknown error'}`);
                       } finally {
                         setIsUpdatingPreview(false);
                       }
@@ -1325,12 +1416,26 @@ export default function ThreadChat() {
                   </button>
                 </div>
               </div>
-              <textarea
-                value={editedYaml || previewData.yaml}
-                onChange={(e) => setEditedYaml(e.target.value)}
-                className="flex-1 bg-gray-900 text-gray-100 p-4 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                spellCheck={false}
-              />
+              {previewData.yaml ? (
+                <div className="flex-1 bg-gray-900 overflow-auto">
+                  <textarea
+                    value={editedYaml || previewData.yaml}
+                    onChange={(e) => setEditedYaml(e.target.value)}
+                    className="w-full h-full bg-transparent text-gray-100 p-4 font-mono text-sm resize-none focus:outline-none border-0 leading-6"
+                    style={{ 
+                      minHeight: '100%',
+                      color: '#e5e7eb',
+                      caretColor: '#60a5fa'
+                    }}
+                    spellCheck={false}
+                    placeholder="YAML contract will appear here..."
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 bg-gray-900 flex items-center justify-center">
+                  <p className="text-gray-400 text-sm">No YAML content available</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1352,6 +1457,9 @@ export default function ThreadChat() {
         </div>
       </div>
     )}
+    
+    {/* Toast Notifications */}
+    <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
   </div>
   );
 }

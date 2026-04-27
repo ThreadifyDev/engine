@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -288,11 +287,13 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
+		s.logger.Error("failed to marshal GraphQL request", zap.Error(err))
 		return "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.threadifyEngineURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
+		s.logger.Error("failed to create GraphQL request", zap.Error(err))
 		return "", err
 	}
 
@@ -302,20 +303,36 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		s.logger.Error("GraphQL request failed",
+			zap.Error(err),
+			zap.String("url", s.threadifyEngineURL),
+			zap.String("query", query))
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		s.logger.Error("failed to read GraphQL response", zap.Error(err))
 		return "", err
 	}
+
 	if resp.StatusCode == http.StatusPaymentRequired || resp.StatusCode == http.StatusForbidden {
+		s.logger.Warn("GraphQL payment/auth error",
+			zap.Int("status", resp.StatusCode),
+			zap.String("response", string(respBody)))
 		return "", fmt.Errorf("%w: %s", ErrPaymentRequired, string(respBody))
 	}
+
 	if resp.StatusCode >= http.StatusBadRequest {
+		s.logger.Error("GraphQL query error",
+			zap.Int("status", resp.StatusCode),
+			zap.String("query", query),
+			zap.Any("variables", variables),
+			zap.String("response", string(respBody)))
 		return "", fmt.Errorf("GraphQL error (status %d): %s", resp.StatusCode, string(respBody))
 	}
+
 	return string(respBody), nil
 }
 
@@ -350,32 +367,6 @@ func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, 
 	switch skill {
 	case models.SkillSupport:
 		roleDescription = s.readPromptConfig("skill_support.txt")
-	case models.SkillOperations:
-		roleDescription = `You are an Operations AI for Threadify. Your goal is to monitor workflow execution and identify operational issues.
-
-FOCUS:
-- Workflow reliability and completion rates
-- Error patterns and failure points
-- Process bottlenecks and delays
-- Retry patterns and recovery success
-
-RESPONSE STYLE:
-- Process-oriented and actionable
-- Highlight anomalies and trends
-- Include metrics and counts`
-	case models.SkillBusiness:
-		roleDescription = `You are a Business Intelligence AI for Threadify. Your goal is to provide insights and analytics on workflow performance.
-
-FOCUS:
-- Success rates and conversion metrics
-- Workflow completion times
-- Business process efficiency
-- Trends and patterns over time
-
-RESPONSE STYLE:
-- Business-oriented language
-- Quantitative insights
-- Strategic recommendations`
 	case models.SkillDesign:
 		roleDescription = s.readPromptConfig("skill_design.txt")
 	default:
@@ -455,7 +446,13 @@ func (t *graphqlTool) InvokableRun(ctx context.Context, arguments string, opts .
 	state := ctx.Value("agent_state").(*AgentState)
 	out, err := t.s.executeGraphQL(ctx, state.AuthHeader, args.Query, args.Variables)
 	if err != nil {
-		return fmt.Sprintf("{\"error\": \"%s\"}", t.s.sanitizeError(err)), nil
+		// Log the actual error for debugging
+		t.s.logger.Error("GraphQL tool execution failed",
+			zap.Error(err),
+			zap.String("query", args.Query),
+			zap.Any("variables", args.Variables))
+		// Return the error so the agent can retry or handle it
+		return "", fmt.Errorf("GraphQL query failed: %w", err)
 	}
 	return out, nil
 }
@@ -608,10 +605,6 @@ func (s *AgentService) BuildAgentGraph(ctx context.Context) (compose.Runnable[co
 
 			state.Messages = append(state.Messages, finalMsg)
 
-			if skill == models.SkillDesign && finalMsg.Content != "" {
-				s.emitContractPreview(ctx, state, finalMsg.Content)
-			}
-
 			return state, nil
 		})
 	}
@@ -623,12 +616,24 @@ func (s *AgentService) BuildAgentGraph(ctx context.Context) (compose.Runnable[co
 
 	// 3. Tools executor
 	toolsExecutor := compose.InvokableLambda(func(ctx context.Context, state *AgentState) (*AgentState, error) {
-		toolNode, _ := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{
+		toolNode, err := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{
 			Tools: []tool.BaseTool{&graphqlTool{s: s}, &saveContextTool{s: s}},
 		})
+		if err != nil {
+			s.logger.Error("failed to create tool node", zap.Error(err))
+			return nil, err
+		}
+
 		lastMsg := state.Messages[len(state.Messages)-1]
+		s.logger.Debug("executing tools",
+			zap.Int("tool_calls", len(lastMsg.ToolCalls)),
+			zap.String("conversation_id", state.ConversationID))
+
 		toolMsgs, err := toolNode.Invoke(ctx, lastMsg)
 		if err != nil {
+			s.logger.Error("tool execution failed",
+				zap.Error(err),
+				zap.String("conversation_id", state.ConversationID))
 			return nil, err
 		}
 
@@ -671,13 +676,50 @@ func (s *AgentService) BuildAgentGraph(ctx context.Context) (compose.Runnable[co
 
 	// Router from get_state to agent
 	routeSkill := func(ctx context.Context, state *AgentState) (string, error) {
+		// If skill is explicitly set (not auto), use it directly
 		if state.Skill == models.SkillSupport {
 			return "support", nil
 		}
 		if state.Skill == models.SkillDesign {
 			return "contract", nil
 		}
-		return "general", nil
+
+		// Auto-routing: classify user intent
+		if state.Skill == models.SkillAuto || state.Skill == "" {
+			// Get the last user message
+			var lastUserMsg string
+			for i := len(state.Messages) - 1; i >= 0; i-- {
+				if state.Messages[i].Role == schema.User {
+					lastUserMsg = state.Messages[i].Content
+					break
+				}
+			}
+
+			// Simple keyword-based classification
+			lowerMsg := strings.ToLower(lastUserMsg)
+
+			// Contract/Design keywords
+			if strings.Contains(lowerMsg, "create contract") ||
+				strings.Contains(lowerMsg, "generate contract") ||
+				strings.Contains(lowerMsg, "build contract") ||
+				strings.Contains(lowerMsg, "design contract") ||
+				strings.Contains(lowerMsg, "infer contract") ||
+				strings.Contains(lowerMsg, "contract from") {
+				s.logger.Info("Auto-routing to contract builder",
+					zap.String("conversation_id", state.ConversationID),
+					zap.String("message", lastUserMsg))
+				return "contract", nil
+			}
+
+			// Default to support for thread analysis
+			s.logger.Info("Auto-routing to support agent",
+				zap.String("conversation_id", state.ConversationID),
+				zap.String("message", lastUserMsg))
+			return "support", nil
+		}
+
+		// Fallback to support
+		return "support", nil
 	}
 	graph.AddBranch("get_state", compose.NewGraphBranch(routeSkill, map[string]bool{
 		"support":  true,
@@ -761,74 +803,6 @@ func (s *AgentService) updateConversationStats(ctx context.Context, convID strin
 
 func (s *AgentService) estimateTokens(text string) int {
 	return len(text) / 4
-}
-
-func (s *AgentService) emitContractPreview(ctx context.Context, state *AgentState, content string) {
-	onEvent, ok := ctx.Value("stream_callback").(models.StreamHandler)
-	if !ok {
-		s.logger.Warn("emitContractPreview: stream_callback not found in context")
-		return
-	}
-
-	// Extract YAML block from content
-	re := regexp.MustCompile("(?s)```yaml\n?(.*?)```")
-	yamlMatch := re.FindStringSubmatch(content)
-	var yamlContent string
-	if len(yamlMatch) >= 2 {
-		yamlContent = strings.TrimSpace(yamlMatch[1])
-	} else {
-		// Fallback for non-codeblock YAML if present
-		if strings.Contains(content, "contract_name:") {
-			yamlContent = strings.TrimSpace(content)
-		} else {
-			return
-		}
-	}
-
-	// Find the last tool message from execute_graphql
-	var lastToolOutput string
-	for i := len(state.Messages) - 1; i >= 0; i-- {
-		msg := state.Messages[i]
-		if msg.Role == schema.Tool {
-			lastToolOutput = msg.Content
-			break
-		}
-	}
-
-	if yamlContent != "" {
-		// Call the engine's preview API to get the graph data
-		previewURL := s.threadifyEngineURL + "/v1/contracts/preview"
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, previewURL, strings.NewReader(yamlContent))
-		if err == nil {
-			req.Header.Set("Content-Type", "application/x-yaml")
-			// We might need an auth header depending on engine settings
-			// req.Header.Set("Authorization", ...)
-
-			resp, err := http.DefaultClient.Do(req)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				defer resp.Body.Close()
-				body, _ := io.ReadAll(resp.Body)
-
-				previewData := map[string]interface{}{
-					"yaml":     yamlContent,
-					"response": string(body),
-				}
-				data, _ := json.Marshal(previewData)
-				onEvent(models.EventContractPreview, string(data))
-				s.logger.Info("emitted EventContractPreview with engine graph", zap.String("conversation_id", state.ConversationID))
-				return
-			}
-		}
-
-		// Fallback to minimal data if engine call fails
-		previewData := map[string]string{
-			"yaml":     yamlContent,
-			"response": lastToolOutput,
-		}
-		data, _ := json.Marshal(previewData)
-		onEvent(models.EventContractPreview, string(data))
-		s.logger.Warn("emitted EventContractPreview with fallback data", zap.String("conversation_id", state.ConversationID))
-	}
 }
 
 // Passthrough methods for conversation management

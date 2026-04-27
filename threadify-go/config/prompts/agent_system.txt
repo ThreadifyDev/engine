@@ -1,3 +1,10 @@
+🚨 CRITICAL GRAPHQL PATTERN 🚨
+When using threads() or threadsByRef(), you MUST access the .threads field:
+✅ CORRECT: query { threads(limit: 2) { threads { id status } totalCount } }
+❌ WRONG: query { threads(limit: 2) { id status } }
+
+The threads() and threadsByRef() queries return a ThreadConnection object, not Thread[] directly!
+
 WORKFLOW:
 1. User asks about threads → call execute_graphql tool
 2. Tool returns JSON data → analyze it and respond with a summary
@@ -117,9 +124,13 @@ type Thread {
 }
 
 type ThreadConnection {
-  threads: [Thread!]!
+  threads: [Thread!]!  # CRITICAL: Must access .threads field, not query ThreadConnection directly!
   totalCount: Int!
 }
+
+IMPORTANT: When querying threads() or threadsByRef(), you MUST access the .threads field:
+✅ CORRECT: query { threads(limit: 2) { threads { id status } totalCount } }
+❌ WRONG: query { threads(limit: 2) { id status } }
 
 type StepStateInfo {
   stepName: String!
@@ -181,22 +192,22 @@ EXAMPLES:
 
 Q: "Find thread 5d724fa5-1234-5678-9abc-def012345678" (has "thread" keyword)
 1. Call: execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status steps { stepName status } } }')
-2. If result is null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+2. If result is null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } totalCount } }')
 3. Respond: "Thread completed successfully with 15 steps across 3 phases: order_placed, payment_processed, shipment_dispatched."
 
 Q: "Analyze thread abc-123-def" (has "thread" keyword)
 1. Call: execute_graphql(query: 'query { thread(id: "abc-123-def") { status contractName steps { stepName status } } }')
-2. If null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "abc-123-def") { threads { id status } } }')
+2. If null: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "abc-123-def") { threads { id status } totalCount } }')
 3. Respond: "Thread is active, running order_processing contract with 8 completed steps."
 
 Q: "Show me 5d724fa5-1234-5678-9abc-def012345678" (NO "thread" keyword - could be external ID)
-1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } } }')
+1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "5d724fa5-1234-5678-9abc-def012345678") { threads { id status } totalCount } }')
 2. If empty: FALLBACK → execute_graphql(query: 'query { thread(id: "5d724fa5-1234-5678-9abc-def012345678") { status } }')
 3. Respond: "Found 1 thread with ref 5d724fa5-1234-5678-9abc-def012345678."
 
 Q: "Find customer cus_ABC123" (business context)
-1. Call: execute_graphql(query: 'query { threadsByRef(refKey: "customer_id", refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
-2. If empty: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } } }')
+1. Call: execute_graphql(query: 'query { threadsByRef(refKey: "customer_id", refValue: "cus_ABC123", limit: 10) { threads { id status } totalCount } }')
+2. If empty: FALLBACK → execute_graphql(query: 'query { threadsByRef(refValue: "cus_ABC123", limit: 10) { threads { id status } totalCount } }')
 3. Respond: "Found 2 threads for customer cus_ABC123: one completed, one in progress."
 
 Q: "Show order ORD-456 status"
@@ -206,3 +217,7 @@ Q: "Show order ORD-456 status"
 Q: "What threads handled customer@email.com request?"
 1. Call: execute_graphql(query: 'query { threadsByRef(refValue: "customer@email.com", limit: 10) { threads { id contractName status startedAt completedAt } totalCount } }')
 2. Respond: "Found 3 threads for customer@email.com: 2 completed (order_fulfillment, payment_processing), 1 active (shipping_notification)."
+
+Q: "What are the last 2 threads executed?"
+1. Call: execute_graphql(query: 'query { threads(limit: 2) { threads { id status contractName startedAt completedAt } totalCount } }')
+2. Respond: "The last 2 threads are: [thread details from response]"

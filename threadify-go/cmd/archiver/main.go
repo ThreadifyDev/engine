@@ -44,7 +44,15 @@ func main() {
 }
 
 func run(configPath string, logger *zap.Logger) error {
-	cfg, err := appconfig.LoadFromViper(viper.GetViper())
+	v := viper.New()
+	v.SetConfigFile(configPath)
+	if err := v.ReadInConfig(); err != nil {
+		logger.Warn("failed to read config file, using environment variables", zap.String("path", configPath), zap.Error(err))
+	} else {
+		logger.Info("loaded config", zap.String("path", configPath))
+	}
+
+	cfg, err := appconfig.LoadFromViper(v)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
