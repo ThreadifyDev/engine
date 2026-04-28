@@ -383,6 +383,13 @@ type EntityProfile {
   createdAt: String!
   lastActiveAt: String!
   metrics: EntityProfileMetrics
+  computedMetrics(range: String): JSON
+}
+
+type EntityTypeMetricConfig {
+  templateId: String!
+  name: String
+  parameters: JSON
 }
 
 type EntityProfileType {
@@ -393,4 +400,5 @@ type EntityProfileType {
   description: String
   createdAt: String!
   updatedAt: String!
+  metricsConfig: [EntityTypeMetricConfig!]
 }

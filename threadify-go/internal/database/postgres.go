@@ -123,6 +123,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_contract_id ON contract_versions(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_graph ON contract_versions USING GIN (graph) WHERE graph IS NOT NULL;
+	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS expected_duration_ms BIGINT;
 
 	CREATE TABLE IF NOT EXISTS threads (
 		id VARCHAR(255) PRIMARY KEY,
@@ -147,6 +148,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS has_entity_refs BOOLEAN;
 
 	-- Migrate owner_id foreign key from users to service_accounts
 	DO $$ 
@@ -1044,7 +1046,133 @@ END $$;
 		UNIQUE(entity_profile_id, partner_ref),
 		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
 	);
+	CREATE TABLE IF NOT EXISTS metrics_template (
+		id VARCHAR(255) PRIMARY KEY,
+		metrics_name VARCHAR(255) NOT NULL,
+		sql_content TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS entity_profile_type_metrics (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		entity_profile_type_id VARCHAR(255) NOT NULL REFERENCES entity_profile_type(id) ON DELETE CASCADE,
+		metrics_template_id VARCHAR(255) REFERENCES metrics_template(id) ON DELETE CASCADE,
+		name VARCHAR(255),
+		parameters JSONB NOT NULL DEFAULT '{}',
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
+
+	-- Migration: Add name column if it doesn't exist (for existing databases)
+	ALTER TABLE entity_profile_type_metrics ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+
+	-- Migration: if the table was created with the old composite PK, upgrade it
+	DO $$ BEGIN
+		IF EXISTS (
+			SELECT 1 FROM information_schema.table_constraints
+			WHERE table_name = 'entity_profile_type_metrics'
+			  AND constraint_name = 'entity_profile_type_metrics_pkey'
+			  AND constraint_type = 'PRIMARY KEY'
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'entity_profile_type_metrics' AND column_name = 'id'
+		) THEN
+			ALTER TABLE entity_profile_type_metrics DROP CONSTRAINT entity_profile_type_metrics_pkey;
+			ALTER TABLE entity_profile_type_metrics ADD COLUMN id UUID DEFAULT gen_random_uuid();
+			UPDATE entity_profile_type_metrics SET id = gen_random_uuid() WHERE id IS NULL;
+			ALTER TABLE entity_profile_type_metrics ALTER COLUMN id SET NOT NULL;
+			ALTER TABLE entity_profile_type_metrics ADD PRIMARY KEY (id);
+		END IF;
+	END $$;
 	`
 	_, err := db.Pool.Exec(ctx, schema)
 	return err
+}
+
+// InitDefaultMetrics inserts the core metrics templates if they don't already exist.
+func (db *PostgresDB) InitDefaultMetrics(ctx context.Context) error {
+	query := `
+	INSERT INTO metrics_template (id, metrics_name, sql_content) VALUES 
+	(
+		'metric_outcome_rate', 
+		'Outcome Rate', 
+		'SELECT 
+    COUNT(CASE WHEN t.status = @status THEN 1 END) AS matched_threads,
+    COUNT(*) AS total_threads,
+    ROUND(
+        (COUNT(CASE WHEN t.status = @status THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 
+        2
+    ) AS outcome_rate_percentage
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time 
+  AND t.created_at <= @end_time;'
+	),
+	(
+		'metric_avg_delivery_time', 
+		'Avg Delivery Time per Contract', 
+		'SELECT 
+    t.contract_name,
+    ROUND(AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2) AS avg_duration_ms,
+    cv.expected_duration_ms
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+JOIN contract_versions cv 
+  ON cv.contract_id::text = t.contract_id 
+  AND cv.version = t.contract_version
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.status = ''completed''
+  AND t.created_at >= @start_time 
+  AND t.created_at <= @end_time
+  AND cv.expected_duration_ms IS NOT NULL
+GROUP BY t.contract_name, cv.expected_duration_ms;'
+	),
+	(
+		'metric_frequent_failure_point', 
+		'Top Failure Points', 
+		'SELECT 
+    tss.step_name,
+    COUNT(*) AS failure_count
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+JOIN thread_step_states tss ON t.id = tss.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.status = @thread_status
+  AND tss.status = @step_status
+  AND t.created_at >= @start_time 
+  AND t.created_at <= @end_time
+GROUP BY tss.step_name
+ORDER BY failure_count DESC
+LIMIT @limit::int;'
+	),
+	(
+		'metric_thread_volume', 
+		'Volume Over Time', 
+		'SELECT 
+    DATE_TRUNC(@granularity::text, t.created_at) AS period,
+    t.status AS thread_outcome,
+    COUNT(*) AS thread_count
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time 
+  AND t.created_at <= @end_time
+GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
+ORDER BY period ASC, thread_outcome;'
+	)
+	ON CONFLICT (id) DO UPDATE SET 
+		metrics_name = EXCLUDED.metrics_name,
+		sql_content = EXCLUDED.sql_content;
+	`
+	_, err := db.Pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to insert default metrics templates: %w", err)
+	}
+	return nil
 }

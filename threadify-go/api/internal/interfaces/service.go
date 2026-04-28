@@ -89,7 +89,8 @@ type EntityProfileTypeService interface {
 	CreateEntityProfileType(ctx context.Context, companyID string, req *models.CreateEntityProfileTypeRequest) (*sharedmodels.EntityProfileType, error)
 	ListEntityProfileTypes(ctx context.Context, companyID string) ([]*sharedmodels.EntityProfileType, error)
 	UpdateEntityProfileType(ctx context.Context, companyID, id string, req *models.UpdateEntityProfileTypeRequest) (*sharedmodels.EntityProfileType, error)
-	ArchiveEntityProfileType(ctx context.Context, companyID, id string) error
+	ArchiveEntityProfileType(ctx context.Context, companyID string, id string) error
+	ListMetricsTemplates(ctx context.Context) ([]sharedmodels.MetricsTemplateResponse, error)
 }
 
 type UserService interface {

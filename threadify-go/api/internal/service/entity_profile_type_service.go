@@ -60,6 +60,7 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 		Slug:        slug.ToSlug(req.Name),
 		Type:        normalizeTypes(req.Type),
 		Description: req.Description,
+		Metrics:     req.Metrics,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -87,6 +88,18 @@ func (s *EntityProfileTypeService) ListEntityProfileTypes(
 	return types, nil
 }
 
+func (s *EntityProfileTypeService) ListMetricsTemplates(
+	ctx context.Context,
+) ([]sharedmodels.MetricsTemplateResponse, error) {
+	templates, err := s.repo.ListMetricsTemplates(ctx)
+	if err != nil {
+		s.logger.Error("failed to list metrics templates", zap.Error(err))
+		return nil, err
+	}
+
+	return templates, nil
+}
+
 func (s *EntityProfileTypeService) UpdateEntityProfileType(
 	ctx context.Context,
 	companyID, id string,
@@ -104,6 +117,7 @@ func (s *EntityProfileTypeService) UpdateEntityProfileType(
 		Slug:        slug.ToSlug(req.Name),
 		Description: req.Description,
 		Type:        nextTypes,
+		Metrics:     req.Metrics,
 	}
 
 	if err := s.repo.UpdateProfileType(ctx, profileType); err != nil {

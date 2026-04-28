@@ -13,14 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/types"
 )
 
 // contractCols and versionCols are the canonical SELECT column lists,
 // kept in sync with the Scan calls in scanContract and scanVersion.
 const contractCols = `id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
-const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, is_deleted, created_at, updated_at`
+const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, expected_duration_ms, is_deleted, created_at, updated_at`
 
 const (
 	constrContractNameCompanyActive = "idx_contracts_name_company_active"
@@ -48,7 +48,7 @@ func scanContract(row pgx.Row, c *models.Contract) error {
 func scanVersion(row pgx.Row, v *models.ContractVersion) error {
 	return row.Scan(
 		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash,
-		&v.ContractID, &v.CreatedBy, &v.Graph, &v.IsDeleted,
+		&v.ContractID, &v.CreatedBy, &v.Graph, &v.ExpectedDurationMs, &v.IsDeleted,
 		&v.CreatedAt, &v.UpdatedAt,
 	)
 }
@@ -116,12 +116,12 @@ func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, cont
 
 	// Insert version
 	versionQuery := `INSERT INTO contract_versions (` + versionCols + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING ` + versionCols
 
 	if err := versionErr(scanVersion(tx.QueryRow(ctx, versionQuery,
 		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
-		version.ContractID, version.CreatedBy, version.Graph, version.IsDeleted,
+		version.ContractID, version.CreatedBy, version.Graph, version.ExpectedDurationMs, version.IsDeleted,
 		version.CreatedAt, version.UpdatedAt,
 	), version)); err != nil {
 		return err
@@ -262,12 +262,12 @@ func (r *ContractRepository) CountByOwner(ctx context.Context, ownerID string) (
 
 func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
 	query := `INSERT INTO contract_versions (` + versionCols + `)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING ` + versionCols
 
 	return versionErr(scanVersion(r.pool.QueryRow(ctx, query,
 		v.ID, v.Version, v.Content, v.YAMLContent, v.ContentHash,
-		v.ContractID, v.CreatedBy, v.Graph, v.IsDeleted,
+		v.ContractID, v.CreatedBy, v.Graph, v.ExpectedDurationMs, v.IsDeleted,
 		v.CreatedAt, v.UpdatedAt,
 	), v))
 }

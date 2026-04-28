@@ -466,6 +466,8 @@ func buildRouter(
 	api.PUT("/service-accounts/:id", requirePerm("serviceaccount.update"), h.serviceAccount.UpdateServiceAccount)
 	api.DELETE("/service-accounts/:id", requirePerm("serviceaccount.delete"), h.serviceAccount.DeleteServiceAccount)
 	api.GET("/service-accounts/scopes/:scope/permissions", requirePerm("serviceaccount.read"), h.serviceAccount.GetPermissions)
+	
+	api.GET("/metrics-templates", h.entityProfileType.ListMetricsTemplates)
 
 	contracts := api.Group("/contracts")
 	{

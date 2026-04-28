@@ -26,6 +26,7 @@ type EntityProfileTypeRepository interface {
 	GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error)
 	UpdateProfileType(ctx context.Context, profileType *models.EntityProfileType) error
 	ArchiveProfileType(ctx context.Context, companyID, profileTypeID string) error
+	ListMetricsTemplates(ctx context.Context) ([]models.MetricsTemplateResponse, error)
 }
 
 type EntityProfileRepository interface {

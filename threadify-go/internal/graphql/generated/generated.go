@@ -27,6 +27,7 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	EntityProfile() EntityProfileResolver
 	Graph() GraphResolver
 	GraphNode() GraphNodeResolver
 	HashChainStatus() HashChainStatusResolver
@@ -61,15 +62,16 @@ type ComplexityRoot struct {
 	}
 
 	EntityProfile struct {
-		CompanyID     func(childComplexity int) int
-		CreatedAt     func(childComplexity int) int
-		ID            func(childComplexity int) int
-		LastActiveAt  func(childComplexity int) int
-		Metrics       func(childComplexity int) int
-		Name          func(childComplexity int) int
-		ProfileType   func(childComplexity int) int
-		ProfileTypeID func(childComplexity int) int
-		RefKey        func(childComplexity int) int
+		CompanyID       func(childComplexity int) int
+		ComputedMetrics func(childComplexity int, rangeArg *string) int
+		CreatedAt       func(childComplexity int) int
+		ID              func(childComplexity int) int
+		LastActiveAt    func(childComplexity int) int
+		Metrics         func(childComplexity int) int
+		Name            func(childComplexity int) int
+		ProfileType     func(childComplexity int) int
+		ProfileTypeID   func(childComplexity int) int
+		RefKey          func(childComplexity int) int
 	}
 
 	EntityProfileConnection struct {
@@ -91,13 +93,20 @@ type ComplexityRoot struct {
 	}
 
 	EntityProfileType struct {
-		CompanyID   func(childComplexity int) int
-		CreatedAt   func(childComplexity int) int
-		Description func(childComplexity int) int
-		ID          func(childComplexity int) int
-		Name        func(childComplexity int) int
-		Type        func(childComplexity int) int
-		UpdatedAt   func(childComplexity int) int
+		CompanyID     func(childComplexity int) int
+		CreatedAt     func(childComplexity int) int
+		Description   func(childComplexity int) int
+		ID            func(childComplexity int) int
+		MetricsConfig func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Type          func(childComplexity int) int
+		UpdatedAt     func(childComplexity int) int
+	}
+
+	EntityTypeMetricConfig struct {
+		Name       func(childComplexity int) int
+		Parameters func(childComplexity int) int
+		TemplateID func(childComplexity int) int
 	}
 
 	Graph struct {
@@ -314,11 +323,14 @@ type ComplexityRoot struct {
 	}
 }
 
+type EntityProfileResolver interface {
+	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (map[string]any, error)
+}
 type GraphResolver interface {
 	Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error)
 }
 type GraphNodeResolver interface {
-	BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error)
+	BusinessContext(ctx context.Context, obj *models.GraphNode) (map[string]any, error)
 }
 type HashChainStatusResolver interface {
 	LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error)
@@ -329,7 +341,7 @@ type MutationResolver interface {
 	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
 }
 type NotificationConfigResolver interface {
-	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
+	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (map[string]any, error)
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*models.Thread, error)
@@ -364,14 +376,13 @@ type StepStateInfoResolver interface {
 	SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error)
 }
 type SubStepResolver interface {
-	Payload(ctx context.Context, obj *models.SubStep) (*string, error)
 	RecordedAt(ctx context.Context, obj *models.SubStep) (string, error)
 	CreatedAt(ctx context.Context, obj *models.SubStep) (string, error)
 }
 type ThreadResolver interface {
 	Status(ctx context.Context, obj *models.Thread) (string, error)
 
-	Refs(ctx context.Context, obj *models.Thread) (*string, error)
+	Refs(ctx context.Context, obj *models.Thread) (map[string]any, error)
 	StartedAt(ctx context.Context, obj *models.Thread) (*string, error)
 	CompletedAt(ctx context.Context, obj *models.Thread) (*string, error)
 
@@ -384,7 +395,6 @@ type ThreadResolver interface {
 	HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error)
 }
 type ThreadNotificationResolver interface {
-	Details(ctx context.Context, obj *models.ThreadNotification) (*string, error)
 	Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error)
 }
 type ValidationResultInfoResolver interface {
@@ -467,6 +477,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfile.CompanyID(childComplexity), true
+	case "EntityProfile.computedMetrics":
+		if e.ComplexityRoot.EntityProfile.ComputedMetrics == nil {
+			break
+		}
+
+		args, err := ec.field_EntityProfile_computedMetrics_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.EntityProfile.ComputedMetrics(childComplexity, args["range"].(*string)), true
 	case "EntityProfile.createdAt":
 		if e.ComplexityRoot.EntityProfile.CreatedAt == nil {
 			break
@@ -614,6 +635,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfileType.ID(childComplexity), true
+	case "EntityProfileType.metricsConfig":
+		if e.ComplexityRoot.EntityProfileType.MetricsConfig == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityProfileType.MetricsConfig(childComplexity), true
 	case "EntityProfileType.name":
 		if e.ComplexityRoot.EntityProfileType.Name == nil {
 			break
@@ -632,6 +659,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfileType.UpdatedAt(childComplexity), true
+
+	case "EntityTypeMetricConfig.name":
+		if e.ComplexityRoot.EntityTypeMetricConfig.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.Name(childComplexity), true
+	case "EntityTypeMetricConfig.parameters":
+		if e.ComplexityRoot.EntityTypeMetricConfig.Parameters == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.Parameters(childComplexity), true
+	case "EntityTypeMetricConfig.templateId":
+		if e.ComplexityRoot.EntityTypeMetricConfig.TemplateID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.TemplateID(childComplexity), true
 
 	case "Graph.entryPoints":
 		if e.ComplexityRoot.Graph.EntryPoints == nil {
@@ -2181,6 +2227,13 @@ type EntityProfile {
   createdAt: String!
   lastActiveAt: String!
   metrics: EntityProfileMetrics
+  computedMetrics(range: String): JSON
+}
+
+type EntityTypeMetricConfig {
+  templateId: String!
+  name: String
+  parameters: JSON
 }
 
 type EntityProfileType {
@@ -2191,6 +2244,7 @@ type EntityProfileType {
   description: String
   createdAt: String!
   updatedAt: String!
+  metricsConfig: [EntityTypeMetricConfig!]
 }
 `, BuiltIn: false},
 }
@@ -2199,6 +2253,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // endregion ************************** generated!.gotpl **************************
 
 // region    ***************************** args.gotpl *****************************
+
+func (ec *executionContext) field_EntityProfile_computedMetrics_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "range", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["range"] = arg0
+	return args, nil
+}
 
 func (ec *executionContext) field_Mutation_recordLLMUsage_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
@@ -3211,6 +3276,8 @@ func (ec *executionContext) fieldContext_EntityProfile_profileType(_ context.Con
 				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			case "metricsConfig":
+				return ec.fieldContext_EntityProfileType_metricsConfig(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
 		},
@@ -3354,6 +3421,47 @@ func (ec *executionContext) fieldContext_EntityProfile_metrics(_ context.Context
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityProfile_computedMetrics(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_computedMetrics,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.EntityProfile().ComputedMetrics(ctx, obj, fc.Args["range"].(*string))
+		},
+		nil,
+		ec.marshalOJSON2map,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_computedMetrics(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_EntityProfile_computedMetrics_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _EntityProfileConnection_items(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3396,6 +3504,8 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context
 				return ec.fieldContext_EntityProfile_lastActiveAt(ctx, field)
 			case "metrics":
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
+			case "computedMetrics":
+				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -3470,6 +3580,8 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_profileType(_ c
 				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			case "metricsConfig":
+				return ec.fieldContext_EntityProfileType_metricsConfig(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
 		},
@@ -3941,6 +4053,130 @@ func (ec *executionContext) fieldContext_EntityProfileType_updatedAt(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityProfileType_metricsConfig(ctx context.Context, field graphql.CollectedField, obj *EntityProfileType) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfileType_metricsConfig,
+		func(ctx context.Context) (any, error) {
+			return obj.MetricsConfig, nil
+		},
+		nil,
+		ec.marshalOEntityTypeMetricConfig2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityTypeMetricConfigᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfileType_metricsConfig(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfileType",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "templateId":
+				return ec.fieldContext_EntityTypeMetricConfig_templateId(ctx, field)
+			case "name":
+				return ec.fieldContext_EntityTypeMetricConfig_name(ctx, field)
+			case "parameters":
+				return ec.fieldContext_EntityTypeMetricConfig_parameters(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type EntityTypeMetricConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_templateId(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_templateId,
+		func(ctx context.Context) (any, error) {
+			return obj.TemplateID, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_templateId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_name(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_parameters(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_parameters,
+		func(ctx context.Context) (any, error) {
+			return obj.Parameters, nil
+		},
+		nil,
+		ec.marshalOJSON2map,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_parameters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Graph_nodes(ctx context.Context, field graphql.CollectedField, obj *models.Graph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4323,7 +4559,7 @@ func (ec *executionContext) _GraphNode_businessContext(ctx context.Context, fiel
 			return ec.Resolvers.GraphNode().BusinessContext(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2map,
 		true,
 		false,
 	)
@@ -4596,7 +4832,7 @@ func (ec *executionContext) _NotificationConfig_roleDefaults(ctx context.Context
 			return ec.Resolvers.NotificationConfig().RoleDefaults(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2map,
 		true,
 		false,
 	)
@@ -5699,6 +5935,8 @@ func (ec *executionContext) fieldContext_Query_entityProfile(ctx context.Context
 				return ec.fieldContext_EntityProfile_lastActiveAt(ctx, field)
 			case "metrics":
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
+			case "computedMetrics":
+				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -5755,6 +5993,8 @@ func (ec *executionContext) fieldContext_Query_entityProfileTypes(_ context.Cont
 				return ec.fieldContext_EntityProfileType_createdAt(ctx, field)
 			case "updatedAt":
 				return ec.fieldContext_EntityProfileType_updatedAt(ctx, field)
+			case "metricsConfig":
+				return ec.fieldContext_EntityProfileType_metricsConfig(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfileType", field.Name)
 		},
@@ -7264,10 +7504,10 @@ func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.
 		field,
 		ec.fieldContext_SubStep_payload,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.SubStep().Payload(ctx, obj)
+			return obj.Payload, nil
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2map,
 		true,
 		false,
 	)
@@ -7277,8 +7517,8 @@ func (ec *executionContext) fieldContext_SubStep_payload(_ context.Context, fiel
 	fc = &graphql.FieldContext{
 		Object:     "SubStep",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type JSON does not have child fields")
 		},
@@ -7644,7 +7884,7 @@ func (ec *executionContext) _Thread_refs(ctx context.Context, field graphql.Coll
 			return ec.Resolvers.Thread().Refs(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2map,
 		true,
 		false,
 	)
@@ -8638,10 +8878,10 @@ func (ec *executionContext) _ThreadNotification_details(ctx context.Context, fie
 		field,
 		ec.fieldContext_ThreadNotification_details,
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.ThreadNotification().Details(ctx, obj)
+			return obj.Details, nil
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2map,
 		true,
 		false,
 	)
@@ -8651,8 +8891,8 @@ func (ec *executionContext) fieldContext_ThreadNotification_details(_ context.Co
 	fc = &graphql.FieldContext{
 		Object:     "ThreadNotification",
 		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
+		IsMethod:   false,
+		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type JSON does not have child fields")
 		},
@@ -11195,22 +11435,22 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 		case "id":
 			out.Values[i] = ec._EntityProfile_id(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "refKey":
 			out.Values[i] = ec._EntityProfile_refKey(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "companyId":
 			out.Values[i] = ec._EntityProfile_companyId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "profileTypeId":
 			out.Values[i] = ec._EntityProfile_profileTypeId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "profileType":
 			out.Values[i] = ec._EntityProfile_profileType(ctx, field, obj)
@@ -11219,15 +11459,48 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 		case "createdAt":
 			out.Values[i] = ec._EntityProfile_createdAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "lastActiveAt":
 			out.Values[i] = ec._EntityProfile_lastActiveAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
-				out.Invalids++
+				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "metrics":
 			out.Values[i] = ec._EntityProfile_metrics(ctx, field, obj)
+		case "computedMetrics":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EntityProfile_computedMetrics(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11404,6 +11677,51 @@ func (ec *executionContext) _EntityProfileType(ctx context.Context, sel ast.Sele
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "metricsConfig":
+			out.Values[i] = ec._EntityProfileType_metricsConfig(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var entityTypeMetricConfigImplementors = []string{"EntityTypeMetricConfig"}
+
+func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast.SelectionSet, obj *EntityTypeMetricConfig) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, entityTypeMetricConfigImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EntityTypeMetricConfig")
+		case "templateId":
+			out.Values[i] = ec._EntityTypeMetricConfig_templateId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._EntityTypeMetricConfig_name(ctx, field, obj)
+		case "parameters":
+			out.Values[i] = ec._EntityTypeMetricConfig_parameters(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -12872,38 +13190,7 @@ func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, 
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "payload":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._SubStep_payload(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			out.Values[i] = ec._SubStep_payload(ctx, field, obj)
 		case "recordedAt":
 			field := field
 
@@ -13544,38 +13831,7 @@ func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.Sel
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "details":
-			field := field
-
-			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._ThreadNotification_details(ctx, field, obj)
-				return res
-			}
-
-			if field.Deferrable != nil {
-				dfs, ok := deferred[field.Deferrable.Label]
-				di := 0
-				if ok {
-					dfs.AddField(field)
-					di = len(dfs.Values) - 1
-				} else {
-					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
-					deferred[field.Deferrable.Label] = dfs
-				}
-				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
-					return innerFunc(ctx, dfs)
-				})
-
-				// don't run the out.Concurrently() call below
-				out.Values[i] = graphql.Null
-				continue
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			out.Values[i] = ec._ThreadNotification_details(ctx, field, obj)
 		case "timestamp":
 			field := field
 
@@ -14373,6 +14629,16 @@ func (ec *executionContext) marshalNEntityProfileType2ᚖgithubᚗcomᚋthreadif
 	return ec._EntityProfileType(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNEntityTypeMetricConfig2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityTypeMetricConfig(ctx context.Context, sel ast.SelectionSet, v *EntityTypeMetricConfig) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._EntityTypeMetricConfig(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraph(ctx context.Context, sel ast.SelectionSet, v models.Graph) graphql.Marshaler {
 	return ec._Graph(ctx, sel, &v)
 }
@@ -14909,6 +15175,25 @@ func (ec *executionContext) marshalOEntityProfileType2ᚖgithubᚗcomᚋthreadif
 	return ec._EntityProfileType(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalOEntityTypeMetricConfig2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityTypeMetricConfigᚄ(ctx context.Context, sel ast.SelectionSet, v []*EntityTypeMetricConfig) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEntityTypeMetricConfig2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityTypeMetricConfig(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalOFloat2ᚖfloat64(ctx context.Context, v any) (*float64, error) {
 	if v == nil {
 		return nil, nil
@@ -14963,21 +15248,21 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	return res
 }
 
-func (ec *executionContext) unmarshalOJSON2ᚖstring(ctx context.Context, v any) (*string, error) {
+func (ec *executionContext) unmarshalOJSON2map(ctx context.Context, v any) (map[string]any, error) {
 	if v == nil {
 		return nil, nil
 	}
-	res, err := graphql.UnmarshalString(v)
-	return &res, graphql.ErrorOnPath(ctx, err)
+	res, err := graphql.UnmarshalMap(v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOJSON2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
+func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.SelectionSet, v map[string]any) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(*v)
+	res := graphql.MarshalMap(v)
 	return res
 }
 

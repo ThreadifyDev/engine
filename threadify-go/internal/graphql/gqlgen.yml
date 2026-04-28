@@ -25,5 +25,9 @@ autobind:
 
 # Explicit model mappings
 models:
+  EntityProfile:
+    fields:
+      computedMetrics:
+        resolver: true
   SubStep:
     model: github.com/threadify/engine/internal/models.SubStep

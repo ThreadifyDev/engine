@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
 import { api, type EntityProfile } from '~/lib/api';
@@ -7,11 +7,11 @@ import AppLayout from '~/components/AppLayout';
 import { 
   UserCircle, Activity, 
   ChevronLeft, AlertTriangle,
-  TrendingUp, TrendingDown, Calendar, Search, History as HistoryIcon, LayoutDashboard
+  TrendingUp, TrendingDown, Calendar, Search, History as HistoryIcon, LayoutDashboard, BarChart2
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-type TabType = 'overview' | 'history';
+type TabType = 'overview' | 'history' | 'metrics';
 
 export const meta: MetaFunction = ({ params }) => {
   return [
@@ -30,7 +30,7 @@ export default function EntityProfileDetail() {
   const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab') as TabType | null;
-  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview') ? urlTab : 'overview';
+  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview' || urlTab === 'metrics') ? urlTab : 'overview';
 
   useEffect(() => {
     if (!type || !refKey) {
@@ -58,6 +58,37 @@ export default function EntityProfileDetail() {
       setIsLoading(false);
     }
   };
+
+  const metrics = profile?.metrics || {
+    deliveryHealthScore: 0,
+    healthTrendSlope: 0,
+    totalDeliveries: 0,
+    completedSuccessfully: 0,
+    validationViolations: 0,
+    averageDeliveryTimeMs: 0,
+    lastCalculatedAt: new Date().toISOString()
+  };
+
+  const memoizedOverviewTab = useMemo(() => {
+    if (!profile) return null;
+    return <OverviewTab profile={profile} metrics={metrics} />;
+  }, [profile, metrics]);
+
+  const memoizedMetricsTab = useMemo(() => {
+    if (!refKey || !type) return null;
+    return <MetricsTab refKey={refKey} type={type} />;
+  }, [refKey, type]);
+
+  const memoizedHistoryTab = useMemo(() => {
+    if (!profile || !refKey) return null;
+    return (
+      <HistoryTab 
+        profileId={profile.id}
+        refValue={refKey} 
+        navigate={navigate} 
+      />
+    );
+  }, [profile?.id, refKey, navigate]);
 
   if (isLoading) {
     return (
@@ -95,17 +126,6 @@ export default function EntityProfileDetail() {
       </AppLayout>
     );
   }
-
-  // Safely extract metrics
-  const metrics = profile.metrics || {
-    deliveryHealthScore: 0,
-    healthTrendSlope: 0,
-    totalDeliveries: 0,
-    completedSuccessfully: 0,
-    validationViolations: 0,
-    averageDeliveryTimeMs: 0,
-    lastCalculatedAt: new Date().toISOString()
-  };
 
   return (
     <AppLayout>
@@ -197,18 +217,24 @@ export default function EntityProfileDetail() {
               <HistoryIcon className="w-4 h-4" />
               History
             </button>
+            <button
+              onClick={() => setSearchParams(prev => { prev.set('tab', 'metrics'); return prev; })}
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                activeTab === 'metrics'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <BarChart2 className="w-4 h-4" />
+              Metrics
+            </button>
           </nav>
         </div>
-
-        {activeTab === 'overview' ? (
-          <OverviewTab profile={profile} metrics={metrics} />
-        ) : (
-          <HistoryTab 
-            profileId={profile.id}
-            refValue={refKey!} 
-            navigate={navigate} 
-          />
-        )}
+        <div className="mt-4">
+          {activeTab === 'overview' && memoizedOverviewTab}
+          {activeTab === 'metrics' && memoizedMetricsTab}
+          {activeTab === 'history' && memoizedHistoryTab}
+        </div>
       </div>
     </AppLayout>
   );
@@ -275,9 +301,181 @@ function OverviewTab({ profile, metrics }: { profile: EntityProfile; metrics: an
               </dd>
             </div>
           )}
+          {profile.profileType?.metricsConfig && profile.profileType.metricsConfig.length > 0 && (
+            <div className="px-6 py-4 hover:bg-gray-50">
+              <dt className="text-sm font-medium text-gray-500 mb-2">Configured Metrics</dt>
+              <dd className="text-sm text-gray-900">
+                <ul className="list-disc pl-5 space-y-1">
+                  {profile.profileType.metricsConfig.map((mc: any, i: number) => (
+                    <li key={i}>
+                      {mc.name ? (
+                        <span>{mc.name} <span className="text-gray-500 text-xs">({mc.templateId})</span></span>
+                      ) : (
+                        <span>{mc.templateId}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+// --- Metrics tab: computed metrics from metric templates ---
+
+type MetricsRange = '7d' | '30d' | '90d';
+
+function MetricsTab({ refKey, type }: { refKey: string; type: string }) {
+  const [range, setRange] = useState<MetricsRange>('7d');
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        setData(null);
+        const result = await graphqlClient.getComputedMetrics({ refKey, type, range });
+        // computedMetrics is returned as a JSON string by the backend — parse it
+        const parsed = result ? (typeof result === 'string' ? JSON.parse(result) : result) : null;
+        if (!cancelled) setData(parsed);
+      } catch (err: any) {
+        if (!cancelled) setError(err.message || 'Failed to load metrics');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refKey, type, range]);
+
+  return (
+    <div>
+      {/* Range selector */}
+      <div className="flex items-center gap-2 mb-6">
+        {(['7d', '30d', '90d'] as MetricsRange[]).map(r => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              range === r
+                ? 'bg-gray-900 text-white'
+                : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
+            }`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+
+      {isLoading && (
+        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-gray-500 flex items-center justify-center gap-2">
+          <Activity className="w-5 h-5 animate-pulse" /> Loading metrics…
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-600 text-sm">
+          {error}
+        </div>
+      )}
+
+      {!isLoading && !error && data === null && (
+        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center flex flex-col items-center">
+          <BarChart2 className="w-12 h-12 text-gray-300 mb-3" />
+          <h3 className="text-base font-medium text-gray-900">No metrics configured</h3>
+          <p className="text-sm text-gray-500 mt-1 max-w-sm">
+            Add metric templates to this entity profile type to start seeing computed results here.
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !error && data !== null && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {Object.entries(data as Record<string, any>).map(([metricName, result]) => {
+            const parts = metricName.split(' (');
+            const mainName = parts[0];
+            const status = parts.length > 1 ? parts[1].replace('STATUS: ', '').replace(')', '').toLowerCase() : null;
+            
+            const nameSplit = mainName.split(': ');
+            let tagline = nameSplit[0];
+            let header = nameSplit.length > 1 ? nameSplit[1] : tagline;
+            
+            // Clean up header from snake_case if necessary
+            header = header.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+            tagline = tagline.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+            if (status) {
+              tagline = `${tagline} (${status})`;
+            }
+
+            return (
+              <div key={metricName} className="flex flex-col gap-2">
+                <div className="px-1">
+                  <p className="text-[10px] font-extrabold text-gray-400 uppercase tracking-[0.15em] mb-0.5">
+                    {tagline}
+                  </p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden flex-1 flex flex-col shadow-sm hover:shadow-md transition-shadow">
+                  <div className="px-5 py-3 border-b border-gray-50 bg-gray-50/50">
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-tight">{header}</h3>
+                  </div>
+                  <div className="p-5 flex-1 flex flex-col justify-center">
+                    {Array.isArray(result) ? (
+                      result.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic text-center">No data</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-gray-100">
+                                {Object.keys(result[0]).map(col => (
+                                  <th key={col} className="text-left text-[10px] font-bold text-gray-400 pb-1 pr-4 font-mono uppercase">{col}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-50">
+                              {result.slice(0, 5).map((row: any, i: number) => (
+                                <tr key={i}>
+                                  {Object.values(row).map((val: any, j: number) => (
+                                    <td key={j} className="py-1.5 pr-4 text-gray-900 font-mono text-xs">{String(val ?? '—')}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {result.length > 5 && (
+                                <tr>
+                                  <td colSpan={Object.keys(result[0]).length} className="pt-2 text-[10px] text-gray-400 text-center italic">
+                                    + {result.length - 5} more rows
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-4">
+                        <span className="text-3xl font-bold text-gray-900 tabular-nums">
+                          {typeof result === 'number' ? 
+                            (Number.isInteger(result) ? result : result.toFixed(2)) : 
+                            String(result ?? '—')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

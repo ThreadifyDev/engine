@@ -127,3 +127,16 @@ func (h *EntityProfileTypeHandler) ArchiveEntityProfileType(c *gin.Context) {
 		"message": "Entity profile type archived safely.",
 	})
 }
+
+func (h *EntityProfileTypeHandler) ListMetricsTemplates(c *gin.Context) {
+	templates, err := h.entityProfileTypeService.ListMetricsTemplates(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Metrics templates fetched successfully.",
+		"data":    templates,
+	})
+}

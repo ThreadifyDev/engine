@@ -167,12 +167,13 @@ type ScopeConfig struct {
 
 // ArchiverConfig holds archiver configuration
 type ArchiverConfig struct {
-	Enabled         bool                    `yaml:"enabled" mapstructure:"enabled"`
-	MetricsPort     int                     `yaml:"metrics_port" mapstructure:"metrics_port"`
-	Buffers         map[string]BufferConfig `yaml:"buffers" mapstructure:"buffers"`
-	ActivityStreams ActivityStreamsConfig   `yaml:"activity_streams" mapstructure:"activity_streams"`
-	Retry           RetryConfig             `yaml:"retry" mapstructure:"retry"`
-	Streams         StreamsConfig           `yaml:"streams" mapstructure:"streams"`
+	Enabled           bool                    `yaml:"enabled" mapstructure:"enabled"`
+	MetricsPort       int                     `yaml:"metrics_port" mapstructure:"metrics_port"`
+	EnrichmentWorkers PoolConfig              `yaml:"enrichment_workers" mapstructure:"enrichment_workers"`
+	Buffers           map[string]BufferConfig `yaml:"buffers" mapstructure:"buffers"`
+	ActivityStreams   ActivityStreamsConfig   `yaml:"activity_streams" mapstructure:"activity_streams"`
+	Retry             RetryConfig             `yaml:"retry" mapstructure:"retry"`
+	Streams           StreamsConfig           `yaml:"streams" mapstructure:"streams"`
 }
 
 // BufferConfig holds buffer configuration

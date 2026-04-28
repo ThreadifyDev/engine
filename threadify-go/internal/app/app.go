@@ -168,6 +168,10 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*in
 	if err := db.InitSchema(ctx); err != nil {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	
+	if err := db.InitDefaultMetrics(ctx); err != nil {
+		return nil, fmt.Errorf("init default metrics: %w", err)
+	}
 
 	valkeyService, err := database.NewValkeyService(
 		cfg.Redis.Host,
@@ -223,6 +227,7 @@ type repositories struct {
 	plan              *sharedrepo.PlanRepo
 	entityProfile     *sharedrepo.EntityProfileRepo
 	entityProfileType sharedrepo.EntityProfileTypeRepository
+	metrics           *postgres.MetricsRepository
 
 	// valkey
 	threadCache     *valkey.ThreadRepository
@@ -258,6 +263,7 @@ func initRepositories(
 	r.plan = sharedrepo.NewPlanRepo(inf.db.Pool)
 	r.entityProfile = sharedrepo.NewEntityProfileRepo(inf.db.Pool)
 	r.entityProfileType = sharedrepo.NewEntityProfileTypeRepository(inf.db.Pool)
+	r.metrics = postgres.NewMetricsRepository(inf.db.Pool)
 
 	// --- valkey ---
 	threadTTL := int(time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond / time.Second)
@@ -419,8 +425,8 @@ func initHandlers(
 		svcs.threadAccess, svcs.thread.GetContractValidator(), repos.contract,
 		repos.refs, repos.stepState, repos.activity, repos.actor,
 		repos.notification, repos.subStep,
-		repos.entityProfile, repos.entityProfileType,
-		svcs.plan, logger,
+		repos.entityProfile, repos.entityProfileType, repos.metrics,
+		svcs.plan, logger, inf.valkey,
 	)
 
 	return h, nil

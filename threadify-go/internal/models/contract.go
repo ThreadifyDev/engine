@@ -20,15 +20,16 @@ type Contract struct {
 }
 
 type ContractVersion struct {
-	ID          string          `json:"id"`
-	Version     int             `json:"version"`
-	Content     string          `json:"content"`
-	YAMLContent string          `json:"yamlContent"` // Original YAML source code
-	ContentHash string          `json:"contentHash"`
-	ContractID  string          `json:"contractId"`
-	CreatedBy   string          `json:"createdBy"`
-	Graph       json.RawMessage `json:"graph,omitempty"` // Contract graph (JSON)
-	IsDeleted   bool            `json:"isDeleted"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
+	ID                 string          `json:"id"`
+	Version            int             `json:"version"`
+	Content            string          `json:"content"`
+	YAMLContent        string          `json:"yamlContent"` // Original YAML source code
+	ContentHash        string          `json:"contentHash"`
+	ContractID         string          `json:"contractId"`
+	CreatedBy          string          `json:"createdBy"`
+	Graph              json.RawMessage `json:"graph,omitempty"` // Contract graph (JSON)
+	ExpectedDurationMs *int64          `json:"expectedDurationMs,omitempty"`
+	IsDeleted          bool            `json:"isDeleted"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
 }

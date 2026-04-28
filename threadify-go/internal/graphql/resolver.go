@@ -3,10 +3,10 @@ package graphql
 import (
 	sharedrepo "threadify-go/shared/repository"
 
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -26,8 +26,10 @@ type Resolver struct {
 	subStepRepo           *postgres.SubStepRepository            // For querying sub-steps
 	entityProfileRepo     sharedrepo.EntityProfileRepository
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository
+	metricsRepo           *postgres.MetricsRepository
 	planService           types.PlanService
 	logger                *zap.Logger
+	valkeyClient          types.ValkeyStringClient
 }
 
 func NewResolver(
@@ -46,8 +48,10 @@ func NewResolver(
 	subStepRepo *postgres.SubStepRepository,
 	entityProfileRepo sharedrepo.EntityProfileRepository,
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository,
+	metricsRepo *postgres.MetricsRepository,
 	planService types.PlanService,
 	logger *zap.Logger,
+	valkeyClient types.ValkeyStringClient,
 ) *Resolver {
 	return &Resolver{
 		threadRepo:            threadRepo,
@@ -65,7 +69,9 @@ func NewResolver(
 		subStepRepo:           subStepRepo,
 		entityProfileRepo:     entityProfileRepo,
 		entityProfileTypeRepo: entityProfileTypeRepo,
+		metricsRepo:           metricsRepo,
 		planService:           planService,
 		logger:                logger,
+		valkeyClient:          valkeyClient,
 	}
 }
