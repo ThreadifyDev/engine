@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	shderrors "threadify-go/shared/errors"
 	"threadify-go/shared/slug"
 	"time"
@@ -18,10 +20,152 @@ import (
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
+	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/service"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"go.uber.org/zap"
 )
+
+// ComputedMetrics is the resolver for the computedMetrics field.
+func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (map[string]any, error) {
+	var metricsConfig []*generated.EntityTypeMetricConfig
+	var refKeys []string
+
+	if obj.ProfileType != nil {
+		metricsConfig = obj.ProfileType.MetricsConfig
+		refKeys = obj.ProfileType.Type
+	} else if obj.ProfileTypeID != "" {
+		// On-demand fetch if the parent query didn't populate it
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, obj.ProfileTypeID)
+		if err != nil {
+			r.logger.Warn("failed to fetch profile type for computed metrics", zap.String("profileTypeID", obj.ProfileTypeID), zap.Error(err))
+		} else {
+			graphqlType := toGraphQLProfileType(pType)
+			metricsConfig = graphqlType.MetricsConfig
+			refKeys = pType.Type
+		}
+	}
+
+	// If no metrics config, return nil (null in GraphQL)
+	if len(metricsConfig) == 0 {
+		return nil, nil
+	}
+
+	// 1. Determine time bounds based on rangeArg
+	rangeVal := "7d"
+	if rangeArg != nil && *rangeArg != "" {
+		rangeVal = *rangeArg
+	}
+
+	var start, end time.Time
+	end = time.Now()
+
+	switch rangeVal {
+	case "7d":
+		start = end.AddDate(0, 0, -7)
+	case "30d":
+		start = end.AddDate(0, 0, -30)
+	case "90d":
+		start = end.AddDate(0, 0, -90)
+	default:
+		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
+	}
+
+	cacheKey := fmt.Sprintf("entity_metrics:%s:%s", obj.ID, rangeVal)
+	if r.valkeyClient != nil {
+		if cachedData, err := r.valkeyClient.Get(ctx, cacheKey); err == nil && cachedData != "" {
+			return &cachedData, nil
+		}
+	}
+
+	// 2. Load the metrics query templates into a map to minimize DB calls
+	templates, err := r.metricsRepo.ListMetricsTemplates(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch metric templates: %w", err)
+	}
+	templateMap := make(map[string]postgres.MetricsTemplate)
+	for _, t := range templates {
+		templateMap[t.ID] = t
+	}
+
+	// 3. Evaluate each metric sequentially and combine the results into a final map
+	combinedResults := make(map[string]interface{})
+
+	for _, metricConfig := range metricsConfig {
+		template, exists := templateMap[metricConfig.TemplateID]
+		if !exists {
+			r.logger.Warn("metric template not found", zap.String("template_id", metricConfig.TemplateID))
+			continue
+		}
+		sqlQuery := template.SQLContent
+
+		var params map[string]any
+		if metricConfig.Parameters != nil && *metricConfig.Parameters != "" {
+			if err := json.Unmarshal([]byte(*metricConfig.Parameters), &params); err != nil {
+				r.logger.Warn("failed to unmarshal metric parameters", zap.Error(err))
+				continue
+			}
+		} else {
+			params = make(map[string]any)
+		}
+
+		results, err := r.metricsRepo.EvaluateEntityMetric(
+			ctx,
+			sqlQuery,
+			obj.RefKey,
+			refKeys,
+			start,
+			end,
+			params,
+		)
+		if err != nil {
+			r.logger.Warn("failed to evaluate metric query",
+				zap.String("template_id", metricConfig.TemplateID),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		var paramSuffix string
+		if len(params) > 0 {
+			var paramStrs []string
+			for k, v := range params {
+				paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
+			}
+			sort.Strings(paramStrs)
+			paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
+		}
+
+		// Determine the display name: use custom Name if set, otherwise fallback to Template's MetricsName
+		metricDisplayName := template.MetricsName
+		if metricConfig.Name != nil && *metricConfig.Name != "" {
+			metricDisplayName = *metricConfig.Name
+		}
+		if metricDisplayName == "" {
+			metricDisplayName = metricConfig.TemplateID
+		}
+
+		if len(results) == 1 {
+			for k, v := range results[0] {
+				// Use the metric display name as prefix to clarify context
+				combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+			}
+		} else {
+			combinedResults[metricDisplayName+paramSuffix] = results
+		}
+	}
+
+	// 4. Cache and return the combined JSON payload as a string
+	resultBytes, err := json.Marshal(combinedResults)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal computed metrics result: %w", err)
+	}
+	resultStr := string(resultBytes)
+	if r.valkeyClient != nil {
+		_ = r.valkeyClient.Set(ctx, cacheKey, resultStr, 30*time.Minute)
+	}
+	return &resultStr, nil
+}
 
 // Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
 func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error) {
@@ -36,7 +180,7 @@ func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models
 }
 
 // BusinessContext is the resolver for the businessContext field.
-func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error) {
+func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (map[string]any, error) {
 	if obj.BusinessContext == nil {
 		return nil, nil
 	}
@@ -80,7 +224,7 @@ func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool
 }
 
 // RoleDefaults is the resolver for the roleDefaults field.
-func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
+func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (map[string]any, error) {
 	if obj.RoleDefaults == nil {
 		return nil, nil
 	}
@@ -679,6 +823,20 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		return nil, apperrors.NewInternalError("Failed to list entity profiles", err)
 	}
 
+	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
+	if err != nil {
+		r.logger.Warn("could not fetch profile type details for connection",
+			zap.String("company_id", companyID),
+			zap.String("type", typeArg),
+			zap.Error(err),
+		)
+	}
+
+	var graphqlPt *generated.EntityProfileType
+	if pt != nil {
+		graphqlPt = toGraphQLProfileType(pt)
+	}
+
 	out := make([]*generated.EntityProfile, 0, len(items))
 	for _, it := range items {
 		p := it.Profile
@@ -688,6 +846,7 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 			RefKey:        p.RefKey,
 			CompanyID:     p.CompanyID,
 			ProfileTypeID: p.ProfileTypeID,
+			ProfileType:   graphqlPt,
 			Name:          &name,
 			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  p.LastActiveAt.Format(time.RFC3339),
@@ -695,24 +854,10 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		})
 	}
 
-	pt, err := r.entityProfileTypeRepo.GetProfileTypeByType(ctx, companyID, slug.ToSlug(typeArg))
-	if err != nil {
-		r.logger.Warn("could not fetch profile type details for connection",
-			zap.String("company_id", companyID),
-			zap.String("type", typeArg),
-			zap.Error(err),
-		)
-		return &generated.EntityProfileConnection{
-			Items:       out,
-			TotalCount:  total,
-			ProfileType: nil,
-		}, nil
-	}
-
 	return &generated.EntityProfileConnection{
 		Items:       out,
 		TotalCount:  total,
-		ProfileType: toGraphQLProfileType(pt),
+		ProfileType: graphqlPt,
 	}, nil
 }
 
@@ -908,20 +1053,6 @@ func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *models.StepSt
 	return subSteps, nil
 }
 
-// Payload is the resolver for the payload field.
-func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
-	if obj.Payload == nil {
-		return nil, nil
-	}
-	// Convert payload to JSON string
-	payloadJSON, err := json.Marshal(obj.Payload)
-	if err != nil {
-		return nil, err
-	}
-	payloadStr := string(payloadJSON)
-	return &payloadStr, nil
-}
-
 // RecordedAt is the resolver for the recordedAt field.
 func (r *subStepResolver) RecordedAt(ctx context.Context, obj *models.SubStep) (string, error) {
 	return obj.RecordedAt.Format(time.RFC3339Nano), nil
@@ -939,7 +1070,7 @@ func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string
 }
 
 // Refs is the resolver for the refs field.
-func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string, error) {
+func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (map[string]any, error) {
 	if obj.Refs == nil {
 		return nil, nil
 	}
@@ -1134,23 +1265,6 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread
 	return r.activityRepo.VerifyActivityChain(ctx, obj.ID)
 }
 
-// Details is the resolver for the details field.
-func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
-	// Return details as JSON string
-	if len(obj.Details) == 0 {
-		emptyJSON := "{}"
-		return &emptyJSON, nil
-	}
-
-	detailsJSON, err := json.Marshal(obj.Details)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal details: %w", err)
-	}
-
-	result := string(detailsJSON)
-	return &result, nil
-}
-
 // Timestamp is the resolver for the timestamp field.
 func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error) {
 	// Format timestamp as RFC3339 string
@@ -1161,6 +1275,9 @@ func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.
 func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
 	return obj.Timestamp.Format(time.RFC3339Nano), nil
 }
+
+// EntityProfile returns generated.EntityProfileResolver implementation.
+func (r *Resolver) EntityProfile() generated.EntityProfileResolver { return &entityProfileResolver{r} }
 
 // Graph returns generated.GraphResolver implementation.
 func (r *Resolver) Graph() generated.GraphResolver { return &graphResolver{r} }
@@ -1206,6 +1323,7 @@ func (r *Resolver) ValidationResultInfo() generated.ValidationResultInfoResolver
 	return &validationResultInfoResolver{r}
 }
 
+type entityProfileResolver struct{ *Resolver }
 type graphResolver struct{ *Resolver }
 type graphNodeResolver struct{ *Resolver }
 type hashChainStatusResolver struct{ *Resolver }
@@ -1218,3 +1336,39 @@ type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
+	if obj.Payload == nil {
+		return nil, nil
+	}
+	// Convert payload to JSON string
+	payloadJSON, err := json.Marshal(obj.Payload)
+	if err != nil {
+		return nil, err
+	}
+	payloadStr := string(payloadJSON)
+	return &payloadStr, nil
+}
+func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
+	// Return details as JSON string
+	if len(obj.Details) == 0 {
+		emptyJSON := "{}"
+		return &emptyJSON, nil
+	}
+
+	detailsJSON, err := json.Marshal(obj.Details)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal details: %w", err)
+	}
+
+	result := string(detailsJSON)
+	return &result, nil
+}
+*/

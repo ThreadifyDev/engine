@@ -24,6 +24,7 @@ import (
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/workerpool"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -75,6 +76,14 @@ func run(configPath string, logger *zap.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Initialize enrichment worker pool
+	enrichmentPool := initEnrichmentWorkerPool(cfg, logger)
+	logger.Info("enrichment worker pool initialized",
+		zap.Int("min_workers", cfg.Archiver.EnrichmentWorkers.MinWorkers),
+		zap.Int("max_workers", cfg.Archiver.EnrichmentWorkers.MaxWorkers),
+		zap.Int("queue_size", cfg.Archiver.EnrichmentWorkers.QueueSize),
+	)
+
 	stepStateConsumer, intelligenceConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
 	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
@@ -100,6 +109,12 @@ func run(configPath string, logger *zap.Logger) error {
 	logger.Info("shutdown signal received, stopping...")
 
 	cancel()
+
+	// Shutdown enrichment worker pool first (allow pending jobs to complete)
+	logger.Info("shutting down enrichment worker pool...")
+	if err := enrichmentPool.Shutdown(context.Background()); err != nil {
+		logger.Warn("enrichment pool shutdown error", zap.Error(err))
+	}
 
 	if stepStateConsumer != nil {
 		stepStateConsumer.Stop()
@@ -219,4 +234,21 @@ func maskURL(url string) string {
 		return url
 	}
 	return url[:colonIdx+1] + "****" + url[idx:]
+}
+
+// initEnrichmentWorkerPool creates and starts the enrichment worker pool
+func initEnrichmentWorkerPool(cfg *appconfig.Config, logger *zap.Logger) *workerpool.Pool {
+	poolCfg := workerpool.Config{
+		Name:             "enrichment",
+		MinWorkers:       cfg.Archiver.EnrichmentWorkers.MinWorkers,
+		MaxWorkers:       cfg.Archiver.EnrichmentWorkers.MaxWorkers,
+		QueueSize:        cfg.Archiver.EnrichmentWorkers.QueueSize,
+		ScaleUpThreshold: cfg.Archiver.EnrichmentWorkers.ScaleUpThreshold,
+		ScaleDownAfter:   time.Duration(cfg.Archiver.EnrichmentWorkers.ScaleDownAfterMs) * time.Millisecond,
+		JobTimeout:       time.Duration(cfg.Archiver.EnrichmentWorkers.JobTimeoutMs) * time.Millisecond,
+		SubmitRetryWait:  time.Duration(cfg.Archiver.EnrichmentWorkers.SubmitRetryWaitMs) * time.Millisecond,
+		Metrics:          workerpool.NoOpMetrics{},
+	}
+
+	return workerpool.New(poolCfg)
 }

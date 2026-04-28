@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,8 +16,8 @@ import (
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -48,6 +50,59 @@ func NewContractService(repo types.ContractRepository, planSvc types.PlanService
 		validator: validator.NewContractValidator(),
 		logger:    logger,
 	}
+}
+
+// parseDurationMs converts a duration string (e.g., "2d", "5h", "30m") to milliseconds.
+// Returns nil if the duration string is empty or invalid.
+func parseDurationMs(duration string) *int64 {
+	if duration == "" {
+		return nil
+	}
+
+	duration = strings.TrimSpace(duration)
+	if len(duration) < 2 {
+		return nil
+	}
+
+	// Extract numeric part and unit
+	var numStr string
+	var unit string
+	for i, ch := range duration {
+		if ch >= '0' && ch <= '9' || ch == '.' {
+			numStr += string(ch)
+		} else {
+			unit = duration[i:]
+			break
+		}
+	}
+
+	if numStr == "" || unit == "" {
+		return nil
+	}
+
+	value, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return nil
+	}
+
+	// Convert to milliseconds based on unit
+	var ms int64
+	switch unit {
+	case "ms":
+		ms = int64(value)
+	case "s":
+		ms = int64(value * 1000)
+	case "m":
+		ms = int64(value * 60 * 1000)
+	case "h":
+		ms = int64(value * 60 * 60 * 1000)
+	case "d":
+		ms = int64(value * 24 * 60 * 60 * 1000)
+	default:
+		return nil
+	}
+
+	return &ms
 }
 
 // NewContractServiceWithValidator allows injecting a custom contract validator (useful for tests).
@@ -141,17 +196,18 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	}
 
 	versionModel := &models.ContractVersion{
-		ID:          uuid.New().String(),
-		Version:     1,
-		Content:     fullJSON,
-		YAMLContent: contractYAML,
-		ContentHash: contentHash,
-		ContractID:  contractModel.ID,
-		CreatedBy:   createdBy,
-		Graph:       graphJSON,
-		IsDeleted:   false,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                 uuid.New().String(),
+		Version:            1,
+		Content:            fullJSON,
+		YAMLContent:        contractYAML,
+		ContentHash:        contentHash,
+		ContractID:         contractModel.ID,
+		CreatedBy:          createdBy,
+		Graph:              graphJSON,
+		ExpectedDurationMs: parseDurationMs(contract.Validation.MaxDuration),
+		IsDeleted:          false,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	// Atomically create both contract and version in a single transaction
@@ -230,17 +286,18 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 	}
 
 	newVersion := &models.ContractVersion{
-		ID:          uuid.New().String(),
-		Version:     nextVersion,
-		Content:     fullJSON,
-		YAMLContent: contractYAML,
-		ContentHash: contentHash,
-		ContractID:  contractID,
-		CreatedBy:   createdBy,
-		Graph:       graphJSON,
-		IsDeleted:   false,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:                 uuid.New().String(),
+		Version:            nextVersion,
+		Content:            fullJSON,
+		YAMLContent:        contractYAML,
+		ContentHash:        contentHash,
+		ContractID:         contractID,
+		CreatedBy:          createdBy,
+		Graph:              graphJSON,
+		ExpectedDurationMs: parseDurationMs(contract.Validation.MaxDuration),
+		IsDeleted:          false,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {

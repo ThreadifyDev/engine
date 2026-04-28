@@ -251,6 +251,14 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, pr
 	defer cancel()
 
 	query := `
+		WITH unique_threads AS (
+			SELECT DISTINCT ep.id AS profile_id, t.id AS thread_id, t.status, t.completed_at, t.created_at
+			FROM entity_profile ep
+			JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id AND ept.archived_at IS NULL
+			JOIN thread_refs all_refs ON all_refs.ref_key = ANY(ept.type) AND all_refs.ref_value = ep.ref_key
+			JOIN threads t ON t.id = all_refs.thread_id AND t.company_id = ep.company_id
+			WHERE ep.id = ANY($1)
+		)
 		INSERT INTO entity_profile_metrics (
 			entity_profile_id, total_deliveries, completed_successfully,
 			validation_violations, delivery_health_score,
@@ -258,37 +266,33 @@ func (c *IntelligenceConsumer) recalculateProfileMetrics(ctx context.Context, pr
 			average_delivery_time_ms, last_calculated_at
 		)
 		SELECT
-			ep.id,
-			COUNT(DISTINCT all_refs.thread_id),
-			COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END),
-			SUM(COALESCE(v.violation_count, 0)),
+			ut.profile_id,
+			COUNT(ut.thread_id),
+			COUNT(CASE WHEN ut.status = 'completed' AND COALESCE(v.critical_violations, 0) = 0 THEN ut.thread_id END),
+			SUM(COALESCE(v.critical_violations, 0)),
 			CASE
-				WHEN COUNT(DISTINCT all_refs.thread_id) > 0 THEN
+				WHEN COUNT(ut.thread_id) > 0 THEN
 					ROUND(
-						COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END)::decimal
-						/ COUNT(DISTINCT all_refs.thread_id) * 100, 2
+						COUNT(CASE WHEN ut.status = 'completed' AND COALESCE(v.critical_violations, 0) = 0 THEN ut.thread_id END)::decimal
+						/ COUNT(ut.thread_id) * 100, 2
 					)
 				ELSE NULL
 			END,
 			NULL,
 			NULL,
 			AVG(
-				CASE WHEN t.completed_at IS NOT NULL AND t.completed_at > t.created_at THEN
-					EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000
+				CASE WHEN ut.completed_at IS NOT NULL AND ut.completed_at > ut.created_at THEN
+					EXTRACT(EPOCH FROM (ut.completed_at - ut.created_at)) * 1000
 				END
 			)::bigint,
 			NOW()
-		FROM entity_profile ep
-		JOIN entity_profile_type ept ON ept.id = ep.entity_profile_type_id AND ept.archived_at IS NULL
-		JOIN thread_refs all_refs ON all_refs.ref_key = ANY(ept.type) AND all_refs.ref_value = ep.ref_key
-		JOIN threads t ON t.id = all_refs.thread_id AND t.company_id = ep.company_id
+		FROM unique_threads ut
 		LEFT JOIN LATERAL (
-			SELECT COUNT(DISTINCT tv.validation_id) AS violation_count
+			SELECT SUM(tv.critical_count) AS critical_violations
 			FROM thread_validations tv
-			WHERE tv.thread_id = t.id AND tv.overall_status = 'violated'
+			WHERE tv.thread_id = ut.thread_id AND tv.has_critical_violation = true
 		) v ON TRUE
-		WHERE ep.id = ANY($1)
-		GROUP BY ep.id
+		GROUP BY ut.profile_id
 		ON CONFLICT (entity_profile_id) DO UPDATE SET
 			total_deliveries           = EXCLUDED.total_deliveries,
 			completed_successfully     = EXCLUDED.completed_successfully,

@@ -2,6 +2,12 @@ package models
 
 import "time"
 
+type EntityTypeMetric struct {
+	TemplateID string         `json:"template_id"`
+	Name       string         `json:"name,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
 type EntityProfileType struct {
 	ID          string     `json:"id"`
 	CompanyID   string     `json:"company_id"`
@@ -12,6 +18,9 @@ type EntityProfileType struct {
 	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+
+	// Metrics configured for this entity type
+	Metrics []EntityTypeMetric `json:"metrics,omitempty"`
 
 	// TypesToAdd is used by update flows to append to Types.
 	// It is not part of the public JSON representation.
@@ -48,4 +57,11 @@ type EntityPartnerCompatibility struct {
 	SuccessfulInteractions int        `json:"successful_interactions"`
 	CompatibilityScore     *float64   `json:"compatibility_score"`
 	LastCalculatedAt       *time.Time `json:"last_calculated_at"`
+}
+
+type MetricsTemplateResponse struct {
+	ID          string   `json:"id"`
+	MetricsName string   `json:"metrics_name"`
+	Parameters  []string `json:"parameters"`
+	SQLContent  string   `json:"sql_content"`
 }

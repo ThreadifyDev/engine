@@ -2,7 +2,9 @@ package graphql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
@@ -106,13 +108,50 @@ func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityPro
 
 func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
 	desc := t.Description
-	return &generated.EntityProfileType{
-		ID:          t.ID,
-		CompanyID:   t.CompanyID,
-		Name:        t.Name,
-		Type:        t.Type,
-		Description: &desc,
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+	var metricsConfig []*generated.EntityTypeMetricConfig
+	for _, m := range t.Metrics {
+		// we need to safely pass map[string]any via the string encoding or just as string?
+		// Wait, GraphQL JSON is mapped to string currently, but let's check what it expects.
+		// If the schema mapped it to string, we need to marshal it. If to any, we can pass map.
+		// We'll leave the marshalling logic inside helpers.go
+		var paramsStr *string
+		if m.Parameters != nil {
+			if b, err := json.Marshal(m.Parameters); err == nil {
+				s := string(b)
+				paramsStr = &s
+			}
+		}
+		var nameStr *string
+		if m.Name != "" {
+			name := m.Name
+			nameStr = &name
+		}
+		metricsConfig = append(metricsConfig, &generated.EntityTypeMetricConfig{
+			TemplateID: m.TemplateID,
+			Name:       nameStr,
+			Parameters: paramsStr,
+		})
 	}
+
+	return &generated.EntityProfileType{
+		ID:            t.ID,
+		CompanyID:     t.CompanyID,
+		Name:          t.Name,
+		Type:          t.Type,
+		Description:   &desc,
+		CreatedAt:     t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     t.UpdatedAt.Format(time.RFC3339),
+		MetricsConfig: metricsConfig,
+	}
+}
+
+// formatColumnName converts snake_case to Title Case
+func formatColumnName(s string) string {
+	words := strings.Split(s, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }

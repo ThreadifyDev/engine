@@ -567,7 +567,7 @@ class ApiClient {
   }
 
   // --- Entity Profile Management ---
-  async createEntityProfileType(data: { name: string; type: string[]; description?: string }): Promise<any> {
+  async createEntityProfileType(data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
     return this.post('/entity-profile-types', data);
   }
 
@@ -575,7 +575,7 @@ class ApiClient {
     return this.request('/entity-profile-types');
   }
 
-  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string }): Promise<any> {
+  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
     return this.request(`/entity-profile-types/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -590,11 +590,20 @@ class ApiClient {
     return this.request('/entity-profiles/types');
   }
 
+  async listMetricsTemplates(): Promise<{ data: MetricsTemplateResponse[] }> {
+    return this.request('/metrics-templates');
+  }
+
   async getEntityProfile(refKey: string, type: string): Promise<any> {
     // Note: Use encodeURIComponent to safely pass refKey and type
     return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
   }
 
+}
+
+export interface EntityTypeMetric {
+  template_id: string;
+  parameters?: Record<string, any>;
 }
 
 export interface EntityProfileType {
@@ -606,6 +615,14 @@ export interface EntityProfileType {
   description: string;
   created_at: string;
   updated_at: string;
+  metrics?: EntityTypeMetric[];
+}
+
+export interface MetricsTemplateResponse {
+  id: string;
+  metrics_name: string;
+  parameters: string[];
+  sql_content: string;
 }
 
 export interface EntityProfileMetrics {
