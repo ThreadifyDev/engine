@@ -324,13 +324,13 @@ type ComplexityRoot struct {
 }
 
 type EntityProfileResolver interface {
-	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (map[string]any, error)
+	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (*string, error)
 }
 type GraphResolver interface {
 	Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error)
 }
 type GraphNodeResolver interface {
-	BusinessContext(ctx context.Context, obj *models.GraphNode) (map[string]any, error)
+	BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error)
 }
 type HashChainStatusResolver interface {
 	LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error)
@@ -341,7 +341,7 @@ type MutationResolver interface {
 	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
 }
 type NotificationConfigResolver interface {
-	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (map[string]any, error)
+	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*models.Thread, error)
@@ -376,13 +376,14 @@ type StepStateInfoResolver interface {
 	SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error)
 }
 type SubStepResolver interface {
+	Payload(ctx context.Context, obj *models.SubStep) (*string, error)
 	RecordedAt(ctx context.Context, obj *models.SubStep) (string, error)
 	CreatedAt(ctx context.Context, obj *models.SubStep) (string, error)
 }
 type ThreadResolver interface {
 	Status(ctx context.Context, obj *models.Thread) (string, error)
 
-	Refs(ctx context.Context, obj *models.Thread) (map[string]any, error)
+	Refs(ctx context.Context, obj *models.Thread) (*string, error)
 	StartedAt(ctx context.Context, obj *models.Thread) (*string, error)
 	CompletedAt(ctx context.Context, obj *models.Thread) (*string, error)
 
@@ -395,6 +396,7 @@ type ThreadResolver interface {
 	HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error)
 }
 type ThreadNotificationResolver interface {
+	Details(ctx context.Context, obj *models.ThreadNotification) (*string, error)
 	Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error)
 }
 type ValidationResultInfoResolver interface {
@@ -3432,7 +3434,7 @@ func (ec *executionContext) _EntityProfile_computedMetrics(ctx context.Context, 
 			return ec.Resolvers.EntityProfile().ComputedMetrics(ctx, obj, fc.Args["range"].(*string))
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -4158,7 +4160,7 @@ func (ec *executionContext) _EntityTypeMetricConfig_parameters(ctx context.Conte
 			return obj.Parameters, nil
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -4559,7 +4561,7 @@ func (ec *executionContext) _GraphNode_businessContext(ctx context.Context, fiel
 			return ec.Resolvers.GraphNode().BusinessContext(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -4832,7 +4834,7 @@ func (ec *executionContext) _NotificationConfig_roleDefaults(ctx context.Context
 			return ec.Resolvers.NotificationConfig().RoleDefaults(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -7504,10 +7506,10 @@ func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.
 		field,
 		ec.fieldContext_SubStep_payload,
 		func(ctx context.Context) (any, error) {
-			return obj.Payload, nil
+			return ec.Resolvers.SubStep().Payload(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -7517,8 +7519,8 @@ func (ec *executionContext) fieldContext_SubStep_payload(_ context.Context, fiel
 	fc = &graphql.FieldContext{
 		Object:     "SubStep",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type JSON does not have child fields")
 		},
@@ -7884,7 +7886,7 @@ func (ec *executionContext) _Thread_refs(ctx context.Context, field graphql.Coll
 			return ec.Resolvers.Thread().Refs(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -8878,10 +8880,10 @@ func (ec *executionContext) _ThreadNotification_details(ctx context.Context, fie
 		field,
 		ec.fieldContext_ThreadNotification_details,
 		func(ctx context.Context) (any, error) {
-			return obj.Details, nil
+			return ec.Resolvers.ThreadNotification().Details(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2map,
+		ec.marshalOJSON2ᚖstring,
 		true,
 		false,
 	)
@@ -8891,8 +8893,8 @@ func (ec *executionContext) fieldContext_ThreadNotification_details(_ context.Co
 	fc = &graphql.FieldContext{
 		Object:     "ThreadNotification",
 		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
+		IsMethod:   true,
+		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type JSON does not have child fields")
 		},
@@ -13190,7 +13192,38 @@ func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, 
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "payload":
-			out.Values[i] = ec._SubStep_payload(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._SubStep_payload(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "recordedAt":
 			field := field
 
@@ -13831,7 +13864,38 @@ func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.Sel
 				atomic.AddUint32(&out.Invalids, 1)
 			}
 		case "details":
-			out.Values[i] = ec._ThreadNotification_details(ctx, field, obj)
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._ThreadNotification_details(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		case "timestamp":
 			field := field
 
@@ -15248,21 +15312,21 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	return res
 }
 
-func (ec *executionContext) unmarshalOJSON2map(ctx context.Context, v any) (map[string]any, error) {
+func (ec *executionContext) unmarshalOJSON2ᚖstring(ctx context.Context, v any) (*string, error) {
 	if v == nil {
 		return nil, nil
 	}
-	res, err := graphql.UnmarshalMap(v)
-	return res, graphql.ErrorOnPath(ctx, err)
+	res, err := graphql.UnmarshalString(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOJSON2map(ctx context.Context, sel ast.SelectionSet, v map[string]any) graphql.Marshaler {
+func (ec *executionContext) marshalOJSON2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalMap(v)
+	res := graphql.MarshalString(*v)
 	return res
 }
 

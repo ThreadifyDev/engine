@@ -27,7 +27,7 @@ import (
 )
 
 // ComputedMetrics is the resolver for the computedMetrics field.
-func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (map[string]any, error) {
+func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (*string, error) {
 	var metricsConfig []*generated.EntityTypeMetricConfig
 	var refKeys []string
 
@@ -71,10 +71,14 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
 	}
 
-	cacheKey := fmt.Sprintf("entity_metrics:%s:%s", obj.ID, rangeVal)
-	if r.valkeyClient != nil {
-		if cachedData, err := r.valkeyClient.Get(ctx, cacheKey); err == nil && cachedData != "" {
-			return &cachedData, nil
+	// Try to get from cache
+	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal); found {
+		cachedBytes, err := json.Marshal(cached)
+		if err != nil {
+			r.logger.Warn("failed to marshal cached metrics", zap.String("profileID", obj.ID), zap.Error(err))
+		} else {
+			cachedStr := string(cachedBytes)
+			return &cachedStr, nil
 		}
 	}
 
@@ -155,15 +159,14 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		}
 	}
 
-	// 4. Cache and return the combined JSON payload as a string
+	// 4. Cache the result and marshal to JSON string
+	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, combinedResults)
+
 	resultBytes, err := json.Marshal(combinedResults)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal computed metrics result: %w", err)
 	}
 	resultStr := string(resultBytes)
-	if r.valkeyClient != nil {
-		_ = r.valkeyClient.Set(ctx, cacheKey, resultStr, 30*time.Minute)
-	}
 	return &resultStr, nil
 }
 
@@ -180,7 +183,7 @@ func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models
 }
 
 // BusinessContext is the resolver for the businessContext field.
-func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (map[string]any, error) {
+func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error) {
 	if obj.BusinessContext == nil {
 		return nil, nil
 	}
@@ -224,7 +227,7 @@ func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool
 }
 
 // RoleDefaults is the resolver for the roleDefaults field.
-func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (map[string]any, error) {
+func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
 	if obj.RoleDefaults == nil {
 		return nil, nil
 	}
@@ -1053,6 +1056,11 @@ func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *models.StepSt
 	return subSteps, nil
 }
 
+// Payload is the resolver for the payload field.
+func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
+	panic(fmt.Errorf("not implemented: Payload - payload"))
+}
+
 // RecordedAt is the resolver for the recordedAt field.
 func (r *subStepResolver) RecordedAt(ctx context.Context, obj *models.SubStep) (string, error) {
 	return obj.RecordedAt.Format(time.RFC3339Nano), nil
@@ -1070,7 +1078,7 @@ func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string
 }
 
 // Refs is the resolver for the refs field.
-func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (map[string]any, error) {
+func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string, error) {
 	if obj.Refs == nil {
 		return nil, nil
 	}
@@ -1265,6 +1273,11 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread
 	return r.activityRepo.VerifyActivityChain(ctx, obj.ID)
 }
 
+// Details is the resolver for the details field.
+func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
+	panic(fmt.Errorf("not implemented: Details - details"))
+}
+
 // Timestamp is the resolver for the timestamp field.
 func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error) {
 	// Format timestamp as RFC3339 string
@@ -1336,39 +1349,3 @@ type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
-	if obj.Payload == nil {
-		return nil, nil
-	}
-	// Convert payload to JSON string
-	payloadJSON, err := json.Marshal(obj.Payload)
-	if err != nil {
-		return nil, err
-	}
-	payloadStr := string(payloadJSON)
-	return &payloadStr, nil
-}
-func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
-	// Return details as JSON string
-	if len(obj.Details) == 0 {
-		emptyJSON := "{}"
-		return &emptyJSON, nil
-	}
-
-	detailsJSON, err := json.Marshal(obj.Details)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal details: %w", err)
-	}
-
-	result := string(detailsJSON)
-	return &result, nil
-}
-*/

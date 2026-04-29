@@ -12,7 +12,7 @@ type EntityProfile struct {
 	CreatedAt       string                `json:"createdAt"`
 	LastActiveAt    string                `json:"lastActiveAt"`
 	Metrics         *EntityProfileMetrics `json:"metrics,omitempty"`
-	ComputedMetrics map[string]any        `json:"computedMetrics,omitempty"`
+	ComputedMetrics *string               `json:"computedMetrics,omitempty"`
 }
 
 type EntityProfileConnection struct {
@@ -45,9 +45,9 @@ type EntityProfileType struct {
 }
 
 type EntityTypeMetricConfig struct {
-	TemplateID string         `json:"templateId"`
-	Name       *string        `json:"name,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
+	TemplateID string  `json:"templateId"`
+	Name       *string `json:"name,omitempty"`
+	Parameters *string `json:"parameters,omitempty"`
 }
 
 type Mutation struct {

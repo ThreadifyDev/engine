@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadify/engine/internal/types"
+	"go.uber.org/zap"
 )
 
 type MetricsTemplate struct {
@@ -18,11 +21,17 @@ type MetricsTemplate struct {
 }
 
 type MetricsRepository struct {
-	db *pgxpool.Pool
+	db           *pgxpool.Pool
+	valkeyClient types.ValkeyStringClient
+	logger       *zap.Logger
 }
 
-func NewMetricsRepository(db *pgxpool.Pool) *MetricsRepository {
-	return &MetricsRepository{db: db}
+func NewMetricsRepository(db *pgxpool.Pool, valkeyClient types.ValkeyStringClient, logger *zap.Logger) *MetricsRepository {
+	return &MetricsRepository{
+		db:           db,
+		valkeyClient: valkeyClient,
+		logger:       logger,
+	}
 }
 
 // GetMetricsTemplate retrieves a metrics template by ID
@@ -229,4 +238,55 @@ func (r *MetricsRepository) ExecuteMetricsQuery(
 	}
 
 	return results, nil
+}
+
+// GetCachedEntityMetrics retrieves cached entity metrics from Valkey
+func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileID, rangeVal string) (map[string]any, bool) {
+	if r.valkeyClient == nil {
+		return nil, false
+	}
+
+	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal
+	cachedData, err := r.valkeyClient.Get(ctx, cacheKey)
+	if err != nil || cachedData == "" {
+		return nil, false
+	}
+
+	var cachedMap map[string]any
+	if err := json.Unmarshal([]byte(cachedData), &cachedMap); err != nil {
+		r.logger.Warn("failed to unmarshal cached entity metrics",
+			zap.String("profileID", profileID),
+			zap.String("range", rangeVal),
+			zap.Error(err),
+		)
+		return nil, false
+	}
+
+	return cachedMap, true
+}
+
+// CacheEntityMetrics stores computed entity metrics in Valkey with 30-minute TTL
+func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, rangeVal string, metrics map[string]any) {
+	if r.valkeyClient == nil {
+		return
+	}
+
+	resultBytes, err := json.Marshal(metrics)
+	if err != nil {
+		r.logger.Warn("failed to marshal entity metrics for caching",
+			zap.String("profileID", profileID),
+			zap.String("range", rangeVal),
+			zap.Error(err),
+		)
+		return
+	}
+
+	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal
+	if err := r.valkeyClient.Set(ctx, cacheKey, string(resultBytes), 30*time.Minute); err != nil {
+		r.logger.Warn("failed to cache entity metrics",
+			zap.String("profileID", profileID),
+			zap.String("range", rangeVal),
+			zap.Error(err),
+		)
+	}
 }
