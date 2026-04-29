@@ -29,7 +29,6 @@ type Resolver struct {
 	metricsRepo           *postgres.MetricsRepository
 	planService           types.PlanService
 	logger                *zap.Logger
-	valkeyClient          types.ValkeyStringClient
 }
 
 func NewResolver(
@@ -51,7 +50,6 @@ func NewResolver(
 	metricsRepo *postgres.MetricsRepository,
 	planService types.PlanService,
 	logger *zap.Logger,
-	valkeyClient types.ValkeyStringClient,
 ) *Resolver {
 	return &Resolver{
 		threadRepo:            threadRepo,
@@ -72,6 +70,5 @@ func NewResolver(
 		metricsRepo:           metricsRepo,
 		planService:           planService,
 		logger:                logger,
-		valkeyClient:          valkeyClient,
 	}
 }

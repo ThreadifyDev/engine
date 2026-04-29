@@ -168,7 +168,7 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*in
 	if err := db.InitSchema(ctx); err != nil {
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
-	
+
 	if err := db.InitDefaultMetrics(ctx); err != nil {
 		return nil, fmt.Errorf("init default metrics: %w", err)
 	}
@@ -263,7 +263,7 @@ func initRepositories(
 	r.plan = sharedrepo.NewPlanRepo(inf.db.Pool)
 	r.entityProfile = sharedrepo.NewEntityProfileRepo(inf.db.Pool)
 	r.entityProfileType = sharedrepo.NewEntityProfileTypeRepository(inf.db.Pool)
-	r.metrics = postgres.NewMetricsRepository(inf.db.Pool)
+	r.metrics = postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
 
 	// --- valkey ---
 	threadTTL := int(time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond / time.Second)
@@ -426,7 +426,7 @@ func initHandlers(
 		repos.refs, repos.stepState, repos.activity, repos.actor,
 		repos.notification, repos.subStep,
 		repos.entityProfile, repos.entityProfileType, repos.metrics,
-		svcs.plan, logger, inf.valkey,
+		svcs.plan, logger,
 	)
 
 	return h, nil
