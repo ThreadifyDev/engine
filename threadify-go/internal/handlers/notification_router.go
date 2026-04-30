@@ -17,9 +17,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/metrics"
-	"github.com/threadify/engine/internal/models"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 )
 
@@ -33,10 +33,10 @@ type Session struct {
 	ID            string
 	OwnerID       string
 	MaxInFlight   int
-	Conn          types.WSConnection
+	Conn          domain.WSConnection
 	Subscriptions map[string]*ClientSubscription
 	mu            sync.RWMutex
-	sendMu        types.WSMutex
+	sendMu        domain.WSMutex
 }
 
 // WebSocketClient is an alias for Session for backward compatibility.
@@ -89,7 +89,7 @@ func NewNotificationRouter(nc *nats.Conn, natsConfig *config.NATSConfig, logger 
 	}, nil
 }
 
-func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn types.WSConnection, connMutex types.WSMutex) error {
+func (r *NotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn domain.WSConnection, connMutex domain.WSMutex) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -268,7 +268,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 	}
 
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
-		var notification models.ValidationNotification
+		var notification domain.ValidationNotification
 		if err := json.Unmarshal(msg.Data(), &notification); err != nil {
 			r.logger.Error("failed to parse notification", zap.Error(err))
 			msg.Ack()
@@ -276,7 +276,7 @@ func (r *NotificationRouter) routeNotificationsForOwner(ownerID string) {
 		}
 
 		r.mu.RLock()
-		matchingSessions := r.getMatchingSessions(ownerID, notification.StepName, notification.ContractName, notification.NotificationType)
+		matchingSessions := r.getMatchingSessions(ownerID, notification.StepName, notification.ContractName, string(notification.NotificationType))
 		r.mu.RUnlock()
 
 		if len(matchingSessions) == 0 {
@@ -358,11 +358,28 @@ func (s *Session) SendMessage(message interface{}) error {
 	return s.Conn.WriteJSON(message)
 }
 
-func (c *WebSocketClient) sendNotificationWithAckToken(notification *models.ValidationNotification, ackToken string) error {
+func (c *WebSocketClient) sendNotificationWithAckToken(notification *domain.ValidationNotification, ackToken string) error {
+	wire := dto.ValidationNotification{
+		NotificationID:   notification.NotificationID,
+		ThreadID:         notification.ThreadID,
+		StepID:           notification.StepID,
+		StepName:         notification.StepName,
+		OwnerID:          notification.OwnerID,
+		ContractName:     notification.ContractName,
+		Source:           string(notification.Source),
+		NotificationType: string(notification.NotificationType),
+		StepStatus:       notification.StepStatus,
+		Status:           notification.Status,
+		ViolationType:    notification.ViolationType,
+		Severity:         notification.Severity,
+		Message:          notification.Message,
+		Details:          notification.Details,
+		Timestamp:        notification.Timestamp,
+	}
 	return c.SendMessage(map[string]interface{}{
 		"action":       "notification",
 		"ackToken":     ackToken,
-		"notification": notification,
+		"notification": wire,
 	})
 }
 

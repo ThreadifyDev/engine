@@ -12,8 +12,7 @@ import (
 	"threadify-go/shared/rbac"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/workerpool"
@@ -25,17 +24,17 @@ import (
 // and manages the archival of validation notifications without blocking main execution.
 type NotificationService struct {
 	validationService     *ValidationService
-	activityRepo          types.ActivityRepository
-	stepStateRepo         types.StepStateRepository
-	threadRepo            types.ThreadRepository
-	cacheManager          types.CacheManager
-	natsPublisher         types.NotificationPublisher
+	activityRepo          domain.ActivityRepository
+	stepStateRepo         domain.StepStateRepository
+	threadRepo            domain.ThreadRepository
+	cacheManager          domain.CacheManager
+	natsPublisher         domain.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	threadAccessService   *ThreadAccessService
 	rbacLoader            *rbac.Loader
 	validationPool        *workerpool.Pool
 	notificationPool      *workerpool.Pool
-	timeoutMonitor        types.TimeoutMonitor
+	timeoutMonitor        domain.TimeoutMonitor
 	logger                *zap.Logger
 }
 
@@ -48,7 +47,7 @@ func (s *NotificationService) ShouldReceiveNotification(
 }
 
 // ScheduleThreadMaxDurationTimeout exports scheduleThreadMaxDurationTimeout for tests.
-func (s *NotificationService) ScheduleThreadMaxDurationTimeout(ctx context.Context, threadID string, graph *models.ContractGraph, thread *models.Thread, now time.Time) {
+func (s *NotificationService) ScheduleThreadMaxDurationTimeout(ctx context.Context, threadID string, graph *domain.ContractGraph, thread *domain.Thread, now time.Time) {
 	s.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, now)
 }
 
@@ -58,7 +57,7 @@ func (s *NotificationService) CancelThreadMaxDurationTimeout(ctx context.Context
 }
 
 // HandleNoContractStep exports handleNoContractStep for tests.
-func (s *NotificationService) HandleNoContractStep(ctx context.Context, threadID, stepID, stepName, ownerID string, req *models.RecordEventRequest, thread *models.Thread) {
+func (s *NotificationService) HandleNoContractStep(ctx context.Context, threadID, stepID, stepName, ownerID string, req *domain.RecordEventCmd, thread *domain.Thread) {
 	s.handleNoContractStep(ctx, threadID, stepID, stepName, ownerID, req, thread)
 }
 
@@ -70,17 +69,17 @@ func GetRequiredPermissionsForNotification(status, stepStatus, severity, violati
 // NewNotificationService creates a new notification service.
 func NewNotificationService(
 	validationService *ValidationService,
-	activityRepo types.ActivityRepository,
-	stepStateRepo types.StepStateRepository,
-	threadRepo types.ThreadRepository,
-	cacheManager types.CacheManager,
-	natsPublisher types.NotificationPublisher,
+	activityRepo domain.ActivityRepository,
+	stepStateRepo domain.StepStateRepository,
+	threadRepo domain.ThreadRepository,
+	cacheManager domain.CacheManager,
+	natsPublisher domain.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	threadAccessService *ThreadAccessService,
 	rbacLoader *rbac.Loader,
 	validationPool *workerpool.Pool,
 	notificationPool *workerpool.Pool,
-	timeoutMonitor types.TimeoutMonitor,
+	timeoutMonitor domain.TimeoutMonitor,
 	logger *zap.Logger,
 ) *NotificationService {
 	return &NotificationService{
@@ -106,10 +105,10 @@ func (s *NotificationService) PerformAsyncValidation(
 	stepID string,
 	stepName string,
 	ownerID string,
-	req *models.RecordEventRequest,
-	thread *models.Thread,
-	graph *models.ContractGraph,
-	stepNode models.GraphNode,
+	req *domain.RecordEventCmd,
+	thread *domain.Thread,
+	graph *domain.ContractGraph,
+	stepNode domain.GraphNode,
 ) {
 	submitted := s.validationPool.Submit(func(ctx context.Context) {
 		s.logger.Info("starting validation",
@@ -175,8 +174,8 @@ func (s *NotificationService) PerformAsyncValidation(
 func (s *NotificationService) handleNoContractStep(
 	ctx context.Context,
 	threadID, stepID, stepName, ownerID string,
-	req *models.RecordEventRequest,
-	thread *models.Thread,
+	req *domain.RecordEventCmd,
+	thread *domain.Thread,
 ) {
 	contractName := ""
 	if thread != nil {
@@ -195,7 +194,7 @@ func (s *NotificationService) handleNoContractStep(
 		message = fmt.Sprintf("Step %q recorded with status %q (no contract)", stepName, req.Status)
 	}
 
-	executionNotif := models.ValidationNotification{
+	executionNotif := domain.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
 		StepID:         stepID,
@@ -204,7 +203,7 @@ func (s *NotificationService) handleNoContractStep(
 		ContractName:   contractName,
 		StepStatus:     req.Status,
 		Status:         ValidationStatusNone,
-		Severity:       string(models.SeverityInfo),
+		Severity:       string(domain.SeverityInfo),
 		Message:        message,
 		Timestamp:      time.Now(),
 	}
@@ -230,14 +229,14 @@ func (s *NotificationService) handleNoContractStep(
 // performNonBlockingValidations executes all validation checks and returns notifications.
 func (s *NotificationService) performNonBlockingValidations(
 	ctx context.Context,
-	thread *models.Thread,
-	req *models.RecordEventRequest,
-	stepNode models.GraphNode,
-	graph *models.ContractGraph,
+	thread *domain.Thread,
+	req *domain.RecordEventCmd,
+	stepNode domain.GraphNode,
+	graph *domain.ContractGraph,
 	stepID string,
 	ownerID string,
-) []models.ValidationNotification {
-	notifications := make([]models.ValidationNotification, 0, 5)
+) []domain.ValidationNotification {
+	notifications := make([]domain.ValidationNotification, 0, 5)
 	now := time.Now()
 
 	// 1. Step Timeout Exceeded (Critical)
@@ -245,7 +244,7 @@ func (s *NotificationService) performNonBlockingValidations(
 		details := ensureDetails(violation.Details)
 		details["duration"] = violation.Duration
 		details["limit"] = violation.Limit
-		notifications = append(notifications, models.ValidationNotification{
+		notifications = append(notifications, domain.ValidationNotification{
 			NotificationID: uuid.New().String(),
 			ThreadID:       req.ThreadID,
 			StepID:         stepID,
@@ -254,8 +253,8 @@ func (s *NotificationService) performNonBlockingValidations(
 			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
 			Status:         ValidationStatusViolated,
-			ViolationType:  string(models.ViolationStepTimeoutExceeded),
-			Severity:       string(models.SeverityCritical),
+			ViolationType:  string(domain.ViolationStepTimeoutExceeded),
+			Severity:       string(domain.SeverityCritical),
 			Message:        violation.Message,
 			Details:        details,
 			Timestamp:      now,
@@ -267,7 +266,7 @@ func (s *NotificationService) performNonBlockingValidations(
 		details := ensureDetails(violation.Details)
 		details["duration"] = violation.Duration
 		details["limit"] = violation.Limit
-		notifications = append(notifications, models.ValidationNotification{
+		notifications = append(notifications, domain.ValidationNotification{
 			NotificationID: uuid.New().String(),
 			ThreadID:       req.ThreadID,
 			StepID:         stepID,
@@ -276,8 +275,8 @@ func (s *NotificationService) performNonBlockingValidations(
 			ContractName:   thread.ContractName,
 			StepStatus:     req.Status,
 			Status:         ValidationStatusViolated,
-			ViolationType:  string(models.ViolationMaxDurationExceeded),
-			Severity:       string(models.SeverityCritical),
+			ViolationType:  string(domain.ViolationMaxDurationExceeded),
+			Severity:       string(domain.SeverityCritical),
 			Message:        violation.Message,
 			Details:        details,
 			Timestamp:      now,
@@ -295,11 +294,11 @@ func (s *NotificationService) performNonBlockingValidations(
 func (s *NotificationService) processValidationNotifications(
 	ctx context.Context,
 	threadID, stepID, stepName, ownerID, idempotencyKey string,
-	notifications []models.ValidationNotification,
-	graph *models.ContractGraph,
-	thread *models.Thread,
+	notifications []domain.ValidationNotification,
+	graph *domain.ContractGraph,
+	thread *domain.Thread,
 	originalStatus string,
-	req *models.RecordEventRequest,
+	req *domain.RecordEventCmd,
 ) {
 	s.logger.Debug("processing Go violations",
 		zap.Int("count", len(notifications)),
@@ -308,16 +307,16 @@ func (s *NotificationService) processValidationNotifications(
 	)
 
 	hasCriticalViolation := false
-	var existingViolations []types.Violation
+	var existingViolations []domain.Violation
 
 	for _, notif := range notifications {
-		if notif.Severity == string(models.SeverityCritical) {
+		if notif.Severity == string(domain.SeverityCritical) {
 			s.logger.Info("found critical violation",
 				zap.String("type", notif.ViolationType),
 				zap.String("message", notif.Message),
 			)
 			hasCriticalViolation = true
-			existingViolations = append(existingViolations, types.Violation{
+			existingViolations = append(existingViolations, domain.Violation{
 				Type:     notif.ViolationType,
 				Severity: notif.Severity,
 				Message:  notif.Message,
@@ -399,7 +398,7 @@ func (s *NotificationService) processValidationNotifications(
 
 	finalDetails["idempotencyKey"] = idempotencyKey
 
-	executionNotif := models.ValidationNotification{
+	executionNotif := domain.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
 		StepID:         stepID,
@@ -408,12 +407,12 @@ func (s *NotificationService) processValidationNotifications(
 		ContractName:   thread.ContractName,
 		StepStatus:     originalStatus,
 		Status:         ValidationStatusNone,
-		Severity:       string(models.SeverityInfo),
+		Severity:       string(domain.SeverityInfo),
 		Message:        fmt.Sprintf("Step %q execution %s", stepName, originalStatus),
 		Timestamp:      time.Now(),
 	}
 
-	validationNotif := models.ValidationNotification{
+	validationNotif := domain.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
 		StepID:         stepID,
@@ -457,7 +456,7 @@ func (s *NotificationService) processValidationNotifications(
 		}
 
 		if s.natsPublisher != nil {
-			completionNotif := models.ValidationNotification{
+			completionNotif := domain.ValidationNotification{
 				NotificationID: uuid.New().String(),
 				ThreadID:       threadID,
 				StepID:         stepID,
@@ -473,7 +472,7 @@ func (s *NotificationService) processValidationNotifications(
 			go s.publishToAuthorizedMembers(ctx, completionNotif)
 		}
 
-		if err := s.activityRepo.ArchiveThreadMetadata(ctx, &models.Thread{
+		if err := s.activityRepo.ArchiveThreadMetadata(ctx, &domain.Thread{
 			ID:              threadID,
 			OwnerID:         thread.OwnerID,
 			CompanyID:       thread.CompanyID,
@@ -555,20 +554,52 @@ func getRequiredPermissionsForNotification(status, stepStatus, severity, violati
 }
 
 // submitNotificationJob submits a notification publishing job to the notification worker pool.
-func (s *NotificationService) submitNotificationJob(notification models.ValidationNotification) {
+func (s *NotificationService) submitNotificationJob(notification domain.ValidationNotification) {
 	s.notificationPool.Submit(func(ctx context.Context) {
 		s.publishToAuthorizedMembers(ctx, notification)
 	})
 }
 
 // publishToAuthorizedMembers publishes a notification to all thread members with appropriate permissions.
-func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, notification models.ValidationNotification) {
-	if notification.Status == "none" {
-		notification.Source = models.NotificationSourceStep
-		notification.NotificationType = fmt.Sprintf("step.%s", notification.StepStatus)
-	} else {
-		notification.Source = models.NotificationSourceRule
-		notification.NotificationType = fmt.Sprintf("rule.%s", notification.Status)
+func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, notification domain.ValidationNotification) {
+	if notification.Source == "" {
+		if notification.Status == ValidationStatusNone {
+			notification.Source = domain.NotificationSourceStep
+		} else {
+			notification.Source = domain.NotificationSourceRule
+		}
+	}
+
+	if notification.NotificationType == "" {
+		if notification.Status == ValidationStatusNone {
+			// Map StepStatus to domain constants
+			switch notification.StepStatus {
+			case "started":
+				notification.NotificationType = domain.NotificationTypeStepStarted
+			case "success":
+				notification.NotificationType = domain.NotificationTypeStepSuccess
+			case "failed":
+				notification.NotificationType = domain.NotificationTypeStepFailed
+			case "error":
+				notification.NotificationType = domain.NotificationTypeStepError
+			case "cancelled":
+				notification.NotificationType = domain.NotificationTypeStepCancelled
+			case "skipped":
+				notification.NotificationType = domain.NotificationTypeStepSkipped
+			default:
+				notification.NotificationType = domain.NotificationType(fmt.Sprintf("step.%s", notification.StepStatus))
+			}
+		} else {
+			// Map Status to domain constants
+			switch notification.Status {
+			case "passed":
+				notification.NotificationType = domain.NotificationTypeRulePassed
+			case "violated":
+				notification.NotificationType = domain.NotificationTypeRuleViolated
+			default:
+				notification.NotificationType = domain.NotificationType(fmt.Sprintf("rule.%s", notification.Status))
+			}
+		}
 	}
 
 	requiredPerms := getRequiredPermissionsForNotification(
@@ -609,7 +640,7 @@ func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, no
 		zap.Strings("perms", requiredPerms),
 	)
 
-	shouldArchive := notification.Source == models.NotificationSourceRule &&
+	shouldArchive := notification.Source == domain.NotificationSourceRule &&
 		(notification.Status == "violated" || notification.Severity == "warning")
 
 	if s.natsArchivalPublisher != nil && publishedCount > 0 && shouldArchive {
@@ -622,12 +653,12 @@ func (s *NotificationService) publishToAuthorizedMembers(ctx context.Context, no
 // publishDualNotifications sends both execution and validation notifications in a single member query.
 func (s *NotificationService) publishDualNotifications(
 	ctx context.Context,
-	executionNotif, validationNotif models.ValidationNotification,
+	executionNotif, validationNotif domain.ValidationNotification,
 ) {
-	executionNotif.Source = models.NotificationSourceStep
-	executionNotif.NotificationType = fmt.Sprintf("step.%s", executionNotif.StepStatus)
-	validationNotif.Source = models.NotificationSourceRule
-	validationNotif.NotificationType = fmt.Sprintf("rule.%s", validationNotif.Status)
+	executionNotif.Source = domain.NotificationSourceStep
+	executionNotif.NotificationType = domain.NotificationType(fmt.Sprintf("step.%s", executionNotif.StepStatus))
+	validationNotif.Source = domain.NotificationSourceRule
+	validationNotif.NotificationType = domain.NotificationType(fmt.Sprintf("rule.%s", validationNotif.Status))
 
 	executionPerms := getRequiredPermissionsForNotification(
 		executionNotif.Status, executionNotif.StepStatus, executionNotif.Severity, executionNotif.ViolationType,
@@ -740,7 +771,7 @@ func (s *NotificationService) shouldReceiveNotification(
 }
 
 // archiveNotification publishes a notification as an activity log event to NATS for archival.
-func (s *NotificationService) archiveNotification(ctx context.Context, n models.ValidationNotification) error {
+func (s *NotificationService) archiveNotification(ctx context.Context, n domain.ValidationNotification) error {
 	detailsJSON, _ := json.Marshal(n.Details)
 
 	idempotencyKey := ""
@@ -780,9 +811,9 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n models.
 func buildValidateStepParams(
 	threadID, stepID, stepName, idempotencyKey, status, ownerID string,
 	isTerminal bool,
-	existingViolations []types.Violation,
-	graph *models.ContractGraph,
-) types.ValidateStepParams {
+	existingViolations []domain.Violation,
+	graph *domain.ContractGraph,
+) domain.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
 	terminalSteps := []string{}
@@ -801,7 +832,7 @@ func buildValidateStepParams(
 		}
 	}
 
-	return types.ValidateStepParams{
+	return domain.ValidateStepParams{
 		ThreadID:               threadID,
 		StepID:                 stepID,
 		StepName:               stepName,
@@ -821,10 +852,10 @@ func buildValidateStepParams(
 // buildStepStateSnapshot constructs a StepStateSnapshot for archival.
 func buildStepStateSnapshot(
 	stepID, threadID, stepName, idempotencyKey, status, ownerID string,
-	req *models.RecordEventRequest,
+	req *domain.RecordEventCmd,
 	retryCount int,
 	firstSeenAt, previousStep string,
-) *types.StepStateSnapshot {
+) *domain.StepStateSnapshot {
 	now := time.Now().Format(time.RFC3339Nano)
 	if firstSeenAt == "" {
 		firstSeenAt = now
@@ -843,7 +874,7 @@ func buildStepStateSnapshot(
 		}
 	}
 
-	return &types.StepStateSnapshot{
+	return &domain.StepStateSnapshot{
 		ID:             stepID,
 		ThreadID:       threadID,
 		StepName:       stepName,
@@ -894,10 +925,10 @@ func (s *NotificationService) cancelPendingTimeoutsForStep(
 	ctx context.Context,
 	threadID string,
 	stepName string,
-	graph *models.ContractGraph,
+	graph *domain.ContractGraph,
 ) {
 	// Find all transitions that have this step as a target
-	var incomingTransitions []models.Transition
+	var incomingTransitions []domain.Transition
 	for _, transition := range graph.Transitions {
 		for _, toStep := range transition.To {
 			if toStep == stepName {
@@ -940,12 +971,12 @@ func (s *NotificationService) scheduleTransitionTimeouts(
 	ctx context.Context,
 	threadID string,
 	stepName string,
-	req *models.RecordEventRequest,
-	graph *models.ContractGraph,
-	thread *models.Thread,
+	req *domain.RecordEventCmd,
+	graph *domain.ContractGraph,
+	thread *domain.Thread,
 ) {
 	// Find transitions from this step
-	var outgoingTransitions []models.Transition
+	var outgoingTransitions []domain.Transition
 	for _, transition := range graph.Transitions {
 		if transition.From == stepName {
 			outgoingTransitions = append(outgoingTransitions, transition)
@@ -992,10 +1023,10 @@ func (s *NotificationService) scheduleTransitionTimeouts(
 		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
 
 		// Create timeout event
-		timeoutEvent := models.TimeoutEvent{
+		timeoutEvent := domain.TimeoutEvent{
 			ID:           timeoutID,
 			ThreadID:     threadID,
-			Type:         models.TimeoutTypeTransition,
+			Type:         domain.TimeoutTypeTransition,
 			FromStep:     transition.From,
 			ToStep:       strings.Join(transition.To, ","), // Store as comma-separated for multiple targets
 			Timeout:      transition.Timeout,

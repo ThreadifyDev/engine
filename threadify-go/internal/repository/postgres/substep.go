@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // SubStepRepository handles sub-step database operations
@@ -20,7 +20,7 @@ func NewSubStepRepository(pool *pgxpool.Pool) *SubStepRepository {
 }
 
 // GetSubStepsByStepID retrieves all sub-steps for a given step
-func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID string) ([]*models.SubStep, error) {
+func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID string) ([]*domain.SubStep, error) {
 	query := `
 		SELECT 
 			id, 
@@ -42,9 +42,9 @@ func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID stri
 	}
 	defer rows.Close()
 
-	var subSteps []*models.SubStep
+	var subSteps []*domain.SubStep
 	for rows.Next() {
-		var subStep models.SubStep
+		var subStep domain.SubStep
 		var payloadJSON []byte
 
 		err := rows.Scan(
@@ -79,7 +79,7 @@ func (r *SubStepRepository) GetSubStepsByStepID(ctx context.Context, stepID stri
 }
 
 // GetSubStepsByThreadID retrieves all sub-steps for a given thread
-func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID string, stepID string) ([]*models.SubStep, error) {
+func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID string, stepID string) ([]*domain.SubStep, error) {
 	query := `
 		SELECT 
 			id, 
@@ -101,9 +101,9 @@ func (r *SubStepRepository) GetSubStepsByThreadID(ctx context.Context, threadID 
 	}
 	defer rows.Close()
 
-	var subSteps []*models.SubStep
+	var subSteps []*domain.SubStep
 	for rows.Next() {
-		var subStep models.SubStep
+		var subStep domain.SubStep
 		var payloadJSON []byte
 
 		err := rows.Scan(

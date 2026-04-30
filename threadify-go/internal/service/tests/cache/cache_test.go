@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 )
@@ -31,7 +31,7 @@ func TestCacheService_ClearThreadRoles_OnlyClearsPrefix(t *testing.T) {
 func TestCacheService_ContractGraph_RoundTripAndClear(t *testing.T) {
 	cache := service.NewCacheService(zap.NewNop())
 
-	graph := &models.ContractGraph{}
+	graph := &domain.ContractGraph{}
 	cache.SetContractGraph("contract-1", 1, "owner-1", graph)
 
 	got, ok := cache.GetContractGraph("contract-1", 1, "owner-1")

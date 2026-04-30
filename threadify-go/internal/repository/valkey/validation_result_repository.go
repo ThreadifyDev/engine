@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/workerpool"
 	"go.uber.org/zap"
@@ -33,14 +32,14 @@ import (
 // - Async write-back failures are logged but don't block requests
 // - Context cancellation prevents orphaned goroutines on shutdown
 type ValidationRepository struct {
-	client        types.ValidationValkeyClient
+	client        domain.ValidationValkeyClient
 	postgresRepo  *postgres.ValidationRepository
 	ttl           time.Duration
 	writeBackPool *workerpool.Pool
 	logger        *zap.Logger
 }
 
-func NewValidationRepository(client types.ValidationValkeyClient, logger *zap.Logger) *ValidationRepository {
+func NewValidationRepository(client domain.ValidationValkeyClient, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client: client,
 		ttl:    24 * time.Hour,
@@ -48,7 +47,7 @@ func NewValidationRepository(client types.ValidationValkeyClient, logger *zap.Lo
 	}
 }
 
-func NewValidationRepositoryWithPostgres(client types.ValidationValkeyClient, postgresRepo *postgres.ValidationRepository, logger *zap.Logger) *ValidationRepository {
+func NewValidationRepositoryWithPostgres(client domain.ValidationValkeyClient, postgresRepo *postgres.ValidationRepository, logger *zap.Logger) *ValidationRepository {
 	return &ValidationRepository{
 		client:       client,
 		postgresRepo: postgresRepo,
@@ -68,7 +67,7 @@ func (r *ValidationRepository) SetWriteBackPool(pool *workerpool.Pool) {
 }
 
 // GetValidationResultsWithCache implements cache-aside pattern
-func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context, threadID, stepName, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
+func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context, threadID, stepName, idempotencyKey string) ([]*domain.ValidationResultInfo, error) {
 	validationKey := fmt.Sprintf("thread:%s:validations:%s:%s", threadID, stepName, idempotencyKey)
 
 	// Try Redis first
@@ -80,7 +79,7 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 			zap.String("idempotency_key", idempotencyKey))
 
 		// Parse JSON array from Redis
-		var validationResults []*models.ValidationResultInfo
+		var validationResults []*domain.ValidationResultInfo
 		if err := json.Unmarshal([]byte(result), &validationResults); err != nil {
 			r.logger.Error("Failed to parse validation results from cache", zap.Error(err))
 		} else {
@@ -133,7 +132,7 @@ func (r *ValidationRepository) GetValidationResultsWithCache(ctx context.Context
 }
 
 // GetThreadValidationResultsWithCache implements cache-aside pattern for thread-level queries
-func (r *ValidationRepository) GetThreadValidationResultsWithCache(ctx context.Context, threadID string, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+func (r *ValidationRepository) GetThreadValidationResultsWithCache(ctx context.Context, threadID string, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error) {
 	// For thread-level queries, we don't cache the entire result set due to potential size
 	// Instead, we cache individual step results and aggregate them
 	if r.postgresRepo == nil {
@@ -145,13 +144,13 @@ func (r *ValidationRepository) GetThreadValidationResultsWithCache(ctx context.C
 }
 
 // CacheValidationResults stores validation results in Redis
-func (r *ValidationRepository) CacheValidationResults(ctx context.Context, threadID, stepName, idempotencyKey string, validationResults []*models.ValidationResultInfo) error {
+func (r *ValidationRepository) CacheValidationResults(ctx context.Context, threadID, stepName, idempotencyKey string, validationResults []*domain.ValidationResultInfo) error {
 	validationKey := fmt.Sprintf("thread:%s:validations:%s:%s", threadID, stepName, idempotencyKey)
 	return r.cacheValidationResults(ctx, validationKey, validationResults)
 }
 
 // cacheValidationResults internal method for caching
-func (r *ValidationRepository) cacheValidationResults(ctx context.Context, key string, validationResults []*models.ValidationResultInfo) error {
+func (r *ValidationRepository) cacheValidationResults(ctx context.Context, key string, validationResults []*domain.ValidationResultInfo) error {
 	// Serialize to JSON array
 	resultsJSON, err := json.Marshal(validationResults)
 	if err != nil {
@@ -290,12 +289,12 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	userID string,
-	permCheck *types.PermissionCheckResult,
-	options *models.ValidationQueryOptions,
-) ([]*models.ValidationResultInfo, error) {
+	permCheck *domain.PermissionCheckResult,
+	options *domain.ValidationQueryOptions,
+) ([]*domain.ValidationResultInfo, error) {
 	// If no access, return empty
 	if permCheck == nil || !permCheck.HasAccess {
-		return []*models.ValidationResultInfo{}, nil
+		return []*domain.ValidationResultInfo{}, nil
 	}
 
 	// For full read access, use the standard cache path

@@ -14,8 +14,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/handlers"
-	"github.com/threadify/engine/internal/models"
 	"go.uber.org/zap"
 )
 
@@ -45,7 +45,7 @@ func (m *mockWSMutex) Unlock() { m.mu.Unlock() }
 type wsEnvelope struct {
 	Action       string                        `json:"action"`
 	AckToken     string                        `json:"ackToken"`
-	Notification models.ValidationNotification `json:"notification"`
+	Notification domain.ValidationNotification `json:"notification"`
 }
 
 func natsURI() string {
@@ -106,12 +106,12 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		contractName := "test_contract"
 		threadID := uuid.NewString()
 
-		notification := models.ValidationNotification{
+		notification := domain.ValidationNotification{
 			ThreadID:         threadID,
 			OwnerID:          ownerID,
 			StepName:         stepName,
 			ContractName:     contractName,
-			Source:           models.NotificationSourceRule,
+			Source:           domain.NotificationSourceRule,
 			NotificationType: "validation.violated.timeout",
 			Status:           "violated",
 			ViolationType:    "timeout",

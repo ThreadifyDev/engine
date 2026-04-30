@@ -16,9 +16,9 @@ import (
 	"threadify-go/shared/slug"
 	"time"
 
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/metrics"
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/service"
@@ -171,9 +171,9 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 }
 
 // Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
-func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error) {
+func (r *graphResolver) Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error) {
 	// Convert map[string]GraphNode to []*GraphNode array for GraphQL
-	nodes := make([]*models.GraphNode, 0, len(obj.Nodes))
+	nodes := make([]*domain.GraphNode, 0, len(obj.Nodes))
 	for _, node := range obj.Nodes {
 		// Create a copy to avoid pointer issues
 		nodeCopy := node
@@ -183,7 +183,7 @@ func (r *graphResolver) Nodes(ctx context.Context, obj *models.Graph) ([]*models
 }
 
 // BusinessContext is the resolver for the businessContext field.
-func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error) {
+func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *domain.GraphNode) (*string, error) {
 	if obj.BusinessContext == nil {
 		return nil, nil
 	}
@@ -196,13 +196,13 @@ func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *models.Gra
 }
 
 // LastVerifiedAt is the resolver for the lastVerifiedAt field.
-func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error) {
+func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *domain.HashChainStatus) (string, error) {
 	// Return current timestamp as verification happens on-demand
 	return time.Now().UTC().Format(time.RFC3339Nano), nil
 }
 
 // BrokenAt is the resolver for the brokenAt field.
-func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error) {
+func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *domain.HashChainStatus) (*string, error) {
 	// Return nil if verification passed, otherwise return error timestamp
 	if obj.Verified {
 		return nil, nil
@@ -227,7 +227,7 @@ func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool
 }
 
 // RoleDefaults is the resolver for the roleDefaults field.
-func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error) {
+func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (*string, error) {
 	if obj.RoleDefaults == nil {
 		return nil, nil
 	}
@@ -240,7 +240,7 @@ func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *mode
 }
 
 // Thread is the resolver for the thread field.
-func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, error) {
+func (r *queryResolver) Thread(ctx context.Context, id string) (*domain.Thread, error) {
 	start := perf.Now()
 	defer func() {
 		metrics.RequestDuration.WithLabelValues("graphql_thread").Observe(perf.Since(start).Seconds())
@@ -269,7 +269,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 	}
 
 	// Batch load refs if requested in selections
-	if err := r.BatchLoadThreadData(ctx, []*models.Thread{thread}); err != nil {
+	if err := r.BatchLoadThreadData(ctx, []*domain.Thread{thread}); err != nil {
 		return nil, err
 	}
 
@@ -280,7 +280,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*models.Thread, 
 }
 
 // Threads is the resolver for the threads field.
-func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	resolverStart := perf.Now()
 	perf.Log("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
@@ -326,14 +326,14 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 		}
 	}
 
-	return &models.ThreadConnection{
+	return &domain.ThreadConnection{
 		Threads:    threads,
 		TotalCount: totalCount,
 	}, nil
 }
 
 // ThreadsByContract is the resolver for the threadsByContract field.
-func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -368,14 +368,14 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 		}
 	}
 
-	return &models.ThreadConnection{
+	return &domain.ThreadConnection{
 		Threads:    threads,
 		TotalCount: totalCount,
 	}, nil
 }
 
 // ThreadsByRef is the resolver for the threadsByRef field.
-func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context (companyID for security)
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -416,14 +416,14 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 		}
 	}
 
-	return &models.ThreadConnection{
+	return &domain.ThreadConnection{
 		Threads:    threads,
 		TotalCount: totalCount,
 	}, nil
 }
 
 // EntityProfileHistory is the resolver for the entityProfileHistory field.
-func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error) {
+func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// 1. Get user info from context (companyID for security)
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -473,14 +473,14 @@ func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID stri
 		}
 	}
 
-	return &models.ThreadConnection{
+	return &domain.ThreadConnection{
 		Threads:    threads,
 		TotalCount: totalCount,
 	}, nil
 }
 
 // ThreadChain is the resolver for the threadChain field.
-func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error) {
+func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error) {
 	// Get user info from context
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -518,7 +518,7 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 }
 
 // ContractGraph is the resolver for the contractGraph field.
-func (r *queryResolver) ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error) {
+func (r *queryResolver) ContractGraph(ctx context.Context, name string, version *int) (*domain.ContractGraph, error) {
 	r.logger.Info("ContractGraph resolver called",
 		zap.String("name", name),
 		zap.Any("version", version))
@@ -566,7 +566,7 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 }
 
 // StepHistory is the resolver for the stepHistory field.
-func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
+func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -603,11 +603,11 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 
 	// Return empty array if no history found (better UX than error)
 	if history == nil {
-		return []*models.StepHistory{}, nil
+		return []*domain.StepHistory{}, nil
 	}
 
 	// Convert slice of values to slice of pointers for GraphQL
-	var historyPtrs []*models.StepHistory
+	var historyPtrs []*domain.StepHistory
 	for i := range history {
 		historyPtrs = append(historyPtrs, &history[i])
 	}
@@ -616,18 +616,18 @@ func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepNa
 }
 
 // ValidationResults is the resolver for the validationResults field.
-func (r *queryResolver) ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
+func (r *queryResolver) ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*domain.ValidationResultInfo, error) {
 	return r.validationRepo.GetValidationResultsWithCache(ctx, threadID, stepName, idempotencyKey)
 }
 
 // ResolveActors is the resolver for the resolveActors field.
-func (r *queryResolver) ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error) {
+func (r *queryResolver) ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error) {
 	return r.actorRepo.ResolveActors(ctx, ids)
 }
 
 // VerifyThreadIntegrity is the resolver for the verifyThreadIntegrity query
 // Verifies the hash chain integrity of a thread (separate from thread query for performance)
-func (r *queryResolver) VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error) {
+func (r *queryResolver) VerifyThreadIntegrity(ctx context.Context, threadID string) (*domain.HashChainStatus, error) {
 	// Call the activity repository to verify the chain
 	status, err := r.activityRepo.VerifyActivityChain(ctx, threadID)
 	if err != nil {
@@ -641,7 +641,7 @@ func (r *queryResolver) VerifyThreadIntegrity(ctx context.Context, threadID stri
 }
 
 // Verifies the hash integrity of a single step
-func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error) {
+func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*domain.StepIntegrityStatus, error) {
 	// Get the step hashes
 	hash, prevHash, err := r.activityRepo.GetStepHashes(ctx, threadID, stepName, idempotencyKey)
 	if err != nil {
@@ -664,7 +664,7 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 		return nil, fmt.Errorf("failed to verify step hash: %w", err)
 	}
 
-	status := &models.StepIntegrityStatus{
+	status := &domain.StepIntegrityStatus{
 		Verified: verified,
 		Hash:     hash,
 		PrevHash: prevHash,
@@ -867,7 +867,7 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 // Error is the resolver for the error field on StepHistory.
 // Extracts error message from metadata JSON when status is "failed" or "error".
 // Only reads from metadata field (SDK-controlled), not context (customer data).
-func (r *stepHistoryResolver) Error(ctx context.Context, obj *models.StepHistory) (*string, error) {
+func (r *stepHistoryResolver) Error(ctx context.Context, obj *domain.StepHistory) (*string, error) {
 	// Only extract error for failed/error statuses
 	if obj.Status != "failed" && obj.Status != "error" {
 		return nil, nil
@@ -909,18 +909,18 @@ func (r *stepHistoryResolver) Error(ctx context.Context, obj *models.StepHistory
 }
 
 // FirstSeenAt is the resolver for the firstSeenAt field.
-func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
+func (r *stepStateInfoResolver) FirstSeenAt(ctx context.Context, obj *domain.StepStateInfo) (string, error) {
 	return obj.FirstSeenAt.Format(time.RFC3339Nano), nil
 }
 
 // LastUpdatedAt is the resolver for the lastUpdatedAt field.
-func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error) {
+func (r *stepStateInfoResolver) LastUpdatedAt(ctx context.Context, obj *domain.StepStateInfo) (string, error) {
 	return obj.LastUpdatedAt.Format(time.RFC3339Nano), nil
 }
 
 // Hash is the resolver for the hash field in StepStateInfo
 // Returns the cryptographic hash for the step
-func (r *stepStateInfoResolver) Hash(ctx context.Context, obj *models.StepStateInfo) (*string, error) {
+func (r *stepStateInfoResolver) Hash(ctx context.Context, obj *domain.StepStateInfo) (*string, error) {
 	hash, _, err := r.activityRepo.GetStepHashes(ctx, obj.ThreadID, obj.StepName, obj.IdempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get step hash: %w", err)
@@ -933,7 +933,7 @@ func (r *stepStateInfoResolver) Hash(ctx context.Context, obj *models.StepStateI
 
 // PrevHash is the resolver for the prevHash field in StepStateInfo
 // Returns the previous hash in the chain for the step
-func (r *stepStateInfoResolver) PrevHash(ctx context.Context, obj *models.StepStateInfo) (*string, error) {
+func (r *stepStateInfoResolver) PrevHash(ctx context.Context, obj *domain.StepStateInfo) (*string, error) {
 	_, prevHash, err := r.activityRepo.GetStepHashes(ctx, obj.ThreadID, obj.StepName, obj.IdempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get step prevHash: %w", err)
@@ -945,7 +945,7 @@ func (r *stepStateInfoResolver) PrevHash(ctx context.Context, obj *models.StepSt
 }
 
 // Verified is the resolver for the verified field.
-func (r *stepStateInfoResolver) Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error) {
+func (r *stepStateInfoResolver) Verified(ctx context.Context, obj *domain.StepStateInfo) (*bool, error) {
 	// Check if verification result is already cached in context
 	type verificationResult struct {
 		verified bool
@@ -971,7 +971,7 @@ func (r *stepStateInfoResolver) Verified(ctx context.Context, obj *models.StepSt
 }
 
 // VerificationError is the resolver for the verificationError field.
-func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error) {
+func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *domain.StepStateInfo) (*string, error) {
 	// Check if verification result is already cached in context
 	type verificationResult struct {
 		verified bool
@@ -1003,7 +1003,7 @@ func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *mode
 }
 
 // History is the resolver for the history field.
-func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error) {
+func (r *stepStateInfoResolver) History(ctx context.Context, obj *domain.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context for permission check
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -1032,11 +1032,11 @@ func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepSta
 
 	// Return empty array if no history found (better UX than error)
 	if history == nil {
-		return []*models.StepHistory{}, nil
+		return []*domain.StepHistory{}, nil
 	}
 
 	// Convert slice of values to slice of pointers for GraphQL
-	var historyPtrs []*models.StepHistory
+	var historyPtrs []*domain.StepHistory
 	for i := range history {
 		historyPtrs = append(historyPtrs, &history[i])
 	}
@@ -1045,7 +1045,7 @@ func (r *stepStateInfoResolver) History(ctx context.Context, obj *models.StepSta
 }
 
 // SubSteps resolver for StepStateInfo.subSteps field
-func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error) {
+func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *domain.StepStateInfo) ([]*domain.SubStep, error) {
 	// Get sub-steps from database using latestStepID
 	subSteps, err := r.Resolver.subStepRepo.GetSubStepsByStepID(ctx, obj.LatestStepID)
 	if err != nil {
@@ -1057,28 +1057,28 @@ func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *models.StepSt
 }
 
 // Payload is the resolver for the payload field.
-func (r *subStepResolver) Payload(ctx context.Context, obj *models.SubStep) (*string, error) {
+func (r *subStepResolver) Payload(ctx context.Context, obj *domain.SubStep) (*string, error) {
 	panic(fmt.Errorf("not implemented: Payload - payload"))
 }
 
 // RecordedAt is the resolver for the recordedAt field.
-func (r *subStepResolver) RecordedAt(ctx context.Context, obj *models.SubStep) (string, error) {
+func (r *subStepResolver) RecordedAt(ctx context.Context, obj *domain.SubStep) (string, error) {
 	return obj.RecordedAt.Format(time.RFC3339Nano), nil
 }
 
 // CreatedAt is the resolver for the createdAt field.
-func (r *subStepResolver) CreatedAt(ctx context.Context, obj *models.SubStep) (string, error) {
+func (r *subStepResolver) CreatedAt(ctx context.Context, obj *domain.SubStep) (string, error) {
 	return obj.CreatedAt.Format(time.RFC3339Nano), nil
 }
 
 // Status is the resolver for the status field.
-func (r *threadResolver) Status(ctx context.Context, obj *models.Thread) (string, error) {
+func (r *threadResolver) Status(ctx context.Context, obj *domain.Thread) (string, error) {
 	status := string(obj.Status)
 	return status, nil
 }
 
 // Refs is the resolver for the refs field.
-func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string, error) {
+func (r *threadResolver) Refs(ctx context.Context, obj *domain.Thread) (*string, error) {
 	if obj.Refs == nil {
 		return nil, nil
 	}
@@ -1091,13 +1091,13 @@ func (r *threadResolver) Refs(ctx context.Context, obj *models.Thread) (*string,
 }
 
 // StartedAt is the resolver for the startedAt field.
-func (r *threadResolver) StartedAt(ctx context.Context, obj *models.Thread) (*string, error) {
+func (r *threadResolver) StartedAt(ctx context.Context, obj *domain.Thread) (*string, error) {
 	startedAt := obj.StartedAt.Format(time.RFC3339Nano)
 	return &startedAt, nil
 }
 
 // CompletedAt is the resolver for the completedAt field.
-func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*string, error) {
+func (r *threadResolver) CompletedAt(ctx context.Context, obj *domain.Thread) (*string, error) {
 	if obj.CompletedAt == nil {
 		return nil, nil
 	}
@@ -1106,7 +1106,7 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *models.Thread) (*
 }
 
 // Steps is the resolver for the steps field.
-func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error) {
+func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName *string, idempotencyKey *string, status *string) ([]*domain.StepStateInfo, error) {
 	// Get user info from context
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -1115,13 +1115,13 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 
 	// Check if steps are already cached from batch loading
 	if cachedSteps, found := getCachedSteps(ctx, obj.ID); found {
-		allSteps, ok := cachedSteps.([]*models.StepStateInfo)
+		allSteps, ok := cachedSteps.([]*domain.StepStateInfo)
 		if !ok {
 			return nil, fmt.Errorf("invalid cached steps type")
 		}
 
 		// Apply filters in memory (batch-loaded steps don't have filters applied)
-		steps := make([]*models.StepStateInfo, 0)
+		steps := make([]*domain.StepStateInfo, 0)
 		for _, step := range allSteps {
 			if stepName != nil && step.StepName != *stepName {
 				continue
@@ -1159,7 +1159,7 @@ func (r *threadResolver) Steps(ctx context.Context, obj *models.Thread, stepName
 }
 
 // ValidationResults is the resolver for the validationResults field.
-func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+func (r *threadResolver) ValidationResults(ctx context.Context, obj *domain.Thread, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error) {
 	// Get user info from context
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -1188,7 +1188,7 @@ func (r *threadResolver) ValidationResults(ctx context.Context, obj *models.Thre
 }
 
 // NotificationSummary is the resolver for the notificationSummary field.
-func (r *threadResolver) NotificationSummary(ctx context.Context, obj *models.Thread) (*models.NotificationSummary, error) {
+func (r *threadResolver) NotificationSummary(ctx context.Context, obj *domain.Thread) (*domain.NotificationSummary, error) {
 	// Permission already checked by parent Thread query
 	// If we got here, user has access to the thread
 
@@ -1201,7 +1201,7 @@ func (r *threadResolver) NotificationSummary(ctx context.Context, obj *models.Th
 }
 
 // Notifications is the resolver for the notifications field.
-func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, options *models.ThreadNotificationQueryOptions) ([]*models.ThreadNotification, error) {
+func (r *threadResolver) Notifications(ctx context.Context, obj *domain.Thread, options *domain.ThreadNotificationQueryOptions) ([]*domain.ThreadNotification, error) {
 	// Permission already checked by parent Thread query
 	// If we got here, user has access to the thread
 
@@ -1213,7 +1213,7 @@ func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, 
 
 	// Set threadID in options if not already set
 	if options == nil {
-		options = &models.ThreadNotificationQueryOptions{
+		options = &domain.ThreadNotificationQueryOptions{
 			ThreadID: obj.ID,
 		}
 	} else if options.ThreadID == "" {
@@ -1225,7 +1225,7 @@ func (r *threadResolver) Notifications(ctx context.Context, obj *models.Thread, 
 }
 
 // ThreadChain is the resolver for the threadChain field on Thread type.
-func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error) {
+func (r *threadResolver) ThreadChain(ctx context.Context, obj *domain.Thread, maxDepth *int) ([]*domain.Thread, error) {
 	// Get user info from context
 	_, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -1258,7 +1258,7 @@ func (r *threadResolver) ThreadChain(ctx context.Context, obj *models.Thread, ma
 }
 
 // HashChainVerified is the resolver for the hashChainVerified field.
-func (r *threadResolver) HashChainVerified(ctx context.Context, obj *models.Thread) (*bool, error) {
+func (r *threadResolver) HashChainVerified(ctx context.Context, obj *domain.Thread) (*bool, error) {
 	// Only compute when explicitly requested in GraphQL query
 	status, err := r.activityRepo.VerifyActivityChain(ctx, obj.ID)
 	if err != nil {
@@ -1268,24 +1268,24 @@ func (r *threadResolver) HashChainVerified(ctx context.Context, obj *models.Thre
 }
 
 // HashChainStatus is the resolver for the hashChainStatus field.
-func (r *threadResolver) HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error) {
+func (r *threadResolver) HashChainStatus(ctx context.Context, obj *domain.Thread) (*domain.HashChainStatus, error) {
 	// Return detailed verification status
 	return r.activityRepo.VerifyActivityChain(ctx, obj.ID)
 }
 
 // Details is the resolver for the details field.
-func (r *threadNotificationResolver) Details(ctx context.Context, obj *models.ThreadNotification) (*string, error) {
+func (r *threadNotificationResolver) Details(ctx context.Context, obj *domain.ThreadNotification) (*string, error) {
 	panic(fmt.Errorf("not implemented: Details - details"))
 }
 
 // Timestamp is the resolver for the timestamp field.
-func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error) {
+func (r *threadNotificationResolver) Timestamp(ctx context.Context, obj *domain.ThreadNotification) (string, error) {
 	// Format timestamp as RFC3339 string
 	return obj.Timestamp.Format(time.RFC3339Nano), nil
 }
 
 // Timestamp is the resolver for the timestamp field.
-func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error) {
+func (r *validationResultInfoResolver) Timestamp(ctx context.Context, obj *domain.ValidationResultInfo) (string, error) {
 	return obj.Timestamp.Format(time.RFC3339Nano), nil
 }
 

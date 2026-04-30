@@ -7,7 +7,7 @@ package enginemocks
 import (
 	context "context"
 	reflect "reflect"
-	models "threadify-go/shared/domain"
+	domain "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -64,10 +64,10 @@ func (mr *MockPlanServiceMockRecorder) ChargeContractVersion(arg0, arg1 interfac
 }
 
 // CheckBalancePositive mocks base method.
-func (m *MockPlanService) CheckBalancePositive(arg0 context.Context, arg1 string) (*models.CreditAccount, error) {
+func (m *MockPlanService) CheckBalancePositive(arg0 context.Context, arg1 string) (*domain.CreditAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CheckBalancePositive", arg0, arg1)
-	ret0, _ := ret[0].(*models.CreditAccount)
+	ret0, _ := ret[0].(*domain.CreditAccount)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -93,7 +93,7 @@ func (mr *MockPlanServiceMockRecorder) CheckCreditAvailable(arg0, arg1, arg2, ar
 }
 
 // CheckPayloadSize mocks base method.
-func (m *MockPlanService) CheckPayloadSize(arg0 context.Context, arg1 *models.CreditAccount, arg2 int64) error {
+func (m *MockPlanService) CheckPayloadSize(arg0 context.Context, arg1 *domain.CreditAccount, arg2 int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CheckPayloadSize", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -107,7 +107,7 @@ func (mr *MockPlanServiceMockRecorder) CheckPayloadSize(arg0, arg1, arg2 interfa
 }
 
 // CheckRateLimit mocks base method.
-func (m *MockPlanService) CheckRateLimit(arg0 context.Context, arg1 *models.CreditAccount) (bool, error) {
+func (m *MockPlanService) CheckRateLimit(arg0 context.Context, arg1 *domain.CreditAccount) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CheckRateLimit", arg0, arg1)
 	ret0, _ := ret[0].(bool)
@@ -164,10 +164,10 @@ func (mr *MockPlanServiceMockRecorder) DecrementLLMUsage(arg0, arg1, arg2 interf
 }
 
 // GetCurrentLimits mocks base method.
-func (m *MockPlanService) GetCurrentLimits(arg0 context.Context, arg1 string) (*models.CreditAccount, error) {
+func (m *MockPlanService) GetCurrentLimits(arg0 context.Context, arg1 string) (*domain.CreditAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCurrentLimits", arg0, arg1)
-	ret0, _ := ret[0].(*models.CreditAccount)
+	ret0, _ := ret[0].(*domain.CreditAccount)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

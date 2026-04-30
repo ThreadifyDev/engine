@@ -1,4 +1,4 @@
-package types
+package domain
 
 import (
 	"context"
@@ -7,10 +7,8 @@ import (
 	"threadify-go/shared/billing"
 	"threadify-go/shared/rbac"
 
-	sharedauth "threadify-go/shared/auth"
-
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/pkg/validator"
+	sharedauth "threadify-go/shared/auth"
 )
 
 //go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/service_mocks.go -source=service.go
@@ -18,7 +16,7 @@ import (
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
-	RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error
+	RecordStepEventDirect(ctx context.Context, event StepEvent, ownerID, serviceName string, subSteps []SubStepCmd) error
 	Start() error
 	Stop() error
 }
@@ -27,7 +25,7 @@ type StepEventProcessor interface {
 type ConnectionManager interface {
 	ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID string) error
 	Disconnect(ownerID string) error
-	GetClient(ownerID string) (*models.ConnectedClient, bool)
+	GetClient(ownerID string) (*ConnectedClient, bool)
 	IsConnected(ownerID string) bool
 	GetClientCompany(ownerID string) (string, bool)
 }
@@ -35,8 +33,8 @@ type ConnectionManager interface {
 // CacheManager defines the interface for caching operations
 type CacheManager interface {
 	// Thread caching
-	GetThread(threadID string) (*models.Thread, bool)
-	SetThread(threadID string, thread *models.Thread)
+	GetThread(threadID string) (*Thread, bool)
+	SetThread(threadID string, thread *Thread)
 	ClearThreadCache(threadID string)
 
 	// Role caching (per-user per-thread)
@@ -47,8 +45,8 @@ type CacheManager interface {
 	ClearThreadRoles(threadID string)
 
 	// Contract graph caching
-	GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, bool)
-	SetContractGraph(contractName string, version int, companyID string, graph *models.ContractGraph)
+	GetContractGraph(contractName string, version int, companyID string) (*ContractGraph, bool)
+	SetContractGraph(contractName string, version int, companyID string, graph *ContractGraph)
 	ClearContractCache(contractName string, version int, companyID string)
 
 	// Step status caching (for duplicate detection)
@@ -64,10 +62,10 @@ type CacheManager interface {
 // ContractGraphValidator defines the interface for contract graph operations
 type ContractGraphValidator interface {
 	ValidateStepInContract(contractName string, version int, stepName string, context map[string]string, companyID string) error
-	ValidateStepContext(stepNode models.GraphNode, context map[string]string) error
-	GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error)
+	ValidateStepContext(stepNode GraphNode, context map[string]string) error
+	GetContractGraph(contractName string, version int, companyID string) (*ContractGraph, error)
 	LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error)
-	GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error)
+	GetContractByNameAndCompany(contractName string, companyID string) (*Contract, error)
 }
 
 // BackgroundService defines the interface for services that run in the background.
@@ -86,7 +84,7 @@ type ContractValidator interface {
 
 // TimeoutMonitor defines the interface for thread timeouts
 type TimeoutMonitor interface {
-	ScheduleTimeout(event models.TimeoutEvent) error
+	ScheduleTimeout(event TimeoutEvent) error
 	CancelTimeout(timeoutID, threadID, reason string) error
 }
 
@@ -100,25 +98,25 @@ type ContractService interface {
 	GetAllContractVersions(ctx context.Context, contractID, requesterID string) (int, interface{})
 	GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{})
 	DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{})
-	PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error)
+	PreviewContract(yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
 }
 
 // ThreadService defines the interface for thread-related operations
 type ThreadService interface {
-	HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse
-	HandleStartThread(ctx context.Context, req *models.StartThreadRequest, ownerID, companyID string) *models.StartThreadResponse
-	HandleRecordEvent(ctx context.Context, req *models.RecordEventRequest, ownerID, companyID string) *models.RecordEventResponse
-	HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error)
-	HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error)
-	HandleClose(ownerID string) *models.CloseConnectionResponse
-	HandleAddRefs(ctx context.Context, req *models.AddRefsRequest, ownerID string) *models.AddRefsResponse
+	HandleConnect(ctx context.Context, req *ConnectCmd) *ConnectResponse
+	HandleStartThread(ctx context.Context, req *StartThreadCmd, ownerID, companyID string) *StartThreadResponse
+	HandleRecordEvent(ctx context.Context, req *RecordEventCmd, ownerID, companyID string) *RecordEventResponse
+	HandleAddRefs(ctx context.Context, req *AddRefsCmd, ownerID string) *AddRefsResponse
+	HandleInviteParty(req *InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*InvitePartyResponse, error)
+	HandleJoinThread(req *JoinThreadCmd, userID, companyID string) (*JoinThreadResponse, error)
+	HandleClose(ownerID string) *CloseConnectionResponse
 	EndThread(ctx context.Context, threadID, actorID, actorService, status, reason string, recordedAt time.Time) error
 }
 
 // InvitationTokenService defines the interface for invitation JWT token operations
 type InvitationTokenService interface {
 	CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error)
-	ValidateToken(tokenString string) (*models.ThreadInvitationClaims, error)
+	ValidateToken(tokenString string) (*ThreadInvitationClaims, error)
 	ValidateAccessLevel(accessLevel string) error
 	ParseExpiry(expiresIn string) (time.Duration, error)
 }
@@ -138,7 +136,7 @@ type NotificationRouter interface {
 
 // NotificationPublisher defines the interface for publishing notifications.
 type NotificationPublisher interface {
-	PublishNotification(ctx context.Context, notification models.ValidationNotification) error
+	PublishNotification(ctx context.Context, notification ValidationNotification) error
 }
 
 type UserInfo struct {

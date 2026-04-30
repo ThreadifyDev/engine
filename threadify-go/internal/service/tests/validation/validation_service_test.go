@@ -8,10 +8,9 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
-	"github.com/threadify/engine/internal/types"
 )
 
 func TestValidationService_GetCurrentSteps(t *testing.T) {
@@ -26,14 +25,14 @@ func TestValidationService_GetCurrentSteps(t *testing.T) {
 
 	t.Run("successfully parses step names from keys", func(t *testing.T) {
 		mockSteps := []string{"order_placed:idemp1", "payment_validation:idemp2", "custom_step"}
-		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true}).Return(mockSteps, nil)
+		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, domain.ThreadReadOptions{WriteBack: true}).Return(mockSteps, nil)
 
 		got := svc.GetCurrentSteps(ctx, threadID)
 		assert.Equal(t, []string{"order_placed", "payment_validation", "custom_step"}, got)
 	})
 
 	t.Run("returns empty slice on repository error", func(t *testing.T) {
-		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true}).Return(nil, assert.AnError)
+		threadRepo.EXPECT().GetCompletedSteps(ctx, threadID, domain.ThreadReadOptions{WriteBack: true}).Return(nil, assert.AnError)
 
 		got := svc.GetCurrentSteps(ctx, threadID)
 		assert.Equal(t, []string{}, got)
@@ -45,7 +44,7 @@ func TestValidationService_CheckStepTimeout_Table(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		node       models.GraphNode
+		node       domain.GraphNode
 		startedAt  string
 		finishedAt string
 		wantViol   bool
@@ -53,33 +52,33 @@ func TestValidationService_CheckStepTimeout_Table(t *testing.T) {
 	}{
 		{
 			name: "no timeout defined returns nil",
-			node: models.GraphNode{Timeout: ""},
+			node: domain.GraphNode{Timeout: ""},
 		},
 		{
 			name: "invalid timeout format returns nil",
-			node: models.GraphNode{Timeout: "invalid"},
+			node: domain.GraphNode{Timeout: "invalid"},
 		},
 		{
 			name:      "invalid startedAt returns nil",
-			node:      models.GraphNode{Timeout: "10s"},
+			node:      domain.GraphNode{Timeout: "10s"},
 			startedAt: "bad-time",
 		},
 		{
 			name:       "invalid finishedAt returns nil",
-			node:       models.GraphNode{Timeout: "10s"},
+			node:       domain.GraphNode{Timeout: "10s"},
 			startedAt:  time.Now().Format(time.RFC3339),
 			finishedAt: "bad-time",
 		},
 		{
 			name:       "duration within limit returns nil",
-			node:       models.GraphNode{Timeout: "10s"},
+			node:       domain.GraphNode{Timeout: "10s"},
 			startedAt:  "2026-04-13T10:00:00Z",
 			finishedAt: "2026-04-13T10:00:05Z",
 			wantViol:   false,
 		},
 		{
 			name:       "duration exceeding limit returns violation",
-			node:       models.GraphNode{Timeout: "1s"},
+			node:       domain.GraphNode{Timeout: "1s"},
 			startedAt:  "2026-04-13T10:00:00Z",
 			finishedAt: "2026-04-13T10:00:05Z",
 			wantViol:   true,
@@ -106,36 +105,36 @@ func TestValidationService_CheckMaxDuration_Table(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		thread   *models.Thread
-		graph    *models.ContractGraph
+		thread   *domain.Thread
+		graph    *domain.ContractGraph
 		wantViol bool
 		wantMsg  string
 	}{
 		{
 			name:   "no validation defined returns nil",
-			thread: &models.Thread{},
-			graph:  &models.ContractGraph{Validation: nil},
+			thread: &domain.Thread{},
+			graph:  &domain.ContractGraph{Validation: nil},
 		},
 		{
 			name:   "no max duration defined returns nil",
-			thread: &models.Thread{},
-			graph:  &models.ContractGraph{Validation: &models.Validation{MaxDuration: ""}},
+			thread: &domain.Thread{},
+			graph:  &domain.ContractGraph{Validation: &domain.Validation{MaxDuration: ""}},
 		},
 		{
 			name:   "invalid max duration format returns nil",
-			thread: &models.Thread{},
-			graph:  &models.ContractGraph{Validation: &models.Validation{MaxDuration: "invalid"}},
+			thread: &domain.Thread{},
+			graph:  &domain.ContractGraph{Validation: &domain.Validation{MaxDuration: "invalid"}},
 		},
 		{
 			name:     "duration within limit returns nil",
-			thread:   &models.Thread{StartedAt: time.Now().Add(-10 * time.Minute)},
-			graph:    &models.ContractGraph{Validation: &models.Validation{MaxDuration: "1h"}},
+			thread:   &domain.Thread{StartedAt: time.Now().Add(-10 * time.Minute)},
+			graph:    &domain.ContractGraph{Validation: &domain.Validation{MaxDuration: "1h"}},
 			wantViol: false,
 		},
 		{
 			name:     "duration exceeding limit returns violation",
-			thread:   &models.Thread{StartedAt: time.Now().Add(-2 * time.Hour)},
-			graph:    &models.ContractGraph{Validation: &models.Validation{MaxDuration: "1h"}},
+			thread:   &domain.Thread{StartedAt: time.Now().Add(-2 * time.Hour)},
+			graph:    &domain.ContractGraph{Validation: &domain.Validation{MaxDuration: "1h"}},
 			wantViol: true,
 			wantMsg:  "Thread exceeded maximum duration of 1h",
 		},
@@ -160,26 +159,26 @@ func TestValidationService_CheckMissingOptionalFields_Table(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		node      models.GraphNode
+		node      domain.GraphNode
 		context   map[string]string
 		wantViol  bool
 		wantCount int
 	}{
 		{
 			name: "no business context defined returns nil",
-			node: models.GraphNode{BusinessContext: nil},
+			node: domain.GraphNode{BusinessContext: nil},
 		},
 		{
 			name: "invalid business context type returns nil",
-			node: models.GraphNode{BusinessContext: "not-a-context"},
+			node: domain.GraphNode{BusinessContext: "not-a-context"},
 		},
 		{
 			name: "no optional fields defined returns nil",
-			node: models.GraphNode{BusinessContext: &models.BusinessContext{Optional: nil}},
+			node: domain.GraphNode{BusinessContext: &domain.BusinessContext{Optional: nil}},
 		},
 		{
 			name: "all optional fields present returns nil",
-			node: models.GraphNode{BusinessContext: &models.BusinessContext{Optional: []string{"field1", "field2"}}},
+			node: domain.GraphNode{BusinessContext: &domain.BusinessContext{Optional: []string{"field1", "field2"}}},
 			context: map[string]string{
 				"field1": "val1",
 				"field2": "val2",
@@ -189,7 +188,7 @@ func TestValidationService_CheckMissingOptionalFields_Table(t *testing.T) {
 		},
 		{
 			name: "missing optional fields returns violation",
-			node: models.GraphNode{BusinessContext: &models.BusinessContext{Optional: []string{"field1", "field2", "field3"}}},
+			node: domain.GraphNode{BusinessContext: &domain.BusinessContext{Optional: []string{"field1", "field2", "field3"}}},
 			context: map[string]string{
 				"field1": "val1",
 			},

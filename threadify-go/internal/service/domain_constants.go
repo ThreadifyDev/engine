@@ -3,7 +3,7 @@ package service
 import (
 	shareddomain "threadify-go/shared/domain"
 
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 const (
@@ -17,10 +17,10 @@ const (
 )
 
 const (
-	ThreadStatusCompleted = string(models.ThreadStatusCompleted)
-	ThreadStatusCancelled = string(models.ThreadStatusCancelled)
-	ThreadStatusActive    = string(models.ThreadStatusActive)
-	ThreadStatusFailed    = string(models.ThreadStatusFailed)
+	ThreadStatusCompleted = string(domain.ThreadStatusCompleted)
+	ThreadStatusCancelled = string(domain.ThreadStatusCancelled)
+	ThreadStatusActive    = string(domain.ThreadStatusActive)
+	ThreadStatusFailed    = string(domain.ThreadStatusFailed)
 )
 
 const (

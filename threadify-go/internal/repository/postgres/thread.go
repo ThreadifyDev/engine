@@ -11,8 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 	"go.uber.org/zap"
 )
@@ -34,7 +33,7 @@ func NewThreadRepository(pool *pgxpool.Pool) *ThreadRepository {
 	}
 }
 
-func scanThreadRow(row pgx.Row, thread *models.Thread) error {
+func scanThreadRow(row pgx.Row, thread *domain.Thread) error {
 	var createdAt, updatedAt time.Time
 	var completedAt *time.Time
 	var contractID, contractName *string
@@ -64,9 +63,9 @@ func scanThreadRow(row pgx.Row, thread *models.Thread) error {
 		thread.ContractVersion = contractVersion
 	}
 	if status != nil {
-		thread.Status = models.ThreadStatus(*status)
+		thread.Status = domain.ThreadStatus(*status)
 	} else {
-		thread.Status = models.ThreadStatusActive
+		thread.Status = domain.ThreadStatusActive
 	}
 	if errorMsg != nil {
 		thread.Error = *errorMsg
@@ -123,7 +122,7 @@ func (b *threadQueryBuilder) paginatedArgs(limit, offset int) []interface{} {
 
 // --- Repository methods ---
 
-func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
+func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO threads (
 			id, label, contract_id, contract_name, contract_version, owner_id, company_id,
@@ -147,9 +146,9 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 	return nil
 }
 
-func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) (*domain.Thread, error) {
 	row := r.pool.QueryRow(ctx, `SELECT `+threadSelectCols+` FROM threads t WHERE t.id = $1`, threadID)
-	var thread models.Thread
+	var thread domain.Thread
 	if err := scanThreadRow(row, &thread); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, shderrors.ErrThreadNotFound
@@ -159,7 +158,7 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...typ
 	return &thread, nil
 }
 
-func (r *ThreadRepository) GetWithRefs(ctx context.Context, threadID string) (*models.Thread, error) {
+func (r *ThreadRepository) GetWithRefs(ctx context.Context, threadID string) (*domain.Thread, error) {
 	thread, err := r.Get(ctx, threadID)
 	if err != nil {
 		return nil, err
@@ -183,7 +182,7 @@ func (r *ThreadRepository) GetThreadsByRefWithFilters(
 	refValue string,
 	status, startedAfter, startedBefore *string,
 	limit, offset int,
-) ([]*models.Thread, int, error) {
+) ([]*domain.Thread, int, error) {
 	var from string
 	var b *threadQueryBuilder
 
@@ -229,7 +228,7 @@ func (r *ThreadRepository) QueryThreads(
 	contractVersion *int,
 	status, startedAfter, startedBefore, completedAfter, completedBefore *string,
 	limit, offset int,
-) ([]*models.Thread, error) {
+) ([]*domain.Thread, error) {
 	repoStart := perf.Now()
 	defer func() {
 		perf.LogStructured("QueryThreads.total", zap.Duration("duration", perf.Since(repoStart)))
@@ -270,7 +269,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	contractVersion *int,
 	status, startedAfter, startedBefore, completedAfter, completedBefore *string,
 	limit, offset int,
-) ([]*models.Thread, int, error) {
+) ([]*domain.Thread, int, error) {
 	repoStart := perf.Now()
 	defer func() {
 		perf.LogStructured("QueryThreadsWithAccess.total", zap.Duration("duration", perf.Since(repoStart)))
@@ -322,7 +321,7 @@ func (r *ThreadRepository) QueryThreadsByContract(
 	contractVersion *int,
 	actor, status, startedAfter, startedBefore *string,
 	limit, offset int,
-) ([]*models.Thread, error) {
+) ([]*domain.Thread, error) {
 	from := "threads t"
 	if actor != nil && *actor != "" {
 		from += " LEFT JOIN thread_activities ta ON t.id = ta.thread_id"
@@ -348,7 +347,7 @@ func (r *ThreadRepository) QueryThreadsByContract(
 	return scanThreadRows(rows)
 }
 
-func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*models.Thread, error) {
+func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*domain.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
 		FROM threads WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -361,7 +360,7 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 	return scanSimpleThreadRows(rows)
 }
 
-func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string, limit, offset int) ([]*models.Thread, error) {
+func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string, limit, offset int) ([]*domain.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
 		FROM threads WHERE contract_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -427,8 +426,8 @@ func (r *ThreadRepository) GetThreadRefsRepo() *ThreadRefsRepository {
 	return r.refsRepo
 }
 
-func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*types.StepStateSnapshot, error) {
-	var s types.StepStateSnapshot
+func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*domain.StepStateSnapshot, error) {
+	var s domain.StepStateSnapshot
 	var previousStep sql.NullString
 
 	err := r.pool.QueryRow(ctx, `
@@ -454,7 +453,7 @@ func (r *ThreadRepository) GetStepState(ctx context.Context, threadID, stepName,
 	return &s, nil
 }
 
-func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string) ([]types.StepWithTimestamp, error) {
+func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string) ([]domain.StepWithTimestamp, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT step_name, last_updated_at
 		FROM thread_step_states
@@ -467,9 +466,9 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 	}
 	defer rows.Close()
 
-	var steps []types.StepWithTimestamp
+	var steps []domain.StepWithTimestamp
 	for rows.Next() {
-		var step types.StepWithTimestamp
+		var step domain.StepWithTimestamp
 		var lastUpdatedAt string
 		if err := rows.Scan(&step.StepName, &lastUpdatedAt); err != nil {
 			continue
@@ -485,8 +484,8 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 	return steps, nil
 }
 
-func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, threadID, companyID string) (*models.Thread, error) {
-	var thread models.Thread
+func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, threadID, companyID string) (*domain.Thread, error) {
+	var thread domain.Thread
 	err := scanThreadRow(r.pool.QueryRow(ctx, `
 		SELECT `+threadSelectCols+`
 		FROM threads t
@@ -503,7 +502,7 @@ func (r *ThreadRepository) GetThreadWithPermissionCheck(ctx context.Context, thr
 	return &thread, nil
 }
 
-func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context, rootID, companyID string, maxDepth *int) ([]*models.Thread, error) {
+func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context, rootID, companyID string, maxDepth *int) ([]*domain.Thread, error) {
 	depth := 10
 	if maxDepth != nil && *maxDepth > 0 {
 		depth = *maxDepth
@@ -549,10 +548,10 @@ type rowScanner interface {
 	Scan(dest ...interface{}) error
 }
 
-func scanThreadRows(rows pgx.Rows) ([]*models.Thread, error) {
-	var threads []*models.Thread
+func scanThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
+	var threads []*domain.Thread
 	for rows.Next() {
-		var t models.Thread
+		var t domain.Thread
 		if err := scanThreadRow(rows, &t); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
@@ -565,10 +564,10 @@ func scanThreadRows(rows pgx.Rows) ([]*models.Thread, error) {
 }
 
 // scanSimpleThreadRows scans the slim 8-column rows returned by GetByOwner/GetByContract.
-func scanSimpleThreadRows(rows pgx.Rows) ([]*models.Thread, error) {
-	var threads []*models.Thread
+func scanSimpleThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
+	var threads []*domain.Thread
 	for rows.Next() {
-		var t models.Thread
+		var t domain.Thread
 		var createdAt, updatedAt time.Time
 		var label *string
 		if err := rows.Scan(

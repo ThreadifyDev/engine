@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	serror "threadify-go/shared/errors"
 	"threadify-go/shared/domain"
+	serror "threadify-go/shared/errors"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"

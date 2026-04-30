@@ -8,7 +8,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -175,7 +175,7 @@ func (c *Client) IsConnected() bool {
 	return c.conn != nil && c.conn.IsConnected()
 }
 
-func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+time.Second)
 	defer cancel()
 
@@ -206,5 +206,5 @@ func (c *Client) FetchMessage(subject, consumerName string, timeout time.Duratio
 	if err := msg.Ack(); err != nil {
 		return nil, fmt.Errorf("ACK message: %w", err)
 	}
-	return &types.NATSMessage{Subject: msg.Subject(), Data: msg.Data()}, nil
+	return &domain.NATSMessage{Subject: msg.Subject(), Data: msg.Data()}, nil
 }

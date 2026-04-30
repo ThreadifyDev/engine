@@ -7,7 +7,7 @@ import (
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
 	"github.com/redis/go-redis/v9"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type ValkeyService struct {
@@ -204,7 +204,7 @@ func (v *ValkeyService) ZRange(ctx context.Context, key string, start, stop int6
 }
 
 // Pipeline creates a new Redis pipeline
-func (v *ValkeyService) Pipeline() types.ValkeyPipeline {
+func (v *ValkeyService) Pipeline() domain.ValkeyPipeline {
 	return &RedisPipeline{pipe: v.Client.Pipeline()}
 }
 
@@ -296,32 +296,32 @@ type RedisPipeline struct {
 	pipe redis.Pipeliner
 }
 
-func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
+func (p *RedisPipeline) HSet(ctx context.Context, key string, values ...interface{}) domain.ValkeyPipeline {
 	p.pipe.HSet(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) types.ValkeyPipeline {
+func (p *RedisPipeline) HDel(ctx context.Context, key string, fields ...string) domain.ValkeyPipeline {
 	p.pipe.HDel(ctx, key, fields...)
 	return p
 }
 
-func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
+func (p *RedisPipeline) LPush(ctx context.Context, key string, values ...interface{}) domain.ValkeyPipeline {
 	p.pipe.LPush(ctx, key, values...)
 	return p
 }
 
-func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) types.ValkeyPipeline {
+func (p *RedisPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) domain.ValkeyPipeline {
 	p.pipe.Set(ctx, key, value, expiration)
 	return p
 }
 
-func (p *RedisPipeline) Del(ctx context.Context, keys ...string) types.ValkeyPipeline {
+func (p *RedisPipeline) Del(ctx context.Context, keys ...string) domain.ValkeyPipeline {
 	p.pipe.Del(ctx, keys...)
 	return p
 }
 
-func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) types.ValkeyPipeline {
+func (p *RedisPipeline) Expire(ctx context.Context, key string, expiration time.Duration) domain.ValkeyPipeline {
 	p.pipe.Expire(ctx, key, expiration)
 	return p
 }

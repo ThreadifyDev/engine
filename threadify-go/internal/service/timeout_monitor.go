@@ -11,8 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -27,8 +26,8 @@ type TimeoutMonitor struct {
 	nc              *nats.Conn
 	js              jetstream.JetStream
 	kv              timeoutKV
-	threadRepo      types.ThreadRepository
-	notificationPub types.NotificationPublisher
+	threadRepo      domain.ThreadRepository
+	notificationPub domain.NotificationPublisher
 	logger          *zap.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -57,7 +56,7 @@ func TimeoutCancellationKey(timeoutID string) string {
 
 // NewTimeoutMonitorForTests constructs a TimeoutMonitor without performing any NATS/JetStream setup.
 // Intended for unit tests that exercise behaviour in isolation.
-func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub types.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
+func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub domain.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TimeoutMonitor{
 		kv:              kv,
@@ -71,8 +70,8 @@ func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub types.NotificationP
 // NewTimeoutMonitor creates a new timeout monitor service
 func NewTimeoutMonitor(
 	nc *nats.Conn,
-	threadRepo types.ThreadRepository,
-	notificationPub types.NotificationPublisher,
+	threadRepo domain.ThreadRepository,
+	notificationPub domain.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
 	js, err := jetstream.New(nc)
@@ -211,12 +210,36 @@ func (tm *TimeoutMonitor) HandleTimeoutEvent(msg jetstream.Msg) error {
 	return tm.handleTimeoutEvent(msg)
 }
 
+type timeoutEventModel struct {
+	ID           string    `json:"id"`
+	ThreadID     string    `json:"threadId"`
+	Type         string    `json:"type"`
+	FromStep     string    `json:"fromStep"`
+	ToStep       string    `json:"toStep"`
+	Timeout      string    `json:"timeout"`
+	DeadlineAt   time.Time `json:"deadlineAt"`
+	ScheduledAt  time.Time `json:"scheduledAt"`
+	ContractName string    `json:"contractName"`
+}
+
 // handleTimeoutEvent processes a timeout event
 func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
-	var event models.TimeoutEvent
-	if err := json.Unmarshal(msg.Data(), &event); err != nil {
+	var model timeoutEventModel
+	if err := json.Unmarshal(msg.Data(), &model); err != nil {
 		msg.Ack()
 		return fmt.Errorf("unmarshal timeout event: %w", err)
+	}
+
+	event := domain.TimeoutEvent{
+		ID:           model.ID,
+		ThreadID:     model.ThreadID,
+		Type:         domain.TimeoutType(model.Type),
+		FromStep:     model.FromStep,
+		ToStep:       model.ToStep,
+		Timeout:      model.Timeout,
+		DeadlineAt:   model.DeadlineAt,
+		ScheduledAt:  model.ScheduledAt,
+		ContractName: model.ContractName,
 	}
 
 	// Check if timeout was cancelled
@@ -250,7 +273,7 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 
 	// Build thread object from timeout event metadata
 	// All necessary information (owner_id, contract_name) is stored in the event
-	thread := &models.Thread{
+	thread := &domain.Thread{
 		ID:           event.ThreadID,
 		ContractName: event.ContractName,
 		OwnerID:      "",
@@ -319,8 +342,18 @@ func (tm *TimeoutMonitor) IsTimeoutCancelled(timeoutID string) (bool, error) {
 }
 
 // ScheduleTimeout publishes a timeout event with delayed delivery (not integrated yet)
-func (tm *TimeoutMonitor) ScheduleTimeout(event models.TimeoutEvent) error {
-	data, err := json.Marshal(event)
+func (tm *TimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
+	data, err := json.Marshal(map[string]interface{}{
+		"id":           event.ID,
+		"threadId":     event.ThreadID,
+		"type":         string(event.Type),
+		"fromStep":     event.FromStep,
+		"toStep":       event.ToStep,
+		"timeout":      event.Timeout,
+		"deadlineAt":   event.DeadlineAt,
+		"scheduledAt":  event.ScheduledAt,
+		"contractName": event.ContractName,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal timeout event: %w", err)
 	}
@@ -363,14 +396,12 @@ func (tm *TimeoutMonitor) ScheduleTimeout(event models.TimeoutEvent) error {
 
 // CancelTimeout writes a cancellation flag to KV store
 func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) error {
-	cancellation := models.TimeoutCancellation{
-		TimeoutID:   timeoutID,
-		ThreadID:    threadID,
-		CancelledAt: time.Now(),
-		Reason:      reason,
-	}
-
-	data, err := json.Marshal(cancellation)
+	data, err := json.Marshal(map[string]interface{}{
+		"timeoutId":   timeoutID,
+		"threadId":    threadID,
+		"cancelledAt": time.Now(),
+		"reason":      reason,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal cancellation: %w", err)
 	}
@@ -392,12 +423,12 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 }
 
 // BuildTimeoutViolationNotification creates a validation notification for a timeout violation.
-func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models.Thread) models.ValidationNotification {
+func BuildTimeoutViolationNotification(event domain.TimeoutEvent, thread *domain.Thread) domain.ValidationNotification {
 	var message string
 	var stepName string
 
 	switch event.Type {
-	case models.TimeoutTypeMaxDuration:
+	case domain.TimeoutTypeMaxDuration:
 		// For max_duration timeouts, use "global" as a placeholder step name
 		// since these are thread-level timeouts, not step-specific
 		message = fmt.Sprintf(
@@ -406,7 +437,7 @@ func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models
 		)
 		stepName = "global"
 
-	case models.TimeoutTypeTransition:
+	case domain.TimeoutTypeTransition:
 		// Transition timeout between steps
 		expectedStepsDisplay := event.ToStep
 		if strings.Contains(event.ToStep, ",") {
@@ -426,7 +457,7 @@ func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models
 		stepName = event.FromStep
 	}
 
-	return models.ValidationNotification{
+	return domain.ValidationNotification{
 		NotificationID:   uuid.New().String(),
 		ThreadID:         event.ThreadID,
 		StepID:           "", // No specific step ID for timeouts
@@ -438,8 +469,8 @@ func BuildTimeoutViolationNotification(event models.TimeoutEvent, thread *models
 		ViolationType:    "timeout",
 		Message:          message,
 		Timestamp:        time.Now(),
-		Source:           models.NotificationSourceRule,
-		NotificationType: string(models.NotificationTypeRuleViolatedTimeout),
+		Source:           domain.NotificationSourceRule,
+		NotificationType: domain.NotificationTypeRuleViolatedTimeout,
 		Details: map[string]interface{}{
 			"timeout_id":     event.ID,
 			"timeout_type":   event.Type,

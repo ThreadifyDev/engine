@@ -6,31 +6,30 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
 
 // ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
-	graphRepo    types.ContractGraphRepository
+	graphRepo    domain.ContractGraphRepository
 	contractRepo contractRepo
-	cacheManager types.CacheManager
+	cacheManager domain.CacheManager
 	logger       *zap.Logger
 }
 
 type contractRepo interface {
-	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
-	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*domain.Contract, error)
+	GetVersion(ctx context.Context, contractID string, version int) (*domain.ContractVersion, error)
 }
 
 // NewContractValidationServiceFromParts creates a ContractValidationService from explicit parts.
 // This is primarily intended for tests.
 func NewContractValidationServiceFromParts(
-	graphRepo types.ContractGraphRepository,
+	graphRepo domain.ContractGraphRepository,
 	contractRepo contractRepo,
-	cacheManager types.CacheManager,
+	cacheManager domain.CacheManager,
 	logger *zap.Logger,
 ) *ContractValidationService {
 	return &ContractValidationService{
@@ -42,7 +41,7 @@ func NewContractValidationServiceFromParts(
 }
 
 // NewContractValidationService creates a new contract validation service.
-func NewContractValidationService(graphRepo types.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager types.CacheManager, logger *zap.Logger) types.ContractGraphValidator {
+func NewContractValidationService(graphRepo domain.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager domain.CacheManager, logger *zap.Logger) domain.ContractGraphValidator {
 	return &ContractValidationService{
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,
@@ -68,7 +67,7 @@ func (v *ContractValidationService) ValidateStepInContract(contractID string, ve
 
 // ValidateStepContext validates the business context for a step node.
 // Accepts an already-fetched node to avoid duplicate graph lookups.
-func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNode, businessCtx map[string]string) error {
+func (v *ContractValidationService) ValidateStepContext(stepNode domain.GraphNode, businessCtx map[string]string) error {
 	if stepNode.BusinessContext == nil {
 		return nil
 	}
@@ -85,7 +84,7 @@ func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNod
 // extractRequiredFields extracts required fields from BusinessContext regardless of its runtime type.
 func (v *ContractValidationService) extractRequiredFields(businessContext interface{}) []string {
 	switch bc := businessContext.(type) {
-	case *models.BusinessContext:
+	case *domain.BusinessContext:
 		// Direct struct pointer — from graph builder.
 		return bc.Required
 	case map[string]interface{}:
@@ -108,7 +107,7 @@ func (v *ContractValidationService) extractRequiredFields(businessContext interf
 
 // GetContractGraph retrieves a contract graph via three-tier lookup:
 // memory cache → Valkey → PostgreSQL.
-func (v *ContractValidationService) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
+func (v *ContractValidationService) GetContractGraph(contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -148,7 +147,7 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 		return nil, fmt.Errorf("no graph found in contract %q v%d", contractName, targetVersion)
 	}
 
-	var loadedGraph models.ContractGraph
+	var loadedGraph domain.ContractGraph
 	if err := json.Unmarshal(contractVersion.Graph, &loadedGraph); err != nil {
 		return nil, fmt.Errorf("failed to parse contract graph: %w", err)
 	}
@@ -196,7 +195,7 @@ func (v *ContractValidationService) resolveVersion(ctx context.Context, contract
 }
 
 // GetContractByNameAndCompany retrieves a contract by name and company ID.
-func (v *ContractValidationService) GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error) {
+func (v *ContractValidationService) GetContractByNameAndCompany(contractName string, companyID string) (*domain.Contract, error) {
 	if v.contractRepo == nil {
 		return nil, ErrContractRepoNotAvailable
 	}

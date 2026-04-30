@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type ActorRepository struct {
@@ -18,9 +18,9 @@ func NewActorRepository(db *pgxpool.Pool) *ActorRepository {
 
 // ResolveActors fetches user and service account information by IDs
 // Uses a single UNION ALL query for optimal performance
-func (r *ActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error) {
+func (r *ActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error) {
 	if len(ids) == 0 {
-		return []*models.ActorInfo{}, nil
+		return []*domain.ActorInfo{}, nil
 	}
 
 	// Single optimized query using UNION ALL
@@ -47,14 +47,14 @@ func (r *ActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*m
 	}
 	defer rows.Close()
 
-	actors := make([]*models.ActorInfo, 0, len(ids))
+	actors := make([]*domain.ActorInfo, 0, len(ids))
 	for rows.Next() {
 		var id, name, actorType string
 		var companyName *string
 		if err := rows.Scan(&id, &name, &actorType, &companyName); err != nil {
 			continue // Skip invalid rows
 		}
-		actors = append(actors, &models.ActorInfo{
+		actors = append(actors, &domain.ActorInfo{
 			ID:          id,
 			Name:        name,
 			Type:        actorType,

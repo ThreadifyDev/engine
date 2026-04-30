@@ -12,7 +12,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/service/tests/common"
 	"github.com/threadify/engine/pkg/validator"
@@ -132,8 +132,8 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 		companyID  = "c1"
 	)
 
-	baseExisting := func(latest int, contentHash *string) *models.Contract {
-		return &models.Contract{
+	baseExisting := func(latest int, contentHash *string) *domain.Contract {
+		return &domain.Contract{
 			ID:            contractID,
 			CompanyID:     companyID,
 			OwnerID:       ownerID,
@@ -301,14 +301,14 @@ func TestContractService_GetContract_AccessControlAndVersionLookup(t *testing.T)
 				reqID = "o1"
 			}
 
-			contract := &models.Contract{ID: "cid", OwnerID: "o1", IsPublic: tc.public}
+			contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: tc.public}
 			deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
 			if tc.want == 200 {
 				if tc.version != nil {
-					deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", *tc.version).Return(&models.ContractVersion{Version: *tc.version}, nil)
+					deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", *tc.version).Return(&domain.ContractVersion{Version: *tc.version}, nil)
 				} else {
-					deps.ContractRepo.EXPECT().GetLatestVersion(gomock.Any(), "cid").Return(&models.ContractVersion{Version: 9}, nil)
+					deps.ContractRepo.EXPECT().GetLatestVersion(gomock.Any(), "cid").Return(&domain.ContractVersion{Version: 9}, nil)
 				}
 			}
 
@@ -336,14 +336,14 @@ func TestContractService_DeleteContract_Table(t *testing.T) {
 			name: "already deleted",
 			want: 400,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{IsDeleted: true}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{IsDeleted: true}, nil)
 			},
 		},
 		{
 			name: "soft delete error",
 			want: 500,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().SoftDelete(gomock.Any(), "cid").Return(errors.New("db"))
 			},
 		},
@@ -351,7 +351,7 @@ func TestContractService_DeleteContract_Table(t *testing.T) {
 			name: "success",
 			want: 200,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().SoftDelete(gomock.Any(), "cid").Return(nil)
 			},
 		},
@@ -373,16 +373,16 @@ func TestContractService_GetContractVersion_GraphParseFallback(t *testing.T) {
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	contract := &models.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
+	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
 	// invalid json -> returns contractVersion directly
-	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&models.ContractVersion{Graph: []byte("{bad-json")}, nil)
+	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{Graph: []byte("{bad-json")}, nil)
 
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	_, ok := resp.(*models.ContractVersion)
+	_, ok := resp.(*domain.ContractVersion)
 	require.True(t, ok)
 }
 
@@ -390,14 +390,14 @@ func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *test
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	contract := &models.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
+	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
-	graph := &models.ContractGraph{Graph: models.Graph{Nodes: map[string]models.GraphNode{"s1": {ID: "s1"}}}}
+	graph := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{"s1": {ID: "s1"}}}}
 	graphJSON, err := json.Marshal(graph)
 	require.NoError(t, err)
 
-	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&models.ContractVersion{ID: "v1", Version: 1, ContractID: "cid", Graph: graphJSON}, nil)
+	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{ID: "v1", Version: 1, ContractID: "cid", Graph: graphJSON}, nil)
 
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
@@ -426,7 +426,7 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "version not found",
 			want: 404,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(nil, shderrors.ErrContractNotFound)
 			},
 		},
@@ -434,16 +434,16 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "already deleted",
 			want: 400,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
-				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&models.ContractVersion{IsDeleted: true}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{IsDeleted: true}, nil)
 			},
 		},
 		{
 			name: "soft delete fails",
 			want: 500,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
-				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&models.ContractVersion{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{}, nil)
 				deps.ContractRepo.EXPECT().SoftDeleteVersion(gomock.Any(), "cid", 1).Return(errors.New("db"))
 			},
 		},
@@ -451,8 +451,8 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "success",
 			want: 200,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&models.Contract{}, nil)
-				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&models.ContractVersion{ID: "v1", Version: 1, ContractID: "cid"}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{ID: "v1", Version: 1, ContractID: "cid"}, nil)
 				deps.ContractRepo.EXPECT().SoftDeleteVersion(gomock.Any(), "cid", 1).Return(nil)
 			},
 		},

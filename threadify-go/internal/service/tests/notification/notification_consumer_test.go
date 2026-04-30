@@ -8,31 +8,30 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
 type mockNATSClient struct {
-	fetchFn func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error)
+	fetchFn func(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error)
 }
 
-func (m *mockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+func (m *mockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 	return m.fetchFn(subject, consumerName, timeout)
 }
 
 type mockNotificationHandler struct {
-	handleFn func(notification models.ValidationNotification) error
+	handleFn func(notification domain.ValidationNotification) error
 }
 
-func (m *mockNotificationHandler) HandleNotification(notification models.ValidationNotification) error {
+func (m *mockNotificationHandler) HandleNotification(notification domain.ValidationNotification) error {
 	return m.handleFn(notification)
 }
 
 func TestNotificationConsumer_Subscribe(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 			return nil, errors.New("timeout")
 		},
 	}
@@ -57,7 +56,7 @@ func TestNotificationConsumer_Subscribe(t *testing.T) {
 
 func TestNotificationConsumer_Unsubscribe(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 			return nil, errors.New("timeout")
 		},
 	}
@@ -82,16 +81,16 @@ func TestNotificationConsumer_Unsubscribe(t *testing.T) {
 }
 
 func TestNotificationConsumer_Delivery(t *testing.T) {
-	notif := models.ValidationNotification{
+	notif := domain.ValidationNotification{
 		NotificationID: "n1",
 		ThreadID:       "t1",
 		Message:        "test",
 	}
 	data, _ := json.Marshal(notif)
 
-	delivered := make(chan models.ValidationNotification, 1)
+	delivered := make(chan domain.ValidationNotification, 1)
 	handler := &mockNotificationHandler{
-		handleFn: func(notification models.ValidationNotification) error {
+		handleFn: func(notification domain.ValidationNotification) error {
 			delivered <- notification
 			return nil
 		},
@@ -99,10 +98,10 @@ func TestNotificationConsumer_Delivery(t *testing.T) {
 
 	fetchCount := 0
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 			fetchCount++
 			if fetchCount == 1 {
-				return &types.NATSMessage{Data: data}, nil
+				return &domain.NATSMessage{Data: data}, nil
 			}
 			// Block subsequent calls to avoid spin loop in test
 			time.Sleep(100 * time.Millisecond)
@@ -127,7 +126,7 @@ func TestNotificationConsumer_Delivery(t *testing.T) {
 
 func TestNotificationConsumer_Stop(t *testing.T) {
 	client := &mockNATSClient{
-		fetchFn: func(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+		fetchFn: func(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 			time.Sleep(50 * time.Millisecond)
 			return nil, errors.New("stopped")
 		},

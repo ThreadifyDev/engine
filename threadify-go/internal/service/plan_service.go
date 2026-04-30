@@ -12,14 +12,14 @@ import (
 
 	"threadify-go/shared/billing"
 	"threadify-go/shared/database"
-	serror "threadify-go/shared/errors"
 	shareddomain "threadify-go/shared/domain"
+	serror "threadify-go/shared/errors"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -89,14 +89,14 @@ func nextBillingCycle(cycleStart, now time.Time) (time.Time, bool) {
 
 type PlanService struct {
 	planRepo         sharedrepo.PlanRepository
-	contractRepo     types.ContractRepository
-	actorRepo        types.ActorRepository
+	contractRepo     domain.ContractRepository
+	actorRepo        domain.ActorRepository
 	subConfig        *config.SubscriptionConfig
-	valkey           types.PlanValkeyClient
-	pipelineProvider types.ValkeyPipelineProvider
-	creditAtomic     types.ValkeyCreditAtomic
-	streamClient     types.ValkeyStreamClient
-	luaScripts       types.LuaScriptManager
+	valkey           domain.PlanValkeyClient
+	pipelineProvider domain.ValkeyPipelineProvider
+	creditAtomic     domain.ValkeyCreditAtomic
+	streamClient     domain.ValkeyStreamClient
+	luaScripts       domain.LuaScriptManager
 	logger           *zap.Logger
 	cacheTTL         time.Duration
 	sfGroup          singleflight.Group
@@ -105,14 +105,14 @@ type PlanService struct {
 
 func NewPlanService(
 	planRepo sharedrepo.PlanRepository,
-	contractRepo types.ContractRepository,
-	actorRepo types.ActorRepository,
+	contractRepo domain.ContractRepository,
+	actorRepo domain.ActorRepository,
 	subConfig *config.SubscriptionConfig,
-	valkey types.PlanValkeyClient,
-	pipelineProvider types.ValkeyPipelineProvider,
-	creditAtomic types.ValkeyCreditAtomic,
-	streamClient types.ValkeyStreamClient,
-	luaScripts types.LuaScriptManager,
+	valkey domain.PlanValkeyClient,
+	pipelineProvider domain.ValkeyPipelineProvider,
+	creditAtomic domain.ValkeyCreditAtomic,
+	streamClient domain.ValkeyStreamClient,
+	luaScripts domain.LuaScriptManager,
 	logger *zap.Logger,
 	cacheTTLMs int,
 ) *PlanService {
@@ -444,7 +444,7 @@ func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 	}
 }
 
-func (s *PlanService) invokeDebit(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
+func (s *PlanService) invokeDebit(ctx context.Context, params *domain.DebitParams) (domain.DebitResult, error) {
 	return s.luaScripts.DecrementCreditWithAutoTopup(ctx, params)
 }
 
@@ -467,7 +467,7 @@ func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMi
 	topupEventID := uuid.NewString()
 	now := time.Now().UTC()
 
-	params := &types.DebitParams{
+	params := &domain.DebitParams{
 		BalanceKey:        keys.Balance,
 		ChargedKey:        keys.Charged,
 		PendingKey:        keys.Pending,

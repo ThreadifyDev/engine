@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // allowedAccessLevels is the fixed set of valid access levels.
@@ -56,7 +56,7 @@ func NewInvitationTokenService(secretKey, issuer string) *InvitationTokenService
 // CreateToken creates a signed JWT for a thread invitation.
 func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error) {
 	now := time.Now()
-	claims := &models.ThreadInvitationClaims{
+	claims := &domain.ThreadInvitationClaims{
 		ThreadID:    threadID,
 		Role:        role,
 		AccessLevel: accessLevel,
@@ -75,8 +75,8 @@ func (s *InvitationTokenService) CreateToken(threadID, userID, role, accessLevel
 }
 
 // ValidateToken validates a JWT and returns its claims.
-func (s *InvitationTokenService) ValidateToken(tokenString string) (*models.ThreadInvitationClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &models.ThreadInvitationClaims{}, func(token *jwt.Token) (interface{}, error) {
+func (s *InvitationTokenService) ValidateToken(tokenString string) (*domain.ThreadInvitationClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &domain.ThreadInvitationClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken
 		}
@@ -86,7 +86,7 @@ func (s *InvitationTokenService) ValidateToken(tokenString string) (*models.Thre
 		return nil, ErrInvalidToken
 	}
 
-	claims, ok := token.Claims.(*models.ThreadInvitationClaims)
+	claims, ok := token.Claims.(*domain.ThreadInvitationClaims)
 	if !ok || !token.Valid {
 		return nil, ErrInvalidToken
 	}

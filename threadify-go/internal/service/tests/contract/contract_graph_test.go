@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 )
 
@@ -43,10 +43,10 @@ steps:
 func TestGraphBuilder_BuildGraph_JSON_Succeeds(t *testing.T) {
 	b := service.NewGraphBuilder()
 
-	contract := models.ContractYAML{
+	contract := domain.ContractYAML{
 		ContractName: "c",
 		Parties:      []string{},
-		Steps:        []models.Step{{ID: "s1"}},
+		Steps:        []domain.Step{{ID: "s1"}},
 	}
 	payload, err := json.Marshal(contract)
 	require.NoError(t, err)

@@ -12,7 +12,7 @@ import (
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -251,14 +251,14 @@ type ComplexityRoot struct {
 		Label               func(childComplexity int) int
 		LastHash            func(childComplexity int) int
 		NotificationSummary func(childComplexity int) int
-		Notifications       func(childComplexity int, options *models.ThreadNotificationQueryOptions) int
+		Notifications       func(childComplexity int, options *domain.ThreadNotificationQueryOptions) int
 		OwnerID             func(childComplexity int) int
 		Refs                func(childComplexity int) int
 		StartedAt           func(childComplexity int) int
 		Status              func(childComplexity int) int
 		Steps               func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
 		ThreadChain         func(childComplexity int, maxDepth *int) int
-		ValidationResults   func(childComplexity int, options *models.ValidationQueryOptions) int
+		ValidationResults   func(childComplexity int, options *domain.ValidationQueryOptions) int
 	}
 
 	ThreadConnection struct {
@@ -327,80 +327,80 @@ type EntityProfileResolver interface {
 	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (*string, error)
 }
 type GraphResolver interface {
-	Nodes(ctx context.Context, obj *models.Graph) ([]*models.GraphNode, error)
+	Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error)
 }
 type GraphNodeResolver interface {
-	BusinessContext(ctx context.Context, obj *models.GraphNode) (*string, error)
+	BusinessContext(ctx context.Context, obj *domain.GraphNode) (*string, error)
 }
 type HashChainStatusResolver interface {
-	LastVerifiedAt(ctx context.Context, obj *models.HashChainStatus) (string, error)
+	LastVerifiedAt(ctx context.Context, obj *domain.HashChainStatus) (string, error)
 
-	BrokenAt(ctx context.Context, obj *models.HashChainStatus) (*string, error)
+	BrokenAt(ctx context.Context, obj *domain.HashChainStatus) (*string, error)
 }
 type MutationResolver interface {
 	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
 }
 type NotificationConfigResolver interface {
-	RoleDefaults(ctx context.Context, obj *models.NotificationConfig) (*string, error)
+	RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (*string, error)
 }
 type QueryResolver interface {
-	Thread(ctx context.Context, id string) (*models.Thread, error)
-	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
-	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
-	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
-	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*models.ThreadConnection, error)
-	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*models.Thread, error)
-	ContractGraph(ctx context.Context, name string, version *int) (*models.ContractGraph, error)
-	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
-	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*models.ValidationResultInfo, error)
-	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
-	VerifyThreadIntegrity(ctx context.Context, threadID string) (*models.HashChainStatus, error)
-	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*models.StepIntegrityStatus, error)
+	Thread(ctx context.Context, id string) (*domain.Thread, error)
+	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error)
+	ContractGraph(ctx context.Context, name string, version *int) (*domain.ContractGraph, error)
+	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error)
+	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*domain.ValidationResultInfo, error)
+	ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error)
+	VerifyThreadIntegrity(ctx context.Context, threadID string) (*domain.HashChainStatus, error)
+	VerifyStepIntegrity(ctx context.Context, threadID string, stepName string, idempotencyKey string) (*domain.StepIntegrityStatus, error)
 	CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error)
 	EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*EntityProfile, error)
 	EntityProfileTypes(ctx context.Context) ([]*EntityProfileType, error)
 	EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*EntityProfileConnection, error)
 }
 type StepHistoryResolver interface {
-	Error(ctx context.Context, obj *models.StepHistory) (*string, error)
+	Error(ctx context.Context, obj *domain.StepHistory) (*string, error)
 }
 type StepStateInfoResolver interface {
-	FirstSeenAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
-	LastUpdatedAt(ctx context.Context, obj *models.StepStateInfo) (string, error)
+	FirstSeenAt(ctx context.Context, obj *domain.StepStateInfo) (string, error)
+	LastUpdatedAt(ctx context.Context, obj *domain.StepStateInfo) (string, error)
 
-	Hash(ctx context.Context, obj *models.StepStateInfo) (*string, error)
-	PrevHash(ctx context.Context, obj *models.StepStateInfo) (*string, error)
-	Verified(ctx context.Context, obj *models.StepStateInfo) (*bool, error)
-	VerificationError(ctx context.Context, obj *models.StepStateInfo) (*string, error)
-	History(ctx context.Context, obj *models.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*models.StepHistory, error)
-	SubSteps(ctx context.Context, obj *models.StepStateInfo) ([]*models.SubStep, error)
+	Hash(ctx context.Context, obj *domain.StepStateInfo) (*string, error)
+	PrevHash(ctx context.Context, obj *domain.StepStateInfo) (*string, error)
+	Verified(ctx context.Context, obj *domain.StepStateInfo) (*bool, error)
+	VerificationError(ctx context.Context, obj *domain.StepStateInfo) (*string, error)
+	History(ctx context.Context, obj *domain.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error)
+	SubSteps(ctx context.Context, obj *domain.StepStateInfo) ([]*domain.SubStep, error)
 }
 type SubStepResolver interface {
-	Payload(ctx context.Context, obj *models.SubStep) (*string, error)
-	RecordedAt(ctx context.Context, obj *models.SubStep) (string, error)
-	CreatedAt(ctx context.Context, obj *models.SubStep) (string, error)
+	Payload(ctx context.Context, obj *domain.SubStep) (*string, error)
+	RecordedAt(ctx context.Context, obj *domain.SubStep) (string, error)
+	CreatedAt(ctx context.Context, obj *domain.SubStep) (string, error)
 }
 type ThreadResolver interface {
-	Status(ctx context.Context, obj *models.Thread) (string, error)
+	Status(ctx context.Context, obj *domain.Thread) (string, error)
 
-	Refs(ctx context.Context, obj *models.Thread) (*string, error)
-	StartedAt(ctx context.Context, obj *models.Thread) (*string, error)
-	CompletedAt(ctx context.Context, obj *models.Thread) (*string, error)
+	Refs(ctx context.Context, obj *domain.Thread) (*string, error)
+	StartedAt(ctx context.Context, obj *domain.Thread) (*string, error)
+	CompletedAt(ctx context.Context, obj *domain.Thread) (*string, error)
 
-	Steps(ctx context.Context, obj *models.Thread, stepName *string, idempotencyKey *string, status *string) ([]*models.StepStateInfo, error)
-	ValidationResults(ctx context.Context, obj *models.Thread, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error)
-	NotificationSummary(ctx context.Context, obj *models.Thread) (*models.NotificationSummary, error)
-	Notifications(ctx context.Context, obj *models.Thread, options *models.ThreadNotificationQueryOptions) ([]*models.ThreadNotification, error)
-	ThreadChain(ctx context.Context, obj *models.Thread, maxDepth *int) ([]*models.Thread, error)
-	HashChainVerified(ctx context.Context, obj *models.Thread) (*bool, error)
-	HashChainStatus(ctx context.Context, obj *models.Thread) (*models.HashChainStatus, error)
+	Steps(ctx context.Context, obj *domain.Thread, stepName *string, idempotencyKey *string, status *string) ([]*domain.StepStateInfo, error)
+	ValidationResults(ctx context.Context, obj *domain.Thread, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error)
+	NotificationSummary(ctx context.Context, obj *domain.Thread) (*domain.NotificationSummary, error)
+	Notifications(ctx context.Context, obj *domain.Thread, options *domain.ThreadNotificationQueryOptions) ([]*domain.ThreadNotification, error)
+	ThreadChain(ctx context.Context, obj *domain.Thread, maxDepth *int) ([]*domain.Thread, error)
+	HashChainVerified(ctx context.Context, obj *domain.Thread) (*bool, error)
+	HashChainStatus(ctx context.Context, obj *domain.Thread) (*domain.HashChainStatus, error)
 }
 type ThreadNotificationResolver interface {
-	Details(ctx context.Context, obj *models.ThreadNotification) (*string, error)
-	Timestamp(ctx context.Context, obj *models.ThreadNotification) (string, error)
+	Details(ctx context.Context, obj *domain.ThreadNotification) (*string, error)
+	Timestamp(ctx context.Context, obj *domain.ThreadNotification) (string, error)
 }
 type ValidationResultInfoResolver interface {
-	Timestamp(ctx context.Context, obj *models.ValidationResultInfo) (string, error)
+	Timestamp(ctx context.Context, obj *domain.ValidationResultInfo) (string, error)
 }
 
 type executableSchema graphql.ExecutableSchemaState[ResolverRoot, DirectiveRoot, ComplexityRoot]
@@ -1436,7 +1436,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Thread.Notifications(childComplexity, args["options"].(*models.ThreadNotificationQueryOptions)), true
+		return e.ComplexityRoot.Thread.Notifications(childComplexity, args["options"].(*domain.ThreadNotificationQueryOptions)), true
 	case "Thread.ownerId":
 		if e.ComplexityRoot.Thread.OwnerID == nil {
 			break
@@ -1493,7 +1493,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Thread.ValidationResults(childComplexity, args["options"].(*models.ValidationQueryOptions)), true
+		return e.ComplexityRoot.Thread.ValidationResults(childComplexity, args["options"].(*domain.ValidationQueryOptions)), true
 
 	case "ThreadConnection.threads":
 		if e.ComplexityRoot.ThreadConnection.Threads == nil {
@@ -2831,7 +2831,7 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 
 // region    **************************** field.gotpl *****************************
 
-func (ec *executionContext) _ActorInfo_id(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ActorInfo_id(ctx context.Context, field graphql.CollectedField, obj *domain.ActorInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -2860,7 +2860,7 @@ func (ec *executionContext) fieldContext_ActorInfo_id(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _ActorInfo_name(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ActorInfo_name(ctx context.Context, field graphql.CollectedField, obj *domain.ActorInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -2889,7 +2889,7 @@ func (ec *executionContext) fieldContext_ActorInfo_name(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _ActorInfo_type(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ActorInfo_type(ctx context.Context, field graphql.CollectedField, obj *domain.ActorInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -2918,7 +2918,7 @@ func (ec *executionContext) fieldContext_ActorInfo_type(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _ActorInfo_companyName(ctx context.Context, field graphql.CollectedField, obj *models.ActorInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ActorInfo_companyName(ctx context.Context, field graphql.CollectedField, obj *domain.ActorInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -2947,7 +2947,7 @@ func (ec *executionContext) fieldContext_ActorInfo_companyName(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractGraph_graph(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractGraph_graph(ctx context.Context, field graphql.CollectedField, obj *domain.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -2984,7 +2984,7 @@ func (ec *executionContext) fieldContext_ContractGraph_graph(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractGraph_transitions(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractGraph_transitions(ctx context.Context, field graphql.CollectedField, obj *domain.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -3023,7 +3023,7 @@ func (ec *executionContext) fieldContext_ContractGraph_transitions(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractGraph_validation(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractGraph_validation(ctx context.Context, field graphql.CollectedField, obj *domain.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -3060,7 +3060,7 @@ func (ec *executionContext) fieldContext_ContractGraph_validation(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractGraph_parties(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractGraph_parties(ctx context.Context, field graphql.CollectedField, obj *domain.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -3089,7 +3089,7 @@ func (ec *executionContext) fieldContext_ContractGraph_parties(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ContractGraph_notificationConfig(ctx context.Context, field graphql.CollectedField, obj *models.ContractGraph) (ret graphql.Marshaler) {
+func (ec *executionContext) _ContractGraph_notificationConfig(ctx context.Context, field graphql.CollectedField, obj *domain.ContractGraph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4179,7 +4179,7 @@ func (ec *executionContext) fieldContext_EntityTypeMetricConfig_parameters(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _Graph_nodes(ctx context.Context, field graphql.CollectedField, obj *models.Graph) (ret graphql.Marshaler) {
+func (ec *executionContext) _Graph_nodes(ctx context.Context, field graphql.CollectedField, obj *domain.Graph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4232,7 +4232,7 @@ func (ec *executionContext) fieldContext_Graph_nodes(_ context.Context, field gr
 	return fc, nil
 }
 
-func (ec *executionContext) _Graph_entryPoints(ctx context.Context, field graphql.CollectedField, obj *models.Graph) (ret graphql.Marshaler) {
+func (ec *executionContext) _Graph_entryPoints(ctx context.Context, field graphql.CollectedField, obj *domain.Graph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4261,7 +4261,7 @@ func (ec *executionContext) fieldContext_Graph_entryPoints(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _Graph_terminalSteps(ctx context.Context, field graphql.CollectedField, obj *models.Graph) (ret graphql.Marshaler) {
+func (ec *executionContext) _Graph_terminalSteps(ctx context.Context, field graphql.CollectedField, obj *domain.Graph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4290,7 +4290,7 @@ func (ec *executionContext) fieldContext_Graph_terminalSteps(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_id(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_id(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4319,7 +4319,7 @@ func (ec *executionContext) fieldContext_GraphNode_id(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_owner(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_owner(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4348,7 +4348,7 @@ func (ec *executionContext) fieldContext_GraphNode_owner(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_type(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_type(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4377,7 +4377,7 @@ func (ec *executionContext) fieldContext_GraphNode_type(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_mode(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_mode(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4406,7 +4406,7 @@ func (ec *executionContext) fieldContext_GraphNode_mode(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_required(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_required(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4435,7 +4435,7 @@ func (ec *executionContext) fieldContext_GraphNode_required(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_next(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_next(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4464,7 +4464,7 @@ func (ec *executionContext) fieldContext_GraphNode_next(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_steps(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_steps(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4493,7 +4493,7 @@ func (ec *executionContext) fieldContext_GraphNode_steps(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_timeout(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_timeout(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4522,7 +4522,7 @@ func (ec *executionContext) fieldContext_GraphNode_timeout(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_maxDuration(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_maxDuration(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4551,7 +4551,7 @@ func (ec *executionContext) fieldContext_GraphNode_maxDuration(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_businessContext(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_businessContext(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4580,7 +4580,7 @@ func (ec *executionContext) fieldContext_GraphNode_businessContext(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _GraphNode_parentGroup(ctx context.Context, field graphql.CollectedField, obj *models.GraphNode) (ret graphql.Marshaler) {
+func (ec *executionContext) _GraphNode_parentGroup(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4609,7 +4609,7 @@ func (ec *executionContext) fieldContext_GraphNode_parentGroup(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _HashChainStatus_verified(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _HashChainStatus_verified(ctx context.Context, field graphql.CollectedField, obj *domain.HashChainStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4638,7 +4638,7 @@ func (ec *executionContext) fieldContext_HashChainStatus_verified(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _HashChainStatus_lastVerifiedAt(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _HashChainStatus_lastVerifiedAt(ctx context.Context, field graphql.CollectedField, obj *domain.HashChainStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4667,7 +4667,7 @@ func (ec *executionContext) fieldContext_HashChainStatus_lastVerifiedAt(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _HashChainStatus_totalEvents(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _HashChainStatus_totalEvents(ctx context.Context, field graphql.CollectedField, obj *domain.HashChainStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4696,7 +4696,7 @@ func (ec *executionContext) fieldContext_HashChainStatus_totalEvents(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _HashChainStatus_brokenAt(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _HashChainStatus_brokenAt(ctx context.Context, field graphql.CollectedField, obj *domain.HashChainStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4725,7 +4725,7 @@ func (ec *executionContext) fieldContext_HashChainStatus_brokenAt(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _HashChainStatus_error(ctx context.Context, field graphql.CollectedField, obj *models.HashChainStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _HashChainStatus_error(ctx context.Context, field graphql.CollectedField, obj *domain.HashChainStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4795,7 +4795,7 @@ func (ec *executionContext) fieldContext_Mutation_recordLLMUsage(ctx context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationConfig_defaultScope(ctx context.Context, field graphql.CollectedField, obj *models.NotificationConfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationConfig_defaultScope(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4824,7 +4824,7 @@ func (ec *executionContext) fieldContext_NotificationConfig_defaultScope(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationConfig_roleDefaults(ctx context.Context, field graphql.CollectedField, obj *models.NotificationConfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationConfig_roleDefaults(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationConfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4853,7 +4853,7 @@ func (ec *executionContext) fieldContext_NotificationConfig_roleDefaults(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_totalNotifications(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_totalNotifications(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4882,7 +4882,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_totalNotifications(
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_criticalCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_criticalCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4911,7 +4911,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_criticalCount(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_warningCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_warningCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4940,7 +4940,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_warningCount(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_majorCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_majorCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4969,7 +4969,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_majorCount(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_minorCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_minorCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -4998,7 +4998,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_minorCount(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_infoCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_infoCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5027,7 +5027,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_infoCount(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_executionCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_executionCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5056,7 +5056,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_executionCount(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_validationCount(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_validationCount(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5085,7 +5085,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_validationCount(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_hasCritical(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_hasCritical(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -5114,7 +5114,7 @@ func (ec *executionContext) fieldContext_NotificationSummary_hasCritical(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _NotificationSummary_hasWarnings(ctx context.Context, field graphql.CollectedField, obj *models.NotificationSummary) (ret graphql.Marshaler) {
+func (ec *executionContext) _NotificationSummary_hasWarnings(ctx context.Context, field graphql.CollectedField, obj *domain.NotificationSummary) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6161,7 +6161,7 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_attempt(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_attempt(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6190,7 +6190,7 @@ func (ec *executionContext) fieldContext_StepHistory_attempt(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_timestamp(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_timestamp(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6219,7 +6219,7 @@ func (ec *executionContext) fieldContext_StepHistory_timestamp(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_status(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_status(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6248,7 +6248,7 @@ func (ec *executionContext) fieldContext_StepHistory_status(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_context(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_context(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6277,7 +6277,7 @@ func (ec *executionContext) fieldContext_StepHistory_context(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_error(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6306,7 +6306,7 @@ func (ec *executionContext) fieldContext_StepHistory_error(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_duration(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_duration(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6335,7 +6335,7 @@ func (ec *executionContext) fieldContext_StepHistory_duration(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_startedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_startedAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6364,7 +6364,7 @@ func (ec *executionContext) fieldContext_StepHistory_startedAt(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_finishedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_finishedAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6393,7 +6393,7 @@ func (ec *executionContext) fieldContext_StepHistory_finishedAt(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_metadata(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_metadata(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6422,7 +6422,7 @@ func (ec *executionContext) fieldContext_StepHistory_metadata(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_actor(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_actor(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6451,7 +6451,7 @@ func (ec *executionContext) fieldContext_StepHistory_actor(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_actorService(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_actorService(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6480,7 +6480,7 @@ func (ec *executionContext) fieldContext_StepHistory_actorService(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_companyId(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_companyId(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6509,7 +6509,7 @@ func (ec *executionContext) fieldContext_StepHistory_companyId(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_companyName(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_companyName(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6538,7 +6538,7 @@ func (ec *executionContext) fieldContext_StepHistory_companyName(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_hash(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6567,7 +6567,7 @@ func (ec *executionContext) fieldContext_StepHistory_hash(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _StepHistory_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepHistory) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepHistory_prevHash(ctx context.Context, field graphql.CollectedField, obj *domain.StepHistory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6596,7 +6596,7 @@ func (ec *executionContext) fieldContext_StepHistory_prevHash(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _StepIntegrityStatus_verified(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepIntegrityStatus_verified(ctx context.Context, field graphql.CollectedField, obj *domain.StepIntegrityStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6625,7 +6625,7 @@ func (ec *executionContext) fieldContext_StepIntegrityStatus_verified(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _StepIntegrityStatus_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepIntegrityStatus_hash(ctx context.Context, field graphql.CollectedField, obj *domain.StepIntegrityStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6654,7 +6654,7 @@ func (ec *executionContext) fieldContext_StepIntegrityStatus_hash(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _StepIntegrityStatus_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepIntegrityStatus_prevHash(ctx context.Context, field graphql.CollectedField, obj *domain.StepIntegrityStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6683,7 +6683,7 @@ func (ec *executionContext) fieldContext_StepIntegrityStatus_prevHash(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _StepIntegrityStatus_error(ctx context.Context, field graphql.CollectedField, obj *models.StepIntegrityStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepIntegrityStatus_error(ctx context.Context, field graphql.CollectedField, obj *domain.StepIntegrityStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6712,7 +6712,7 @@ func (ec *executionContext) fieldContext_StepIntegrityStatus_error(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_threadId(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6741,7 +6741,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_threadId(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_stepName(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_stepName(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6770,7 +6770,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_stepName(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6799,7 +6799,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_idempotencyKey(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_status(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_status(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6828,7 +6828,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_status(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_retryCount(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_retryCount(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6857,7 +6857,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_retryCount(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_firstSeenAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_firstSeenAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6886,7 +6886,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_firstSeenAt(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_lastUpdatedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_lastUpdatedAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6915,7 +6915,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_lastUpdatedAt(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_startedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_startedAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6944,7 +6944,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_startedAt(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_finishedAt(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_finishedAt(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6973,7 +6973,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_finishedAt(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_latestStepID(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_latestStepID(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7002,7 +7002,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_latestStepID(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_previousStep(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_previousStep(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7031,7 +7031,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_previousStep(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_actor(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_actor(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7060,7 +7060,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_actor(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_actorService(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_actorService(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7089,7 +7089,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_actorService(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_latestContext(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_latestContext(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7118,7 +7118,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_latestContext(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_hash(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_hash(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7147,7 +7147,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_hash(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_prevHash(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_prevHash(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7176,7 +7176,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_prevHash(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_verified(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_verified(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7205,7 +7205,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_verified(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_verificationError(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_verificationError(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7234,7 +7234,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_verificationError(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_history(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_history(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7307,7 +7307,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_history(ctx context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _StepStateInfo_subSteps(ctx context.Context, field graphql.CollectedField, obj *models.StepStateInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _StepStateInfo_subSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepStateInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7354,7 +7354,7 @@ func (ec *executionContext) fieldContext_StepStateInfo_subSteps(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_id(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_id(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7383,7 +7383,7 @@ func (ec *executionContext) fieldContext_SubStep_id(_ context.Context, field gra
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_threadId(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7412,7 +7412,7 @@ func (ec *executionContext) fieldContext_SubStep_threadId(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_stepId(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_stepId(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7441,7 +7441,7 @@ func (ec *executionContext) fieldContext_SubStep_stepId(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_name(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_name(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7470,7 +7470,7 @@ func (ec *executionContext) fieldContext_SubStep_name(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_status(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_status(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7499,7 +7499,7 @@ func (ec *executionContext) fieldContext_SubStep_status(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7528,7 +7528,7 @@ func (ec *executionContext) fieldContext_SubStep_payload(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_recordedAt(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_recordedAt(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7557,7 +7557,7 @@ func (ec *executionContext) fieldContext_SubStep_recordedAt(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _SubStep_createdAt(ctx context.Context, field graphql.CollectedField, obj *models.SubStep) (ret graphql.Marshaler) {
+func (ec *executionContext) _SubStep_createdAt(ctx context.Context, field graphql.CollectedField, obj *domain.SubStep) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7586,7 +7586,7 @@ func (ec *executionContext) fieldContext_SubStep_createdAt(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_id(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_id(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7615,7 +7615,7 @@ func (ec *executionContext) fieldContext_Thread_id(_ context.Context, field grap
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_label(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_label(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7644,7 +7644,7 @@ func (ec *executionContext) fieldContext_Thread_label(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_contractId(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_contractId(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7673,7 +7673,7 @@ func (ec *executionContext) fieldContext_Thread_contractId(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_contractVersion(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_contractVersion(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7702,7 +7702,7 @@ func (ec *executionContext) fieldContext_Thread_contractVersion(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_contractName(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_contractName(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7731,7 +7731,7 @@ func (ec *executionContext) fieldContext_Thread_contractName(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_ownerId(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_ownerId(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7760,7 +7760,7 @@ func (ec *executionContext) fieldContext_Thread_ownerId(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_companyId(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_companyId(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7789,7 +7789,7 @@ func (ec *executionContext) fieldContext_Thread_companyId(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_status(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_status(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7818,7 +7818,7 @@ func (ec *executionContext) fieldContext_Thread_status(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_createdBy(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_createdBy(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7847,7 +7847,7 @@ func (ec *executionContext) fieldContext_Thread_createdBy(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_lastHash(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_lastHash(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7876,7 +7876,7 @@ func (ec *executionContext) fieldContext_Thread_lastHash(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_refs(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_refs(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7905,7 +7905,7 @@ func (ec *executionContext) fieldContext_Thread_refs(_ context.Context, field gr
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_startedAt(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_startedAt(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7934,7 +7934,7 @@ func (ec *executionContext) fieldContext_Thread_startedAt(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_completedAt(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_completedAt(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7963,7 +7963,7 @@ func (ec *executionContext) fieldContext_Thread_completedAt(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_error(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_error(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7992,7 +7992,7 @@ func (ec *executionContext) fieldContext_Thread_error(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_steps(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_steps(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8075,7 +8075,7 @@ func (ec *executionContext) fieldContext_Thread_steps(ctx context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_validationResults(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_validationResults(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8083,7 +8083,7 @@ func (ec *executionContext) _Thread_validationResults(ctx context.Context, field
 		ec.fieldContext_Thread_validationResults,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Thread().ValidationResults(ctx, obj, fc.Args["options"].(*models.ValidationQueryOptions))
+			return ec.Resolvers.Thread().ValidationResults(ctx, obj, fc.Args["options"].(*domain.ValidationQueryOptions))
 		},
 		nil,
 		ec.marshalNValidationResultInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationResultInfoᚄ,
@@ -8146,7 +8146,7 @@ func (ec *executionContext) fieldContext_Thread_validationResults(ctx context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_notificationSummary(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_notificationSummary(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8197,7 +8197,7 @@ func (ec *executionContext) fieldContext_Thread_notificationSummary(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_notifications(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_notifications(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8205,7 +8205,7 @@ func (ec *executionContext) _Thread_notifications(ctx context.Context, field gra
 		ec.fieldContext_Thread_notifications,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Thread().Notifications(ctx, obj, fc.Args["options"].(*models.ThreadNotificationQueryOptions))
+			return ec.Resolvers.Thread().Notifications(ctx, obj, fc.Args["options"].(*domain.ThreadNotificationQueryOptions))
 		},
 		nil,
 		ec.marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ,
@@ -8268,7 +8268,7 @@ func (ec *executionContext) fieldContext_Thread_notifications(ctx context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_threadChain(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_threadChain(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8353,7 +8353,7 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_hashChainVerified(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_hashChainVerified(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8382,7 +8382,7 @@ func (ec *executionContext) fieldContext_Thread_hashChainVerified(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _Thread_hashChainStatus(ctx context.Context, field graphql.CollectedField, obj *models.Thread) (ret graphql.Marshaler) {
+func (ec *executionContext) _Thread_hashChainStatus(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8423,7 +8423,7 @@ func (ec *executionContext) fieldContext_Thread_hashChainStatus(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadConnection_threads(ctx context.Context, field graphql.CollectedField, obj *models.ThreadConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadConnection_threads(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8496,7 +8496,7 @@ func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *models.ThreadConnection) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8525,7 +8525,7 @@ func (ec *executionContext) fieldContext_ThreadConnection_totalCount(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_notificationId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_notificationId(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8554,7 +8554,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_notificationId(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_threadId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8583,7 +8583,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_threadId(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_stepId(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_stepId(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8612,7 +8612,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_stepId(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_stepName(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_stepName(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8641,7 +8641,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_stepName(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8670,7 +8670,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_idempotencyKey(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_source(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_source(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8699,7 +8699,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_source(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_notificationType(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_notificationType(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8728,7 +8728,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_notificationType(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_stepStatus(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_stepStatus(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8757,7 +8757,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_stepStatus(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_validationStatus(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_validationStatus(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8786,7 +8786,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_validationStatus(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_violationType(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_violationType(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8815,7 +8815,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_violationType(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_severity(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_severity(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8844,7 +8844,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_severity(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_message(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_message(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8873,7 +8873,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_message(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_details(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_details(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8902,7 +8902,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_details(_ context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _ThreadNotification_timestamp(ctx context.Context, field graphql.CollectedField, obj *models.ThreadNotification) (ret graphql.Marshaler) {
+func (ec *executionContext) _ThreadNotification_timestamp(ctx context.Context, field graphql.CollectedField, obj *domain.ThreadNotification) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8931,7 +8931,7 @@ func (ec *executionContext) fieldContext_ThreadNotification_timestamp(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_from(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_from(ctx context.Context, field graphql.CollectedField, obj *domain.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8960,7 +8960,7 @@ func (ec *executionContext) fieldContext_Transition_from(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_to(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_to(ctx context.Context, field graphql.CollectedField, obj *domain.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8989,7 +8989,7 @@ func (ec *executionContext) fieldContext_Transition_to(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_timeout(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_timeout(ctx context.Context, field graphql.CollectedField, obj *domain.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9018,7 +9018,7 @@ func (ec *executionContext) fieldContext_Transition_timeout(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _Transition_maxRetries(ctx context.Context, field graphql.CollectedField, obj *models.Transition) (ret graphql.Marshaler) {
+func (ec *executionContext) _Transition_maxRetries(ctx context.Context, field graphql.CollectedField, obj *domain.Transition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9047,7 +9047,7 @@ func (ec *executionContext) fieldContext_Transition_maxRetries(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _Validation_maxDuration(ctx context.Context, field graphql.CollectedField, obj *models.Validation) (ret graphql.Marshaler) {
+func (ec *executionContext) _Validation_maxDuration(ctx context.Context, field graphql.CollectedField, obj *domain.Validation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9076,7 +9076,7 @@ func (ec *executionContext) fieldContext_Validation_maxDuration(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _Validation_allowMultipleTerminals(ctx context.Context, field graphql.CollectedField, obj *models.Validation) (ret graphql.Marshaler) {
+func (ec *executionContext) _Validation_allowMultipleTerminals(ctx context.Context, field graphql.CollectedField, obj *domain.Validation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9105,7 +9105,7 @@ func (ec *executionContext) fieldContext_Validation_allowMultipleTerminals(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _Validation_multipleTerminalsSeverity(ctx context.Context, field graphql.CollectedField, obj *models.Validation) (ret graphql.Marshaler) {
+func (ec *executionContext) _Validation_multipleTerminalsSeverity(ctx context.Context, field graphql.CollectedField, obj *domain.Validation) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9134,7 +9134,7 @@ func (ec *executionContext) fieldContext_Validation_multipleTerminalsSeverity(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_type(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_type(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9163,7 +9163,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_type(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_message(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_message(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9192,7 +9192,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_message(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_field(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_field(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9221,7 +9221,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_field(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_expected(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_expected(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9250,7 +9250,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_expected(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_actual(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_actual(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9279,7 +9279,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_actual(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationIssue_rule(ctx context.Context, field graphql.CollectedField, obj *models.ValidationIssue) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationIssue_rule(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationIssue) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9308,7 +9308,7 @@ func (ec *executionContext) fieldContext_ValidationIssue_rule(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_validationId(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_validationId(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9337,7 +9337,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_validationId(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_threadId(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9366,7 +9366,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_threadId(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_stepId(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_stepId(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9395,7 +9395,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_stepId(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_stepName(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_stepName(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9424,7 +9424,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_stepName(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_idempotencyKey(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9453,7 +9453,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_idempotencyKey(_ c
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_timestamp(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_timestamp(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9482,7 +9482,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_timestamp(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_validations(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_validations(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9525,7 +9525,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_validations(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_overallStatus(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_overallStatus(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9554,7 +9554,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_overallStatus(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_hasCriticalViolation(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_hasCriticalViolation(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9583,7 +9583,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_hasCriticalViolati
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_criticalCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_criticalCount(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9612,7 +9612,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_criticalCount(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_warningCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_warningCount(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9641,7 +9641,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_warningCount(_ con
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_minorCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_minorCount(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9670,7 +9670,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_minorCount(_ conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_infoCount(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_infoCount(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9699,7 +9699,7 @@ func (ec *executionContext) fieldContext_ValidationResultInfo_infoCount(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ValidationResultInfo_totalValidations(ctx context.Context, field graphql.CollectedField, obj *models.ValidationResultInfo) (ret graphql.Marshaler) {
+func (ec *executionContext) _ValidationResultInfo_totalValidations(ctx context.Context, field graphql.CollectedField, obj *domain.ValidationResultInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11174,8 +11174,8 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
-func (ec *executionContext) unmarshalInputThreadNotificationQueryOptions(ctx context.Context, obj any) (models.ThreadNotificationQueryOptions, error) {
-	var it models.ThreadNotificationQueryOptions
+func (ec *executionContext) unmarshalInputThreadNotificationQueryOptions(ctx context.Context, obj any) (domain.ThreadNotificationQueryOptions, error) {
+	var it domain.ThreadNotificationQueryOptions
 	asMap := map[string]any{}
 	for k, v := range obj.(map[string]any) {
 		asMap[k] = v
@@ -11249,8 +11249,8 @@ func (ec *executionContext) unmarshalInputThreadNotificationQueryOptions(ctx con
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputValidationQueryOptions(ctx context.Context, obj any) (models.ValidationQueryOptions, error) {
-	var it models.ValidationQueryOptions
+func (ec *executionContext) unmarshalInputValidationQueryOptions(ctx context.Context, obj any) (domain.ValidationQueryOptions, error) {
+	var it domain.ValidationQueryOptions
 	asMap := map[string]any{}
 	for k, v := range obj.(map[string]any) {
 		asMap[k] = v
@@ -11327,7 +11327,7 @@ func (ec *executionContext) unmarshalInputValidationQueryOptions(ctx context.Con
 
 var actorInfoImplementors = []string{"ActorInfo"}
 
-func (ec *executionContext) _ActorInfo(ctx context.Context, sel ast.SelectionSet, obj *models.ActorInfo) graphql.Marshaler {
+func (ec *executionContext) _ActorInfo(ctx context.Context, sel ast.SelectionSet, obj *domain.ActorInfo) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, actorInfoImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11378,7 +11378,7 @@ func (ec *executionContext) _ActorInfo(ctx context.Context, sel ast.SelectionSet
 
 var contractGraphImplementors = []string{"ContractGraph"}
 
-func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.SelectionSet, obj *models.ContractGraph) graphql.Marshaler {
+func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.SelectionSet, obj *domain.ContractGraph) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, contractGraphImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11749,7 +11749,7 @@ func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast
 
 var graphImplementors = []string{"Graph"}
 
-func (ec *executionContext) _Graph(ctx context.Context, sel ast.SelectionSet, obj *models.Graph) graphql.Marshaler {
+func (ec *executionContext) _Graph(ctx context.Context, sel ast.SelectionSet, obj *domain.Graph) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, graphImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11829,7 +11829,7 @@ func (ec *executionContext) _Graph(ctx context.Context, sel ast.SelectionSet, ob
 
 var graphNodeImplementors = []string{"GraphNode"}
 
-func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet, obj *models.GraphNode) graphql.Marshaler {
+func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet, obj *domain.GraphNode) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, graphNodeImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -11925,7 +11925,7 @@ func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet
 
 var hashChainStatusImplementors = []string{"HashChainStatus"}
 
-func (ec *executionContext) _HashChainStatus(ctx context.Context, sel ast.SelectionSet, obj *models.HashChainStatus) graphql.Marshaler {
+func (ec *executionContext) _HashChainStatus(ctx context.Context, sel ast.SelectionSet, obj *domain.HashChainStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, hashChainStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -12089,7 +12089,7 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 
 var notificationConfigImplementors = []string{"NotificationConfig"}
 
-func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationConfig) graphql.Marshaler {
+func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.SelectionSet, obj *domain.NotificationConfig) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, notificationConfigImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -12158,7 +12158,7 @@ func (ec *executionContext) _NotificationConfig(ctx context.Context, sel ast.Sel
 
 var notificationSummaryImplementors = []string{"NotificationSummary"}
 
-func (ec *executionContext) _NotificationSummary(ctx context.Context, sel ast.SelectionSet, obj *models.NotificationSummary) graphql.Marshaler {
+func (ec *executionContext) _NotificationSummary(ctx context.Context, sel ast.SelectionSet, obj *domain.NotificationSummary) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, notificationSummaryImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -12638,7 +12638,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 
 var stepHistoryImplementors = []string{"StepHistory"}
 
-func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionSet, obj *models.StepHistory) graphql.Marshaler {
+func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionSet, obj *domain.StepHistory) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, stepHistoryImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -12760,7 +12760,7 @@ func (ec *executionContext) _StepHistory(ctx context.Context, sel ast.SelectionS
 
 var stepIntegrityStatusImplementors = []string{"StepIntegrityStatus"}
 
-func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, obj *models.StepIntegrityStatus) graphql.Marshaler {
+func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, obj *domain.StepIntegrityStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, stepIntegrityStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -12805,7 +12805,7 @@ func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.Se
 
 var stepStateInfoImplementors = []string{"StepStateInfo"}
 
-func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.SelectionSet, obj *models.StepStateInfo) graphql.Marshaler {
+func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.SelectionSet, obj *domain.StepStateInfo) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, stepStateInfoImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -13157,7 +13157,7 @@ func (ec *executionContext) _StepStateInfo(ctx context.Context, sel ast.Selectio
 
 var subStepImplementors = []string{"SubStep"}
 
-func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, obj *models.SubStep) graphql.Marshaler {
+func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, obj *domain.SubStep) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, subStepImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -13321,7 +13321,7 @@ func (ec *executionContext) _SubStep(ctx context.Context, sel ast.SelectionSet, 
 
 var threadImplementors = []string{"Thread"}
 
-func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, obj *models.Thread) graphql.Marshaler {
+func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, obj *domain.Thread) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, threadImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -13765,7 +13765,7 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 
 var threadConnectionImplementors = []string{"ThreadConnection"}
 
-func (ec *executionContext) _ThreadConnection(ctx context.Context, sel ast.SelectionSet, obj *models.ThreadConnection) graphql.Marshaler {
+func (ec *executionContext) _ThreadConnection(ctx context.Context, sel ast.SelectionSet, obj *domain.ThreadConnection) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, threadConnectionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -13809,7 +13809,7 @@ func (ec *executionContext) _ThreadConnection(ctx context.Context, sel ast.Selec
 
 var threadNotificationImplementors = []string{"ThreadNotification"}
 
-func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.SelectionSet, obj *models.ThreadNotification) graphql.Marshaler {
+func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.SelectionSet, obj *domain.ThreadNotification) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, threadNotificationImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -13957,7 +13957,7 @@ func (ec *executionContext) _ThreadNotification(ctx context.Context, sel ast.Sel
 
 var transitionImplementors = []string{"Transition"}
 
-func (ec *executionContext) _Transition(ctx context.Context, sel ast.SelectionSet, obj *models.Transition) graphql.Marshaler {
+func (ec *executionContext) _Transition(ctx context.Context, sel ast.SelectionSet, obj *domain.Transition) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, transitionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -14008,7 +14008,7 @@ func (ec *executionContext) _Transition(ctx context.Context, sel ast.SelectionSe
 
 var validationImplementors = []string{"Validation"}
 
-func (ec *executionContext) _Validation(ctx context.Context, sel ast.SelectionSet, obj *models.Validation) graphql.Marshaler {
+func (ec *executionContext) _Validation(ctx context.Context, sel ast.SelectionSet, obj *domain.Validation) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, validationImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -14051,7 +14051,7 @@ func (ec *executionContext) _Validation(ctx context.Context, sel ast.SelectionSe
 
 var validationIssueImplementors = []string{"ValidationIssue"}
 
-func (ec *executionContext) _ValidationIssue(ctx context.Context, sel ast.SelectionSet, obj *models.ValidationIssue) graphql.Marshaler {
+func (ec *executionContext) _ValidationIssue(ctx context.Context, sel ast.SelectionSet, obj *domain.ValidationIssue) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, validationIssueImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -14103,7 +14103,7 @@ func (ec *executionContext) _ValidationIssue(ctx context.Context, sel ast.Select
 
 var validationResultInfoImplementors = []string{"ValidationResultInfo"}
 
-func (ec *executionContext) _ValidationResultInfo(ctx context.Context, sel ast.SelectionSet, obj *models.ValidationResultInfo) graphql.Marshaler {
+func (ec *executionContext) _ValidationResultInfo(ctx context.Context, sel ast.SelectionSet, obj *domain.ValidationResultInfo) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, validationResultInfoImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -14571,7 +14571,7 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) marshalNActorInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ActorInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNActorInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.ActorInfo) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14587,7 +14587,7 @@ func (ec *executionContext) marshalNActorInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋe
 	return ret
 }
 
-func (ec *executionContext) marshalNActorInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfo(ctx context.Context, sel ast.SelectionSet, v *models.ActorInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNActorInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐActorInfo(ctx context.Context, sel ast.SelectionSet, v *domain.ActorInfo) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14613,11 +14613,11 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) marshalNContractGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐContractGraph(ctx context.Context, sel ast.SelectionSet, v models.ContractGraph) graphql.Marshaler {
+func (ec *executionContext) marshalNContractGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐContractGraph(ctx context.Context, sel ast.SelectionSet, v domain.ContractGraph) graphql.Marshaler {
 	return ec._ContractGraph(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNContractGraph2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐContractGraph(ctx context.Context, sel ast.SelectionSet, v *models.ContractGraph) graphql.Marshaler {
+func (ec *executionContext) marshalNContractGraph2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐContractGraph(ctx context.Context, sel ast.SelectionSet, v *domain.ContractGraph) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14703,11 +14703,11 @@ func (ec *executionContext) marshalNEntityTypeMetricConfig2ᚖgithubᚗcomᚋthr
 	return ec._EntityTypeMetricConfig(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraph(ctx context.Context, sel ast.SelectionSet, v models.Graph) graphql.Marshaler {
+func (ec *executionContext) marshalNGraph2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraph(ctx context.Context, sel ast.SelectionSet, v domain.Graph) graphql.Marshaler {
 	return ec._Graph(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNGraphNode2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraphNodeᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.GraphNode) graphql.Marshaler {
+func (ec *executionContext) marshalNGraphNode2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraphNodeᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.GraphNode) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14723,7 +14723,7 @@ func (ec *executionContext) marshalNGraphNode2ᚕᚖgithubᚗcomᚋthreadifyᚋe
 	return ret
 }
 
-func (ec *executionContext) marshalNGraphNode2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraphNode(ctx context.Context, sel ast.SelectionSet, v *models.GraphNode) graphql.Marshaler {
+func (ec *executionContext) marshalNGraphNode2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐGraphNode(ctx context.Context, sel ast.SelectionSet, v *domain.GraphNode) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14733,11 +14733,11 @@ func (ec *executionContext) marshalNGraphNode2ᚖgithubᚗcomᚋthreadifyᚋengi
 	return ec._GraphNode(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNHashChainStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v models.HashChainStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNHashChainStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v domain.HashChainStatus) graphql.Marshaler {
 	return ec._HashChainStatus(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *models.HashChainStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *domain.HashChainStatus) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14779,11 +14779,11 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 	return res
 }
 
-func (ec *executionContext) marshalNNotificationSummary2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v models.NotificationSummary) graphql.Marshaler {
+func (ec *executionContext) marshalNNotificationSummary2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v domain.NotificationSummary) graphql.Marshaler {
 	return ec._NotificationSummary(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNNotificationSummary2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v *models.NotificationSummary) graphql.Marshaler {
+func (ec *executionContext) marshalNNotificationSummary2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationSummary(ctx context.Context, sel ast.SelectionSet, v *domain.NotificationSummary) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14793,7 +14793,7 @@ func (ec *executionContext) marshalNNotificationSummary2ᚖgithubᚗcomᚋthread
 	return ec._NotificationSummary(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNStepHistory2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepHistoryᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.StepHistory) graphql.Marshaler {
+func (ec *executionContext) marshalNStepHistory2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepHistoryᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.StepHistory) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14809,7 +14809,7 @@ func (ec *executionContext) marshalNStepHistory2ᚕᚖgithubᚗcomᚋthreadify�
 	return ret
 }
 
-func (ec *executionContext) marshalNStepHistory2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepHistory(ctx context.Context, sel ast.SelectionSet, v *models.StepHistory) graphql.Marshaler {
+func (ec *executionContext) marshalNStepHistory2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepHistory(ctx context.Context, sel ast.SelectionSet, v *domain.StepHistory) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14819,11 +14819,11 @@ func (ec *executionContext) marshalNStepHistory2ᚖgithubᚗcomᚋthreadifyᚋen
 	return ec._StepHistory(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNStepIntegrityStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v models.StepIntegrityStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNStepIntegrityStatus2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v domain.StepIntegrityStatus) graphql.Marshaler {
 	return ec._StepIntegrityStatus(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v *models.StepIntegrityStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepIntegrityStatus(ctx context.Context, sel ast.SelectionSet, v *domain.StepIntegrityStatus) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14833,7 +14833,7 @@ func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthread
 	return ec._StepIntegrityStatus(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.StepStateInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.StepStateInfo) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14849,7 +14849,7 @@ func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadify
 	return ret
 }
 
-func (ec *executionContext) marshalNStepStateInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfo(ctx context.Context, sel ast.SelectionSet, v *models.StepStateInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNStepStateInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐStepStateInfo(ctx context.Context, sel ast.SelectionSet, v *domain.StepStateInfo) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14905,7 +14905,7 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	return ret
 }
 
-func (ec *executionContext) marshalNSubStep2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStepᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.SubStep) graphql.Marshaler {
+func (ec *executionContext) marshalNSubStep2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStepᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.SubStep) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14921,7 +14921,7 @@ func (ec *executionContext) marshalNSubStep2ᚕᚖgithubᚗcomᚋthreadifyᚋeng
 	return ret
 }
 
-func (ec *executionContext) marshalNSubStep2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStep(ctx context.Context, sel ast.SelectionSet, v *models.SubStep) graphql.Marshaler {
+func (ec *executionContext) marshalNSubStep2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐSubStep(ctx context.Context, sel ast.SelectionSet, v *domain.SubStep) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14931,7 +14931,7 @@ func (ec *executionContext) marshalNSubStep2ᚖgithubᚗcomᚋthreadifyᚋengine
 	return ec._SubStep(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.Thread) graphql.Marshaler {
+func (ec *executionContext) marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.Thread) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14947,7 +14947,7 @@ func (ec *executionContext) marshalNThread2ᚕᚖgithubᚗcomᚋthreadifyᚋengi
 	return ret
 }
 
-func (ec *executionContext) marshalNThread2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThread(ctx context.Context, sel ast.SelectionSet, v *models.Thread) graphql.Marshaler {
+func (ec *executionContext) marshalNThread2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThread(ctx context.Context, sel ast.SelectionSet, v *domain.Thread) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14957,11 +14957,11 @@ func (ec *executionContext) marshalNThread2ᚖgithubᚗcomᚋthreadifyᚋengine�
 	return ec._Thread(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNThreadConnection2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v models.ThreadConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNThreadConnection2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v domain.ThreadConnection) graphql.Marshaler {
 	return ec._ThreadConnection(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v *models.ThreadConnection) graphql.Marshaler {
+func (ec *executionContext) marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadConnection(ctx context.Context, sel ast.SelectionSet, v *domain.ThreadConnection) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14971,7 +14971,7 @@ func (ec *executionContext) marshalNThreadConnection2ᚖgithubᚗcomᚋthreadify
 	return ec._ThreadConnection(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ThreadNotification) graphql.Marshaler {
+func (ec *executionContext) marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.ThreadNotification) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -14987,7 +14987,7 @@ func (ec *executionContext) marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthre
 	return ret
 }
 
-func (ec *executionContext) marshalNThreadNotification2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotification(ctx context.Context, sel ast.SelectionSet, v *models.ThreadNotification) graphql.Marshaler {
+func (ec *executionContext) marshalNThreadNotification2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotification(ctx context.Context, sel ast.SelectionSet, v *domain.ThreadNotification) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -14997,15 +14997,15 @@ func (ec *executionContext) marshalNThreadNotification2ᚖgithubᚗcomᚋthreadi
 	return ec._ThreadNotification(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNTransition2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransition(ctx context.Context, sel ast.SelectionSet, v models.Transition) graphql.Marshaler {
+func (ec *executionContext) marshalNTransition2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransition(ctx context.Context, sel ast.SelectionSet, v domain.Transition) graphql.Marshaler {
 	return ec._Transition(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNValidationIssue2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationIssue(ctx context.Context, sel ast.SelectionSet, v models.ValidationIssue) graphql.Marshaler {
+func (ec *executionContext) marshalNValidationIssue2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationIssue(ctx context.Context, sel ast.SelectionSet, v domain.ValidationIssue) graphql.Marshaler {
 	return ec._ValidationIssue(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNValidationIssue2ᚕgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationIssueᚄ(ctx context.Context, sel ast.SelectionSet, v []models.ValidationIssue) graphql.Marshaler {
+func (ec *executionContext) marshalNValidationIssue2ᚕgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationIssueᚄ(ctx context.Context, sel ast.SelectionSet, v []domain.ValidationIssue) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -15021,7 +15021,7 @@ func (ec *executionContext) marshalNValidationIssue2ᚕgithubᚗcomᚋthreadify�
 	return ret
 }
 
-func (ec *executionContext) marshalNValidationResultInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationResultInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*models.ValidationResultInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNValidationResultInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationResultInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.ValidationResultInfo) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -15037,7 +15037,7 @@ func (ec *executionContext) marshalNValidationResultInfo2ᚕᚖgithubᚗcomᚋth
 	return ret
 }
 
-func (ec *executionContext) marshalNValidationResultInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationResultInfo(ctx context.Context, sel ast.SelectionSet, v *models.ValidationResultInfo) graphql.Marshaler {
+func (ec *executionContext) marshalNValidationResultInfo2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationResultInfo(ctx context.Context, sel ast.SelectionSet, v *domain.ValidationResultInfo) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -15275,7 +15275,7 @@ func (ec *executionContext) marshalOFloat2ᚖfloat64(ctx context.Context, sel as
 	return graphql.WrapContextMarshaler(ctx, res)
 }
 
-func (ec *executionContext) marshalOHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *models.HashChainStatus) graphql.Marshaler {
+func (ec *executionContext) marshalOHashChainStatus2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐHashChainStatus(ctx context.Context, sel ast.SelectionSet, v *domain.HashChainStatus) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -15330,7 +15330,7 @@ func (ec *executionContext) marshalOJSON2ᚖstring(ctx context.Context, sel ast.
 	return res
 }
 
-func (ec *executionContext) marshalONotificationConfig2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationConfig(ctx context.Context, sel ast.SelectionSet, v *models.NotificationConfig) graphql.Marshaler {
+func (ec *executionContext) marshalONotificationConfig2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐNotificationConfig(ctx context.Context, sel ast.SelectionSet, v *domain.NotificationConfig) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -15403,14 +15403,14 @@ func (ec *executionContext) marshalOString2ᚖstring(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalOThread2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThread(ctx context.Context, sel ast.SelectionSet, v *models.Thread) graphql.Marshaler {
+func (ec *executionContext) marshalOThread2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThread(ctx context.Context, sel ast.SelectionSet, v *domain.Thread) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Thread(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOThreadNotificationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationQueryOptions(ctx context.Context, v any) (*models.ThreadNotificationQueryOptions, error) {
+func (ec *executionContext) unmarshalOThreadNotificationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐThreadNotificationQueryOptions(ctx context.Context, v any) (*domain.ThreadNotificationQueryOptions, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -15418,7 +15418,7 @@ func (ec *executionContext) unmarshalOThreadNotificationQueryOptions2ᚖgithub�
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOTransition2ᚕgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransitionᚄ(ctx context.Context, sel ast.SelectionSet, v []models.Transition) graphql.Marshaler {
+func (ec *executionContext) marshalOTransition2ᚕgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐTransitionᚄ(ctx context.Context, sel ast.SelectionSet, v []domain.Transition) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -15437,14 +15437,14 @@ func (ec *executionContext) marshalOTransition2ᚕgithubᚗcomᚋthreadifyᚋeng
 	return ret
 }
 
-func (ec *executionContext) marshalOValidation2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidation(ctx context.Context, sel ast.SelectionSet, v *models.Validation) graphql.Marshaler {
+func (ec *executionContext) marshalOValidation2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidation(ctx context.Context, sel ast.SelectionSet, v *domain.Validation) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Validation(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOValidationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationQueryOptions(ctx context.Context, v any) (*models.ValidationQueryOptions, error) {
+func (ec *executionContext) unmarshalOValidationQueryOptions2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋmodelsᚐValidationQueryOptions(ctx context.Context, v any) (*domain.ValidationQueryOptions, error) {
 	if v == nil {
 		return nil, nil
 	}

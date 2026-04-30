@@ -1,9 +1,7 @@
-package types
+package domain
 
 import (
 	"time"
-
-	"github.com/threadify/engine/internal/models"
 )
 
 type ContractListOptions struct {
@@ -13,7 +11,7 @@ type ContractListOptions struct {
 }
 
 type ContractListResult struct {
-	Contracts  []*models.Contract
+	Contracts  []*Contract
 	TotalCount int
 }
 
@@ -41,20 +39,20 @@ type AccessReadOptions struct {
 }
 
 type StepStateSnapshot struct {
-	ID             string     `json:"id"`
-	ThreadID       string     `json:"thread_id"`
-	StepName       string     `json:"step_name"`
-	IdempotencyKey string     `json:"idempotency_key"`
-	Status         string     `json:"status"`
-	RetryCount     int        `json:"retry_count"`
-	FirstSeenAt    time.Time  `json:"first_seen_at"`
-	LastUpdatedAt  time.Time  `json:"last_updated_at"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	PreviousStep   string     `json:"previous_step,omitempty"`
-	Actor          string     `json:"actor,omitempty"`
-	ActorService   string     `json:"actor_service,omitempty"`
-	LatestContext  string     `json:"latest_context,omitempty"`
+	ID             string
+	ThreadID       string
+	StepName       string
+	IdempotencyKey string
+	Status         string
+	RetryCount     int
+	FirstSeenAt    time.Time
+	LastUpdatedAt  time.Time
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
+	PreviousStep   string
+	Actor          string
+	ActorService   string
+	LatestContext  string
 }
 
 type StepWithTimestamp struct {
@@ -63,13 +61,13 @@ type StepWithTimestamp struct {
 }
 
 type UserAccess struct {
-	Roles       []string   `json:"roles"`
-	RuntimeRole string     `json:"runtime_role"`
-	Permissions []string   `json:"permissions"`
-	GrantedBy   string     `json:"granted_by"`
-	GrantedAt   time.Time  `json:"granted_at"`
-	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
-	Status      string     `json:"status"`
+	Roles       []string
+	RuntimeRole string
+	Permissions []string
+	GrantedBy   string
+	GrantedAt   time.Time
+	UpdatedAt   *time.Time
+	Status      string
 }
 
 type GrantAccessParams struct {
@@ -143,18 +141,18 @@ type ValidateStepParams struct {
 
 // Violation represents a validation violation
 type Violation struct {
-	Type     string                 `json:"violationType"`
-	Severity string                 `json:"severity"`
-	Message  string                 `json:"message"`
-	Details  map[string]interface{} `json:"details,omitempty"`
+	Type     string
+	Severity string
+	Message  string
+	Details  map[string]interface{}
 }
 
 // StepStateResult contains the results of step validation and update
 type StepStateResult struct {
-	Status               string      `json:"status"`
-	Violations           []Violation `json:"violations"`
-	RetryCount           int         `json:"retryCount"`
-	HasCriticalViolation bool        `json:"hasCriticalViolation"`
-	FirstSeenAt          string      `json:"firstSeenAt"`  // Timestamp when step was first seen
-	PreviousStep         string      `json:"previousStep"` // Previous step key (stepName:idempKey)
+	Status               string
+	Violations           []Violation
+	RetryCount           int
+	HasCriticalViolation bool
+	FirstSeenAt          string
+	PreviousStep         string
 }

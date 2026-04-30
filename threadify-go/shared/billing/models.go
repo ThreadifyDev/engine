@@ -6,7 +6,7 @@ import (
 	"threadify-go/shared/domain"
 )
 
-//go:generate mockgen -package=sharedmocks -destination=../mocks/plan_service_mock.go -source=domain.go
+//go:generate mockgen -package=sharedmocks -destination=../mocks/plan_service_mock.go -source=models.go
 type PlanService interface {
 	ChargeContract(ctx context.Context, companyID string) error
 	ChargeContractVersion(ctx context.Context, companyID string) error

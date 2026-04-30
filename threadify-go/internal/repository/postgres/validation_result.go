@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type ValidationRepository struct {
@@ -19,7 +19,7 @@ func NewValidationRepository(pool *pgxpool.Pool) *ValidationRepository {
 }
 
 // GetValidationResults retrieves validation results for a specific step
-func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadID, stepName, idempotencyKey string) ([]*models.ValidationResultInfo, error) {
+func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadID, stepName, idempotencyKey string) ([]*domain.ValidationResultInfo, error) {
 	stepID := fmt.Sprintf("%s:%s", stepName, idempotencyKey)
 
 	query := `
@@ -49,9 +49,9 @@ func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadI
 	}
 	defer rows.Close()
 
-	var results []*models.ValidationResultInfo
+	var results []*domain.ValidationResultInfo
 	for rows.Next() {
-		var result models.ValidationResultInfo
+		var result domain.ValidationResultInfo
 		var validationsJSON string
 
 		err := rows.Scan(
@@ -90,7 +90,7 @@ func (r *ValidationRepository) GetValidationResults(ctx context.Context, threadI
 }
 
 // GetThreadValidationResults retrieves all validation results for a thread
-func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, threadID string, options *models.ValidationQueryOptions) ([]*models.ValidationResultInfo, error) {
+func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, threadID string, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error) {
 	// Build query with optional filters
 	query := `
 		SELECT 
@@ -154,9 +154,9 @@ func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, t
 	}
 	defer rows.Close()
 
-	var results []*models.ValidationResultInfo
+	var results []*domain.ValidationResultInfo
 	for rows.Next() {
-		var result models.ValidationResultInfo
+		var result domain.ValidationResultInfo
 		var validationsJSON string
 
 		err := rows.Scan(
@@ -186,7 +186,7 @@ func (r *ValidationRepository) GetThreadValidationResults(ctx context.Context, t
 
 		// Filter by validation type if specified
 		if options != nil && options.ValidationType != "" {
-			var filteredValidations []models.ValidationIssue
+			var filteredValidations []domain.ValidationIssue
 			for _, validation := range result.Validations {
 				if strings.EqualFold(validation.Type, options.ValidationType) {
 					filteredValidations = append(filteredValidations, validation)
@@ -226,8 +226,8 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	companyID string,
-	options *models.ValidationQueryOptions,
-) ([]*models.ValidationResultInfo, error) {
+	options *domain.ValidationQueryOptions,
+) ([]*domain.ValidationResultInfo, error) {
 
 	// Build query with company-level permission filtering
 	// Users can view validation results if they have access to the thread
@@ -295,9 +295,9 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 	}
 	defer rows.Close()
 
-	var results []*models.ValidationResultInfo
+	var results []*domain.ValidationResultInfo
 	for rows.Next() {
-		var result models.ValidationResultInfo
+		var result domain.ValidationResultInfo
 		var validationsJSON string
 
 		err := rows.Scan(
@@ -327,7 +327,7 @@ func (r *ValidationRepository) GetValidationResultsWithPermissionCheck(
 
 		// Filter by validation type if specified
 		if options != nil && options.ValidationType != "" {
-			var filteredValidations []models.ValidationIssue
+			var filteredValidations []domain.ValidationIssue
 			for _, validation := range result.Validations {
 				if strings.EqualFold(validation.Type, options.ValidationType) {
 					filteredValidations = append(filteredValidations, validation)

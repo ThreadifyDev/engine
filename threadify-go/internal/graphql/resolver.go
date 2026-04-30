@@ -3,10 +3,10 @@ package graphql
 import (
 	sharedrepo "threadify-go/shared/repository"
 
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -16,7 +16,7 @@ type Resolver struct {
 	validationRepo        *valkey.ValidationRepository
 	accessRepo            *valkey.AccessRepository // For permission checks (hot path)
 	threadAccessService   *service.ThreadAccessService
-	contractValidator     types.ContractGraphValidator
+	contractValidator     domain.ContractGraphValidator
 	contractRepo          *postgres.ContractRepository
 	refsRepo              *postgres.ThreadRefsRepository         // For batch loading refs
 	stepStatePostgres     *postgres.StepStateRepository          // For batch loading steps
@@ -27,7 +27,7 @@ type Resolver struct {
 	entityProfileRepo     sharedrepo.EntityProfileRepository
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository
 	metricsRepo           *postgres.MetricsRepository
-	planService           types.PlanService
+	planService           domain.PlanService
 	logger                *zap.Logger
 }
 
@@ -37,7 +37,7 @@ func NewResolver(
 	validationRepo *valkey.ValidationRepository,
 	accessRepo *valkey.AccessRepository,
 	threadAccessService *service.ThreadAccessService,
-	contractValidator types.ContractGraphValidator,
+	contractValidator domain.ContractGraphValidator,
 	contractRepo *postgres.ContractRepository,
 	refsRepo *postgres.ThreadRefsRepository,
 	stepStatePostgres *postgres.StepStateRepository,
@@ -48,7 +48,7 @@ func NewResolver(
 	entityProfileRepo sharedrepo.EntityProfileRepository,
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository,
 	metricsRepo *postgres.MetricsRepository,
-	planService types.PlanService,
+	planService domain.PlanService,
 	logger *zap.Logger,
 ) *Resolver {
 	return &Resolver{

@@ -1,4 +1,4 @@
-package models
+package domain
 
 // UserRoleInfo contains minimal user info for notification routing
 // Used by both Valkey and PostgreSQL repositories

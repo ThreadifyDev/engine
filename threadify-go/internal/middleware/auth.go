@@ -6,7 +6,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type AuthMode int
@@ -19,7 +19,7 @@ const (
 
 func (m AuthMode) has(flag AuthMode) bool { return m&flag != 0 }
 
-func AuthMiddleware(authSvc types.AuthService, mode AuthMode) gin.HandlerFunc {
+func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if mode.has(AuthAPIKey) {
 			if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
@@ -78,7 +78,7 @@ func unauthorizedMessage(mode AuthMode) string {
 	}
 }
 
-func setAPIKeyContext(c *gin.Context, userInfo *types.UserInfo) {
+func setAPIKeyContext(c *gin.Context, userInfo *domain.UserInfo) {
 	roles := []string{}
 	if userInfo.Role != "" {
 		roles = []string{userInfo.Role}

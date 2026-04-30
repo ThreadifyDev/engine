@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // Embed Lua scripts at compile time
@@ -30,12 +30,12 @@ var checkAndUpdateThreadStatusScript string
 
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
-	valkeyClient types.ValkeyScriptClient
+	valkeyClient domain.ValkeyScriptClient
 	scriptHashes map[string]string
 }
 
 // NewLuaScriptManager creates a new Lua script manager
-func NewLuaScriptManager(valkeyClient types.ValkeyScriptClient) *LuaScriptManager {
+func NewLuaScriptManager(valkeyClient domain.ValkeyScriptClient) *LuaScriptManager {
 	return &LuaScriptManager{
 		valkeyClient: valkeyClient,
 		scriptHashes: make(map[string]string),
@@ -135,11 +135,11 @@ func (m *LuaScriptManager) checkRateLimit(
 // topup request, and appends outbox events — all in a single Lua call.
 func (m *LuaScriptManager) DecrementCreditWithAutoTopup(
 	ctx context.Context,
-	params *types.DebitParams,
-) (types.DebitResult, error) {
+	params *domain.DebitParams,
+) (domain.DebitResult, error) {
 	scriptHash, exists := m.scriptHashes["decrement_credit_with_autotopup"]
 	if !exists {
-		return types.DebitResult{}, fmt.Errorf("script decrement_credit_with_autotopup not loaded")
+		return domain.DebitResult{}, fmt.Errorf("script decrement_credit_with_autotopup not loaded")
 	}
 
 	keys := []string{
@@ -165,12 +165,12 @@ func (m *LuaScriptManager) DecrementCreditWithAutoTopup(
 
 	result, err := m.valkeyClient.EvalSHA(ctx, scriptHash, keys, args...)
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("failed to execute decrement_credit_with_autotopup: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("failed to execute decrement_credit_with_autotopup: %w", err)
 	}
 
 	res, ok := result.([]interface{})
 	if !ok || len(res) < 5 {
-		return types.DebitResult{}, fmt.Errorf("unexpected result shape from decrement_credit_with_autotopup: got %T len=%d", result, func() int {
+		return domain.DebitResult{}, fmt.Errorf("unexpected result shape from decrement_credit_with_autotopup: got %T len=%d", result, func() int {
 			if ok {
 				return len(res)
 			}
@@ -180,26 +180,26 @@ func (m *LuaScriptManager) DecrementCreditWithAutoTopup(
 
 	newBalance, err := parseLuaInt64(res[0])
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("parse new_balance: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("parse new_balance: %w", err)
 	}
 	allowed, err := parseLuaInt64(res[1])
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("parse allowed: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("parse allowed: %w", err)
 	}
 	spendStreamID, err := parseLuaString(res[2])
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("parse spend_stream_id: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("parse spend_stream_id: %w", err)
 	}
 	topupStreamID, err := parseLuaString(res[3])
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("parse topup_stream_id: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("parse topup_stream_id: %w", err)
 	}
 	topupApplied, err := parseLuaInt64(res[4])
 	if err != nil {
-		return types.DebitResult{}, fmt.Errorf("parse topup_applied: %w", err)
+		return domain.DebitResult{}, fmt.Errorf("parse topup_applied: %w", err)
 	}
 
-	return types.DebitResult{
+	return domain.DebitResult{
 		NewBalance:    newBalance,
 		Allowed:       allowed,
 		SpendStreamID: spendStreamID,

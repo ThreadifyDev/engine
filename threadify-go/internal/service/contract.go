@@ -16,8 +16,7 @@ import (
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -26,24 +25,24 @@ import (
 // status code mapping to the handler layer.
 
 type ContractService struct {
-	repo      types.ContractRepository
-	planSvc   types.PlanService
-	validator types.ContractValidator
+	repo      domain.ContractRepository
+	planSvc   domain.PlanService
+	validator domain.ContractValidator
 	logger    *zap.Logger
 }
 
 type ContractResponse struct {
-	Contract        *models.Contract        `json:"contract"`
-	ContractVersion *models.ContractVersion `json:"contractVersion"`
+	Contract        *domain.Contract        `json:"contract"`
+	ContractVersion *domain.ContractVersion `json:"contractVersion"`
 }
 
 type ContractWithOwnershipResponse struct {
-	Contract        *models.Contract        `json:"contract"`
-	ContractVersion *models.ContractVersion `json:"contractVersion"`
+	Contract        *domain.Contract        `json:"contract"`
+	ContractVersion *domain.ContractVersion `json:"contractVersion"`
 	IsOwner         bool                    `json:"isOwner"`
 }
 
-func NewContractService(repo types.ContractRepository, planSvc types.PlanService, logger *zap.Logger) *ContractService {
+func NewContractService(repo domain.ContractRepository, planSvc domain.PlanService, logger *zap.Logger) *ContractService {
 	return &ContractService{
 		repo:      repo,
 		planSvc:   planSvc,
@@ -108,9 +107,9 @@ func parseDurationMs(duration string) *int64 {
 // NewContractServiceWithValidator allows injecting a custom contract validator (useful for tests).
 // If v is nil, a default validator is used.
 func NewContractServiceWithValidator(
-	repo types.ContractRepository,
-	planSvc types.PlanService,
-	v types.ContractValidator,
+	repo domain.ContractRepository,
+	planSvc domain.PlanService,
+	v domain.ContractValidator,
 	logger *zap.Logger,
 ) *ContractService {
 	if v == nil {
@@ -139,7 +138,7 @@ func (s *ContractService) enforceCredits(ctx context.Context, companyID string) 
 }
 
 // PreviewContract validates YAML and builds a contract graph without persisting.
-func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
+func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	contract, validationResult := s.validator.Validate(yamlString)
 	if !validationResult.IsValid {
 		return nil, nil, validationResult, nil
@@ -176,7 +175,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	contentHash := calculateContentHash(contentOnlyJSON)
 
 	now := time.Now()
-	contractModel := &models.Contract{
+	contractModel := &domain.Contract{
 		ID:            uuid.New().String(),
 		Name:          contract.ContractName,
 		Description:   contract.Description,
@@ -195,7 +194,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		return 500, map[string]string{"message": err.Error()}
 	}
 
-	versionModel := &models.ContractVersion{
+	versionModel := &domain.ContractVersion{
 		ID:                 uuid.New().String(),
 		Version:            1,
 		Content:            fullJSON,
@@ -269,7 +268,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 	nextVersion := existingContract.LatestVersion + 1
 	now := time.Now()
 
-	updatedContract, err := s.repo.Update(ctx, types.UpdateContractParams{
+	updatedContract, err := s.repo.Update(ctx, domain.UpdateContractParams{
 		ContractID:    contractID,
 		Description:   contract.Description,
 		ContentHash:   contentHash,
@@ -285,7 +284,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 500, map[string]string{"message": err.Error()}
 	}
 
-	newVersion := &models.ContractVersion{
+	newVersion := &domain.ContractVersion{
 		ID:                 uuid.New().String(),
 		Version:            nextVersion,
 		Content:            fullJSON,
@@ -326,7 +325,7 @@ func (s *ContractService) GetContract(ctx context.Context, contractID, requester
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
 
-	var contractVersion *models.ContractVersion
+	var contractVersion *domain.ContractVersion
 	if version != nil {
 		contractVersion, err = s.repo.GetVersion(ctx, contractID, *version)
 	} else {
@@ -361,7 +360,7 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 }
 
 func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{}) {
-	result, err := s.repo.GetAllByOwner(ctx, ownerID, types.ContractListOptions{
+	result, err := s.repo.GetAllByOwner(ctx, ownerID, domain.ContractListOptions{
 		Search: search,
 		Limit:  limit,
 		Offset: offset,
@@ -421,7 +420,7 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
 
-	var graph models.ContractGraph
+	var graph domain.ContractGraph
 	if err := json.Unmarshal(contractVersion.Graph, &graph); err != nil {
 		s.logger.Warn("failed to parse contract graph",
 			zap.String("contract_id", contractID),

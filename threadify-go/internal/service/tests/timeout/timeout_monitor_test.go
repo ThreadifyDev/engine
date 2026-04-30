@@ -9,14 +9,14 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	timeoutmocks "github.com/threadify/engine/internal/service/mocks/timeout"
 	"go.uber.org/zap"
 )
 
 func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
-	thread := &models.Thread{
+	thread := &domain.Thread{
 		ID:           "thread-123",
 		OwnerID:      "owner-123",
 		ContractName: "product_delivery",
@@ -24,16 +24,16 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 
 	tests := []struct {
 		name               string
-		event              models.TimeoutEvent
+		event              domain.TimeoutEvent
 		wantStepName       string
 		wantMessageContain string
 	}{
 		{
 			name: "transition timeout with single target step",
-			event: models.TimeoutEvent{
+			event: domain.TimeoutEvent{
 				ID:           "timeout-1",
 				ThreadID:     thread.ID,
-				Type:         models.TimeoutTypeTransition,
+				Type:         domain.TimeoutTypeTransition,
 				FromStep:     "order_placed",
 				ToStep:       "payment_validation",
 				Timeout:      "2m",
@@ -46,10 +46,10 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 		},
 		{
 			name: "transition timeout with multiple target steps uses bracket formatting",
-			event: models.TimeoutEvent{
+			event: domain.TimeoutEvent{
 				ID:           "timeout-2",
 				ThreadID:     thread.ID,
-				Type:         models.TimeoutTypeTransition,
+				Type:         domain.TimeoutTypeTransition,
 				FromStep:     "order_placed",
 				ToStep:       "payment_validation,manual_review",
 				Timeout:      "2m",
@@ -62,10 +62,10 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 		},
 		{
 			name: "max duration timeout maps to global step",
-			event: models.TimeoutEvent{
+			event: domain.TimeoutEvent{
 				ID:           "timeout-3",
 				ThreadID:     thread.ID,
-				Type:         models.TimeoutTypeMaxDuration,
+				Type:         domain.TimeoutTypeMaxDuration,
 				Timeout:      "72h",
 				ScheduledAt:  time.Now().UTC(),
 				DeadlineAt:   time.Now().UTC().Add(72 * time.Hour),
@@ -76,10 +76,10 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 		},
 		{
 			name: "unknown timeout type falls back to generic message",
-			event: models.TimeoutEvent{
+			event: domain.TimeoutEvent{
 				ID:           "timeout-4",
 				ThreadID:     thread.ID,
-				Type:         models.TimeoutType("custom"),
+				Type:         domain.TimeoutType("custom"),
 				FromStep:     "order_placed",
 				Timeout:      "1m",
 				ScheduledAt:  time.Now().UTC(),
@@ -100,7 +100,7 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 			assert.Equal(t, tc.wantStepName, n.StepName)
 			assert.Equal(t, "critical", n.Severity)
 			assert.Equal(t, "timeout", n.ViolationType)
-			assert.Equal(t, "rule.violated.timeout", n.NotificationType)
+			assert.Equal(t, domain.NotificationType("rule.violated.timeout"), n.NotificationType)
 			assert.Contains(t, n.Message, tc.wantMessageContain)
 			assert.Equal(t, tc.event.ID, n.Details["timeout_id"])
 			assert.Equal(t, tc.event.Timeout, n.Details["timeout"])

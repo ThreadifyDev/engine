@@ -1,4 +1,4 @@
-package models
+package domain
 
 import "time"
 
@@ -48,9 +48,14 @@ type NotificationType string
 
 const (
 	// Step notifications (execution events)
-	NotificationTypeStepSuccess NotificationType = "step.success"
-	NotificationTypeStepFailed  NotificationType = "step.failed"
-	NotificationTypeStepError   NotificationType = "step.error"
+	NotificationTypeStepStarted    NotificationType = "step.started"
+	NotificationTypeStepInProgress NotificationType = "step.in_progress"
+	NotificationTypeStepSuccess    NotificationType = "step.success"
+	NotificationTypeStepCompleted  NotificationType = "step.completed"
+	NotificationTypeStepFailed     NotificationType = "step.failed"
+	NotificationTypeStepError      NotificationType = "step.error"
+	NotificationTypeStepCancelled  NotificationType = "step.cancelled"
+	NotificationTypeStepSkipped    NotificationType = "step.skipped"
 
 	// Rule notifications (validation events)
 	NotificationTypeRuleViolated NotificationType = "rule.violated"
@@ -64,55 +69,56 @@ const (
 	// Thread notifications
 	NotificationTypeThreadCompleted NotificationType = "thread.completed"
 	NotificationTypeThreadCancelled NotificationType = "thread.cancelled"
+	NotificationTypeThreadClosed    NotificationType = "thread.closed"
 )
 
 // ThreadViolation tracks all failed steps in a thread
 type ThreadViolation struct {
-	FailedSteps map[string]StepViolation `json:"failedSteps"` // key: stepID
-	ViolatedAt  time.Time                `json:"violatedAt"`
+	FailedSteps map[string]StepViolation
+	ViolatedAt  time.Time
 }
 
 // StepViolation represents a single step violation
 type StepViolation struct {
-	StepID        string                 `json:"stepId"`
-	StepName      string                 `json:"stepName"`
-	OwnerID       string                 `json:"ownerId"` // Who published the step
-	ViolationType ViolationType          `json:"violationType"`
-	Severity      ViolationSeverity      `json:"severity"`
-	Message       string                 `json:"message"`
-	Details       map[string]interface{} `json:"details,omitempty"`
-	ViolatedAt    time.Time              `json:"violatedAt"`
+	StepID        string
+	StepName      string
+	OwnerID       string // Who published the step
+	ViolationType ViolationType
+	Severity      ViolationSeverity
+	Message       string
+	Details       map[string]interface{}
+	ViolatedAt    time.Time
 }
 
 // ValidationNotification represents a notification stored in the stream
 type ValidationNotification struct {
 	// Identity (always present)
-	NotificationID string `json:"notificationId"`
-	ThreadID       string `json:"threadId"`
-	StepID         string `json:"stepId"`
-	StepName       string `json:"stepName"`
-	OwnerID        string `json:"ownerId"`      // Who published the step
-	ContractName   string `json:"contractName"` // Contract name (empty for non-contract threads)
+	NotificationID string
+	ThreadID       string
+	StepID         string
+	StepName       string
+	OwnerID        string // Who published the step
+	ContractName   string // Contract name (empty for non-contract threads)
 
 	// Notification metadata
-	Source           NotificationSource `json:"source"`           // step, rule, or thread
-	NotificationType string             `json:"notificationType"` // e.g., "step.failed", "rule.violated"
+	Source           NotificationSource // step, rule, or thread
+	NotificationType NotificationType   // e.g., "step.failed", "rule.violated"
 
 	// Status (always present)
-	StepStatus string `json:"stepStatus"` // User's set status: "success", "failed", "error"
-	Status     string `json:"status"`     // Validation status: "passed", "violated", "none"
+	StepStatus string // User's set status: "success", "failed", "error"
+	Status     string // Validation status: "passed", "violated", "none"
 
 	// Violation info (always present, empty string if no violation)
-	ViolationType string `json:"violationType"` // Empty if no violation
-	Severity      string `json:"severity"`      // Empty if no violation
-	Message       string `json:"message"`       // Always has a message
+	ViolationType string // Empty if no violation
+	Severity      string // Empty if no violation
+	Message       string // Always has a message
 
 	// Details (always present, can be empty map)
 	// Contains violation-specific data: fromStep, toStep, allowedSteps, retryCount, etc.
-	Details map[string]interface{} `json:"details"`
+	Details map[string]interface{}
 
 	// Timestamp (always present)
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time
 }
 
 // ValidationViolation is an internal struct used during validation checks

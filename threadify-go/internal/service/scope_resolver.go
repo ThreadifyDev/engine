@@ -5,23 +5,23 @@ import (
 	"fmt"
 
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
 // ScopeResolver handles notification scope resolution for users in threads.
 type ScopeResolver struct {
 	config            *config.Config
-	contractGraphRepo types.ContractGraphRepository
-	threadRepo        types.ThreadRepository
+	contractGraphRepo domain.ContractGraphRepository
+	threadRepo        domain.ThreadRepository
 	logger            *zap.Logger
 }
 
 // NewScopeResolver creates a new scope resolver.
 func NewScopeResolver(
 	cfg *config.Config,
-	contractGraphRepo types.ContractGraphRepository,
-	threadRepo types.ThreadRepository,
+	contractGraphRepo domain.ContractGraphRepository,
+	threadRepo domain.ThreadRepository,
 	logger *zap.Logger,
 ) *ScopeResolver {
 	r := &ScopeResolver{

@@ -13,8 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // contractCols and versionCols are the canonical SELECT column lists,
@@ -36,7 +35,7 @@ func NewContractRepository(pool *pgxpool.Pool) *ContractRepository {
 }
 
 // scanContract scans a standard contract row.
-func scanContract(row pgx.Row, c *models.Contract) error {
+func scanContract(row pgx.Row, c *domain.Contract) error {
 	return row.Scan(
 		&c.ID, &c.Name, &c.CompanyID, &c.Description, &c.ContentHash,
 		&c.LatestVersion, &c.OwnerID, &c.IsPublic, &c.IsDeleted,
@@ -45,7 +44,7 @@ func scanContract(row pgx.Row, c *models.Contract) error {
 }
 
 // scanVersion scans a standard contract version row.
-func scanVersion(row pgx.Row, v *models.ContractVersion) error {
+func scanVersion(row pgx.Row, v *domain.ContractVersion) error {
 	return row.Scan(
 		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash,
 		&v.ContractID, &v.CreatedBy, &v.Graph, &v.ExpectedDurationMs, &v.IsDeleted,
@@ -81,7 +80,7 @@ func versionErr(err error) error {
 	return fmt.Errorf("version repo: %w", err)
 }
 
-func (r *ContractRepository) Create(ctx context.Context, contract *models.Contract) error {
+func (r *ContractRepository) Create(ctx context.Context, contract *domain.Contract) error {
 	query := `INSERT INTO contracts (` + contractCols + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING ` + contractCols
@@ -94,7 +93,7 @@ func (r *ContractRepository) Create(ctx context.Context, contract *models.Contra
 }
 
 // CreateContractWithVersion atomically creates both contract and initial version in a single transaction
-func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error {
+func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, contract *domain.Contract, version *domain.ContractVersion) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -130,21 +129,21 @@ func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, cont
 	return tx.Commit(ctx)
 }
 
-func (r *ContractRepository) Update(ctx context.Context, params types.UpdateContractParams) (*models.Contract, error) {
+func (r *ContractRepository) Update(ctx context.Context, params domain.UpdateContractParams) (*domain.Contract, error) {
 	query := `UPDATE contracts
 		SET description=$1, content_hash=$2, latest_version=$3, updated_at=$4
 		WHERE id=$5 AND is_deleted=false
 		RETURNING ` + contractCols
 
-	var c models.Contract
+	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx, query, params.Description, params.ContentHash, params.LatestVersion, params.UpdatedAt, params.ContractID), &c); err != nil {
 		return nil, contractErr(err)
 	}
 	return &c, nil
 }
 
-func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error) {
-	var c models.Contract
+func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*domain.Contract, error) {
+	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx,
 		`SELECT `+contractCols+` FROM contracts WHERE name=$1 AND company_id=$2 AND is_deleted=false`,
 		name, companyID,
@@ -154,8 +153,8 @@ func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, comp
 	return &c, nil
 }
 
-func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
-	var c models.Contract
+func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*domain.Contract, error) {
+	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx,
 		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND owner_id=$2 AND is_deleted=false`,
 		contractID, ownerID,
@@ -165,8 +164,8 @@ func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ow
 	return &c, nil
 }
 
-func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
-	var c models.Contract
+func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*domain.Contract, error) {
+	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx,
 		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND is_deleted=false`, contractID,
 	), &c); err != nil {
@@ -175,8 +174,8 @@ func (r *ContractRepository) GetByID(ctx context.Context, contractID string) (*m
 	return &c, nil
 }
 
-func (r *ContractRepository) GetByName(ctx context.Context, name string) (*models.Contract, error) {
-	var c models.Contract
+func (r *ContractRepository) GetByName(ctx context.Context, name string) (*domain.Contract, error) {
+	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx,
 		`SELECT `+contractCols+` FROM contracts WHERE name=$1 AND is_deleted=false`, name,
 	), &c); err != nil {
@@ -187,8 +186,8 @@ func (r *ContractRepository) GetByName(ctx context.Context, name string) (*model
 
 // GetByNameSummary returns a partially-populated Contract (id, name, latest_version, owner_id only).
 // Do not use where a full Contract is expected.
-func (r *ContractRepository) GetByNameSummary(ctx context.Context, name string) (*models.Contract, error) {
-	var c models.Contract
+func (r *ContractRepository) GetByNameSummary(ctx context.Context, name string) (*domain.Contract, error) {
+	var c domain.Contract
 	if err := r.pool.QueryRow(ctx,
 		`SELECT id, name, latest_version, owner_id FROM contracts WHERE name=$1 AND is_deleted=false`, name,
 	).Scan(&c.ID, &c.Name, &c.LatestVersion, &c.OwnerID); err != nil {
@@ -205,7 +204,7 @@ func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string) 
 	return contractErr(err)
 }
 
-func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts types.ContractListOptions) (types.ContractListResult, error) {
+func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
 	query := `SELECT ` + contractCols + ` FROM contracts WHERE owner_id=$1 AND is_deleted=false`
 	countQuery := `SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`
 	args := []interface{}{ownerID}
@@ -219,7 +218,7 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 
 	var total int
 	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
-		return types.ContractListResult{}, fmt.Errorf("count contracts by owner: %w", err)
+		return domain.ContractListResult{}, fmt.Errorf("count contracts by owner: %w", err)
 	}
 
 	query += ` ORDER BY created_at DESC`
@@ -232,22 +231,22 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return types.ContractListResult{}, fmt.Errorf("query contracts by owner: %w", err)
+		return domain.ContractListResult{}, fmt.Errorf("query contracts by owner: %w", err)
 	}
 	defer rows.Close()
 
-	var contracts []*models.Contract
+	var contracts []*domain.Contract
 	for rows.Next() {
-		var c models.Contract
+		var c domain.Contract
 		if err := scanContract(rows, &c); err != nil {
-			return types.ContractListResult{}, fmt.Errorf("scan contract: %w", err)
+			return domain.ContractListResult{}, fmt.Errorf("scan contract: %w", err)
 		}
 		contracts = append(contracts, &c)
 	}
 	if err := rows.Err(); err != nil {
-		return types.ContractListResult{}, fmt.Errorf("iterate contracts: %w", err)
+		return domain.ContractListResult{}, fmt.Errorf("iterate contracts: %w", err)
 	}
-	return types.ContractListResult{Contracts: contracts, TotalCount: total}, nil
+	return domain.ContractListResult{Contracts: contracts, TotalCount: total}, nil
 }
 
 func (r *ContractRepository) CountByOwner(ctx context.Context, ownerID string) (int, error) {
@@ -260,7 +259,7 @@ func (r *ContractRepository) CountByOwner(ctx context.Context, ownerID string) (
 	return count, nil
 }
 
-func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
+func (r *ContractRepository) CreateVersion(ctx context.Context, v *domain.ContractVersion) error {
 	query := `INSERT INTO contract_versions (` + versionCols + `)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		RETURNING ` + versionCols
@@ -272,8 +271,8 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, v *models.Contra
 	), v))
 }
 
-func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
-	var v models.ContractVersion
+func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*domain.ContractVersion, error) {
+	var v domain.ContractVersion
 	if err := scanVersion(r.pool.QueryRow(ctx,
 		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND version=$2 AND is_deleted=false`,
 		contractID, version,
@@ -283,8 +282,8 @@ func (r *ContractRepository) GetVersion(ctx context.Context, contractID string, 
 	return &v, nil
 }
 
-func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
-	var v models.ContractVersion
+func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*domain.ContractVersion, error) {
+	var v domain.ContractVersion
 	if err := scanVersion(r.pool.QueryRow(ctx,
 		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC LIMIT 1`,
 		contractID,
@@ -294,7 +293,7 @@ func (r *ContractRepository) GetLatestVersion(ctx context.Context, contractID st
 	return &v, nil
 }
 
-func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
+func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*domain.ContractVersion, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+versionCols+` FROM contract_versions WHERE contract_id=$1 AND is_deleted=false ORDER BY version DESC`,
 		contractID,
@@ -304,9 +303,9 @@ func (r *ContractRepository) GetAllVersions(ctx context.Context, contractID stri
 	}
 	defer rows.Close()
 
-	var versions []*models.ContractVersion
+	var versions []*domain.ContractVersion
 	for rows.Next() {
-		var v models.ContractVersion
+		var v domain.ContractVersion
 		if err := scanVersion(rows, &v); err != nil {
 			return nil, fmt.Errorf("scan contract version: %w", err)
 		}
