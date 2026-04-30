@@ -2,11 +2,11 @@ package domain
 
 import (
 	sharedauth "threadify-go/shared/auth"
-	sharedmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 )
 
 type TokenClaims = sharedauth.TokenClaims
 
-type EntityProfileType = sharedmodels.EntityProfileType
-type MetricsTemplateResponse = sharedmodels.MetricsTemplateResponse
-type EntityTypeMetric = sharedmodels.EntityTypeMetric
+type EntityProfileType = shareddomain.EntityProfileType
+type MetricsTemplateResponse = shareddomain.MetricsTemplateResponse
+type EntityTypeMetric = shareddomain.EntityTypeMetric

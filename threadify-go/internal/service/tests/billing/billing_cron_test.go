@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
@@ -151,7 +151,7 @@ func TestBillingCron_HandleCreditTopup_AutoTopupDisabledIsNotPermanent(t *testin
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), gomock.Any()).Return(&billingmodels.CreditAccount{
+	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), gomock.Any()).Return(&shareddomain.CreditAccount{
 		CompanyID:                        "comp-disabled",
 		ExternalCustomerID:               "cus_disabled",
 		CreditAutoTopupMillicents:        0,
@@ -175,7 +175,7 @@ func TestBillingCron_HandleCreditTopup_ValidEventChargesSuccessfully(t *testing.
 	const companyID = "comp-success"
 	const eventID = "evt-success"
 
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), gomock.Any()).Return(&billingmodels.CreditAccount{
+	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), gomock.Any()).Return(&shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		ExternalCustomerID:               "cus_123",
 		CreditAutoTopupMillicents:        5000,
@@ -183,11 +183,11 @@ func TestBillingCron_HandleCreditTopup_ValidEventChargesSuccessfully(t *testing.
 	}, nil)
 
 	deps.BillingRepo.EXPECT().CreateSnapshot(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, snapshot *billingmodels.BillingSnapshot) error {
+		func(_ context.Context, snapshot *shareddomain.BillingSnapshot) error {
 			require.Equal(t, eventID, snapshot.ID)
 			require.Equal(t, companyID, snapshot.CompanyID)
 			require.Equal(t, int64(5), snapshot.TotalCents)
-			require.Equal(t, billingmodels.PaymentStatusPaid, snapshot.PaymentStatus)
+			require.Equal(t, shareddomain.PaymentStatusPaid, snapshot.PaymentStatus)
 			return nil
 		},
 	)

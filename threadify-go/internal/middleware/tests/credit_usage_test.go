@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 )
 
 func TestCreditUsageMiddleware(t *testing.T) {
@@ -74,7 +74,7 @@ func TestCreditUsageMiddleware(t *testing.T) {
 		mockPlanSvc := enginemocks.NewMockPlanService(ctrl)
 
 		companyID := "comp-123"
-		account := &billingmodels.CreditAccount{CompanyID: companyID}
+		account := &shareddomain.CreditAccount{CompanyID: companyID}
 
 		mockPlanSvc.EXPECT().
 			CheckBalancePositive(gomock.Any(), companyID).
@@ -108,7 +108,7 @@ func TestCreditUsageMiddleware(t *testing.T) {
 		mockPlanSvc := enginemocks.NewMockPlanService(ctrl)
 
 		companyID := "comp-123"
-		account := &billingmodels.CreditAccount{CompanyID: companyID}
+		account := &shareddomain.CreditAccount{CompanyID: companyID}
 
 		mockPlanSvc.EXPECT().
 			CheckBalancePositive(gomock.Any(), companyID).
@@ -146,7 +146,7 @@ func TestEgressMiddleware(t *testing.T) {
 		mockPlanSvc := enginemocks.NewMockPlanService(ctrl)
 
 		companyID := "comp-123"
-		account := &billingmodels.CreditAccount{CompanyID: companyID}
+		account := &shareddomain.CreditAccount{CompanyID: companyID}
 
 		mockPlanSvc.EXPECT().
 			DecrementEgress(gomock.Any(), companyID, gomock.Any()).

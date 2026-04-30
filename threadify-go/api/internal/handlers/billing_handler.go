@@ -10,11 +10,11 @@ import (
 
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 )
 
 type billingAPI interface {
-	GetCreditAccount(ctx context.Context, companyID string) (*billingmodels.CreditAccount, error)
+	GetCreditAccount(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error)
 	CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error)
 	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
 }
@@ -143,7 +143,7 @@ func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
 	})
 }
 
-func mapAccountToDTO(m *billingmodels.CreditAccount) *dto.CreditAccount {
+func mapAccountToDTO(m *shareddomain.CreditAccount) *dto.CreditAccount {
 	if m == nil {
 		return nil
 	}

@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 )
 
 const (
@@ -114,7 +114,7 @@ func EgressMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.Handler
 
 		var companyID string
 		if accountRaw, exists := c.Get(sharedauth.CtxCreditAccount); exists {
-			if account, ok := accountRaw.(*billingmodels.CreditAccount); ok && account != nil {
+			if account, ok := accountRaw.(*shareddomain.CreditAccount); ok && account != nil {
 				companyID = account.CompanyID
 			}
 		}

@@ -2,7 +2,7 @@ package graphql
 
 import (
 	"testing"
-	sharedmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +16,7 @@ func TestToGraphQLProfileType(t *testing.T) {
 
 	t.Run("valid input", func(t *testing.T) {
 		now := time.Now()
-		input := &sharedmodels.EntityProfileType{
+		input := &shareddomain.EntityProfileType{
 			ID:          "ept_1",
 			CompanyID:   "comp_1",
 			Name:        "Test Type",

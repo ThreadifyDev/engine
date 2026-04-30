@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -926,10 +926,10 @@ func (w *PostgresWriter) SyncUsageMeters(ctx context.Context, events []UsageSync
 		var chargedDelta int64
 
 		switch event.Meter {
-		case billingmodels.MeterCreditSpend:
+		case shareddomain.MeterCreditSpend:
 			expectedSign = -1
 			chargedDelta = -event.Amount
-		case billingmodels.MeterCreditTopup:
+		case shareddomain.MeterCreditTopup:
 			expectedSign = 1
 			chargedDelta = 0
 		default:

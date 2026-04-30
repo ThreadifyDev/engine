@@ -8,7 +8,7 @@ import (
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
-	sharedmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/threadify/engine/internal/graphql/generated"
 )
@@ -82,7 +82,7 @@ func getCachedSteps(ctx context.Context, threadID string) (steps interface{}, fo
 	return steps, found
 }
 
-func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityProfileMetrics {
+func toGraphQLMetrics(m *shareddomain.EntityProfileMetrics) *generated.EntityProfileMetrics {
 	if m == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityPro
 	return out
 }
 
-func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
+func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityProfileType {
 	if t == nil {
 		return nil
 	}

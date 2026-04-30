@@ -9,7 +9,7 @@ import (
 	"threadify-go/shared/billing"
 	sharedconfig "threadify-go/shared/config"
 	"threadify-go/shared/database"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
@@ -71,9 +71,9 @@ func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID s
 		return fmt.Errorf("auto-topup disabled for company %s", companyID)
 	}
 
-	paymentStatus := billingmodels.PaymentStatusPending
+	paymentStatus := shareddomain.PaymentStatusPending
 	if s.BillingProvider.SkipInvoicing() {
-		paymentStatus = billingmodels.PaymentStatusPaid
+		paymentStatus = shareddomain.PaymentStatusPaid
 	}
 
 	now := time.Now().UTC()
@@ -83,13 +83,13 @@ func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID s
 		snapshotID = uuid.New().String()
 	}
 
-	snapshot := &billingmodels.BillingSnapshot{
+	snapshot := &shareddomain.BillingSnapshot{
 		ID:                 snapshotID,
 		CompanyID:          companyID,
 		PeriodStart:        billingCycleStart,
 		PeriodEnd:          now,
 		TotalCents:         amountCents,
-		Reason:             billingmodels.SnapshotReasonCreditTopup,
+		Reason:             shareddomain.SnapshotReasonCreditTopup,
 		ProviderName:       s.BillingProvider.Name(),
 		PaymentStatus:      paymentStatus,
 		ExternalCustomerID: account.ExternalCustomerID,
@@ -115,14 +115,14 @@ func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID s
 
 		if invoiceErr != nil {
 			s.logger.Error("failed to create credit topup invoice", zap.Error(invoiceErr), zap.String("company_id", companyID))
-			if updateErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, billingmodels.PaymentStatusFailed); updateErr != nil {
+			if updateErr := s.billingRepo.UpdateSnapshotPaymentStatus(ctx, snapshot.ID, shareddomain.PaymentStatusFailed); updateErr != nil {
 				s.logger.Warn("failed to mark snapshot as failed after invoice error — snapshot may be stuck in Pending",
 					zap.String("snapshot_id", snapshot.ID),
 					zap.String("company_id", companyID),
 					zap.Error(updateErr),
 				)
 			}
-			snapshot.PaymentStatus = billingmodels.PaymentStatusFailed
+			snapshot.PaymentStatus = shareddomain.PaymentStatusFailed
 		}
 	}
 
@@ -135,7 +135,7 @@ func (s *BillingOrchestrator) ChargeCreditTopup(ctx context.Context, companyID s
 	return nil
 }
 
-func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *billingmodels.BillingSnapshot) error {
+func (s *BillingOrchestrator) ApplyCreditTopup(ctx context.Context, snapshot *shareddomain.BillingSnapshot) error {
 	amountMillicents := snapshot.TotalCents * millicentsPerCent
 	if amountMillicents <= 0 {
 		return nil
@@ -180,7 +180,7 @@ func (s *BillingOrchestrator) writeCreditTopupToOutbox(ctx context.Context, comp
 	eventData := map[string]interface{}{
 		fieldEventID:           uuid.NewString(),
 		fieldCompanyID:         companyID,
-		fieldMeter:             billingmodels.MeterCreditTopup,
+		fieldMeter:             shareddomain.MeterCreditTopup,
 		fieldAmount:            strconv.FormatInt(amountMillicents, 10),
 		fieldBillingCycleStart: billingCycleStart.Format(time.RFC3339Nano),
 		fieldTimestamp:         time.Now().UTC().Format(time.RFC3339Nano),
@@ -209,7 +209,7 @@ func (s *BillingOrchestrator) MarkSnapshotFailed(ctx context.Context, externalIn
 	return s.billingRepo.MarkSnapshotFailedByInvoiceID(ctx, externalInvoiceID)
 }
 
-func (s *BillingOrchestrator) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billingmodels.BillingSnapshot, error) {
+func (s *BillingOrchestrator) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*shareddomain.BillingSnapshot, error) {
 	return s.billingRepo.FindSnapshotByInvoiceID(ctx, externalInvoiceID)
 }
 

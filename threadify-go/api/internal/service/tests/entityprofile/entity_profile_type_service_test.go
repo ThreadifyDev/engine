@@ -7,7 +7,7 @@ import (
 
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
-	sharedmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func TestEntityProfileTypeService_ListEntityProfileTypes(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypesByCompanyID(gomock.Any(), companyID).Return([]*sharedmodels.EntityProfileType{
+				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypesByCompanyID(gomock.Any(), companyID).Return([]*shareddomain.EntityProfileType{
 					{ID: "1", Name: "Type 1"},
 				}, nil)
 			},
@@ -187,7 +187,7 @@ func TestEntityProfileTypeService_UpdateEntityProfileType_AddTypes(t *testing.T)
 
 	deps.EntityProfileTypeRepo.EXPECT().
 		UpdateProfileType(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, pt *sharedmodels.EntityProfileType) error {
+		DoAndReturn(func(_ context.Context, pt *shareddomain.EntityProfileType) error {
 			assert.Equal(t, typeID, pt.ID)
 			assert.Equal(t, companyID, pt.CompanyID)
 			assert.Equal(t, "Updated Name", pt.Name)

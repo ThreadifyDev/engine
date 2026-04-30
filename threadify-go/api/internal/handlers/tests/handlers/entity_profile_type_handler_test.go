@@ -8,7 +8,7 @@ import (
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	serror "threadify-go/shared/errors"
-	sharedmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -53,7 +53,7 @@ func TestEntityProfileTypeHandler_CRUD(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.EntityProfileSvc.EXPECT().
 					CreateEntityProfileType(gomock.Any(), companyID, gomock.Any()).
-					Return(&sharedmodels.EntityProfileType{ID: eptID}, nil)
+					Return(&shareddomain.EntityProfileType{ID: eptID}, nil)
 			},
 			wantStatus: http.StatusCreated,
 		},
@@ -81,7 +81,7 @@ func TestEntityProfileTypeHandler_CRUD(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.EntityProfileSvc.EXPECT().
 					UpdateEntityProfileType(gomock.Any(), companyID, eptID, gomock.Any()).
-					Return(&sharedmodels.EntityProfileType{ID: eptID}, nil)
+					Return(&shareddomain.EntityProfileType{ID: eptID}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -126,7 +126,7 @@ func TestEntityProfileTypeHandler_CRUD(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.EntityProfileSvc.EXPECT().
 					ListEntityProfileTypes(gomock.Any(), companyID).
-					Return([]*sharedmodels.EntityProfileType{{ID: "ept_1", Name: "Type 1"}}, nil)
+					Return([]*shareddomain.EntityProfileType{{ID: "ept_1", Name: "Type 1"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},

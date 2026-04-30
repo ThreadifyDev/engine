@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/threadify/engine/internal/models"
 )
@@ -51,10 +51,10 @@ type ActorRepository interface {
 }
 
 type BillingRepository interface {
-	CreateSnapshot(ctx context.Context, snapshot *billingmodels.BillingSnapshot) error
-	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*billingmodels.BillingSnapshot, error)
+	CreateSnapshot(ctx context.Context, snapshot *shareddomain.BillingSnapshot) error
+	FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*shareddomain.BillingSnapshot, error)
 	UpdateSnapshotInvoiceID(ctx context.Context, snapshotID string, invoiceID string) error
-	UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status billingmodels.PaymentStatus) error
+	UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status shareddomain.PaymentStatus) error
 	MarkSnapshotPaidByInvoiceID(ctx context.Context, externalInvoiceID string) error
 	MarkSnapshotPaidByID(ctx context.Context, snapshotID string, externalInvoiceID string) error
 	MarkSnapshotFailedByInvoiceID(ctx context.Context, externalInvoiceID string) error
