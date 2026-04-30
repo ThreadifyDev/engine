@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"threadify-go/shared/billing"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func TestCheckBalancePositive_AllowsZeroBalanceWithAutoTopup(t *testing.T) {
 
 	companyID := "c-1"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        100,
 		CreditMaxMonthlyChargeMillicents: 500,
@@ -48,7 +48,7 @@ func TestCheckBalancePositive_FailsWhenTopupDisabledAndBalanceZero(t *testing.T)
 
 	companyID := "c-2"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        0,
 		CreditMaxMonthlyChargeMillicents: 0,
@@ -75,7 +75,7 @@ func TestCheckBalancePositive_UnpopulatedCacheFailsWhenTopupDisabled(t *testing.
 
 	companyID := "c-3"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        0,
 		CreditMaxMonthlyChargeMillicents: 0,
@@ -99,7 +99,7 @@ func TestCheckBalancePositive_AllowsPendingTopup(t *testing.T) {
 
 	companyID := "c-4"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        100,
 		CreditMaxMonthlyChargeMillicents: 500,
@@ -127,7 +127,7 @@ func TestCheckBalancePositive_FailsWhenLowBalanceAndTopupDisabled(t *testing.T) 
 
 	companyID := "c-low-1"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        0,
 		CreditMaxMonthlyChargeMillicents: 0,
@@ -159,7 +159,7 @@ func TestCheckBalancePositive_SucceedsWhenLowBalanceAndTopupEnabled(t *testing.T
 
 	companyID := "c-low-2"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        5000,
 		CreditMaxMonthlyChargeMillicents: 10000,
@@ -191,7 +191,7 @@ func TestCheckCreditAvailable_InsufficientBalanceWithTopupDisabled(t *testing.T)
 
 	companyID := "c-avail-1"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        0,
 		CreditMaxMonthlyChargeMillicents: 0,
@@ -222,7 +222,7 @@ func TestCheckCreditAvailable_SucceedsAfterTopupEnabled(t *testing.T) {
 
 	companyID := "c-avail-2"
 	keys := billing.KeysFor(companyID)
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        10000,
 		CreditMaxMonthlyChargeMillicents: 50000,

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +43,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 
 				d.PlanSvc.EXPECT().
 					GetCurrentLimits(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 
 				d.NotificationRouter.EXPECT().
 					HandleConnect(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
@@ -81,7 +81,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 
 				resp := &models.StartThreadResponse{
 					Action:   ActionStartThread,
@@ -105,7 +105,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 
 				resp := &models.RecordEventResponse{
 					Action: ActionRecordThreadEvent,
@@ -127,7 +127,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 
 				resp := &models.InvitePartyResponse{
 					Action: ActionInviteParty,
@@ -149,7 +149,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 
 				resp := &models.JoinThreadResponse{
 					Action:   ActionJoinThread,
@@ -188,7 +188,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 			},
 			wantResp: models.ErrorResponse{
 				Action:  ActionSubscribe,
@@ -203,7 +203,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
-					Return(&billingmodels.CreditAccount{}, nil)
+					Return(&shareddomain.CreditAccount{}, nil)
 			},
 			wantResp: models.ErrorResponse{
 				Action:  "unknown",

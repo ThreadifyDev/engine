@@ -13,7 +13,7 @@ import (
 	"threadify-go/shared/billing"
 	"threadify-go/shared/database"
 	serror "threadify-go/shared/errors"
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
@@ -54,11 +54,11 @@ type creditSeed struct {
 }
 
 type CachedPlan struct {
-	Account *billingmodels.CreditAccount `json:"account"`
+	Account *shareddomain.CreditAccount `json:"account"`
 }
 
-func newCreditAccount(companyID string, start time.Time, creditCfg *config.CreditConfig, seed *creditSeed) *billingmodels.CreditAccount {
-	account := &billingmodels.CreditAccount{
+func newCreditAccount(companyID string, start time.Time, creditCfg *config.CreditConfig, seed *creditSeed) *shareddomain.CreditAccount {
+	account := &shareddomain.CreditAccount{
 		ID:                uuid.New().String(),
 		CompanyID:         companyID,
 		BillingCycleStart: start,
@@ -183,7 +183,7 @@ func (s *PlanService) applyManualTopup(
 	ctx context.Context,
 	companyID, externalCustomerID string,
 	amount int64,
-	account *billingmodels.CreditAccount,
+	account *shareddomain.CreditAccount,
 ) error {
 	if err := s.planRepo.SetExternalCustomerID(ctx, companyID, externalCustomerID); err != nil {
 		s.logger.Warn("failed to update external customer id on topup", zap.Error(err))
@@ -266,7 +266,7 @@ func (s *PlanService) provisionNewSubscription(
 	return nil
 }
 
-func (s *PlanService) seedCreditKeys(ctx context.Context, companyID string, account *billingmodels.CreditAccount) error {
+func (s *PlanService) seedCreditKeys(ctx context.Context, companyID string, account *shareddomain.CreditAccount) error {
 	keys := billing.KeysFor(companyID)
 
 	s.logger.Debug("seeding credit keys in valkey",
@@ -290,7 +290,7 @@ func (s *PlanService) GetExternalCustomerID(ctx context.Context, companyID strin
 	return s.planRepo.GetExternalCustomerID(ctx, companyID)
 }
 
-func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (*billingmodels.CreditAccount, error) {
+func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error) {
 	v, err, _ := s.sfGroup.Do(companyID, func() (interface{}, error) {
 		if cached := s.getCacheEntry(ctx, companyID); cached != nil {
 			return cached.Account, nil
@@ -311,14 +311,14 @@ func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (
 	if err != nil {
 		return nil, err
 	}
-	return v.(*billingmodels.CreditAccount), nil
+	return v.(*shareddomain.CreditAccount), nil
 }
 
-func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*billingmodels.CreditAccount, error) {
+func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error) {
 	return s.getCurrentAccount(ctx, companyID)
 }
 
-func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string) (*billingmodels.CreditAccount, error) {
+func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error) {
 	account, err := s.getCurrentAccount(ctx, companyID)
 	if err != nil {
 		return nil, err
@@ -344,7 +344,7 @@ func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string
 	return account, nil
 }
 
-func (s *PlanService) evaluateCreditAvailability(account *billingmodels.CreditAccount, balance, charged, pending, cost int64) error {
+func (s *PlanService) evaluateCreditAvailability(account *shareddomain.CreditAccount, balance, charged, pending, cost int64) error {
 	if balance >= cost {
 		return nil
 	}
@@ -354,13 +354,13 @@ func (s *PlanService) evaluateCreditAvailability(account *billingmodels.CreditAc
 	}
 
 	cushion := int64(0)
-	if pending > billingmodels.CreditDisabled {
+	if pending > shareddomain.CreditDisabled {
 		cushion = pending
 	} else {
 		topup := account.CreditAutoTopupMillicents
 		max := account.CreditMaxMonthlyChargeMillicents
-		underMonthlyCap := (max == billingmodels.CreditDisabled) || (charged+topup <= max)
-		if topup > billingmodels.CreditDisabled && underMonthlyCap {
+		underMonthlyCap := (max == shareddomain.CreditDisabled) || (charged+topup <= max)
+		if topup > shareddomain.CreditDisabled && underMonthlyCap {
 			cushion = topup
 		}
 	}
@@ -381,7 +381,7 @@ func (s *PlanService) evaluateCreditAvailability(account *billingmodels.CreditAc
 }
 
 // EvaluateCreditAvailability is an exported wrapper around evaluateCreditAvailability (primarily for tests).
-func (s *PlanService) EvaluateCreditAvailability(account *billingmodels.CreditAccount, balance, charged, pending, cost int64) error {
+func (s *PlanService) EvaluateCreditAvailability(account *shareddomain.CreditAccount, balance, charged, pending, cost int64) error {
 	return s.evaluateCreditAvailability(account, balance, charged, pending, cost)
 }
 
@@ -389,7 +389,7 @@ func (s *PlanService) getMinOperatingCost() int64 {
 	return s.minOperatingCost
 }
 
-func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billingmodels.CreditAccount, payloadBytes int64) error {
+func (s *PlanService) CheckPayloadSize(ctx context.Context, account *shareddomain.CreditAccount, payloadBytes int64) error {
 	limit := account.PayloadLimitBytes
 	if limit > 0 && payloadBytes > limit {
 		return fmt.Errorf("payload too large: %d bytes exceeds limit of %d bytes", payloadBytes, limit)
@@ -397,7 +397,7 @@ func (s *PlanService) CheckPayloadSize(ctx context.Context, account *billingmode
 	return nil
 }
 
-func (s *PlanService) CheckRateLimit(ctx context.Context, account *billingmodels.CreditAccount) (bool, error) {
+func (s *PlanService) CheckRateLimit(ctx context.Context, account *shareddomain.CreditAccount) (bool, error) {
 	tps := account.RateLimitTPS
 	if tps <= 0 {
 		return true, nil
@@ -448,7 +448,7 @@ func (s *PlanService) invokeDebit(ctx context.Context, params *types.DebitParams
 	return s.luaScripts.DecrementCreditWithAutoTopup(ctx, params)
 }
 
-func (s *PlanService) chargeWithAccount(ctx context.Context, account *billingmodels.CreditAccount, meter string, amount int64, allowTopup bool) error {
+func (s *PlanService) chargeWithAccount(ctx context.Context, account *shareddomain.CreditAccount, meter string, amount int64, allowTopup bool) error {
 	cost := s.calculateCost(meter, amount)
 	s.logger.Info("cost decrementing", zap.Any("meter", meter), zap.Any("cost", cost), zap.Any("amount", amount))
 	if cost <= 0 {
@@ -457,7 +457,7 @@ func (s *PlanService) chargeWithAccount(ctx context.Context, account *billingmod
 	return s.debitCredits(ctx, account.CompanyID, cost, account, allowTopup)
 }
 
-func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMillicents int64, account *billingmodels.CreditAccount, allowTopup bool) error {
+func (s *PlanService) debitCredits(ctx context.Context, companyID string, costMillicents int64, account *shareddomain.CreditAccount, allowTopup bool) error {
 	if costMillicents <= 0 {
 		return nil
 	}
@@ -750,7 +750,7 @@ func (s *PlanService) fetchAndResetLiveBalance(ctx context.Context, companyID st
 	return liveBalance, finalCharged, nil
 }
 
-func (s *PlanService) persistRolloverCharge(ctx context.Context, account *billingmodels.CreditAccount, finalCharged int64) {
+func (s *PlanService) persistRolloverCharge(ctx context.Context, account *shareddomain.CreditAccount, finalCharged int64) {
 	if err := s.planRepo.UpdateCumulativeMonthlyCharge(ctx, account.ID, finalCharged); err != nil {
 		s.logger.Warn("rollover: failed to persist final charged amount for closing cycle",
 			zap.String("company_id", account.CompanyID),
@@ -762,12 +762,12 @@ func (s *PlanService) persistRolloverCharge(ctx context.Context, account *billin
 
 func (s *PlanService) createRolloverAccount(
 	ctx context.Context,
-	prev *billingmodels.CreditAccount,
+	prev *shareddomain.CreditAccount,
 	extCustID string,
 	nextCycle time.Time,
 	liveBalance int64,
 ) error {
-	newAccount := &billingmodels.CreditAccount{
+	newAccount := &shareddomain.CreditAccount{
 		ID:                               uuid.New().String(),
 		CompanyID:                        prev.CompanyID,
 		ExternalCustomerID:               extCustID,

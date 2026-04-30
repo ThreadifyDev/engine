@@ -1,7 +1,7 @@
 package service
 
 import (
-	billingmodels "threadify-go/shared/domain"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/threadify/engine/internal/models"
 )
@@ -44,25 +44,25 @@ const (
 )
 
 const (
-	MeterIngress           = billingmodels.MeterIngress
-	MeterEgress            = billingmodels.MeterEgress
-	MeterContractExecution = billingmodels.MeterContractExecution
-	MeterContractVersion   = billingmodels.MeterContractVersion
-	MeterSeatCreate        = billingmodels.MeterSeatCreate
-	MeterLLMTokenUsage     = billingmodels.MeterLLMTokenUsage
+	MeterIngress           = shareddomain.MeterIngress
+	MeterEgress            = shareddomain.MeterEgress
+	MeterContractExecution = shareddomain.MeterContractExecution
+	MeterContractVersion   = shareddomain.MeterContractVersion
+	MeterSeatCreate        = shareddomain.MeterSeatCreate
+	MeterLLMTokenUsage     = shareddomain.MeterLLMTokenUsage
 )
 
 var (
-	MeterCreditSpend        = billingmodels.MeterCreditSpend
-	MeterCreditTopup        = billingmodels.MeterCreditTopup
-	MeterCreditTopupRequest = billingmodels.MeterCreditTopupRequest
+	MeterCreditSpend        = shareddomain.MeterCreditSpend
+	MeterCreditTopup        = shareddomain.MeterCreditTopup
+	MeterCreditTopupRequest = shareddomain.MeterCreditTopupRequest
 )
 
 const (
-	fieldEventID           = billingmodels.FieldEventID
-	fieldCompanyID         = billingmodels.FieldCompanyID
-	fieldMeter             = billingmodels.FieldMeter
-	fieldAmount            = billingmodels.FieldAmount
-	fieldBillingCycleStart = billingmodels.FieldBillingCycleStart
-	fieldTimestamp         = billingmodels.FieldTimestamp
+	fieldEventID           = shareddomain.FieldEventID
+	fieldCompanyID         = shareddomain.FieldCompanyID
+	fieldMeter             = shareddomain.FieldMeter
+	fieldAmount            = shareddomain.FieldAmount
+	fieldBillingCycleStart = shareddomain.FieldBillingCycleStart
+	fieldTimestamp         = shareddomain.FieldTimestamp
 )
