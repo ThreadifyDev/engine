@@ -7,12 +7,11 @@ package enginemocks
 import (
 	context "context"
 	reflect "reflect"
-	models0 "threadify-go/shared/domain"
+	domain0 "threadify-go/shared/domain"
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	models "github.com/threadify/engine/internal/models"
-	types "github.com/threadify/engine/internal/types"
+	domain "github.com/threadify/engine/internal/domain"
 )
 
 // MockContractRepository is a mock of ContractRepository interface.
@@ -54,7 +53,7 @@ func (mr *MockContractRepositoryMockRecorder) CountByOwner(ctx, ownerID interfac
 }
 
 // Create mocks base method.
-func (m *MockContractRepository) Create(ctx context.Context, contract *models.Contract) error {
+func (m *MockContractRepository) Create(ctx context.Context, contract *domain.Contract) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Create", ctx, contract)
 	ret0, _ := ret[0].(error)
@@ -68,7 +67,7 @@ func (mr *MockContractRepositoryMockRecorder) Create(ctx, contract interface{}) 
 }
 
 // CreateContractWithVersion mocks base method.
-func (m *MockContractRepository) CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error {
+func (m *MockContractRepository) CreateContractWithVersion(ctx context.Context, contract *domain.Contract, version *domain.ContractVersion) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateContractWithVersion", ctx, contract, version)
 	ret0, _ := ret[0].(error)
@@ -82,7 +81,7 @@ func (mr *MockContractRepositoryMockRecorder) CreateContractWithVersion(ctx, con
 }
 
 // CreateVersion mocks base method.
-func (m *MockContractRepository) CreateVersion(ctx context.Context, v *models.ContractVersion) error {
+func (m *MockContractRepository) CreateVersion(ctx context.Context, v *domain.ContractVersion) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateVersion", ctx, v)
 	ret0, _ := ret[0].(error)
@@ -96,10 +95,10 @@ func (mr *MockContractRepositoryMockRecorder) CreateVersion(ctx, v interface{}) 
 }
 
 // GetAllByOwner mocks base method.
-func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts types.ContractListOptions) (types.ContractListResult, error) {
+func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllByOwner", ctx, ownerID, opts)
-	ret0, _ := ret[0].(types.ContractListResult)
+	ret0, _ := ret[0].(domain.ContractListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -111,10 +110,10 @@ func (mr *MockContractRepositoryMockRecorder) GetAllByOwner(ctx, ownerID, opts i
 }
 
 // GetAllVersions mocks base method.
-func (m *MockContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error) {
+func (m *MockContractRepository) GetAllVersions(ctx context.Context, contractID string) ([]*domain.ContractVersion, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllVersions", ctx, contractID)
-	ret0, _ := ret[0].([]*models.ContractVersion)
+	ret0, _ := ret[0].([]*domain.ContractVersion)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -126,10 +125,10 @@ func (mr *MockContractRepositoryMockRecorder) GetAllVersions(ctx, contractID int
 }
 
 // GetByID mocks base method.
-func (m *MockContractRepository) GetByID(ctx context.Context, contractID string) (*models.Contract, error) {
+func (m *MockContractRepository) GetByID(ctx context.Context, contractID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByID", ctx, contractID)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -141,10 +140,10 @@ func (mr *MockContractRepositoryMockRecorder) GetByID(ctx, contractID interface{
 }
 
 // GetByIDAndOwner mocks base method.
-func (m *MockContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error) {
+func (m *MockContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByIDAndOwner", ctx, contractID, ownerID)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -156,10 +155,10 @@ func (mr *MockContractRepositoryMockRecorder) GetByIDAndOwner(ctx, contractID, o
 }
 
 // GetByName mocks base method.
-func (m *MockContractRepository) GetByName(ctx context.Context, name string) (*models.Contract, error) {
+func (m *MockContractRepository) GetByName(ctx context.Context, name string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByName", ctx, name)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -171,10 +170,10 @@ func (mr *MockContractRepositoryMockRecorder) GetByName(ctx, name interface{}) *
 }
 
 // GetByNameAndCompany mocks base method.
-func (m *MockContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error) {
+func (m *MockContractRepository) GetByNameAndCompany(ctx context.Context, name, companyID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByNameAndCompany", ctx, name, companyID)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -186,10 +185,10 @@ func (mr *MockContractRepositoryMockRecorder) GetByNameAndCompany(ctx, name, com
 }
 
 // GetByNameSummary mocks base method.
-func (m *MockContractRepository) GetByNameSummary(ctx context.Context, name string) (*models.Contract, error) {
+func (m *MockContractRepository) GetByNameSummary(ctx context.Context, name string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByNameSummary", ctx, name)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -201,10 +200,10 @@ func (mr *MockContractRepositoryMockRecorder) GetByNameSummary(ctx, name interfa
 }
 
 // GetLatestVersion mocks base method.
-func (m *MockContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error) {
+func (m *MockContractRepository) GetLatestVersion(ctx context.Context, contractID string) (*domain.ContractVersion, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetLatestVersion", ctx, contractID)
-	ret0, _ := ret[0].(*models.ContractVersion)
+	ret0, _ := ret[0].(*domain.ContractVersion)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -216,10 +215,10 @@ func (mr *MockContractRepositoryMockRecorder) GetLatestVersion(ctx, contractID i
 }
 
 // GetVersion mocks base method.
-func (m *MockContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error) {
+func (m *MockContractRepository) GetVersion(ctx context.Context, contractID string, version int) (*domain.ContractVersion, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetVersion", ctx, contractID, version)
-	ret0, _ := ret[0].(*models.ContractVersion)
+	ret0, _ := ret[0].(*domain.ContractVersion)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -259,10 +258,10 @@ func (mr *MockContractRepositoryMockRecorder) SoftDeleteVersion(ctx, contractID,
 }
 
 // Update mocks base method.
-func (m *MockContractRepository) Update(ctx context.Context, params types.UpdateContractParams) (*models.Contract, error) {
+func (m *MockContractRepository) Update(ctx context.Context, params domain.UpdateContractParams) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", ctx, params)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -312,10 +311,10 @@ func (mr *MockAuthRepositoryMockRecorder) GetUserRoles(ctx, principalID, princip
 }
 
 // ValidateAPIKey mocks base method.
-func (m *MockAuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*models.AuthInfo, error) {
+func (m *MockAuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*domain.AuthInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateAPIKey", ctx, keyHash)
-	ret0, _ := ret[0].(*models.AuthInfo)
+	ret0, _ := ret[0].(*domain.AuthInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -350,10 +349,10 @@ func (m *MockActorRepository) EXPECT() *MockActorRepositoryMockRecorder {
 }
 
 // ResolveActors mocks base method.
-func (m *MockActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error) {
+func (m *MockActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResolveActors", ctx, ids)
-	ret0, _ := ret[0].([]*models.ActorInfo)
+	ret0, _ := ret[0].([]*domain.ActorInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -388,7 +387,7 @@ func (m *MockBillingRepository) EXPECT() *MockBillingRepositoryMockRecorder {
 }
 
 // CreateSnapshot mocks base method.
-func (m *MockBillingRepository) CreateSnapshot(ctx context.Context, snapshot *models0.BillingSnapshot) error {
+func (m *MockBillingRepository) CreateSnapshot(ctx context.Context, snapshot *domain0.BillingSnapshot) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateSnapshot", ctx, snapshot)
 	ret0, _ := ret[0].(error)
@@ -402,10 +401,10 @@ func (mr *MockBillingRepositoryMockRecorder) CreateSnapshot(ctx, snapshot interf
 }
 
 // FindSnapshotByInvoiceID mocks base method.
-func (m *MockBillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models0.BillingSnapshot, error) {
+func (m *MockBillingRepository) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*domain0.BillingSnapshot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindSnapshotByInvoiceID", ctx, externalInvoiceID)
-	ret0, _ := ret[0].(*models0.BillingSnapshot)
+	ret0, _ := ret[0].(*domain0.BillingSnapshot)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -473,7 +472,7 @@ func (mr *MockBillingRepositoryMockRecorder) UpdateSnapshotInvoiceID(ctx, snapsh
 }
 
 // UpdateSnapshotPaymentStatus mocks base method.
-func (m *MockBillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status models0.PaymentStatus) error {
+func (m *MockBillingRepository) UpdateSnapshotPaymentStatus(ctx context.Context, snapshotID string, status domain0.PaymentStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateSnapshotPaymentStatus", ctx, snapshotID, status)
 	ret0, _ := ret[0].(error)
@@ -1025,10 +1024,10 @@ func (m *MockValkeyPipelineProvider) EXPECT() *MockValkeyPipelineProviderMockRec
 }
 
 // Pipeline mocks base method.
-func (m *MockValkeyPipelineProvider) Pipeline() types.ValkeyPipeline {
+func (m *MockValkeyPipelineProvider) Pipeline() domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -1303,10 +1302,10 @@ func (mr *MockValidationValkeyClientMockRecorder) MGet(ctx interface{}, keys ...
 }
 
 // Pipeline mocks base method.
-func (m *MockValidationValkeyClient) Pipeline() types.ValkeyPipeline {
+func (m *MockValidationValkeyClient) Pipeline() domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -1604,10 +1603,10 @@ func (mr *MockAccessValkeyClientMockRecorder) MGet(ctx interface{}, keys ...inte
 }
 
 // Pipeline mocks base method.
-func (m *MockAccessValkeyClient) Pipeline() types.ValkeyPipeline {
+func (m *MockAccessValkeyClient) Pipeline() domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -2247,10 +2246,10 @@ func (mr *MockThreadValkeyClientMockRecorder) MGet(ctx interface{}, keys ...inte
 }
 
 // Pipeline mocks base method.
-func (m *MockThreadValkeyClient) Pipeline() types.ValkeyPipeline {
+func (m *MockThreadValkeyClient) Pipeline() domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3062,10 +3061,10 @@ func (mr *MockValkeyClientMockRecorder) MGet(ctx interface{}, keys ...interface{
 }
 
 // Pipeline mocks base method.
-func (m *MockValkeyClient) Pipeline() types.ValkeyPipeline {
+func (m *MockValkeyClient) Pipeline() domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pipeline")
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3270,14 +3269,14 @@ func (m *MockValkeyPipeline) EXPECT() *MockValkeyPipelineMockRecorder {
 }
 
 // Del mocks base method.
-func (m *MockValkeyPipeline) Del(ctx context.Context, keys ...string) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) Del(ctx context.Context, keys ...string) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx}
 	for _, a := range keys {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Del", varargs...)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3304,10 +3303,10 @@ func (mr *MockValkeyPipelineMockRecorder) Exec(ctx interface{}) *gomock.Call {
 }
 
 // Expire mocks base method.
-func (m *MockValkeyPipeline) Expire(ctx context.Context, key string, expiration time.Duration) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) Expire(ctx context.Context, key string, expiration time.Duration) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Expire", ctx, key, expiration)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3318,14 +3317,14 @@ func (mr *MockValkeyPipelineMockRecorder) Expire(ctx, key, expiration interface{
 }
 
 // HDel mocks base method.
-func (m *MockValkeyPipeline) HDel(ctx context.Context, key string, fields ...string) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) HDel(ctx context.Context, key string, fields ...string) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range fields {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "HDel", varargs...)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3337,14 +3336,14 @@ func (mr *MockValkeyPipelineMockRecorder) HDel(ctx, key interface{}, fields ...i
 }
 
 // HSet mocks base method.
-func (m *MockValkeyPipeline) HSet(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) HSet(ctx context.Context, key string, values ...interface{}) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range values {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "HSet", varargs...)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3356,14 +3355,14 @@ func (mr *MockValkeyPipelineMockRecorder) HSet(ctx, key interface{}, values ...i
 }
 
 // LPush mocks base method.
-func (m *MockValkeyPipeline) LPush(ctx context.Context, key string, values ...interface{}) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) LPush(ctx context.Context, key string, values ...interface{}) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, key}
 	for _, a := range values {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "LPush", varargs...)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3375,10 +3374,10 @@ func (mr *MockValkeyPipelineMockRecorder) LPush(ctx, key interface{}, values ...
 }
 
 // Set mocks base method.
-func (m *MockValkeyPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) types.ValkeyPipeline {
+func (m *MockValkeyPipeline) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) domain.ValkeyPipeline {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Set", ctx, key, value, expiration)
-	ret0, _ := ret[0].(types.ValkeyPipeline)
+	ret0, _ := ret[0].(domain.ValkeyPipeline)
 	return ret0
 }
 
@@ -3469,14 +3468,14 @@ func (mr *MockThreadRepositoryMockRecorder) ExtendTTL(ctx, threadID interface{})
 }
 
 // Get mocks base method.
-func (m *MockThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
+func (m *MockThreadRepository) Get(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) (*domain.Thread, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Get", varargs...)
-	ret0, _ := ret[0].(*models.Thread)
+	ret0, _ := ret[0].(*domain.Thread)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3504,7 +3503,7 @@ func (mr *MockThreadRepositoryMockRecorder) GetByOwner(ctx, ownerID interface{})
 }
 
 // GetCompletedSteps mocks base method.
-func (m *MockThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) ([]string, error) {
+func (m *MockThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) ([]string, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
 	for _, a := range opts {
@@ -3524,7 +3523,7 @@ func (mr *MockThreadRepositoryMockRecorder) GetCompletedSteps(ctx, threadID inte
 }
 
 // GetCompletedStepsCount mocks base method.
-func (m *MockThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (int64, error) {
+func (m *MockThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) (int64, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
 	for _, a := range opts {
@@ -3544,7 +3543,7 @@ func (mr *MockThreadRepositoryMockRecorder) GetCompletedStepsCount(ctx, threadID
 }
 
 // GetStepStatus mocks base method.
-func (m *MockThreadRepository) GetStepStatus(ctx context.Context, query types.StepStatusQuery, opts ...types.ThreadReadOptions) (string, error) {
+func (m *MockThreadRepository) GetStepStatus(ctx context.Context, query domain.StepStatusQuery, opts ...domain.ThreadReadOptions) (string, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, query}
 	for _, a := range opts {
@@ -3564,7 +3563,7 @@ func (mr *MockThreadRepositoryMockRecorder) GetStepStatus(ctx, query interface{}
 }
 
 // Save mocks base method.
-func (m *MockThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
+func (m *MockThreadRepository) Save(ctx context.Context, thread *domain.Thread) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Save", ctx, thread)
 	ret0, _ := ret[0].(error)
@@ -3615,14 +3614,14 @@ func (m *MockAccessRepository) EXPECT() *MockAccessRepositoryMockRecorder {
 }
 
 // GetAllAccess mocks base method.
-func (m *MockAccessRepository) GetAllAccess(ctx context.Context, threadID string, opts ...types.AccessReadOptions) (map[string]*types.UserAccess, error) {
+func (m *MockAccessRepository) GetAllAccess(ctx context.Context, threadID string, opts ...domain.AccessReadOptions) (map[string]*domain.UserAccess, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetAllAccess", varargs...)
-	ret0, _ := ret[0].(map[string]*types.UserAccess)
+	ret0, _ := ret[0].(map[string]*domain.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3635,14 +3634,14 @@ func (mr *MockAccessRepositoryMockRecorder) GetAllAccess(ctx, threadID interface
 }
 
 // GetUserAccess mocks base method.
-func (m *MockAccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, opts ...types.AccessReadOptions) (*types.UserAccess, error) {
+func (m *MockAccessRepository) GetUserAccess(ctx context.Context, threadID, userID string, opts ...domain.AccessReadOptions) (*domain.UserAccess, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{ctx, threadID, userID}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetUserAccess", varargs...)
-	ret0, _ := ret[0].(*types.UserAccess)
+	ret0, _ := ret[0].(*domain.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3655,10 +3654,10 @@ func (mr *MockAccessRepositoryMockRecorder) GetUserAccess(ctx, threadID, userID 
 }
 
 // GrantOrUpdateAccess mocks base method.
-func (m *MockAccessRepository) GrantOrUpdateAccess(ctx context.Context, params types.GrantAccessParams) (*types.UserAccess, error) {
+func (m *MockAccessRepository) GrantOrUpdateAccess(ctx context.Context, params domain.GrantAccessParams) (*domain.UserAccess, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GrantOrUpdateAccess", ctx, params)
-	ret0, _ := ret[0].(*types.UserAccess)
+	ret0, _ := ret[0].(*domain.UserAccess)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3707,7 +3706,7 @@ func (m *MockActivityEventRepository) EXPECT() *MockActivityEventRepositoryMockR
 }
 
 // RecordAccessGranted mocks base method.
-func (m *MockActivityEventRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+func (m *MockActivityEventRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *domain.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordAccessGranted", ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole)
 	ret0, _ := ret[0].(error)
@@ -3772,7 +3771,7 @@ func (m *MockActivityArchiveRepository) EXPECT() *MockActivityArchiveRepositoryM
 }
 
 // ArchiveStepState mocks base method.
-func (m *MockActivityArchiveRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
+func (m *MockActivityArchiveRepository) ArchiveStepState(ctx context.Context, stepState *domain.StepStateSnapshot) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveStepState", ctx, stepState)
 	ret0, _ := ret[0].(error)
@@ -3786,7 +3785,7 @@ func (mr *MockActivityArchiveRepositoryMockRecorder) ArchiveStepState(ctx, stepS
 }
 
 // ArchiveThreadMetadata mocks base method.
-func (m *MockActivityArchiveRepository) ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error {
+func (m *MockActivityArchiveRepository) ArchiveThreadMetadata(ctx context.Context, thread *domain.Thread, status string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveThreadMetadata", ctx, thread, status)
 	ret0, _ := ret[0].(error)
@@ -3800,7 +3799,7 @@ func (mr *MockActivityArchiveRepositoryMockRecorder) ArchiveThreadMetadata(ctx, 
 }
 
 // ArchiveValidationResults mocks base method.
-func (m *MockActivityArchiveRepository) ArchiveValidationResults(ctx context.Context, threadID, stepID, stepName, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error {
+func (m *MockActivityArchiveRepository) ArchiveValidationResults(ctx context.Context, threadID, stepID, stepName, idempotencyKey string, notifications []domain.ValidationNotification, finalStatus string, hasCriticalViolation bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveValidationResults", ctx, threadID, stepID, stepName, idempotencyKey, notifications, finalStatus, hasCriticalViolation)
 	ret0, _ := ret[0].(error)
@@ -3852,7 +3851,7 @@ func (m *MockActivityRepository) EXPECT() *MockActivityRepositoryMockRecorder {
 }
 
 // ArchiveStepState mocks base method.
-func (m *MockActivityRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
+func (m *MockActivityRepository) ArchiveStepState(ctx context.Context, stepState *domain.StepStateSnapshot) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveStepState", ctx, stepState)
 	ret0, _ := ret[0].(error)
@@ -3866,7 +3865,7 @@ func (mr *MockActivityRepositoryMockRecorder) ArchiveStepState(ctx, stepState in
 }
 
 // ArchiveThreadMetadata mocks base method.
-func (m *MockActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error {
+func (m *MockActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *domain.Thread, status string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveThreadMetadata", ctx, thread, status)
 	ret0, _ := ret[0].(error)
@@ -3880,7 +3879,7 @@ func (mr *MockActivityRepositoryMockRecorder) ArchiveThreadMetadata(ctx, thread,
 }
 
 // ArchiveValidationResults mocks base method.
-func (m *MockActivityRepository) ArchiveValidationResults(ctx context.Context, threadID, stepID, stepName, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error {
+func (m *MockActivityRepository) ArchiveValidationResults(ctx context.Context, threadID, stepID, stepName, idempotencyKey string, notifications []domain.ValidationNotification, finalStatus string, hasCriticalViolation bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ArchiveValidationResults", ctx, threadID, stepID, stepName, idempotencyKey, notifications, finalStatus, hasCriticalViolation)
 	ret0, _ := ret[0].(error)
@@ -3909,7 +3908,7 @@ func (mr *MockActivityRepositoryMockRecorder) GetActivityLog(ctx, threadID inter
 }
 
 // RecordAccessGranted mocks base method.
-func (m *MockActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+func (m *MockActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *domain.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordAccessGranted", ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole)
 	ret0, _ := ret[0].(error)
@@ -4003,10 +4002,10 @@ func (mr *MockContractGraphRepositoryMockRecorder) Exists(ctx, contractName, ver
 }
 
 // Get mocks base method.
-func (m *MockContractGraphRepository) Get(ctx context.Context, contractName string, version int, companyID string) (*models.ContractGraph, error) {
+func (m *MockContractGraphRepository) Get(ctx context.Context, contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, contractName, version, companyID)
-	ret0, _ := ret[0].(*models.ContractGraph)
+	ret0, _ := ret[0].(*domain.ContractGraph)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4018,7 +4017,7 @@ func (mr *MockContractGraphRepositoryMockRecorder) Get(ctx, contractName, versio
 }
 
 // Save mocks base method.
-func (m *MockContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *models.ContractGraph) error {
+func (m *MockContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *domain.ContractGraph) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Save", ctx, contractName, version, companyID, graph)
 	ret0, _ := ret[0].(error)
@@ -4146,10 +4145,10 @@ func (m *MockCreditManager) EXPECT() *MockCreditManagerMockRecorder {
 }
 
 // DecrementCreditWithAutoTopup mocks base method.
-func (m *MockCreditManager) DecrementCreditWithAutoTopup(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
+func (m *MockCreditManager) DecrementCreditWithAutoTopup(ctx context.Context, params *domain.DebitParams) (domain.DebitResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DecrementCreditWithAutoTopup", ctx, params)
-	ret0, _ := ret[0].(types.DebitResult)
+	ret0, _ := ret[0].(domain.DebitResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4230,10 +4229,10 @@ func (mr *MockLuaScriptManagerMockRecorder) CheckIPRateLimit(ctx, ip, requestsPe
 }
 
 // DecrementCreditWithAutoTopup mocks base method.
-func (m *MockLuaScriptManager) DecrementCreditWithAutoTopup(ctx context.Context, params *types.DebitParams) (types.DebitResult, error) {
+func (m *MockLuaScriptManager) DecrementCreditWithAutoTopup(ctx context.Context, params *domain.DebitParams) (domain.DebitResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DecrementCreditWithAutoTopup", ctx, params)
-	ret0, _ := ret[0].(types.DebitResult)
+	ret0, _ := ret[0].(domain.DebitResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -4299,10 +4298,10 @@ func (m *MockNATSClient) EXPECT() *MockNATSClientMockRecorder {
 }
 
 // FetchMessage mocks base method.
-func (m *MockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*types.NATSMessage, error) {
+func (m *MockNATSClient) FetchMessage(subject, consumerName string, timeout time.Duration) (*domain.NATSMessage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FetchMessage", subject, consumerName, timeout)
-	ret0, _ := ret[0].(*types.NATSMessage)
+	ret0, _ := ret[0].(*domain.NATSMessage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

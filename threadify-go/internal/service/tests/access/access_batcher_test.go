@@ -11,9 +11,9 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
-	"github.com/threadify/engine/internal/types"
 	"go.uber.org/zap"
 )
 
@@ -66,7 +66,7 @@ func expectGrantCalls(h *batcher, writes []*service.AccessWrite, retErr error) {
 	for _, w := range writes {
 		h.mockRepo.EXPECT().GrantOrUpdateAccess(
 			gomock.Any(),
-			types.GrantAccessParams{
+			domain.GrantAccessParams{
 				ThreadID:    w.ThreadID,
 				UserID:      w.UserID,
 				Role:        w.Role,

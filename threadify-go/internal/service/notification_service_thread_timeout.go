@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -13,8 +13,8 @@ import (
 func (s *NotificationService) scheduleThreadMaxDurationTimeout(
 	ctx context.Context,
 	threadID string,
-	graph *models.ContractGraph,
-	thread *models.Thread,
+	graph *domain.ContractGraph,
+	thread *domain.Thread,
 	createdAt time.Time,
 ) {
 	// Check if timeout monitor is available
@@ -60,10 +60,10 @@ func (s *NotificationService) scheduleThreadMaxDurationTimeout(
 	timeoutID := fmt.Sprintf("%s:max_duration", threadID)
 
 	// Create timeout event
-	timeoutEvent := models.TimeoutEvent{
+	timeoutEvent := domain.TimeoutEvent{
 		ID:           timeoutID,
 		ThreadID:     threadID,
-		Type:         models.TimeoutTypeMaxDuration,
+		Type:         domain.TimeoutTypeMaxDuration,
 		Timeout:      graph.Validation.MaxDuration,
 		ScheduledAt:  time.Now(),
 		DeadlineAt:   deadline,

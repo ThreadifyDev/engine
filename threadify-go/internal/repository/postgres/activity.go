@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // ActivityRepository handles activity log retrieval from PostgreSQL
@@ -170,8 +170,8 @@ type activityRow struct {
 // other, meaning recorded_at order can differ from hash-chain order. Instead we load
 // all rows into a map keyed by hash and walk the chain by following prev_hash links
 // from the genesis event — exactly mirroring how the chain was originally built.
-func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID string) (*models.HashChainStatus, error) {
-	status := &models.HashChainStatus{
+func (r *ActivityRepository) VerifyActivityChain(ctx context.Context, threadID string) (*domain.HashChainStatus, error) {
+	status := &domain.HashChainStatus{
 		Verified:       true,
 		LastVerifiedAt: time.Now(),
 	}

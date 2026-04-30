@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/domain"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"

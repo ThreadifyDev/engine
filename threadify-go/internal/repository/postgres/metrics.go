@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -22,11 +22,11 @@ type MetricsTemplate struct {
 
 type MetricsRepository struct {
 	db           *pgxpool.Pool
-	valkeyClient types.ValkeyStringClient
+	valkeyClient domain.ValkeyStringClient
 	logger       *zap.Logger
 }
 
-func NewMetricsRepository(db *pgxpool.Pool, valkeyClient types.ValkeyStringClient, logger *zap.Logger) *MetricsRepository {
+func NewMetricsRepository(db *pgxpool.Pool, valkeyClient domain.ValkeyStringClient, logger *zap.Logger) *MetricsRepository {
 	return &MetricsRepository{
 		db:           db,
 		valkeyClient: valkeyClient,

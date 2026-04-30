@@ -1,31 +1,29 @@
-package types
+package domain
 
 import (
 	"context"
 	"time"
 
 	shareddomain "threadify-go/shared/domain"
-
-	"github.com/threadify/engine/internal/models"
 )
 
 //go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/repository_mocks.go -source=repository.go
 
 type ContractRepository interface {
-	Create(ctx context.Context, contract *models.Contract) error
-	CreateContractWithVersion(ctx context.Context, contract *models.Contract, version *models.ContractVersion) error
+	Create(ctx context.Context, contract *Contract) error
+	CreateContractWithVersion(ctx context.Context, contract *Contract, version *ContractVersion) error
 
 	// Update applies the fields in params and returns the updated contract.
-	Update(ctx context.Context, params UpdateContractParams) (*models.Contract, error)
+	Update(ctx context.Context, params UpdateContractParams) (*Contract, error)
 
 	// GetByID is the canonical single-contract lookup by primary key.
-	GetByID(ctx context.Context, contractID string) (*models.Contract, error)
-	GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*models.Contract, error)
+	GetByID(ctx context.Context, contractID string) (*Contract, error)
+	GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*Contract, error)
 
-	GetByName(ctx context.Context, name string) (*models.Contract, error)
+	GetByName(ctx context.Context, name string) (*Contract, error)
 	// GetByNameSummary returns a contract with only basic fields populated (ID, Name, OwnerID).
-	GetByNameSummary(ctx context.Context, name string) (*models.Contract, error)
-	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
+	GetByNameSummary(ctx context.Context, name string) (*Contract, error)
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*Contract, error)
 
 	GetAllByOwner(ctx context.Context, ownerID string, opts ContractListOptions) (ContractListResult, error)
 
@@ -33,21 +31,21 @@ type ContractRepository interface {
 
 	SoftDelete(ctx context.Context, contractID string) error
 
-	CreateVersion(ctx context.Context, v *models.ContractVersion) error
-	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
-	GetLatestVersion(ctx context.Context, contractID string) (*models.ContractVersion, error)
-	GetAllVersions(ctx context.Context, contractID string) ([]*models.ContractVersion, error)
+	CreateVersion(ctx context.Context, v *ContractVersion) error
+	GetVersion(ctx context.Context, contractID string, version int) (*ContractVersion, error)
+	GetLatestVersion(ctx context.Context, contractID string) (*ContractVersion, error)
+	GetAllVersions(ctx context.Context, contractID string) ([]*ContractVersion, error)
 
 	SoftDeleteVersion(ctx context.Context, contractID string, version int) error
 }
 
 type AuthRepository interface {
-	ValidateAPIKey(ctx context.Context, keyHash string) (*models.AuthInfo, error)
+	ValidateAPIKey(ctx context.Context, keyHash string) (*AuthInfo, error)
 	GetUserRoles(ctx context.Context, principalID string, principalType string) ([]string, error)
 }
 
 type ActorRepository interface {
-	ResolveActors(ctx context.Context, ids []string) ([]*models.ActorInfo, error)
+	ResolveActors(ctx context.Context, ids []string) ([]*ActorInfo, error)
 }
 
 type BillingRepository interface {
@@ -93,7 +91,6 @@ type ValkeySetClient interface {
 	SMembers(ctx context.Context, key string) ([]string, error)
 	SRem(ctx context.Context, key string, members ...interface{}) error
 }
-
 
 type ValkeyScriptClient interface {
 	Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error)
@@ -169,7 +166,6 @@ type ValkeyClient interface {
 	ValkeyStreamClient
 }
 
-
 // ValkeyPipeline provides a fluent interface for batching Valkey commands.
 // Note: Method signatures mirror ValkeyStringClient/ValkeyHashClient but return the pipeline itself for chaining.
 type ValkeyPipeline interface {
@@ -183,14 +179,14 @@ type ValkeyPipeline interface {
 }
 
 type ThreadRepository interface {
-	Save(ctx context.Context, thread *models.Thread) error
+	Save(ctx context.Context, thread *Thread) error
 	Delete(ctx context.Context, threadID string) error
 	Exists(ctx context.Context, threadID string) (bool, error)
 	GetByOwner(ctx context.Context, ownerID string) ([]string, error)
 	ExtendTTL(ctx context.Context, threadID string) error
 	AddRefs(ctx context.Context, threadID string, refs map[string]string) error
 
-	Get(ctx context.Context, threadID string, opts ...ThreadReadOptions) (*models.Thread, error)
+	Get(ctx context.Context, threadID string, opts ...ThreadReadOptions) (*Thread, error)
 
 	GetStepStatus(ctx context.Context, query StepStatusQuery, opts ...ThreadReadOptions) (string, error)
 	GetCompletedStepsCount(ctx context.Context, threadID string, opts ...ThreadReadOptions) (int64, error)
@@ -213,8 +209,8 @@ type ActivityEventRepository interface {
 }
 
 type ActivityArchiveRepository interface {
-	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []models.ValidationNotification, finalStatus string, hasCriticalViolation bool) error
-	ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error
+	ArchiveValidationResults(ctx context.Context, threadID string, stepID string, stepName string, idempotencyKey string, notifications []ValidationNotification, finalStatus string, hasCriticalViolation bool) error
+	ArchiveThreadMetadata(ctx context.Context, thread *Thread, status string) error
 	ArchiveStepState(ctx context.Context, stepState *StepStateSnapshot) error
 	GetActivityLog(ctx context.Context, threadID string) ([]map[string]interface{}, error)
 }
@@ -225,8 +221,8 @@ type ActivityRepository interface {
 }
 
 type ContractGraphRepository interface {
-	Get(ctx context.Context, contractName string, version int, companyID string) (*models.ContractGraph, error)
-	Save(ctx context.Context, contractName string, version int, companyID string, graph *models.ContractGraph) error
+	Get(ctx context.Context, contractName string, version int, companyID string) (*ContractGraph, error)
+	Save(ctx context.Context, contractName string, version int, companyID string, graph *ContractGraph) error
 	Delete(ctx context.Context, contractName string, version int, companyID string) error
 	Exists(ctx context.Context, contractName string, version int, companyID string) (bool, error)
 }

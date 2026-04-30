@@ -1,4 +1,4 @@
-package models
+package dto
 
 type ConnectRequest struct {
 	Action           string   `json:"action"`
@@ -19,7 +19,7 @@ type ConnectResponse struct {
 
 type StartThreadRequest struct {
 	Action       string            `json:"action"`
-	Label        string            `json:"label,omitempty"` // New field
+	Label        string            `json:"label,omitempty"`
 	ContractName string            `json:"contractName"`
 	Role         string            `json:"role"`
 	Refs         map[string]string `json:"refs,omitempty"`
@@ -44,7 +44,7 @@ type RecordEventRequest struct {
 	Status            string                 `json:"status"`
 	ServiceName       string                 `json:"serviceName,omitempty"`
 	IdempotencyKey    string                 `json:"idempotencyKey,omitempty"`
-	ThreadifyMetadata map[string]interface{} `json:"threadify_metadata,omitempty"` // SDK metadata from .success(), .failed(), .error() calls
+	ThreadifyMetadata map[string]interface{} `json:"threadify_metadata,omitempty"`
 	SubSteps          []SubStepRequest       `json:"subSteps,omitempty"`
 }
 
@@ -83,7 +83,6 @@ type ErrorResponse struct {
 	Details string `json:"details,omitempty"`
 }
 
-// ThreadWithRefs represents a thread with external references
 type ThreadWithRefs struct {
 	ThreadID   string            `json:"threadId"`
 	ContractID string            `json:"contractId"`
@@ -93,7 +92,6 @@ type ThreadWithRefs struct {
 	UpdatedAt  string            `json:"updatedAt"`
 }
 
-// UserThreadPermissions represents user permissions in a thread
 type UserThreadPermissions struct {
 	ThreadID    string   `json:"threadId"`
 	UserID      string   `json:"userId"`

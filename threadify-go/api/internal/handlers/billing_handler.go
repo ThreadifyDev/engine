@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	sharedauth "threadify-go/shared/auth"
-	serror "threadify-go/shared/errors"
 	shareddomain "threadify-go/shared/domain"
+	serror "threadify-go/shared/errors"
 )
 
 type billingAPI interface {

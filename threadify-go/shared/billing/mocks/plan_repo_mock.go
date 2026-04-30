@@ -7,7 +7,7 @@ package billingmocks
 import (
 	context "context"
 	reflect "reflect"
-	models "threadify-go/shared/domain"
+	domain "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -36,7 +36,7 @@ func (m *MockPlanRepository) EXPECT() *MockPlanRepositoryMockRecorder {
 }
 
 // CreateCreditAccount mocks base method.
-func (m *MockPlanRepository) CreateCreditAccount(arg0 context.Context, arg1 *models.CreditAccount) error {
+func (m *MockPlanRepository) CreateCreditAccount(arg0 context.Context, arg1 *domain.CreditAccount) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateCreditAccount", arg0, arg1)
 	ret0, _ := ret[0].(error)
@@ -65,10 +65,10 @@ func (mr *MockPlanRepositoryMockRecorder) FindCompanyByExternalCustomerID(arg0, 
 }
 
 // GetCreditAccount mocks base method.
-func (m *MockPlanRepository) GetCreditAccount(arg0 context.Context, arg1 string) (*models.CreditAccount, error) {
+func (m *MockPlanRepository) GetCreditAccount(arg0 context.Context, arg1 string) (*domain.CreditAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCreditAccount", arg0, arg1)
-	ret0, _ := ret[0].(*models.CreditAccount)
+	ret0, _ := ret[0].(*domain.CreditAccount)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

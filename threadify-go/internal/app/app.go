@@ -24,6 +24,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
@@ -33,7 +34,6 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
@@ -77,7 +77,7 @@ type services struct {
 	invitation          *service.InvitationTokenService
 	billingOrchestrator *service.BillingOrchestrator
 	luaScriptManager    *valkey.LuaScriptManager
-	rbacLoader          types.RBACLoader
+	rbacLoader          domain.RBACLoader
 }
 
 type appHandlers struct {
@@ -244,7 +244,7 @@ func initRepositories(
 	cfg *config.Config,
 	inf *infra,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader types.RBACLoader,
+	rbacLoader domain.RBACLoader,
 	logger *zap.Logger) (*repositories, error) {
 	r := &repositories{}
 
@@ -301,7 +301,7 @@ func initServices(
 	inf *infra,
 	repos *repositories,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader types.RBACLoader,
+	rbacLoader domain.RBACLoader,
 	logger *zap.Logger,
 ) (*services, error) {
 	svcs := &services{
@@ -499,7 +499,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	return r
 }
 
-func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac types.RBACLoader, plan types.PlanService, logger *zap.Logger) {
+func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac domain.RBACLoader, plan domain.PlanService, logger *zap.Logger) {
 	ch := hdlrs.contractHandler
 
 	contracts := rg.Group("/contracts")

@@ -6,9 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/metrics"
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"go.uber.org/zap"
@@ -19,18 +18,18 @@ import (
 // Permissions are resolved from runtime_role via the RBAC loader (no per-user storage needed).
 type ThreadAccessService struct {
 	accessRepo   *valkey.AccessRepository
-	cacheManager types.CacheManager
+	cacheManager domain.CacheManager
 	luaScripts   *valkey.LuaScriptManager
-	rbacLoader   types.RBACLoader
+	rbacLoader   domain.RBACLoader
 	logger       *zap.Logger
 }
 
 // NewThreadAccessService creates a new thread access service.
 func NewThreadAccessService(
 	accessRepo *valkey.AccessRepository,
-	cacheManager types.CacheManager,
+	cacheManager domain.CacheManager,
 	luaScripts *valkey.LuaScriptManager,
-	rbacLoader types.RBACLoader,
+	rbacLoader domain.RBACLoader,
 	logger *zap.Logger,
 ) *ThreadAccessService {
 	return &ThreadAccessService{
@@ -93,7 +92,7 @@ func (s *ThreadAccessService) GrantOrUpdateAccess(
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if _, err := s.accessRepo.GrantOrUpdateAccess(timeoutCtx, types.GrantAccessParams{
+	if _, err := s.accessRepo.GrantOrUpdateAccess(timeoutCtx, domain.GrantAccessParams{
 		ThreadID:    threadID,
 		UserID:      userID,
 		Role:        role,
@@ -116,13 +115,13 @@ func (s *ThreadAccessService) GrantAccessWithThreadCreation(
 	threadID, userID, role, runtimeRole string,
 	threadData *string,
 	threadTTL *int,
-) (*types.UserAccess, error) {
+) (*domain.UserAccess, error) {
 	rbacStart := perf.Now()
 	permissions, _ := s.resolveAndCachePermissions(runtimeRole)
 	metrics.OperationDuration.WithLabelValues("redis_thread_create", "rbac_permissions").Observe(perf.Since(rbacStart).Seconds())
 
 	repoStart := perf.Now()
-	access, err := s.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+	access, err := s.accessRepo.GrantOrUpdateAccess(ctx, domain.GrantAccessParams{
 		ThreadID:    threadID,
 		UserID:      userID,
 		Role:        role,
@@ -169,7 +168,7 @@ func (s *ThreadAccessService) GetUserRole(ctx context.Context, threadID, userID 
 
 // CheckThreadAccess reports whether a user has the required permission for a thread.
 // Thread owners always have implicit full access.
-func (s *ThreadAccessService) CheckThreadAccess(ctx context.Context, threadID, userID, requiredPermission string, thread *models.Thread) (bool, error) {
+func (s *ThreadAccessService) CheckThreadAccess(ctx context.Context, threadID, userID, requiredPermission string, thread *domain.Thread) (bool, error) {
 	start := perf.Now()
 	defer func() {
 		perf.LogStructured("CheckThreadAccess total",
@@ -193,13 +192,13 @@ func (s *ThreadAccessService) CheckThreadAccess(ctx context.Context, threadID, u
 
 // BatchCheckThreadAccess checks access for multiple threads in a single pass.
 // Returns a map of threadID → hasAccess.
-func (s *ThreadAccessService) BatchCheckThreadAccess(ctx context.Context, threads []*models.Thread, userID, requiredPermission string) (map[string]bool, error) {
+func (s *ThreadAccessService) BatchCheckThreadAccess(ctx context.Context, threads []*domain.Thread, userID, requiredPermission string) (map[string]bool, error) {
 	result := make(map[string]bool, len(threads))
 	if len(threads) == 0 {
 		return result, nil
 	}
 
-	var nonOwned []*models.Thread
+	var nonOwned []*domain.Thread
 	for _, thread := range threads {
 		if thread.OwnerID == userID {
 			result[thread.ID] = true
@@ -260,7 +259,7 @@ func (s *ThreadAccessService) GetUsersByPermissions(
 	ctx context.Context,
 	threadID string,
 	requiredPermissions []string,
-) ([]models.UserPermissionInfo, error) {
+) ([]domain.UserPermissionInfo, error) {
 	return s.accessRepo.GetUsersByPermissions(ctx, threadID, requiredPermissions)
 }
 

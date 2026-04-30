@@ -16,7 +16,6 @@ func NewAgentRepository(pool *pgxpool.Pool) domain.AgentRepository {
 	return &agentRepository{pool: pool}
 }
 
-
 func (r *agentRepository) CreateConversation(ctx context.Context, conv *domain.AgentConversation) error {
 	query := `
 		INSERT INTO agent_conversations (id, user_id, company_id, title, created_at, updated_at)

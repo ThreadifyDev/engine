@@ -6,7 +6,7 @@ package billingmocks
 
 import (
 	reflect "reflect"
-	models "threadify-go/shared/domain"
+	domain "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -35,7 +35,7 @@ func (m *MockBillingProvider) EXPECT() *MockBillingProviderMockRecorder {
 }
 
 // CreateCheckoutSession mocks base method.
-func (m *MockBillingProvider) CreateCheckoutSession(arg0 models.CheckoutSessionParams) (string, error) {
+func (m *MockBillingProvider) CreateCheckoutSession(arg0 domain.CheckoutSessionParams) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateCheckoutSession", arg0)
 	ret0, _ := ret[0].(string)
@@ -50,10 +50,10 @@ func (mr *MockBillingProviderMockRecorder) CreateCheckoutSession(arg0 interface{
 }
 
 // IssueTopupInvoice mocks base method.
-func (m *MockBillingProvider) IssueTopupInvoice(arg0 *models.BillingSnapshot) (*models.InvoiceResult, error) {
+func (m *MockBillingProvider) IssueTopupInvoice(arg0 *domain.BillingSnapshot) (*domain.InvoiceResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IssueTopupInvoice", arg0)
-	ret0, _ := ret[0].(*models.InvoiceResult)
+	ret0, _ := ret[0].(*domain.InvoiceResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -107,10 +107,10 @@ func (mr *MockBillingProviderMockRecorder) SkipInvoicing() *gomock.Call {
 }
 
 // VerifyAndParse mocks base method.
-func (m *MockBillingProvider) VerifyAndParse(arg0 []byte, arg1 string) (*models.WebhookEvent, error) {
+func (m *MockBillingProvider) VerifyAndParse(arg0 []byte, arg1 string) (*domain.WebhookEvent, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "VerifyAndParse", arg0, arg1)
-	ret0, _ := ret[0].(*models.WebhookEvent)
+	ret0, _ := ret[0].(*domain.WebhookEvent)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

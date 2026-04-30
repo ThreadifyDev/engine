@@ -48,4 +48,3 @@ func ValidateUpdateEntityProfileTypeRequest(req *dto.UpdateEntityProfileTypeRequ
 
 	return b.err()
 }
-

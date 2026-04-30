@@ -82,4 +82,3 @@ func (r *companyRepository) DeleteTx(ctx context.Context, tx domain.Execer, id s
 	}
 	return nil
 }
-

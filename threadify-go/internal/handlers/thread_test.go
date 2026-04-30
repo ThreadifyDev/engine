@@ -11,8 +11,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/service"
 )
 
@@ -31,7 +31,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			action: ActionConnect,
 			msg:    map[string]interface{}{"action": ActionConnect, "apiKey": "key_123"},
 			setupMock: func(d *MockedEngineHandlers) {
-				resp := &models.ConnectResponse{
+				resp := &domain.ConnectResponse{
 					Action:    ActionConnect,
 					Status:    StatusSuccess,
 					OwnerID:   testUserID,
@@ -46,10 +46,14 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					Return(&shareddomain.CreditAccount{}, nil)
 
 				d.NotificationRouter.EXPECT().
+					HandleSubscribe(gomock.Any(), "global", "", nil).
+					Return(nil)
+
+				d.NotificationRouter.EXPECT().
 					HandleConnect(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil)
 			},
-			wantResp: &models.ConnectResponse{
+			wantResp: &dto.ConnectResponse{
 				Action:    ActionConnect,
 				Status:    StatusSuccess,
 				OwnerID:   testUserID,
@@ -61,7 +65,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			action: ActionConnect,
 			msg:    map[string]interface{}{"action": ActionConnect, "apiKey": "bad_key"},
 			setupMock: func(d *MockedEngineHandlers) {
-				resp := &models.ConnectResponse{
+				resp := &domain.ConnectResponse{
 					Action: ActionConnect,
 					Status: StatusError,
 				}
@@ -69,7 +73,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					HandleConnect(gomock.Any(), gomock.Any()).
 					Return(resp)
 			},
-			wantResp: &models.ConnectResponse{
+			wantResp: &dto.ConnectResponse{
 				Action: ActionConnect,
 				Status: StatusError,
 			},
@@ -83,7 +87,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 
-				resp := &models.StartThreadResponse{
+				resp := &domain.StartThreadResponse{
 					Action:   ActionStartThread,
 					Status:   StatusSuccess,
 					ThreadID: testThreadID,
@@ -92,7 +96,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					HandleStartThread(gomock.Any(), gomock.Any(), testUserID, testCompanyID).
 					Return(resp)
 			},
-			wantResp: &models.StartThreadResponse{
+			wantResp: &dto.StartThreadResponse{
 				Action:   ActionStartThread,
 				Status:   StatusSuccess,
 				ThreadID: testThreadID,
@@ -107,7 +111,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 
-				resp := &models.RecordEventResponse{
+				resp := &domain.RecordEventResponse{
 					Action: ActionRecordThreadEvent,
 					Status: StatusSuccess,
 				}
@@ -115,7 +119,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					HandleRecordEvent(gomock.Any(), gomock.Any(), testUserID, testCompanyID).
 					Return(resp)
 			},
-			wantResp: &models.RecordEventResponse{
+			wantResp: &dto.RecordEventResponse{
 				Action: ActionRecordThreadEvent,
 				Status: StatusSuccess,
 			},
@@ -129,7 +133,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 
-				resp := &models.InvitePartyResponse{
+				resp := &domain.InvitePartyResponse{
 					Action: ActionInviteParty,
 					Status: StatusSuccess,
 				}
@@ -137,7 +141,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					HandleInviteParty(gomock.Any(), testUserID, testCompanyID, gomock.Any()).
 					Return(resp, nil)
 			},
-			wantResp: &models.InvitePartyResponse{
+			wantResp: &dto.InvitePartyResponse{
 				Action: ActionInviteParty,
 				Status: StatusSuccess,
 			},
@@ -145,13 +149,13 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 		{
 			name:   "joinThread_success",
 			action: ActionJoinThread,
-			msg:    map[string]interface{}{"action": ActionJoinThread, "token": "token123"},
+			msg:    map[string]interface{}{"action": ActionJoinThread, "threadToken": "token123"},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.PlanSvc.EXPECT().
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 
-				resp := &models.JoinThreadResponse{
+				resp := &domain.JoinThreadResponse{
 					Action:   ActionJoinThread,
 					Status:   StatusSuccess,
 					ThreadID: testThreadID,
@@ -160,7 +164,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					HandleJoinThread(gomock.Any(), testUserID, testCompanyID).
 					Return(resp, nil)
 			},
-			wantResp: &models.JoinThreadResponse{
+			wantResp: &dto.JoinThreadResponse{
 				Action:   ActionJoinThread,
 				Status:   StatusSuccess,
 				ThreadID: testThreadID,
@@ -175,10 +179,11 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(nil, service.ErrInsufficientCredit)
 			},
-			wantResp: models.ErrorResponse{
+			wantResp: dto.ErrorResponse{
 				Action:  ActionStartThread,
 				Status:  StatusError,
-				Message: "Payment required: Your credit balance is exhausted. Please top up to continue.",
+				Message: "Insufficient credits",
+				Details: "insufficient credit balance",
 			},
 		},
 		{
@@ -190,7 +195,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 			},
-			wantResp: models.ErrorResponse{
+			wantResp: dto.ErrorResponse{
 				Action:  ActionSubscribe,
 				Status:  StatusError,
 				Message: "Notification router not available",
@@ -205,7 +210,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					CheckBalancePositive(gomock.Any(), testCompanyID).
 					Return(&shareddomain.CreditAccount{}, nil)
 			},
-			wantResp: models.ErrorResponse{
+			wantResp: dto.ErrorResponse{
 				Action:  "unknown",
 				Status:  StatusError,
 				Message: "Unknown action: unknown",
@@ -218,7 +223,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 			d := NewMockedEngineHandlers(t)
 			tt.setupMock(d)
 
-			var nRouter types.NotificationRouter
+			var nRouter domain.NotificationRouter
 			if tt.name != "subscribe_no_router" {
 				nRouter = d.NotificationRouter
 			}
@@ -283,7 +288,7 @@ func TestWebSocketHandler_HandleThreadEnd(t *testing.T) {
 					EndThread(gomock.Any(), testThreadID, testUserID, service.ActorServiceRuleEngine, "completed", gomock.Any(), gomock.Any()).
 					Return(errors.New("end error"))
 			},
-			wantResp: models.ErrorResponse{
+			wantResp: dto.ErrorResponse{
 				Action:  ActionThreadEnd,
 				Status:  StatusError,
 				Message: "Failed to end thread: end error",

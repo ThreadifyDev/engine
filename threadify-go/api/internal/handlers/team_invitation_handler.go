@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 type TeamInvitationHandler struct {
 	invitationSvc ports.TeamInvitationService
 }

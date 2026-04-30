@@ -12,8 +12,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	models "github.com/threadify/engine/internal/models"
-	types "github.com/threadify/engine/internal/types"
+	domain "github.com/threadify/engine/internal/domain"
 	validator "github.com/threadify/engine/pkg/validator"
 )
 
@@ -41,7 +40,7 @@ func (m *MockStepEventProcessor) EXPECT() *MockStepEventProcessorMockRecorder {
 }
 
 // RecordStepEventDirect mocks base method.
-func (m *MockStepEventProcessor) RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
+func (m *MockStepEventProcessor) RecordStepEventDirect(ctx context.Context, event domain.StepEvent, ownerID, serviceName string, subSteps []domain.SubStepCmd) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordStepEventDirect", ctx, event, ownerID, serviceName, subSteps)
 	ret0, _ := ret[0].(error)
@@ -134,10 +133,10 @@ func (mr *MockConnectionManagerMockRecorder) Disconnect(ownerID interface{}) *go
 }
 
 // GetClient mocks base method.
-func (m *MockConnectionManager) GetClient(ownerID string) (*models.ConnectedClient, bool) {
+func (m *MockConnectionManager) GetClient(ownerID string) (*domain.ConnectedClient, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetClient", ownerID)
-	ret0, _ := ret[0].(*models.ConnectedClient)
+	ret0, _ := ret[0].(*domain.ConnectedClient)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -249,10 +248,10 @@ func (mr *MockCacheManagerMockRecorder) ClearThreadRoles(threadID interface{}) *
 }
 
 // GetContractGraph mocks base method.
-func (m *MockCacheManager) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, bool) {
+func (m *MockCacheManager) GetContractGraph(contractName string, version int, companyID string) (*domain.ContractGraph, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetContractGraph", contractName, version, companyID)
-	ret0, _ := ret[0].(*models.ContractGraph)
+	ret0, _ := ret[0].(*domain.ContractGraph)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -294,10 +293,10 @@ func (mr *MockCacheManagerMockRecorder) GetStepStatus(stepHashKey interface{}) *
 }
 
 // GetThread mocks base method.
-func (m *MockCacheManager) GetThread(threadID string) (*models.Thread, bool) {
+func (m *MockCacheManager) GetThread(threadID string) (*domain.Thread, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetThread", threadID)
-	ret0, _ := ret[0].(*models.Thread)
+	ret0, _ := ret[0].(*domain.Thread)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -324,7 +323,7 @@ func (mr *MockCacheManagerMockRecorder) GetUserRole(threadID, userID interface{}
 }
 
 // SetContractGraph mocks base method.
-func (m *MockCacheManager) SetContractGraph(contractName string, version int, companyID string, graph *models.ContractGraph) {
+func (m *MockCacheManager) SetContractGraph(contractName string, version int, companyID string, graph *domain.ContractGraph) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetContractGraph", contractName, version, companyID, graph)
 }
@@ -360,7 +359,7 @@ func (mr *MockCacheManagerMockRecorder) SetStepStatus(stepHashKey, status interf
 }
 
 // SetThread mocks base method.
-func (m *MockCacheManager) SetThread(threadID string, thread *models.Thread) {
+func (m *MockCacheManager) SetThread(threadID string, thread *domain.Thread) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetThread", threadID, thread)
 }
@@ -407,10 +406,10 @@ func (m *MockContractGraphValidator) EXPECT() *MockContractGraphValidatorMockRec
 }
 
 // GetContractByNameAndCompany mocks base method.
-func (m *MockContractGraphValidator) GetContractByNameAndCompany(contractName, companyID string) (*models.Contract, error) {
+func (m *MockContractGraphValidator) GetContractByNameAndCompany(contractName, companyID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetContractByNameAndCompany", contractName, companyID)
-	ret0, _ := ret[0].(*models.Contract)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -422,10 +421,10 @@ func (mr *MockContractGraphValidatorMockRecorder) GetContractByNameAndCompany(co
 }
 
 // GetContractGraph mocks base method.
-func (m *MockContractGraphValidator) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
+func (m *MockContractGraphValidator) GetContractGraph(contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetContractGraph", contractName, version, companyID)
-	ret0, _ := ret[0].(*models.ContractGraph)
+	ret0, _ := ret[0].(*domain.ContractGraph)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -452,7 +451,7 @@ func (mr *MockContractGraphValidatorMockRecorder) LoadContractGraphIntoCache(con
 }
 
 // ValidateStepContext mocks base method.
-func (m *MockContractGraphValidator) ValidateStepContext(stepNode models.GraphNode, context map[string]string) error {
+func (m *MockContractGraphValidator) ValidateStepContext(stepNode domain.GraphNode, context map[string]string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateStepContext", stepNode, context)
 	ret0, _ := ret[0].(error)
@@ -622,7 +621,7 @@ func (mr *MockTimeoutMonitorMockRecorder) CancelTimeout(timeoutID, threadID, rea
 }
 
 // ScheduleTimeout mocks base method.
-func (m *MockTimeoutMonitor) ScheduleTimeout(event models.TimeoutEvent) error {
+func (m *MockTimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ScheduleTimeout", event)
 	ret0, _ := ret[0].(error)
@@ -764,11 +763,11 @@ func (mr *MockContractServiceMockRecorder) GetContractVersion(ctx, contractID, v
 }
 
 // PreviewContract mocks base method.
-func (m *MockContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
+func (m *MockContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PreviewContract", yamlString)
 	ret0, _ := ret[0].(*validator.Contract)
-	ret1, _ := ret[1].(*models.ContractGraph)
+	ret1, _ := ret[1].(*domain.ContractGraph)
 	ret2, _ := ret[2].(*validator.ValidationResult)
 	ret3, _ := ret[3].(error)
 	return ret0, ret1, ret2, ret3
@@ -833,10 +832,10 @@ func (mr *MockThreadServiceMockRecorder) EndThread(ctx, threadID, actorID, actor
 }
 
 // HandleAddRefs mocks base method.
-func (m *MockThreadService) HandleAddRefs(ctx context.Context, req *models.AddRefsRequest, ownerID string) *models.AddRefsResponse {
+func (m *MockThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCmd, ownerID string) *domain.AddRefsResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleAddRefs", ctx, req, ownerID)
-	ret0, _ := ret[0].(*models.AddRefsResponse)
+	ret0, _ := ret[0].(*domain.AddRefsResponse)
 	return ret0
 }
 
@@ -847,10 +846,10 @@ func (mr *MockThreadServiceMockRecorder) HandleAddRefs(ctx, req, ownerID interfa
 }
 
 // HandleClose mocks base method.
-func (m *MockThreadService) HandleClose(ownerID string) *models.CloseConnectionResponse {
+func (m *MockThreadService) HandleClose(ownerID string) *domain.CloseConnectionResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleClose", ownerID)
-	ret0, _ := ret[0].(*models.CloseConnectionResponse)
+	ret0, _ := ret[0].(*domain.CloseConnectionResponse)
 	return ret0
 }
 
@@ -861,10 +860,10 @@ func (mr *MockThreadServiceMockRecorder) HandleClose(ownerID interface{}) *gomoc
 }
 
 // HandleConnect mocks base method.
-func (m *MockThreadService) HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse {
+func (m *MockThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCmd) *domain.ConnectResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleConnect", ctx, req)
-	ret0, _ := ret[0].(*models.ConnectResponse)
+	ret0, _ := ret[0].(*domain.ConnectResponse)
 	return ret0
 }
 
@@ -875,10 +874,10 @@ func (mr *MockThreadServiceMockRecorder) HandleConnect(ctx, req interface{}) *go
 }
 
 // HandleInviteParty mocks base method.
-func (m *MockThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error) {
+func (m *MockThreadService) HandleInviteParty(req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleInviteParty", req, ownerID, companyID, threadIDs)
-	ret0, _ := ret[0].(*models.InvitePartyResponse)
+	ret0, _ := ret[0].(*domain.InvitePartyResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -890,25 +889,25 @@ func (mr *MockThreadServiceMockRecorder) HandleInviteParty(req, ownerID, company
 }
 
 // HandleJoinThread mocks base method.
-func (m *MockThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
+func (m *MockThreadService) HandleJoinThread(req *domain.JoinThreadCmd, userID, companyID string) (*domain.JoinThreadResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HandleJoinThread", req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.JoinThreadResponse)
+	ret := m.ctrl.Call(m, "HandleJoinThread", req, userID, companyID)
+	ret0, _ := ret[0].(*domain.JoinThreadResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // HandleJoinThread indicates an expected call of HandleJoinThread.
-func (mr *MockThreadServiceMockRecorder) HandleJoinThread(req, ownerID, companyID interface{}) *gomock.Call {
+func (mr *MockThreadServiceMockRecorder) HandleJoinThread(req, userID, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleJoinThread", reflect.TypeOf((*MockThreadService)(nil).HandleJoinThread), req, ownerID, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleJoinThread", reflect.TypeOf((*MockThreadService)(nil).HandleJoinThread), req, userID, companyID)
 }
 
 // HandleRecordEvent mocks base method.
-func (m *MockThreadService) HandleRecordEvent(ctx context.Context, req *models.RecordEventRequest, ownerID, companyID string) *models.RecordEventResponse {
+func (m *MockThreadService) HandleRecordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleRecordEvent", ctx, req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.RecordEventResponse)
+	ret0, _ := ret[0].(*domain.RecordEventResponse)
 	return ret0
 }
 
@@ -919,10 +918,10 @@ func (mr *MockThreadServiceMockRecorder) HandleRecordEvent(ctx, req, ownerID, co
 }
 
 // HandleStartThread mocks base method.
-func (m *MockThreadService) HandleStartThread(ctx context.Context, req *models.StartThreadRequest, ownerID, companyID string) *models.StartThreadResponse {
+func (m *MockThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleStartThread", ctx, req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.StartThreadResponse)
+	ret0, _ := ret[0].(*domain.StartThreadResponse)
 	return ret0
 }
 
@@ -1000,10 +999,10 @@ func (mr *MockInvitationTokenServiceMockRecorder) ValidateAccessLevel(accessLeve
 }
 
 // ValidateToken mocks base method.
-func (m *MockInvitationTokenService) ValidateToken(tokenString string) (*models.ThreadInvitationClaims, error) {
+func (m *MockInvitationTokenService) ValidateToken(tokenString string) (*domain.ThreadInvitationClaims, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateToken", tokenString)
-	ret0, _ := ret[0].(*models.ThreadInvitationClaims)
+	ret0, _ := ret[0].(*domain.ThreadInvitationClaims)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1089,7 +1088,7 @@ func (mr *MockNotificationRouterMockRecorder) HandleAck(ackToken interface{}) *g
 }
 
 // HandleConnect mocks base method.
-func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn types.WSConnection, connMutex types.WSMutex) error {
+func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn domain.WSConnection, connMutex domain.WSMutex) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleConnect", sessionID, ownerID, maxInFlight, conn, connMutex)
 	ret0, _ := ret[0].(error)
@@ -1154,7 +1153,7 @@ func (m *MockNotificationPublisher) EXPECT() *MockNotificationPublisherMockRecor
 }
 
 // PublishNotification mocks base method.
-func (m *MockNotificationPublisher) PublishNotification(ctx context.Context, notification models.ValidationNotification) error {
+func (m *MockNotificationPublisher) PublishNotification(ctx context.Context, notification domain.ValidationNotification) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PublishNotification", ctx, notification)
 	ret0, _ := ret[0].(error)
@@ -1206,10 +1205,10 @@ func (mr *MockAuthServiceMockRecorder) GetUserRoles(ctx, userID, scope, expiresA
 }
 
 // ValidateApiKey mocks base method.
-func (m *MockAuthService) ValidateApiKey(apiKey string) (*types.UserInfo, error) {
+func (m *MockAuthService) ValidateApiKey(apiKey string) (*domain.UserInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateApiKey", apiKey)
-	ret0, _ := ret[0].(*types.UserInfo)
+	ret0, _ := ret[0].(*domain.UserInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

@@ -214,7 +214,6 @@ func ValidateResendVerificationEmailRequest(req *dto.ResendVerificationEmailRequ
 	return b.err()
 }
 
-
 func validateEmail(field, email string, b *validationBuilder) {
 	switch {
 	case email == "":

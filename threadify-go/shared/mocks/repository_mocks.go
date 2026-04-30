@@ -7,7 +7,7 @@ package sharedmocks
 import (
 	context "context"
 	reflect "reflect"
-	models "threadify-go/shared/domain"
+	domain "threadify-go/shared/domain"
 	repository "threadify-go/shared/repository"
 
 	gomock "github.com/golang/mock/gomock"
@@ -37,7 +37,7 @@ func (m *MockPlanRepository) EXPECT() *MockPlanRepositoryMockRecorder {
 }
 
 // CreateCreditAccount mocks base method.
-func (m *MockPlanRepository) CreateCreditAccount(ctx context.Context, account *models.CreditAccount) error {
+func (m *MockPlanRepository) CreateCreditAccount(ctx context.Context, account *domain.CreditAccount) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateCreditAccount", ctx, account)
 	ret0, _ := ret[0].(error)
@@ -66,10 +66,10 @@ func (mr *MockPlanRepositoryMockRecorder) FindCompanyByExternalCustomerID(ctx, e
 }
 
 // GetCreditAccount mocks base method.
-func (m *MockPlanRepository) GetCreditAccount(ctx context.Context, companyID string) (*models.CreditAccount, error) {
+func (m *MockPlanRepository) GetCreditAccount(ctx context.Context, companyID string) (*domain.CreditAccount, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetCreditAccount", ctx, companyID)
-	ret0, _ := ret[0].(*models.CreditAccount)
+	ret0, _ := ret[0].(*domain.CreditAccount)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -204,7 +204,7 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) ArchiveProfileType(ctx, c
 }
 
 // CreateProfileType mocks base method.
-func (m *MockEntityProfileTypeRepository) CreateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (m *MockEntityProfileTypeRepository) CreateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateProfileType", ctx, profileType)
 	ret0, _ := ret[0].(error)
@@ -218,10 +218,10 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) CreateProfileType(ctx, pr
 }
 
 // GetProfileTypeByID mocks base method.
-func (m *MockEntityProfileTypeRepository) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeRepository) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*domain.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileTypeByID", ctx, profileTypeID)
-	ret0, _ := ret[0].(*models.EntityProfileType)
+	ret0, _ := ret[0].(*domain.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -233,10 +233,10 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetProfileTypeByID(ctx, p
 }
 
 // GetProfileTypeByType mocks base method.
-func (m *MockEntityProfileTypeRepository) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeRepository) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*domain.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileTypeByType", ctx, companyID, profileType)
-	ret0, _ := ret[0].(*models.EntityProfileType)
+	ret0, _ := ret[0].(*domain.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -248,10 +248,10 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetProfileTypeByType(ctx,
 }
 
 // GetProfileTypesByCompanyID mocks base method.
-func (m *MockEntityProfileTypeRepository) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeRepository) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileTypesByCompanyID", ctx, companyID)
-	ret0, _ := ret[0].([]*models.EntityProfileType)
+	ret0, _ := ret[0].([]*domain.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -263,10 +263,10 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetProfileTypesByCompanyI
 }
 
 // ListMetricsTemplates mocks base method.
-func (m *MockEntityProfileTypeRepository) ListMetricsTemplates(ctx context.Context) ([]models.MetricsTemplateResponse, error) {
+func (m *MockEntityProfileTypeRepository) ListMetricsTemplates(ctx context.Context) ([]domain.MetricsTemplateResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListMetricsTemplates", ctx)
-	ret0, _ := ret[0].([]models.MetricsTemplateResponse)
+	ret0, _ := ret[0].([]domain.MetricsTemplateResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -278,7 +278,7 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) ListMetricsTemplates(ctx 
 }
 
 // UpdateProfileType mocks base method.
-func (m *MockEntityProfileTypeRepository) UpdateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (m *MockEntityProfileTypeRepository) UpdateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateProfileType", ctx, profileType)
 	ret0, _ := ret[0].(error)
@@ -315,7 +315,7 @@ func (m *MockEntityProfileRepository) EXPECT() *MockEntityProfileRepositoryMockR
 }
 
 // CreateProfile mocks base method.
-func (m *MockEntityProfileRepository) CreateProfile(ctx context.Context, profile *models.EntityProfile) error {
+func (m *MockEntityProfileRepository) CreateProfile(ctx context.Context, profile *domain.EntityProfile) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateProfile", ctx, profile)
 	ret0, _ := ret[0].(error)
@@ -329,11 +329,11 @@ func (mr *MockEntityProfileRepositoryMockRecorder) CreateProfile(ctx, profile in
 }
 
 // GetProfileByIDWithMetrics mocks base method.
-func (m *MockEntityProfileRepository) GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
+func (m *MockEntityProfileRepository) GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*domain.EntityProfile, *domain.EntityProfileMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileByIDWithMetrics", ctx, companyID, entityProfileID)
-	ret0, _ := ret[0].(*models.EntityProfile)
-	ret1, _ := ret[1].(*models.EntityProfileMetrics)
+	ret0, _ := ret[0].(*domain.EntityProfile)
+	ret1, _ := ret[1].(*domain.EntityProfileMetrics)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -345,10 +345,10 @@ func (mr *MockEntityProfileRepositoryMockRecorder) GetProfileByIDWithMetrics(ctx
 }
 
 // GetProfileByRefKey mocks base method.
-func (m *MockEntityProfileRepository) GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*models.EntityProfile, error) {
+func (m *MockEntityProfileRepository) GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*domain.EntityProfile, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileByRefKey", ctx, companyID, profileTypeID, refKey)
-	ret0, _ := ret[0].(*models.EntityProfile)
+	ret0, _ := ret[0].(*domain.EntityProfile)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -360,10 +360,10 @@ func (mr *MockEntityProfileRepositoryMockRecorder) GetProfileByRefKey(ctx, compa
 }
 
 // GetProfileMetrics mocks base method.
-func (m *MockEntityProfileRepository) GetProfileMetrics(ctx context.Context, entityProfileID string) (*models.EntityProfileMetrics, error) {
+func (m *MockEntityProfileRepository) GetProfileMetrics(ctx context.Context, entityProfileID string) (*domain.EntityProfileMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileMetrics", ctx, entityProfileID)
-	ret0, _ := ret[0].(*models.EntityProfileMetrics)
+	ret0, _ := ret[0].(*domain.EntityProfileMetrics)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -375,11 +375,11 @@ func (mr *MockEntityProfileRepositoryMockRecorder) GetProfileMetrics(ctx, entity
 }
 
 // GetProfileWithMetrics mocks base method.
-func (m *MockEntityProfileRepository) GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
+func (m *MockEntityProfileRepository) GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*domain.EntityProfile, *domain.EntityProfileMetrics, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetProfileWithMetrics", ctx, companyID, typeName, refKey)
-	ret0, _ := ret[0].(*models.EntityProfile)
-	ret1, _ := ret[1].(*models.EntityProfileMetrics)
+	ret0, _ := ret[0].(*domain.EntityProfile)
+	ret1, _ := ret[1].(*domain.EntityProfileMetrics)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }

@@ -10,8 +10,8 @@ import (
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
-	sharedmocks "threadify-go/shared/mocks"
 	sharemodels "threadify-go/shared/domain"
+	sharedmocks "threadify-go/shared/mocks"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"

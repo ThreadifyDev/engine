@@ -13,7 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	natsmocks "github.com/threadify/engine/internal/service/mocks/nats"
@@ -44,10 +44,10 @@ func TestTimeoutMonitor_HandleTimeoutEvent_CancelledSkipsPublishAndAcks(t *testi
 	pub := enginemocks.NewMockNotificationPublisher(ctrl)
 	msg := natsmocks.NewMockMsg(ctrl)
 
-	event := models.TimeoutEvent{
+	event := domain.TimeoutEvent{
 		ID:           "timeout-1",
 		ThreadID:     "thread-1",
-		Type:         models.TimeoutTypeTransition,
+		Type:         domain.TimeoutTypeTransition,
 		FromStep:     "step-a",
 		ToStep:       "step-b",
 		Timeout:      "2m",
@@ -76,10 +76,10 @@ func TestTimeoutMonitor_HandleTimeoutEvent_PublishErrorDoesNotAck(t *testing.T) 
 	pub := enginemocks.NewMockNotificationPublisher(ctrl)
 	msg := natsmocks.NewMockMsg(ctrl)
 
-	event := models.TimeoutEvent{
+	event := domain.TimeoutEvent{
 		ID:           "timeout-2",
 		ThreadID:     "thread-2",
-		Type:         models.TimeoutTypeTransition,
+		Type:         domain.TimeoutTypeTransition,
 		FromStep:     "step-a",
 		ToStep:       "step-b",
 		Timeout:      "2m",
@@ -93,7 +93,7 @@ func TestTimeoutMonitor_HandleTimeoutEvent_PublishErrorDoesNotAck(t *testing.T) 
 
 	msg.EXPECT().Data().Return(data).Times(1)
 	kv.EXPECT().Get(gomock.Any(), service.TimeoutCancellationKey(event.ID)).Return(nil, jetstream.ErrKeyNotFound).Times(1)
-	pub.EXPECT().PublishNotification(gomock.Any(), gomock.AssignableToTypeOf(models.ValidationNotification{})).
+	pub.EXPECT().PublishNotification(gomock.Any(), gomock.AssignableToTypeOf(domain.ValidationNotification{})).
 		Return(errors.New("publish failed")).Times(1)
 
 	tm := service.NewTimeoutMonitorForTests(kv, pub, zap.NewNop())
@@ -112,7 +112,7 @@ func TestTimeoutMonitor_HandleTimeoutEvent_ConcurrentSuccess_IsRaceSafe(t *testi
 	kv := timeoutmocks.NewMocktimeoutKV(ctrl)
 	pub := enginemocks.NewMockNotificationPublisher(ctrl)
 	kv.EXPECT().Get(gomock.Any(), gomock.Any()).Return(nil, jetstream.ErrKeyNotFound).Times(count)
-	pub.EXPECT().PublishNotification(gomock.Any(), gomock.AssignableToTypeOf(models.ValidationNotification{})).Return(nil).Times(count)
+	pub.EXPECT().PublishNotification(gomock.Any(), gomock.AssignableToTypeOf(domain.ValidationNotification{})).Return(nil).Times(count)
 
 	tm := service.NewTimeoutMonitorForTests(kv, pub, zap.NewNop())
 
@@ -121,10 +121,10 @@ func TestTimeoutMonitor_HandleTimeoutEvent_ConcurrentSuccess_IsRaceSafe(t *testi
 	errCh := make(chan error, count)
 
 	for i := 0; i < count; i++ {
-		event := models.TimeoutEvent{
+		event := domain.TimeoutEvent{
 			ID:           fmt.Sprintf("timeout-%d", i),
 			ThreadID:     "thread-1",
-			Type:         models.TimeoutTypeTransition,
+			Type:         domain.TimeoutTypeTransition,
 			FromStep:     "step-a",
 			ToStep:       "step-b",
 			Timeout:      "2m",
@@ -164,7 +164,7 @@ func TestTimeoutMonitor_CancelTimeout_SanitizesKeyAndIncrementsMetric(t *testing
 	kv := timeoutmocks.NewMocktimeoutKV(ctrl)
 	pub := enginemocks.NewMockNotificationPublisher(ctrl)
 
-	var captured models.TimeoutCancellation
+	var captured domain.TimeoutCancellation
 	timeoutID := "timeout:abc"
 
 	kv.EXPECT().Put(gomock.Any(), service.TimeoutCancellationKey(timeoutID), gomock.Any()).

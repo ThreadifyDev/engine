@@ -38,7 +38,7 @@ type ChatResponse struct {
 type ConversationsResponse struct {
 	Conversations []*AgentConversation `json:"conversations"`
 	MaxTokens     int                  `json:"max_tokens"`
-	MaxMessages    int                  `json:"max_messages"`
+	MaxMessages   int                  `json:"max_messages"`
 }
 
 type MessagesResponse struct {

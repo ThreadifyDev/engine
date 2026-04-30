@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
@@ -55,7 +54,7 @@ func (r *ActivityRepository) publishWithTimeout(ctx context.Context, publish fun
 }
 
 // RecordAccessGranted records an access granted event to streams
-func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *types.UserAccess, invitedBy, serviceName, runtimeRole string) error {
+func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, userID string, access *domain.UserAccess, invitedBy, serviceName, runtimeRole string) error {
 	if r.natsPublisher == nil {
 		return nil
 	}
@@ -100,14 +99,10 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
 			"type":         "access_granted",
-			"threadId":     threadID,
-			"userId":       userID,
 			"actor":        userID,
 			"actorService": serviceName,
 			"role":         strings.Join(access.Roles, ","),
 			"runtimeRole":  runtimeRole,
-			"grantedBy":    invitedBy,
-			"grantedAt":    access.GrantedAt,
 			"method":       "direct",
 		})
 	}); err != nil {
@@ -130,14 +125,10 @@ func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID,
 	// SYNCHRONOUS - Critical for audit trail
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-			"type":         "invitation_used",
-			"threadId":     threadID,
-			"userId":       userID,
-			"actor":        userID,
-			"actorService": serviceName,
-			"role":         role,
-			"invitedBy":    invitedBy,
-			"timestamp":    time.Now().Format(time.RFC3339),
+			"type":      "invitation_used",
+			"role":      role,
+			"invitedBy": invitedBy,
+			"timestamp": time.Now().Format(time.RFC3339),
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish invitation used to NATS",
@@ -178,13 +169,11 @@ func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, 
 	// SYNCHRONOUS - Critical for audit trail
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-			"type":         "thread_created",
-			"threadId":     threadID,
-			"userId":       creatorID,
-			"actor":        creatorID,
-			"actorService": serviceName,
-			"role":         creatorRole,
-			"timestamp":    now,
+			"type":      "thread_created",
+			"userId":    creatorID,
+			"actor":     creatorID,
+			"role":      creatorRole,
+			"timestamp": now,
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish thread created activity to NATS",
@@ -204,7 +193,7 @@ func (r *ActivityRepository) ArchiveValidationResults(
 	stepID string,
 	stepName string,
 	idempotencyKey string,
-	notifications []models.ValidationNotification,
+	notifications []domain.ValidationNotification,
 	finalStatus string,
 	hasCriticalViolation bool,
 ) error {
@@ -212,12 +201,33 @@ func (r *ActivityRepository) ArchiveValidationResults(
 		return nil
 	}
 
+	mappedNotifs := make([]map[string]interface{}, len(notifications))
+	for i, n := range notifications {
+		mappedNotifs[i] = map[string]interface{}{
+			"notificationId":   n.NotificationID,
+			"threadId":         n.ThreadID,
+			"stepId":           n.StepID,
+			"stepName":         n.StepName,
+			"ownerId":          n.OwnerID,
+			"contractName":     n.ContractName,
+			"source":           string(n.Source),
+			"notificationType": string(n.NotificationType),
+			"stepStatus":       n.StepStatus,
+			"status":           n.Status,
+			"violationType":    n.ViolationType,
+			"severity":         n.Severity,
+			"message":          n.Message,
+			"details":          n.Details,
+			"timestamp":        n.Timestamp,
+		}
+	}
+
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishThreadNotifications(pubCtx, map[string]interface{}{
 			"threadId":      threadID,
 			"stepId":        stepID,
 			"stepName":      stepName,
-			"notifications": notifications,
+			"notifications": mappedNotifs,
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish thread notifications to NATS",
@@ -232,7 +242,7 @@ func (r *ActivityRepository) ArchiveValidationResults(
 }
 
 // ArchiveThreadMetadata writes thread metadata to archival stream
-func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *models.Thread, status string) error {
+func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *domain.Thread, status string) error {
 	contractVersion := "0"
 	if thread.ContractVersion != nil {
 		contractVersion = fmt.Sprintf("%d", *thread.ContractVersion)
@@ -304,7 +314,7 @@ func (r *ActivityRepository) ArchiveThreadMetadata(ctx context.Context, thread *
 
 // ArchiveStepState publishes step state snapshot to NATS for archival to Postgres.
 // SYNCHRONOUS - Critical for PostgreSQL persistence (DB-first architecture).
-func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *types.StepStateSnapshot) error {
+func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *domain.StepStateSnapshot) error {
 	if r.natsPublisher == nil {
 		return errNATSPublisherNotAvailable
 	}

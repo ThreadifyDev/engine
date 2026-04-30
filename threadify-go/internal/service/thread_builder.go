@@ -8,7 +8,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -33,12 +33,12 @@ type ThreadServiceBuilder struct {
 	threadRepo            *valkey.ThreadRepository
 	contractTTLSeconds    int
 	natsClient            *natsrepo.Client
-	natsPublisher         types.NotificationPublisher
+	natsPublisher         domain.NotificationPublisher
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	authService           *AuthService
-	planService           types.PlanService
+	planService           domain.PlanService
 	workerPools           *workerpool.Pools
-	cacheManager          types.CacheManager
+	cacheManager          domain.CacheManager
 	logger                *zap.Logger
 }
 
@@ -82,7 +82,7 @@ func (b *ThreadServiceBuilder) WithNATSClient(client *natsrepo.Client) *ThreadSe
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithNATSPublisher(publisher types.NotificationPublisher) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithNATSPublisher(publisher domain.NotificationPublisher) *ThreadServiceBuilder {
 	b.natsPublisher = publisher
 	return b
 }
@@ -97,7 +97,7 @@ func (b *ThreadServiceBuilder) WithAuthService(authService *AuthService) *Thread
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithPlanService(planService types.PlanService) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithPlanService(planService domain.PlanService) *ThreadServiceBuilder {
 	b.planService = planService
 	return b
 }
@@ -107,7 +107,7 @@ func (b *ThreadServiceBuilder) WithWorkerPools(pools *workerpool.Pools) *ThreadS
 	return b
 }
 
-func (b *ThreadServiceBuilder) WithCacheManager(cm types.CacheManager) *ThreadServiceBuilder {
+func (b *ThreadServiceBuilder) WithCacheManager(cm domain.CacheManager) *ThreadServiceBuilder {
 	b.cacheManager = cm
 	return b
 }

@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // AccessRepository handles access control retrieval from PostgreSQL
@@ -25,7 +24,7 @@ func NewAccessRepository(pool *pgxpool.Pool) *AccessRepository {
 }
 
 // GetUserAccess retrieves user access from thread_access table
-func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*types.UserAccess, error) {
+func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID string) (*domain.UserAccess, error) {
 	query := `
 		SELECT roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
@@ -62,7 +61,7 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 		return nil, fmt.Errorf("failed to parse roles: %w", err)
 	}
 
-	access := &types.UserAccess{
+	access := &domain.UserAccess{
 		Roles:       roles,
 		RuntimeRole: runtimeRole,
 		Permissions: permissions,
@@ -79,7 +78,7 @@ func (r *AccessRepository) GetUserAccess(ctx context.Context, threadID, userID s
 }
 
 // GetAllAccess retrieves all user access for a thread from thread_access table
-func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*types.UserAccess, error) {
+func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (map[string]*domain.UserAccess, error) {
 	query := `
 		SELECT user_id, roles, runtime_role, permissions, granted_by, granted_at, updated_at, status
 		FROM thread_access
@@ -92,7 +91,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 	}
 	defer rows.Close()
 
-	result := make(map[string]*types.UserAccess)
+	result := make(map[string]*domain.UserAccess)
 
 	for rows.Next() {
 		var userID string
@@ -124,7 +123,7 @@ func (r *AccessRepository) GetAllAccess(ctx context.Context, threadID string) (m
 			continue
 		}
 
-		result[userID] = &types.UserAccess{
+		result[userID] = &domain.UserAccess{
 			Roles:       roles,
 			RuntimeRole: runtimeRole,
 			Permissions: permissions,
@@ -151,7 +150,7 @@ func (r *AccessRepository) GetUsersByRuntimeRoles(
 	ctx context.Context,
 	threadID string,
 	runtimeRoles []string,
-) ([]models.UserRoleInfo, error) {
+) ([]domain.UserRoleInfo, error) {
 	query := `
 		SELECT user_id, runtime_role
 		FROM thread_access
@@ -166,10 +165,10 @@ func (r *AccessRepository) GetUsersByRuntimeRoles(
 	}
 	defer rows.Close()
 
-	var users []models.UserRoleInfo
+	var users []domain.UserRoleInfo
 
 	for rows.Next() {
-		var user models.UserRoleInfo
+		var user domain.UserRoleInfo
 		if err := rows.Scan(&user.UserID, &user.RuntimeRole); err != nil {
 			continue // Skip invalid entries
 		}
@@ -190,7 +189,7 @@ func (r *AccessRepository) GetUsersByPermissions(
 	ctx context.Context,
 	threadID string,
 	requiredPermissions []string,
-) ([]models.UserPermissionInfo, error) {
+) ([]domain.UserPermissionInfo, error) {
 	// Use && operator for array overlap - returns true if arrays have any common elements
 	// GIN index on permissions column makes this O(log N) instead of O(N)
 	query := `
@@ -207,10 +206,10 @@ func (r *AccessRepository) GetUsersByPermissions(
 	}
 	defer rows.Close()
 
-	var users []models.UserPermissionInfo
+	var users []domain.UserPermissionInfo
 
 	for rows.Next() {
-		var user models.UserPermissionInfo
+		var user domain.UserPermissionInfo
 		if err := rows.Scan(&user.UserID, &user.Permissions); err != nil {
 			continue // Skip invalid entries
 		}

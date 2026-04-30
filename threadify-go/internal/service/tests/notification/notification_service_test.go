@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"github.com/threadify/engine/internal/service/tests/common"
@@ -16,11 +16,11 @@ import (
 )
 
 type mockTimeoutMonitor struct {
-	scheduleFn func(event models.TimeoutEvent) error
+	scheduleFn func(event domain.TimeoutEvent) error
 	cancelFn   func(timeoutID, threadID, reason string) error
 }
 
-func (m *mockTimeoutMonitor) ScheduleTimeout(event models.TimeoutEvent) error {
+func (m *mockTimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
 	if m.scheduleFn != nil {
 		return m.scheduleFn(event)
 	}
@@ -104,31 +104,31 @@ func TestNotificationService_ScheduleThreadTimeout(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		scheduled := false
-		tm.scheduleFn = func(event models.TimeoutEvent) error {
+		tm.scheduleFn = func(event domain.TimeoutEvent) error {
 			scheduled = true
 			assert.Equal(t, "t1:max_duration", event.ID)
-			assert.Equal(t, models.TimeoutTypeMaxDuration, event.Type)
+			assert.Equal(t, domain.TimeoutTypeMaxDuration, event.Type)
 			return nil
 		}
 
-		graph := &models.ContractGraph{
-			Validation: &models.Validation{MaxDuration: "1h"},
+		graph := &domain.ContractGraph{
+			Validation: &domain.Validation{MaxDuration: "1h"},
 		}
-		thread := &models.Thread{ID: "t1", ContractName: "c1"}
+		thread := &domain.Thread{ID: "t1", ContractName: "c1"}
 
 		svc.ScheduleThreadMaxDurationTimeout(context.Background(), "t1", graph, thread, time.Now())
 		assert.True(t, scheduled)
 	})
 
 	t.Run("missing validation section", func(t *testing.T) {
-		svc.ScheduleThreadMaxDurationTimeout(context.Background(), "t1", &models.ContractGraph{}, &models.Thread{}, time.Now())
+		svc.ScheduleThreadMaxDurationTimeout(context.Background(), "t1", &domain.ContractGraph{}, &domain.Thread{}, time.Now())
 	})
 
 	t.Run("invalid duration", func(t *testing.T) {
-		graph := &models.ContractGraph{
-			Validation: &models.Validation{MaxDuration: "bad"},
+		graph := &domain.ContractGraph{
+			Validation: &domain.Validation{MaxDuration: "bad"},
 		}
-		svc.ScheduleThreadMaxDurationTimeout(context.Background(), "t1", graph, &models.Thread{}, time.Now())
+		svc.ScheduleThreadMaxDurationTimeout(context.Background(), "t1", graph, &domain.Thread{}, time.Now())
 	})
 }
 
@@ -157,8 +157,8 @@ func TestNotificationService_HandleNoContractStep(t *testing.T) {
 
 	svc := service.NewNotificationService(nil, d.ActivityRepo, nil, nil, nil, pub, nil, nil, nil, nil, pool, nil, d.Logger)
 
-	thread := &models.Thread{ID: "t1", ContractName: ""}
-	req := &models.RecordEventRequest{
+	thread := &domain.Thread{ID: "t1", ContractName: ""}
+	req := &domain.RecordEventCmd{
 		ThreadID: "t1",
 		StepName: "step1",
 		Status:   "success",

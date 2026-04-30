@@ -18,7 +18,6 @@ func NewAPIKeyRepository(pool *pgxpool.Pool) domain.APIKeyRepository {
 	return &apiKeyRepository{pool: pool}
 }
 
-
 func (r *apiKeyRepository) Create(ctx context.Context, apiKey *domain.APIKey) error {
 	query := `
 		INSERT INTO api_keys (id, key_hash, key_prefix, name, user_id, service_account_id, company_id, expires_at, created_at)

@@ -13,7 +13,7 @@ import (
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -24,24 +24,24 @@ const (
 
 type BillingOrchestrator struct {
 	*billing.BillingService
-	billingRepo  types.BillingRepository
-	valkey       types.ValkeyStringClient
-	creditAtomic types.ValkeyCreditAtomic
-	streamClient types.ValkeyStreamClient
-	planSvc      types.PlanService
+	billingRepo  domain.BillingRepository
+	valkey       domain.ValkeyStringClient
+	creditAtomic domain.ValkeyCreditAtomic
+	streamClient domain.ValkeyStreamClient
+	planSvc      domain.PlanService
 	logger       *zap.Logger
 }
 
 func NewBillingOrchestrator(
 	billingProvider billing.BillingProvider,
 	planRepo sharedrepo.PlanRepository,
-	billingRepo types.BillingRepository,
+	billingRepo domain.BillingRepository,
 	subConfig *sharedconfig.SubscriptionConfig,
 	billingConfig *sharedconfig.BillingConfig,
-	valkey types.ValkeyStringClient,
-	creditAtomic types.ValkeyCreditAtomic,
-	streamClient types.ValkeyStreamClient,
-	planSvc types.PlanService,
+	valkey domain.ValkeyStringClient,
+	creditAtomic domain.ValkeyCreditAtomic,
+	streamClient domain.ValkeyStreamClient,
+	planSvc domain.PlanService,
 	logger *zap.Logger,
 ) *BillingOrchestrator {
 	sharedSvc := billing.NewBillingService(billingProvider, planRepo, subConfig, billingConfig, logger)

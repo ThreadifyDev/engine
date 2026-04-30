@@ -11,7 +11,7 @@ import (
 	shareddomain "threadify-go/shared/domain"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -26,14 +26,14 @@ const (
 )
 
 type WebhookHandler struct {
-	provider   types.WebhookProvider
-	billingSvc types.BillingWebhookService
+	provider   domain.WebhookProvider
+	billingSvc domain.BillingWebhookService
 	logger     *zap.Logger
 }
 
 func NewWebhookHandler(
-	provider types.WebhookProvider,
-	billingSvc types.BillingWebhookService,
+	provider domain.WebhookProvider,
+	billingSvc domain.BillingWebhookService,
 	logger *zap.Logger,
 ) *WebhookHandler {
 	return &WebhookHandler{

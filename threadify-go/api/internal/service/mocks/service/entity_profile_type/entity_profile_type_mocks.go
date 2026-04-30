@@ -8,7 +8,7 @@ import (
 	context "context"
 	reflect "reflect"
 	domain "threadify-go/api/internal/domain"
-	models "threadify-go/shared/domain"
+	domain0 "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -51,10 +51,10 @@ func (mr *MockEntityProfileTypeServiceMockRecorder) ArchiveEntityProfileType(arg
 }
 
 // CreateEntityProfileType mocks base method.
-func (m *MockEntityProfileTypeService) CreateEntityProfileType(arg0 context.Context, arg1 string, arg2 *domain.CreateEntityProfileTypeCmd) (*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeService) CreateEntityProfileType(arg0 context.Context, arg1 string, arg2 *domain.CreateEntityProfileTypeCmd) (*domain0.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateEntityProfileType", arg0, arg1, arg2)
-	ret0, _ := ret[0].(*models.EntityProfileType)
+	ret0, _ := ret[0].(*domain0.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -66,10 +66,10 @@ func (mr *MockEntityProfileTypeServiceMockRecorder) CreateEntityProfileType(arg0
 }
 
 // ListEntityProfileTypes mocks base method.
-func (m *MockEntityProfileTypeService) ListEntityProfileTypes(arg0 context.Context, arg1 string) ([]*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeService) ListEntityProfileTypes(arg0 context.Context, arg1 string) ([]*domain0.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListEntityProfileTypes", arg0, arg1)
-	ret0, _ := ret[0].([]*models.EntityProfileType)
+	ret0, _ := ret[0].([]*domain0.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -81,10 +81,10 @@ func (mr *MockEntityProfileTypeServiceMockRecorder) ListEntityProfileTypes(arg0,
 }
 
 // ListMetricsTemplates mocks base method.
-func (m *MockEntityProfileTypeService) ListMetricsTemplates(arg0 context.Context) ([]models.MetricsTemplateResponse, error) {
+func (m *MockEntityProfileTypeService) ListMetricsTemplates(arg0 context.Context) ([]domain0.MetricsTemplateResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListMetricsTemplates", arg0)
-	ret0, _ := ret[0].([]models.MetricsTemplateResponse)
+	ret0, _ := ret[0].([]domain0.MetricsTemplateResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -96,10 +96,10 @@ func (mr *MockEntityProfileTypeServiceMockRecorder) ListMetricsTemplates(arg0 in
 }
 
 // UpdateEntityProfileType mocks base method.
-func (m *MockEntityProfileTypeService) UpdateEntityProfileType(arg0 context.Context, arg1, arg2 string, arg3 *domain.UpdateEntityProfileTypeCmd) (*models.EntityProfileType, error) {
+func (m *MockEntityProfileTypeService) UpdateEntityProfileType(arg0 context.Context, arg1, arg2 string, arg3 *domain.UpdateEntityProfileTypeCmd) (*domain0.EntityProfileType, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateEntityProfileType", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(*models.EntityProfileType)
+	ret0, _ := ret[0].(*domain0.EntityProfileType)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

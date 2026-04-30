@@ -8,7 +8,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"github.com/threadify/engine/internal/service/tests/common"
@@ -88,11 +88,11 @@ type scopeResolveCase struct {
 	explicitScope *string
 
 	expectThreadCall bool
-	thread           *models.Thread
+	thread           *domain.Thread
 	threadErr        error
 
 	expectGraphCall bool
-	contract        *models.ContractGraph
+	contract        *domain.ContractGraph
 	contractErr     error
 
 	want    string
@@ -155,13 +155,13 @@ func TestScopeResolver_ResolveScope_Lookup(t *testing.T) {
 		{
 			name:             "thread has no contract — falls back to system default",
 			expectThreadCall: true,
-			thread:           &models.Thread{ID: "t1", CompanyID: "c1"},
+			thread:           &domain.Thread{ID: "t1", CompanyID: "c1"},
 			want:             "owner",
 		},
 		{
 			name:             "contract repo error falls back to system default",
 			expectThreadCall: true,
-			thread:           &models.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
+			thread:           &domain.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
 			expectGraphCall:  true,
 			contractErr:      errors.New("db unavailable"),
 			want:             "owner",
@@ -170,9 +170,9 @@ func TestScopeResolver_ResolveScope_Lookup(t *testing.T) {
 			name:             "role_default in contract is used when valid",
 			role:             "merchant",
 			expectThreadCall: true,
-			thread:           &models.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
+			thread:           &domain.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
 			expectGraphCall:  true,
-			contract: &models.ContractGraph{NotificationConfig: &models.NotificationConfig{
+			contract: &domain.ContractGraph{NotificationConfig: &domain.NotificationConfig{
 				RoleDefaults: map[string]string{"merchant": "participant"},
 			}},
 			want: "participant",
@@ -181,9 +181,9 @@ func TestScopeResolver_ResolveScope_Lookup(t *testing.T) {
 			name:             "invalid role_default ignored — contract default used",
 			role:             "merchant",
 			expectThreadCall: true,
-			thread:           &models.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
+			thread:           &domain.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
 			expectGraphCall:  true,
-			contract: &models.ContractGraph{NotificationConfig: &models.NotificationConfig{
+			contract: &domain.ContractGraph{NotificationConfig: &domain.NotificationConfig{
 				RoleDefaults: map[string]string{"merchant": "nope"},
 				DefaultScope: "observer",
 			}},
@@ -193,9 +193,9 @@ func TestScopeResolver_ResolveScope_Lookup(t *testing.T) {
 			name:             "invalid contract default ignored — system default used",
 			role:             "merchant",
 			expectThreadCall: true,
-			thread:           &models.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
+			thread:           &domain.Thread{ID: "t1", CompanyID: "c1", ContractName: "cn", ContractVersion: common.Ptr(1)},
 			expectGraphCall:  true,
-			contract: &models.ContractGraph{NotificationConfig: &models.NotificationConfig{
+			contract: &domain.ContractGraph{NotificationConfig: &domain.NotificationConfig{
 				DefaultScope: "nope",
 			}},
 			want: "owner",

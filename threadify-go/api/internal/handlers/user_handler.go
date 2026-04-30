@@ -148,7 +148,7 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 func mapUserProfileToDTO(result *domain.UserProfile, minimal bool) gin.H {
 	user := mapUserToDTO(result.User)
 	company := result.Company
-	
+
 	detailsCompleted := company.Industry != nil || company.Size != nil || company.UseCase != nil
 
 	if minimal {

@@ -11,8 +11,8 @@ import (
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
-	serror "threadify-go/shared/errors"
 	sharemodels "threadify-go/shared/domain"
+	serror "threadify-go/shared/errors"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
