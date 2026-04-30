@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	serror "threadify-go/shared/errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,11 +14,12 @@ type apiKeyRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewAPIKeyRepository(pool *pgxpool.Pool) APIKeyRepository {
+func NewAPIKeyRepository(pool *pgxpool.Pool) domain.APIKeyRepository {
 	return &apiKeyRepository{pool: pool}
 }
 
-func (r *apiKeyRepository) Create(ctx context.Context, apiKey *models.APIKey) error {
+
+func (r *apiKeyRepository) Create(ctx context.Context, apiKey *domain.APIKey) error {
 	query := `
 		INSERT INTO api_keys (id, key_hash, key_prefix, name, user_id, service_account_id, company_id, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -28,7 +29,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, apiKey *models.APIKey) er
 	return err
 }
 
-func (r *apiKeyRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*models.APIKey, error) {
+func (r *apiKeyRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*domain.APIKey, error) {
 	query := `
 		SELECT id, key_hash, key_prefix, name, user_id, service_account_id, company_id,
 			last_used_at, expires_at, created_at, revoked_at
@@ -42,9 +43,9 @@ func (r *apiKeyRepository) FindByCompanyID(ctx context.Context, companyID string
 	}
 	defer rows.Close()
 
-	var keys []*models.APIKey
+	var keys []*domain.APIKey
 	for rows.Next() {
-		key := &models.APIKey{}
+		key := &domain.APIKey{}
 		err := rows.Scan(
 			&key.ID, &key.KeyHash, &key.KeyPrefix, &key.Name,
 			&key.UserID, &key.ServiceAccountID, &key.CompanyID,
@@ -58,8 +59,8 @@ func (r *apiKeyRepository) FindByCompanyID(ctx context.Context, companyID string
 	return keys, nil
 }
 
-func (r *apiKeyRepository) FindByID(ctx context.Context, id string) (*models.APIKey, error) {
-	key := &models.APIKey{}
+func (r *apiKeyRepository) FindByID(ctx context.Context, id string) (*domain.APIKey, error) {
+	key := &domain.APIKey{}
 	query := `
 		SELECT id, key_hash, key_prefix, name, user_id, service_account_id, company_id,
 			last_used_at, expires_at, created_at, revoked_at
@@ -79,8 +80,8 @@ func (r *apiKeyRepository) FindByID(ctx context.Context, id string) (*models.API
 	return key, nil
 }
 
-func (r *apiKeyRepository) FindByHash(ctx context.Context, keyHash string) (*models.APIKey, error) {
-	key := &models.APIKey{}
+func (r *apiKeyRepository) FindByHash(ctx context.Context, keyHash string) (*domain.APIKey, error) {
+	key := &domain.APIKey{}
 	query := `
 		SELECT id, key_hash, key_prefix, name, user_id, service_account_id, company_id,
 			last_used_at, expires_at, created_at, revoked_at

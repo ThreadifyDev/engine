@@ -2,7 +2,7 @@ package graphql
 
 import (
 	"testing"
-	sharedmodels "threadify-go/shared/models"
+	sharedmodels "threadify-go/shared/domain"
 	"time"
 
 	"github.com/stretchr/testify/assert"

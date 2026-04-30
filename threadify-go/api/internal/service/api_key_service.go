@@ -2,8 +2,7 @@ package service
 
 import (
 	"context"
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 	"threadify-go/shared/rbac"
 	"time"
@@ -14,17 +13,17 @@ import (
 const defaultServiceAccountRole = "standard_service"
 
 type APIKeyService struct {
-	apiKeyRepo         repository.APIKeyRepository
-	serviceAccountRepo repository.ServiceAccountRepository
-	userRoleRepo       repository.UserRoleRepository
+	apiKeyRepo         domain.APIKeyRepository
+	serviceAccountRepo domain.ServiceAccountRepository
+	userRoleRepo       domain.UserRoleRepository
 	rbacLoader         *rbac.Loader
 	logger             *zap.Logger
 }
 
 func NewAPIKeyService(
-	apiKeyRepo repository.APIKeyRepository,
-	serviceAccountRepo repository.ServiceAccountRepository,
-	userRoleRepo repository.UserRoleRepository,
+	apiKeyRepo domain.APIKeyRepository,
+	serviceAccountRepo domain.ServiceAccountRepository,
+	userRoleRepo domain.UserRoleRepository,
 	rbacLoader *rbac.Loader,
 	logger *zap.Logger,
 ) *APIKeyService {
@@ -41,8 +40,8 @@ func (s *APIKeyService) CreateAPIKey(
 	ctx context.Context,
 	userID string,
 	companyID string,
-	req *models.CreateAPIKeyRequest,
-) (*models.CreateAPIKeyResponse, error) {
+	req *domain.CreateAPIKeyCmd,
+) (*domain.APIKeyCredentials, error) {
 	if req.Name == "" {
 		return nil, ErrApiKeyNameRequired
 	}
@@ -63,8 +62,6 @@ func (s *APIKeyService) CreateAPIKey(
 		expiresAt = &expiry
 	}
 
-	// DB constraint chk_api_key_owner requires exactly one of user_id /
-	// service_account_id to be non-null.
 	var ownerUserID *string
 	if serviceAccountID == nil {
 		ownerUserID = &userID
@@ -73,7 +70,7 @@ func (s *APIKeyService) CreateAPIKey(
 	keyHash := utils.HashAPIKey(key)
 	keyPrefix := utils.GetKeyPrefix(key)
 
-	apiKey := &models.APIKey{
+	apiKey := &domain.APIKey{
 		ID:               utils.GenerateID(),
 		KeyHash:          keyHash,
 		KeyPrefix:        keyPrefix,
@@ -88,20 +85,18 @@ func (s *APIKeyService) CreateAPIKey(
 	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
 		return nil, err
 	}
-	return &models.CreateAPIKeyResponse{
+	return &domain.APIKeyCredentials{
 		Key:       key,
 		KeyPrefix: keyPrefix,
 		APIKey:    apiKey,
 	}, nil
 }
 
-// resolveServiceAccount returns the service account ID to associate with the
-// new API key, creating one if necessary.
 func (s *APIKeyService) resolveServiceAccount(
 	ctx context.Context,
 	userID string,
 	companyID string,
-	req *models.CreateAPIKeyRequest,
+	req *domain.CreateAPIKeyCmd,
 ) (*string, error) {
 	if req.ServiceAccountID != nil {
 		sa, err := s.serviceAccountRepo.FindByID(ctx, *req.ServiceAccountID)
@@ -131,7 +126,7 @@ func (s *APIKeyService) resolveServiceAccount(
 		name += " (auto-generated)"
 	}
 
-	sa := &models.ServiceAccount{
+	sa := &domain.ServiceAccount{
 		ID:        utils.GenerateID(),
 		CompanyID: companyID,
 		Name:      name,
@@ -151,7 +146,7 @@ func (s *APIKeyService) resolveServiceAccount(
 	return &sa.ID, nil
 }
 
-func (s *APIKeyService) ListAPIKeys(ctx context.Context, companyID string) ([]*models.APIKey, error) {
+func (s *APIKeyService) ListAPIKeys(ctx context.Context, companyID string) ([]*domain.APIKey, error) {
 	return s.apiKeyRepo.FindByCompanyID(ctx, companyID)
 }
 
@@ -169,7 +164,7 @@ func (s *APIKeyService) RevokeAPIKey(ctx context.Context, keyID, companyID strin
 	return s.apiKeyRepo.Revoke(ctx, keyID)
 }
 
-func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*models.APIKey, error) {
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*domain.APIKey, error) {
 	apiKey, err := s.apiKeyRepo.FindByHash(ctx, utils.HashAPIKey(key))
 	if err != nil {
 		return nil, err

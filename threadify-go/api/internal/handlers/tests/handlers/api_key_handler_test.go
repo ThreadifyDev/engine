@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -43,8 +43,8 @@ func TestAPIKeyHandler_CreateAPIKey(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.APIKeySvc.EXPECT().
 					CreateAPIKey(gomock.Any(), userID, companyID, gomock.Any()).
-					Return(&models.CreateAPIKeyResponse{
-						APIKey: &models.APIKey{ID: "key_1"},
+					Return(&domain.APIKeyCredentials{
+						APIKey: &domain.APIKey{ID: "key_1"},
 						Key:    "th_abc123",
 					}, nil)
 			},
@@ -101,7 +101,7 @@ func TestAPIKeyHandler_ListAPIKeys(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.APIKeySvc.EXPECT().
 					ListAPIKeys(gomock.Any(), companyID).
-					Return([]*models.APIKey{{ID: "key_1", Name: "Key 1"}}, nil)
+					Return([]*domain.APIKey{{ID: "key_1", Name: "Key 1"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},

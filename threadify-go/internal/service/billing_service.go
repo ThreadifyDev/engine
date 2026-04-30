@@ -9,7 +9,7 @@ import (
 	"threadify-go/shared/billing"
 	sharedconfig "threadify-go/shared/config"
 	"threadify-go/shared/database"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"

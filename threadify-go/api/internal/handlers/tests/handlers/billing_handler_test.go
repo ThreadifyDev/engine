@@ -8,7 +8,7 @@ import (
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	serror "threadify-go/shared/errors"
-	"threadify-go/shared/models"
+	sharedmodels "threadify-go/shared/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -36,7 +36,7 @@ func TestBillingHandler_UpdateMaxMonthlyCharge(t *testing.T) {
 			name: "success",
 			body: map[string]int64{"max_monthly_millicents": 5000},
 			setupMock: func(d *common.MockedHandlers) {
-				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&models.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
+				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&sharedmodels.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
 				d.PlanRepo.EXPECT().UpdateMaxMonthlyCharge(gomock.Any(), companyID, int64(5000)).Return(nil)
 			},
 			wantStatus: http.StatusOK,
@@ -45,7 +45,7 @@ func TestBillingHandler_UpdateMaxMonthlyCharge(t *testing.T) {
 			name: "limit_too_low",
 			body: map[string]int64{"max_monthly_millicents": 500},
 			setupMock: func(d *common.MockedHandlers) {
-				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&models.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
+				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&sharedmodels.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
 			},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -61,7 +61,7 @@ func TestBillingHandler_UpdateMaxMonthlyCharge(t *testing.T) {
 			name: "service_error",
 			body: map[string]int64{"max_monthly_millicents": 5000},
 			setupMock: func(d *common.MockedHandlers) {
-				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&models.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
+				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&sharedmodels.CreditAccount{CreditAutoTopupMillicents: 1000}, nil)
 				d.PlanRepo.EXPECT().UpdateMaxMonthlyCharge(gomock.Any(), companyID, int64(5000)).
 					Return(errors.New("db error"))
 			},
@@ -107,7 +107,7 @@ func TestBillingHandler_CreateCheckoutSession(t *testing.T) {
 			body: map[string]int64{"amount_millicents": 2000},
 			setupMock: func(d *common.MockedHandlers) {
 				d.PlanRepo.EXPECT().GetExternalCustomerID(gomock.Any(), companyID).Return("ext_123", nil)
-				d.BillingProvider.EXPECT().CreateCheckoutSession(models.CheckoutSessionParams{
+				d.BillingProvider.EXPECT().CreateCheckoutSession(sharedmodels.CheckoutSessionParams{
 					CompanyID:               companyID,
 					InitialAmountMillicents: 2000,
 					SuccessURL:              "http://ok",
@@ -171,7 +171,7 @@ func TestBillingHandler_GetCurrentPlan(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(d *common.MockedHandlers) {
-				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&models.CreditAccount{CompanyID: companyID}, nil)
+				d.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&sharedmodels.CreditAccount{CompanyID: companyID}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},

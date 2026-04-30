@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/dto"
 )
 
 const (
@@ -90,7 +90,7 @@ func (b *validationBuilder) err() error {
 	return &RequestValidationError{problems: b.problems}
 }
 
-func ValidateSignupRequest(req *models.SignupRequest) error {
+func ValidateSignupRequest(req *dto.SignupRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -127,7 +127,7 @@ func ValidateSignupRequest(req *models.SignupRequest) error {
 	return b.err()
 }
 
-func ValidateLoginRequest(req *models.LoginRequest) error {
+func ValidateLoginRequest(req *dto.LoginRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -148,7 +148,7 @@ func ValidateLoginRequest(req *models.LoginRequest) error {
 	return b.err()
 }
 
-func ValidateCreateAPIKeyRequest(req *models.CreateAPIKeyRequest) error {
+func ValidateCreateAPIKeyRequest(req *dto.CreateAPIKeyRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -165,7 +165,7 @@ func ValidateCreateAPIKeyRequest(req *models.CreateAPIKeyRequest) error {
 	return b.err()
 }
 
-func ValidateForgotPasswordRequest(req *models.ForgotPasswordRequest) error {
+func ValidateForgotPasswordRequest(req *dto.ForgotPasswordRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -176,7 +176,7 @@ func ValidateForgotPasswordRequest(req *models.ForgotPasswordRequest) error {
 	return b.err()
 }
 
-func ValidateResetPasswordRequest(req *models.ResetPasswordRequest) error {
+func ValidateResetPasswordRequest(req *dto.ResetPasswordRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -189,7 +189,7 @@ func ValidateResetPasswordRequest(req *models.ResetPasswordRequest) error {
 	return b.err()
 }
 
-func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
+func ValidateVerifyEmailRequest(req *dto.VerifyEmailRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -203,7 +203,7 @@ func ValidateVerifyEmailRequest(req *models.VerifyEmailRequest) error {
 	return b.err()
 }
 
-func ValidateResendVerificationEmailRequest(req *models.ResendVerificationEmailRequest) error {
+func ValidateResendVerificationEmailRequest(req *dto.ResendVerificationEmailRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")
@@ -213,6 +213,7 @@ func ValidateResendVerificationEmailRequest(req *models.ResendVerificationEmailR
 	validateEmail("email", req.Email, b)
 	return b.err()
 }
+
 
 func validateEmail(field, email string, b *validationBuilder) {
 	switch {

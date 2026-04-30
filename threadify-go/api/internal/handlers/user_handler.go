@@ -3,8 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
@@ -15,10 +16,10 @@ import (
 )
 
 type UserHandler struct {
-	userService iface.UserService
+	userService ports.UserService
 }
 
-func NewUserHandler(userService iface.UserService) *UserHandler {
+func NewUserHandler(userService ports.UserService) *UserHandler {
 	return &UserHandler{
 		userService: userService,
 	}
@@ -41,26 +42,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	}
 
 	minimal := c.Query("minimal") == "true"
-
-	var companyData gin.H
-	company := result.Company
-	if minimal {
-		companyData = gin.H{
-			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
-		}
-	} else {
-		companyData = gin.H{
-			"details_completed": company.Industry != nil || company.Size != nil || company.UseCase != nil,
-			"industry":          stringPtrToString(company.Industry),
-			"company_size":      stringPtrToString(company.Size),
-			"use_case":          stringPtrToString(company.UseCase),
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"user":    result.User,
-		"company": companyData,
-	})
+	c.JSON(http.StatusOK, mapUserProfileToDTO(result, minimal))
 }
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
@@ -69,7 +51,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	var req models.UpdateProfileRequest
+	var req dto.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
@@ -88,7 +70,13 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.UpdateProfile(c.Request.Context(), userCtx.UserID, userCtx.CompanyID, &req)
+	user, err := h.userService.UpdateProfile(c.Request.Context(), userCtx.UserID, userCtx.CompanyID, &domain.UpdateProfileCmd{
+		FullName:    &req.FullName,
+		JobRole:     &req.JobRole,
+		Industry:    &req.Industry,
+		CompanySize: &req.CompanySize,
+		UseCase:     &req.UseCase,
+	})
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -98,7 +86,10 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully", "user": user})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Profile updated successfully",
+		"user":    mapUserToDTO(user),
+	})
 }
 
 func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
@@ -117,7 +108,10 @@ func (h *UserHandler) MarkInstrumentationDone(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Instrumentation status updated", "user": user})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Instrumentation status updated",
+		"user":    mapUserToDTO(user),
+	})
 }
 
 func (h *UserHandler) ListTeamMembers(c *gin.Context) {
@@ -136,7 +130,61 @@ func (h *UserHandler) ListTeamMembers(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"members": members})
+	dtos := make([]*dto.TeamMember, len(members))
+	for i, m := range members {
+		dtos[i] = &dto.TeamMember{
+			ID:        m.ID,
+			Email:     m.Email,
+			FullName:  stringPtrToString(m.FullName),
+			JobRole:   stringPtrToString(m.JobRole),
+			Role:      m.Role,
+			CreatedAt: m.CreatedAt,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"members": dtos})
+}
+
+func mapUserProfileToDTO(result *domain.UserProfile, minimal bool) gin.H {
+	user := mapUserToDTO(result.User)
+	company := result.Company
+	
+	detailsCompleted := company.Industry != nil || company.Size != nil || company.UseCase != nil
+
+	if minimal {
+		return gin.H{
+			"user": user,
+			"company": gin.H{
+				"details_completed": detailsCompleted,
+			},
+		}
+	}
+
+	return gin.H{
+		"user": user,
+		"company": gin.H{
+			"details_completed": detailsCompleted,
+			"industry":          stringPtrToString(company.Industry),
+			"company_size":      stringPtrToString(company.Size),
+			"use_case":          stringPtrToString(company.UseCase),
+		},
+	}
+}
+
+func mapUserToDTO(user *domain.User) *dto.User {
+	if user == nil {
+		return nil
+	}
+	return &dto.User{
+		ID:                       user.ID,
+		Email:                    user.Email,
+		FullName:                 user.FullName,
+		JobRole:                  user.JobRole,
+		EmailVerified:            user.EmailVerified,
+		OnboardingCompleted:      user.OnboardingCompleted,
+		FirstInstrumentationDone: user.FirstInstrumentationDone,
+		LastLoginAt:              user.LastLoginAt,
+	}
 }
 
 func (h *UserHandler) RemoveTeamMember(c *gin.Context) {

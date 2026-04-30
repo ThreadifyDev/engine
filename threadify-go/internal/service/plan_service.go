@@ -13,7 +13,7 @@ import (
 	"threadify-go/shared/billing"
 	"threadify-go/shared/database"
 	serror "threadify-go/shared/errors"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"

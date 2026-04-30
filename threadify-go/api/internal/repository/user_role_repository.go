@@ -2,6 +2,10 @@ package repository
 
 import (
 	"context"
+	"fmt"
+
+	"threadify-go/api/internal/domain"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -9,7 +13,7 @@ type userRoleRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewUserRoleRepository(pool *pgxpool.Pool) UserRoleRepository {
+func NewUserRoleRepository(pool *pgxpool.Pool) domain.UserRoleRepository {
 	return &userRoleRepository{pool: pool}
 }
 
@@ -17,7 +21,12 @@ func (r *userRoleRepository) AssignRoleToUser(ctx context.Context, userID, roleN
 	return r.AssignRoleToUserTx(ctx, r.pool, userID, roleName, assignedBy)
 }
 
-func (r *userRoleRepository) AssignRoleToUserTx(ctx context.Context, execer DBExecer, userID, roleName, assignedBy string) error {
+func (r *userRoleRepository) AssignRoleToUserTx(ctx context.Context, tx domain.Execer, userID, roleName, assignedBy string) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
+
 	query := `
 		INSERT INTO user_roles (principal_id, principal_type, role_name, assigned_by)
 		VALUES ($1, 'user', $2, $3)

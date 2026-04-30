@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,7 +17,7 @@ func NewEntityProfileRepo(pool *pgxpool.Pool) *EntityProfileRepo {
 	return &EntityProfileRepo{pool: pool}
 }
 
-func (r *EntityProfileRepo) CreateProfile(ctx context.Context, profile *models.EntityProfile) error {
+func (r *EntityProfileRepo) CreateProfile(ctx context.Context, profile *domain.EntityProfile) error {
 	query := `
 		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key)
 		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (company_id, entity_profile_type_id, ref_key) DO UPDATE SET
@@ -28,19 +28,19 @@ func (r *EntityProfileRepo) CreateProfile(ctx context.Context, profile *models.E
 	return err
 }
 
-func (r *EntityProfileRepo) GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*models.EntityProfile, error) {
+func (r *EntityProfileRepo) GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*domain.EntityProfile, error) {
 	query := `
 		SELECT id, company_id, entity_profile_type_id, name, ref_key, created_at, last_active_at 
 		FROM entity_profile 
 		WHERE company_id = $1 AND entity_profile_type_id = $2 AND ref_key = $3
 	`
 	row := r.pool.QueryRow(ctx, query, companyID, profileTypeID, refKey)
-	var profile models.EntityProfile
+	var profile domain.EntityProfile
 	err := row.Scan(&profile.ID, &profile.CompanyID, &profile.ProfileTypeID, &profile.Name, &profile.RefKey, &profile.CreatedAt, &profile.LastActiveAt)
 	return &profile, err
 }
 
-func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfileID string) (*models.EntityProfileMetrics, error) {
+func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfileID string) (*domain.EntityProfileMetrics, error) {
 	query := `
 		SELECT entity_profile_id, total_deliveries, completed_successfully, validation_violations, 
 		       delivery_health_score, prev_delivery_health_score, health_trend_slope, average_delivery_time_ms, last_calculated_at 
@@ -48,7 +48,7 @@ func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfile
 		WHERE entity_profile_id = $1
 	`
 	row := r.pool.QueryRow(ctx, query, entityProfileID)
-	var m models.EntityProfileMetrics
+	var m domain.EntityProfileMetrics
 	err := row.Scan(&m.EntityProfileID, &m.TotalDeliveries, &m.CompletedSuccessfully, &m.ValidationViolations,
 		&m.DeliveryHealthScore, &m.PrevDeliveryHealthScore, &m.HealthTrendSlope, &m.AverageDeliveryTimeMs, &m.LastCalculatedAt)
 	return &m, err
@@ -56,8 +56,8 @@ func (r *EntityProfileRepo) GetProfileMetrics(ctx context.Context, entityProfile
 
 // ProfileWithMetrics bundles a profile row with its (optional) metrics.
 type ProfileWithMetrics struct {
-	Profile *models.EntityProfile
-	Metrics *models.EntityProfileMetrics
+	Profile *domain.EntityProfile
+	Metrics *domain.EntityProfileMetrics
 }
 
 func (r *EntityProfileRepo) ListProfilesByType(ctx context.Context, companyID, typeName, search string, limit, offset int) ([]*ProfileWithMetrics, int, error) {
@@ -104,8 +104,8 @@ func (r *EntityProfileRepo) ListProfilesByType(ctx context.Context, companyID, t
 	)
 	for rows.Next() {
 		var (
-			p               models.EntityProfile
-			m               models.EntityProfileMetrics
+			p               domain.EntityProfile
+			m               domain.EntityProfileMetrics
 			metricsID       sql.NullString
 			totalDeliveries sql.NullInt64
 			completed       sql.NullInt64
@@ -147,7 +147,7 @@ func (r *EntityProfileRepo) ListProfilesByType(ctx context.Context, companyID, t
 	return results, total, nil
 }
 
-func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
+func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID, typeName, refKey string) (*domain.EntityProfile, *domain.EntityProfileMetrics, error) {
 	query := `
 			SELECT
 				ep.id, ep.company_id, ep.entity_profile_type_id, ep.name, ep.ref_key, ep.created_at, ep.last_active_at,
@@ -160,8 +160,8 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 		`
 	row := r.pool.QueryRow(ctx, query, companyID, typeName, refKey)
 
-	var p models.EntityProfile
-	var m models.EntityProfileMetrics
+	var p domain.EntityProfile
+	var m domain.EntityProfileMetrics
 	var metricsID *string
 
 	var totalDeliveries, completed, validations *int
@@ -191,7 +191,7 @@ func (r *EntityProfileRepo) GetProfileWithMetrics(ctx context.Context, companyID
 	return &p, nil, nil
 }
 
-func (r *EntityProfileRepo) GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*models.EntityProfile, *models.EntityProfileMetrics, error) {
+func (r *EntityProfileRepo) GetProfileByIDWithMetrics(ctx context.Context, companyID, entityProfileID string) (*domain.EntityProfile, *domain.EntityProfileMetrics, error) {
 	query := `
 		SELECT
 			ep.id, ep.company_id, ep.entity_profile_type_id, ep.name, ep.ref_key, ep.created_at, ep.last_active_at,
@@ -203,8 +203,8 @@ func (r *EntityProfileRepo) GetProfileByIDWithMetrics(ctx context.Context, compa
 	`
 	row := r.pool.QueryRow(ctx, query, companyID, entityProfileID)
 
-	var p models.EntityProfile
-	var m models.EntityProfileMetrics
+	var p domain.EntityProfile
+	var m domain.EntityProfileMetrics
 	var metricsID *string
 
 	var totalDeliveries, completed, validations *int

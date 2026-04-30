@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 
 	"go.uber.org/zap"
@@ -17,7 +17,7 @@ import (
 func (s *AuthService) queueLegacyUserMigration(ctx context.Context, userID, email, password, source string) error {
 	email = normalizeEmail(email)
 
-	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, models.EventTypeMigrateLegacyUser, userID)
+	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, domain.EventTypeMigrateLegacyUser, userID)
 	if err != nil {
 		return fmt.Errorf("check inflight migration: %w", err)
 	}
@@ -48,12 +48,12 @@ func (s *AuthService) queueLegacyUserMigration(ctx context.Context, userID, emai
 	for i := range payload {
 		payload[i] = 0
 	}
-	if err := s.outboxRepo.Create(ctx, &models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeMigrateLegacyUser,
+		Type:        domain.EventTypeMigrateLegacyUser,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: userID,
 	}); err != nil {

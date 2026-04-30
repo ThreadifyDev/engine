@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	serror "threadify-go/shared/errors"
 )
 
@@ -13,17 +13,22 @@ type teamInvitationRepository struct {
 	pool DBExecer
 }
 
-func NewTeamInvitationRepository(pool DBExecer) TeamInvitationRepository {
+func NewTeamInvitationRepository(pool DBExecer) domain.TeamInvitationRepository {
 	return &teamInvitationRepository{pool: pool}
 }
 
 // Create inserts a new team invitation
-func (r *teamInvitationRepository) Create(ctx context.Context, invitation *models.TeamInvitation) error {
+func (r *teamInvitationRepository) Create(ctx context.Context, invitation *domain.TeamInvitation) error {
 	return r.CreateTx(ctx, r.pool, invitation)
 }
 
 // CreateTx inserts a new team invitation within a transaction
-func (r *teamInvitationRepository) CreateTx(ctx context.Context, execer DBExecer, invitation *models.TeamInvitation) error {
+func (r *teamInvitationRepository) CreateTx(ctx context.Context, tx domain.Execer, invitation *domain.TeamInvitation) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
+
 	const query = `
 		INSERT INTO team_invitations
 			(id, company_id, email, role, invited_by, status, token, expires_at, created_at)
@@ -46,13 +51,13 @@ func (r *teamInvitationRepository) CreateTx(ctx context.Context, execer DBExecer
 }
 
 // GetByToken retrieves an invitation by token
-func (r *teamInvitationRepository) GetByToken(ctx context.Context, token string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetByToken(ctx context.Context, token string) (*domain.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
 		WHERE token = $1
 	`
-	invitation := &models.TeamInvitation{}
+	invitation := &domain.TeamInvitation{}
 	err := r.pool.QueryRow(ctx, query, token).Scan(
 		&invitation.ID,
 		&invitation.CompanyID,
@@ -76,13 +81,13 @@ func (r *teamInvitationRepository) GetByToken(ctx context.Context, token string)
 }
 
 // GetByID retrieves an invitation by ID
-func (r *teamInvitationRepository) GetByID(ctx context.Context, id string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetByID(ctx context.Context, id string) (*domain.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
 		WHERE id = $1
 	`
-	invitation := &models.TeamInvitation{}
+	invitation := &domain.TeamInvitation{}
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&invitation.ID,
 		&invitation.CompanyID,
@@ -111,7 +116,12 @@ func (r *teamInvitationRepository) MarkAccepted(ctx context.Context, invitationI
 }
 
 // MarkAcceptedTx marks an invitation as accepted within a transaction
-func (r *teamInvitationRepository) MarkAcceptedTx(ctx context.Context, execer DBExecer, invitationID, userID string) error {
+func (r *teamInvitationRepository) MarkAcceptedTx(ctx context.Context, tx domain.Execer, invitationID, userID string) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
+
 	const query = `
 		UPDATE team_invitations
 		SET status = $1, accepted_at = NOW(), accepted_by_user_id = $2
@@ -147,7 +157,12 @@ func (r *teamInvitationRepository) Delete(ctx context.Context, invitationID stri
 }
 
 // DeleteTx removes an invitation within a transaction
-func (r *teamInvitationRepository) DeleteTx(ctx context.Context, execer DBExecer, invitationID string) error {
+func (r *teamInvitationRepository) DeleteTx(ctx context.Context, tx domain.Execer, invitationID string) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
+
 	const query = `DELETE FROM team_invitations WHERE id = $1`
 	_, err := execer.Exec(ctx, query, invitationID)
 	if err != nil {
@@ -171,7 +186,7 @@ func (r *teamInvitationRepository) RefreshInvitation(ctx context.Context, invita
 }
 
 // GetPendingByCompanyAndEmail retrieves pending invitations for a company and email
-func (r *teamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Context, companyID, email string) (*domain.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -179,7 +194,7 @@ func (r *teamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Conte
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
-	invitation := &models.TeamInvitation{}
+	invitation := &domain.TeamInvitation{}
 	err := r.pool.QueryRow(ctx, query, companyID, email).Scan(
 		&invitation.ID,
 		&invitation.CompanyID,
@@ -203,7 +218,7 @@ func (r *teamInvitationRepository) GetPendingByCompanyAndEmail(ctx context.Conte
 }
 
 // ListByCompany retrieves all invitations for a company
-func (r *teamInvitationRepository) ListByCompany(ctx context.Context, companyID string) ([]*models.TeamInvitation, error) {
+func (r *teamInvitationRepository) ListByCompany(ctx context.Context, companyID string) ([]*domain.TeamInvitation, error) {
 	const query = `
 		SELECT id, company_id, email, role, invited_by, status, token, expires_at, created_at, accepted_at, accepted_by_user_id
 		FROM team_invitations
@@ -216,9 +231,9 @@ func (r *teamInvitationRepository) ListByCompany(ctx context.Context, companyID 
 	}
 	defer rows.Close()
 
-	var invitations []*models.TeamInvitation
+	var invitations []*domain.TeamInvitation
 	for rows.Next() {
-		invitation := &models.TeamInvitation{}
+		invitation := &domain.TeamInvitation{}
 		if err := rows.Scan(
 			&invitation.ID,
 			&invitation.CompanyID,

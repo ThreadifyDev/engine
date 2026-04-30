@@ -7,7 +7,7 @@ package enginemocks
 import (
 	context "context"
 	reflect "reflect"
-	models0 "threadify-go/shared/models"
+	models0 "threadify-go/shared/domain"
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"

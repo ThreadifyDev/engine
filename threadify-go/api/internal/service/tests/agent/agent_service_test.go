@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 
 	"github.com/golang/mock/gomock"
@@ -23,7 +23,7 @@ func TestAgentService_GetConversations(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]models.AgentConversation{
+				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]domain.AgentConversation{
 					{ID: "conv_1", Title: "Conv 1"},
 				}, nil)
 			},
@@ -68,10 +68,10 @@ func TestAgentService_GetMessagesForUser(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]models.AgentConversation{
+				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]domain.AgentConversation{
 					{ID: convID},
 				}, nil)
-				deps.AgentRepo.EXPECT().GetMessages(gomock.Any(), convID).Return([]*models.AgentMessage{
+				deps.AgentRepo.EXPECT().GetMessages(gomock.Any(), convID).Return([]*domain.AgentMessage{
 					{ID: "msg_1", Content: "Hello"},
 				}, nil)
 			},
@@ -79,7 +79,7 @@ func TestAgentService_GetMessagesForUser(t *testing.T) {
 		{
 			name: "unauthorized_ownership",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]models.AgentConversation{
+				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]domain.AgentConversation{
 					{ID: "other_conv"},
 				}, nil)
 			},
@@ -88,7 +88,7 @@ func TestAgentService_GetMessagesForUser(t *testing.T) {
 		{
 			name: "repo_error_get_messages",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]models.AgentConversation{
+				deps.AgentRepo.EXPECT().GetConversations(gomock.Any(), companyID).Return([]domain.AgentConversation{
 					{ID: convID},
 				}, nil)
 				deps.AgentRepo.EXPECT().GetMessages(gomock.Any(), convID).Return(nil, assert.AnError)

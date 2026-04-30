@@ -1,6 +1,6 @@
-package models
+package dto
 
-import sharedmodels "threadify-go/shared/models"
+import sharedmodels "threadify-go/shared/domain"
 
 type CreateEntityProfileTypeRequest struct {
 	Name        string                          `json:"name" binding:"required"`

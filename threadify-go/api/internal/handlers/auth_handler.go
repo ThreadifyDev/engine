@@ -4,8 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	serror "threadify-go/shared/errors"
 
@@ -13,17 +14,17 @@ import (
 )
 
 type AuthHandler struct {
-	authService iface.AuthService
+	authService ports.AuthService
 }
 
-func NewAuthHandler(authService iface.AuthService) *AuthHandler {
+func NewAuthHandler(authService ports.AuthService) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 	}
 }
 
 func (h *AuthHandler) Signup(c *gin.Context) {
-	var req models.SignupRequest
+	var req dto.SignupRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -32,7 +33,17 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Signup(c.Request.Context(), &req); err != nil {
+	if err := h.authService.Signup(c.Request.Context(), &domain.SignupCmd{
+		CompanyName:     req.CompanyName,
+		Email:           req.Email,
+		Password:        req.Password,
+		FullName:        req.FullName,
+		JobRole:         req.JobRole,
+		Industry:        req.Industry,
+		CompanySize:     req.CompanySize,
+		UseCase:         req.UseCase,
+		InvitationToken: req.InvitationToken,
+	}); err != nil {
 		if respondValidationError(c, err) {
 			return
 		}
@@ -47,7 +58,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req models.LoginRequest
+	var req dto.LoginRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -56,7 +67,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	authResp, err := h.authService.Login(c.Request.Context(), &req, c.ClientIP())
+	authResp, err := h.authService.Login(c.Request.Context(), &domain.LoginCmd{Email: req.Email, Password: req.Password}, c.ClientIP())
 	if err != nil {
 		if respondValidationError(c, err) {
 			return
@@ -66,11 +77,37 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, authResp)
+	c.JSON(http.StatusOK, mapAuthResponseToDTO(authResp))
+}
+
+func mapAuthResponseToDTO(resp *domain.AuthSession) *dto.AuthResponse {
+	if resp == nil {
+		return nil
+	}
+	return &dto.AuthResponse{
+		Email:                     resp.Email,
+		Token:                     resp.Token,
+		User:                      mapAuthUserToDTO(resp.User),
+		OTPRequired:               resp.OTPRequired,
+		EmailVerificationRequired: resp.EmailVerificationRequired,
+		Message:                   resp.Message,
+	}
+}
+
+func mapAuthUserToDTO(user *domain.User) *dto.AuthUser {
+	if user == nil {
+		return nil
+	}
+	return &dto.AuthUser{
+		ID:        user.ID,
+		CompanyID: user.CompanyID,
+		Email:     user.Email,
+		FullName:  user.FullName,
+	}
 }
 
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
-	var req models.ForgotPasswordRequest
+	var req dto.ForgotPasswordRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -79,7 +116,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.ForgotPassword(c.Request.Context(), &req); err != nil {
+	if err := h.authService.ForgotPassword(c.Request.Context(), &domain.ForgotPasswordCmd{Email: req.Email}); err != nil {
 		if respondValidationError(c, err) {
 			return
 		}
@@ -94,7 +131,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 }
 
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
-	var req models.ResetPasswordRequest
+	var req dto.ResetPasswordRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -103,7 +140,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.ResetPassword(c.Request.Context(), &req); err != nil {
+	if err := h.authService.ResetPassword(c.Request.Context(), &domain.ResetPasswordCmd{Token: req.Token, Password: req.Password}); err != nil {
 		if respondValidationError(c, err) {
 			return
 		}
@@ -118,7 +155,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 }
 
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
-	var req models.VerifyEmailRequest
+	var req dto.VerifyEmailRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -127,14 +164,14 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &req)
+	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &domain.VerifyEmailCmd{Email: req.Email, Token: req.Token})
 	if err != nil {
 		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
-	c.JSON(http.StatusOK, authResp)
+	c.JSON(http.StatusOK, mapAuthResponseToDTO(authResp))
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
@@ -155,7 +192,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
-	var req models.ResendVerificationEmailRequest
+	var req dto.ResendVerificationEmailRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -164,7 +201,7 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.ResendVerificationEmail(c.Request.Context(), &req); err != nil {
+	if err := h.authService.ResendVerificationEmail(c.Request.Context(), &domain.ResendVerificationEmailCmd{Email: req.Email}); err != nil {
 		if respondValidationError(c, err) {
 			return
 		}

@@ -7,30 +7,28 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 	serror "threadify-go/shared/errors"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 type UserService struct {
-	userRepo      repository.UserRepository
-	companyRepo   repository.CompanyRepository
-	userRoleRepo  repository.UserRoleRepository
-	outboxRepo    repository.OutboxRepository
+	userRepo      domain.UserRepository
+	companyRepo   domain.CompanyRepository
+	userRoleRepo  domain.UserRoleRepository
+	outboxRepo    domain.OutboxRepository
 	outboxTrigger OutboxWorkerTrigger
 	encryptionKey []byte
 	logger        *zap.Logger
 }
 
 func NewUserService(
-	userRepo repository.UserRepository,
-	companyRepo repository.CompanyRepository,
-	userRoleRepo repository.UserRoleRepository,
-	outboxRepo repository.OutboxRepository,
+	userRepo domain.UserRepository,
+	companyRepo domain.CompanyRepository,
+	userRoleRepo domain.UserRoleRepository,
+	outboxRepo domain.OutboxRepository,
 	outboxTrigger OutboxWorkerTrigger,
 	encryptionKey []byte,
 	logger *zap.Logger,
@@ -46,7 +44,7 @@ func NewUserService(
 	}
 }
 
-func (s *UserService) GetProfile(ctx context.Context, userID, companyID string) (*models.UserProfileResult, error) {
+func (s *UserService) GetProfile(ctx context.Context, userID, companyID string) (*domain.UserProfile, error) {
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("find user: %w", err)
@@ -57,10 +55,11 @@ func (s *UserService) GetProfile(ctx context.Context, userID, companyID string) 
 		return nil, fmt.Errorf("find company: %w", err)
 	}
 
-	return &models.UserProfileResult{User: user, Company: company}, nil
+	return &domain.UserProfile{User: user, Company: company}, nil
 }
 
-func (s *UserService) UpdateProfile(ctx context.Context, userID, companyID string, req *models.UpdateProfileRequest) (*models.User, error) {
+func (s *UserService) UpdateProfile(ctx context.Context, userID, companyID string, req *domain.UpdateProfileCmd) (*domain.User, error) {
+
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("find user: %w", err)
@@ -71,21 +70,20 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID, companyID strin
 		return nil, fmt.Errorf("find company: %w", err)
 	}
 
-	companyExists := company.Industry != nil || company.Size != nil || company.UseCase != nil
-	companyProvided := req.Industry != "" || req.CompanySize != "" || req.UseCase != ""
-
-	if !companyExists && !companyProvided {
-		return nil, serror.NewDomainError("Company details are required for first-time setup", 400)
-	}
-	if companyExists && companyProvided {
-		return nil, serror.NewDomainError("Company details cannot be modified after initial setup", 403)
+	if err := company.CanUpdateDetails(req.Industry, req.CompanySize, req.UseCase); err != nil {
+		return nil, serror.NewDomainError(err.Error(), 400)
 	}
 
-	if err := s.userRepo.UpdateProfile(ctx, user.ID, &req.FullName, &req.JobRole, true); err != nil {
+	if err := s.userRepo.UpdateProfile(ctx, user.ID, req.FullName, req.JobRole, true); err != nil {
 		return nil, fmt.Errorf("update user profile: %w", err)
 	}
-	if companyProvided && !companyExists {
-		if err := s.companyRepo.UpdateDetails(ctx, companyID, &req.Industry, &req.CompanySize, &req.UseCase); err != nil {
+
+	companyProvided := (req.Industry != nil && *req.Industry != "") ||
+		(req.CompanySize != nil && *req.CompanySize != "") ||
+		(req.UseCase != nil && *req.UseCase != "")
+
+	if companyProvided && !company.HasDetails() {
+		if err := s.companyRepo.UpdateDetails(ctx, companyID, req.Industry, req.CompanySize, req.UseCase); err != nil {
 			return nil, fmt.Errorf("update company details: %w", err)
 		}
 	}
@@ -97,7 +95,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID, companyID strin
 	return updatedUser, nil
 }
 
-func (s *UserService) MarkInstrumentationDone(ctx context.Context, userID string) (*models.User, error) {
+func (s *UserService) MarkInstrumentationDone(ctx context.Context, userID string) (*domain.User, error) {
 	if err := s.userRepo.MarkFirstInstrumentationDone(ctx, userID); err != nil {
 		return nil, fmt.Errorf("mark instrumentation done: %w", err)
 	}
@@ -109,19 +107,19 @@ func (s *UserService) MarkInstrumentationDone(ctx context.Context, userID string
 	return updatedUser, nil
 }
 
-func (s *UserService) ListTeamMembers(ctx context.Context, companyID string) ([]*models.TeamMember, error) {
+func (s *UserService) ListTeamMembers(ctx context.Context, companyID string) ([]*domain.TeamMember, error) {
 	users, err := s.userRepo.ListByCompanyID(ctx, companyID)
 	if err != nil {
 		return nil, fmt.Errorf("list company users: %w", err)
 	}
 
-	members := make([]*models.TeamMember, len(users))
+	members := make([]*domain.TeamMember, len(users))
 	for i, u := range users {
 		role := "member"
 		if roles, err := s.userRoleRepo.GetUserRoles(ctx, u.ID); err == nil && len(roles) > 0 {
 			role = roles[0]
 		}
-		members[i] = &models.TeamMember{
+		members[i] = &domain.TeamMember{
 			ID:        u.ID,
 			Email:     u.Email,
 			FullName:  u.FullName,
@@ -161,7 +159,7 @@ func (s *UserService) RemoveTeamMember(ctx context.Context, requesterID, company
 	}
 
 	// Generate the obfuscated email here — it is business logic, not a DB concern.
-	archivedEmail := fmt.Sprintf("archived-%s-%s", uuid.New().String(), target.Email)
+	archivedEmail := target.GenerateArchivedEmail()
 
 	if err := s.userRepo.ArchiveUser(ctx, targetUserID, archivedEmail); err != nil {
 		s.logger.Error("failed to archive user", zap.String("user_id", targetUserID), zap.Error(err))
@@ -200,12 +198,12 @@ func (s *UserService) queueAuthEmailUpdate(ctx context.Context, authUserID, newE
 		payload[i] = 0
 	}
 
-	if err := s.outboxRepo.Create(ctx, &models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeUpdateAuthUserEmail,
+		Type:        domain.EventTypeUpdateAuthUserEmail,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: referenceID,
 	}); err != nil {

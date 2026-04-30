@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

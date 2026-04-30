@@ -20,7 +20,6 @@ func NewPricingHandler(threadifyEngineURL string) *PricingHandler {
 	}
 }
 
-// GetPricing proxies the pricing request to the main engine (public endpoint, no auth required)
 func (h *PricingHandler) GetPricing(c *gin.Context) {
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, h.threadifyEngineURL+"/v1/pricing", nil)
 	if err != nil {

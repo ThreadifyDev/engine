@@ -1,6 +1,7 @@
-package models
+package domain
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -100,4 +101,11 @@ type CreditAccount struct {
 
 func (a *CreditAccount) IsTopupEnabled() bool {
 	return a.CreditMaxMonthlyChargeMillicents > CreditDisabled
+}
+
+func (a *CreditAccount) ValidateSpendingLimit(newLimit int64) error {
+	if newLimit > 0 && newLimit < a.CreditAutoTopupMillicents {
+		return fmt.Errorf("spending limit (%d) must be at least as high as the auto-topup amount (%d)", newLimit, a.CreditAutoTopupMillicents)
+	}
+	return nil
 }

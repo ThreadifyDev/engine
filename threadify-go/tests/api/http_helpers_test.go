@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 	"threadify-go/shared/repository"
 )
 
@@ -219,7 +219,7 @@ type creditAccountFixture struct {
 	MinBalanceMillicents int64
 }
 
-func ensureCreditAccount(t *testing.T, companyID string, fixture creditAccountFixture) *models.CreditAccount {
+func ensureCreditAccount(t *testing.T, companyID string, fixture creditAccountFixture) *domain.CreditAccount {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -241,7 +241,7 @@ func ensureCreditAccount(t *testing.T, companyID string, fixture creditAccountFi
 		return updated
 	}
 
-	account := &models.CreditAccount{
+	account := &domain.CreditAccount{
 		ID:                               "ca_" + uuid.NewString(),
 		CompanyID:                        companyID,
 		BillingCycleStart:                time.Now().UTC(),

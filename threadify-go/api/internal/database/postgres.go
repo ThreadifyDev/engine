@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 
-	"threadify-go/api/internal/interfaces"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,7 +20,7 @@ type poolWrapper struct {
 	pool *pgxpool.Pool
 }
 
-func (w *poolWrapper) Begin(ctx context.Context) (interfaces.Tx, error) {
+func (w *poolWrapper) Begin(ctx context.Context) (ports.Tx, error) {
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -54,6 +54,6 @@ func (w *txWrapper) Query(ctx context.Context, query string, args ...any) (pgx.R
 	return w.tx.Query(ctx, query, args...)
 }
 
-func WrapPool(pool *pgxpool.Pool) interfaces.DBPool {
+func WrapPool(pool *pgxpool.Pool) ports.DBPool {
 	return &poolWrapper{pool: pool}
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"threadify-go/shared/config"
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 	"threadify-go/shared/repository"
 
 	"go.uber.org/zap"
@@ -35,7 +35,7 @@ func NewBillingService(
 	}
 }
 
-func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string) (*models.CreditAccount, error) {
+func (s *BillingService) GetCreditAccount(ctx context.Context, companyID string) (*domain.CreditAccount, error) {
 	account, err := s.PlanRepo.GetCreditAccount(ctx, companyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve credit account: %w", err)
@@ -53,7 +53,7 @@ func (s *BillingService) CreateCheckoutSession(ctx context.Context, companyID st
 		return "", fmt.Errorf("get external customer id: %w", err)
 	}
 
-	params := models.CheckoutSessionParams{
+	params := domain.CheckoutSessionParams{
 		CompanyID:               companyID,
 		InitialAmountMillicents: amountMillicents,
 		SuccessURL:              s.BillingConfig.SuccessURL,

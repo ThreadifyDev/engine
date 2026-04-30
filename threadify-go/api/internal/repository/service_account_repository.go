@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	serror "threadify-go/shared/errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,11 +14,11 @@ type serviceAccountRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewServiceAccountRepository(pool *pgxpool.Pool) ServiceAccountRepository {
+func NewServiceAccountRepository(pool *pgxpool.Pool) domain.ServiceAccountRepository {
 	return &serviceAccountRepository{pool: pool}
 }
 
-func (r *serviceAccountRepository) Create(ctx context.Context, sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Create(ctx context.Context, sa *domain.ServiceAccount) error {
 	query := `
 		INSERT INTO service_accounts (id, company_id, name, description, is_active, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -28,13 +28,13 @@ func (r *serviceAccountRepository) Create(ctx context.Context, sa *models.Servic
 	return err
 }
 
-func (r *serviceAccountRepository) FindByID(ctx context.Context, id string) (*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByID(ctx context.Context, id string) (*domain.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
 		WHERE id = $1
 	`
-	var sa models.ServiceAccount
+	var sa domain.ServiceAccount
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&sa.ID, &sa.CompanyID, &sa.Name, &sa.Description, &sa.IsActive, &sa.CreatedBy, &sa.LastUsedAt, &sa.CreatedAt, &sa.UpdatedAt)
 	if err != nil {
@@ -46,7 +46,7 @@ func (r *serviceAccountRepository) FindByID(ctx context.Context, id string) (*mo
 	return &sa, nil
 }
 
-func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*models.ServiceAccount, error) {
+func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyID string) ([]*domain.ServiceAccount, error) {
 	query := `
 		SELECT id, company_id, name, description, is_active, created_by, last_used_at, created_at, updated_at
 		FROM service_accounts
@@ -59,9 +59,9 @@ func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyI
 	}
 	defer rows.Close()
 
-	var accounts []*models.ServiceAccount
+	var accounts []*domain.ServiceAccount
 	for rows.Next() {
-		var sa models.ServiceAccount
+		var sa domain.ServiceAccount
 		if err := rows.Scan(&sa.ID, &sa.CompanyID, &sa.Name, &sa.Description, &sa.IsActive, &sa.CreatedBy, &sa.LastUsedAt, &sa.CreatedAt, &sa.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -70,7 +70,7 @@ func (r *serviceAccountRepository) FindByCompanyID(ctx context.Context, companyI
 	return accounts, nil
 }
 
-func (r *serviceAccountRepository) Update(ctx context.Context, sa *models.ServiceAccount) error {
+func (r *serviceAccountRepository) Update(ctx context.Context, sa *domain.ServiceAccount) error {
 	query := `
 		UPDATE service_accounts
 		SET name = $1, description = $2, is_active = $3, updated_at = $4

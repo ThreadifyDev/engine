@@ -4,8 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/service"
 	sharedauth "threadify-go/shared/auth"
 
@@ -13,21 +14,15 @@ import (
 )
 
 type AgentHandler struct {
-	agentSvc iface.AgentService
+	agentSvc ports.AgentService
 }
 
 func NewAgentHandler(
-	agentSvc iface.AgentService,
+	agentSvc ports.AgentService,
 ) *AgentHandler {
 	return &AgentHandler{
 		agentSvc: agentSvc,
 	}
-}
-
-type ChatRequest struct {
-	Message        string `json:"message"`
-	ConversationID string `json:"conversation_id"`
-	Skill          string `json:"skill"`
 }
 
 const (
@@ -63,7 +58,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	var chatReq ChatRequest
+	var chatReq dto.ChatRequest
 	if err := c.ShouldBindJSON(&chatReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body format"})
 		return
@@ -89,12 +84,11 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		onEvent,
 	)
 	if err != nil {
-		c.SSEvent(models.EventError, err.Error())
+		c.SSEvent(domain.EventError, err.Error())
 		c.Writer.Flush()
 	}
 }
 
-// GetConversations lists recent conversations for a user
 func (h *AgentHandler) GetConversations(c *gin.Context) {
 	_, ok := ctxString(c, sharedauth.CtxUserID)
 	if !ok {
@@ -114,14 +108,18 @@ func (h *AgentHandler) GetConversations(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"conversations": convs,
-		"max_tokens":    h.agentSvc.GetMaxTokens(),
-		"max_messages":  h.agentSvc.GetMaxMessages(),
+	dtos := make([]*dto.AgentConversation, len(convs))
+	for i, conv := range convs {
+		dtos[i] = mapConversationToDTO(&conv)
+	}
+
+	c.JSON(http.StatusOK, dto.ConversationsResponse{
+		Conversations: dtos,
+		MaxTokens:     h.agentSvc.GetMaxTokens(),
+		MaxMessages:   h.agentSvc.GetMaxMessages(),
 	})
 }
 
-// GetConversation retrieves a specific conversation with its messages
 func (h *AgentHandler) GetConversation(c *gin.Context) {
 	convID := c.Param("id")
 	_, ok := ctxString(c, sharedauth.CtxUserID)
@@ -149,7 +147,12 @@ func (h *AgentHandler) GetConversation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"messages": msgs})
+	dtos := make([]*dto.AgentMessage, len(msgs))
+	for i, m := range msgs {
+		dtos[i] = mapMessageToDTO(m)
+	}
+
+	c.JSON(http.StatusOK, dto.MessagesResponse{Messages: dtos})
 }
 
 func (h *AgentHandler) DeleteConversation(c *gin.Context) {
@@ -204,9 +207,40 @@ func (h *AgentHandler) ContinueConversation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"conversation_id": newConvID,
-		"title":           title,
-		"summary":         summary,
+	c.JSON(http.StatusOK, dto.ChatResponse{
+		ConversationID: newConvID,
+		Title:          title,
+		Summary:        summary,
 	})
+}
+
+func mapConversationToDTO(c *domain.AgentConversation) *dto.AgentConversation {
+	if c == nil {
+		return nil
+	}
+	return &dto.AgentConversation{
+		ID:           c.ID,
+		UserID:       c.UserID,
+		CompanyID:    c.CompanyID,
+		Title:        c.Title,
+		MessageCount: c.MessageCount,
+		TokenCount:   c.TokenCount,
+		CreatedAt:    c.CreatedAt,
+		UpdatedAt:    c.UpdatedAt,
+	}
+}
+
+func mapMessageToDTO(m *domain.AgentMessage) *dto.AgentMessage {
+	if m == nil {
+		return nil
+	}
+	return &dto.AgentMessage{
+		ID:             m.ID,
+		ConversationID: m.ConversationID,
+		Role:           m.Role,
+		Content:        m.Content,
+		ToolCalls:      m.ToolCalls,
+		ToolCallID:     m.ToolCallID,
+		CreatedAt:      m.CreatedAt,
+	}
 }

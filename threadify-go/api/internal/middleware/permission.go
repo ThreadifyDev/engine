@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"net/http"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,8 +12,8 @@ import (
 // Uses JSON-based permission loader for fast lookups
 func RequirePermission(
 	permLoader *service.PermissionLoader,
-	serviceAccountRepo repository.ServiceAccountRepository,
-	userRoleRepo repository.UserRoleRepository,
+	serviceAccountRepo domain.ServiceAccountRepository,
+	userRoleRepo domain.UserRoleRepository,
 	required string, // e.g., "contract.read.*" or "thread.write"
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -97,8 +97,8 @@ func RequirePermission(
 // 2. contract.read.<actual_id_from_url> (specific resource)
 func RequireResourcePermission(
 	permLoader *service.PermissionLoader,
-	serviceAccountRepo repository.ServiceAccountRepository,
-	userRoleRepo repository.UserRoleRepository,
+	serviceAccountRepo domain.ServiceAccountRepository,
+	userRoleRepo domain.UserRoleRepository,
 	action string, // e.g., "contract.read", "contract.update"
 	resourceParam string, // URL parameter name, e.g., "id"
 ) gin.HandlerFunc {

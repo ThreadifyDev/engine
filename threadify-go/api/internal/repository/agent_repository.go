@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -12,11 +12,12 @@ type agentRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewAgentRepository(pool *pgxpool.Pool) AgentRepository {
+func NewAgentRepository(pool *pgxpool.Pool) domain.AgentRepository {
 	return &agentRepository{pool: pool}
 }
 
-func (r *agentRepository) CreateConversation(ctx context.Context, conv *models.AgentConversation) error {
+
+func (r *agentRepository) CreateConversation(ctx context.Context, conv *domain.AgentConversation) error {
 	query := `
 		INSERT INTO agent_conversations (id, user_id, company_id, title, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
@@ -25,7 +26,7 @@ func (r *agentRepository) CreateConversation(ctx context.Context, conv *models.A
 	return err
 }
 
-func (r *agentRepository) CreateConversationWithParent(ctx context.Context, conv *models.AgentConversation, parentConvID string) error {
+func (r *agentRepository) CreateConversationWithParent(ctx context.Context, conv *domain.AgentConversation, parentConvID string) error {
 	query := `
 		INSERT INTO agent_conversations (id, user_id, company_id, title, parent_conversation_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -34,7 +35,7 @@ func (r *agentRepository) CreateConversationWithParent(ctx context.Context, conv
 	return err
 }
 
-func (r *agentRepository) GetConversations(ctx context.Context, companyID string) ([]models.AgentConversation, error) {
+func (r *agentRepository) GetConversations(ctx context.Context, companyID string) ([]domain.AgentConversation, error) {
 	query := `SELECT id, user_id, company_id, title, message_count, token_count, created_at, updated_at 
 	          FROM agent_conversations 
 	          WHERE company_id = $1 
@@ -47,9 +48,9 @@ func (r *agentRepository) GetConversations(ctx context.Context, companyID string
 	}
 	defer rows.Close()
 
-	var conversations []models.AgentConversation
+	var conversations []domain.AgentConversation
 	for rows.Next() {
-		var conv models.AgentConversation
+		var conv domain.AgentConversation
 		err := rows.Scan(&conv.ID, &conv.UserID, &conv.CompanyID, &conv.Title, &conv.MessageCount, &conv.TokenCount, &conv.CreatedAt, &conv.UpdatedAt)
 		if err != nil {
 			return nil, err
@@ -74,7 +75,7 @@ func (r *agentRepository) GetConversationStats(ctx context.Context, convID strin
 	return
 }
 
-func (r *agentRepository) AddMessage(ctx context.Context, msg *models.AgentMessage) error {
+func (r *agentRepository) AddMessage(ctx context.Context, msg *domain.AgentMessage) error {
 	query := `
 		INSERT INTO agent_messages (id, conversation_id, role, content, tool_calls, tool_call_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NOW())
@@ -87,7 +88,7 @@ func (r *agentRepository) AddMessage(ctx context.Context, msg *models.AgentMessa
 	return err
 }
 
-func (r *agentRepository) GetMessages(ctx context.Context, convID string) ([]*models.AgentMessage, error) {
+func (r *agentRepository) GetMessages(ctx context.Context, convID string) ([]*domain.AgentMessage, error) {
 	query := `
 		SELECT id, conversation_id, role, content, tool_calls, tool_call_id, created_at
 		FROM agent_messages
@@ -100,9 +101,9 @@ func (r *agentRepository) GetMessages(ctx context.Context, convID string) ([]*mo
 	}
 	defer rows.Close()
 
-	var msgs []*models.AgentMessage
+	var msgs []*domain.AgentMessage
 	for rows.Next() {
-		var m models.AgentMessage
+		var m domain.AgentMessage
 		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.ToolCalls, &m.ToolCallID, &m.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -132,7 +133,7 @@ func (r *agentRepository) DeleteConversation(ctx context.Context, convID string,
 	return nil
 }
 
-func (r *agentRepository) SaveContext(ctx context.Context, agentCtx *models.AgentContext) error {
+func (r *agentRepository) SaveContext(ctx context.Context, agentCtx *domain.AgentContext) error {
 	query := `
 		INSERT INTO agent_context (id, conversation_id, context_key, context_value, created_at)
 		VALUES ($1, $2, $3, $4, NOW())
@@ -142,7 +143,7 @@ func (r *agentRepository) SaveContext(ctx context.Context, agentCtx *models.Agen
 	return err
 }
 
-func (r *agentRepository) GetContext(ctx context.Context, convID string) ([]*models.AgentContext, error) {
+func (r *agentRepository) GetContext(ctx context.Context, convID string) ([]*domain.AgentContext, error) {
 	query := `
 		SELECT id, conversation_id, context_key, context_value, created_at
 		FROM agent_context
@@ -155,9 +156,9 @@ func (r *agentRepository) GetContext(ctx context.Context, convID string) ([]*mod
 	}
 	defer rows.Close()
 
-	var contexts []*models.AgentContext
+	var contexts []*domain.AgentContext
 	for rows.Next() {
-		var c models.AgentContext
+		var c domain.AgentContext
 		if err := rows.Scan(&c.ID, &c.ConversationID, &c.ContextKey, &c.ContextValue, &c.CreatedAt); err != nil {
 			return nil, err
 		}

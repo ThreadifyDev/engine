@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"threadify-go/shared/billing"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"

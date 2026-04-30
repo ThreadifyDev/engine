@@ -2,10 +2,10 @@ package validation
 
 import (
 	"strings"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/dto"
 )
 
-func ValidateUpdateProfileRequest(req *models.UpdateProfileRequest) error {
+func ValidateUpdateProfileRequest(req *dto.UpdateProfileRequest) error {
 	b := &validationBuilder{}
 	if req == nil {
 		b.add("request", "Request body is required")

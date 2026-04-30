@@ -2,8 +2,7 @@ package service
 
 import (
 	"context"
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 	"time"
 )
@@ -14,13 +13,13 @@ var validServiceAccountRoles = map[string]bool{
 }
 
 type ServiceAccountService struct {
-	serviceAccountRepo repository.ServiceAccountRepository
-	userRoleRepo       repository.UserRoleRepository
+	serviceAccountRepo domain.ServiceAccountRepository
+	userRoleRepo       domain.UserRoleRepository
 }
 
 func NewServiceAccountService(
-	serviceAccountRepo repository.ServiceAccountRepository,
-	userRoleRepo repository.UserRoleRepository,
+	serviceAccountRepo domain.ServiceAccountRepository,
+	userRoleRepo domain.UserRoleRepository,
 ) *ServiceAccountService {
 	return &ServiceAccountService{
 		serviceAccountRepo: serviceAccountRepo,
@@ -32,8 +31,9 @@ func (s *ServiceAccountService) CreateServiceAccount(
 	ctx context.Context,
 	companyID string,
 	createdBy string,
-	req *models.CreateServiceAccountRequest,
-) (*models.ServiceAccount, error) {
+	req *domain.CreateServiceAccountCmd,
+) (*domain.ServiceAccount, error) {
+
 	if req.Name == "" {
 		return nil, ErrServiceAccountNameRequired
 	}
@@ -42,7 +42,7 @@ func (s *ServiceAccountService) CreateServiceAccount(
 	}
 
 	now := time.Now()
-	sa := &models.ServiceAccount{
+	sa := &domain.ServiceAccount{
 		ID:          utils.GenerateID(),
 		CompanyID:   companyID,
 		Name:        req.Name,
@@ -66,7 +66,7 @@ func (s *ServiceAccountService) CreateServiceAccount(
 func (s *ServiceAccountService) ListServiceAccounts(
 	ctx context.Context,
 	companyID string,
-) ([]*models.ServiceAccount, error) {
+) ([]*domain.ServiceAccount, error) {
 	return s.serviceAccountRepo.FindByCompanyID(ctx, companyID)
 }
 
@@ -74,7 +74,7 @@ func (s *ServiceAccountService) GetServiceAccount(
 	ctx context.Context,
 	id string,
 	companyID string,
-) (*models.ServiceAccount, error) {
+) (*domain.ServiceAccount, error) {
 	sa, err := s.serviceAccountRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -92,22 +92,20 @@ func (s *ServiceAccountService) UpdateServiceAccount(
 	ctx context.Context,
 	id string,
 	companyID string,
-	req *models.UpdateServiceAccountRequest,
-) (*models.ServiceAccount, error) {
+	req *domain.UpdateServiceAccountCmd,
+) (*domain.ServiceAccount, error) {
 	sa, err := s.GetServiceAccount(ctx, id, companyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Name != nil {
-		sa.Name = *req.Name
+	if req.Name == "" {
+		return nil, ErrServiceAccountNameRequired
 	}
-	if req.Description != nil {
-		sa.Description = req.Description
-	}
-	if req.IsActive != nil {
-		sa.IsActive = *req.IsActive
-	}
+
+	sa.Name = req.Name
+	sa.Description = &req.Description
+	sa.IsActive = req.IsActive
 	sa.UpdatedAt = time.Now()
 
 	if err := s.serviceAccountRepo.Update(ctx, sa); err != nil {

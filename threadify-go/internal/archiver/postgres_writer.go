@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"

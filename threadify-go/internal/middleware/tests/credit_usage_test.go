@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 )
 
 func TestCreditUsageMiddleware(t *testing.T) {

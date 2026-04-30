@@ -18,9 +18,10 @@ import (
 	"go.uber.org/zap"
 
 	"threadify-go/api/internal/database"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
-	"threadify-go/api/internal/interfaces"
 	"threadify-go/api/internal/middleware"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/repository"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/worker"
@@ -125,13 +126,13 @@ func ResolveRBACPaths(logger *zap.Logger) (RBACPaths, error) {
 }
 
 type repositories struct {
-	user              repository.UserRepository
-	company           repository.CompanyRepository
-	userRole          repository.UserRoleRepository
-	apiKey            repository.APIKeyRepository
-	serviceAccount    repository.ServiceAccountRepository
-	outbox            repository.OutboxRepository
-	agent             repository.AgentRepository
+	user              domain.UserRepository
+	company           domain.CompanyRepository
+	userRole          domain.UserRoleRepository
+	apiKey            domain.APIKeyRepository
+	serviceAccount    domain.ServiceAccountRepository
+	outbox            domain.OutboxRepository
+	agent             domain.AgentRepository
 	plan              sharedrepo.PlanRepository
 	entityProfileType sharedrepo.EntityProfileTypeRepository
 }
@@ -314,7 +315,7 @@ func startWorkers(
 
 func initAuthService(
 	cfg *config.Config,
-	pool interfaces.DBPool,
+	pool ports.DBPool,
 	repos *repositories,
 	authClient sharedauth.AuthClient,
 	emailSvc service.EmailService,
@@ -325,7 +326,7 @@ func initAuthService(
 	teamInvitationRepo := repository.NewTeamInvitationRepository(pool)
 
 	authSvc := service.NewAuthService(
-		pool,
+		ports.WrapAsTxManager(pool),
 		repos.user,
 		repos.company,
 		repos.userRole,
@@ -466,8 +467,8 @@ func buildRouter(
 	api.PUT("/service-accounts/:id", requirePerm("serviceaccount.update"), h.serviceAccount.UpdateServiceAccount)
 	api.DELETE("/service-accounts/:id", requirePerm("serviceaccount.delete"), h.serviceAccount.DeleteServiceAccount)
 	api.GET("/service-accounts/scopes/:scope/permissions", requirePerm("serviceaccount.read"), h.serviceAccount.GetPermissions)
-	
-	api.GET("/metrics-templates", h.entityProfileType.ListMetricsTemplates)
+
+	api.GET("/metrics-templates", requirePerm("metrics_template.read"), h.entityProfileType.ListMetricsTemplates)
 
 	contracts := api.Group("/contracts")
 	{
@@ -503,10 +504,10 @@ func buildRouter(
 
 	entityProfileType := api.Group("/entity-profile-types")
 	{
-		entityProfileType.POST("", h.entityProfileType.CreateEntityProfileType)
-		entityProfileType.GET("", h.entityProfileType.ListEntityProfileTypes)
-		entityProfileType.PUT("/:id", h.entityProfileType.UpdateEntityProfileType)
-		entityProfileType.DELETE("/:id", h.entityProfileType.ArchiveEntityProfileType)
+		entityProfileType.POST("", requirePerm("entity_profile_type.create"), h.entityProfileType.CreateEntityProfileType)
+		entityProfileType.GET("", requirePerm("entity_profile_type.read"), h.entityProfileType.ListEntityProfileTypes)
+		entityProfileType.PUT("/:id", requirePerm("entity_profile_type.update"), h.entityProfileType.UpdateEntityProfileType)
+		entityProfileType.DELETE("/:id", requirePerm("entity_profile_type.delete"), h.entityProfileType.ArchiveEntityProfileType)
 	}
 
 	entityProfiles := api.Group("/entity-profiles")
@@ -550,7 +551,7 @@ func initDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 func runPruner(
 	ctx context.Context,
-	repo repository.OutboxRepository,
+	repo domain.OutboxRepository,
 	logger *zap.Logger,
 ) {
 	ticker := time.NewTicker(24 * time.Hour)

@@ -5,8 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/api/internal/models"
-	sharedmodels "threadify-go/shared/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/shared/repository"
 	"threadify-go/shared/slug"
 
@@ -51,9 +50,9 @@ func normalizeTypes(types []string) []string {
 func (s *EntityProfileTypeService) CreateEntityProfileType(
 	ctx context.Context,
 	companyID string,
-	req *models.CreateEntityProfileTypeRequest,
-) (*sharedmodels.EntityProfileType, error) {
-	profileType := &sharedmodels.EntityProfileType{
+	req *domain.CreateEntityProfileTypeCmd,
+) (*domain.EntityProfileType, error) {
+	profileType := &domain.EntityProfileType{
 		ID:          uuid.New().String(),
 		CompanyID:   companyID,
 		Name:        req.Name,
@@ -77,7 +76,7 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 func (s *EntityProfileTypeService) ListEntityProfileTypes(
 	ctx context.Context,
 	companyID string,
-) ([]*sharedmodels.EntityProfileType, error) {
+) ([]*domain.EntityProfileType, error) {
 	types, err := s.repo.GetProfileTypesByCompanyID(ctx, companyID)
 	if err != nil {
 		s.logger.Error("failed to list entity profile types", zap.Error(err))
@@ -90,7 +89,7 @@ func (s *EntityProfileTypeService) ListEntityProfileTypes(
 
 func (s *EntityProfileTypeService) ListMetricsTemplates(
 	ctx context.Context,
-) ([]sharedmodels.MetricsTemplateResponse, error) {
+) ([]domain.MetricsTemplateResponse, error) {
 	templates, err := s.repo.ListMetricsTemplates(ctx)
 	if err != nil {
 		s.logger.Error("failed to list metrics templates", zap.Error(err))
@@ -103,14 +102,14 @@ func (s *EntityProfileTypeService) ListMetricsTemplates(
 func (s *EntityProfileTypeService) UpdateEntityProfileType(
 	ctx context.Context,
 	companyID, id string,
-	req *models.UpdateEntityProfileTypeRequest,
-) (*sharedmodels.EntityProfileType, error) {
+	req *domain.UpdateEntityProfileTypeCmd,
+) (*domain.EntityProfileType, error) {
 	var nextTypes []string
 	if req.Type != nil {
 		nextTypes = normalizeTypes(req.Type)
 	}
 
-	profileType := &sharedmodels.EntityProfileType{
+	profileType := &domain.EntityProfileType{
 		ID:          id,
 		CompanyID:   companyID,
 		Name:        req.Name,

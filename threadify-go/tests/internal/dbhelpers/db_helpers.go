@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 	"threadify-go/shared/repository"
 
 	"github.com/google/uuid"
@@ -116,7 +116,7 @@ func (db *Helpers) AssignRole(t *testing.T, principalID, principalType, roleName
 }
 
 func (db *Helpers) FundCreditAccount(t *testing.T, companyID string, amountMillicents int64) {
-	err := repository.NewPlanRepo(db.pool).CreateCreditAccount(context.Background(), &models.CreditAccount{
+	err := repository.NewPlanRepo(db.pool).CreateCreditAccount(context.Background(), &domain.CreditAccount{
 		ID:                      uuid.NewString(),
 		CompanyID:               companyID,
 		CreditBalanceMillicents: amountMillicents,
@@ -157,7 +157,7 @@ func (db *Helpers) CreateTestInvoice(t *testing.T, companyID, externalInvoiceID 
 		companyID,
 		externalInvoiceID,
 		totalCents,
-		string(models.SnapshotReasonCreditTopup),
+		string(domain.SnapshotReasonCreditTopup),
 		now,
 		now.Add(30*24*time.Hour),
 	)

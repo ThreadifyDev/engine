@@ -3,7 +3,7 @@ package common
 import (
 	"testing"
 
-	"threadify-go/api/internal/interfaces"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/service"
 	agentrepomocks "threadify-go/api/internal/service/mocks/repository/agent"
 	apikeyrepomocks "threadify-go/api/internal/service/mocks/repository/apikey"
@@ -84,13 +84,13 @@ func NewMockDeps(t *testing.T) *MockedDeps {
 }
 
 func (d *MockedDeps) NewAuthService(
-	pool interfaces.DBPool,
+	pool ports.DBPool,
 	authClient sharedauth.AuthClient,
 	outboxWorker service.OutboxWorkerTrigger,
 	encryptionKey []byte,
 ) *service.AuthService {
 	return service.NewAuthService(
-		pool,
+		ports.WrapAsTxManager(pool),
 		d.UserRepo,
 		d.CompanyRepo,
 		d.UserRoleRepo,

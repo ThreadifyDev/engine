@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/types"

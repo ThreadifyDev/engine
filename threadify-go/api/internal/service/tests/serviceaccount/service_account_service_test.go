@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 
 	"github.com/golang/mock/gomock"
@@ -20,13 +20,13 @@ func TestServiceAccountService_CreateServiceAccount(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *models.CreateServiceAccountRequest
+		req       *domain.CreateServiceAccountCmd
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 	}{
 		{
 			name: "success",
-			req: &models.CreateServiceAccountRequest{
+			req: &domain.CreateServiceAccountCmd{
 				Name: "Test SA",
 				Role: "standard_service",
 			},
@@ -37,7 +37,7 @@ func TestServiceAccountService_CreateServiceAccount(t *testing.T) {
 		},
 		{
 			name: "invalid_role",
-			req: &models.CreateServiceAccountRequest{
+			req: &domain.CreateServiceAccountCmd{
 				Name: "Evil SA",
 				Role: "admin",
 			},
@@ -79,7 +79,7 @@ func TestServiceAccountService_GetServiceAccount(t *testing.T) {
 			name: "success",
 			id:   saID,
 			setupMock: func(deps *common.MockedDeps) {
-				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), saID).Return(&models.ServiceAccount{ID: saID, CompanyID: companyID}, nil)
+				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), saID).Return(&domain.ServiceAccount{ID: saID, CompanyID: companyID}, nil)
 			},
 		},
 		{
@@ -94,7 +94,7 @@ func TestServiceAccountService_GetServiceAccount(t *testing.T) {
 			name: "unauthorized_cross_company",
 			id:   saID,
 			setupMock: func(deps *common.MockedDeps) {
-				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), saID).Return(&models.ServiceAccount{ID: saID, CompanyID: "other_comp"}, nil)
+				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), saID).Return(&domain.ServiceAccount{ID: saID, CompanyID: "other_comp"}, nil)
 			},
 			wantErr: true,
 		},

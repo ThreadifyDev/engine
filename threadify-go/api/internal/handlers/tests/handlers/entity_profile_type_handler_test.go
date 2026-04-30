@@ -8,7 +8,7 @@ import (
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	serror "threadify-go/shared/errors"
-	sharedmodels "threadify-go/shared/models"
+	sharedmodels "threadify-go/shared/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"

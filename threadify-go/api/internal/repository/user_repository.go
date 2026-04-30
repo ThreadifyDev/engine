@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	serror "threadify-go/shared/errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,15 +17,15 @@ type userRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewUserRepository(pool *pgxpool.Pool) UserRepository {
+func NewUserRepository(pool *pgxpool.Pool) domain.UserRepository {
 	return &userRepository{pool: pool}
 }
 
-func (r *userRepository) Pool() *pgxpool.Pool {
-	return r.pool
-}
-
-func (r *userRepository) CreateTx(ctx context.Context, execer DBExecer, user *models.User) error {
+func (r *userRepository) CreateTx(ctx context.Context, tx domain.Execer, user *domain.User) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
 	const query = `
         INSERT INTO users (id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done, created_at, updated_at)
@@ -42,8 +42,8 @@ func (r *userRepository) CreateTx(ctx context.Context, execer DBExecer, user *mo
 	return nil
 }
 
-func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	user := &models.User{}
+func (r *userRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	user := &domain.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done,
@@ -65,7 +65,7 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*models
 	return user, nil
 }
 
-func (r *userRepository) ListByCompanyID(ctx context.Context, companyID string) ([]*models.User, error) {
+func (r *userRepository) ListByCompanyID(ctx context.Context, companyID string) ([]*domain.User, error) {
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done,
@@ -79,9 +79,9 @@ func (r *userRepository) ListByCompanyID(ctx context.Context, companyID string) 
 	}
 	defer rows.Close()
 
-	var users []*models.User
+	var users []*domain.User
 	for rows.Next() {
-		user := &models.User{}
+		user := &domain.User{}
 		if err := rows.Scan(
 			&user.ID, &user.CompanyID, &user.Email, &user.AuthUserID,
 			&user.FullName, &user.JobRole, &user.EmailVerified,
@@ -100,8 +100,8 @@ func (r *userRepository) ListByCompanyID(ctx context.Context, companyID string) 
 	return users, nil
 }
 
-func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
-	user := &models.User{}
+func (r *userRepository) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	user := &domain.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done,
@@ -123,8 +123,8 @@ func (r *userRepository) FindByID(ctx context.Context, id string) (*models.User,
 	return user, nil
 }
 
-func (r *userRepository) FindByAuthUserID(ctx context.Context, authUserID string) (*models.User, error) {
-	user := &models.User{}
+func (r *userRepository) FindByAuthUserID(ctx context.Context, authUserID string) (*domain.User, error) {
+	user := &domain.User{}
 	const query = `
         SELECT id, company_id, email, auth_user_id, full_name, job_role,
             email_verified, onboarding_completed, first_instrumentation_done,
@@ -260,10 +260,15 @@ func (r *userRepository) Delete(ctx context.Context, id string) error {
 	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *userRepository) DeleteTx(ctx context.Context, execer DBExecer, id string) error {
+func (r *userRepository) DeleteTx(ctx context.Context, tx domain.Execer, id string) error {
+	execer, ok := tx.(DBExecer)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+	}
 	_, err := execer.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
 	return nil
 }
+
