@@ -12,7 +12,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -314,23 +313,9 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
 	c.logDroppedMalformed("thread_metadata", failed)
-	profileIDs, err := c.writer.WriteThreadMetadata(ctx, events)
+	_, err := c.writer.WriteThreadMetadata(ctx, events)
 	if err != nil {
 		return err
-	}
-
-	if len(profileIDs) > 0 {
-		payload, err := json.Marshal(profileIDs)
-		if err != nil {
-			return fmt.Errorf("marshal profile ids for publish: %w", err)
-		}
-		if _, err := c.js.Publish(ctx, natsrepo.SubjectProfileRecalculate, payload); err != nil {
-			c.logger.Error("failed to publish profile recalculation event",
-				zap.Strings("profile_ids", profileIDs),
-				zap.Error(err),
-			)
-			return fmt.Errorf("publish profile recalculate event: %w", err)
-		}
 	}
 
 	c.logPerf("metadata.thread", len(msgs), start)

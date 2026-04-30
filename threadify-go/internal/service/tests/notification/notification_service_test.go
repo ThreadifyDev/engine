@@ -16,20 +16,20 @@ import (
 )
 
 type mockTimeoutMonitor struct {
-	scheduleFn func(event domain.TimeoutEvent) error
-	cancelFn   func(timeoutID, threadID, reason string) error
+	scheduleFn func(ctx context.Context, event domain.TimeoutEvent) error
+	cancelFn   func(ctx context.Context, timeoutID, threadID, reason string) error
 }
 
-func (m *mockTimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
+func (m *mockTimeoutMonitor) ScheduleTimeout(ctx context.Context, event domain.TimeoutEvent) error {
 	if m.scheduleFn != nil {
-		return m.scheduleFn(event)
+		return m.scheduleFn(ctx, event)
 	}
 	return nil
 }
 
-func (m *mockTimeoutMonitor) CancelTimeout(id, tid, r string) error {
+func (m *mockTimeoutMonitor) CancelTimeout(ctx context.Context, id, tid, r string) error {
 	if m.cancelFn != nil {
-		return m.cancelFn(id, tid, r)
+		return m.cancelFn(ctx, id, tid, r)
 	}
 	return nil
 }
@@ -104,7 +104,7 @@ func TestNotificationService_ScheduleThreadTimeout(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		scheduled := false
-		tm.scheduleFn = func(event domain.TimeoutEvent) error {
+		tm.scheduleFn = func(ctx context.Context, event domain.TimeoutEvent) error {
 			scheduled = true
 			assert.Equal(t, "t1:max_duration", event.ID)
 			assert.Equal(t, domain.TimeoutTypeMaxDuration, event.Type)
@@ -137,7 +137,7 @@ func TestNotificationService_CancelThreadTimeout(t *testing.T) {
 	svc := service.NewNotificationService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, tm, zap.NewNop())
 
 	cancelled := false
-	tm.cancelFn = func(id, tid, r string) error {
+	tm.cancelFn = func(ctx context.Context, id, tid, r string) error {
 		cancelled = true
 		assert.Equal(t, "t1:max_duration", id)
 		return nil

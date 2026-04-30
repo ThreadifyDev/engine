@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -93,7 +94,7 @@ func TestBuildTimeoutViolationNotification_Table(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			n := service.BuildTimeoutViolationNotification(tc.event, thread)
+			n := service.BuildTimeoutViolationNotification("notif-123", tc.event, thread)
 
 			assert.Equal(t, tc.event.ThreadID, n.ThreadID)
 			assert.Equal(t, thread.OwnerID, n.OwnerID)
@@ -149,7 +150,7 @@ func TestTimeoutMonitor_IsTimeoutCancelled_Table(t *testing.T) {
 				Return(nil, tc.getErr).
 				Times(1)
 
-			got, err := tm.IsTimeoutCancelled(tc.timeoutID)
+			got, err := tm.IsTimeoutCancelled(context.Background(), tc.timeoutID)
 			if tc.wantErrText != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrText)
@@ -175,5 +176,5 @@ func TestTimeoutMonitor_CancelTimeout_UsesCancellationKey(t *testing.T) {
 		Return(uint64(1), nil).
 		Times(1)
 
-	require.NoError(t, tm.CancelTimeout(timeoutID, "t1", "because"))
+	require.NoError(t, tm.CancelTimeout(context.Background(), timeoutID, "t1", "because"))
 }

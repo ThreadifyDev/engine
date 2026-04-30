@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// ToSlug converts a string to a URL-friendly slug format
-// Example: "Customer Support Agent" -> "customer_support_agent"
 func ToSlug(s string) string {
 	// Convert to lowercase
 	s = strings.ToLower(s)

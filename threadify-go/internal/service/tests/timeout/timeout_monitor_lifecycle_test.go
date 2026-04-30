@@ -177,7 +177,7 @@ func TestTimeoutMonitor_CancelTimeout_SanitizesKeyAndIncrementsMetric(t *testing
 		Times(1)
 
 	tm := service.NewTimeoutMonitorForTests(kv, pub, zap.NewNop())
-	err := tm.CancelTimeout(timeoutID, "thread-123", "step-started")
+	err := tm.CancelTimeout(context.Background(), timeoutID, "thread-123", "step-started")
 	require.NoError(t, err)
 	assert.Equal(t, timeoutID, captured.TimeoutID)
 	assert.Equal(t, "thread-123", captured.ThreadID)

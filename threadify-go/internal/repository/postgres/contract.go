@@ -132,11 +132,21 @@ func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, cont
 func (r *ContractRepository) Update(ctx context.Context, params domain.UpdateContractParams) (*domain.Contract, error) {
 	query := `UPDATE contracts
 		SET description=$1, content_hash=$2, latest_version=$3, updated_at=$4
-		WHERE id=$5 AND is_deleted=false
+		WHERE id=$5 AND latest_version=$6 AND is_deleted=false
 		RETURNING ` + contractCols
 
 	var c domain.Contract
-	if err := scanContract(r.pool.QueryRow(ctx, query, params.Description, params.ContentHash, params.LatestVersion, params.UpdatedAt, params.ContractID), &c); err != nil {
+	if err := scanContract(r.pool.QueryRow(ctx, query,
+		params.Description, params.ContentHash, params.LatestVersion, params.UpdatedAt,
+		params.ContractID, params.ExpectedVersion,
+	), &c); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var exists bool
+			r.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM contracts WHERE id=$1)", params.ContractID).Scan(&exists)
+			if exists {
+				return nil, fmt.Errorf("concurrent update detected: version mismatch")
+			}
+		}
 		return nil, contractErr(err)
 	}
 	return &c, nil

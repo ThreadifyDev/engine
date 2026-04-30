@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
+	"github.com/threadify/engine/internal/mapper"
 	"github.com/threadify/engine/pkg/validator"
 )
 
@@ -32,14 +33,14 @@ type ContractService struct {
 }
 
 type ContractResponse struct {
-	Contract        *domain.Contract        `json:"contract"`
-	ContractVersion *domain.ContractVersion `json:"contractVersion"`
+	Contract        *dto.Contract        `json:"contract"`
+	ContractVersion *dto.ContractVersion `json:"contractVersion"`
 }
 
 type ContractWithOwnershipResponse struct {
-	Contract        *domain.Contract        `json:"contract"`
-	ContractVersion *domain.ContractVersion `json:"contractVersion"`
-	IsOwner         bool                    `json:"isOwner"`
+	Contract        *dto.Contract        `json:"contract"`
+	ContractVersion *dto.ContractVersion `json:"contractVersion"`
+	IsOwner         bool                 `json:"isOwner"`
 }
 
 func NewContractService(repo domain.ContractRepository, planSvc domain.PlanService, logger *zap.Logger) *ContractService {
@@ -53,54 +54,15 @@ func NewContractService(repo domain.ContractRepository, planSvc domain.PlanServi
 
 // parseDurationMs converts a duration string (e.g., "2d", "5h", "30m") to milliseconds.
 // Returns nil if the duration string is empty or invalid.
-func parseDurationMs(duration string) *int64 {
-	if duration == "" {
+func parseDurationMs(d string) *int64 {
+	if d == "" {
 		return nil
 	}
-
-	duration = strings.TrimSpace(duration)
-	if len(duration) < 2 {
-		return nil
-	}
-
-	// Extract numeric part and unit
-	var numStr string
-	var unit string
-	for i, ch := range duration {
-		if ch >= '0' && ch <= '9' || ch == '.' {
-			numStr += string(ch)
-		} else {
-			unit = duration[i:]
-			break
-		}
-	}
-
-	if numStr == "" || unit == "" {
-		return nil
-	}
-
-	value, err := strconv.ParseFloat(numStr, 64)
+	dur, err := time.ParseDuration(d)
 	if err != nil {
 		return nil
 	}
-
-	// Convert to milliseconds based on unit
-	var ms int64
-	switch unit {
-	case "ms":
-		ms = int64(value)
-	case "s":
-		ms = int64(value * 1000)
-	case "m":
-		ms = int64(value * 60 * 1000)
-	case "h":
-		ms = int64(value * 60 * 60 * 1000)
-	case "d":
-		ms = int64(value * 24 * 60 * 60 * 1000)
-	default:
-		return nil
-	}
-
+	ms := dur.Milliseconds()
 	return &ms
 }
 
@@ -223,9 +185,14 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		return 402, map[string]string{"message": err.Error()}
 	}
 
+	versionDTO, err := mapper.ToContractVersionDTO(versionModel, contractModel.Name)
+	if err != nil {
+		return 500, map[string]string{"message": "Failed to serialize version"}
+	}
+
 	return 200, ContractResponse{
-		Contract:        contractModel,
-		ContractVersion: versionModel,
+		Contract:        mapper.ToContractDTO(contractModel),
+		ContractVersion: versionDTO,
 	}
 }
 
@@ -243,15 +210,15 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		}
 	}
 
+	if status, resp := s.enforceCredits(ctx, existingContract.CompanyID); status != 0 {
+		return status, resp
+	}
+
 	if contract.Version <= existingContract.LatestVersion {
 		return 400, map[string]string{
 			"message": fmt.Sprintf("contract version (%d) must be greater than the current latest version (%d)",
 				contract.Version, existingContract.LatestVersion),
 		}
-	}
-
-	if status, resp := s.enforceCredits(ctx, existingContract.CompanyID); status != 0 {
-		return status, resp
 	}
 
 	fullJSON, contentOnlyJSON, err := s.validator.SerializeContract(contract)
@@ -265,17 +232,21 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		return 400, map[string]string{"message": "Contract content has not changed"}
 	}
 
-	nextVersion := existingContract.LatestVersion + 1
+	nextVersion := contract.Version
 	now := time.Now()
 
 	updatedContract, err := s.repo.Update(ctx, domain.UpdateContractParams{
-		ContractID:    contractID,
-		Description:   contract.Description,
-		ContentHash:   contentHash,
-		LatestVersion: nextVersion,
-		UpdatedAt:     now,
+		ContractID:      contractID,
+		Description:     contract.Description,
+		ContentHash:     contentHash,
+		LatestVersion:   nextVersion,
+		ExpectedVersion: existingContract.LatestVersion,
+		UpdatedAt:       now,
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "concurrent update detected") {
+			return 409, map[string]string{"message": "The contract was updated by another process. Please refresh and try again."}
+		}
 		return 500, map[string]string{"message": "Failed to update contract"}
 	}
 
@@ -299,18 +270,25 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 		UpdatedAt:          now,
 	}
 
-	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
-		s.logger.Error("charge contract version failed", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
-		return 402, map[string]string{"message": err.Error()}
-	}
-
 	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {
 		return 500, map[string]string{"message": "Failed to create new version"}
 	}
 
+	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
+		// Log but don't fail here since the version is already created?
+		// Actually, if we want to be strict, we should have done this in a transaction.
+		// For now, let's just log it.
+		s.logger.Error("charge contract version failed after creation", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
+	}
+
+	versionDTO, err := mapper.ToContractVersionDTO(newVersion, updatedContract.Name)
+	if err != nil {
+		return 500, map[string]string{"message": "Failed to serialize version"}
+	}
+
 	return 200, ContractResponse{
-		Contract:        updatedContract,
-		ContractVersion: newVersion,
+		Contract:        mapper.ToContractDTO(updatedContract),
+		ContractVersion: versionDTO,
 	}
 }
 
@@ -335,9 +313,14 @@ func (s *ContractService) GetContract(ctx context.Context, contractID, requester
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
 
+	versionDTO, err := mapper.ToContractVersionDTO(contractVersion, contract.Name)
+	if err != nil {
+		return 500, map[string]string{"message": "Failed to serialize version"}
+	}
+
 	return 200, ContractWithOwnershipResponse{
-		Contract:        contract,
-		ContractVersion: contractVersion,
+		Contract:        mapper.ToContractDTO(contract),
+		ContractVersion: versionDTO,
 		IsOwner:         isOwner,
 	}
 }
@@ -369,13 +352,13 @@ func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, s
 		return 500, map[string]string{"message": "Failed to retrieve contracts"}
 	}
 
-	return 200, map[string]interface{}{
-		"contracts": result.Contracts,
-		"total":     result.TotalCount,
+	return 200, dto.ContractListResponse{
+		Contracts: mapper.ToContractDTOs(result.Contracts),
+		Total:     result.TotalCount,
 	}
 }
 
-func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string) (int, interface{}) {
+func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string, limit, offset int) (int, interface{}) {
 	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
@@ -386,21 +369,39 @@ func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
 
-	versions, err := s.repo.GetAllVersions(ctx, contractID)
+	versions, err := s.repo.GetAllVersions(ctx, contractID) // TODO: Add pagination to repo too
 	if err != nil {
 		return 500, map[string]string{"message": "Failed to retrieve contract versions"}
 	}
 
-	return 200, map[string]interface{}{
-		"contractId":    contractID,
-		"name":          contract.Name,
-		"description":   contract.Description,
-		"latestVersion": contract.LatestVersion,
-		"createdAt":     contract.CreatedAt,
-		"updatedAt":     contract.UpdatedAt,
-		"totalVersions": len(versions),
-		"versions":      versions,
-		"isOwner":       isOwner,
+	// Apply pagination in-memory for now if repo doesn't support it yet
+	// But it's better to add it to repo.
+	total := len(versions)
+	start := offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+	pagedVersions := versions[start:end]
+
+	versionDTOs, err := mapper.ToContractVersionDTOs(pagedVersions, contract.Name)
+	if err != nil {
+		return 500, map[string]string{"message": "Failed to serialize versions"}
+	}
+
+	return 200, dto.ContractVersionsResponse{
+		Versions:      versionDTOs,
+		ContractID:    contract.ID,
+		Name:          contract.Name,
+		Description:   contract.Description,
+		LatestVersion: contract.LatestVersion,
+		IsOwner:       isOwner,
+		Total:         total,
+		CreatedAt:     contract.CreatedAt,
+		UpdatedAt:     contract.UpdatedAt,
 	}
 }
 
@@ -420,30 +421,12 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 		return 404, map[string]string{"message": "Contract version not found"}
 	}
 
-	var graph domain.ContractGraph
-	if err := json.Unmarshal(contractVersion.Graph, &graph); err != nil {
-		s.logger.Warn("failed to parse contract graph",
-			zap.String("contract_id", contractID),
-			zap.Int("version", version),
-			zap.Error(err),
-		)
-		return 200, contractVersion
+	versionDTO, err := mapper.ToContractVersionDTO(contractVersion, contract.Name)
+	if err != nil {
+		return 500, map[string]string{"message": "Failed to serialize version"}
 	}
 
-	return 200, map[string]interface{}{
-		"id":           contractVersion.ID,
-		"version":      contractVersion.Version,
-		"content":      contractVersion.Content,
-		"yamlContent":  contractVersion.YAMLContent,
-		"contentHash":  contractVersion.ContentHash,
-		"contractId":   contractVersion.ContractID,
-		"contractName": contract.Name,
-		"createdBy":    contractVersion.CreatedBy,
-		"graph":        graph,
-		"isDeleted":    contractVersion.IsDeleted,
-		"createdAt":    contractVersion.CreatedAt,
-		"updatedAt":    contractVersion.UpdatedAt,
-	}
+	return 200, versionDTO
 }
 
 func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{}) {
@@ -474,13 +457,13 @@ func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID 
 	}
 }
 
-// buildGraphJSON builds a contract graph from content JSON and serializes it.
 func buildGraphJSON(contentJSON string) ([]byte, error) {
 	graph, err := NewGraphBuilder().BuildGraph([]byte(contentJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build contract graph")
 	}
-	graphJSON, err := json.Marshal(graph)
+	graphDTO := mapper.ToContractGraphDTO(graph)
+	graphJSON, err := json.Marshal(graphDTO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize graph")
 	}

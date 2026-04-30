@@ -2,7 +2,6 @@ package graphql
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -82,30 +81,6 @@ func getCachedSteps(ctx context.Context, threadID string) (steps interface{}, fo
 	return steps, found
 }
 
-func toGraphQLMetrics(m *shareddomain.EntityProfileMetrics) *generated.EntityProfileMetrics {
-	if m == nil {
-		return nil
-	}
-	out := &generated.EntityProfileMetrics{
-		EntityProfileID:         m.EntityProfileID,
-		TotalDeliveries:         m.TotalDeliveries,
-		CompletedSuccessfully:   m.CompletedSuccessfully,
-		ValidationViolations:    m.ValidationViolations,
-		DeliveryHealthScore:     m.DeliveryHealthScore,
-		PrevDeliveryHealthScore: m.PrevDeliveryHealthScore,
-		HealthTrendSlope:        m.HealthTrendSlope,
-	}
-	if m.AverageDeliveryTimeMs != nil {
-		v := int(*m.AverageDeliveryTimeMs)
-		out.AverageDeliveryTimeMs = &v
-	}
-	if m.LastCalculatedAt != nil {
-		v := m.LastCalculatedAt.Format(time.RFC3339)
-		out.LastCalculatedAt = &v
-	}
-	return out
-}
-
 func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityProfileType {
 	if t == nil {
 		return nil
@@ -113,17 +88,6 @@ func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityPr
 	desc := t.Description
 	var metricsConfig []*generated.EntityTypeMetricConfig
 	for _, m := range t.Metrics {
-		// we need to safely pass map[string]any via the string encoding or just as string?
-		// Wait, GraphQL JSON is mapped to string currently, but let's check what it expects.
-		// If the schema mapped it to string, we need to marshal it. If to any, we can pass map.
-		// We'll leave the marshalling logic inside helpers.go
-		var paramsStr *string
-		if m.Parameters != nil {
-			if b, err := json.Marshal(m.Parameters); err == nil {
-				s := string(b)
-				paramsStr = &s
-			}
-		}
 		var nameStr *string
 		if m.Name != "" {
 			name := m.Name
@@ -132,7 +96,7 @@ func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityPr
 		metricsConfig = append(metricsConfig, &generated.EntityTypeMetricConfig{
 			TemplateID: m.TemplateID,
 			Name:       nameStr,
-			Parameters: paramsStr,
+			Parameters: m.Parameters,
 		})
 	}
 

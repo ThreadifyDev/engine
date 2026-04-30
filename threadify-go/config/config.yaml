@@ -174,16 +174,6 @@ archiver:
   enabled: true
   metrics_port: 9091
   
-  # Enrichment worker pool for async data enrichment tasks
-  enrichment_workers:
-    min_workers: 5               # CPU cores / 2
-    max_workers: 20              # 2x CPU cores
-    queue_size: 2000
-    scale_up_threshold: 200
-    scale_down_after_ms: 60000   # 60 seconds
-    job_timeout_ms: 30000        # 30 seconds
-    submit_retry_wait_ms: 10     # Brief retry before dropping
-  
   # Buffer settings per queue type
   buffers:
     thread_step_state:

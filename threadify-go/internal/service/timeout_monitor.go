@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -21,41 +22,32 @@ const (
 	TimeoutKVBucket       = "timeout_cancellations"
 )
 
-// TimeoutMonitor handles proactive timeout monitoring using NATS JetStream
 type TimeoutMonitor struct {
 	nc              *nats.Conn
 	js              jetstream.JetStream
 	kv              timeoutKV
-	threadRepo      domain.ThreadRepository
 	notificationPub domain.NotificationPublisher
 	logger          *zap.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
-	// Metrics
-	scheduledCount atomic.Uint64
-	cancelledCount atomic.Uint64
-	firedCount     atomic.Uint64
-	violationCount atomic.Uint64
+	scheduledCount  atomic.Uint64
+	cancelledCount  atomic.Uint64
+	firedCount      atomic.Uint64
+	violationCount  atomic.Uint64
 }
 
-//go:generate mockgen -package=timeoutmocks -destination=mocks/timeout/timeout_kv_mock.go -source=timeout_monitor.go timeoutKV
 type timeoutKV interface {
 	Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error)
 	Put(ctx context.Context, key string, value []byte) (uint64, error)
 }
 
-// TimeoutKV is an exported alias for timeoutKV (primarily for tests).
 type TimeoutKV = timeoutKV
 
-// TimeoutCancellationKey returns the KV key used to mark a timeout as cancelled.
 func TimeoutCancellationKey(timeoutID string) string {
-	// NATS KV keys cannot contain colons, replace with underscores
 	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
 	return fmt.Sprintf("cancelled_%s", sanitizedID)
 }
 
-// NewTimeoutMonitorForTests constructs a TimeoutMonitor without performing any NATS/JetStream setup.
-// Intended for unit tests that exercise behaviour in isolation.
 func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub domain.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TimeoutMonitor{
@@ -67,10 +59,8 @@ func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub domain.Notification
 	}
 }
 
-// NewTimeoutMonitor creates a new timeout monitor service
 func NewTimeoutMonitor(
 	nc *nats.Conn,
-	threadRepo domain.ThreadRepository,
 	notificationPub domain.NotificationPublisher,
 	logger *zap.Logger,
 ) (*TimeoutMonitor, error) {
@@ -84,14 +74,12 @@ func NewTimeoutMonitor(
 	tm := &TimeoutMonitor{
 		nc:              nc,
 		js:              js,
-		threadRepo:      threadRepo,
 		notificationPub: notificationPub,
 		logger:          logger,
 		ctx:             ctx,
 		cancel:          cancel,
 	}
 
-	// Initialize stream and KV bucket
 	if err := tm.initializeStream(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("initialize timeout stream: %w", err)
@@ -105,35 +93,22 @@ func NewTimeoutMonitor(
 	return tm, nil
 }
 
-// initializeStream creates the timeout events stream
 func (tm *TimeoutMonitor) initializeStream() error {
-	_, err := tm.js.CreateStream(tm.ctx, jetstream.StreamConfig{
-		Name:        TimeoutStreamName,
-		Description: "Proactive timeout monitoring for transitions and thread max duration",
-		Subjects:    []string{TimeoutSubjectPattern},
-		Retention:   jetstream.WorkQueuePolicy,
-		MaxAge:      7 * 24 * time.Hour, // 7 days retention
-		Storage:     jetstream.FileStorage,
-		Replicas:    1,
-		Discard:     jetstream.DiscardOld,
-		// Enable delayed message scheduling (NATS 2.12+)
-		AllowMsgSchedules: true,
-	})
+	cfg := jetstream.StreamConfig{
+		Name:              TimeoutStreamName,
+		Description:       "Proactive timeout monitoring for transitions and thread max duration",
+		Subjects:          []string{TimeoutSubjectPattern},
+		Retention:         jetstream.WorkQueuePolicy,
+		MaxAge:            7 * 24 * time.Hour,
+		Storage:           jetstream.FileStorage,
+		Replicas:          1,
+		Discard:           jetstream.DiscardOld,
+		AllowMsgSchedules: true, // Requires NATS 2.12+
+	}
 
+	_, err := tm.js.CreateStream(tm.ctx, cfg)
 	if err != nil {
-		// Stream might already exist, try to update
-		_, err = tm.js.UpdateStream(tm.ctx, jetstream.StreamConfig{
-			Name:        TimeoutStreamName,
-			Description: "Proactive timeout monitoring for transitions and thread max duration",
-			Subjects:    []string{TimeoutSubjectPattern},
-			Retention:   jetstream.WorkQueuePolicy,
-			MaxAge:      7 * 24 * time.Hour,
-			Storage:     jetstream.FileStorage,
-			Replicas:    1,
-			Discard:     jetstream.DiscardOld,
-			// Enable delayed message scheduling (NATS 2.12+)
-			AllowMsgSchedules: true,
-		})
+		_, err = tm.js.UpdateStream(tm.ctx, cfg)
 		if err != nil {
 			return fmt.Errorf("create or update stream: %w", err)
 		}
@@ -143,18 +118,16 @@ func (tm *TimeoutMonitor) initializeStream() error {
 	return nil
 }
 
-// initializeKVBucket creates the KV bucket for cancellation flags
 func (tm *TimeoutMonitor) initializeKVBucket() error {
 	kv, err := tm.js.CreateKeyValue(tm.ctx, jetstream.KeyValueConfig{
 		Bucket:      TimeoutKVBucket,
 		Description: "Cancellation flags for timeout events",
-		TTL:         7 * 24 * time.Hour, // Auto-cleanup after 7 days
+		TTL:         7 * 24 * time.Hour,
 		Storage:     jetstream.FileStorage,
 		Replicas:    1,
 	})
 
 	if err != nil {
-		// Bucket might already exist
 		kv, err = tm.js.KeyValue(tm.ctx, TimeoutKVBucket)
 		if err != nil {
 			return fmt.Errorf("create or get KV bucket: %w", err)
@@ -166,7 +139,14 @@ func (tm *TimeoutMonitor) initializeKVBucket() error {
 	return nil
 }
 
-// Start begins consuming timeout events
+// Start begins consuming timeout events. It blocks until Stop() is called.
+// Run this in a dedicated goroutine:
+//
+//	go func() {
+//	    if err := tm.Start(); err != nil {
+//	        log.Fatal(err)
+//	    }
+//	}()
 func (tm *TimeoutMonitor) Start() error {
 	consumer, err := tm.js.CreateOrUpdateConsumer(tm.ctx, TimeoutStreamName, jetstream.ConsumerConfig{
 		Name:          "timeout-monitor",
@@ -177,12 +157,10 @@ func (tm *TimeoutMonitor) Start() error {
 		FilterSubject: TimeoutSubjectPattern,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 	})
-
 	if err != nil {
 		return fmt.Errorf("create consumer: %w", err)
 	}
 
-	// Start consuming messages
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
 		if err := tm.handleTimeoutEvent(msg); err != nil {
 			tm.logger.Error("failed to handle timeout event",
@@ -191,14 +169,12 @@ func (tm *TimeoutMonitor) Start() error {
 			)
 		}
 	})
-
 	if err != nil {
 		return fmt.Errorf("start consuming: %w", err)
 	}
 
 	tm.logger.Info("timeout monitor started")
 
-	// Wait for context cancellation
 	<-tm.ctx.Done()
 	consumeCtx.Stop()
 
@@ -210,24 +186,79 @@ func (tm *TimeoutMonitor) HandleTimeoutEvent(msg jetstream.Msg) error {
 	return tm.handleTimeoutEvent(msg)
 }
 
+// timeoutEventModel is the wire representation of a timeout event.
+// It is used for both publishing (ScheduleTimeout) and consuming (handleTimeoutEvent)
+// to keep serialization in sync.
 type timeoutEventModel struct {
-	ID           string    `json:"id"`
-	ThreadID     string    `json:"threadId"`
-	Type         string    `json:"type"`
-	FromStep     string    `json:"fromStep"`
-	ToStep       string    `json:"toStep"`
-	Timeout      string    `json:"timeout"`
-	DeadlineAt   time.Time `json:"deadlineAt"`
-	ScheduledAt  time.Time `json:"scheduledAt"`
-	ContractName string    `json:"contractName"`
+	ID           string                 `json:"id"`
+	ThreadID     string                 `json:"threadId"`
+	Type         string                 `json:"type"`
+	FromStep     string                 `json:"fromStep"`
+	ToStep       string                 `json:"toStep"`
+	Timeout      string                 `json:"timeout"`
+	DeadlineAt   time.Time              `json:"deadlineAt"`
+	ScheduledAt  time.Time              `json:"scheduledAt"`
+	ContractName string                 `json:"contractName"`
+	OwnerID      string                 `json:"ownerId"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// handleTimeoutEvent processes a timeout event
+func domainEventToModel(event domain.TimeoutEvent) timeoutEventModel {
+	ownerID := ""
+	if event.Metadata != nil {
+		if v, ok := event.Metadata["owner_id"].(string); ok {
+			ownerID = v
+		}
+	}
+	return timeoutEventModel{
+		ID:           event.ID,
+		ThreadID:     event.ThreadID,
+		Type:         string(event.Type),
+		FromStep:     event.FromStep,
+		ToStep:       event.ToStep,
+		Timeout:      event.Timeout,
+		DeadlineAt:   event.DeadlineAt,
+		ScheduledAt:  event.ScheduledAt,
+		ContractName: event.ContractName,
+		OwnerID:      ownerID,
+		Metadata:     event.Metadata,
+	}
+}
+
 func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 	var model timeoutEventModel
 	if err := json.Unmarshal(msg.Data(), &model); err != nil {
+		// Poison pill — ack to discard, no point retrying.
 		msg.Ack()
 		return fmt.Errorf("unmarshal timeout event: %w", err)
+	}
+
+	cancelled, err := tm.isTimeoutCancelled(tm.ctx, model.ID)
+	if err != nil {
+		tm.logger.Error("failed to check cancellation",
+			zap.Error(err),
+			zap.String("timeout_id", model.ID),
+		)
+		// Do not ack — allow retry up to MaxDeliver.
+		return err
+	}
+
+	if cancelled {
+		tm.logger.Debug("timeout cancelled, skipping",
+			zap.String("timeout_id", model.ID),
+			zap.String("thread_id", model.ThreadID),
+			zap.String("type", model.Type),
+		)
+		msg.Ack()
+		return nil
+	}
+
+	tm.firedCount.Add(1)
+
+	thread := &domain.Thread{
+		ID:           model.ThreadID,
+		ContractName: model.ContractName,
+		OwnerID:      model.OwnerID,
 	}
 
 	event := domain.TimeoutEvent{
@@ -240,55 +271,15 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 		DeadlineAt:   model.DeadlineAt,
 		ScheduledAt:  model.ScheduledAt,
 		ContractName: model.ContractName,
+		Metadata:     model.Metadata,
 	}
 
-	// Check if timeout was cancelled
-	cancelled, err := tm.isTimeoutCancelled(event.ID)
-	if err != nil {
-		tm.logger.Error("failed to check cancellation",
-			zap.Error(err),
-			zap.String("timeout_id", event.ID),
-		)
-		// Don't ack on error - will retry
-		return err
-	}
+	violation := BuildTimeoutViolationNotification(uuid.New().String(), event, thread)
 
-	if cancelled {
-		tm.logger.Debug("timeout cancelled, skipping",
-			zap.String("timeout_id", event.ID),
-			zap.String("thread_id", event.ThreadID),
-			zap.String("type", string(event.Type)),
-		)
-		msg.Ack()
-		return nil
-	}
-
-	// Timeout fired - increment metric
-	tm.firedCount.Add(1)
-
-	// Note: No need to check if step has started in Valkey/PostgreSQL
-	// Both scheduling and cancellation happen in the same worker pool context,
-	// so they experience the same delays. The cancellation flag check above
-	// is sufficient to prevent false positives.
-
-	// Build thread object from timeout event metadata
-	// All necessary information (owner_id, contract_name) is stored in the event
-	thread := &domain.Thread{
-		ID:           event.ThreadID,
-		ContractName: event.ContractName,
-		OwnerID:      "",
-	}
-	if ownerID, ok := event.Metadata["owner_id"].(string); ok {
-		thread.OwnerID = ownerID
-	}
-
-	violation := BuildTimeoutViolationNotification(event, thread)
-
-	// Use a timeout context for publishing to prevent indefinite hangs
 	publishCtx, cancel := context.WithTimeout(tm.ctx, 5*time.Second)
 	defer cancel()
 
-	tm.logger.Info("attempting to publish timeout violation",
+	tm.logger.Info("publishing timeout violation",
 		zap.String("timeout_id", event.ID),
 		zap.String("thread_id", event.ThreadID),
 		zap.String("owner_id", thread.OwnerID),
@@ -301,13 +292,10 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 			zap.String("timeout_id", event.ID),
 			zap.String("owner_id", thread.OwnerID),
 		)
+		// Do not ack — allow retry up to MaxDeliver.
 		return err
 	}
 
-	tm.logger.Info("successfully published timeout violation",
-		zap.String("timeout_id", event.ID),
-		zap.String("owner_id", thread.OwnerID),
-	)
 	tm.violationCount.Add(1)
 
 	tm.logger.Info("timeout violation fired",
@@ -322,61 +310,41 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 	return nil
 }
 
-// isTimeoutCancelled checks if a timeout has been cancelled
-func (tm *TimeoutMonitor) isTimeoutCancelled(timeoutID string) (bool, error) {
-	_, err := tm.kv.Get(tm.ctx, TimeoutCancellationKey(timeoutID))
-
+func (tm *TimeoutMonitor) isTimeoutCancelled(ctx context.Context, timeoutID string) (bool, error) {
+	_, err := tm.kv.Get(ctx, TimeoutCancellationKey(timeoutID))
 	if err != nil {
-		if err == jetstream.ErrKeyNotFound {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return false, nil
 		}
 		return false, fmt.Errorf("get cancellation flag: %w", err)
 	}
-
 	return true, nil
 }
 
 // IsTimeoutCancelled is an exported wrapper around isTimeoutCancelled (primarily for tests).
-func (tm *TimeoutMonitor) IsTimeoutCancelled(timeoutID string) (bool, error) {
-	return tm.isTimeoutCancelled(timeoutID)
+func (tm *TimeoutMonitor) IsTimeoutCancelled(ctx context.Context, timeoutID string) (bool, error) {
+	return tm.isTimeoutCancelled(ctx, timeoutID)
 }
 
-// ScheduleTimeout publishes a timeout event with delayed delivery (not integrated yet)
-func (tm *TimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
-	data, err := json.Marshal(map[string]interface{}{
-		"id":           event.ID,
-		"threadId":     event.ThreadID,
-		"type":         string(event.Type),
-		"fromStep":     event.FromStep,
-		"toStep":       event.ToStep,
-		"timeout":      event.Timeout,
-		"deadlineAt":   event.DeadlineAt,
-		"scheduledAt":  event.ScheduledAt,
-		"contractName": event.ContractName,
-	})
+// ScheduleTimeout publishes a timeout event with delayed delivery via NATS scheduled messages.
+func (tm *TimeoutMonitor) ScheduleTimeout(ctx context.Context, event domain.TimeoutEvent) error {
+	model := domainEventToModel(event)
+
+	data, err := json.Marshal(model)
 	if err != nil {
 		return fmt.Errorf("marshal timeout event: %w", err)
 	}
 
 	subject := fmt.Sprintf("timeout.%s.%s", event.Type, event.ThreadID)
 
-	// Calculate delay until deadline
-	delay := time.Until(event.DeadlineAt)
-	if delay < 0 {
-		delay = 0
-	}
-
-	// Use NATS scheduled message headers for delayed delivery (NATS 2.12+)
-	// The message will be held by JetStream until the scheduled time
-	_, err = tm.js.PublishMsg(tm.ctx, &nats.Msg{
+	_, err = tm.js.PublishMsg(ctx, &nats.Msg{
 		Subject: subject,
 		Data:    data,
 		Header: nats.Header{
-			"Nats-Msg-Id":       []string{event.ID},                              // Deduplication
-			"Nats-Msg-Schedule": []string{event.DeadlineAt.Format(time.RFC3339)}, // Scheduled delivery
+			"Nats-Msg-Id":       []string{event.ID},
+			"Nats-Msg-Schedule": []string{event.DeadlineAt.Format(time.RFC3339)},
 		},
 	})
-
 	if err != nil {
 		return fmt.Errorf("publish timeout event: %w", err)
 	}
@@ -387,15 +355,15 @@ func (tm *TimeoutMonitor) ScheduleTimeout(event domain.TimeoutEvent) error {
 		zap.String("timeout_id", event.ID),
 		zap.String("thread_id", event.ThreadID),
 		zap.String("type", string(event.Type)),
-		zap.Duration("delay", delay),
+		zap.Duration("delay", time.Until(event.DeadlineAt)),
 		zap.Time("deadline", event.DeadlineAt),
 	)
 
 	return nil
 }
 
-// CancelTimeout writes a cancellation flag to KV store
-func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) error {
+// CancelTimeout writes a cancellation flag to the KV store.
+func (tm *TimeoutMonitor) CancelTimeout(ctx context.Context, timeoutID, threadID, reason string) error {
 	data, err := json.Marshal(map[string]interface{}{
 		"timeoutId":   timeoutID,
 		"threadId":    threadID,
@@ -406,7 +374,7 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 		return fmt.Errorf("marshal cancellation: %w", err)
 	}
 
-	_, err = tm.kv.Put(tm.ctx, TimeoutCancellationKey(timeoutID), data)
+	_, err = tm.kv.Put(ctx, TimeoutCancellationKey(timeoutID), data)
 	if err != nil {
 		return fmt.Errorf("write cancellation flag: %w", err)
 	}
@@ -422,23 +390,17 @@ func (tm *TimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) erro
 	return nil
 }
 
-// BuildTimeoutViolationNotification creates a validation notification for a timeout violation.
-func BuildTimeoutViolationNotification(event domain.TimeoutEvent, thread *domain.Thread) domain.ValidationNotification {
-	var message string
-	var stepName string
+// BuildTimeoutViolationNotification creates a violation notification for a timeout event.
+// notificationID is accepted as a parameter to keep the function deterministic and testable.
+func BuildTimeoutViolationNotification(notificationID string, event domain.TimeoutEvent, thread *domain.Thread) domain.ValidationNotification {
+	var message, stepName string
 
 	switch event.Type {
 	case domain.TimeoutTypeMaxDuration:
-		// For max_duration timeouts, use "global" as a placeholder step name
-		// since these are thread-level timeouts, not step-specific
-		message = fmt.Sprintf(
-			"Thread exceeded max_duration of %s",
-			event.Timeout,
-		)
+		message = fmt.Sprintf("Thread exceeded max_duration of %s", event.Timeout)
 		stepName = "global"
 
 	case domain.TimeoutTypeTransition:
-		// Transition timeout between steps
 		expectedStepsDisplay := event.ToStep
 		if strings.Contains(event.ToStep, ",") {
 			expectedStepsDisplay = fmt.Sprintf("[%s]", event.ToStep)
@@ -452,15 +414,14 @@ func BuildTimeoutViolationNotification(event domain.TimeoutEvent, thread *domain
 		stepName = event.FromStep
 
 	default:
-		// Fallback for unknown timeout types
 		message = fmt.Sprintf("Timeout violation: %s", event.Type)
 		stepName = event.FromStep
 	}
 
 	return domain.ValidationNotification{
-		NotificationID:   uuid.New().String(),
+		NotificationID:   notificationID,
 		ThreadID:         event.ThreadID,
-		StepID:           "", // No specific step ID for timeouts
+		StepID:           "",
 		StepName:         stepName,
 		OwnerID:          thread.OwnerID,
 		ContractName:     event.ContractName,
@@ -485,7 +446,7 @@ func BuildTimeoutViolationNotification(event domain.TimeoutEvent, thread *domain
 	}
 }
 
-// GetMetrics returns current timeout monitoring metrics
+// GetMetrics returns current timeout monitoring metrics.
 func (tm *TimeoutMonitor) GetMetrics() map[string]uint64 {
 	return map[string]uint64{
 		"scheduled":  tm.scheduledCount.Load(),
@@ -495,7 +456,7 @@ func (tm *TimeoutMonitor) GetMetrics() map[string]uint64 {
 	}
 }
 
-// Stop gracefully shuts down the timeout monitor
+// Stop gracefully shuts down the timeout monitor.
 func (tm *TimeoutMonitor) Stop() {
 	tm.logger.Info("stopping timeout monitor")
 	tm.cancel()

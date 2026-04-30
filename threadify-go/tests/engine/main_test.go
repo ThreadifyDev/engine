@@ -2,9 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +26,15 @@ var (
 	logger    *zap.Logger
 	httpc     *enginetest.HTTPClient
 )
+
+func requireDockerForIntegration() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("THREADIFY_REQUIRE_DOCKER"))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -44,6 +56,10 @@ func TestMain(m *testing.M) {
 	var err error
 	env, err = testenv.Start(startCtx)
 	if err != nil {
+		if errors.Is(err, testenv.ErrDockerUnavailable) && !requireDockerForIntegration() {
+			_, _ = fmt.Fprintf(os.Stderr, "SKIP: engine integration tests require Docker (set THREADIFY_REQUIRE_DOCKER=1 to fail instead): %v\n", err)
+			os.Exit(0)
+		}
 		panic(err)
 	}
 

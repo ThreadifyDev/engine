@@ -182,7 +182,6 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		var err error
 		timeoutMonitor, err = InitializeTimeoutMonitor(
 			b.natsClient.Conn(),
-			b.threadRepo,
 			b.natsPublisher,
 			b.logger,
 		)

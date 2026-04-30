@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
+	"github.com/threadify/engine/internal/mapper"
 )
 
 // ContractGraphRepository handles contract graph caching in Valkey (Redis)
@@ -28,8 +30,9 @@ func NewContractGraphRepository(valkey domain.ValkeyStringClient, ttl int) *Cont
 func (r *ContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *domain.ContractGraph) error {
 	key := r.getGraphKey(contractName, version, companyID)
 
-	// Serialize graph to JSON
-	data, err := json.Marshal(graph)
+	// Map to DTO for consistent snake_case serialization
+	graphDTO := mapper.ToContractGraphDTO(graph)
+	data, err := json.Marshal(graphDTO)
 	if err != nil {
 		return fmt.Errorf("failed to serialize contract graph: %w", err)
 	}
@@ -57,14 +60,14 @@ func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, 
 		return nil, fmt.Errorf("contract graph not found: %s v%d", contractName, version)
 	}
 
-	// Deserialize graph
-	var graph domain.ContractGraph
-	err = json.Unmarshal([]byte(data), &graph)
+	// Deserialize via DTO to handle snake_case mapping
+	var graphDTO dto.ContractGraphDTO
+	err = json.Unmarshal([]byte(data), &graphDTO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize contract graph: %w", err)
 	}
 
-	return &graph, nil
+	return mapper.FromContractGraphDTO(&graphDTO), nil
 }
 
 // Delete removes a contract graph from Valkey cache

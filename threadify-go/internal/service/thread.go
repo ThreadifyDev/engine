@@ -190,7 +190,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
 		t := time.Now()
-		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, companyID)
+		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(ctx, parsedContractName, contractVersion, companyID)
 		metrics.OperationDuration.WithLabelValues(ActionStartThread, "contract_load").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("Failed to load contract")
@@ -198,7 +198,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		contractVersion = actualVersion
 
 		// Get contract graph (already cached from LoadContractGraphIntoCache above)
-		contractGraph, err = s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
+		contractGraph, err = s.contractValidator.GetContractGraph(ctx, parsedContractName, contractVersion, companyID)
 		if err != nil {
 			return errResp("Failed to load contract graph")
 		}
@@ -209,7 +209,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		}
 
 		t = time.Now()
-		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
+		contract, err := s.contractValidator.GetContractByNameAndCompany(ctx, parsedContractName, companyID)
 		metrics.OperationDuration.WithLabelValues(ActionStartThread, "contract_fetch").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("Failed to retrieve contract")
@@ -430,7 +430,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		}
 
 		t = time.Now()
-		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
+		graph, err = s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "contract_validate").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("failed to load contract")
@@ -442,7 +442,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 			return errResp(fmt.Sprintf("Step '%s' not found in contract '%s'", req.StepName, thread.ContractName))
 		}
 
-		if !s.hasSuccessfulSteps(thread) {
+		if !s.hasSuccessfulSteps(ctx, thread) {
 			if !slices.Contains(graph.Graph.EntryPoints, req.StepName) {
 				return errResp(fmt.Sprintf("Thread must start with one of the entry points: %v. Attempted step: '%s'", graph.Graph.EntryPoints, req.StepName))
 			}
@@ -463,7 +463,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		}
 
 		t = time.Now()
-		if err := s.contractValidator.ValidateStepContext(stepNode, req.Context); err != nil {
+		if err := s.contractValidator.ValidateStepContext(ctx, stepNode, req.Context); err != nil {
 			metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_context_validate").Observe(time.Since(t).Seconds())
 			return errResp(fmt.Sprintf("Step validation failed: %v", err))
 		}
@@ -549,7 +549,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 	}
 }
 
-func (s *ThreadService) HandleInviteParty(req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
+func (s *ThreadService) HandleInviteParty(ctx context.Context, req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	accessLevel := req.AccessLevel
 	if accessLevel == "" {
 		accessLevel = "external"
@@ -581,7 +581,7 @@ func (s *ThreadService) HandleInviteParty(req *domain.InvitePartyCmd, ownerID, c
 		return nil, shderrors.ErrAccessDenied
 	}
 
-	contractGraph, err := s.GetContractGraphForThread(thread)
+	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err != nil {
 		s.logger.Debug("no contract graph for thread", zap.String("thread", threadID), zap.Error(err))
 	}
@@ -607,7 +607,7 @@ func (s *ThreadService) HandleInviteParty(req *domain.InvitePartyCmd, ownerID, c
 	}, nil
 }
 
-func (s *ThreadService) HandleJoinThread(req *domain.JoinThreadCmd, ownerID, companyID string) (*domain.JoinThreadResponse, error) {
+func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinThreadCmd, ownerID, companyID string) (*domain.JoinThreadResponse, error) {
 	var threadID, role, accessLevel, invitedBy string
 	var thread *domain.Thread
 
@@ -653,7 +653,7 @@ func (s *ThreadService) HandleJoinThread(req *domain.JoinThreadCmd, ownerID, com
 		}
 	}
 
-	contractGraph, err := s.GetContractGraphForThread(thread)
+	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err == nil && len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, role) {
 		return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", role, contractGraph.Parties)
 	}
@@ -930,7 +930,7 @@ func (s *ThreadService) IsValidRole(role string) bool {
 }
 
 // GetContractGraphForThread fetches the contract graph for a given thread.
-func (s *ThreadService) GetContractGraphForThread(thread *domain.Thread) (*domain.ContractGraph, error) {
+func (s *ThreadService) GetContractGraphForThread(ctx context.Context, thread *domain.Thread) (*domain.ContractGraph, error) {
 	if thread.ContractName == "" {
 		return nil, errors.New("thread has no contract")
 	}
@@ -938,7 +938,7 @@ func (s *ThreadService) GetContractGraphForThread(thread *domain.Thread) (*domai
 	if thread.ContractVersion != nil {
 		version = *thread.ContractVersion
 	}
-	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
+	return s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
 }
 
 func (s *ThreadService) GetContractValidator() domain.ContractGraphValidator {
@@ -946,7 +946,7 @@ func (s *ThreadService) GetContractValidator() domain.ContractGraphValidator {
 }
 
 // hasSuccessfulSteps reports whether the thread has any completed steps.
-func (s *ThreadService) hasSuccessfulSteps(thread *domain.Thread) bool {
+func (s *ThreadService) hasSuccessfulSteps(ctx context.Context, thread *domain.Thread) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, domain.ThreadReadOptions{WriteBack: true})

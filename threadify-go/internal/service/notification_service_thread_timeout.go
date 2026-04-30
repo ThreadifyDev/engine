@@ -75,7 +75,7 @@ func (s *NotificationService) scheduleThreadMaxDurationTimeout(
 	}
 
 	// Schedule the timeout
-	if err := s.timeoutMonitor.ScheduleTimeout(timeoutEvent); err != nil {
+	if err := s.timeoutMonitor.ScheduleTimeout(ctx, timeoutEvent); err != nil {
 		s.logger.Error("failed to schedule thread max_duration timeout",
 			zap.String("thread_id", threadID),
 			zap.String("contract", thread.ContractName),
@@ -102,7 +102,7 @@ func (s *NotificationService) cancelThreadMaxDurationTimeout(
 
 	timeoutID := fmt.Sprintf("%s:max_duration", threadID)
 
-	if err := s.timeoutMonitor.CancelTimeout(timeoutID, threadID, "thread completed"); err != nil {
+	if err := s.timeoutMonitor.CancelTimeout(ctx, timeoutID, threadID, "thread completed"); err != nil {
 		s.logger.Warn("failed to cancel thread max_duration timeout",
 			zap.String("thread_id", threadID),
 			zap.String("timeout_id", timeoutID),

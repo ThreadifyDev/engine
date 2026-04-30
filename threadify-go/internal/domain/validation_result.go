@@ -42,5 +42,5 @@ type ValidationQueryOptions struct {
 	IdempotencyKey string
 	ValidationType string // "critical", "warning", "info"
 	Limit          int
-	Offset           int
+	Offset         int
 }

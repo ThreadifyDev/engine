@@ -169,10 +169,6 @@ func TestValidationService_CheckMissingOptionalFields_Table(t *testing.T) {
 			node: domain.GraphNode{BusinessContext: nil},
 		},
 		{
-			name: "invalid business context type returns nil",
-			node: domain.GraphNode{BusinessContext: "not-a-context"},
-		},
-		{
 			name: "no optional fields defined returns nil",
 			node: domain.GraphNode{BusinessContext: &domain.BusinessContext{Optional: nil}},
 		},
