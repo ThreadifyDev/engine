@@ -89,7 +89,7 @@ func (s *EntityProfileTypeService) ListEntityProfileTypes(
 
 func (s *EntityProfileTypeService) ListMetricsTemplates(
 	ctx context.Context,
-) ([]domain.MetricsTemplateResponse, error) {
+) ([]*domain.MetricsTemplate, error) {
 	templates, err := s.repo.ListMetricsTemplates(ctx)
 	if err != nil {
 		s.logger.Error("failed to list metrics templates", zap.Error(err))

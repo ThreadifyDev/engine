@@ -31,7 +31,7 @@ type Thread struct {
 	ID              string
 	ContractID      *string
 	ContractVersion *int
-	ContractName    string // New field for contract name
+	ContractName    string            // New field for contract name
 	Refs            map[string]string // New field for external references
 	OwnerID         string
 	CompanyID       string // Company ID for multi-tenancy

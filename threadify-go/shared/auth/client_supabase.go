@@ -218,7 +218,8 @@ func (s *supabaseClient) GenerateLoginOTP(ctx context.Context, email string) (st
 	defer cancel()
 
 	body := map[string]interface{}{
-		"type": "magiclink",
+		"type":  "magiclink",
+		"email": email,
 	}
 
 	var resp supabaseGenerateOTPResponse
@@ -277,6 +278,8 @@ func (s *supabaseClient) VerifyEmailWithOTP(ctx context.Context, email, token st
 	defer cancel()
 
 	verifyBody := map[string]interface{}{
+		"type":  "magiclink",
+		"email": email,
 		"token": token,
 	}
 

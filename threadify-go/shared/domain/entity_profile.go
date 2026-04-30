@@ -3,65 +3,40 @@ package domain
 import "time"
 
 type EntityTypeMetric struct {
-	TemplateID string         `json:"template_id"`
-	Name       string         `json:"name,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
+	TemplateID string
+	Name       string
+	Parameters map[string]any
+}
+
+type MetricsTemplate struct {
+	ID          string
+	MetricsName string
+	Parameters  []string
+	SQLContent  string
 }
 
 type EntityProfileType struct {
-	ID          string     `json:"id"`
-	CompanyID   string     `json:"company_id"`
-	Name        string     `json:"name"`
-	Slug        string     `json:"slug"`
-	Type        []string   `json:"type"`
-	Description string     `json:"description,omitempty"`
-	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID          string
+	CompanyID   string
+	Name        string
+	Slug        string
+	Type        []string
+	Description string
+	ArchivedAt  *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 
-	// Metrics configured for this entity type
-	Metrics []EntityTypeMetric `json:"metrics,omitempty"`
+	Metrics []EntityTypeMetric
 
-	// TypesToAdd is used by update flows to append to Types.
-	// It is not part of the public JSON representation.
-	TypesToAdd []string `json:"-"`
+	TypesToAdd []string
 }
 
 type EntityProfile struct {
-	ID            string    `json:"id"`
-	RefKey        string    `json:"ref_key"`
-	CompanyID     string    `json:"company_id"`
-	ProfileTypeID string    `json:"profile_type_id"`
-	Name          string    `json:"name"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastActiveAt  time.Time `json:"last_active_at"`
-}
-
-type EntityProfileMetrics struct {
-	EntityProfileID         string     `json:"entity_profile_id"`
-	TotalDeliveries         int        `json:"total_deliveries"`
-	CompletedSuccessfully   int        `json:"completed_successfully"`
-	ValidationViolations    int        `json:"validation_violations"`
-	DeliveryHealthScore     *float64   `json:"delivery_health_score"`
-	PrevDeliveryHealthScore *float64   `json:"prev_delivery_health_score,omitempty"`
-	HealthTrendSlope        *float64   `json:"health_trend_slope"`
-	AverageDeliveryTimeMs   *int64     `json:"average_delivery_time_ms"`
-	LastCalculatedAt        *time.Time `json:"last_calculated_at"`
-}
-
-type EntityPartnerCompatibility struct {
-	ID                     string     `json:"id"`
-	EntityProfileID        string     `json:"entity_profile_id"`
-	PartnerRef             string     `json:"partner_ref"`
-	TotalInteractions      int        `json:"total_interactions"`
-	SuccessfulInteractions int        `json:"successful_interactions"`
-	CompatibilityScore     *float64   `json:"compatibility_score"`
-	LastCalculatedAt       *time.Time `json:"last_calculated_at"`
-}
-
-type MetricsTemplateResponse struct {
-	ID          string   `json:"id"`
-	MetricsName string   `json:"metrics_name"`
-	Parameters  []string `json:"parameters"`
-	SQLContent  string   `json:"sql_content"`
+	ID            string
+	RefKey        string
+	CompanyID     string
+	ProfileTypeID string
+	Name          string
+	CreatedAt     time.Time
+	LastActiveAt  time.Time
 }

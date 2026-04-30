@@ -41,9 +41,8 @@ func TestGraphQL_EntityProfile_NotFound(t *testing.T) {
 func TestGraphQL_EntityProfile_RequiredParameters(t *testing.T) {
 	user := setupTestUser(t)
 
-	// Test with both required parameters
 	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
-		Query: "query($refKey: String!, $type: String!) { entityProfile(refKey: $refKey, type: $type) { id refKey companyId profileTypeId name createdAt lastActiveAt metrics { totalDeliveries completedSuccessfully validationViolations deliveryHealthScore healthTrendSlope averageDeliveryTimeMs lastCalculatedAt } } }",
+		Query: "query($refKey: String!, $type: String!) { entityProfile(refKey: $refKey, type: $type) { id refKey companyId profileTypeId name createdAt lastActiveAt computedMetrics(range: \"30d\") } }",
 		Variables: map[string]interface{}{
 			"refKey": "test_customer_123",
 			"type":   "customer",

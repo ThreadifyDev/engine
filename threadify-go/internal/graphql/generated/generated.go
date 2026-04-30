@@ -13,6 +13,7 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/graphql/scalars"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -324,13 +325,13 @@ type ComplexityRoot struct {
 }
 
 type EntityProfileResolver interface {
-	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (*string, error)
+	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (scalars.JSON, error)
 }
 type GraphResolver interface {
 	Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error)
 }
 type GraphNodeResolver interface {
-	BusinessContext(ctx context.Context, obj *domain.GraphNode) (*string, error)
+	BusinessContext(ctx context.Context, obj *domain.GraphNode) (scalars.JSON, error)
 }
 type HashChainStatusResolver interface {
 	LastVerifiedAt(ctx context.Context, obj *domain.HashChainStatus) (string, error)
@@ -341,7 +342,7 @@ type MutationResolver interface {
 	RecordLLMUsage(ctx context.Context, tokens int) (bool, error)
 }
 type NotificationConfigResolver interface {
-	RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (*string, error)
+	RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (scalars.JSON, error)
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*domain.Thread, error)
@@ -376,14 +377,14 @@ type StepStateInfoResolver interface {
 	SubSteps(ctx context.Context, obj *domain.StepStateInfo) ([]*domain.SubStep, error)
 }
 type SubStepResolver interface {
-	Payload(ctx context.Context, obj *domain.SubStep) (*string, error)
+	Payload(ctx context.Context, obj *domain.SubStep) (scalars.JSON, error)
 	RecordedAt(ctx context.Context, obj *domain.SubStep) (string, error)
 	CreatedAt(ctx context.Context, obj *domain.SubStep) (string, error)
 }
 type ThreadResolver interface {
 	Status(ctx context.Context, obj *domain.Thread) (string, error)
 
-	Refs(ctx context.Context, obj *domain.Thread) (*string, error)
+	Refs(ctx context.Context, obj *domain.Thread) (scalars.JSON, error)
 	StartedAt(ctx context.Context, obj *domain.Thread) (*string, error)
 	CompletedAt(ctx context.Context, obj *domain.Thread) (*string, error)
 
@@ -396,7 +397,7 @@ type ThreadResolver interface {
 	HashChainStatus(ctx context.Context, obj *domain.Thread) (*domain.HashChainStatus, error)
 }
 type ThreadNotificationResolver interface {
-	Details(ctx context.Context, obj *domain.ThreadNotification) (*string, error)
+	Details(ctx context.Context, obj *domain.ThreadNotification) (scalars.JSON, error)
 	Timestamp(ctx context.Context, obj *domain.ThreadNotification) (string, error)
 }
 type ValidationResultInfoResolver interface {
@@ -3434,7 +3435,7 @@ func (ec *executionContext) _EntityProfile_computedMetrics(ctx context.Context, 
 			return ec.Resolvers.EntityProfile().ComputedMetrics(ctx, obj, fc.Args["range"].(*string))
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -4160,7 +4161,7 @@ func (ec *executionContext) _EntityTypeMetricConfig_parameters(ctx context.Conte
 			return obj.Parameters, nil
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -4561,7 +4562,7 @@ func (ec *executionContext) _GraphNode_businessContext(ctx context.Context, fiel
 			return ec.Resolvers.GraphNode().BusinessContext(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -4834,7 +4835,7 @@ func (ec *executionContext) _NotificationConfig_roleDefaults(ctx context.Context
 			return ec.Resolvers.NotificationConfig().RoleDefaults(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -7509,7 +7510,7 @@ func (ec *executionContext) _SubStep_payload(ctx context.Context, field graphql.
 			return ec.Resolvers.SubStep().Payload(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -7886,7 +7887,7 @@ func (ec *executionContext) _Thread_refs(ctx context.Context, field graphql.Coll
 			return ec.Resolvers.Thread().Refs(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -8883,7 +8884,7 @@ func (ec *executionContext) _ThreadNotification_details(ctx context.Context, fie
 			return ec.Resolvers.ThreadNotification().Details(ctx, obj)
 		},
 		nil,
-		ec.marshalOJSON2ᚖstring,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
 		true,
 		false,
 	)
@@ -15312,21 +15313,21 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	return res
 }
 
-func (ec *executionContext) unmarshalOJSON2ᚖstring(ctx context.Context, v any) (*string, error) {
+func (ec *executionContext) unmarshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON(ctx context.Context, v any) (scalars.JSON, error) {
 	if v == nil {
 		return nil, nil
 	}
-	res, err := graphql.UnmarshalString(v)
-	return &res, graphql.ErrorOnPath(ctx, err)
+	res, err := scalars.UnmarshalJSON(v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOJSON2ᚖstring(ctx context.Context, sel ast.SelectionSet, v *string) graphql.Marshaler {
+func (ec *executionContext) marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON(ctx context.Context, sel ast.SelectionSet, v scalars.JSON) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(*v)
+	res := scalars.MarshalJSON(v)
 	return res
 }
 

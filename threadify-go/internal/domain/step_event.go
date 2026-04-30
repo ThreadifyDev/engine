@@ -25,8 +25,8 @@ type StepEvent struct {
 	StepName       string
 	StartedAt      string
 	FinishedAt     string
-	IdempotencyKey string // User-provided or context hash
-	ContentHash    string // Always auto-generated SHA-256 hash of context
+	IdempotencyKey string                 // User-provided or context hash
+	ContentHash    string                 // Always auto-generated SHA-256 hash of context
 	Metadata       map[string]interface{} // SDK metadata from threadify_metadata (message, etc.)
 }
 

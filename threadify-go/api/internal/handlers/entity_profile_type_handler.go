@@ -41,11 +41,20 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 		return
 	}
 
+	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
+	for _, m := range req.Metrics {
+		metrics = append(metrics, domain.EntityTypeMetric{
+			TemplateID: m.TemplateID,
+			Name:       m.Name,
+			Parameters: m.Parameters,
+		})
+	}
+
 	profileType, err := h.entityProfileTypeService.CreateEntityProfileType(c.Request.Context(), compID, &domain.CreateEntityProfileTypeCmd{
 		Name:        req.Name,
 		Type:        req.Type,
 		Description: req.Description,
-		Metrics:     req.Metrics,
+		Metrics:     metrics,
 	})
 	if err != nil {
 		if respondValidationError(c, err) {
@@ -58,7 +67,7 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Entity profile type created successfully.",
-		"data":    profileType,
+		"data":    toEntityProfileTypeDTO(profileType),
 	})
 }
 
@@ -76,9 +85,13 @@ func (h *EntityProfileTypeHandler) ListEntityProfileTypes(c *gin.Context) {
 		return
 	}
 
+	out := make([]*dto.EntityProfileType, 0, len(entityProfileTypes))
+	for _, t := range entityProfileTypes {
+		out = append(out, toEntityProfileTypeDTO(t))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Entity profile types fetched successfully.",
-		"data":    entityProfileTypes,
+		"data":    out,
 	})
 }
 
@@ -102,11 +115,20 @@ func (h *EntityProfileTypeHandler) UpdateEntityProfileType(c *gin.Context) {
 		return
 	}
 
+	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
+	for _, m := range req.Metrics {
+		metrics = append(metrics, domain.EntityTypeMetric{
+			TemplateID: m.TemplateID,
+			Name:       m.Name,
+			Parameters: m.Parameters,
+		})
+	}
+
 	profileType, err := h.entityProfileTypeService.UpdateEntityProfileType(c.Request.Context(), compID, id, &domain.UpdateEntityProfileTypeCmd{
 		Name:        req.Name,
 		Type:        req.Type,
 		Description: req.Description,
-		Metrics:     req.Metrics,
+		Metrics:     metrics,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -115,7 +137,7 @@ func (h *EntityProfileTypeHandler) UpdateEntityProfileType(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Entity profile type updated successfully.",
-		"data":    profileType,
+		"data":    toEntityProfileTypeDTO(profileType),
 	})
 }
 
@@ -146,8 +168,52 @@ func (h *EntityProfileTypeHandler) ListMetricsTemplates(c *gin.Context) {
 		return
 	}
 
+	out := make([]*dto.MetricsTemplateResponse, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, toMetricsTemplateDTO(t))
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Metrics templates fetched successfully.",
-		"data":    templates,
+		"data":    out,
 	})
+}
+
+func toEntityProfileTypeDTO(t *domain.EntityProfileType) *dto.EntityProfileType {
+	if t == nil {
+		return nil
+	}
+
+	metrics := make([]dto.EntityTypeMetric, 0, len(t.Metrics))
+	for _, m := range t.Metrics {
+		metrics = append(metrics, dto.EntityTypeMetric{
+			TemplateID: m.TemplateID,
+			Name:       m.Name,
+			Parameters: m.Parameters,
+		})
+	}
+
+	return &dto.EntityProfileType{
+		ID:          t.ID,
+		CompanyID:   t.CompanyID,
+		Name:        t.Name,
+		Slug:        t.Slug,
+		Type:        t.Type,
+		Description: t.Description,
+		ArchivedAt:  t.ArchivedAt,
+		CreatedAt:   t.CreatedAt,
+		UpdatedAt:   t.UpdatedAt,
+		Metrics:     metrics,
+	}
+}
+
+func toMetricsTemplateDTO(t *domain.MetricsTemplate) *dto.MetricsTemplateResponse {
+	if t == nil {
+		return nil
+	}
+	return &dto.MetricsTemplateResponse{
+		ID:          t.ID,
+		MetricsName: t.MetricsName,
+		Parameters:  t.Parameters,
+		SQLContent:  t.SQLContent,
+	}
 }

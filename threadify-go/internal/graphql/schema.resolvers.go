@@ -7,6 +7,7 @@ package graphql
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql/generated"
+	"github.com/threadify/engine/internal/graphql/scalars"
 	"github.com/threadify/engine/internal/metrics"
 	"github.com/threadify/engine/internal/perf"
 	"github.com/threadify/engine/internal/repository/postgres"
@@ -27,18 +29,29 @@ import (
 )
 
 // ComputedMetrics is the resolver for the computedMetrics field.
-func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (*string, error) {
+func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (scalars.JSON, error) {
 	var metricsConfig []*generated.EntityTypeMetricConfig
 	var refKeys []string
 
 	if obj.ProfileType != nil {
-		metricsConfig = obj.ProfileType.MetricsConfig
-		refKeys = obj.ProfileType.Type
+		if obj.ProfileType.CompanyID != obj.CompanyID {
+			r.logger.Warn("security: pre-loaded profile type company mismatch",
+				zap.String("profileTypeID", obj.ProfileTypeID),
+				zap.String("expectedCompany", obj.CompanyID),
+				zap.String("actualCompany", obj.ProfileType.CompanyID))
+		} else {
+			metricsConfig = obj.ProfileType.MetricsConfig
+			refKeys = obj.ProfileType.Type
+		}
 	} else if obj.ProfileTypeID != "" {
-		// On-demand fetch if the parent query didn't populate it
 		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, obj.ProfileTypeID)
 		if err != nil {
 			r.logger.Warn("failed to fetch profile type for computed metrics", zap.String("profileTypeID", obj.ProfileTypeID), zap.Error(err))
+		} else if pType.CompanyID != obj.CompanyID {
+			r.logger.Warn("security: lazy profile type company mismatch",
+				zap.String("profileTypeID", obj.ProfileTypeID),
+				zap.String("expectedCompany", obj.CompanyID),
+				zap.String("actualCompany", pType.CompanyID))
 		} else {
 			graphqlType := toGraphQLProfileType(pType)
 			metricsConfig = graphqlType.MetricsConfig
@@ -46,12 +59,10 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		}
 	}
 
-	// If no metrics config, return nil (null in GraphQL)
 	if len(metricsConfig) == 0 {
 		return nil, nil
 	}
 
-	// 1. Determine time bounds based on rangeArg
 	rangeVal := "7d"
 	if rangeArg != nil && *rangeArg != "" {
 		rangeVal = *rangeArg
@@ -71,19 +82,27 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
 	}
 
-	// Try to get from cache
-	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal); found {
-		cachedBytes, err := json.Marshal(cached)
-		if err != nil {
-			r.logger.Warn("failed to marshal cached metrics", zap.String("profileID", obj.ID), zap.Error(err))
-		} else {
-			cachedStr := string(cachedBytes)
-			return &cachedStr, nil
-		}
+	configBytes, err := json.Marshal(metricsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal metrics config: %w", err)
+	}
+	configHash := fmt.Sprintf("%x", sha256.Sum256(configBytes))
+
+	// Cache invalidation: computed metrics depend not just on the metric templates/config,
+	// but also on the underlying activity data. The profile's LastActiveAt is updated on
+	// new ref/thread activity, so include it in the cache version to avoid stale reads.
+	cacheVersion := configHash + ":" + obj.LastActiveAt
+
+	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
+		return cached, nil
 	}
 
-	// 2. Load the metrics query templates into a map to minimize DB calls
-	templates, err := r.metricsRepo.ListMetricsTemplates(ctx)
+	var templateIDs []string
+	for _, config := range metricsConfig {
+		templateIDs = append(templateIDs, config.TemplateID)
+	}
+
+	templates, err := r.metricsRepo.GetMetricsTemplatesByIDs(ctx, templateIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch metric templates: %w", err)
 	}
@@ -92,7 +111,6 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		templateMap[t.ID] = t
 	}
 
-	// 3. Evaluate each metric sequentially and combine the results into a final map
 	combinedResults := make(map[string]interface{})
 
 	for _, metricConfig := range metricsConfig {
@@ -104,11 +122,8 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		sqlQuery := template.SQLContent
 
 		var params map[string]any
-		if metricConfig.Parameters != nil && *metricConfig.Parameters != "" {
-			if err := json.Unmarshal([]byte(*metricConfig.Parameters), &params); err != nil {
-				r.logger.Warn("failed to unmarshal metric parameters", zap.Error(err))
-				continue
-			}
+		if pMap, ok := metricConfig.Parameters.(map[string]interface{}); ok {
+			params = pMap
 		} else {
 			params = make(map[string]any)
 		}
@@ -149,7 +164,9 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 			metricDisplayName = metricConfig.TemplateID
 		}
 
-		if len(results) == 1 {
+		if len(results) == 0 {
+			continue
+		} else if len(results) == 1 {
 			for k, v := range results[0] {
 				// Use the metric display name as prefix to clarify context
 				combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
@@ -159,15 +176,15 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		}
 	}
 
-	// 4. Cache the result and marshal to JSON string
-	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, combinedResults)
-
-	resultBytes, err := json.Marshal(combinedResults)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal computed metrics result: %w", err)
+	// Don't cache or return empty results — they indicate total evaluation failure,
+	// not a genuine "no metrics" state (which is handled by the metricsConfig check above).
+	if len(combinedResults) == 0 {
+		return nil, nil
 	}
-	resultStr := string(resultBytes)
-	return &resultStr, nil
+
+	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion, combinedResults)
+
+	return combinedResults, nil
 }
 
 // Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
@@ -183,16 +200,8 @@ func (r *graphResolver) Nodes(ctx context.Context, obj *domain.Graph) ([]*domain
 }
 
 // BusinessContext is the resolver for the businessContext field.
-func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *domain.GraphNode) (*string, error) {
-	if obj.BusinessContext == nil {
-		return nil, nil
-	}
-	businessContextJSON, err := json.Marshal(obj.BusinessContext)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal businessContext: %w", err)
-	}
-	businessContextStr := string(businessContextJSON)
-	return &businessContextStr, nil
+func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *domain.GraphNode) (scalars.JSON, error) {
+	return obj.BusinessContext, nil
 }
 
 // LastVerifiedAt is the resolver for the lastVerifiedAt field.
@@ -227,7 +236,7 @@ func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool
 }
 
 // RoleDefaults is the resolver for the roleDefaults field.
-func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (*string, error) {
+func (r *notificationConfigResolver) RoleDefaults(ctx context.Context, obj *domain.NotificationConfig) (scalars.JSON, error) {
 	if obj.RoleDefaults == nil {
 		return nil, nil
 	}
@@ -431,7 +440,7 @@ func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID stri
 	}
 
 	// 2. Fetch Entity Profile
-	profile, _, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, profileID)
+	profile, err := r.entityProfileRepo.GetProfileByID(ctx, companyID, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get entity profile: %w", err)
 	}
@@ -547,7 +556,7 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 
 	// Use ContractValidationService to get contract graph with three-tier fallback
 	// version=0 will resolve to latest version automatically
-	graph, err := r.contractValidator.GetContractGraph(name, ver, companyID)
+	graph, err := r.contractValidator.GetContractGraph(ctx, name, ver, companyID)
 	if err != nil {
 		r.logger.Error("GetContractGraph failed",
 			zap.String("name", name),
@@ -712,7 +721,7 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 	}
 
 	if id != nil && *id != "" {
-		profile, metrics, err := r.entityProfileRepo.GetProfileByIDWithMetrics(ctx, companyID, *id)
+		profile, err := r.entityProfileRepo.GetProfileByID(ctx, companyID, *id)
 		if err != nil || profile == nil {
 			return nil, nil // Not found or error
 		}
@@ -731,12 +740,11 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 			Name:          &profile.Name,
 			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
-			Metrics:       toGraphQLMetrics(metrics),
 		}, nil
 	}
 
 	if refKey != nil && typeArg != nil && *refKey != "" && *typeArg != "" {
-		profile, metrics, err := r.entityProfileRepo.GetProfileWithMetrics(ctx, companyID, *typeArg, *refKey)
+		profile, err := r.entityProfileRepo.GetProfileByTypeName(ctx, companyID, *typeArg, *refKey)
 		if err != nil || profile == nil {
 			return nil, nil
 		}
@@ -757,7 +765,6 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 				Name:          &profile.Name,
 				CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
 				LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
-				Metrics:       toGraphQLMetrics(metrics),
 			}, nil
 		}
 
@@ -770,7 +777,6 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 			Name:          &profile.Name,
 			CreatedAt:     profile.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  profile.LastActiveAt.Format(time.RFC3339),
-			Metrics:       toGraphQLMetrics(metrics),
 		}, nil
 	}
 
@@ -841,8 +847,10 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 	}
 
 	out := make([]*generated.EntityProfile, 0, len(items))
-	for _, it := range items {
-		p := it.Profile
+	for _, p := range items {
+		if p == nil {
+			continue
+		}
 		name := p.Name
 		out = append(out, &generated.EntityProfile{
 			ID:            p.ID,
@@ -853,7 +861,6 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 			Name:          &name,
 			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
 			LastActiveAt:  p.LastActiveAt.Format(time.RFC3339),
-			Metrics:       toGraphQLMetrics(it.Metrics),
 		})
 	}
 
@@ -1057,8 +1064,17 @@ func (r *stepStateInfoResolver) SubSteps(ctx context.Context, obj *domain.StepSt
 }
 
 // Payload is the resolver for the payload field.
-func (r *subStepResolver) Payload(ctx context.Context, obj *domain.SubStep) (*string, error) {
-	panic(fmt.Errorf("not implemented: Payload - payload"))
+func (r *subStepResolver) Payload(ctx context.Context, obj *domain.SubStep) (scalars.JSON, error) {
+	if obj.Payload == nil {
+		return nil, nil
+	}
+	// Convert payload to JSON string
+	payloadJSON, err := json.Marshal(obj.Payload)
+	if err != nil {
+		return nil, err
+	}
+	payloadStr := string(payloadJSON)
+	return &payloadStr, nil
 }
 
 // RecordedAt is the resolver for the recordedAt field.
@@ -1078,7 +1094,7 @@ func (r *threadResolver) Status(ctx context.Context, obj *domain.Thread) (string
 }
 
 // Refs is the resolver for the refs field.
-func (r *threadResolver) Refs(ctx context.Context, obj *domain.Thread) (*string, error) {
+func (r *threadResolver) Refs(ctx context.Context, obj *domain.Thread) (scalars.JSON, error) {
 	if obj.Refs == nil {
 		return nil, nil
 	}
@@ -1274,8 +1290,20 @@ func (r *threadResolver) HashChainStatus(ctx context.Context, obj *domain.Thread
 }
 
 // Details is the resolver for the details field.
-func (r *threadNotificationResolver) Details(ctx context.Context, obj *domain.ThreadNotification) (*string, error) {
-	panic(fmt.Errorf("not implemented: Details - details"))
+func (r *threadNotificationResolver) Details(ctx context.Context, obj *domain.ThreadNotification) (scalars.JSON, error) {
+	// Return details as JSON string
+	if len(obj.Details) == 0 {
+		emptyJSON := "{}"
+		return &emptyJSON, nil
+	}
+
+	detailsJSON, err := json.Marshal(obj.Details)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal details: %w", err)
+	}
+
+	result := string(detailsJSON)
+	return &result, nil
 }
 
 // Timestamp is the resolver for the timestamp field.
@@ -1349,44 +1377,3 @@ type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
-
-// !!! WARNING !!!
-// The code below was going to be deleted when updating resolvers. It has been copied here so you have
-// one last chance to move it out of harms way if you want. There are two reasons this happens:
-//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
-//    it when you're done.
-//  - You have helper methods in this file. Move them out to keep these resolver files clean.
-/*
-	func (r *entityProfileResolver) ProfileType(ctx context.Context, obj *domain1.EntityProfile) (*domain1.EntityProfileType, error) {
-	panic(fmt.Errorf("not implemented: ProfileType - profileType"))
-}
-func (r *entityProfileResolver) CreatedAt(ctx context.Context, obj *domain1.EntityProfile) (string, error) {
-	panic(fmt.Errorf("not implemented: CreatedAt - createdAt"))
-}
-func (r *entityProfileResolver) LastActiveAt(ctx context.Context, obj *domain1.EntityProfile) (string, error) {
-	panic(fmt.Errorf("not implemented: LastActiveAt - lastActiveAt"))
-}
-func (r *entityProfileResolver) Metrics(ctx context.Context, obj *domain1.EntityProfile) (*domain1.EntityProfileMetrics, error) {
-	panic(fmt.Errorf("not implemented: Metrics - metrics"))
-}
-func (r *entityProfileMetricsResolver) LastCalculatedAt(ctx context.Context, obj *domain1.EntityProfileMetrics) (*string, error) {
-	panic(fmt.Errorf("not implemented: LastCalculatedAt - lastCalculatedAt"))
-}
-func (r *entityProfileTypeResolver) CreatedAt(ctx context.Context, obj *domain1.EntityProfileType) (string, error) {
-	panic(fmt.Errorf("not implemented: CreatedAt - createdAt"))
-}
-func (r *entityProfileTypeResolver) UpdatedAt(ctx context.Context, obj *domain1.EntityProfileType) (string, error) {
-	panic(fmt.Errorf("not implemented: UpdatedAt - updatedAt"))
-}
-func (r *entityProfileTypeResolver) MetricsConfig(ctx context.Context, obj *domain1.EntityProfileType) ([]*generated.EntityTypeMetricConfig, error) {
-	panic(fmt.Errorf("not implemented: MetricsConfig - metricsConfig"))
-}
-func (r *Resolver) EntityProfileMetrics() generated.EntityProfileMetricsResolver {
-	return &entityProfileMetricsResolver{r}
-}
-func (r *Resolver) EntityProfileType() generated.EntityProfileTypeResolver {
-	return &entityProfileTypeResolver{r}
-}
-type entityProfileMetricsResolver struct{ *Resolver }
-type entityProfileTypeResolver struct{ *Resolver }
-*/

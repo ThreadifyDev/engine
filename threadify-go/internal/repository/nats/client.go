@@ -116,7 +116,6 @@ func (c *Client) initializeArchivalStreams(ctx context.Context) error {
 		{StreamThreadValidations, []string{SubjectThreadValidations}},
 		{StreamStepState, []string{SubjectStepState}},
 		{StreamUsageSync, []string{SubjectUsageSync, SubjectCreditTopup}},
-		{StreamProfileRecalculate, []string{SubjectProfileRecalculate}},
 	}
 
 	for _, stream := range streams {

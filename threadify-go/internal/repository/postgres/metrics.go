@@ -94,6 +94,45 @@ func (r *MetricsRepository) ListMetricsTemplates(ctx context.Context) ([]Metrics
 	return templates, nil
 }
 
+// GetMetricsTemplatesByIDs retrieves metrics templates by their IDs
+func (r *MetricsRepository) GetMetricsTemplatesByIDs(ctx context.Context, ids []string) ([]MetricsTemplate, error) {
+	if len(ids) == 0 {
+		return []MetricsTemplate{}, nil
+	}
+
+	query := `
+		SELECT id, metrics_name, sql_content, created_at, updated_at
+		FROM metrics_template
+		WHERE id = ANY($1)
+	`
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list metrics templates by ids: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []MetricsTemplate
+	for rows.Next() {
+		var tmpl MetricsTemplate
+		if err := rows.Scan(
+			&tmpl.ID,
+			&tmpl.MetricsName,
+			&tmpl.SQLContent,
+			&tmpl.CreatedAt,
+			&tmpl.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan metrics template: %w", err)
+		}
+		templates = append(templates, tmpl)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating metrics templates: %w", err)
+	}
+
+	return templates, nil
+}
+
 // EvaluateEntityMetric executes a metric template SQL query for a specific entity profile type
 // It merges runtime arguments (startTime, endTime, ref_key) with the static parameters configured
 // for the entity profile type in the entity_profile_type_metrics junction table.
@@ -173,80 +212,12 @@ func (r *MetricsRepository) EvaluateEntityMetric(
 	return results, nil
 }
 
-// 1. Parameterised queries (args passed as variadic interface{})
-// 2. Read-only session (SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY)
-// 3. Statement timeout to prevent heavy queries running forever (e.g., 30s)
-// 4. Time range bounds check (startTime and endTime must be within max 3 months)
-func (r *MetricsRepository) ExecuteMetricsQuery(
-	ctx context.Context,
-	sqlQuery string,
-	startTime time.Time,
-	endTime time.Time,
-	args ...interface{},
-) ([]map[string]interface{}, error) {
-	// 4. Time range as natural bound
-	if startTime.After(endTime) {
-		return nil, fmt.Errorf("startTime cannot be after endTime")
-	}
-
-	// Max 3 months constraint (~92 days)
-	maxDuration := 92 * 24 * time.Hour
-	if endTime.Sub(startTime) > maxDuration {
-		return nil, fmt.Errorf("time range exceeds the maximum allowed 3 months")
-	}
-
-	// Create a new context with a hard timeout of 30 seconds for the entire operation
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	// Begin a transaction to isolate session settings
-	tx, err := r.db.BeginTx(timeoutCtx, pgx.TxOptions{
-		AccessMode: pgx.ReadOnly,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin read-only transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(context.Background())
-	}()
-
-	// 2. Read-only DB role fallback in session if role is not fully read-only
-	// 3. Statement timeout to prevent heavy query running forever (e.g., 20 seconds)
-	if _, err := tx.Exec(timeoutCtx, "SET LOCAL statement_timeout = '20s'"); err != nil {
-		return nil, fmt.Errorf("failed to set statement timeout: %w", err)
-	}
-
-	// Enforce startTime and endTime as the first two parameters ($1 and $2).
-	// Subsequent args start from $3.
-	queryArgs := make([]interface{}, 0, 2+len(args))
-	queryArgs = append(queryArgs, startTime, endTime)
-	queryArgs = append(queryArgs, args...)
-
-	rows, err := tx.Query(timeoutCtx, sqlQuery, queryArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute metrics query: %w", err)
-	}
-	defer rows.Close()
-
-	results, err := pgx.CollectRows(rows, pgx.RowToMap)
-	if err != nil {
-		return nil, fmt.Errorf("error collecting metrics results: %w", err)
-	}
-
-	if err := tx.Commit(timeoutCtx); err != nil {
-		return nil, fmt.Errorf("failed to commit metrics transaction: %w", err)
-	}
-
-	return results, nil
-}
-
-// GetCachedEntityMetrics retrieves cached entity metrics from Valkey
-func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileID, rangeVal string) (map[string]any, bool) {
+func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileID, rangeVal, configVersion string) (map[string]any, bool) {
 	if r.valkeyClient == nil {
 		return nil, false
 	}
 
-	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal
+	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal + ":" + configVersion
 	cachedData, err := r.valkeyClient.Get(ctx, cacheKey)
 	if err != nil || cachedData == "" {
 		return nil, false
@@ -266,7 +237,7 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 }
 
 // CacheEntityMetrics stores computed entity metrics in Valkey with 30-minute TTL
-func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, rangeVal string, metrics map[string]any) {
+func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, rangeVal, configVersion string, metrics map[string]any) {
 	if r.valkeyClient == nil {
 		return
 	}
@@ -281,7 +252,7 @@ func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, r
 		return
 	}
 
-	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal
+	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal + ":" + configVersion
 	if err := r.valkeyClient.Set(ctx, cacheKey, string(resultBytes), 30*time.Minute); err != nil {
 		r.logger.Warn("failed to cache entity metrics",
 			zap.String("profileID", profileID),

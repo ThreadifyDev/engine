@@ -202,5 +202,3 @@ func (m *threadModel) ToDomain() *domain.Thread {
 		Error:           m.Error,
 	}
 }
-
-

@@ -81,10 +81,10 @@ func (mr *MockEntityProfileTypeServiceMockRecorder) ListEntityProfileTypes(arg0,
 }
 
 // ListMetricsTemplates mocks base method.
-func (m *MockEntityProfileTypeService) ListMetricsTemplates(arg0 context.Context) ([]domain0.MetricsTemplateResponse, error) {
+func (m *MockEntityProfileTypeService) ListMetricsTemplates(arg0 context.Context) ([]*domain0.MetricsTemplate, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListMetricsTemplates", arg0)
-	ret0, _ := ret[0].([]domain0.MetricsTemplateResponse)
+	ret0, _ := ret[0].([]*domain0.MetricsTemplate)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

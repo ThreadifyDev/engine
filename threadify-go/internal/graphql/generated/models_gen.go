@@ -2,6 +2,10 @@
 
 package generated
 
+import (
+	"github.com/threadify/engine/internal/graphql/scalars"
+)
+
 type EntityProfile struct {
 	ID              string                `json:"id"`
 	RefKey          string                `json:"refKey"`
@@ -12,7 +16,7 @@ type EntityProfile struct {
 	CreatedAt       string                `json:"createdAt"`
 	LastActiveAt    string                `json:"lastActiveAt"`
 	Metrics         *EntityProfileMetrics `json:"metrics,omitempty"`
-	ComputedMetrics *string               `json:"computedMetrics,omitempty"`
+	ComputedMetrics scalars.JSON          `json:"computedMetrics,omitempty"`
 }
 
 type EntityProfileConnection struct {
@@ -45,9 +49,9 @@ type EntityProfileType struct {
 }
 
 type EntityTypeMetricConfig struct {
-	TemplateID string  `json:"templateId"`
-	Name       *string `json:"name,omitempty"`
-	Parameters *string `json:"parameters,omitempty"`
+	TemplateID string       `json:"templateId"`
+	Name       *string      `json:"name,omitempty"`
+	Parameters scalars.JSON `json:"parameters,omitempty"`
 }
 
 type Mutation struct {

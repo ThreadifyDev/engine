@@ -99,10 +99,17 @@ func mapAuthUserToDTO(user *domain.User) *dto.AuthUser {
 		return nil
 	}
 	return &dto.AuthUser{
-		ID:        user.ID,
-		CompanyID: user.CompanyID,
-		Email:     user.Email,
-		FullName:  user.FullName,
+		ID:                       user.ID,
+		CompanyID:                user.CompanyID,
+		Email:                    user.Email,
+		FullName:                 user.FullName,
+		JobRole:                  user.JobRole,
+		EmailVerified:            user.EmailVerified,
+		OnboardingCompleted:      user.OnboardingCompleted,
+		FirstInstrumentationDone: user.FirstInstrumentationDone,
+		CreatedAt:                user.CreatedAt,
+		UpdatedAt:                user.UpdatedAt,
+		LastLoginAt:              user.LastLoginAt,
 	}
 }
 

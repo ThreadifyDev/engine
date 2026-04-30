@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/mapper"
 	"github.com/threadify/engine/internal/middleware"
 )
 
@@ -164,7 +165,11 @@ func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), c.Param("id"), ownerID)
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+
+	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), c.Param("id"), ownerID, limit, offset)
 	c.JSON(statusCode, response)
 }
 
@@ -225,7 +230,7 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 
 	c.JSON(http.StatusOK, PreviewResponse{
 		Valid:    true,
-		Graph:    graph,
+		Graph:    mapper.ToContractGraphDTO(graph),
 		Contract: contract,
 	})
 }

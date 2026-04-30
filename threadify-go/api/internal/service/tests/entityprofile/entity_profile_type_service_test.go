@@ -407,3 +407,64 @@ func TestEntityProfileTypeService_TypeNormalization(t *testing.T) {
 		})
 	}
 }
+func TestEntityProfileTypeService_ListMetricsTemplates(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMock   func(deps *common.MockedDeps)
+		wantErr     bool
+		expectedLen int
+	}{
+		{
+			name: "success",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
+					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
+				}, nil)
+			},
+			expectedLen: 1,
+		},
+		{
+			name: "error",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty results",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{}, nil)
+			},
+			expectedLen: 0,
+		},
+		{
+			name: "multiple templates",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
+					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
+					{ID: "2", MetricsName: "Metric 2", Parameters: []string{"param1", "param2"}},
+				}, nil)
+			},
+			expectedLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			svc := deps.NewEntityProfileTypeService()
+			tt.setupMock(deps)
+
+			res, err := svc.ListMetricsTemplates(context.Background())
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, res, tt.expectedLen)
+				if tt.expectedLen > 0 {
+					assert.Equal(t, "Metric 1", res[0].MetricsName)
+				}
+			}
+		})
+	}
+}
