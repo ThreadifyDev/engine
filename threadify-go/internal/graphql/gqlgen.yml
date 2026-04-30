@@ -21,7 +21,8 @@ resolver:
 
 # Let gqlgen know where to find the models
 autobind:
-  - "github.com/threadify/engine/internal/models"
+  - "github.com/threadify/engine/internal/domain"
+  - "github.com/threadify/engine/internal/dto"
 
 # Explicit model mappings
 models:
@@ -30,4 +31,4 @@ models:
       computedMetrics:
         resolver: true
   SubStep:
-    model: github.com/threadify/engine/internal/models.SubStep
+    model: github.com/threadify/engine/internal/domain.SubStep

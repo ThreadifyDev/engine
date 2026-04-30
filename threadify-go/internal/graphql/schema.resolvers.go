@@ -1349,3 +1349,44 @@ type subStepResolver struct{ *Resolver }
 type threadResolver struct{ *Resolver }
 type threadNotificationResolver struct{ *Resolver }
 type validationResultInfoResolver struct{ *Resolver }
+
+// !!! WARNING !!!
+// The code below was going to be deleted when updating resolvers. It has been copied here so you have
+// one last chance to move it out of harms way if you want. There are two reasons this happens:
+//  - When renaming or deleting a resolver the old code will be put in here. You can safely delete
+//    it when you're done.
+//  - You have helper methods in this file. Move them out to keep these resolver files clean.
+/*
+	func (r *entityProfileResolver) ProfileType(ctx context.Context, obj *domain1.EntityProfile) (*domain1.EntityProfileType, error) {
+	panic(fmt.Errorf("not implemented: ProfileType - profileType"))
+}
+func (r *entityProfileResolver) CreatedAt(ctx context.Context, obj *domain1.EntityProfile) (string, error) {
+	panic(fmt.Errorf("not implemented: CreatedAt - createdAt"))
+}
+func (r *entityProfileResolver) LastActiveAt(ctx context.Context, obj *domain1.EntityProfile) (string, error) {
+	panic(fmt.Errorf("not implemented: LastActiveAt - lastActiveAt"))
+}
+func (r *entityProfileResolver) Metrics(ctx context.Context, obj *domain1.EntityProfile) (*domain1.EntityProfileMetrics, error) {
+	panic(fmt.Errorf("not implemented: Metrics - metrics"))
+}
+func (r *entityProfileMetricsResolver) LastCalculatedAt(ctx context.Context, obj *domain1.EntityProfileMetrics) (*string, error) {
+	panic(fmt.Errorf("not implemented: LastCalculatedAt - lastCalculatedAt"))
+}
+func (r *entityProfileTypeResolver) CreatedAt(ctx context.Context, obj *domain1.EntityProfileType) (string, error) {
+	panic(fmt.Errorf("not implemented: CreatedAt - createdAt"))
+}
+func (r *entityProfileTypeResolver) UpdatedAt(ctx context.Context, obj *domain1.EntityProfileType) (string, error) {
+	panic(fmt.Errorf("not implemented: UpdatedAt - updatedAt"))
+}
+func (r *entityProfileTypeResolver) MetricsConfig(ctx context.Context, obj *domain1.EntityProfileType) ([]*generated.EntityTypeMetricConfig, error) {
+	panic(fmt.Errorf("not implemented: MetricsConfig - metricsConfig"))
+}
+func (r *Resolver) EntityProfileMetrics() generated.EntityProfileMetricsResolver {
+	return &entityProfileMetricsResolver{r}
+}
+func (r *Resolver) EntityProfileType() generated.EntityProfileTypeResolver {
+	return &entityProfileTypeResolver{r}
+}
+type entityProfileMetricsResolver struct{ *Resolver }
+type entityProfileTypeResolver struct{ *Resolver }
+*/
