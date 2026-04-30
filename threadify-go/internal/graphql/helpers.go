@@ -8,7 +8,7 @@ import (
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
-	sharedmodels "threadify-go/shared/models"
+	sharedmodels "threadify-go/shared/domain"
 
 	"github.com/threadify/engine/internal/graphql/generated"
 )
@@ -107,6 +107,9 @@ func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityPro
 }
 
 func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
+	if t == nil {
+		return nil
+	}
 	desc := t.Description
 	var metricsConfig []*generated.EntityTypeMetricConfig
 	for _, m := range t.Metrics {

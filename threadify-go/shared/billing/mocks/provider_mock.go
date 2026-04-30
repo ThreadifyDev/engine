@@ -6,7 +6,7 @@ package billingmocks
 
 import (
 	reflect "reflect"
-	models "threadify-go/shared/models"
+	models "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )

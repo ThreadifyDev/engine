@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"slices"
 	serror "threadify-go/shared/errors"
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -46,7 +46,7 @@ func dedupe(in []string) []string {
 	return out
 }
 
-func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	if len(profileType.Type) > maxTypes {
 		return serror.ErrEntityProfileTypeExceedsMaxTypes
 	}
@@ -100,13 +100,13 @@ func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileTy
 	return tx.Commit(ctx)
 }
 
-func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileTypes []*models.EntityProfileType) error {
+func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileTypes []*domain.EntityProfileType) error {
 	if len(profileTypes) == 0 {
 		return nil
 	}
 
 	var typeIDs []string
-	typeMap := make(map[string]*models.EntityProfileType)
+	typeMap := make(map[string]*domain.EntityProfileType)
 	for _, pt := range profileTypes {
 		typeIDs = append(typeIDs, pt.ID)
 		typeMap[pt.ID] = pt
@@ -139,7 +139,7 @@ func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileType
 		}
 
 		if pt, ok := typeMap[typeID]; ok {
-			pt.Metrics = append(pt.Metrics, models.EntityTypeMetric{
+			pt.Metrics = append(pt.Metrics, domain.EntityTypeMetric{
 				TemplateID: tmplID,
 				Name:       name,
 				Parameters: params,
@@ -150,7 +150,7 @@ func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileType
 	return rows.Err()
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
@@ -163,9 +163,9 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 	}
 	defer rows.Close()
 
-	var profileTypes []*models.EntityProfileType
+	var profileTypes []*domain.EntityProfileType
 	for rows.Next() {
-		var pt models.EntityProfileType
+		var pt domain.EntityProfileType
 		if err := rows.Scan(
 			&pt.ID,
 			&pt.CompanyID,
@@ -192,13 +192,13 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 	return profileTypes, nil
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE id = $1 AND archived_at IS NULL
 	`
-	var pt models.EntityProfileType
+	var pt domain.EntityProfileType
 	if err := r.pool.QueryRow(ctx, query, profileTypeID).Scan(
 		&pt.ID,
 		&pt.CompanyID,
@@ -216,20 +216,20 @@ func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileT
 		return nil, fmt.Errorf("get entity profile type by id: %w", err)
 	}
 
-	if err := r.populateMetrics(ctx, []*models.EntityProfileType{&pt}); err != nil {
+	if err := r.populateMetrics(ctx, []*domain.EntityProfileType{&pt}); err != nil {
 		return nil, err
 	}
 
 	return &pt, nil
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE company_id = $1 AND slug = $2 AND archived_at IS NULL
 	`
-	var pt models.EntityProfileType
+	var pt domain.EntityProfileType
 	if err := r.pool.QueryRow(ctx, query, companyID, profileType).Scan(
 		&pt.ID,
 		&pt.CompanyID,
@@ -247,14 +247,14 @@ func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, compan
 		return nil, fmt.Errorf("get entity profile type by type: %w", err)
 	}
 
-	if err := r.populateMetrics(ctx, []*models.EntityProfileType{&pt}); err != nil {
+	if err := r.populateMetrics(ctx, []*domain.EntityProfileType{&pt}); err != nil {
 		return nil, err
 	}
 
 	return &pt, nil
 }
 
-func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("update entity profile type: begin tx: %w", err)
@@ -358,7 +358,7 @@ func (r *EntityProfileTypeRepo) ArchiveProfileType(ctx context.Context, companyI
 	return nil
 }
 
-func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]models.MetricsTemplateResponse, error) {
+func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]domain.MetricsTemplateResponse, error) {
 	query := `
 		SELECT id, metrics_name, sql_content
 		FROM metrics_template
@@ -378,9 +378,9 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]mod
 		"end_time":   {},
 	}
 
-	var templates []models.MetricsTemplateResponse
+	var templates []domain.MetricsTemplateResponse
 	for rows.Next() {
-		var t models.MetricsTemplateResponse
+		var t domain.MetricsTemplateResponse
 		if err := rows.Scan(&t.ID, &t.MetricsName, &t.SQLContent); err != nil {
 			return nil, fmt.Errorf("list metrics templates: scan: %w", err)
 		}

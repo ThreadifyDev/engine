@@ -7,7 +7,7 @@ package sharedmocks
 import (
 	context "context"
 	reflect "reflect"
-	models "threadify-go/shared/models"
+	models "threadify-go/shared/domain"
 	repository "threadify-go/shared/repository"
 
 	gomock "github.com/golang/mock/gomock"
@@ -260,6 +260,21 @@ func (m *MockEntityProfileTypeRepository) GetProfileTypesByCompanyID(ctx context
 func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetProfileTypesByCompanyID(ctx, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProfileTypesByCompanyID", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).GetProfileTypesByCompanyID), ctx, companyID)
+}
+
+// ListMetricsTemplates mocks base method.
+func (m *MockEntityProfileTypeRepository) ListMetricsTemplates(ctx context.Context) ([]models.MetricsTemplateResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMetricsTemplates", ctx)
+	ret0, _ := ret[0].([]models.MetricsTemplateResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMetricsTemplates indicates an expected call of ListMetricsTemplates.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) ListMetricsTemplates(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetricsTemplates", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).ListMetricsTemplates), ctx)
 }
 
 // UpdateProfileType mocks base method.

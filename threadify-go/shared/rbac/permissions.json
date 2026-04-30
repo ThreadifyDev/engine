@@ -118,6 +118,31 @@
       "name": "serviceaccount.delete",
       "description": "Delete service accounts",
       "is_wildcard": false
+    },
+    {
+      "name": "entity_profile_type.create",
+      "description": "Create entity profile types",
+      "is_wildcard": false
+    },
+    {
+      "name": "entity_profile_type.read",
+      "description": "Read entity profile types",
+      "is_wildcard": false
+    },
+    {
+      "name": "entity_profile_type.update",
+      "description": "Update entity profile types",
+      "is_wildcard": false
+    },
+    {
+      "name": "entity_profile_type.delete",
+      "description": "Delete entity profile types",
+      "is_wildcard": false
+    },
+    {
+      "name": "metrics_template.read",
+      "description": "Read metrics templates",
+      "is_wildcard": false
     }
   ],
   "runtime_level": [

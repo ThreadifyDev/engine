@@ -3,7 +3,7 @@ package types
 import (
 	"context"
 	"threadify-go/shared/billing"
-	billingmodels "threadify-go/shared/models"
+	billingmodels "threadify-go/shared/domain"
 )
 
 type InvoiceProvider interface {

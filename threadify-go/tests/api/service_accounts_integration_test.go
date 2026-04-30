@@ -271,8 +271,9 @@ func TestServiceAccounts_Update_Success(t *testing.T) {
 	saID := decodeJSONBody(t, createResp)["service_account"].(map[string]any)["id"].(string)
 
 	updateResp := doJSONWithAuth(t, http.MethodPut, "/api/service-accounts/"+saID, map[string]any{
-		"name":      "updated-name",
-		"is_active": false,
+		"name":        "updated-name",
+		"description": "updated description",
+		"is_active":   false,
 	}, user.AccessToken)
 	require.Equal(t, http.StatusOK, updateResp.StatusCode, string(updateResp.Body))
 
@@ -285,6 +286,8 @@ func TestServiceAccounts_Update_Success(t *testing.T) {
 		"updated service account must have the same id")
 	assert.Equal(t, "updated-name", sa["name"],
 		"name must be updated")
+	assert.Equal(t, "updated description", sa["description"],
+		"description must be fully replaced")
 	assert.Equal(t, false, sa["is_active"],
 		"is_active must be updated to false")
 	assert.Equal(t, user.CompanyID, sa["company_id"],
@@ -296,11 +299,13 @@ func TestServiceAccounts_Update_Success(t *testing.T) {
 	getSA := getBody["service_account"].(map[string]any)
 	assert.Equal(t, "updated-name", getSA["name"],
 		"update must persist — GET must reflect the new name")
+	assert.Equal(t, "updated description", getSA["description"],
+		"update must persist — GET must reflect the new description")
 	assert.Equal(t, false, getSA["is_active"],
 		"update must persist — GET must reflect is_active=false")
 }
 
-func TestServiceAccounts_Update_PartialUpdate(t *testing.T) {
+func TestServiceAccounts_Update_RejectsPartialPayload(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	createResp := doJSONWithAuth(t, http.MethodPost, "/api/service-accounts", map[string]any{
@@ -309,23 +314,30 @@ func TestServiceAccounts_Update_PartialUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 	saID := decodeJSONBody(t, createResp)["service_account"].(map[string]any)["id"].(string)
 
-	// Only update name, leave is_active untouched
 	updateResp := doJSONWithAuth(t, http.MethodPut, "/api/service-accounts/"+saID, map[string]any{
 		"name": "partial-updated",
 	}, user.AccessToken)
-	require.Equal(t, http.StatusOK, updateResp.StatusCode)
+	require.Equal(t, http.StatusBadRequest, updateResp.StatusCode)
 
-	sa := decodeJSONBody(t, updateResp)["service_account"].(map[string]any)
-	assert.Equal(t, "partial-updated", sa["name"])
-	assert.Equal(t, true, sa["is_active"],
-		"is_active must remain true when not included in partial update")
+	body := decodeJSONBody(t, updateResp)
+	assert.NotEmpty(t, body["error"])
+	assert.Nil(t, body["service_account"])
+
+	getResp := doRawWithAuth(t, http.MethodGet, "/api/service-accounts/"+saID, nil, "", user.AccessToken)
+	require.Equal(t, http.StatusOK, getResp.StatusCode)
+
+	sa := decodeJSONBody(t, getResp)["service_account"].(map[string]any)
+	assert.Equal(t, "partial-sa", sa["name"])
+	assert.Equal(t, true, sa["is_active"])
 }
 
 func TestServiceAccounts_Update_NonexistentID(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	resp := doJSONWithAuth(t, http.MethodPut, "/api/service-accounts/"+uuid.NewString(), map[string]any{
-		"name": "ghost",
+		"name":        "ghost",
+		"description": "",
+		"is_active":   true,
 	}, user.AccessToken)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 
@@ -345,7 +357,9 @@ func TestServiceAccounts_Update_WrongCompany(t *testing.T) {
 	saID := decodeJSONBody(t, createResp)["service_account"].(map[string]any)["id"].(string)
 
 	resp := doJSONWithAuth(t, http.MethodPut, "/api/service-accounts/"+saID, map[string]any{
-		"name": "hijacked",
+		"name":        "hijacked",
+		"description": "",
+		"is_active":   false,
 	}, user2.AccessToken)
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
