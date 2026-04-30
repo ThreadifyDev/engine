@@ -24,7 +24,6 @@ import (
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/workerpool"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -76,15 +75,7 @@ func run(configPath string, logger *zap.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize enrichment worker pool
-	enrichmentPool := initEnrichmentWorkerPool(cfg, logger)
-	logger.Info("enrichment worker pool initialized",
-		zap.Int("min_workers", cfg.Archiver.EnrichmentWorkers.MinWorkers),
-		zap.Int("max_workers", cfg.Archiver.EnrichmentWorkers.MaxWorkers),
-		zap.Int("queue_size", cfg.Archiver.EnrichmentWorkers.QueueSize),
-	)
-
-	stepStateConsumer, intelligenceConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
 	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
@@ -110,17 +101,8 @@ func run(configPath string, logger *zap.Logger) error {
 
 	cancel()
 
-	// Shutdown enrichment worker pool first (allow pending jobs to complete)
-	logger.Info("shutting down enrichment worker pool...")
-	if err := enrichmentPool.Shutdown(context.Background()); err != nil {
-		logger.Warn("enrichment pool shutdown error", zap.Error(err))
-	}
-
 	if stepStateConsumer != nil {
 		stepStateConsumer.Stop()
-	}
-	if intelligenceConsumer != nil {
-		intelligenceConsumer.Stop()
 	}
 	if natsConn != nil {
 		natsConn.Drain()
@@ -142,7 +124,7 @@ func startNATSConsumers(
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
 	logger *zap.Logger,
-) (stepState *archiver.StepStateConsumer, intel *archiver.IntelligenceConsumer, natsConn *nats.Conn, err error) {
+) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -150,7 +132,7 @@ func startNATSConsumers(
 
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("connect nats: %w", err)
+		return nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
 	hostname, _ := os.Hostname()
@@ -159,7 +141,7 @@ func startNATSConsumers(
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create jetstream: %w", err)
+		return nil, nil, fmt.Errorf("create jetstream: %w", err)
 	}
 
 	natsConsumer, err := archiver.NewNATSConsumer(
@@ -172,7 +154,7 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
 	}
 
 	go func() {
@@ -195,33 +177,16 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create step state consumer: %w", err)
+		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
 	}
 
 	if err := stepStateConsumer.Start(ctx); err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("start step state consumer: %w", err)
-	}
-
-	intelligenceConsumer, err := archiver.NewIntelligenceConsumer(
-		js, db.Pool,
-		cfg.Archiver.Streams.BatchSize,
-		flushInterval,
-		consumerPrefix+"-intelligence",
-		logger,
-	)
-	if err != nil {
-		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create intelligence consumer: %w", err)
-	}
-
-	if err := intelligenceConsumer.Start(ctx); err != nil {
-		nc.Close()
-		return nil, nil, nil, fmt.Errorf("start intelligence consumer: %w", err)
+		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
 	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return stepStateConsumer, intelligenceConsumer, nc, nil
+	return stepStateConsumer, nc, nil
 }
 
 func maskURL(url string) string {
@@ -234,21 +199,4 @@ func maskURL(url string) string {
 		return url
 	}
 	return url[:colonIdx+1] + "****" + url[idx:]
-}
-
-// initEnrichmentWorkerPool creates and starts the enrichment worker pool
-func initEnrichmentWorkerPool(cfg *appconfig.Config, logger *zap.Logger) *workerpool.Pool {
-	poolCfg := workerpool.Config{
-		Name:             "enrichment",
-		MinWorkers:       cfg.Archiver.EnrichmentWorkers.MinWorkers,
-		MaxWorkers:       cfg.Archiver.EnrichmentWorkers.MaxWorkers,
-		QueueSize:        cfg.Archiver.EnrichmentWorkers.QueueSize,
-		ScaleUpThreshold: cfg.Archiver.EnrichmentWorkers.ScaleUpThreshold,
-		ScaleDownAfter:   time.Duration(cfg.Archiver.EnrichmentWorkers.ScaleDownAfterMs) * time.Millisecond,
-		JobTimeout:       time.Duration(cfg.Archiver.EnrichmentWorkers.JobTimeoutMs) * time.Millisecond,
-		SubmitRetryWait:  time.Duration(cfg.Archiver.EnrichmentWorkers.SubmitRetryWaitMs) * time.Millisecond,
-		Metrics:          workerpool.NoOpMetrics{},
-	}
-
-	return workerpool.New(poolCfg)
 }

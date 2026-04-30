@@ -281,3 +281,21 @@ func (db *Helpers) CreateEntityProfileWithTimestamp(t *testing.T, id, companyID,
 	`, id, companyID, profileTypeID, name, refKey, timestamp)
 	require.NoError(t, err)
 }
+
+func (db *Helpers) CreateMetricsTemplate(t *testing.T, id, name, sqlContent string) {
+	t.Helper()
+	_, err := db.pool.Exec(context.Background(), `
+		INSERT INTO metrics_template (id, metrics_name, sql_content, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+	`, id, name, sqlContent)
+	require.NoError(t, err)
+}
+
+func (db *Helpers) BindMetricsTemplate(t *testing.T, profileTypeID, templateID string, params map[string]interface{}) {
+	t.Helper()
+	_, err := db.pool.Exec(context.Background(), `
+		INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, parameters)
+		VALUES ($1, $2, $3)
+	`, profileTypeID, templateID, params)
+	require.NoError(t, err)
+}

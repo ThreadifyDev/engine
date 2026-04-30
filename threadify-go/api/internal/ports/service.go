@@ -70,7 +70,7 @@ type EntityProfileTypeService interface {
 	ListEntityProfileTypes(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error)
 	UpdateEntityProfileType(ctx context.Context, companyID, id string, req *domain.UpdateEntityProfileTypeCmd) (*domain.EntityProfileType, error)
 	ArchiveEntityProfileType(ctx context.Context, companyID string, id string) error
-	ListMetricsTemplates(ctx context.Context) ([]domain.MetricsTemplateResponse, error)
+	ListMetricsTemplates(ctx context.Context) ([]*domain.MetricsTemplate, error)
 }
 
 type UserService interface {

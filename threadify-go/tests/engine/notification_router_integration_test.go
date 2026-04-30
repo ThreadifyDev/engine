@@ -150,7 +150,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		assert.Equal(t, stepName, n.StepName)
 		assert.Equal(t, contractName, n.ContractName)
 		assert.Equal(t, "violated", n.Status)
-		assert.Equal(t, "validation.violated.timeout", n.NotificationType)
+		assert.Equal(t, domain.NotificationType("validation.violated.timeout"), n.NotificationType)
 
 		require.NoError(t, router.HandleAck(envelope.AckToken))
 	})

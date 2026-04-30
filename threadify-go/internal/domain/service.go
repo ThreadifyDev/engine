@@ -7,8 +7,9 @@ import (
 	"threadify-go/shared/billing"
 	"threadify-go/shared/rbac"
 
-	"github.com/threadify/engine/pkg/validator"
 	sharedauth "threadify-go/shared/auth"
+
+	"github.com/threadify/engine/pkg/validator"
 )
 
 //go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/service_mocks.go -source=service.go
@@ -41,7 +42,6 @@ type CacheManager interface {
 	GetUserRole(threadID, userID string) (string, bool)
 	SetUserRole(threadID, userID, role string)
 
-	// Clear all roles for a thread
 	ClearThreadRoles(threadID string)
 
 	// Contract graph caching
@@ -61,11 +61,11 @@ type CacheManager interface {
 
 // ContractGraphValidator defines the interface for contract graph operations
 type ContractGraphValidator interface {
-	ValidateStepInContract(contractName string, version int, stepName string, context map[string]string, companyID string) error
-	ValidateStepContext(stepNode GraphNode, context map[string]string) error
-	GetContractGraph(contractName string, version int, companyID string) (*ContractGraph, error)
-	LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error)
-	GetContractByNameAndCompany(contractName string, companyID string) (*Contract, error)
+	ValidateStepInContract(ctx context.Context, contractName string, version int, stepName string, context map[string]string, companyID string) error
+	ValidateStepContext(ctx context.Context, stepNode GraphNode, context map[string]string) error
+	GetContractGraph(ctx context.Context, contractName string, version int, companyID string) (*ContractGraph, error)
+	LoadContractGraphIntoCache(ctx context.Context, contractName string, version int, companyID string) (int, error)
+	GetContractByNameAndCompany(ctx context.Context, contractName string, companyID string) (*Contract, error)
 }
 
 // BackgroundService defines the interface for services that run in the background.
@@ -84,8 +84,8 @@ type ContractValidator interface {
 
 // TimeoutMonitor defines the interface for thread timeouts
 type TimeoutMonitor interface {
-	ScheduleTimeout(event TimeoutEvent) error
-	CancelTimeout(timeoutID, threadID, reason string) error
+	ScheduleTimeout(ctx context.Context, event TimeoutEvent) error
+	CancelTimeout(ctx context.Context, timeoutID, threadID, reason string) error
 }
 
 // ContractService defines the interface for contract management
@@ -95,7 +95,7 @@ type ContractService interface {
 	GetContract(ctx context.Context, contractID, requesterID string, version *int) (int, interface{})
 	UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{})
 	DeleteContract(ctx context.Context, contractID, ownerID string) (int, interface{})
-	GetAllContractVersions(ctx context.Context, contractID, requesterID string) (int, interface{})
+	GetAllContractVersions(ctx context.Context, contractID, requesterID string, limit, offset int) (int, interface{})
 	GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{})
 	DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{})
 	PreviewContract(yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
@@ -107,8 +107,8 @@ type ThreadService interface {
 	HandleStartThread(ctx context.Context, req *StartThreadCmd, ownerID, companyID string) *StartThreadResponse
 	HandleRecordEvent(ctx context.Context, req *RecordEventCmd, ownerID, companyID string) *RecordEventResponse
 	HandleAddRefs(ctx context.Context, req *AddRefsCmd, ownerID string) *AddRefsResponse
-	HandleInviteParty(req *InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*InvitePartyResponse, error)
-	HandleJoinThread(req *JoinThreadCmd, userID, companyID string) (*JoinThreadResponse, error)
+	HandleInviteParty(ctx context.Context, req *InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*InvitePartyResponse, error)
+	HandleJoinThread(ctx context.Context, req *JoinThreadCmd, userID, companyID string) (*JoinThreadResponse, error)
 	HandleClose(ownerID string) *CloseConnectionResponse
 	EndThread(ctx context.Context, threadID, actorID, actorService, status, reason string, recordedAt time.Time) error
 }

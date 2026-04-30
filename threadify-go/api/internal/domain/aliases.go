@@ -8,5 +8,7 @@ import (
 type TokenClaims = sharedauth.TokenClaims
 
 type EntityProfileType = shareddomain.EntityProfileType
-type MetricsTemplateResponse = shareddomain.MetricsTemplateResponse
+
 type EntityTypeMetric = shareddomain.EntityTypeMetric
+
+type MetricsTemplate = shareddomain.MetricsTemplate

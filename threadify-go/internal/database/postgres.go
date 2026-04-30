@@ -1019,33 +1019,9 @@ END $$;
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
-	CREATE TABLE IF NOT EXISTS entity_profile_metrics (
-		entity_profile_id VARCHAR(255) PRIMARY KEY,
-		total_deliveries INT NOT NULL DEFAULT 0,
-		completed_successfully INT NOT NULL DEFAULT 0,
-		validation_violations INT NOT NULL DEFAULT 0,
-		delivery_health_score DECIMAL(5,2),
-		prev_delivery_health_score DECIMAL(5,2),
-		health_trend_slope DECIMAL(5,2),
-		average_delivery_time_ms BIGINT,
-		last_calculated_at TIMESTAMP,
-		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
-	);
-
-	ALTER TABLE entity_profile_metrics ADD COLUMN IF NOT EXISTS prev_delivery_health_score DECIMAL(5,2);
-	
-
-	CREATE TABLE IF NOT EXISTS entity_partner_compatibility (
-		id UUID PRIMARY KEY,
-		entity_profile_id VARCHAR(255) NOT NULL,
-		partner_ref VARCHAR(255) NOT NULL,
-		total_interactions INT NOT NULL DEFAULT 0,
-		successful_interactions INT NOT NULL DEFAULT 0,
-		compatibility_score DECIMAL(5,2),
-		last_calculated_at TIMESTAMP,
-		UNIQUE(entity_profile_id, partner_ref),
-		FOREIGN KEY (entity_profile_id) REFERENCES entity_profile(id) ON DELETE CASCADE
-	);
+	-- Migration: Drop unused intelligence consumer tables
+	DROP TABLE IF EXISTS entity_partner_compatibility CASCADE;
+	DROP TABLE IF EXISTS entity_profile_metrics CASCADE;
 	CREATE TABLE IF NOT EXISTS metrics_template (
 		id VARCHAR(255) PRIMARY KEY,
 		metrics_name VARCHAR(255) NOT NULL,

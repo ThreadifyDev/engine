@@ -507,7 +507,7 @@ func (h *WebSocketHandler) handleInviteParty(session *WSSession, req *domain.Inv
 	copy(threadIDs, session.threadIDs)
 	session.mu.Unlock()
 
-	resp, err := h.threadService.HandleInviteParty(req, session.ownerID, session.companyID, threadIDs)
+	resp, err := h.threadService.HandleInviteParty(session.ctx, req, session.ownerID, session.companyID, threadIDs)
 	if err != nil {
 		return h.newErrorResponse(ActionInviteParty, "Invite failed", err.Error())
 	}
@@ -518,7 +518,7 @@ func (h *WebSocketHandler) handleJoinThread(session *WSSession, req *domain.Join
 	if req.Action != ActionJoinThread {
 		return h.newErrorResponse(ActionJoinThread, "Invalid action", "")
 	}
-	resp, err := h.threadService.HandleJoinThread(req, session.ownerID, session.companyID)
+	resp, err := h.threadService.HandleJoinThread(session.ctx, req, session.ownerID, session.companyID)
 	if err != nil {
 		return h.newErrorResponse(ActionJoinThread, "Join failed", err.Error())
 	}

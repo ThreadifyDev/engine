@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type SignupRequest struct {
 	CompanyName     string  `json:"company_name"`
 	Email           string  `json:"email" binding:"required,email"`
@@ -18,10 +20,17 @@ type LoginRequest struct {
 }
 
 type AuthUser struct {
-	ID        string  `json:"id"`
-	CompanyID string  `json:"company_id"`
-	Email     string  `json:"email"`
-	FullName  *string `json:"full_name"`
+	ID                       string     `json:"id"`
+	CompanyID                string     `json:"company_id"`
+	Email                    string     `json:"email"`
+	FullName                 *string    `json:"full_name"`
+	JobRole                  *string    `json:"job_role"`
+	EmailVerified            bool       `json:"email_verified"`
+	OnboardingCompleted      bool       `json:"onboarding_completed"`
+	FirstInstrumentationDone bool       `json:"first_instrumentation_done"`
+	CreatedAt                time.Time  `json:"created_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
+	LastLoginAt              *time.Time `json:"last_login_at"`
 }
 
 type AuthResponse struct {

@@ -17,6 +17,8 @@ import (
 
 const maxTypes = 5
 
+var paramRegex = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])@([a-zA-Z0-9_]+)`)
+
 type EntityProfileTypeRepo struct {
 	pool *pgxpool.Pool
 }
@@ -358,19 +360,7 @@ func (r *EntityProfileTypeRepo) ArchiveProfileType(ctx context.Context, companyI
 	return nil
 }
 
-func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]domain.MetricsTemplateResponse, error) {
-	query := `
-		SELECT id, metrics_name, sql_content
-		FROM metrics_template
-		ORDER BY created_at ASC
-	`
-	rows, err := r.pool.Query(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("list metrics templates: %w", err)
-	}
-	defer rows.Close()
-
-	paramRegex := regexp.MustCompile(`@([a-zA-Z0-9_]+)`)
+func extractParameters(sqlQuery string) []string {
 	ignoredParams := map[string]struct{}{
 		"ref_value":  {},
 		"ref_keys":   {},
@@ -378,34 +368,54 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]dom
 		"end_time":   {},
 	}
 
-	var templates []domain.MetricsTemplateResponse
+	matches := paramRegex.FindAllStringSubmatch(sqlQuery, -1)
+	params := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+
+	for _, match := range matches {
+		if len(match) <= 1 {
+			continue
+		}
+		paramName := match[1]
+		if _, ok := ignoredParams[paramName]; ok {
+			continue
+		}
+		if _, ok := seen[paramName]; ok {
+			continue
+		}
+		seen[paramName] = struct{}{}
+		params = append(params, paramName)
+	}
+
+	return params
+}
+
+func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*domain.MetricsTemplate, error) {
+	query := `
+		SELECT id, metrics_name, sql_content
+		FROM metrics_template
+		ORDER BY metrics_name ASC
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics templates: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []*domain.MetricsTemplate
 	for rows.Next() {
-		var t domain.MetricsTemplateResponse
-		if err := rows.Scan(&t.ID, &t.MetricsName, &t.SQLContent); err != nil {
-			return nil, fmt.Errorf("list metrics templates: scan: %w", err)
+		var id, name, sqlContent string
+		if err := rows.Scan(&id, &name, &sqlContent); err != nil {
+			return nil, fmt.Errorf("failed to scan metrics template: %w", err)
 		}
 
-		// Extract parameters from SQL content
-		matches := paramRegex.FindAllStringSubmatch(t.SQLContent, -1)
-		var params []string
-		seen := make(map[string]struct{})
-		for _, m := range matches {
-			if len(m) > 1 {
-				p := m[1]
-				if _, ok := ignoredParams[p]; !ok {
-					if _, alreadySeen := seen[p]; !alreadySeen {
-						seen[p] = struct{}{}
-						params = append(params, p)
-					}
-				}
-			}
-		}
-		t.Parameters = params
-		templates = append(templates, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list metrics templates: rows: %w", err)
+		templates = append(templates, &domain.MetricsTemplate{
+			ID:          id,
+			MetricsName: name,
+			Parameters:  extractParameters(sqlContent),
+			SQLContent:  sqlContent,
+		})
 	}
 
-	return templates, nil
+	return templates, rows.Err()
 }

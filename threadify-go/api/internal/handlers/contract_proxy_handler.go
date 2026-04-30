@@ -35,11 +35,11 @@ func NewContractProxyHandler(threadifyEngineURL string) *ContractProxyHandler {
 	}
 }
 
-func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, contentType string, body interface{}) {
+func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, contentType string, body interface{}) (*http.Response, []byte, error) {
 	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-		return
+		return nil, nil, fmt.Errorf("unauthorized")
 	}
 
 	var reqBody io.Reader
@@ -51,7 +51,7 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, conten
 			jsonData, err := json.Marshal(v)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare request"})
-				return
+				return nil, nil, err
 			}
 			reqBody = bytes.NewBuffer(jsonData)
 		}
@@ -64,7 +64,7 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, conten
 	req, err := http.NewRequestWithContext(c.Request.Context(), method, h.threadifyEngineURL+path, reqBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
-		return
+		return nil, nil, err
 	}
 
 	req.Header.Set(service.HeaderAuthorization, authHeader)
@@ -74,29 +74,24 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, conten
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
-		return
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
-		return
+		return resp, nil, err
 	}
 
-	respContentType := resp.Header.Get(service.HeaderContentType)
-	if respContentType == "" {
-		respContentType = service.ContentTypeJSON
-	}
-	c.Data(resp.StatusCode, respContentType, respBody)
+	return resp, respBody, nil
 }
 
-// proxyRawBody reads the raw request body and proxies it, preserving the incoming Content-Type.
-func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaultContentType string) {
+func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaultContentType string) (*http.Response, []byte, error) {
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
-		return
+		return nil, nil, err
 	}
 
 	contentType := c.GetHeader(service.HeaderContentType)
@@ -104,7 +99,7 @@ func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaul
 		contentType = defaultContentType
 	}
 
-	h.proxyRequest(c, method, path, contentType, bodyBytes)
+	return h.proxyRequest(c, method, path, contentType, bodyBytes)
 }
 
 func validateJSONProxyBody(body []byte) error {
@@ -140,11 +135,25 @@ func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
 	if c.Request.URL.RawQuery != "" {
 		path += "?" + c.Request.URL.RawQuery
 	}
-	h.proxyRequest(c, http.MethodGet, path, "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodGet, path, "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(http.StatusOK, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
-	h.proxyRawBody(c, http.MethodPost, contractProxyPath, contentTypeTextPlain)
+	resp, body, err := h.proxyRawBody(c, http.MethodPost, contractProxyPath, contentTypeTextPlain)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
@@ -165,29 +174,78 @@ func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
 		return
 	}
 
-	h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, contentType, bodyBytes)
+	resp, body, err := h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, contentType, bodyBytes)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) GetContract(c *gin.Context) {
-	h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) UpdateContract(c *gin.Context) {
-	h.proxyRawBody(c, http.MethodPut, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), contentTypeTextPlain)
+	resp, body, err := h.proxyRawBody(c, http.MethodPut, fmt.Sprintf(contractProxyPath+"/%s", c.Param("id")), contentTypeTextPlain)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) DeleteContract(c *gin.Context) {
-	h.proxyRequest(c, http.MethodDelete, fmt.Sprintf("/v1/contracts/%s", c.Param("id")), "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodDelete, fmt.Sprintf("/v1/contracts/%s", c.Param("id")), "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) GetAllContractVersions(c *gin.Context) {
-	h.proxyRequest(c, http.MethodGet, fmt.Sprintf("/v1/contracts/%s/versions", c.Param("id")), "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodGet, fmt.Sprintf("/v1/contracts/%s/versions", c.Param("id")), "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) GetContractVersion(c *gin.Context) {
-	h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodGet, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }
 
 func (h *ContractProxyHandler) DeleteContractVersion(c *gin.Context) {
-	h.proxyRequest(c, http.MethodDelete, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
+	resp, body, err := h.proxyRequest(c, http.MethodDelete, fmt.Sprintf(contractProxyVersionPath, c.Param("id"), c.Param("version")), "", nil)
+	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil {
+			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
+		}
+		return
+	}
+	c.Data(resp.StatusCode, service.ContentTypeJSON, body)
 }

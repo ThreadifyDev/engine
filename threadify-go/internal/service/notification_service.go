@@ -947,7 +947,7 @@ func (s *NotificationService) cancelPendingTimeoutsForStep(
 		// Reconstruct the timeout ID that was used when scheduling
 		timeoutID := fmt.Sprintf("%s:%s:%s:transition", threadID, transition.From, strings.Join(transition.To, ","))
 
-		if err := s.timeoutMonitor.CancelTimeout(timeoutID, threadID, fmt.Sprintf("step '%s' started", stepName)); err != nil {
+		if err := s.timeoutMonitor.CancelTimeout(ctx, timeoutID, threadID, fmt.Sprintf("step '%s' started", stepName)); err != nil {
 			s.logger.Warn("failed to cancel timeout",
 				zap.String("timeout_id", timeoutID),
 				zap.String("thread_id", threadID),
@@ -1041,7 +1041,7 @@ func (s *NotificationService) scheduleTransitionTimeouts(
 		}
 
 		// Schedule the timeout
-		if err := s.timeoutMonitor.ScheduleTimeout(timeoutEvent); err != nil {
+		if err := s.timeoutMonitor.ScheduleTimeout(ctx, timeoutEvent); err != nil {
 			s.logger.Error("failed to schedule transition timeout",
 				zap.String("thread_id", threadID),
 				zap.String("from", transition.From),
