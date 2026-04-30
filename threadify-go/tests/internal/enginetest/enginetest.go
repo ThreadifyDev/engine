@@ -92,3 +92,15 @@ func CreateEntityProfileWithTimestamp(t *testing.T, pool *pgxpool.Pool, companyI
 	dbhelpers.New(pool).CreateEntityProfileWithTimestamp(t, id, companyID, profileTypeID, name, refKey, timestamp)
 	return id
 }
+
+func CreateMetricsTemplate(t *testing.T, pool *pgxpool.Pool, name, sqlContent string) string {
+	t.Helper()
+	id := uuid.NewString()
+	dbhelpers.New(pool).CreateMetricsTemplate(t, id, name, sqlContent)
+	return id
+}
+
+func BindMetricsTemplate(t *testing.T, pool *pgxpool.Pool, profileTypeID, templateID string, params map[string]interface{}) {
+	t.Helper()
+	dbhelpers.New(pool).BindMetricsTemplate(t, profileTypeID, templateID, params)
+}

@@ -16,11 +16,12 @@ type ContractListResult struct {
 }
 
 type UpdateContractParams struct {
-	ContractID    string
-	Description   string
-	ContentHash   string
-	LatestVersion int
-	UpdatedAt     time.Time
+	ContractID      string
+	Description     string
+	ContentHash     string
+	LatestVersion   int
+	ExpectedVersion int
+	UpdatedAt       time.Time
 }
 
 type StepStatusQuery struct {

@@ -31,7 +31,7 @@ type GraphNode struct {
 	Steps           []string
 	Timeout         string
 	MaxDuration     string
-	BusinessContext interface{}
+	BusinessContext *BusinessContext
 	ParentGroup     string
 }
 
@@ -63,8 +63,8 @@ type Step struct {
 
 // Group represents a parallel group of steps
 type Group struct {
-	ID    string   `yaml:"id"`
-	Steps []string `yaml:"steps"`
+	ID    string      `yaml:"id"`
+	Steps []string    `yaml:"steps"`
 	Rules *GroupRules `yaml:"rules,omitempty"`
 }
 

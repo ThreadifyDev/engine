@@ -136,18 +136,12 @@ func (s *ValidationService) CheckMissingOptionalFields(
 	stepNode domain.GraphNode,
 	context map[string]string,
 ) *domain.ValidationViolation {
-	// No business context defined
 	if stepNode.BusinessContext == nil {
 		return nil
 	}
 
-	// Type assert to BusinessContext
-	bc, ok := stepNode.BusinessContext.(*domain.BusinessContext)
-	if !ok {
-		return nil
-	}
+	bc := stepNode.BusinessContext
 
-	// No optional fields defined
 	if len(bc.Optional) == 0 {
 		return nil
 	}

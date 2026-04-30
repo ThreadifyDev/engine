@@ -62,27 +62,32 @@ func TestContractValidationService_ValidateStepContext_Table(t *testing.T) {
 			ctx:  map[string]string{"a": "1"},
 		},
 		{
-			name: "map required missing errors",
-			node: domain.GraphNode{ID: "s1", BusinessContext: map[string]interface{}{"required": []interface{}{"a"}}},
-			ctx:  map[string]string{},
-			// wantError
+			name: "business context required field missing errors",
+			node: domain.GraphNode{
+				ID: "s1",
+				BusinessContext: &domain.BusinessContext{
+					Required: []string{"a"},
+				},
+			},
+			ctx:       map[string]string{},
 			wantError: true,
 		},
 		{
-			name: "map required wrong type is ignored",
-			node: domain.GraphNode{ID: "s1", BusinessContext: map[string]interface{}{"required": "a"}},
-			ctx:  map[string]string{},
-		},
-		{
-			name: "unsupported business context type is ignored",
-			node: domain.GraphNode{ID: "s1", BusinessContext: 123},
-			ctx:  map[string]string{},
+			name: "business context with required fields",
+			node: domain.GraphNode{
+				ID: "s1",
+				BusinessContext: &domain.BusinessContext{
+					Required: []string{"a"},
+				},
+			},
+			ctx:       map[string]string{},
+			wantError: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := svc.ValidateStepContext(tc.node, tc.ctx)
+			err := svc.ValidateStepContext(context.Background(), tc.node, tc.ctx)
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -140,7 +145,7 @@ func TestContractValidationService_ValidateStepInContract_Table(t *testing.T) {
 
 			svc := service.NewContractValidationServiceFromParts(graphRepo, nil, cache, zap.NewNop())
 
-			err := svc.ValidateStepInContract("c1", 1, tc.step, tc.ctx, "o1")
+			err := svc.ValidateStepInContract(context.Background(), "c1", 1, tc.step, tc.ctx, "o1")
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -201,7 +206,7 @@ func TestContractValidationService_GetContractGraph_Table(t *testing.T) {
 			cache := enginemocks.NewMockCacheManager(ctrl)
 			svc := tc.setup(t, graphRepo, cache)
 
-			_, err := svc.GetContractGraph("c1", tc.version, "o1")
+			_, err := svc.GetContractGraph(context.Background(), "c1", tc.version, "o1")
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -235,7 +240,7 @@ func TestContractValidationService_GetContractGraph_ResolvesLatestAndFallsBackTo
 		zap.NewNop(),
 	)
 
-	got, err := svc.GetContractGraph("c1", 0, "o1")
+	got, err := svc.GetContractGraph(context.Background(), "c1", 0, "o1")
 	require.NoError(t, err)
 	require.Contains(t, got.Graph.Nodes, "s1")
 }
@@ -276,7 +281,7 @@ func TestContractValidationService_GetContractGraph_PostgresEdgeCases(t *testing
 				zap.NewNop(),
 			)
 
-			_, err := svc.GetContractGraph("c1", 0, "o1")
+			_, err := svc.GetContractGraph(context.Background(), "c1", 0, "o1")
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantError)
 		})
@@ -300,7 +305,7 @@ func TestContractValidationService_LoadContractGraphIntoCache_ResolvesVersionAnd
 		zap.NewNop(),
 	)
 
-	v, err := svc.LoadContractGraphIntoCache("c1", 0, "o1")
+	v, err := svc.LoadContractGraphIntoCache(context.Background(), "c1", 0, "o1")
 	require.NoError(t, err)
 	require.Equal(t, 7, v)
 }
@@ -308,13 +313,13 @@ func TestContractValidationService_LoadContractGraphIntoCache_ResolvesVersionAnd
 func TestContractValidationService_GetContractByNameAndCompany(t *testing.T) {
 	t.Run("nil repo", func(t *testing.T) {
 		svc := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop())
-		_, err := svc.GetContractByNameAndCompany("c1", "o1")
+		_, err := svc.GetContractByNameAndCompany(context.Background(), "c1", "o1")
 		require.ErrorIs(t, err, service.ErrContractRepoNotAvailable)
 	})
 
 	t.Run("repo error propagates", func(t *testing.T) {
 		svc := service.NewContractValidationServiceFromParts(nil, fakeContractRepo{getErr: errors.New("db down")}, nil, zap.NewNop())
-		_, err := svc.GetContractByNameAndCompany("c1", "o1")
+		_, err := svc.GetContractByNameAndCompany(context.Background(), "c1", "o1")
 		require.Error(t, err)
 	})
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/testcontainers/testcontainers-go"
 )
 
 type Environment struct {
@@ -14,6 +16,11 @@ type Environment struct {
 
 func Start(ctx context.Context) (*Environment, error) {
 	log.Println("Starting test environment containers...")
+	// Preflight so callers can reliably distinguish "Docker isn't available" from
+	// other container or initialization failures.
+	if _, err := testcontainers.NewDockerClientWithOpts(ctx); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrDockerUnavailable, err)
+	}
 
 	pg, err := StartPostgresContainer(ctx)
 	if err != nil {

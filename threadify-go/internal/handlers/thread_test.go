@@ -138,7 +138,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					Status: StatusSuccess,
 				}
 				d.ThreadSvc.EXPECT().
-					HandleInviteParty(gomock.Any(), testUserID, testCompanyID, gomock.Any()).
+					HandleInviteParty(gomock.Any(), gomock.Any(), testUserID, testCompanyID, gomock.Any()).
 					Return(resp, nil)
 			},
 			wantResp: &dto.InvitePartyResponse{
@@ -161,7 +161,7 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 					ThreadID: testThreadID,
 				}
 				d.ThreadSvc.EXPECT().
-					HandleJoinThread(gomock.Any(), testUserID, testCompanyID).
+					HandleJoinThread(gomock.Any(), gomock.Any(), testUserID, testCompanyID).
 					Return(resp, nil)
 			},
 			wantResp: &dto.JoinThreadResponse{
