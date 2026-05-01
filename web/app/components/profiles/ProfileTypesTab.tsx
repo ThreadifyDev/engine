@@ -661,6 +661,7 @@ function MetricSelectionCard({ template, metric, onChange, onRemove }: MetricSel
             const val = metric.parameters?.[param] || '';
             const isStatus = param === 'status' || param === 'thread_status';
             const isStepStatus = param === 'step_status';
+            const isGranularity = param === 'granularity';
 
             return (
               <div key={param} className="flex flex-col gap-1">
@@ -682,6 +683,18 @@ function MetricSelectionCard({ template, metric, onChange, onRemove }: MetricSel
                   >
                     <option value="" disabled>Select step status</option>
                     {stepStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : isGranularity ? (
+                  <select
+                    value={val}
+                    onChange={(e) => handleParamChange(param, e.target.value)}
+                    className="text-sm bg-transparent border-b border-gray-300 focus:border-black outline-none py-1 text-gray-900 cursor-pointer"
+                  >
+                    <option value="" disabled>Select granularity</option>
+                    <option value="hour">Hour</option>
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                    <option value="month">Month</option>
                   </select>
                 ) : (
                   <input

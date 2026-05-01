@@ -20,9 +20,14 @@ type StreamEvent struct {
 	Data     map[string]string
 }
 
+type MetricsInvalidator interface {
+	InvalidateEntityMetrics(ctx context.Context, profileID string) error
+}
+
 type NATSConsumer struct {
-	js           JetStreamPublisher
-	db           DBExecer
+	js                 JetStreamPublisher
+	db                 DBExecer
+	metricsInvalidator MetricsInvalidator
 	writer       ConsumerWriter
 	batchSize    int
 	batchTimeout time.Duration
@@ -36,6 +41,7 @@ type NATSConsumer struct {
 func NewNATSConsumer(
 	js JetStreamPublisher,
 	db DBExecer,
+	metricsInvalidator MetricsInvalidator,
 	batchSize int,
 	batchTimeout time.Duration,
 	consumerName string,
@@ -43,8 +49,9 @@ func NewNATSConsumer(
 	logger *zap.Logger,
 ) (*NATSConsumer, error) {
 	return &NATSConsumer{
-		js:           js,
-		db:           db,
+		js:                 js,
+		db:                 db,
+		metricsInvalidator: metricsInvalidator,
 		writer:       NewPostgresWriter(db, logger),
 		batchSize:    batchSize,
 		batchTimeout: batchTimeout,
@@ -313,9 +320,17 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
 	c.logDroppedMalformed("thread_metadata", failed)
-	_, err := c.writer.WriteThreadMetadata(ctx, events)
+	profileIDs, err := c.writer.WriteThreadMetadata(ctx, events)
 	if err != nil {
 		return err
+	}
+
+	if c.metricsInvalidator != nil {
+		for _, profileID := range profileIDs {
+			if profileID != "" {
+				_ = c.metricsInvalidator.InvalidateEntityMetrics(ctx, profileID)
+			}
+		}
 	}
 
 	c.logPerf("metadata.thread", len(msgs), start)

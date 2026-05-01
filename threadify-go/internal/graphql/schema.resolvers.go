@@ -88,10 +88,10 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configBytes))
 
-	// Cache invalidation: computed metrics depend not just on the metric templates/config,
-	// but also on the underlying activity data. The profile's LastActiveAt is updated on
-	// new ref/thread activity, so include it in the cache version to avoid stale reads.
-	cacheVersion := configHash + ":" + obj.LastActiveAt
+	// Cache invalidation: We now rely on active cache invalidation in the Archiver (which deletes
+	// the entire Valkey hash for the profile when refs are added) combined with a 30m TTL.
+	// We no longer include LastActiveAt here to prevent field bloat inside the Valkey hash.
+	cacheVersion := configHash
 
 	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
 		return cached, nil

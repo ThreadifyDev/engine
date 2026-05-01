@@ -22,11 +22,11 @@ type MetricsTemplate struct {
 
 type MetricsRepository struct {
 	db           *pgxpool.Pool
-	valkeyClient domain.ValkeyStringClient
+	valkeyClient domain.ValkeyClient
 	logger       *zap.Logger
 }
 
-func NewMetricsRepository(db *pgxpool.Pool, valkeyClient domain.ValkeyStringClient, logger *zap.Logger) *MetricsRepository {
+func NewMetricsRepository(db *pgxpool.Pool, valkeyClient domain.ValkeyClient, logger *zap.Logger) *MetricsRepository {
 	return &MetricsRepository{
 		db:           db,
 		valkeyClient: valkeyClient,
@@ -217,8 +217,10 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 		return nil, false
 	}
 
-	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal + ":" + configVersion
-	cachedData, err := r.valkeyClient.Get(ctx, cacheKey)
+	hashKey := "entity_metrics:" + profileID
+	fieldKey := rangeVal + ":" + configVersion
+	
+	cachedData, err := r.valkeyClient.HGet(ctx, hashKey, fieldKey)
 	if err != nil || cachedData == "" {
 		return nil, false
 	}
@@ -236,7 +238,7 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 	return cachedMap, true
 }
 
-// CacheEntityMetrics stores computed entity metrics in Valkey with 30-minute TTL
+// CacheEntityMetrics stores computed entity metrics in Valkey Hash with 30-minute TTL
 func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, rangeVal, configVersion string, metrics map[string]any) {
 	if r.valkeyClient == nil {
 		return
@@ -252,12 +254,27 @@ func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, r
 		return
 	}
 
-	cacheKey := "entity_metrics:" + profileID + ":" + rangeVal + ":" + configVersion
-	if err := r.valkeyClient.Set(ctx, cacheKey, string(resultBytes), 30*time.Minute); err != nil {
+	hashKey := "entity_metrics:" + profileID
+	fieldKey := rangeVal + ":" + configVersion
+	
+	if err := r.valkeyClient.HSet(ctx, hashKey, fieldKey, string(resultBytes)); err != nil {
 		r.logger.Warn("failed to cache entity metrics",
 			zap.String("profileID", profileID),
 			zap.String("range", rangeVal),
 			zap.Error(err),
 		)
+	} else {
+		// Set an expiration on the whole hash as a fallback TTL
+		_ = r.valkeyClient.Expire(ctx, hashKey, 30*time.Minute)
 	}
+}
+
+// InvalidateEntityMetrics immediately deletes all cached metrics for a profile
+func (r *MetricsRepository) InvalidateEntityMetrics(ctx context.Context, profileID string) error {
+	if r.valkeyClient == nil {
+		return nil
+	}
+
+	hashKey := "entity_metrics:" + profileID
+	return r.valkeyClient.Del(ctx, hashKey)
 }
