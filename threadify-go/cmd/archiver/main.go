@@ -24,6 +24,7 @@ import (
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	postgresrepo "github.com/threadify/engine/internal/repository/postgres"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -72,10 +73,32 @@ func run(configPath string, logger *zap.Logger) error {
 		return fmt.Errorf("init schema: %w", err)
 	}
 
+	valkeyClient, err := database.NewValkeyService(
+		cfg.Redis.Host,
+		cfg.Redis.Port,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.Redis.PoolSize,
+		cfg.Redis.MinIdleConns,
+		cfg.Redis.MaxIdleConns,
+		cfg.Redis.MaxRetries,
+		cfg.Redis.DialTimeoutMs,
+		cfg.Redis.ReadTimeoutMs,
+		cfg.Redis.WriteTimeoutMs,
+		cfg.Redis.PoolTimeoutMs,
+		cfg.Redis.ConnMaxIdleTimeMs,
+	)
+	if err != nil {
+		return fmt.Errorf("connect valkey: %w", err)
+	}
+	defer valkeyClient.Close()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	metricsRepo := postgresrepo.NewMetricsRepository(db.Pool, valkeyClient, logger)
+
+	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, metricsRepo, logger)
 	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
@@ -123,6 +146,7 @@ func startNATSConsumers(
 	ctx context.Context,
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
+	metricsInvalidator archiver.MetricsInvalidator,
 	logger *zap.Logger,
 ) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
@@ -145,7 +169,7 @@ func startNATSConsumers(
 	}
 
 	natsConsumer, err := archiver.NewNATSConsumer(
-		js, db.Pool,
+		js, db.Pool, metricsInvalidator,
 		cfg.Archiver.Streams.BatchSize,
 		cfg.Archiver.Streams.BlockTimeout,
 		consumerPrefix+"-nats",
