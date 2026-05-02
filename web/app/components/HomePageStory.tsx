@@ -3,29 +3,54 @@ import ThreadifyLogo from "~/components/ThreadifyLogo";
 import Footer from "~/components/homepage/Footer";
 import CodeBlock from "~/components/CodeBlock";
 import { useState, useEffect } from "react";
-import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge, ChevronDown } from "lucide-react";
+import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge, ChevronDown, Menu, X } from "lucide-react";
 
 export default function HomePageStory() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   return (
     <div className="bg-white text-gray-900 font-sans antialiased selection:bg-black/10">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-black/5">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center">
+          <Link to="/" className="flex items-center z-50">
             <ThreadifyLogo height={26} />
           </Link>
+          
+          {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-8">
             <a href="#how-it-works" className="text-sm text-gray-600 hover:text-black transition-colors">How it works</a>
             <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-black transition-colors">Documentation</a>
             <Link to="/pricing" className="text-sm text-gray-600 hover:text-black transition-colors">Pricing</Link>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-3">
             <Link to="/login" className="text-sm font-medium text-gray-700 hover:text-black transition-colors px-4 py-2">Sign in</Link>
             <Link to="/signup" className="text-sm font-medium px-4 py-2 bg-black text-white rounded-full hover:bg-gray-800 transition-colors">
               Get started free
             </Link>
           </div>
+
+          {/* Mobile Menu Toggle */}
+          <button 
+            className="md:hidden z-50 p-2 -mr-2 text-gray-600 hover:text-black"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
         </div>
+
+        {/* Mobile Menu Dropdown */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden absolute top-16 left-0 right-0 bg-white border-b border-gray-100 shadow-xl py-4 px-6 flex flex-col gap-4">
+            <a href="#how-it-works" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">How it works</a>
+            <a href="https://docs.threadify.dev" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Documentation</a>
+            <Link to="/pricing" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Pricing</Link>
+            <hr className="border-gray-100 my-2" />
+            <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Sign in</Link>
+            <Link to="/signup" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-center py-3 bg-black text-white rounded-xl mt-2 hover:bg-gray-800 transition-colors">
+              Get started free
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* Hero Section */}
@@ -65,8 +90,8 @@ export default function HomePageStory() {
           {/* Live Thread Visualization */}
           <div className="relative max-w-4xl mx-auto">
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-white z-10 pointer-events-none h-full" />
-            <div className="bg-gradient-to-b from-gray-50 to-white rounded-t-3xl border border-gray-200 border-b-0 p-8 md:p-12">
-              <div className="flex items-center justify-between mb-8">
+            <div className="bg-gradient-to-b from-gray-50 to-white rounded-t-3xl border border-gray-200 border-b-0 p-5 sm:p-8 md:p-12">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-sm font-medium text-gray-600">Live Thread</span>
@@ -80,9 +105,9 @@ export default function HomePageStory() {
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium text-gray-900">identity_verified</span>
-                      <span className="text-gray-400 text-xs">your platform</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                      <span className="font-medium text-gray-900 break-all">identity_verified</span>
+                      <span className="text-gray-400 text-xs sm:text-right">your platform</span>
                     </div>
                     <div className="text-gray-500 text-xs mt-1">Completed in 1.2s</div>
                   </div>
@@ -93,9 +118,9 @@ export default function HomePageStory() {
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium text-gray-900">credit_check_passed</span>
-                      <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">partner: credit-bureau</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
+                      <span className="font-medium text-gray-900 break-all">credit_check_passed</span>
+                      <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit sm:text-right">partner: credit-bureau</span>
                     </div>
                     <div className="text-gray-500 text-xs mt-1">Completed in 3.4s</div>
                   </div>
@@ -106,9 +131,9 @@ export default function HomePageStory() {
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium text-gray-900">documents_requested</span>
-                      <span className="text-gray-400 text-xs">compliance-team</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                      <span className="font-medium text-gray-900 break-all">documents_requested</span>
+                      <span className="text-gray-400 text-xs sm:text-right">compliance-team</span>
                     </div>
                     <div className="text-gray-500 text-xs mt-1">Completed in 0.8s</div>
                   </div>
@@ -119,9 +144,9 @@ export default function HomePageStory() {
                     <Clock className="w-3.5 h-3.5 text-gray-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium text-gray-400">account_activated</span>
-                      <span className="text-gray-300 text-xs">waiting</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                      <span className="font-medium text-gray-400 break-all">account_activated</span>
+                      <span className="text-gray-300 text-xs sm:text-right">waiting</span>
                     </div>
                   </div>
                 </div>
@@ -131,9 +156,9 @@ export default function HomePageStory() {
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="font-medium text-amber-700">SLA breach detected</span>
-                      <span className="text-amber-600 text-xs font-medium">8 hours waiting</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
+                      <span className="font-medium text-amber-700 break-all">SLA breach detected</span>
+                      <span className="text-amber-600 text-xs font-medium sm:text-right">8 hours waiting</span>
                     </div>
                   </div>
                 </div>
@@ -143,7 +168,7 @@ export default function HomePageStory() {
 
           {/* Tagline */}
           <div className="mt-6 text-center mb-20">
-            <p className="text-xs text-gray-400 italic">
+            <p className="text-sm text-gray-400 italic">
               This is what Threadify sees.{" "}
               <span className="text-gray-600">For the first time, so can you.</span>
             </p>
@@ -188,7 +213,7 @@ export default function HomePageStory() {
                   One line per business action. A live execution graph (a Thread) builds itself across every service involved.
                 </p>
                 <p className="text-black font-medium">
-                  Most teams discover their real process looks nothing like the Confluence doc. Now you know what it actually is.
+                  Stop guessing at the customer experience. Now you have real-time intelligence into exactly how you deliver for every customer.
                 </p>
               </div>
             </div>
@@ -211,6 +236,27 @@ step.addContext(data).success()`}
                 </a>
               </div>
             </div>
+          </div>
+
+          {/* OpenTelemetry Banner */}
+          <div className="mt-16 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="bg-black text-white text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">Zero Code Changes</span>
+                <h4 className="text-xl font-semibold text-black">Native OpenTelemetry Support</h4>
+              </div>
+              <p className="text-gray-600 text-lg max-w-2xl">
+                Already instrumented with OTel? Drop in the Threadify Exporter to automatically convert your existing technical traces into business-level service delivery intelligence.
+              </p>
+            </div>
+            <a 
+              href="https://docs.threadify.dev/opentelemetry" 
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-6 py-3 bg-white text-black border border-gray-200 rounded-lg font-medium hover:bg-gray-50 transition-colors whitespace-nowrap"
+            >
+              Read OTel Docs
+            </a>
           </div>
         </div>
       </section>
