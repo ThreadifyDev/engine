@@ -13,6 +13,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/service/tests/common"
 	"github.com/threadify/engine/pkg/validator"
@@ -382,7 +383,7 @@ func TestContractService_GetContractVersion_GraphParseFallback(t *testing.T) {
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	_, ok := resp.(*domain.ContractVersion)
+	_, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
 }
 
@@ -402,11 +403,11 @@ func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *test
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	m, ok := resp.(map[string]interface{})
+	m, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
-	require.Equal(t, "v1", m["id"])
-	require.Equal(t, "c", m["contractName"])
-	require.NotNil(t, m["graph"])
+	require.Equal(t, "v1", m.ID)
+	require.Equal(t, "c", m.ContractName)
+	require.NotNil(t, m.Graph)
 }
 
 func TestContractService_DeleteContractVersion_Table(t *testing.T) {

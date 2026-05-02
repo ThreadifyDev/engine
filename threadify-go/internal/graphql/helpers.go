@@ -9,6 +9,7 @@ import (
 	sharedauth "threadify-go/shared/auth"
 	shareddomain "threadify-go/shared/domain"
 
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql/generated"
 )
 
@@ -21,13 +22,13 @@ const (
 )
 
 // getUserInfoFromContext extracts user info from GraphQL context
-func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role string, err error) {
+func getUserInfoFromContext(ctx context.Context) (*domain.AuthContext, error) {
 	ownerIDVal := ctx.Value(sharedauth.CtxUserID)
 	companyIDVal := ctx.Value(sharedauth.CtxCompanyID)
 	rolesVal := ctx.Value(sharedauth.CtxRoles)
 
 	if ownerIDVal == nil || companyIDVal == nil || rolesVal == nil {
-		return "", "", "", fmt.Errorf("user authentication context not found")
+		return nil, fmt.Errorf("user authentication context not found")
 	}
 
 	ownerID, ownerOK := ownerIDVal.(string)
@@ -35,7 +36,7 @@ func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role strin
 	roles, rolesOK := rolesVal.([]string)
 
 	if !ownerOK || !companyOK || !rolesOK {
-		return "", "", "", fmt.Errorf("invalid user authentication context types")
+		return nil, fmt.Errorf("invalid user authentication context types")
 	}
 
 	extractedRole := ""
@@ -43,7 +44,11 @@ func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role strin
 		extractedRole = roles[0]
 	}
 
-	return ownerID, companyID, extractedRole, nil
+	return &domain.AuthContext{
+		OwnerID:   ownerID,
+		CompanyID: companyID,
+		Role:      extractedRole,
+	}, nil
 }
 
 // cacheAccessCheck stores an access check result in the context

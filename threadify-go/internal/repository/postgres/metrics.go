@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,10 @@ import (
 	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
+
+// maxConcurrentMetricQueries limits the number of metric SQL queries that can
+// execute simultaneously, preventing connection-pool exhaustion under load.
+const maxConcurrentMetricQueries = 10
 
 type MetricsTemplate struct {
 	ID          string
@@ -24,6 +29,7 @@ type MetricsRepository struct {
 	db           *pgxpool.Pool
 	valkeyClient domain.ValkeyClient
 	logger       *zap.Logger
+	sem          chan struct{} // concurrency limiter for metric queries
 }
 
 func NewMetricsRepository(db *pgxpool.Pool, valkeyClient domain.ValkeyClient, logger *zap.Logger) *MetricsRepository {
@@ -31,6 +37,7 @@ func NewMetricsRepository(db *pgxpool.Pool, valkeyClient domain.ValkeyClient, lo
 		db:           db,
 		valkeyClient: valkeyClient,
 		logger:       logger,
+		sem:          make(chan struct{}, maxConcurrentMetricQueries),
 	}
 }
 
@@ -133,9 +140,6 @@ func (r *MetricsRepository) GetMetricsTemplatesByIDs(ctx context.Context, ids []
 	return templates, nil
 }
 
-// EvaluateEntityMetric executes a metric template SQL query for a specific entity profile type
-// It merges runtime arguments (startTime, endTime, ref_key) with the static parameters configured
-// for the entity profile type in the entity_profile_type_metrics junction table.
 func (r *MetricsRepository) EvaluateEntityMetric(
 	ctx context.Context,
 	sqlQuery string,
@@ -145,18 +149,23 @@ func (r *MetricsRepository) EvaluateEntityMetric(
 	endTime time.Time,
 	configuredParams map[string]any,
 ) ([]map[string]interface{}, error) {
-	// 4. Time range as natural bound
 	if startTime.After(endTime) {
 		return nil, fmt.Errorf("startTime cannot be after endTime")
 	}
 
-	// Max 3 months constraint (~92 days)
 	maxDuration := 92 * 24 * time.Hour
 	if endTime.Sub(startTime) > maxDuration {
 		return nil, fmt.Errorf("time range exceeds the maximum allowed 3 months")
 	}
 
-	// Build Named Arguments map with our protected runtime context
+	// Acquire semaphore slot to limit concurrent DB connections used by metrics.
+	select {
+	case r.sem <- struct{}{}:
+		defer func() { <-r.sem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	args := pgx.NamedArgs{
 		"start_time": startTime,
 		"end_time":   endTime,
@@ -164,19 +173,15 @@ func (r *MetricsRepository) EvaluateEntityMetric(
 		"ref_keys":   entityRefKeys,
 	}
 
-	// Merge configured parameters from the EntityProfileType
-	// Only add if it doesn't overwrite our protected runtime context
 	for k, v := range configuredParams {
 		if _, exists := args[k]; !exists {
 			args[k] = v
 		}
 	}
 
-	// Create a new context with a hard timeout of 30 seconds for the entire operation
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Begin a transaction to isolate session settings
 	tx, err := r.db.BeginTx(timeoutCtx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 	})
@@ -187,15 +192,24 @@ func (r *MetricsRepository) EvaluateEntityMetric(
 		_ = tx.Rollback(context.Background())
 	}()
 
-	// 2. Read-only DB role fallback in session if role is not fully read-only
-	// 3. Statement timeout to prevent heavy query running forever (e.g., 20 seconds)
 	if _, err := tx.Exec(timeoutCtx, "SET LOCAL statement_timeout = '20s'"); err != nil {
 		return nil, fmt.Errorf("failed to set statement timeout: %w", err)
 	}
 
+	// Remove ALL semicolons from the template SQL — they are statement terminators
+	// and are invalid inside the subquery wrapper we add for safety.
+	cleanQuery := strings.ReplaceAll(sqlQuery, ";", "")
+	cleanQuery = strings.TrimSpace(cleanQuery)
+
+	limitedQuery := fmt.Sprintf("SELECT * FROM (%s) AS subquery LIMIT 1000", cleanQuery)
+
 	// Execute the query using pgx.NamedArgs
-	rows, err := tx.Query(timeoutCtx, sqlQuery, args)
+	rows, err := tx.Query(timeoutCtx, limitedQuery, args)
 	if err != nil {
+		r.logger.Error("metrics query execution failed",
+			zap.String("cleanQuery", cleanQuery),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("failed to execute metrics query: %w", err)
 	}
 	defer rows.Close()
@@ -219,7 +233,7 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 
 	hashKey := "entity_metrics:" + profileID
 	fieldKey := rangeVal + ":" + configVersion
-	
+
 	cachedData, err := r.valkeyClient.HGet(ctx, hashKey, fieldKey)
 	if err != nil || cachedData == "" {
 		return nil, false
@@ -238,7 +252,6 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 	return cachedMap, true
 }
 
-// CacheEntityMetrics stores computed entity metrics in Valkey Hash with 30-minute TTL
 func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, rangeVal, configVersion string, metrics map[string]any) {
 	if r.valkeyClient == nil {
 		return
@@ -256,7 +269,7 @@ func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, r
 
 	hashKey := "entity_metrics:" + profileID
 	fieldKey := rangeVal + ":" + configVersion
-	
+
 	if err := r.valkeyClient.HSet(ctx, hashKey, fieldKey, string(resultBytes)); err != nil {
 		r.logger.Warn("failed to cache entity metrics",
 			zap.String("profileID", profileID),
@@ -277,4 +290,39 @@ func (r *MetricsRepository) InvalidateEntityMetrics(ctx context.Context, profile
 
 	hashKey := "entity_metrics:" + profileID
 	return r.valkeyClient.Del(ctx, hashKey)
+}
+
+// ValidateTemplateSQL runs EXPLAIN on the template SQL with dummy parameters
+// to catch syntax errors at bind time rather than at dashboard render time.
+// This is a best-effort check — it validates SQL syntax and table/column
+// references but cannot guarantee runtime correctness with real data.
+func (r *MetricsRepository) ValidateTemplateSQL(ctx context.Context, sqlContent string, configuredParams map[string]any) error {
+	cleanQuery := strings.ReplaceAll(sqlContent, ";", "")
+	cleanQuery = strings.TrimSpace(cleanQuery)
+	if cleanQuery == "" {
+		return fmt.Errorf("template SQL content is empty")
+	}
+
+	// Build dummy args matching what EvaluateEntityMetric provides at runtime
+	args := pgx.NamedArgs{
+		"start_time": time.Now().Add(-7 * 24 * time.Hour),
+		"end_time":   time.Now(),
+		"ref_value":  "__validate_dummy__",
+		"ref_keys":   []string{"__validate_dummy__"},
+	}
+	for k, v := range configuredParams {
+		if _, exists := args[k]; !exists {
+			args[k] = v
+		}
+	}
+
+	explainQuery := fmt.Sprintf("EXPLAIN SELECT * FROM (%s) AS subquery LIMIT 1000", cleanQuery)
+
+	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if _, err := r.db.Exec(validateCtx, explainQuery, args); err != nil {
+		return fmt.Errorf("invalid metrics template SQL: %w", err)
+	}
+	return nil
 }

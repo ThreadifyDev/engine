@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	shderrors "threadify-go/shared/errors"
 	"threadify-go/shared/slug"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/threadify/engine/internal/service"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 // ComputedMetrics is the resolver for the computedMetrics field.
@@ -88,10 +90,8 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configBytes))
 
-	// Cache invalidation: We now rely on active cache invalidation in the Archiver (which deletes
-	// the entire Valkey hash for the profile when refs are added) combined with a 30m TTL.
-	// We no longer include LastActiveAt here to prevent field bloat inside the Valkey hash.
-	cacheVersion := configHash
+	timeWindow := time.Now().Truncate(5 * time.Minute).Unix()
+	cacheVersion := fmt.Sprintf("%s:%d", configHash, timeWindow)
 
 	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
 		return cached, nil
@@ -112,72 +112,81 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 
 	combinedResults := make(map[string]interface{})
+	var mu sync.Mutex
+	g, gCtx := errgroup.WithContext(ctx)
 
 	for _, metricConfig := range metricsConfig {
-		template, exists := templateMap[metricConfig.TemplateID]
-		if !exists {
-			r.logger.Warn("metric template not found", zap.String("template_id", metricConfig.TemplateID))
-			continue
-		}
-		sqlQuery := template.SQLContent
+		mc := metricConfig // capture loop variable
+		g.Go(func() error {
+			template, exists := templateMap[mc.TemplateID]
+			if !exists {
+				r.logger.Warn("metric template not found", zap.String("template_id", mc.TemplateID))
+				return nil
+			}
+			sqlQuery := template.SQLContent
 
-		var params map[string]any
-		if pMap, ok := metricConfig.Parameters.(map[string]interface{}); ok {
-			params = pMap
-		} else {
-			params = make(map[string]any)
-		}
+			var params map[string]any
+			if pMap, ok := mc.Parameters.(map[string]interface{}); ok {
+				params = pMap
+			} else {
+				params = make(map[string]any)
+			}
 
-		results, err := r.metricsRepo.EvaluateEntityMetric(
-			ctx,
-			sqlQuery,
-			obj.RefKey,
-			refKeys,
-			start,
-			end,
-			params,
-		)
-		if err != nil {
-			r.logger.Warn("failed to evaluate metric query",
-				zap.String("template_id", metricConfig.TemplateID),
-				zap.Error(err),
+			metricDisplayName := template.MetricsName
+			if mc.Name != nil && *mc.Name != "" {
+				metricDisplayName = *mc.Name
+			}
+			if metricDisplayName == "" {
+				metricDisplayName = mc.TemplateID
+			}
+
+			var paramSuffix string
+			if len(params) > 0 {
+				var paramStrs []string
+				for k, v := range params {
+					paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
+				}
+				sort.Strings(paramStrs)
+				paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
+			}
+
+			results, err := r.metricsRepo.EvaluateEntityMetric(
+				gCtx,
+				sqlQuery,
+				obj.RefKey,
+				refKeys,
+				start,
+				end,
+				params,
 			)
-			continue
-		}
-
-		var paramSuffix string
-		if len(params) > 0 {
-			var paramStrs []string
-			for k, v := range params {
-				paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
+			if err != nil {
+				r.logger.Warn("failed to evaluate metric query",
+					zap.String("template_id", mc.TemplateID),
+					zap.Error(err),
+				)
+				mu.Lock()
+				combinedResults[metricDisplayName+paramSuffix+" (STATUS: ERROR)"] = fmt.Sprintf("Error: %v", err)
+				mu.Unlock()
+				return nil // don't abort other templates
 			}
-			sort.Strings(paramStrs)
-			paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
-		}
 
-		// Determine the display name: use custom Name if set, otherwise fallback to Template's MetricsName
-		metricDisplayName := template.MetricsName
-		if metricConfig.Name != nil && *metricConfig.Name != "" {
-			metricDisplayName = *metricConfig.Name
-		}
-		if metricDisplayName == "" {
-			metricDisplayName = metricConfig.TemplateID
-		}
-
-		if len(results) == 0 {
-			continue
-		} else if len(results) == 1 {
-			for k, v := range results[0] {
-				// Use the metric display name as prefix to clarify context
-				combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+			mu.Lock()
+			if len(results) == 1 {
+				for k, v := range results[0] {
+					combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+				}
+			} else if len(results) > 1 {
+				combinedResults[metricDisplayName+paramSuffix] = results
 			}
-		} else {
-			combinedResults[metricDisplayName+paramSuffix] = results
-		}
+			mu.Unlock()
+			return nil
+		})
 	}
 
-	// Don't cache or return empty results — they indicate total evaluation failure,
-	// not a genuine "no metrics" state (which is handled by the metricsConfig check above).
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("metrics evaluation failed: %w", err)
+	}
+
 	if len(combinedResults) == 0 {
 		return nil, nil
 	}
@@ -187,12 +196,10 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	return combinedResults, nil
 }
 
-// Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
+// Nodes is the resolver for the nodes field.
 func (r *graphResolver) Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error) {
-	// Convert map[string]GraphNode to []*GraphNode array for GraphQL
 	nodes := make([]*domain.GraphNode, 0, len(obj.Nodes))
 	for _, node := range obj.Nodes {
-		// Create a copy to avoid pointer issues
 		nodeCopy := node
 		nodes = append(nodes, &nodeCopy)
 	}
@@ -206,24 +213,25 @@ func (r *graphNodeResolver) BusinessContext(ctx context.Context, obj *domain.Gra
 
 // LastVerifiedAt is the resolver for the lastVerifiedAt field.
 func (r *hashChainStatusResolver) LastVerifiedAt(ctx context.Context, obj *domain.HashChainStatus) (string, error) {
-	// Return current timestamp as verification happens on-demand
 	return time.Now().UTC().Format(time.RFC3339Nano), nil
 }
 
 // BrokenAt is the resolver for the brokenAt field.
 func (r *hashChainStatusResolver) BrokenAt(ctx context.Context, obj *domain.HashChainStatus) (*string, error) {
-	// Return nil if verification passed, otherwise return error timestamp
 	if obj.Verified {
 		return nil, nil
 	}
-	// If verification failed, return current timestamp
 	brokenAt := time.Now().UTC().Format(time.RFC3339Nano)
 	return &brokenAt, nil
 }
 
-// RecordLLMUsage is the resolver for the recordLLMUsage mutation.
+// RecordLLMUsage is the resolver for the recordLLMUsage field.
 func (r *mutationResolver) RecordLLMUsage(ctx context.Context, tokens int) (bool, error) {
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return false, fmt.Errorf("authentication required: %w", err)
 	}
@@ -255,14 +263,13 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*domain.Thread, 
 		metrics.RequestDuration.WithLabelValues("graphql_thread").Observe(perf.Since(start).Seconds())
 	}()
 
-	// Get user info from context
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authContext, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
-	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, companyID)
+	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, id, authContext.CompanyID)
 	if err != nil {
 		metrics.RequestsTotal.WithLabelValues("graphql_thread", "error").Inc()
 		// Return user-friendly error for access denied
@@ -299,7 +306,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 
 	// Get user info from context (companyID for security)
 	authStart := perf.Now()
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	authContext, err := getUserInfoFromContext(ctx)
 	perf.Log("[PERF] Threads.getUserInfo: %v\n", perf.Since(authStart))
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
@@ -316,13 +323,13 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 
 	// Query threads with SQL-based access filtering (includes archived data)
 	queryStart := perf.Now()
-	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, authContext.CompanyID, authContext.OwnerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
 	perf.Log("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", perf.Since(queryStart), len(threads), totalCount)
 
 	if err != nil {
 		r.logger.Error("failed to query threads",
-			zap.String("company_id", companyID),
-			zap.String("owner_id", ownerID),
+			zap.String("company_id", authContext.CompanyID),
+			zap.String("owner_id", authContext.OwnerID),
 			zap.Error(err),
 		)
 		return nil, apperrors.NewInternalError("Failed to query threads with access", err)
@@ -344,7 +351,12 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 // ThreadsByContract is the resolver for the threadsByContract field.
 func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	ownerID, companyID := "", ""
+	if authCtx != nil {
+		ownerID = authCtx.OwnerID
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -386,7 +398,7 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 // ThreadsByRef is the resolver for the threadsByRef field.
 func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context (companyID for security)
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authContext, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -407,10 +419,10 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 	}
 
 	// Query threads by ref (this method already filters by company)
-	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, companyID, refKeys, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.GetThreadsByRefWithFilters(ctx, authContext.CompanyID, refKeys, refValue, status, startedAfter, startedBefore, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to query threads by ref",
-			zap.String("company_id", companyID),
+			zap.String("company_id", authContext.CompanyID),
 			zap.Strings("ref_keys", refKeys),
 			zap.String("ref_value", refValue),
 			zap.Error(err),
@@ -434,7 +446,11 @@ func (r *queryResolver) ThreadsByRef(ctx context.Context, refKey *string, refVal
 // EntityProfileHistory is the resolver for the entityProfileHistory field.
 func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// 1. Get user info from context (companyID for security)
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -491,7 +507,7 @@ func (r *queryResolver) EntityProfileHistory(ctx context.Context, profileID stri
 // ThreadChain is the resolver for the threadChain field.
 func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error) {
 	// Get user info from context
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authContext, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -513,11 +529,11 @@ func (r *queryResolver) ThreadChain(ctx context.Context, rootID string, maxDepth
 
 	// SQL-level permission check with recursive CTE
 	// Permission check happens at each level of the chain
-	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, companyID, &depthVal)
+	threads, err := postgresRepo.GetThreadChainWithPermissionCheck(ctx, rootID, authContext.CompanyID, &depthVal)
 	if err != nil {
 		r.logger.Error("failed to query thread chain",
 			zap.String("root_id", rootID),
-			zap.String("company_id", companyID),
+			zap.String("company_id", authContext.CompanyID),
 			zap.Error(err),
 		)
 		return nil, apperrors.NewInternalError("Failed to query thread chain", err)
@@ -533,14 +549,14 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 		zap.Any("version", version))
 
 	// Get user info from context for authentication check
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authContext, err := getUserInfoFromContext(ctx)
 	if err != nil {
 		r.logger.Error("Failed to get user info from context", zap.Error(err))
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
 
 	r.logger.Info("User authenticated for contract graph",
-		zap.String("company_id", companyID),
+		zap.String("company_id", authContext.CompanyID),
 		zap.String("contract_name", name))
 
 	// Handle null version - default to 0 (latest version)
@@ -552,16 +568,16 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 	r.logger.Info("Calling GetContractGraph",
 		zap.String("name", name),
 		zap.Int("version", ver),
-		zap.String("company_id", companyID))
+		zap.String("company_id", authContext.CompanyID))
 
 	// Use ContractValidationService to get contract graph with three-tier fallback
 	// version=0 will resolve to latest version automatically
-	graph, err := r.contractValidator.GetContractGraph(ctx, name, ver, companyID)
+	graph, err := r.contractValidator.GetContractGraph(ctx, name, ver, authContext.CompanyID)
 	if err != nil {
 		r.logger.Error("GetContractGraph failed",
 			zap.String("name", name),
 			zap.Int("version", ver),
-			zap.String("company_id", companyID),
+			zap.String("company_id", authContext.CompanyID),
 			zap.Error(err))
 		return nil, apperrors.NewInternalError("Failed to load contract graph", err)
 	}
@@ -577,7 +593,11 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 // StepHistory is the resolver for the stepHistory field.
 func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -688,7 +708,11 @@ func (r *queryResolver) VerifyStepIntegrity(ctx context.Context, threadID string
 
 // CheckCredits is the resolver for the checkCredits field.
 func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount *int) (bool, error) {
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return false, fmt.Errorf("authentication required: %w", err)
 	}
@@ -715,7 +739,11 @@ func (r *queryResolver) CheckCredits(ctx context.Context, meter *string, amount 
 
 // EntityProfile is the resolver for the entityProfile field.
 func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*generated.EntityProfile, error) {
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -785,7 +813,11 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 
 // EntityProfileTypes is the resolver for the entityProfileTypes field.
 func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.EntityProfileType, error) {
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -804,7 +836,11 @@ func (r *queryResolver) EntityProfileTypes(ctx context.Context) ([]*generated.En
 
 // EntityProfilesByType is the resolver for the entityProfilesByType field.
 func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*generated.EntityProfileConnection, error) {
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -1012,7 +1048,11 @@ func (r *stepStateInfoResolver) VerificationError(ctx context.Context, obj *doma
 // History is the resolver for the history field.
 func (r *stepStateInfoResolver) History(ctx context.Context, obj *domain.StepStateInfo, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context for permission check
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -1124,7 +1164,12 @@ func (r *threadResolver) CompletedAt(ctx context.Context, obj *domain.Thread) (*
 // Steps is the resolver for the steps field.
 func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName *string, idempotencyKey *string, status *string) ([]*domain.StepStateInfo, error) {
 	// Get user info from context
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	ownerID, companyID := "", ""
+	if authCtx != nil {
+		ownerID = authCtx.OwnerID
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -1177,7 +1222,12 @@ func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName
 // ValidationResults is the resolver for the validationResults field.
 func (r *threadResolver) ValidationResults(ctx context.Context, obj *domain.Thread, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error) {
 	// Get user info from context
-	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	ownerID, companyID := "", ""
+	if authCtx != nil {
+		ownerID = authCtx.OwnerID
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}
@@ -1243,7 +1293,11 @@ func (r *threadResolver) Notifications(ctx context.Context, obj *domain.Thread, 
 // ThreadChain is the resolver for the threadChain field on Thread type.
 func (r *threadResolver) ThreadChain(ctx context.Context, obj *domain.Thread, maxDepth *int) ([]*domain.Thread, error) {
 	// Get user info from context
-	_, companyID, _, err := getUserInfoFromContext(ctx)
+	authCtx, err := getUserInfoFromContext(ctx)
+	companyID := ""
+	if authCtx != nil {
+		companyID = authCtx.CompanyID
+	}
 	if err != nil {
 		return nil, fmt.Errorf("authentication required: %w", err)
 	}

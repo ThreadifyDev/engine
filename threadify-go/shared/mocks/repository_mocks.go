@@ -216,6 +216,21 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) CreateProfileType(ctx, pr
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProfileType", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).CreateProfileType), ctx, profileType)
 }
 
+// GetMetricsTemplate mocks base method.
+func (m *MockEntityProfileTypeRepository) GetMetricsTemplate(ctx context.Context, templateID string) (*domain.MetricsTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsTemplate", ctx, templateID)
+	ret0, _ := ret[0].(*domain.MetricsTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsTemplate indicates an expected call of GetMetricsTemplate.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) GetMetricsTemplate(ctx, templateID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsTemplate", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).GetMetricsTemplate), ctx, templateID)
+}
+
 // GetProfileTypeByID mocks base method.
 func (m *MockEntityProfileTypeRepository) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*domain.EntityProfileType, error) {
 	m.ctrl.T.Helper()
@@ -288,6 +303,20 @@ func (m *MockEntityProfileTypeRepository) UpdateProfileType(ctx context.Context,
 func (mr *MockEntityProfileTypeRepositoryMockRecorder) UpdateProfileType(ctx, profileType interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProfileType", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).UpdateProfileType), ctx, profileType)
+}
+
+// ValidateMetricsSQL mocks base method.
+func (m *MockEntityProfileTypeRepository) ValidateMetricsSQL(ctx context.Context, sql string, params map[string]any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateMetricsSQL", ctx, sql, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateMetricsSQL indicates an expected call of ValidateMetricsSQL.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) ValidateMetricsSQL(ctx, sql, params interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateMetricsSQL", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).ValidateMetricsSQL), ctx, sql, params)
 }
 
 // MockEntityProfileRepository is a mock of EntityProfileRepository interface.

@@ -1085,7 +1085,7 @@ JOIN threads t ON t.id = tr.thread_id
 WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
   AND t.created_at >= @start_time 
-  AND t.created_at <= @end_time;'
+  AND t.created_at <= @end_time'
 	),
 	(
 		'metric_avg_delivery_time', 
@@ -1105,7 +1105,7 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at >= @start_time 
   AND t.created_at <= @end_time
   AND cv.expected_duration_ms IS NOT NULL
-GROUP BY t.contract_name, cv.expected_duration_ms;'
+GROUP BY t.contract_name, cv.expected_duration_ms'
 	),
 	(
 		'metric_frequent_failure_point', 
@@ -1124,7 +1124,7 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at <= @end_time
 GROUP BY tss.step_name
 ORDER BY failure_count DESC
-LIMIT @limit::int;'
+LIMIT @limit::int'
 	),
 	(
 		'metric_thread_volume', 
@@ -1140,7 +1140,7 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at >= @start_time 
   AND t.created_at <= @end_time
 GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
-ORDER BY period ASC, thread_outcome;'
+ORDER BY period ASC, thread_outcome'
 	)
 	ON CONFLICT (id) DO UPDATE SET 
 		metrics_name = EXCLUDED.metrics_name,

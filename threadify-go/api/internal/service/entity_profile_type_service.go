@@ -64,6 +64,19 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 		UpdatedAt:   time.Now(),
 	}
 
+	if len(req.Metrics) > 0 {
+		for _, m := range req.Metrics {
+			tmpl, err := s.repo.GetMetricsTemplate(ctx, m.TemplateID)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.repo.ValidateMetricsSQL(ctx, tmpl.SQLContent, m.Parameters); err != nil {
+				s.logger.Warn("invalid metric template bind attempt", zap.String("templateID", m.TemplateID), zap.Error(err))
+				return nil, err
+			}
+		}
+	}
+
 	if err := s.repo.CreateProfileType(ctx, profileType); err != nil {
 		s.logger.Error("failed to create entity profile type", zap.Error(err))
 		return nil, err
@@ -117,6 +130,19 @@ func (s *EntityProfileTypeService) UpdateEntityProfileType(
 		Description: req.Description,
 		Type:        nextTypes,
 		Metrics:     req.Metrics,
+	}
+
+	if len(req.Metrics) > 0 {
+		for _, m := range req.Metrics {
+			tmpl, err := s.repo.GetMetricsTemplate(ctx, m.TemplateID)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.repo.ValidateMetricsSQL(ctx, tmpl.SQLContent, m.Parameters); err != nil {
+				s.logger.Warn("invalid metric template bind attempt during update", zap.String("templateID", m.TemplateID), zap.Error(err))
+				return nil, err
+			}
+		}
 	}
 
 	if err := s.repo.UpdateProfileType(ctx, profileType); err != nil {
