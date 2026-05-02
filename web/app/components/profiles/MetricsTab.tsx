@@ -32,21 +32,27 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
 
   return (
     <div>
-      {/* Range selector */}
-      <div className="flex items-center gap-2 mb-6">
-        {(['7d', '30d', '90d'] as MetricsRange[]).map(r => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              range === r
-                ? 'bg-gray-900 text-white'
-                : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
-            }`}
-          >
-            {r}
-          </button>
-        ))}
+      {/* Range selector & Notice */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2">
+          {(['7d', '30d', '90d'] as MetricsRange[]).map(r => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                range === r
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500 italic">
+          <Activity className="w-3.5 h-3.5" />
+          <span>Metrics are computed asynchronously and may take up to 30 mins to update.</span>
+        </div>
       </div>
 
       {isLoading && (
