@@ -384,31 +384,7 @@ export default function ThreadChat() {
     scrollToBottom();
   }, [messages]);
 
-  // Convert thread IDs (UUIDs) to clickable links
-  const linkifyThreadIds = (text: string) => {
-    const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-    const parts = text.split(uuidRegex);
-    const matches = text.match(uuidRegex) || [];
 
-    return parts.reduce((acc, part, i) => {
-      acc.push(part);
-      if (matches[i]) {
-        acc.push(
-          <a
-            key={`link-${i}`}
-            href={`/u/threads/${matches[i]}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {matches[i]}
-          </a>
-        );
-      }
-      return acc;
-    }, [] as (string | JSX.Element)[]);
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -932,7 +908,7 @@ export default function ThreadChat() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 underline font-mono text-xs bg-gray-200 px-1 rounded"
                             >
-                              {`View Thread ${text.substring(text.length - 8, text.length - 1)}`}
+                              {`View Thread ${text.trim().split('-').pop()}`}
                             </a>
                           );
                         }
@@ -964,7 +940,7 @@ export default function ThreadChat() {
                                       className="text-gray-600 hover:text-gray-800 underline"
                                       title={matches[i]}
                                     >
-                                      {matches[i].slice(-12)}
+                                      {matches[i].split('-').pop()}
                                     </a>
                                     <button
                                       onClick={(e) => {
@@ -1016,7 +992,7 @@ export default function ThreadChat() {
                                           className="text-gray-600 hover:text-gray-800 underline font-bold"
                                           title={matches[i]}
                                         >
-                                          {matches[i].slice(-12)}
+                                          {matches[i].split('-').pop()}
                                         </a>
                                         <button
                                           onClick={(e) => {
