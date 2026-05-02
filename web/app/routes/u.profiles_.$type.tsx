@@ -4,7 +4,7 @@ import type { MetaFunction } from '@remix-run/node';
 import AppLayout from '~/components/AppLayout';
 import { api } from '~/lib/api';
 import { graphqlClient, type EntityProfileListItem } from '~/lib/graphql';
-import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2, Settings } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 export const meta: MetaFunction = ({ params }) => [
@@ -23,6 +23,8 @@ export default function EntityProfilesByType() {
   const [profileType, setProfileType] = useState<{
     name: string | null;
     keys: string[];
+    description?: string;
+    metricsConfig?: any[];
   }>({ name: null, keys: [] });
   const [offset, setOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,6 +73,8 @@ export default function EntityProfilesByType() {
         setProfileType({
           name: res.profileType?.name || null,
           keys: res.profileType?.type || [],
+          description: res.profileType?.description,
+          metricsConfig: res.profileType?.metricsConfig,
         });
       } catch (err: any) {
         if (cancelled) return;
@@ -102,7 +106,7 @@ export default function EntityProfilesByType() {
 
         {/* Header — matches /u/contracts style */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-6">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-bold mb-2 font-mono truncate">{profileType.name || type}</h2>
             <div className="flex flex-wrap gap-2 mb-3">
               {profileType.keys.map((key) => (
@@ -114,13 +118,29 @@ export default function EntityProfilesByType() {
                 </span>
               ))}
             </div>
-            <p className="text-gray-600">
+            
+            {profileType.description && (
+              <p className="text-gray-600 mb-4 max-w-2xl text-[15px]">{profileType.description}</p>
+            )}
+            
+            {profileType.metricsConfig && profileType.metricsConfig.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {profileType.metricsConfig.map((mc: any, idx: number) => (
+                  <span key={idx} className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded text-[11px] font-medium tracking-wide">
+                    <Settings className="w-3.5 h-3.5 opacity-70" />
+                    {mc.name || mc.templateId}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <p className="text-sm text-gray-500">
               {total} {total === 1 ? 'profile' : 'profiles'} tracked under this type
             </p>
           </div>
 
           {/* Explicit search — with button */}
-          <div className="w-full sm:w-auto">
+          <div className="w-full sm:w-auto mt-2 sm:mt-0">
             <InlineSearch
               value={search}
               onChange={setSearch}
