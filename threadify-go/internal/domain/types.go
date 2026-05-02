@@ -157,3 +157,9 @@ type StepStateResult struct {
 	FirstSeenAt          string
 	PreviousStep         string
 }
+
+type AuthContext struct {
+	OwnerID   string
+	CompanyID string
+	Role      string
+}

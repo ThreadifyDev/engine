@@ -275,9 +275,6 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 	}
 
 	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
-		// Log but don't fail here since the version is already created?
-		// Actually, if we want to be strict, we should have done this in a transaction.
-		// For now, let's just log it.
 		s.logger.Error("charge contract version failed after creation", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
 	}
 

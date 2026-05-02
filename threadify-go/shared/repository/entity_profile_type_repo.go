@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -418,4 +420,54 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*do
 	}
 
 	return templates, rows.Err()
+}
+
+func (r *EntityProfileTypeRepo) GetMetricsTemplate(ctx context.Context, id string) (*domain.MetricsTemplate, error) {
+	query := `
+		SELECT id, metrics_name, sql_content
+		FROM metrics_template
+		WHERE id = $1
+	`
+	var tmpl domain.MetricsTemplate
+	err := r.pool.QueryRow(ctx, query, id).Scan(&tmpl.ID, &tmpl.MetricsName, &tmpl.SQLContent)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("metrics template not found: %s", id)
+		}
+		return nil, fmt.Errorf("failed to get metrics template: %w", err)
+	}
+
+	tmpl.Parameters = extractParameters(tmpl.SQLContent)
+	return &tmpl, nil
+}
+
+func (r *EntityProfileTypeRepo) ValidateMetricsSQL(ctx context.Context, sqlContent string, params map[string]any) error {
+	cleanQuery := strings.ReplaceAll(sqlContent, ";", "")
+	cleanQuery = strings.TrimSpace(cleanQuery)
+	if cleanQuery == "" {
+		return fmt.Errorf("template SQL content is empty")
+	}
+
+	// Build dummy args matching what the evaluation engine provides
+	args := pgx.NamedArgs{
+		"start_time": time.Now().Add(-7 * 24 * time.Hour),
+		"end_time":   time.Now(),
+		"ref_value":  "__validate_dummy__",
+		"ref_keys":   []string{"__validate_dummy__"},
+	}
+	for k, v := range params {
+		if _, exists := args[k]; !exists {
+			args[k] = v
+		}
+	}
+
+	explainQuery := fmt.Sprintf("EXPLAIN SELECT * FROM (%s) AS subquery LIMIT 1000", cleanQuery)
+
+	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if _, err := r.pool.Exec(validateCtx, explainQuery, args); err != nil {
+		return fmt.Errorf("invalid metrics template SQL: %w", err)
+	}
+	return nil
 }
