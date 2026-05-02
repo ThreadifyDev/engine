@@ -66,14 +66,15 @@ export default function HomePageStory() {
             </div>
             
             <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-semibold text-black leading-[1.08] tracking-tight max-w-5xl mx-auto mb-8">
-              See exactly how your business{" "}
-              <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">delivers.</span>
+              Your delivery process.
               <br />
-              <span className="text-gray-500">Every request. In real time.</span>
+              <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">Fully visible.</span>
+              <br />
+              <span className="text-gray-500">Fully understood.</span>
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-500 max-w-3xl mx-auto mb-12 leading-relaxed font-light">
-              Turn every customer request into service delivery intelligence your teams and systems can act on.
+              Track every customer request from start to finish — across every system, team, and partner involved
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
@@ -185,10 +186,10 @@ export default function HomePageStory() {
       <section className="pt-12 pb-12 px-6 bg-white">
         <div className="max-w-5xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold leading-tight tracking-tight text-black mb-4">
-            Everything you need.{" "}
-            <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">
-              Intelligence at scale.
-            </span>
+            From capture to intelligence.
+            {/* <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">
+              Across every boundary.
+            </span> */}
           </h2>
         </div>
       </section>
@@ -202,7 +203,7 @@ export default function HomePageStory() {
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">1</span>
                 Capture
               </div>
-              <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
+              <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
                 Every request sets a delivery process in motion
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
@@ -241,9 +242,9 @@ step.addContext(data).success()`}
           {/* OpenTelemetry Banner */}
           <div className="mt-16 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
             <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <span className="bg-black text-white text-xs font-bold px-2 py-1 rounded uppercase tracking-wider">Zero Code Changes</span>
-                <h4 className="text-xl font-semibold text-black">Native OpenTelemetry Support</h4>
+              <div className="flex flex-col items-start sm:flex-row sm:items-center gap-2 sm:gap-3">
+                <span className="bg-black text-white text-[10px] sm:text-xs font-bold px-2 py-1 rounded uppercase tracking-wider whitespace-nowrap w-fit">Zero Code Changes</span>
+                <h4 className="text-lg sm:text-xl font-semibold text-black leading-tight">Native OpenTelemetry Support</h4>
               </div>
               <p className="text-gray-600 text-lg max-w-2xl">
                 Already instrumented with OTel? Drop in the Threadify Exporter to automatically convert your existing technical traces into business-level service delivery intelligence.
@@ -290,7 +291,7 @@ step.addContext(data).success()`}
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">2</span>
                 Validate
               </div>
-              <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
+              <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
                 Know whether it delivered correctly
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
@@ -318,7 +319,7 @@ step.addContext(data).success()`}
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">3</span>
                 React
               </div>
-              <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
+              <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
                 Build systems that respond intelligently
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed mb-8">
@@ -372,13 +373,13 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
             <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">4</span>
-            Entity Profile
+            Intelligence
           </div>
-          <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight mb-6 leading-[1.1]">
+          <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
             Every thread is one moment. Every customer has many.
           </h2>
           <p className="text-xl text-gray-600 leading-relaxed mb-6">
-            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Threadify aggregates execution across every entity — customer, partner, feature — so you see the patterns that matter.
+            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Threadify aggregates execution across every entity — customer, partner, feature — into an <span className="font-semibold text-gray-900">Entity Profile</span> so you can see the patterns that matter.
           </p>
           <p className="text-xl text-black font-medium">
             Intelligence from execution, not guesswork.
@@ -515,11 +516,12 @@ await thread.step('package_shipped')
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-5xl md:text-6xl font-bold mb-6">
             <span className="bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 bg-clip-text text-transparent">
-              Start seeing how you deliver
+              Service Delivery Intelligence.
             </span>
           </h2>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-            Join teams turning service delivery into intelligence. No credit card required.
+            Built for teams where how you deliver is as important as what you deliver.
+            No credit card required.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link to="/signup" className="group px-10 py-5 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-all shadow-xl hover:shadow-2xl text-lg flex items-center gap-2">
