@@ -65,37 +65,27 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
     const groups: Record<string, Record<string, any[]>> = {};
     
     Object.entries(data as Record<string, any>).forEach(([metricName, result]) => {
-      // Robust parsing: "Tagline (Status): Header"
-      const lastColonIndex = metricName.lastIndexOf(': ');
-      let taglinePart = metricName;
-      let header = '';
+      // Backend format is typically: "BaseTagline: Header (Status)"
+      // e.g. "OUTCOME RATE: MATCHED THREADS (STATUS: ACTIVE)"
+      const parts = metricName.split(' (');
+      const mainName = parts[0]; 
+      const statusRaw = parts.length > 1 ? parts[1].replace(')', '') : null;
       
-      if (lastColonIndex !== -1) {
-        taglinePart = metricName.substring(0, lastColonIndex);
-        header = metricName.substring(lastColonIndex + 2);
-      } else {
-        header = taglinePart;
-      }
+      const nameSplit = mainName.split(':');
+      let baseTagline = nameSplit[0].trim();
+      let header = (nameSplit.length > 1 ? nameSplit.slice(1).join(':') : baseTagline).trim();
       
-      const openParen = taglinePart.indexOf(' (');
-      const closeParen = taglinePart.lastIndexOf(')');
-      let baseTagline = taglinePart;
-      let statusPart = null;
-      
-      if (openParen !== -1 && closeParen !== -1) {
-        baseTagline = taglinePart.substring(0, openParen);
-        statusPart = taglinePart.substring(openParen + 2, closeParen).replace(/^STATUS:\s*/i, '');
-      }
-      
-      // Format strings for display
+      // Clean up strings
       baseTagline = baseTagline.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       header = header.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      
+      const statusKey = statusRaw || 'General';
+      let statusColorRef = statusKey.replace(/^STATUS:\s*/i, '');
       
       if (!groups[baseTagline]) {
         groups[baseTagline] = {};
       }
       
-      const statusKey = statusPart || 'General';
       if (!groups[baseTagline][statusKey]) {
         groups[baseTagline][statusKey] = [];
       }
@@ -104,7 +94,8 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
         metricName,
         header,
         result,
-        status: statusPart
+        status: statusRaw,
+        statusColorRef
       });
     });
     
@@ -185,8 +176,8 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                     {status !== 'General' && (
                       <div className="flex items-center gap-2 px-1">
                         <div className={`w-1.5 h-1.5 rounded-full ${
-                          status.toLowerCase() === 'completed' ? 'bg-emerald-500' : 
-                          status.toLowerCase() === 'active' ? 'bg-blue-500' : 'bg-gray-400'
+                          items[0].statusColorRef.toLowerCase() === 'completed' ? 'bg-emerald-500' : 
+                          items[0].statusColorRef.toLowerCase() === 'active' ? 'bg-blue-500' : 'bg-gray-400'
                         }`} />
                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                           {status}

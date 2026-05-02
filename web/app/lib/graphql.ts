@@ -713,7 +713,7 @@ class GraphQLClient {
     search?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[] } }> {
+  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[]; description?: string; metricsConfig?: any[] } }> {
     const query = `
       query EntityProfilesByType($type: String!, $search: String, $limit: Int, $offset: Int) {
         entityProfilesByType(type: $type, search: $search, limit: $limit, offset: $offset) {
@@ -721,6 +721,11 @@ class GraphQLClient {
           profileType {
             name
             type
+            description
+            metricsConfig {
+              name
+              templateId
+            }
           }
           items {
             id
@@ -739,7 +744,7 @@ class GraphQLClient {
       entityProfilesByType: {
         items: EntityProfileListItem[];
         totalCount: number;
-        profileType?: { name: string; type: string[] };
+        profileType?: { name: string; type: string[]; description?: string; metricsConfig?: any[] };
       };
     }>(query, {
       type: options.type,

@@ -384,6 +384,17 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
           <p className="text-xl text-black font-medium">
             Intelligence from execution, not guesswork.
           </p>
+
+
+          <div className="mt-12 w-full rounded-2xl overflow-hidden border border-gray-200 shadow-2xl bg-white transition-transform hover:shadow-3xl">
+            <iframe
+              src="https://player.mux.com/imSb7A01gL7E727ptduJtOurI6FGUJJVCBob2D2VZnso?metadata-video-title=Entity+Profile&video-title=Entity+Profile"
+              className="w-full block"
+              style={{ border: "none", aspectRatio: "16/9" }}
+              allow="accelerometer; gyroscope; encrypted-media;"
+              allowFullScreen
+            ></iframe>
+          </div>
         </div>
       </section>
 
@@ -477,28 +488,28 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
               title="Your API"
               headerColor="gray"
               code={`// Invite partner to thread
-const invitation = await thread
-  .inviteParty({
-    role: "logistics",
-    expiresIn: "48h"
-  });
+                const invitation = await thread
+                  .inviteParty({
+                    role: "logistics",
+                    expiresIn: "48h"
+                  });
 
-// Share token with partner
-console.log(invitation.token);`}
-            />
+                // Share token with partner
+                console.log(invitation.token);`}
+              />
 
             {/* Partner API - Join */}
             <CodeBlock
               title="Partner API"
               headerColor="purple"
               code={`// Join thread with token
-const thread = await connection
-  .join(invitationToken);
+                const thread = await connection
+                  .join(invitationToken);
 
-// Record their steps
-await thread.step('package_shipped')
-  .addContext({ tracking: '1Z999' })
-  .success();`}
+                // Record their steps
+                await thread.step('package_shipped')
+                  .addContext({ tracking: '1Z999' })
+                  .success();`}
             />
           </div>
 
