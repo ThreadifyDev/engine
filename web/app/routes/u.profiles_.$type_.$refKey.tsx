@@ -80,8 +80,9 @@ export default function EntityProfileDetail() {
 
   const memoizedMetricsTab = useMemo(() => {
     if (!refKey || !type) return null;
-    return <MetricsTab refKey={refKey} type={type} />;
-  }, [refKey, type]);
+    const hasMetricsConfig = ((profile as any)?.profileType?.metricsConfig?.length ?? 0) > 0;
+    return <MetricsTab refKey={refKey} type={type} hasMetricsConfig={hasMetricsConfig} />;
+  }, [refKey, type, (profile as any)?.profileType?.metricsConfig?.length]);
 
   const memoizedHistoryTab = useMemo(() => {
     if (!profile || !refKey) return null;

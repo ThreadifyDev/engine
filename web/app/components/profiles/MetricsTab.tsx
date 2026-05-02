@@ -4,7 +4,7 @@ import { Activity, BarChart2 } from 'lucide-react';
 
 type MetricsRange = '7d' | '30d' | '90d';
 
-export default function MetricsTab({ refKey, type }: { refKey: string; type: string }) {
+export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey: string; type: string; hasMetricsConfig: boolean }) {
   const [range, setRange] = useState<MetricsRange>('7d');
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -61,7 +61,7 @@ export default function MetricsTab({ refKey, type }: { refKey: string; type: str
         </div>
       )}
 
-      {!isLoading && !error && data === null && (
+      {!isLoading && !error && data === null && !hasMetricsConfig && (
         <div className="bg-white border border-gray-200 rounded-lg p-12 text-center flex flex-col items-center">
           <BarChart2 className="w-12 h-12 text-gray-300 mb-3" />
           <h3 className="text-base font-medium text-gray-900">No metrics configured</h3>
@@ -71,7 +71,17 @@ export default function MetricsTab({ refKey, type }: { refKey: string; type: str
         </div>
       )}
 
-      {!isLoading && !error && data !== null && (
+      {!isLoading && !error && data === null && hasMetricsConfig && (
+        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center flex flex-col items-center">
+          <Activity className="w-12 h-12 text-gray-300 mb-3" />
+          <h3 className="text-base font-medium text-gray-900">No data available yet</h3>
+          <p className="text-sm text-gray-500 mt-1 max-w-sm">
+            There is no activity data for this entity in the selected time range.
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !error && data !== null && Object.keys(data).length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {Object.entries(data as Record<string, any>).map(([metricName, result]) => {
             const parts = metricName.split(' (');
