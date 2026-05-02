@@ -249,6 +249,20 @@ transitions:
 
 ---
 
+## OpenTelemetry Integration (OTel)
+
+**What it does:** Automatically converts OpenTelemetry traces into Threadify execution graphs.
+
+**Mapping Concept:**
+- **OTel Trace** → Threadify **Thread**
+- **OTel Span** → Threadify **Step**
+- **OTel Span Event** → Threadify **Sub-Step**
+
+**Key Capabilities:**
+- **Zero Peer Dependencies**: The Threadify SDK duck-types the OTel Exporter interface. You do not need to install `@opentelemetry/api` unless you are actively using it.
+- **Distributed Exporter**: Traces spanning multiple microservices automatically join the same Threadify thread seamlessly.
+- **Root Span Detection**: When the root span ends, the Threadify thread is automatically completed.
+
 ---
 
 ## MCP Integration (Model Context Protocol)

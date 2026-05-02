@@ -220,6 +220,23 @@ try {
 }
 ```
 
+### OpenTelemetry Exporter
+```javascript
+import { trace } from '@opentelemetry/api';
+import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'checkout-service');
+
+// Create exporter (Optionally extract OTel attributes into Threadify refs)
+const exporter = connection.createSpanExporter({ refs: ['order.id'] });
+
+// Register with OTel
+const provider = new BasicTracerProvider();
+provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+trace.setGlobalTracerProvider(provider);
+```
+
 ---
 
 ## Common Mistakes
