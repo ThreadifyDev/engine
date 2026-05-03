@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
-	"strings"
 	"threadify-go/api/internal/service"
 	"time"
 
@@ -102,33 +100,7 @@ func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaul
 	return h.proxyRequest(c, method, path, contentType, bodyBytes)
 }
 
-func validateJSONProxyBody(body []byte) error {
-	dec := json.NewDecoder(bytes.NewReader(body))
 
-	var payload map[string]any
-	if err := dec.Decode(&payload); err != nil {
-		return err
-	}
-
-	if err := dec.Decode(&struct{}{}); err != io.EOF {
-		return fmt.Errorf("request body must contain a single JSON object")
-	}
-
-	return nil
-}
-
-func isJSONContentType(contentType string) bool {
-	if strings.TrimSpace(contentType) == "" {
-		return false
-	}
-
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return false
-	}
-
-	return mediaType == service.ContentTypeJSON
-}
 
 func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
 	path := contractProxyPath
@@ -157,24 +129,7 @@ func (h *ContractProxyHandler) CreateContract(c *gin.Context) {
 }
 
 func (h *ContractProxyHandler) PreviewContract(c *gin.Context) {
-	bodyBytes, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
-		return
-	}
-
-	contentType := c.GetHeader(service.HeaderContentType)
-	if !isJSONContentType(contentType) {
-		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "Content-Type must be application/json"})
-		return
-	}
-
-	if err := validateJSONProxyBody(bodyBytes); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-
-	resp, body, err := h.proxyRequest(c, http.MethodPost, contractProxyPreviewPath, contentType, bodyBytes)
+	resp, body, err := h.proxyRawBody(c, http.MethodPost, contractProxyPreviewPath, contentTypeTextPlain)
 	if err != nil || resp.StatusCode >= 400 {
 		if resp != nil {
 			c.Data(resp.StatusCode, service.ContentTypeJSON, body)
