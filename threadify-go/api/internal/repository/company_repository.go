@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,10 +18,10 @@ func NewCompanyRepository(pool *pgxpool.Pool) domain.CompanyRepository {
 	return &companyRepository{pool: pool}
 }
 
-func (r *companyRepository) CreateTx(ctx context.Context, tx domain.Execer, company *domain.Company) error {
-	execer, ok := tx.(DBExecer)
+func (r *companyRepository) CreateTx(ctx context.Context, tx domain.ExecContext, company *domain.Company) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 	const query = `
         INSERT INTO companies (id, name, industry, size, use_case, created_at, updated_at)
@@ -71,10 +72,10 @@ func (r *companyRepository) Delete(ctx context.Context, id string) error {
 	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *companyRepository) DeleteTx(ctx context.Context, tx domain.Execer, id string) error {
-	execer, ok := tx.(DBExecer)
+func (r *companyRepository) DeleteTx(ctx context.Context, tx domain.ExecContext, id string) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 	_, err := execer.Exec(ctx, `DELETE FROM companies WHERE id = $1`, id)
 	if err != nil {

@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 	serror "threadify-go/shared/errors"
 )
 
 type teamInvitationRepository struct {
-	pool DBExecer
+	pool ports.SQLExecutor
 }
 
-func NewTeamInvitationRepository(pool DBExecer) domain.TeamInvitationRepository {
+func NewTeamInvitationRepository(pool ports.SQLExecutor) domain.TeamInvitationRepository {
 	return &teamInvitationRepository{pool: pool}
 }
 
@@ -23,10 +24,10 @@ func (r *teamInvitationRepository) Create(ctx context.Context, invitation *domai
 }
 
 // CreateTx inserts a new team invitation within a transaction
-func (r *teamInvitationRepository) CreateTx(ctx context.Context, tx domain.Execer, invitation *domain.TeamInvitation) error {
-	execer, ok := tx.(DBExecer)
+func (r *teamInvitationRepository) CreateTx(ctx context.Context, tx domain.ExecContext, invitation *domain.TeamInvitation) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 
 	const query = `
@@ -116,10 +117,10 @@ func (r *teamInvitationRepository) MarkAccepted(ctx context.Context, invitationI
 }
 
 // MarkAcceptedTx marks an invitation as accepted within a transaction
-func (r *teamInvitationRepository) MarkAcceptedTx(ctx context.Context, tx domain.Execer, invitationID, userID string) error {
-	execer, ok := tx.(DBExecer)
+func (r *teamInvitationRepository) MarkAcceptedTx(ctx context.Context, tx domain.ExecContext, invitationID, userID string) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 
 	const query = `
@@ -157,10 +158,10 @@ func (r *teamInvitationRepository) Delete(ctx context.Context, invitationID stri
 }
 
 // DeleteTx removes an invitation within a transaction
-func (r *teamInvitationRepository) DeleteTx(ctx context.Context, tx domain.Execer, invitationID string) error {
-	execer, ok := tx.(DBExecer)
+func (r *teamInvitationRepository) DeleteTx(ctx context.Context, tx domain.ExecContext, invitationID string) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 
 	const query = `DELETE FROM team_invitations WHERE id = $1`

@@ -1,4 +1,3 @@
-// service/email.go
 package service
 
 import (
@@ -9,11 +8,21 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/dto"
+	sharedconfig "threadify-go/shared/config"
 	"time"
+
+	"go.uber.org/zap"
 )
 
-//go:generate mockgen -package=svcmocks -destination=./mocks/service/email_service_mock.go -source=email_service.go
+const (
+	plunkProvider = "plunk"
+)
+
+//go:generate mockgen -package=svcmocks -destination=./mocks/service/email_service_mock.go -source=email.go
 type EmailService interface {
 	SendWelcomeEmail(ctx context.Context, email, fullName string) error
 	SendVerificationEmail(ctx context.Context, email, token string) error
@@ -22,50 +31,96 @@ type EmailService interface {
 	SendTeamInvitationEmail(ctx context.Context, email, role, inviteLink string) error
 }
 
-type plunkEmailService struct {
-	apiKey      string
-	apiURL      string
+type EmailProvider interface {
+	Send(ctx context.Context, req dto.EmailRequest) error
+}
+
+type emailService struct {
+	provider    EmailProvider
 	frontendURL string
 	fromEmail   string
-	httpClient  *http.Client
 	templates   *template.Template
 }
 
-func NewEmailService(apiKey, apiURL, frontendURL, fromEmail string) (EmailService, error) {
+func NewEmailService(provider EmailProvider, frontendURL, fromEmail string) (EmailService, error) {
 	tmpl, err := template.ParseFS(emailTemplates, "templates/email/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse email templates: %w", err)
 	}
-
-	return &plunkEmailService{
-		apiKey:      apiKey,
-		apiURL:      apiURL,
+	return &emailService{
+		provider:    provider,
 		frontendURL: frontendURL,
 		fromEmail:   fromEmail,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		templates:   tmpl,
 	}, nil
 }
 
-type emailData struct {
-	Name        string
-	ActionURL   string
-	Token       string
-	FrontendURL string
-	Year        int
+func NewEmailServiceFromConfig(cfg *sharedconfig.Config, client *http.Client, logger *zap.Logger) (EmailService, error) {
+	switch strings.ToLower(cfg.WebAPI.Email.Provider) {
+	case plunkProvider:
+		p := NewPlunkEmailProvider(cfg.WebAPI.Email.APIKey, cfg.WebAPI.Email.APIURL, client, logger)
+		return NewEmailService(p, cfg.WebAPI.FrontendURL, cfg.WebAPI.Email.FromEmail)
+	default:
+		return nil, fmt.Errorf("unsupported email provider %q", cfg.WebAPI.Email.Provider)
+	}
 }
 
-type plunkEmailRequest struct {
-	To      string `json:"to"`
-	From    string `json:"from"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
+type plunkEmailProvider struct {
+	apiKey     string
+	apiURL     string
+	httpClient *http.Client
+	logger     *zap.Logger
 }
 
-func (s *plunkEmailService) SendWelcomeEmail(ctx context.Context, email, fullName string) error {
-	name := firstNonEmpty(fullName, "there")
-	body, err := s.render("welcome.html", emailData{
-		Name:        name,
+func NewPlunkEmailProvider(apiKey, apiURL string, client *http.Client, logger *zap.Logger) EmailProvider {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &plunkEmailProvider{
+		apiKey:     apiKey,
+		apiURL:     apiURL,
+		httpClient: client,
+		logger:     logger,
+	}
+}
+
+func (p *plunkEmailProvider) Send(ctx context.Context, payload dto.EmailRequest) error {
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal email payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		p.logger.Error("email: failed to send request", zap.Error(err))
+		return fmt.Errorf("send email: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		p.logger.Error("email: provider returned error",
+			zap.Int("status", resp.StatusCode),
+			zap.String("body", strings.TrimSpace(string(body))),
+			zap.String("to", payload.To),
+		)
+		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+func (s *emailService) SendWelcomeEmail(ctx context.Context, email, fullName string) error {
+	body, err := s.render("welcome.html", domain.WelcomeData{
+		Name:        firstNonEmpty(fullName, "there"),
 		ActionURL:   fmt.Sprintf("%s/u/dashboard", s.frontendURL),
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
@@ -73,7 +128,7 @@ func (s *plunkEmailService) SendWelcomeEmail(ctx context.Context, email, fullNam
 	if err != nil {
 		return err
 	}
-	return s.send(ctx, plunkEmailRequest{
+	return s.provider.Send(ctx, dto.EmailRequest{
 		To:      email,
 		From:    s.fromEmail,
 		Subject: "Welcome to Threadify",
@@ -81,9 +136,10 @@ func (s *plunkEmailService) SendWelcomeEmail(ctx context.Context, email, fullNam
 	})
 }
 
-func (s *plunkEmailService) SendVerificationEmail(ctx context.Context, email, token string) error {
-	body, err := s.render("verify.html", emailData{
-		ActionURL:   fmt.Sprintf("%s/auth/verify-email?email=%s", s.frontendURL, email),
+func (s *emailService) SendVerificationEmail(ctx context.Context, email, token string) error {
+	body, err := s.render("verify.html", domain.VerifyData{
+		ActionURL: fmt.Sprintf("%s/auth/verify-email?email=%s&token=%s",
+			s.frontendURL, url.QueryEscape(email), url.QueryEscape(token)),
 		Token:       token,
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
@@ -91,7 +147,7 @@ func (s *plunkEmailService) SendVerificationEmail(ctx context.Context, email, to
 	if err != nil {
 		return err
 	}
-	return s.send(ctx, plunkEmailRequest{
+	return s.provider.Send(ctx, dto.EmailRequest{
 		To:      email,
 		From:    s.fromEmail,
 		Subject: "Verify Your Threadify Account",
@@ -99,15 +155,16 @@ func (s *plunkEmailService) SendVerificationEmail(ctx context.Context, email, to
 	})
 }
 
-func (s *plunkEmailService) SendLoginOTPEmail(ctx context.Context, email, token string) error {
-	body, err := s.render("login_otp.html", emailData{
-		Token: token,
-		Year:  time.Now().Year(),
+func (s *emailService) SendLoginOTPEmail(ctx context.Context, email, token string) error {
+	body, err := s.render("login_otp.html", domain.LoginOTPData{
+		Token:       token,
+		FrontendURL: s.frontendURL,
+		Year:        time.Now().Year(),
 	})
 	if err != nil {
 		return err
 	}
-	return s.send(ctx, plunkEmailRequest{
+	return s.provider.Send(ctx, dto.EmailRequest{
 		To:      email,
 		From:    s.fromEmail,
 		Subject: "Your Threadify Login Code",
@@ -115,9 +172,10 @@ func (s *plunkEmailService) SendLoginOTPEmail(ctx context.Context, email, token 
 	})
 }
 
-func (s *plunkEmailService) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
-	body, err := s.render("reset_password.html", emailData{
-		ActionURL:   fmt.Sprintf("%s/auth/reset-password", s.frontendURL),
+func (s *emailService) SendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
+	body, err := s.render("reset_password.html", domain.ResetPasswordData{
+		ActionURL: fmt.Sprintf("%s/auth/reset-password?token=%s",
+			s.frontendURL, url.QueryEscape(resetToken)),
 		Token:       resetToken,
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
@@ -125,7 +183,7 @@ func (s *plunkEmailService) SendPasswordResetEmail(ctx context.Context, email, r
 	if err != nil {
 		return err
 	}
-	return s.send(ctx, plunkEmailRequest{
+	return s.provider.Send(ctx, dto.EmailRequest{
 		To:      email,
 		From:    s.fromEmail,
 		Subject: "Reset Your Threadify Password",
@@ -133,8 +191,9 @@ func (s *plunkEmailService) SendPasswordResetEmail(ctx context.Context, email, r
 	})
 }
 
-func (s *plunkEmailService) SendTeamInvitationEmail(ctx context.Context, email, role, inviteLink string) error {
-	body, err := s.render("team_invitation.html", emailData{
+func (s *emailService) SendTeamInvitationEmail(ctx context.Context, email, role, inviteLink string) error {
+	body, err := s.render("team_invitation.html", domain.TeamInvitationData{
+		Role:        role,
 		ActionURL:   inviteLink,
 		FrontendURL: s.frontendURL,
 		Year:        time.Now().Year(),
@@ -142,7 +201,7 @@ func (s *plunkEmailService) SendTeamInvitationEmail(ctx context.Context, email, 
 	if err != nil {
 		return err
 	}
-	return s.send(ctx, plunkEmailRequest{
+	return s.provider.Send(ctx, dto.EmailRequest{
 		To:      email,
 		From:    s.fromEmail,
 		Subject: "You're invited to join Threadify",
@@ -150,41 +209,12 @@ func (s *plunkEmailService) SendTeamInvitationEmail(ctx context.Context, email, 
 	})
 }
 
-func (s *plunkEmailService) render(templateName string, data emailData) (string, error) {
+func (s *emailService) render(templateName string, data any) (string, error) {
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, templateName, data); err != nil {
 		return "", fmt.Errorf("render template %s: %w", templateName, err)
 	}
 	return buf.String(), nil
-}
-
-func (s *plunkEmailService) send(ctx context.Context, payload plunkEmailRequest) error {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal email payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send email: %w", err)
-	}
-	defer resp.Body.Close()
-	defer io.Copy(io.Discard, resp.Body) //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		errMsg := strings.TrimSpace(string(body))
-		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, errMsg)
-	}
-
-	return nil
 }
 
 func firstNonEmpty(values ...string) string {

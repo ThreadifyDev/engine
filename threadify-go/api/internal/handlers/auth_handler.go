@@ -171,7 +171,12 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
-	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &domain.VerifyEmailCmd{Email: req.Email, Token: req.Token})
+	verifyEmailCMD := &domain.VerifyEmailCmd{
+		Email: req.Email,
+		Token: req.Token,
+	}
+
+	authResp, err := h.authService.VerifyEmail(c.Request.Context(), verifyEmailCMD)
 	if err != nil {
 		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
 		c.JSON(statusCode, gin.H{"error": message})

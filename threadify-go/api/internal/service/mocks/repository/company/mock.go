@@ -36,7 +36,7 @@ func (m *MockCompanyRepository) EXPECT() *MockCompanyRepositoryMockRecorder {
 }
 
 // CreateTx mocks base method.
-func (m *MockCompanyRepository) CreateTx(arg0 context.Context, arg1 domain.Execer, arg2 *domain.Company) error {
+func (m *MockCompanyRepository) CreateTx(arg0 context.Context, arg1 domain.ExecContext, arg2 *domain.Company) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -64,7 +64,7 @@ func (mr *MockCompanyRepositoryMockRecorder) Delete(arg0, arg1 interface{}) *gom
 }
 
 // DeleteTx mocks base method.
-func (m *MockCompanyRepository) DeleteTx(arg0 context.Context, arg1 domain.Execer, arg2 string) error {
+func (m *MockCompanyRepository) DeleteTx(arg0 context.Context, arg1 domain.ExecContext, arg2 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)

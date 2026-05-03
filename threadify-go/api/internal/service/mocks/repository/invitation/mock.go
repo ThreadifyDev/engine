@@ -51,7 +51,7 @@ func (mr *MockTeamInvitationRepositoryMockRecorder) Create(arg0, arg1 interface{
 }
 
 // CreateTx mocks base method.
-func (m *MockTeamInvitationRepository) CreateTx(arg0 context.Context, arg1 domain.Execer, arg2 *domain.TeamInvitation) error {
+func (m *MockTeamInvitationRepository) CreateTx(arg0 context.Context, arg1 domain.ExecContext, arg2 *domain.TeamInvitation) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -94,7 +94,7 @@ func (mr *MockTeamInvitationRepositoryMockRecorder) DeleteExpired(arg0 interface
 }
 
 // DeleteTx mocks base method.
-func (m *MockTeamInvitationRepository) DeleteTx(arg0 context.Context, arg1 domain.Execer, arg2 string) error {
+func (m *MockTeamInvitationRepository) DeleteTx(arg0 context.Context, arg1 domain.ExecContext, arg2 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -182,7 +182,7 @@ func (mr *MockTeamInvitationRepositoryMockRecorder) MarkAccepted(arg0, arg1, arg
 }
 
 // MarkAcceptedTx mocks base method.
-func (m *MockTeamInvitationRepository) MarkAcceptedTx(arg0 context.Context, arg1 domain.Execer, arg2, arg3 string) error {
+func (m *MockTeamInvitationRepository) MarkAcceptedTx(arg0 context.Context, arg1 domain.ExecContext, arg2, arg3 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MarkAcceptedTx", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)

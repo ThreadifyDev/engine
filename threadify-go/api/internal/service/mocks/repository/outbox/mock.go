@@ -51,7 +51,7 @@ func (mr *MockOutboxRepositoryMockRecorder) Create(arg0, arg1 interface{}) *gomo
 }
 
 // CreateTx mocks base method.
-func (m *MockOutboxRepository) CreateTx(arg0 context.Context, arg1 domain.Execer, arg2 *domain.OutboxEvent) error {
+func (m *MockOutboxRepository) CreateTx(arg0 context.Context, arg1 domain.ExecContext, arg2 *domain.OutboxEvent) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)

@@ -11,11 +11,8 @@ import (
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
-	sharemodels "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
-	sharedrepo "threadify-go/shared/repository"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,19 +27,8 @@ type OutboxWorkerTrigger interface {
 	Trigger()
 }
 
-func newSignupCreditAccount(companyID string, billingCycleStart time.Time, balanceMillicents, rateLimitTPS, payloadLimitBytes int64) *sharemodels.CreditAccount {
-	return &sharemodels.CreditAccount{
-		ID:                               uuid.NewString(),
-		CompanyID:                        companyID,
-		BillingCycleStart:                billingCycleStart,
-		CreditBalanceMillicents:          balanceMillicents,
-		CreditMinBalanceMillicents:       0,
-		CreditMaxMonthlyChargeMillicents: sharemodels.CreditDisabled,
-		CreditAutoTopupMillicents:        0,
-		CreditMonthlyChargedMillicents:   0,
-		RateLimitTPS:                     rateLimitTPS,
-		PayloadLimitBytes:                payloadLimitBytes,
-	}
+type billingService interface {
+	ProvisionSignupCredits(ctx context.Context, companyID string) error
 }
 
 type AuthService struct {
@@ -52,17 +38,13 @@ type AuthService struct {
 	userRoleRepo   domain.UserRoleRepository
 	outboxRepo     domain.OutboxRepository
 	invitationRepo domain.TeamInvitationRepository
-	planRepo       sharedrepo.PlanRepository
 	emailSvc       EmailService
 	authClient     sharedauth.AuthClient
-	jwksVerifier   *sharedauth.JWKSVerifier
+	jwksVerifier   sharedauth.TokenVerifier
+	billingService billingService
 	outboxWorker   OutboxWorkerTrigger
 	encryptionKey  []byte
 	logger         *zap.Logger
-
-	signupCreditsMillicents int64
-	signupRateLimitTPS      int64
-	signupPayloadLimitBytes int64
 }
 
 func NewAuthService(
@@ -72,6 +54,8 @@ func NewAuthService(
 	userRoleRepo domain.UserRoleRepository,
 	emailSvc EmailService,
 	authClient sharedauth.AuthClient,
+	jwksVerifier sharedauth.TokenVerifier,
+	billingSvc billingService,
 	outboxRepo domain.OutboxRepository,
 	invitationRepo domain.TeamInvitationRepository,
 	outboxWorker OutboxWorkerTrigger,
@@ -87,21 +71,12 @@ func NewAuthService(
 		invitationRepo: invitationRepo,
 		emailSvc:       emailSvc,
 		authClient:     authClient,
+		jwksVerifier:   jwksVerifier,
+		billingService: billingSvc,
 		outboxWorker:   outboxWorker,
 		encryptionKey:  encryptionKey,
 		logger:         logger,
 	}
-}
-
-func (s *AuthService) SetJWKSVerifier(verifier *sharedauth.JWKSVerifier) {
-	s.jwksVerifier = verifier
-}
-
-func (s *AuthService) ConfigureSignupCredits(planRepo sharedrepo.PlanRepository, signupCreditsMillicents, rateLimitTPS, payloadLimitBytes int64) {
-	s.planRepo = planRepo
-	s.signupCreditsMillicents = signupCreditsMillicents
-	s.signupRateLimitTPS = rateLimitTPS
-	s.signupPayloadLimitBytes = payloadLimitBytes
 }
 
 func (s *AuthService) Signup(ctx context.Context, req *domain.SignupCmd) error {
@@ -216,23 +191,23 @@ func (s *AuthService) persistSignup(
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	if invitation == nil {
-		if err := s.companyRepo.CreateTx(ctx, tx.Execer(), company); err != nil {
+		if err := s.companyRepo.CreateTx(ctx, tx, company); err != nil {
 			return fmt.Errorf("create company: %w", err)
 		}
 	}
 
-	if err := s.userRepo.CreateTx(ctx, tx.Execer(), user); err != nil {
+	if err := s.userRepo.CreateTx(ctx, tx, user); err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
-	if err := s.userRoleRepo.AssignRoleToUserTx(ctx, tx.Execer(), user.ID, userRole, "system"); err != nil {
+	if err := s.userRoleRepo.AssignRoleToUserTx(ctx, tx, user.ID, userRole, "system"); err != nil {
 		return fmt.Errorf("assign default role: %w", err)
 	}
-	if err := s.outboxRepo.CreateTx(ctx, tx.Execer(), outboxEvent); err != nil {
+	if err := s.outboxRepo.CreateTx(ctx, tx, outboxEvent); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
 	}
 
 	if invitation != nil {
-		if err := s.invitationRepo.DeleteTx(ctx, tx.Execer(), invitation.ID); err != nil {
+		if err := s.invitationRepo.DeleteTx(ctx, tx, invitation.ID); err != nil {
 			return fmt.Errorf("delete invitation: %w", err)
 		}
 	}
@@ -570,7 +545,7 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *domain.VerifyEmailCm
 	s.logger.Info("verify email: email verified", zap.String("user_id", user.ID))
 
 	if !wasAlreadyVerified {
-		if err := s.provisionSignupCredits(ctx, user.CompanyID); err != nil {
+		if err := s.billingService.ProvisionSignupCredits(ctx, user.CompanyID); err != nil {
 			return nil, fmt.Errorf("provision signup credits: %w", err)
 		}
 		s.sendWelcomeEmailAsync(user)
@@ -581,46 +556,6 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *domain.VerifyEmailCm
 		User:    user,
 		Message: "Email verified and logged in.",
 	}, nil
-}
-
-func (s *AuthService) provisionSignupCredits(ctx context.Context, companyID string) error {
-	if s.planRepo == nil || strings.TrimSpace(companyID) == "" {
-		return nil
-	}
-	if s.signupCreditsMillicents <= 0 && s.signupRateLimitTPS <= 0 && s.signupPayloadLimitBytes <= 0 {
-		return nil
-	}
-
-	account, err := s.planRepo.GetCreditAccount(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("get credit account: %w", err)
-	}
-	if account != nil {
-		return nil
-	}
-
-	start := time.Now().UTC().Truncate(24 * time.Hour)
-	newAccount := newSignupCreditAccount(
-		companyID,
-		start,
-		s.signupCreditsMillicents,
-		s.signupRateLimitTPS,
-		s.signupPayloadLimitBytes,
-	)
-
-	if err := s.planRepo.CreateCreditAccount(ctx, newAccount); err != nil {
-		if errors.Is(err, serror.ErrDuplicateCreditAccount) {
-			return nil
-		}
-		return fmt.Errorf("create credit account: %w", err)
-	}
-
-	s.logger.Info("signup credits provisioned",
-		zap.String("company_id", companyID),
-		zap.Int64("amount_millicents", s.signupCreditsMillicents),
-	)
-
-	return nil
 }
 
 func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string) (*domain.User, error) {
@@ -686,45 +621,6 @@ func (s *AuthService) GetUserRoles(ctx context.Context, userID, principalType st
 	default:
 		return nil, fmt.Errorf("invalid principal type: %s", principalType)
 	}
-}
-
-func (s *AuthService) resolveUserFromAuthIdentity(ctx context.Context, emailHint string, info *sharedauth.AuthUserInfo) (*domain.User, error) {
-	email := normalizeEmail(emailHint)
-	if info != nil && strings.TrimSpace(info.Email) != "" {
-		email = normalizeEmail(info.Email)
-	}
-
-	var user *domain.User
-	var err error
-
-	if email != "" {
-		user, err = s.userRepo.FindByEmail(ctx, email)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			return nil, fmt.Errorf("find user by email: %w", err)
-		}
-	}
-
-	if user == nil && info != nil && strings.TrimSpace(info.Sub) != "" {
-		sub := strings.TrimSpace(info.Sub)
-		user, err = s.userRepo.FindByAuthUserID(ctx, sub)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			return nil, fmt.Errorf("find user by auth ID: %w", err)
-		}
-	}
-
-	if user == nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	if info != nil && strings.TrimSpace(info.Sub) != "" &&
-		(user.AuthUserID == nil || strings.TrimSpace(*user.AuthUserID) == "") {
-		sub := strings.TrimSpace(info.Sub)
-		if err := s.userRepo.UpdateAuthUserID(ctx, user.ID, sub); err == nil {
-			user.AuthUserID = &sub
-		}
-	}
-
-	return user, nil
 }
 
 func (s *AuthService) queueVerificationEmail(ctx context.Context, userID, email string) error {

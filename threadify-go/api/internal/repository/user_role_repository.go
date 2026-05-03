@@ -3,8 +3,8 @@ package repository
 import (
 	"context"
 	"fmt"
-
 	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,10 +21,10 @@ func (r *userRoleRepository) AssignRoleToUser(ctx context.Context, userID, roleN
 	return r.AssignRoleToUserTx(ctx, r.pool, userID, roleName, assignedBy)
 }
 
-func (r *userRoleRepository) AssignRoleToUserTx(ctx context.Context, tx domain.Execer, userID, roleName, assignedBy string) error {
-	execer, ok := tx.(DBExecer)
+func (r *userRoleRepository) AssignRoleToUserTx(ctx context.Context, tx domain.ExecContext, userID, roleName, assignedBy string) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 
 	query := `

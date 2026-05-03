@@ -18,6 +18,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type TokenVerifier interface {
+	Verify(ctx context.Context, tokenString string) (*TokenClaims, error)
+}
+
 type TokenClaims struct {
 	Sub           string
 	AuthUserID    string // Supabase auth_user_id (same as Sub)

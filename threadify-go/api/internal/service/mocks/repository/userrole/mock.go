@@ -64,7 +64,7 @@ func (mr *MockUserRoleRepositoryMockRecorder) AssignRoleToUser(arg0, arg1, arg2,
 }
 
 // AssignRoleToUserTx mocks base method.
-func (m *MockUserRoleRepository) AssignRoleToUserTx(arg0 context.Context, arg1 domain.Execer, arg2, arg3, arg4 string) error {
+func (m *MockUserRoleRepository) AssignRoleToUserTx(arg0 context.Context, arg1 domain.ExecContext, arg2, arg3, arg4 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AssignRoleToUserTx", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)

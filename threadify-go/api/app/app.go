@@ -126,28 +126,35 @@ func ResolveRBACPaths(logger *zap.Logger) (RBACPaths, error) {
 }
 
 type repositories struct {
-	user              domain.UserRepository
-	company           domain.CompanyRepository
-	userRole          domain.UserRoleRepository
-	apiKey            domain.APIKeyRepository
-	serviceAccount    domain.ServiceAccountRepository
-	outbox            domain.OutboxRepository
-	agent             domain.AgentRepository
+	user           domain.UserRepository
+	company        domain.CompanyRepository
+	userRole       domain.UserRoleRepository
+	apiKey         domain.APIKeyRepository
+	serviceAccount domain.ServiceAccountRepository
+	outbox         domain.OutboxRepository
+	agent          domain.AgentRepository
+	sharedRepo     *sharedRepositories
+}
+
+type sharedRepositories struct {
 	plan              sharedrepo.PlanRepository
 	entityProfileType sharedrepo.EntityProfileTypeRepository
 }
 
 func initRepositories(pool *pgxpool.Pool) *repositories {
-	return &repositories{
-		user:              repository.NewUserRepository(pool),
-		company:           repository.NewCompanyRepository(pool),
-		userRole:          repository.NewUserRoleRepository(pool),
-		apiKey:            repository.NewAPIKeyRepository(pool),
-		serviceAccount:    repository.NewServiceAccountRepository(pool),
+	sharedRepo := &sharedRepositories{
 		plan:              sharedrepo.NewPlanRepo(pool),
-		outbox:            repository.NewOutboxRepository(pool),
-		agent:             repository.NewAgentRepository(pool),
 		entityProfileType: sharedrepo.NewEntityProfileTypeRepository(pool),
+	}
+	return &repositories{
+		user:           repository.NewUserRepository(pool),
+		company:        repository.NewCompanyRepository(pool),
+		userRole:       repository.NewUserRoleRepository(pool),
+		apiKey:         repository.NewAPIKeyRepository(pool),
+		serviceAccount: repository.NewServiceAccountRepository(pool),
+		outbox:         repository.NewOutboxRepository(pool),
+		agent:          repository.NewAgentRepository(pool),
+		sharedRepo:     sharedRepo,
 	}
 }
 
@@ -198,12 +205,7 @@ func initServices(
 		return nil, fmt.Errorf("outbox_encryption_key is not valid hex: %w", err)
 	}
 
-	emailSvc, err := service.NewEmailService(
-		cfg.WebAPI.Email.PlunkAPIKey,
-		cfg.WebAPI.Email.PlunkAPIURL,
-		cfg.WebAPI.FrontendURL,
-		cfg.WebAPI.Email.PlunkFromEmail,
-	)
+	emailSvc, err := service.NewEmailServiceFromConfig(cfg, nil, logger)
 	if err != nil {
 		return nil, fmt.Errorf("init email service: %w", err)
 	}
@@ -225,21 +227,60 @@ func initServices(
 
 	outboxTrigger := service.NewNatsOutboxTrigger(nc.JetStream(), nats.SubjectOutboxTrigger, logger)
 
+	billingService := billing.NewBillingService(
+		invoiceProvider,
+		repos.sharedRepo.plan,
+		&cfg.Subscription,
+		&cfg.Billing,
+		logger,
+	)
+
 	svcs := &services{
 		natsClient:      nc,
 		authClient:      authClient,
-		billingService:  billing.NewBillingService(invoiceProvider, repos.plan, &cfg.Subscription, &cfg.Billing, logger),
+		billingService:  billingService,
 		invoiceProvider: invoiceProvider,
 		outboxTrigger:   outboxTrigger,
 	}
 
 	startWorkers(svcs, cfg, pool, repos, authClient, emailSvc, key, nc, logger)
 
-	svcs.authService = initAuthService(cfg, database.WrapPool(pool), repos, authClient, emailSvc, outboxTrigger, key, logger)
-	svcs.userService = service.NewUserService(repos.user, repos.company, repos.userRole, repos.outbox, outboxTrigger, key, logger)
-	svcs.entityProfileTypeService = service.NewEntityProfileTypeService(repos.entityProfileType, logger)
-	svcs.serviceAccountService = service.NewServiceAccountService(repos.serviceAccount, repos.userRole)
-	svcs.apiKeySvc = service.NewAPIKeyService(repos.apiKey, repos.serviceAccount, repos.userRole, rbacLoader, logger)
+	svcs.authService = initAuthService(
+		cfg,
+		database.WrapPool(pool),
+		repos,
+		authClient,
+		emailSvc,
+		billingService,
+		outboxTrigger,
+		key,
+		logger,
+	)
+	svcs.userService = service.NewUserService(
+		repos.user,
+		repos.company,
+		repos.userRole,
+		repos.outbox,
+		outboxTrigger,
+		key,
+		logger,
+	)
+	svcs.entityProfileTypeService = service.NewEntityProfileTypeService(
+		repos.sharedRepo.entityProfileType,
+		logger,
+	)
+	svcs.serviceAccountService = service.NewServiceAccountService(
+		logger,
+		repos.serviceAccount,
+		repos.userRole,
+	)
+	svcs.apiKeySvc = service.NewAPIKeyService(
+		repos.apiKey,
+		repos.serviceAccount,
+		repos.userRole,
+		&rbacRoleLoaderWrapper{rbacLoader},
+		logger,
+	)
 	svcs.agentService = service.NewAgentService(
 		cfg.WebAPI.ThreadifyEngine.GraphQLURL,
 		cfg.WebAPI.OpenAIAPIKey,
@@ -319,11 +360,21 @@ func initAuthService(
 	repos *repositories,
 	authClient sharedauth.AuthClient,
 	emailSvc service.EmailService,
+	billingService ports.BillingService,
 	outboxTrigger service.OutboxWorkerTrigger,
 	encryptionKey []byte,
 	logger *zap.Logger,
 ) *service.AuthService {
 	teamInvitationRepo := repository.NewTeamInvitationRepository(pool)
+
+	var jwksVerifier sharedauth.TokenVerifier
+	if cfg.JWKS.URL != "" {
+		jv := sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer)
+		jwksVerifier = jv
+		logger.Info("JWKS verifier configured", zap.String("url", cfg.JWKS.URL))
+	} else {
+		logger.Warn("JWKS URL not configured — token verification disabled")
+	}
 
 	authSvc := service.NewAuthService(
 		ports.WrapAsTxManager(pool),
@@ -332,26 +383,14 @@ func initAuthService(
 		repos.userRole,
 		emailSvc,
 		authClient,
+		jwksVerifier,
+		billingService,
 		repos.outbox,
 		teamInvitationRepo,
 		outboxTrigger,
 		encryptionKey,
 		logger,
 	)
-
-	authSvc.ConfigureSignupCredits(
-		repos.plan,
-		cfg.Subscription.SignupCreditsMillicents,
-		cfg.Subscription.Credit.RateLimitTPS,
-		cfg.Subscription.Credit.PayloadLimitBytes,
-	)
-
-	if cfg.JWKS.URL != "" {
-		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
-		logger.Info("JWKS verifier configured", zap.String("url", cfg.JWKS.URL))
-	} else {
-		logger.Warn("JWKS URL not configured — token verification disabled")
-	}
 
 	return authSvc
 }
@@ -577,4 +616,17 @@ func runPruner(
 			}
 		}
 	}
+}
+
+type rbacRoleLoaderWrapper struct {
+	loader *rbac.Loader
+}
+
+func (w *rbacRoleLoaderWrapper) GetRolesByLevel(level string) map[string]struct{} {
+	roles := w.loader.GetRolesByLevel(level)
+	result := make(map[string]struct{}, len(roles))
+	for roleName := range roles {
+		result[roleName] = struct{}{}
+	}
+	return result
 }

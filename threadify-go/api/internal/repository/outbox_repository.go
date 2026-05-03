@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,14 +23,14 @@ func (r *outboxRepository) Create(ctx context.Context, event *domain.OutboxEvent
 	return r.CreateTx(ctx, r.pool, event)
 }
 
-func (r *outboxRepository) CreateTx(ctx context.Context, tx domain.Execer, event *domain.OutboxEvent) error {
+func (r *outboxRepository) CreateTx(ctx context.Context, tx domain.ExecContext, event *domain.OutboxEvent) error {
 	return r.insert(ctx, tx, event)
 }
 
-func (r *outboxRepository) insert(ctx context.Context, tx domain.Execer, event *domain.OutboxEvent) error {
-	execer, ok := tx.(DBExecer)
+func (r *outboxRepository) insert(ctx context.Context, tx domain.ExecContext, event *domain.OutboxEvent) error {
+	execer, ok := tx.(ports.SQLExecutor)
 	if !ok {
-		return fmt.Errorf("invalid execer type: expected DBExecer, got %T", tx)
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
 	}
 	const query = `
 		INSERT INTO outbox_events

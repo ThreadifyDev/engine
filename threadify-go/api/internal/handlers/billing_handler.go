@@ -1,30 +1,24 @@
 package handlers
 
 import (
-	"context"
 	"net/http"
 
 	"threadify-go/api/internal/dto"
 
 	"github.com/gin-gonic/gin"
 
+	"threadify-go/api/internal/ports"
 	sharedauth "threadify-go/shared/auth"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
 )
 
-type billingAPI interface {
-	GetCreditAccount(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error)
-	CreateCheckoutSession(ctx context.Context, companyID string, amountMillicents int64) (string, error)
-	UpdateMaxMonthlyCharge(ctx context.Context, companyID string, maxMonthlyMillicents int64) error
-}
-
 type BillingHandler struct {
-	billingService billingAPI
+	billingService ports.BillingService
 }
 
 func NewBillingHandler(
-	billingService billingAPI,
+	billingService ports.BillingService,
 ) *BillingHandler {
 	return &BillingHandler{
 		billingService: billingService,

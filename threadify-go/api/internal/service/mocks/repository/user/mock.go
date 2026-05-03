@@ -65,7 +65,7 @@ func (mr *MockUserRepositoryMockRecorder) ClearPasswordHash(arg0, arg1 interface
 }
 
 // CreateTx mocks base method.
-func (m *MockUserRepository) CreateTx(arg0 context.Context, arg1 domain.Execer, arg2 *domain.User) error {
+func (m *MockUserRepository) CreateTx(arg0 context.Context, arg1 domain.ExecContext, arg2 *domain.User) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -93,7 +93,7 @@ func (mr *MockUserRepositoryMockRecorder) Delete(arg0, arg1 interface{}) *gomock
 }
 
 // DeleteTx mocks base method.
-func (m *MockUserRepository) DeleteTx(arg0 context.Context, arg1 domain.Execer, arg2 string) error {
+func (m *MockUserRepository) DeleteTx(arg0 context.Context, arg1 domain.ExecContext, arg2 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteTx", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)

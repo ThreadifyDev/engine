@@ -10,7 +10,6 @@ import (
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
-	sharemodels "threadify-go/shared/domain"
 	sharedmocks "threadify-go/shared/mocks"
 
 	"github.com/golang/mock/gomock"
@@ -80,7 +79,7 @@ func TestAuthService_Signup(t *testing.T) {
 
 			tt.setupMock(deps, pool, tx)
 
-			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
+			svc := deps.NewAuthService(pool, authClient, nil, nil, []byte(testEncryptionKey))
 
 			err := svc.Signup(context.Background(), tt.req)
 			if tt.wantErr {
@@ -174,7 +173,7 @@ func TestAuthService_Login(t *testing.T) {
 
 			tt.setupMock(deps, authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
+			svc := deps.NewAuthService(pool, authClient, nil, nil, []byte(testEncryptionKey))
 
 			resp, err := svc.Login(context.Background(), tt.req, clientIP)
 			if tt.wantErr {
@@ -225,7 +224,7 @@ func TestAuthService_ResetPassword(t *testing.T) {
 
 			tt.setupMock(authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
+			svc := deps.NewAuthService(pool, authClient, nil, nil, []byte(testEncryptionKey))
 			err := svc.ResetPassword(context.Background(), tt.req)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -255,6 +254,7 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
 				authClient.EXPECT().VerifyEmailWithOTP(gomock.Any(), email, token).Return("access_token", &sharedauth.AuthUserInfo{Sub: "auth_id", Email: email}, nil)
 				deps.UserRepo.EXPECT().FindByAuthUserID(gomock.Any(), "auth_id").Return(&domain.User{ID: "user_123", CompanyID: companyID, Email: email, EmailVerified: false}, nil)
+				deps.BillingSvc.EXPECT().ProvisionSignupCredits(gomock.Any(), companyID).Return(nil)
 				deps.UserRepo.EXPECT().UpdateEmailVerified(gomock.Any(), "user_123", true).Return(nil)
 				deps.UserRepo.EXPECT().UpdateLastLogin(gomock.Any(), "user_123").Return(nil)
 				deps.EmailSvc.EXPECT().SendWelcomeEmail(gomock.Any(), email, gomock.Any()).Return(nil)
@@ -267,14 +267,7 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
 				authClient.EXPECT().VerifyEmailWithOTP(gomock.Any(), email, token).Return("access_token", &sharedauth.AuthUserInfo{Sub: "auth_id", Email: email}, nil)
 				deps.UserRepo.EXPECT().FindByAuthUserID(gomock.Any(), "auth_id").Return(&domain.User{ID: "user_123", CompanyID: companyID, Email: email, EmailVerified: false}, nil)
-				deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(nil, nil)
-				deps.PlanRepo.EXPECT().CreateCreditAccount(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, account *sharemodels.CreditAccount) error {
-					require.Equal(t, companyID, account.CompanyID)
-					require.Equal(t, int64(100_000), account.CreditBalanceMillicents)
-					require.Equal(t, int64(0), account.RateLimitTPS)
-					require.Equal(t, int64(0), account.PayloadLimitBytes)
-					return nil
-				})
+				deps.BillingSvc.EXPECT().ProvisionSignupCredits(gomock.Any(), companyID).Return(nil)
 				deps.UserRepo.EXPECT().UpdateEmailVerified(gomock.Any(), "user_123", true).Return(nil)
 				deps.UserRepo.EXPECT().UpdateLastLogin(gomock.Any(), "user_123").Return(nil)
 				deps.EmailSvc.EXPECT().SendWelcomeEmail(gomock.Any(), email, gomock.Any()).Return(nil)
@@ -298,6 +291,7 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 			setupMock: func(deps *common.MockedDeps, authClient *sharedmocks.MockAuthClient) {
 				authClient.EXPECT().VerifyEmailWithOTP(gomock.Any(), email, token).Return("access_token", &sharedauth.AuthUserInfo{Sub: "auth_id", Email: email}, nil)
 				deps.UserRepo.EXPECT().FindByAuthUserID(gomock.Any(), "auth_id").Return(&domain.User{ID: "user_123", CompanyID: companyID, Email: email, EmailVerified: false}, nil)
+				deps.BillingSvc.EXPECT().ProvisionSignupCredits(gomock.Any(), companyID).Return(nil)
 				deps.UserRepo.EXPECT().UpdateEmailVerified(gomock.Any(), "user_123", true).Return(nil)
 				deps.UserRepo.EXPECT().UpdateLastLogin(gomock.Any(), "user_123").Return(nil)
 				deps.EmailSvc.EXPECT().SendWelcomeEmail(gomock.Any(), email, gomock.Any()).Return(nil)
@@ -323,10 +317,7 @@ func TestAuthService_VerifyEmail(t *testing.T) {
 
 			tt.setupMock(deps, authClient)
 
-			svc := deps.NewAuthService(pool, authClient, nil, []byte(testEncryptionKey))
-			if tt.configureCredits {
-				svc.ConfigureSignupCredits(deps.PlanRepo, tt.signupCredits, 0, 0)
-			}
+			svc := deps.NewAuthService(pool, authClient, nil, nil, []byte(testEncryptionKey))
 			_, err := svc.VerifyEmail(context.Background(), &domain.VerifyEmailCmd{Email: email, Token: token})
 
 			// Wait a bit for the async welcome email goroutine

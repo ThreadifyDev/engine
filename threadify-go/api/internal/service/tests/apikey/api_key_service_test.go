@@ -95,7 +95,7 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := common.NewMockDeps(t)
-			svc := deps.NewAPIKeyService(loader)
+			svc := deps.NewAPIKeyService(&common.RBACRoleLoaderWrapper{Loader: loader})
 
 			tt.setupMock(deps)
 

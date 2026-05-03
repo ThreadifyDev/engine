@@ -61,7 +61,9 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, conten
 		contentType = service.ContentTypeJSON
 	}
 
-	req, err := http.NewRequestWithContext(c.Request.Context(), method, h.threadifyEngineURL+path, reqBody)
+	url := fmt.Sprintf("%s%s", h.threadifyEngineURL, path)
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, url, reqBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
 		return nil, nil, err
@@ -133,7 +135,7 @@ func isJSONContentType(contentType string) bool {
 func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
 	path := contractProxyPath
 	if c.Request.URL.RawQuery != "" {
-		path += "?" + c.Request.URL.RawQuery
+		path = fmt.Sprintf("%s?%s", contractProxyPath, c.Request.URL.RawQuery)
 	}
 	resp, body, err := h.proxyRequest(c, http.MethodGet, path, "", nil)
 	if err != nil || resp.StatusCode >= 400 {

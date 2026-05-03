@@ -7,7 +7,7 @@ import (
 
 //go:generate mockgen -destination=../service/mocks/repository/user/mock.go -package=repomocks . UserRepository
 type UserRepository interface {
-	CreateTx(ctx context.Context, tx Execer, user *User) error
+	CreateTx(ctx context.Context, tx ExecContext, user *User) error
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	ListByCompanyID(ctx context.Context, companyID string) ([]*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
@@ -22,16 +22,16 @@ type UserRepository interface {
 	ClearPasswordHash(ctx context.Context, userID string) error
 	ArchiveUser(ctx context.Context, userID, archivedEmail string) error
 	Delete(ctx context.Context, id string) error
-	DeleteTx(ctx context.Context, tx Execer, id string) error
+	DeleteTx(ctx context.Context, tx ExecContext, id string) error
 }
 
 //go:generate mockgen -destination=../service/mocks/repository/company/mock.go -package=repomocks . CompanyRepository
 type CompanyRepository interface {
-	CreateTx(ctx context.Context, tx Execer, company *Company) error
+	CreateTx(ctx context.Context, tx ExecContext, company *Company) error
 	FindByID(ctx context.Context, id string) (*Company, error)
 	UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error
 	Delete(ctx context.Context, id string) error
-	DeleteTx(ctx context.Context, tx Execer, id string) error
+	DeleteTx(ctx context.Context, tx ExecContext, id string) error
 }
 
 //go:generate mockgen -destination=../service/mocks/repository/apikey/mock.go -package=repomocks . APIKeyRepository
@@ -48,14 +48,14 @@ type APIKeyRepository interface {
 //go:generate mockgen -destination=../service/mocks/repository/invitation/mock.go -package=repomocks . TeamInvitationRepository
 type TeamInvitationRepository interface {
 	Create(ctx context.Context, invitation *TeamInvitation) error
-	CreateTx(ctx context.Context, tx Execer, invitation *TeamInvitation) error
+	CreateTx(ctx context.Context, tx ExecContext, invitation *TeamInvitation) error
 	GetByToken(ctx context.Context, token string) (*TeamInvitation, error)
 	GetByID(ctx context.Context, id string) (*TeamInvitation, error)
 	MarkAccepted(ctx context.Context, invitationID, userID string) error
-	MarkAcceptedTx(ctx context.Context, tx Execer, invitationID, userID string) error
+	MarkAcceptedTx(ctx context.Context, tx ExecContext, invitationID, userID string) error
 	UpdateStatus(ctx context.Context, invitationID, status string) error
 	Delete(ctx context.Context, invitationID string) error
-	DeleteTx(ctx context.Context, tx Execer, invitationID string) error
+	DeleteTx(ctx context.Context, tx ExecContext, invitationID string) error
 	RefreshInvitation(ctx context.Context, invitationID, newToken string, expiresAt time.Time) error
 	GetPendingByCompanyAndEmail(ctx context.Context, companyID, email string) (*TeamInvitation, error)
 	ListByCompany(ctx context.Context, companyID string) ([]*TeamInvitation, error)
@@ -65,7 +65,7 @@ type TeamInvitationRepository interface {
 //go:generate mockgen -destination=../service/mocks/repository/outbox/mock.go -package=repomocks . OutboxRepository
 type OutboxRepository interface {
 	Create(ctx context.Context, event *OutboxEvent) error
-	CreateTx(ctx context.Context, tx Execer, event *OutboxEvent) error
+	CreateTx(ctx context.Context, tx ExecContext, event *OutboxEvent) error
 	FetchPendingDue(ctx context.Context, limit int) ([]*OutboxEvent, error)
 	ExistsByReference(ctx context.Context, eventType, referenceID string) (bool, error)
 	ExistsPendingByReference(ctx context.Context, eventType, referenceID string) (bool, error)
@@ -77,7 +77,7 @@ type OutboxRepository interface {
 //go:generate mockgen -destination=../service/mocks/repository/userrole/mock.go -package=repomocks . UserRoleRepository
 type UserRoleRepository interface {
 	AssignRoleToUser(ctx context.Context, userID, roleName, assignedBy string) error
-	AssignRoleToUserTx(ctx context.Context, tx Execer, userID, roleName, assignedBy string) error
+	AssignRoleToUserTx(ctx context.Context, tx ExecContext, userID, roleName, assignedBy string) error
 	GetUserRoles(ctx context.Context, userID string) ([]string, error)
 	RemoveRoleFromUser(ctx context.Context, userID, roleName string) error
 	AssignRoleToServiceAccount(ctx context.Context, serviceAccountID, roleName, assignedBy string) error

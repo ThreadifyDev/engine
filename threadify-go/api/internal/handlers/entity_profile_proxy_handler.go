@@ -32,10 +32,13 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 		return nil, http.StatusUnauthorized, fmt.Errorf("authorization header required")
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]interface{}{
 		"query":     query,
 		"variables": variables,
 	})
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create request: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, h.engineGraphQLURL, bytes.NewBuffer(body))
 	if err != nil {

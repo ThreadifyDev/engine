@@ -2,13 +2,13 @@ package middleware
 
 import (
 	"net/http"
-	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/ports"
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
 )
 
-func AuthAccessTokenAuth(authService *service.AuthService) gin.HandlerFunc {
+func AuthAccessTokenAuth(authService ports.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -30,8 +30,6 @@ func AuthAccessTokenAuth(authService *service.AuthService) gin.HandlerFunc {
 			return
 		}
 
-		// Use internal UserID for RBAC role lookups (user_roles table stores by internal ID)
-		// AuthUserID is only used as Supabase bridge, not for internal operations
 		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user")
 		if err == nil && len(dbRoles) > 0 {
 			claims.Roles = dbRoles

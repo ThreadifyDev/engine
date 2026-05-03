@@ -3,16 +3,16 @@ package middleware
 import (
 	"errors"
 	"net/http"
-	"threadify-go/api/internal/service"
+	"threadify-go/api/internal/ports"
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
 )
 
 // AgentCreditCheckMiddleware ensures the user has sufficient credits before allowing AI operations.
-func AgentCreditCheckMiddleware(agentSvc *service.AgentService) gin.HandlerFunc {
+func AgentCreditCheckMiddleware(agentSvc ports.AgentService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader(service.HeaderAuthorization)
+		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			c.Abort()
