@@ -11,6 +11,8 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+import yaml from 'js-yaml';
+
 export class ValidationError extends Error {
   details?: Array<{ field: string; message: string }>;
 
