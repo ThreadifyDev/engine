@@ -57,7 +57,7 @@ func TestTeamInvitationService_SendInvitation(t *testing.T) {
 			validate: func(t *testing.T, invitation *domain.TeamInvitation, err error) {
 				t.Helper()
 				require.Error(t, err)
-				assert.ErrorContains(t, err, "already has an account")
+				assert.ErrorContains(t, err, "user with this email already exists")
 			},
 		},
 	}
