@@ -96,9 +96,10 @@ type Config struct {
 		OutboxEncryptionKey     string `yaml:"outbox_encryption_key"`
 		SignupCreditsMillicents int64  `yaml:"signup_credits_millicents"`
 		Email                   struct {
-			PlunkAPIKey    string `yaml:"plunk_api_key"`
-			PlunkFromEmail string `yaml:"plunk_from_email"`
-			PlunkAPIURL    string `yaml:"plunk_api_url"`
+			Provider  string `yaml:"provider"`
+			APIKey    string `yaml:"api_key"`
+			FromEmail string `yaml:"from_email"`
+			APIURL    string `yaml:"api_url"`
 		} `yaml:"email"`
 		ThreadifyEngine struct {
 			URL        string `yaml:"url"`
@@ -163,9 +164,10 @@ func (c *Config) expandEnvVars() {
 	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)
 	c.WebAPI.OutboxEncryptionKey = expand(c.WebAPI.OutboxEncryptionKey)
 	c.WebAPI.OpenAIAPIKey = expand(c.WebAPI.OpenAIAPIKey)
-	c.WebAPI.Email.PlunkAPIKey = expand(c.WebAPI.Email.PlunkAPIKey)
-	c.WebAPI.Email.PlunkFromEmail = expand(c.WebAPI.Email.PlunkFromEmail)
-	c.WebAPI.Email.PlunkAPIURL = expand(c.WebAPI.Email.PlunkAPIURL)
+	c.WebAPI.Email.Provider = expand(c.WebAPI.Email.Provider)
+	c.WebAPI.Email.APIKey = expand(c.WebAPI.Email.APIKey)
+	c.WebAPI.Email.FromEmail = expand(c.WebAPI.Email.FromEmail)
+	c.WebAPI.Email.APIURL = expand(c.WebAPI.Email.APIURL)
 	c.WebAPI.ThreadifyEngine.URL = expand(c.WebAPI.ThreadifyEngine.URL)
 	c.WebAPI.ThreadifyEngine.GraphQLURL = expand(c.WebAPI.ThreadifyEngine.GraphQLURL)
 

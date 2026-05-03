@@ -28,14 +28,14 @@ type NATSConsumer struct {
 	js                 JetStreamPublisher
 	db                 DBExecer
 	metricsInvalidator MetricsInvalidator
-	writer       ConsumerWriter
-	batchSize    int
-	batchTimeout time.Duration
-	consumerName string
-	stopOnce     sync.Once
-	stopChan     chan struct{}
-	cfg          *config.Config
-	logger       *zap.Logger
+	writer             ConsumerWriter
+	batchSize          int
+	batchTimeout       time.Duration
+	consumerName       string
+	stopOnce           sync.Once
+	stopChan           chan struct{}
+	cfg                *config.Config
+	logger             *zap.Logger
 }
 
 func NewNATSConsumer(
@@ -52,13 +52,13 @@ func NewNATSConsumer(
 		js:                 js,
 		db:                 db,
 		metricsInvalidator: metricsInvalidator,
-		writer:       NewPostgresWriter(db, logger),
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		consumerName: consumerName,
-		stopChan:     make(chan struct{}),
-		cfg:          cfg,
-		logger:       logger,
+		writer:             NewPostgresWriter(db, logger),
+		batchSize:          batchSize,
+		batchTimeout:       batchTimeout,
+		consumerName:       consumerName,
+		stopChan:           make(chan struct{}),
+		cfg:                cfg,
+		logger:             logger,
 	}, nil
 }
 

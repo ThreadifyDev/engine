@@ -54,7 +54,7 @@ func TestMain(m *testing.M) {
 		PostgresURL: env.Postgres.ConnectionString,
 		NATSURL:     env.Nats.URI,
 		SupabaseURL: supabase.URL,
-		PlunkAPIURL: plunk.URL,
+		EmailAPIURL: plunk.URL,
 		Port:        8080,
 	})
 	if err != nil {
