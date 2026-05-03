@@ -172,6 +172,7 @@ notification_system:
 # Archiver service configuration
 archiver:
   enabled: true
+  metrics_port: 9091
   
   # Buffer settings per queue type
   buffers:
@@ -221,11 +222,12 @@ web_api:
   frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
   outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
 
-  # Email service (Plunk)
+  # Email service
   email:
-    plunk_api_key: "$PLUNK_API_KEY:"
-    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
-    plunk_api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
+    provider: "plunk"
+    api_key: "$PLUNK_API_KEY:"
+    from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
+    api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
   
   # Threadify Engine integration
   threadify_engine:

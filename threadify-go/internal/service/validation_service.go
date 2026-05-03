@@ -6,8 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // ValidationService handles synchronous validation checks for thread operations.
@@ -15,20 +14,20 @@ import (
 // and other compliance rules without blocking the main thread execution.
 // ValidationService handles all validation logic for threads and steps
 type ValidationService struct {
-	threadRepo   types.ThreadRepository
+	threadRepo domain.ThreadRepository
 }
 
 // NewValidationService creates a new validation service
-func NewValidationService(threadRepo types.ThreadRepository) *ValidationService {
+func NewValidationService(threadRepo domain.ThreadRepository) *ValidationService {
 	return &ValidationService{
-		threadRepo:   threadRepo,
+		threadRepo: threadRepo,
 	}
 }
 
 // GetCurrentSteps retrieves current step names from the sorted set
 func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string) []string {
 	// Use repository method instead of direct Valkey call
-	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID, types.ThreadReadOptions{WriteBack: true})
+	steps, err := s.threadRepo.GetCompletedSteps(ctx, threadID, domain.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return []string{}
 	}
@@ -48,10 +47,10 @@ func (s *ValidationService) GetCurrentSteps(ctx context.Context, threadID string
 
 // CheckStepTimeout validates if the step execution time exceeded the timeout
 func (s *ValidationService) CheckStepTimeout(
-	stepNode models.GraphNode,
+	stepNode domain.GraphNode,
 	startedAt string,
 	finishedAt string,
-) *models.ValidationViolation {
+) *domain.ValidationViolation {
 	// No timeout defined
 	if stepNode.Timeout == "" {
 		return nil
@@ -78,7 +77,7 @@ func (s *ValidationService) CheckStepTimeout(
 	duration := finish.Sub(start)
 
 	if duration > timeout {
-		return &models.ValidationViolation{
+		return &domain.ValidationViolation{
 			Message:  fmt.Sprintf("Step exceeded timeout of %s (took %s)", stepNode.Timeout, duration),
 			Duration: duration.String(),
 			Limit:    stepNode.Timeout,
@@ -94,9 +93,9 @@ func (s *ValidationService) CheckStepTimeout(
 
 // CheckMaxDuration validates if the thread duration exceeded the max duration
 func (s *ValidationService) CheckMaxDuration(
-	thread *models.Thread,
-	graph *models.ContractGraph,
-) *models.ValidationViolation {
+	thread *domain.Thread,
+	graph *domain.ContractGraph,
+) *domain.ValidationViolation {
 	// No validation rules or max duration defined
 	if graph.Validation == nil || graph.Validation.MaxDuration == "" {
 		return nil
@@ -112,7 +111,7 @@ func (s *ValidationService) CheckMaxDuration(
 	elapsed := time.Since(thread.StartedAt)
 
 	if elapsed > maxDuration {
-		return &models.ValidationViolation{
+		return &domain.ValidationViolation{
 			Message:  fmt.Sprintf("Thread exceeded maximum duration of %s (running for %s)", graph.Validation.MaxDuration, elapsed),
 			Duration: elapsed.String(),
 			Limit:    graph.Validation.MaxDuration,
@@ -134,21 +133,15 @@ func (s *ValidationService) CheckMaxDuration(
 
 // CheckMissingOptionalFields checks for missing optional business context fields
 func (s *ValidationService) CheckMissingOptionalFields(
-	stepNode models.GraphNode,
+	stepNode domain.GraphNode,
 	context map[string]string,
-) *models.ValidationViolation {
-	// No business context defined
+) *domain.ValidationViolation {
 	if stepNode.BusinessContext == nil {
 		return nil
 	}
 
-	// Type assert to BusinessContext
-	bc, ok := stepNode.BusinessContext.(*models.BusinessContext)
-	if !ok {
-		return nil
-	}
+	bc := stepNode.BusinessContext
 
-	// No optional fields defined
 	if len(bc.Optional) == 0 {
 		return nil
 	}
@@ -162,7 +155,7 @@ func (s *ValidationService) CheckMissingOptionalFields(
 	}
 
 	if len(missingFields) > 0 {
-		return &models.ValidationViolation{
+		return &domain.ValidationViolation{
 			Message:       fmt.Sprintf("Missing %d optional field(s)", len(missingFields)),
 			MissingFields: missingFields,
 			Details: map[string]interface{}{

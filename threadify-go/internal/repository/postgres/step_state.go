@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // StepStateRepository implements step state retrieval from PostgreSQL thread_activities
@@ -30,9 +30,9 @@ func NewStepStateRepository(pool *pgxpool.Pool) *StepStateRepository {
 
 // GetStepsBatch retrieves steps for multiple threads from thread_step_states table in a single query
 // Returns a map of threadID -> list of step states
-func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []string) (map[string][]*models.StepStateInfo, error) {
+func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []string) (map[string][]*domain.StepStateInfo, error) {
 	if len(threadIDs) == 0 {
-		return make(map[string][]*models.StepStateInfo), nil
+		return make(map[string][]*domain.StepStateInfo), nil
 	}
 
 	query := `
@@ -62,9 +62,9 @@ func (r *StepStateRepository) GetStepsBatch(ctx context.Context, threadIDs []str
 	}
 	defer rows.Close()
 
-	stepsMap := make(map[string][]*models.StepStateInfo)
+	stepsMap := make(map[string][]*domain.StepStateInfo)
 	for rows.Next() {
-		step := &models.StepStateInfo{}
+		step := &domain.StepStateInfo{}
 		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
@@ -125,7 +125,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	stepName *string,
 	idempotencyKey *string,
 	status *string,
-) ([]*models.StepStateInfo, error) {
+) ([]*domain.StepStateInfo, error) {
 
 	// Build query with company-level permission filtering
 	// Users can view steps if they have access to the thread (company-wide or cross-company sharing)
@@ -181,9 +181,9 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	}
 	defer rows.Close()
 
-	var steps []*models.StepStateInfo
+	var steps []*domain.StepStateInfo
 	for rows.Next() {
-		step := &models.StepStateInfo{}
+		step := &domain.StepStateInfo{}
 		var previousStep, actor, actorService, latestContext, startedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
@@ -248,7 +248,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 	endAt *string,
 	activityType *string,
 	actorFilter *string,
-) ([]models.StepHistory, error) {
+) ([]domain.StepHistory, error) {
 	// Validate pagination parameters
 	if limit <= 0 {
 		limit = 100
@@ -337,7 +337,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 	}
 	defer rows.Close()
 
-	var history []models.StepHistory
+	var history []domain.StepHistory
 
 	for rows.Next() {
 		var payload sql.NullString
@@ -424,7 +424,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 			metadataStr = metadataVal.String
 		}
 
-		stepHistory := models.StepHistory{
+		stepHistory := domain.StepHistory{
 			Attempt:      attemptNumber,
 			Timestamp:    recordedAt.Format(time.RFC3339Nano),
 			Status:       statusValue,

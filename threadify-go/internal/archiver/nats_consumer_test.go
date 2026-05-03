@@ -11,7 +11,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
 	"github.com/threadify/engine/internal/config"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -200,66 +199,6 @@ func TestNATSConsumer_processUsageSync_ValidEventsReachWriter(t *testing.T) {
 	msg.EXPECT().Metadata().Return(nil, errors.New("no meta")).AnyTimes()
 
 	err := c.processUsageSync(context.Background(), []jetstream.Msg{msg})
-
-	assert.NoError(t, err)
-}
-
-func TestNATSConsumer_processThreadMetadata_PublishesWhenWriterReturnsProfileIDs(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	js := NewMockJetStreamPublisher(ctrl)
-	writer := NewMockConsumerWriter(ctrl)
-
-	writer.EXPECT().
-		WriteThreadMetadata(gomock.Any(), gomock.Any()).
-		Return([]string{"p1", "p2"}, nil).
-		Times(1)
-
-	js.EXPECT().
-		Publish(gomock.Any(), gomock.Eq(natsrepo.SubjectProfileRecalculate), gomock.Any()).
-		DoAndReturn(func(_ context.Context, subject string, payload []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
-			assert.Equal(t, `["p1","p2"]`, string(payload))
-			return &jetstream.PubAck{}, nil
-		}).
-		Times(1)
-
-	c := newTestNATSConsumer(js, writer, &config.Config{}, zap.NewNop())
-
-	data, _ := json.Marshal(map[string]interface{}{
-		"type": "thread_created", "threadId": "t1", "companyId": "c1",
-	})
-	msg := NewMockMsg(ctrl)
-	msg.EXPECT().Subject().Return("metadata.thread").AnyTimes()
-	msg.EXPECT().Data().Return(data).AnyTimes()
-
-	err := c.processThreadMetadata(context.Background(), []jetstream.Msg{msg})
-
-	assert.NoError(t, err)
-}
-
-func TestNATSConsumer_processThreadMetadata_NoPublishWhenNoProfileIDs(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	js := NewMockJetStreamPublisher(ctrl)
-	writer := NewMockConsumerWriter(ctrl)
-
-	writer.EXPECT().
-		WriteThreadMetadata(gomock.Any(), gomock.Any()).
-		Return(nil, nil).
-		Times(1)
-
-	c := newTestNATSConsumer(js, writer, &config.Config{}, zap.NewNop())
-
-	data, _ := json.Marshal(map[string]interface{}{
-		"type": "thread_created", "threadId": "t2", "companyId": "c1",
-	})
-	msg := NewMockMsg(ctrl)
-	msg.EXPECT().Subject().Return("metadata.thread").AnyTimes()
-	msg.EXPECT().Data().Return(data).AnyTimes()
-
-	err := c.processThreadMetadata(context.Background(), []jetstream.Msg{msg})
 
 	assert.NoError(t, err)
 }

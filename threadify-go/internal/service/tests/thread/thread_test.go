@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 )
 
@@ -37,7 +37,7 @@ func TestParseContractIdentifier(t *testing.T) {
 }
 
 func TestValidateRecordEventRequest(t *testing.T) {
-	validReq := &models.RecordEventRequest{
+	validReq := &domain.RecordEventCmd{
 		ThreadID:   "t1",
 		StepName:   "step_a",
 		Status:     "success",
@@ -48,16 +48,16 @@ func TestValidateRecordEventRequest(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		mutate  func(*models.RecordEventRequest)
+		mutate  func(*domain.RecordEventCmd)
 		wantErr string
 	}{
-		{"valid", func(r *models.RecordEventRequest) {}, ""},
-		{"missing thread id", func(r *models.RecordEventRequest) { r.ThreadID = "" }, "Thread ID is required"},
-		{"missing step name", func(r *models.RecordEventRequest) { r.StepName = "" }, "StepName is required"},
-		{"missing status", func(r *models.RecordEventRequest) { r.Status = "" }, "Status is required"},
-		{"missing started at", func(r *models.RecordEventRequest) { r.StartedAt = "" }, "StartedAt is required"},
-		{"missing finished at", func(r *models.RecordEventRequest) { r.FinishedAt = "" }, "FinishedAt is required"},
-		{"missing context", func(r *models.RecordEventRequest) { r.Context = nil }, "Context is required"},
+		{"valid", func(r *domain.RecordEventCmd) {}, ""},
+		{"missing thread id", func(r *domain.RecordEventCmd) { r.ThreadID = "" }, "Thread ID is required"},
+		{"missing step name", func(r *domain.RecordEventCmd) { r.StepName = "" }, "StepName is required"},
+		{"missing status", func(r *domain.RecordEventCmd) { r.Status = "" }, "Status is required"},
+		{"missing started at", func(r *domain.RecordEventCmd) { r.StartedAt = "" }, "StartedAt is required"},
+		{"missing finished at", func(r *domain.RecordEventCmd) { r.FinishedAt = "" }, "FinishedAt is required"},
+		{"missing context", func(r *domain.RecordEventCmd) { r.Context = nil }, "Context is required"},
 	}
 
 	for _, tc := range tests {

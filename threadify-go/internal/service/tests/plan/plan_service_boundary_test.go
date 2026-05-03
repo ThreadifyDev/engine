@@ -8,7 +8,7 @@ import (
 
 	"threadify-go/shared/billing"
 	"threadify-go/shared/database"
-	billingmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -22,8 +22,8 @@ import (
 func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 	svc := service.NewPlanService(nil, nil, nil, &config.SubscriptionConfig{}, nil, nil, nil, nil, nil, zap.NewNop(), 0)
 
-	topupDisabled := func() *billingmodels.CreditAccount {
-		return &billingmodels.CreditAccount{
+	topupDisabled := func() *shareddomain.CreditAccount {
+		return &shareddomain.CreditAccount{
 			CompanyID:                        "c-1",
 			CreditAutoTopupMillicents:        0,
 			CreditMaxMonthlyChargeMillicents: 0,
@@ -32,7 +32,7 @@ func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		account *billingmodels.CreditAccount
+		account *shareddomain.CreditAccount
 		balance int64
 		charged int64
 		pending int64
@@ -55,7 +55,7 @@ func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 		},
 		{
 			name: "pending cushion covers deficit",
-			account: &billingmodels.CreditAccount{
+			account: &shareddomain.CreditAccount{
 				CompanyID:                        "c-1",
 				CreditAutoTopupMillicents:        0,
 				CreditMaxMonthlyChargeMillicents: 2000,
@@ -67,7 +67,7 @@ func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 		},
 		{
 			name: "auto topup covers deficit under cap",
-			account: &billingmodels.CreditAccount{
+			account: &shareddomain.CreditAccount{
 				CompanyID:                        "c-1",
 				CreditAutoTopupMillicents:        1000,
 				CreditMaxMonthlyChargeMillicents: 1500,
@@ -79,7 +79,7 @@ func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 		},
 		{
 			name: "auto topup blocked when monthly cap exceeded",
-			account: &billingmodels.CreditAccount{
+			account: &shareddomain.CreditAccount{
 				CompanyID:                        "c-1",
 				CreditAutoTopupMillicents:        1000,
 				CreditMaxMonthlyChargeMillicents: 1200,
@@ -91,7 +91,7 @@ func TestEvaluateCreditAvailability_BoundaryMatrix(t *testing.T) {
 		},
 		{
 			name: "topup available but insufficient cushion still fails",
-			account: &billingmodels.CreditAccount{
+			account: &shareddomain.CreditAccount{
 				CompanyID:                        "c-1",
 				CreditAutoTopupMillicents:        300,
 				CreditMaxMonthlyChargeMillicents: 1000,
@@ -225,7 +225,7 @@ func TestCheckCreditAvailable_FailsClosedWhenValkeyIsUnavailable(t *testing.T) {
 			ContractCostMillicents: 100,
 		},
 	}
-	account := &billingmodels.CreditAccount{
+	account := &shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		CreditAutoTopupMillicents:        0,
 		CreditMaxMonthlyChargeMillicents: 0,

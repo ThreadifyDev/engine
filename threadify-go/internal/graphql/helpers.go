@@ -3,11 +3,13 @@ package graphql
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
-	sharedmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql/generated"
 )
 
@@ -20,13 +22,13 @@ const (
 )
 
 // getUserInfoFromContext extracts user info from GraphQL context
-func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role string, err error) {
+func getUserInfoFromContext(ctx context.Context) (*domain.AuthContext, error) {
 	ownerIDVal := ctx.Value(sharedauth.CtxUserID)
 	companyIDVal := ctx.Value(sharedauth.CtxCompanyID)
 	rolesVal := ctx.Value(sharedauth.CtxRoles)
 
 	if ownerIDVal == nil || companyIDVal == nil || rolesVal == nil {
-		return "", "", "", fmt.Errorf("user authentication context not found")
+		return nil, fmt.Errorf("user authentication context not found")
 	}
 
 	ownerID, ownerOK := ownerIDVal.(string)
@@ -34,7 +36,7 @@ func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role strin
 	roles, rolesOK := rolesVal.([]string)
 
 	if !ownerOK || !companyOK || !rolesOK {
-		return "", "", "", fmt.Errorf("invalid user authentication context types")
+		return nil, fmt.Errorf("invalid user authentication context types")
 	}
 
 	extractedRole := ""
@@ -42,7 +44,11 @@ func getUserInfoFromContext(ctx context.Context) (ownerID, companyID, role strin
 		extractedRole = roles[0]
 	}
 
-	return ownerID, companyID, extractedRole, nil
+	return &domain.AuthContext{
+		OwnerID:   ownerID,
+		CompanyID: companyID,
+		Role:      extractedRole,
+	}, nil
 }
 
 // cacheAccessCheck stores an access check result in the context
@@ -80,39 +86,44 @@ func getCachedSteps(ctx context.Context, threadID string) (steps interface{}, fo
 	return steps, found
 }
 
-func toGraphQLMetrics(m *sharedmodels.EntityProfileMetrics) *generated.EntityProfileMetrics {
-	if m == nil {
+func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityProfileType {
+	if t == nil {
 		return nil
 	}
-	out := &generated.EntityProfileMetrics{
-		EntityProfileID:         m.EntityProfileID,
-		TotalDeliveries:         m.TotalDeliveries,
-		CompletedSuccessfully:   m.CompletedSuccessfully,
-		ValidationViolations:    m.ValidationViolations,
-		DeliveryHealthScore:     m.DeliveryHealthScore,
-		PrevDeliveryHealthScore: m.PrevDeliveryHealthScore,
-		HealthTrendSlope:        m.HealthTrendSlope,
+	desc := t.Description
+	var metricsConfig []*generated.EntityTypeMetricConfig
+	for _, m := range t.Metrics {
+		var nameStr *string
+		if m.Name != "" {
+			name := m.Name
+			nameStr = &name
+		}
+		metricsConfig = append(metricsConfig, &generated.EntityTypeMetricConfig{
+			TemplateID: m.TemplateID,
+			Name:       nameStr,
+			Parameters: m.Parameters,
+		})
 	}
-	if m.AverageDeliveryTimeMs != nil {
-		v := int(*m.AverageDeliveryTimeMs)
-		out.AverageDeliveryTimeMs = &v
+
+	return &generated.EntityProfileType{
+		ID:            t.ID,
+		CompanyID:     t.CompanyID,
+		Name:          t.Name,
+		Type:          t.Type,
+		Description:   &desc,
+		CreatedAt:     t.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     t.UpdatedAt.Format(time.RFC3339),
+		MetricsConfig: metricsConfig,
 	}
-	if m.LastCalculatedAt != nil {
-		v := m.LastCalculatedAt.Format(time.RFC3339)
-		out.LastCalculatedAt = &v
-	}
-	return out
 }
 
-func toGraphQLProfileType(t *sharedmodels.EntityProfileType) *generated.EntityProfileType {
-	desc := t.Description
-	return &generated.EntityProfileType{
-		ID:          t.ID,
-		CompanyID:   t.CompanyID,
-		Name:        t.Name,
-		Type:        t.Type,
-		Description: &desc,
-		CreatedAt:   t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+// formatColumnName converts snake_case to Title Case
+func formatColumnName(s string) string {
+	words := strings.Split(s, "_")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
 	}
+	return strings.Join(words, " ")
 }

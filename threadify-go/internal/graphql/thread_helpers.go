@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 )
 
@@ -27,7 +27,7 @@ func NormalizePagination(opts *ThreadQueryOptions) (limit, offset int) {
 	return limit, offset
 }
 
-func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*models.Thread) error {
+func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*domain.Thread) error {
 	if len(threads) == 0 {
 		return nil
 	}
@@ -75,9 +75,9 @@ func (r *queryResolver) BatchLoadThreadData(ctx context.Context, threads []*mode
 	return nil
 }
 
-func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*models.Thread, ownerID string) ([]*models.Thread, error) {
+func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*domain.Thread, ownerID string) ([]*domain.Thread, error) {
 	if len(threads) == 0 {
-		return []*models.Thread{}, nil
+		return []*domain.Thread{}, nil
 	}
 
 	accessCheckStart := perf.Now()
@@ -87,7 +87,7 @@ func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*mo
 		return nil, fmt.Errorf("batch check thread access: %w", err)
 	}
 
-	accessible := make([]*models.Thread, 0, len(threads))
+	accessible := make([]*domain.Thread, 0, len(threads))
 	for _, thread := range threads {
 		if hasAccess, ok := accessMap[thread.ID]; ok && hasAccess {
 			accessible = append(accessible, thread)
@@ -101,9 +101,9 @@ func (r *queryResolver) FilterThreadsByAccess(ctx context.Context, threads []*mo
 	return accessible, nil
 }
 
-func (r *queryResolver) ProcessThreadQuery(ctx context.Context, threads []*models.Thread, ownerID string) ([]*models.Thread, error) {
+func (r *queryResolver) ProcessThreadQuery(ctx context.Context, threads []*domain.Thread, ownerID string) ([]*domain.Thread, error) {
 	if len(threads) == 0 {
-		return []*models.Thread{}, nil
+		return []*domain.Thread{}, nil
 	}
 	if err := r.BatchLoadThreadData(ctx, threads); err != nil {
 		return nil, err

@@ -9,7 +9,7 @@ import (
 	"threadify-go/shared/billing"
 	sharedconfig "threadify-go/shared/config"
 	"threadify-go/shared/database"
-	billingmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
@@ -35,18 +35,18 @@ func newBillingOrchestratorForTest(deps *common.MockedDependencies) *service.Bil
 const (
 	creditTopupAppliedKeyTTL = 90 * 24 * time.Hour
 
-	fieldEventID           = billingmodels.FieldEventID
-	fieldCompanyID         = billingmodels.FieldCompanyID
-	fieldMeter             = billingmodels.FieldMeter
-	fieldAmount            = billingmodels.FieldAmount
-	fieldBillingCycleStart = billingmodels.FieldBillingCycleStart
-	fieldTimestamp         = billingmodels.FieldTimestamp
+	fieldEventID           = shareddomain.FieldEventID
+	fieldCompanyID         = shareddomain.FieldCompanyID
+	fieldMeter             = shareddomain.FieldMeter
+	fieldAmount            = shareddomain.FieldAmount
+	fieldBillingCycleStart = shareddomain.FieldBillingCycleStart
+	fieldTimestamp         = shareddomain.FieldTimestamp
 )
 
 var cycleStart = time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 
-func newTopupSnapshot(id, companyID string, totalCents int64) *billingmodels.BillingSnapshot {
-	return &billingmodels.BillingSnapshot{
+func newTopupSnapshot(id, companyID string, totalCents int64) *shareddomain.BillingSnapshot {
+	return &shareddomain.BillingSnapshot{
 		ID:          id,
 		CompanyID:   companyID,
 		PeriodStart: cycleStart,
@@ -62,7 +62,7 @@ func TestBillingOrchestrator_ChargeCreditTopup_SkipInvoicingCreatesPaidSnapshot(
 	const eventID = "evt-1"
 	svc := newBillingOrchestratorForTest(deps)
 
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&billingmodels.CreditAccount{
+	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		ExternalCustomerID:               "cus_123",
 		CreditAutoTopupMillicents:        2000,
@@ -70,14 +70,14 @@ func TestBillingOrchestrator_ChargeCreditTopup_SkipInvoicingCreatesPaidSnapshot(
 	}, nil)
 
 	deps.BillingRepo.EXPECT().CreateSnapshot(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, snap *billingmodels.BillingSnapshot) error {
+		func(_ context.Context, snap *shareddomain.BillingSnapshot) error {
 			require.Equal(t, eventID, snap.ID)
 			require.Equal(t, companyID, snap.CompanyID)
 			require.Equal(t, cycleStart, snap.PeriodStart)
 			require.Equal(t, int64(5), snap.TotalCents)
-			require.Equal(t, billingmodels.SnapshotReasonCreditTopup, snap.Reason)
+			require.Equal(t, shareddomain.SnapshotReasonCreditTopup, snap.Reason)
 			require.Equal(t, "noop", snap.ProviderName)
-			require.Equal(t, billingmodels.PaymentStatusPaid, snap.PaymentStatus)
+			require.Equal(t, shareddomain.PaymentStatusPaid, snap.PaymentStatus)
 			require.Equal(t, "cus_123", snap.ExternalCustomerID)
 			require.False(t, snap.PeriodEnd.IsZero())
 			require.False(t, snap.CreatedAt.IsZero())
@@ -96,7 +96,7 @@ func TestBillingOrchestrator_ChargeCreditTopup_AutoTopupDisabledReturnsError(t *
 	const companyID = "comp-2"
 	svc := newBillingOrchestratorForTest(deps)
 
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&billingmodels.CreditAccount{
+	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		ExternalCustomerID:               "cus_disabled",
 		CreditAutoTopupMillicents:        0,
@@ -139,7 +139,7 @@ func TestBillingOrchestrator_ChargeCreditTopup_CreateSnapshotError(t *testing.T)
 	const companyID = "comp-snapshot-error"
 	svc := newBillingOrchestratorForTest(deps)
 
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&billingmodels.CreditAccount{
+	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&shareddomain.CreditAccount{
 		CompanyID:                        companyID,
 		ExternalCustomerID:               "cus_snapshot",
 		CreditAutoTopupMillicents:        1000,
@@ -166,7 +166,7 @@ func TestBillingOrchestrator_ApplyCreditTopup_AlreadyAppliedIsNoOp(t *testing.T)
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	snapshot := &billingmodels.BillingSnapshot{
+	snapshot := &shareddomain.BillingSnapshot{
 		ID:                "snap-1",
 		CompanyID:         "comp-4",
 		ExternalInvoiceID: "in_999",
@@ -223,7 +223,7 @@ func TestBillingOrchestrator_ApplyCreditTopup_SuccessInvalidatesCacheAndWritesOu
 			data, ok := payload.(map[string]interface{})
 			require.True(t, ok)
 			require.Equal(t, companyID, data[fieldCompanyID])
-			require.Equal(t, billingmodels.MeterCreditTopup, data[fieldMeter])
+			require.Equal(t, shareddomain.MeterCreditTopup, data[fieldMeter])
 			require.Equal(t, "25000", data[fieldAmount])
 			require.Equal(t, snapshot.PeriodStart.Format(time.RFC3339Nano), data[fieldBillingCycleStart])
 			require.NotEmpty(t, data[fieldEventID])

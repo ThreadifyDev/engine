@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	billingmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +28,7 @@ func TestProvisionSubscription_CreatesNewAccount(t *testing.T) {
 	deps.PlanRepo.EXPECT().SetExternalCustomerID(ctx, companyID, externalID).Return(nil)
 	deps.PlanRepo.EXPECT().
 		CreateCreditAccount(ctx, gomock.Any()).
-		DoAndReturn(func(_ context.Context, acc *billingmodels.CreditAccount) error {
+		DoAndReturn(func(_ context.Context, acc *shareddomain.CreditAccount) error {
 			assert.Equal(t, companyID, acc.CompanyID)
 			assert.Equal(t, initialAmount, acc.CreditBalanceMillicents)
 			assert.Equal(t, initialAmount/expectedMinBalanceFraction, acc.CreditMinBalanceMillicents)

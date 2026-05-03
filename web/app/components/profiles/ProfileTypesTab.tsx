@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
-import type { EntityProfileType } from '~/lib/api';
-import { Database, Plus, Edit2, Trash2, X, ArrowRight } from 'lucide-react';
+import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric } from '~/lib/api';
+import { Database, Plus, Edit2, Trash2, X, ArrowRight, Settings } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
 
@@ -14,9 +14,17 @@ interface ProfileTypesTabProps {
 
 export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefresh }: ProfileTypesTabProps) {
   const navigate = useNavigate();
+  const [metricsTemplates, setMetricsTemplates] = useState<MetricsTemplateResponse[]>([]);
+
+  useEffect(() => {
+    api.listMetricsTemplates()
+      .then(res => setMetricsTemplates(res.data || []))
+      .catch(err => console.error("Failed to fetch metrics templates:", err));
+  }, []);
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [createData, setCreateData] = useState<{ name: string; type: string[]; description: string }>({ name: '', type: [], description: '' });
+  const [createData, setCreateData] = useState<{ name: string; type: string[]; description: string; metrics: EntityTypeMetric[] }>({ name: '', type: [], description: '', metrics: [] });
   const [createError, setCreateError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -40,7 +48,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
     try {
       setIsCreating(true);
       await api.createEntityProfileType(createData);
-      setCreateData({ name: '', type: [], description: '' });
+      setCreateData({ name: '', type: [], description: '', metrics: [] });
       setIsCreateModalOpen(false);
       await onRefresh();
     } catch (err: any) {
@@ -68,7 +76,8 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
       await api.updateEntityProfileType(editData.id, { 
         name: editData.name, 
         type: editData.type,
-        description: editData.description 
+        description: editData.description,
+        metrics: editData.metrics
       });
       setIsEditModalOpen(false);
       setEditData(null);
@@ -187,6 +196,20 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                 {pt.description || <span className="text-gray-400 italic">No description</span>}
               </p>
 
+              {pt.metrics && pt.metrics.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {pt.metrics.map((m, i) => {
+                    const tmpl = metricsTemplates.find(t => t.id === m.template_id);
+                    return (
+                      <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded">
+                        <Settings className="w-2.5 h-2.5" />
+                        {tmpl?.metrics_name ?? m.template_id}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
                 <span>{pt.updated_at ? `Updated ${new Date(pt.updated_at).toLocaleDateString()}` : '—'}</span>
                 <span className="flex items-center gap-1 text-gray-700 group-hover:text-black font-medium">
@@ -260,6 +283,59 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                     placeholder="Optional description..."
                     className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none resize-none"
                   />
+                </div>
+
+                <div className="pt-4 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-700">Metrics Configuration</label>
+                    <select
+                      className="text-xs bg-gray-100 border border-gray-200 text-gray-700 rounded px-2 py-1 outline-none"
+                      value=""
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        setCreateData({
+                          ...createData,
+                          metrics: [...(createData.metrics || []), { template_id: e.target.value, parameters: {} }]
+                        });
+                      }}
+                    >
+                      <option value="" disabled>+ Add Metric</option>
+                      {metricsTemplates
+                        .map(t => (
+                          <option key={t.id} value={t.id}>{t.metrics_name}</option>
+                        ))}
+                    </select>
+                  </div>
+                  
+                  {createData.metrics && createData.metrics.length > 0 ? (
+                    <div className="flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
+                      {createData.metrics.map((m, idx) => {
+                        const template = metricsTemplates.find(t => t.id === m.template_id);
+                        if (!template) return null;
+                        return (
+                          <MetricSelectionCard
+                            key={`${m.template_id}-${idx}`}
+                            template={template}
+                            metric={m}
+                            onChange={(updatedMetric) => {
+                              const newMetrics = [...createData.metrics];
+                              newMetrics[idx] = updatedMetric;
+                              setCreateData({ ...createData, metrics: newMetrics });
+                            }}
+                            onRemove={() => {
+                              const newMetrics = [...createData.metrics];
+                              newMetrics.splice(idx, 1);
+                              setCreateData({ ...createData, metrics: newMetrics });
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500 italic py-4 text-center bg-gray-50 rounded border border-dashed border-gray-200">
+                      No metrics added yet
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-8 flex justify-end items-center gap-6">
@@ -345,6 +421,59 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                     onChange={e => setEditData({...editData, description: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none resize-none"
                   />
+                </div>
+
+                <div className="pt-4 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-700">Metrics Configuration</label>
+                    <select
+                      className="text-xs bg-gray-100 border border-gray-200 text-gray-700 rounded px-2 py-1 outline-none"
+                      value=""
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        setEditData({
+                          ...editData,
+                          metrics: [...(editData.metrics || []), { template_id: e.target.value, parameters: {} }]
+                        });
+                      }}
+                    >
+                      <option value="" disabled>+ Add Metric</option>
+                      {metricsTemplates
+                        .map(t => (
+                          <option key={t.id} value={t.id}>{t.metrics_name}</option>
+                        ))}
+                    </select>
+                  </div>
+                  
+                  {editData.metrics && editData.metrics.length > 0 ? (
+                    <div className="flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
+                      {editData.metrics.map((m, idx) => {
+                        const template = metricsTemplates.find(t => t.id === m.template_id);
+                        if (!template) return null;
+                        return (
+                          <MetricSelectionCard
+                            key={`${m.template_id}-${idx}`}
+                            template={template}
+                            metric={m}
+                            onChange={(updatedMetric) => {
+                              const newMetrics = [...editData.metrics!];
+                              newMetrics[idx] = updatedMetric;
+                              setEditData({ ...editData, metrics: newMetrics });
+                            }}
+                            onRemove={() => {
+                              const newMetrics = [...editData.metrics!];
+                              newMetrics.splice(idx, 1);
+                              setEditData({ ...editData, metrics: newMetrics });
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500 italic py-4 text-center bg-gray-50 rounded border border-dashed border-gray-200">
+                      No metrics added yet
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-8 flex justify-end items-center gap-6">
@@ -490,3 +619,98 @@ function TagInput({ tags, persistedTags = [], onChange, placeholder }: TagInputP
     </div>
   );
 }
+
+interface MetricSelectionCardProps {
+  template: MetricsTemplateResponse;
+  metric: EntityTypeMetric;
+  onChange: (metric: EntityTypeMetric) => void;
+  onRemove: () => void;
+}
+
+function MetricSelectionCard({ template, metric, onChange, onRemove }: MetricSelectionCardProps) {
+  const handleParamChange = (param: string, value: string) => {
+    onChange({
+      ...metric,
+      parameters: { ...metric.parameters, [param]: value }
+    });
+  };
+
+  const threadStatuses = ['active', 'completed', 'failed', 'cancelled'];
+  const stepStatuses = ['pending', 'in_progress', 'completed', 'failed', 'skipped'];
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute top-3 right-3 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <X className="w-4 h-4" />
+      </button>
+      
+      <div className="flex items-center gap-2 mb-3">
+        <Settings className="w-4 h-4 text-gray-500" />
+        <h4 className="text-sm font-semibold text-gray-900">{template.metrics_name}</h4>
+      </div>
+
+      {(template.parameters || []).length === 0 ? (
+        <p className="text-xs text-gray-500 italic">No configuration required for this metric.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {(template.parameters || []).map((param) => {
+            const val = metric.parameters?.[param] || '';
+            const isStatus = param === 'status' || param === 'thread_status';
+            const isStepStatus = param === 'step_status';
+            const isGranularity = param === 'granularity';
+
+            return (
+              <div key={param} className="flex flex-col gap-1">
+                <label className="text-xs font-mono text-gray-600">@{param}</label>
+                {isStatus ? (
+                  <select
+                    value={val}
+                    onChange={(e) => handleParamChange(param, e.target.value)}
+                    className="text-sm bg-transparent border-b border-gray-300 focus:border-black outline-none py-1 text-gray-900 cursor-pointer"
+                  >
+                    <option value="" disabled>Select status</option>
+                    {threadStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : isStepStatus ? (
+                  <select
+                    value={val}
+                    onChange={(e) => handleParamChange(param, e.target.value)}
+                    className="text-sm bg-transparent border-b border-gray-300 focus:border-black outline-none py-1 text-gray-900 cursor-pointer"
+                  >
+                    <option value="" disabled>Select step status</option>
+                    {stepStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : isGranularity ? (
+                  <select
+                    value={val}
+                    onChange={(e) => handleParamChange(param, e.target.value)}
+                    className="text-sm bg-transparent border-b border-gray-300 focus:border-black outline-none py-1 text-gray-900 cursor-pointer"
+                  >
+                    <option value="" disabled>Select granularity</option>
+                    <option value="hour">Hour</option>
+                    <option value="day">Day</option>
+                    <option value="week">Week</option>
+                    <option value="month">Month</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={val}
+                    onChange={(e) => handleParamChange(param, e.target.value)}
+                    placeholder={`Enter ${param}...`}
+                    className="text-sm bg-transparent border-b border-gray-300 focus:border-black outline-none py-1 text-gray-900 placeholder:text-gray-400"
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+

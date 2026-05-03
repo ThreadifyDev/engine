@@ -6,22 +6,21 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // ConnectionService implements the ConnectionManager interface with in-memory client tracking.
 type ConnectionService struct {
-	clients       map[string]*models.ConnectedClient
+	clients       map[string]*domain.ConnectedClient
 	sessionCounts map[string]int
 	mu            sync.RWMutex
 	logger        *zap.Logger
 }
 
 // NewConnectionService creates a new connection service.
-func NewConnectionService(logger *zap.Logger) types.ConnectionManager {
+func NewConnectionService(logger *zap.Logger) domain.ConnectionManager {
 	return &ConnectionService{
-		clients:       make(map[string]*models.ConnectedClient),
+		clients:       make(map[string]*domain.ConnectedClient),
 		sessionCounts: make(map[string]int),
 		logger:        logger,
 	}
@@ -40,7 +39,7 @@ func (c *ConnectionService) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceN
 		existing.ServiceName = serviceName
 		existing.CompanyID = companyID
 	} else {
-		c.clients[ownerID] = &models.ConnectedClient{
+		c.clients[ownerID] = &domain.ConnectedClient{
 			OwnerID:          ownerID,
 			CompanyID:        companyID,
 			ApiKey:           apiKey,
@@ -94,7 +93,7 @@ func (c *ConnectionService) Disconnect(ownerID string) error {
 }
 
 // GetClient retrieves a connected client by owner ID.
-func (c *ConnectionService) GetClient(ownerID string) (*models.ConnectedClient, bool) {
+func (c *ConnectionService) GetClient(ownerID string) (*domain.ConnectedClient, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	client, exists := c.clients[ownerID]

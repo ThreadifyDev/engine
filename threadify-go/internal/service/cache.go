@@ -8,14 +8,13 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/spf13/viper"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // CacheService implements the CacheManager interface with LRU in-memory caching.
 type CacheService struct {
-	contractCache              *lru.Cache[string, *models.ContractGraph]
-	threadCache                *lru.Cache[string, *models.Thread]
+	contractCache              *lru.Cache[string, *domain.ContractGraph]
+	threadCache                *lru.Cache[string, *domain.Thread]
 	runtimeRolePermissionCache *lru.Cache[string, []string] // runtime_role -> permissions (global)
 	roleCache                  *lru.Cache[string, string]   // "threadID:userID" -> role
 	stepStatusCache            *lru.Cache[string, string]   // "threadID:stepName:idempotencyKey" -> status
@@ -24,7 +23,7 @@ type CacheService struct {
 
 // NewCacheService creates a new cache service with LRU eviction.
 // Cache sizes are configurable via config.yaml under cache.lru.
-func NewCacheService(logger *zap.Logger) types.CacheManager {
+func NewCacheService(logger *zap.Logger) domain.CacheManager {
 	viper.SetDefault("cache.lru.contract_cache_size", 1000)
 	viper.SetDefault("cache.lru.thread_cache_size", 10000)
 	viper.SetDefault("cache.lru.role_cache_size", 50000)
@@ -35,8 +34,8 @@ func NewCacheService(logger *zap.Logger) types.CacheManager {
 	roleCacheSize := viper.GetInt("cache.lru.role_cache_size")
 	stepStatusCacheSize := viper.GetInt("cache.lru.step_status_cache_size")
 
-	contractCache := mustNewLRU[string, *models.ContractGraph](contractCacheSize, "contract", logger)
-	threadCache := mustNewLRU[string, *models.Thread](threadCacheSize, "thread", logger)
+	contractCache := mustNewLRU[string, *domain.ContractGraph](contractCacheSize, "contract", logger)
+	threadCache := mustNewLRU[string, *domain.Thread](threadCacheSize, "thread", logger)
 	// Runtime role permission cache — only ~5 entries (owner, participant, observer, external, etc.)
 	runtimeRolePermissionCache := mustNewLRU[string, []string](10, "runtime_role_permission", logger)
 	roleCache := mustNewLRU[string, string](roleCacheSize, "role", logger)
@@ -74,22 +73,22 @@ func contractCacheKey(ownerID, contractID string, version int) string {
 }
 
 // GetThread retrieves a thread from cache.
-func (c *CacheService) GetThread(threadID string) (*models.Thread, bool) {
+func (c *CacheService) GetThread(threadID string) (*domain.Thread, bool) {
 	return c.threadCache.Get(threadID)
 }
 
 // SetThread stores a thread in cache.
-func (c *CacheService) SetThread(threadID string, thread *models.Thread) {
+func (c *CacheService) SetThread(threadID string, thread *domain.Thread) {
 	c.threadCache.Add(threadID, thread)
 }
 
 // GetContractGraph retrieves a contract graph from cache.
-func (c *CacheService) GetContractGraph(contractID string, version int, ownerID string) (*models.ContractGraph, bool) {
+func (c *CacheService) GetContractGraph(contractID string, version int, ownerID string) (*domain.ContractGraph, bool) {
 	return c.contractCache.Get(contractCacheKey(ownerID, contractID, version))
 }
 
 // SetContractGraph stores a contract graph in cache.
-func (c *CacheService) SetContractGraph(contractID string, version int, ownerID string, graph *models.ContractGraph) {
+func (c *CacheService) SetContractGraph(contractID string, version int, ownerID string, graph *domain.ContractGraph) {
 	c.contractCache.Add(contractCacheKey(ownerID, contractID, version), graph)
 }
 

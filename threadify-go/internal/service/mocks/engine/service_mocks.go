@@ -12,8 +12,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
-	models "github.com/threadify/engine/internal/models"
-	types "github.com/threadify/engine/internal/types"
+	domain "github.com/threadify/engine/internal/domain"
 	validator "github.com/threadify/engine/pkg/validator"
 )
 
@@ -41,7 +40,7 @@ func (m *MockStepEventProcessor) EXPECT() *MockStepEventProcessorMockRecorder {
 }
 
 // RecordStepEventDirect mocks base method.
-func (m *MockStepEventProcessor) RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
+func (m *MockStepEventProcessor) RecordStepEventDirect(ctx context.Context, event domain.StepEvent, ownerID, serviceName string, subSteps []domain.SubStepCmd) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RecordStepEventDirect", ctx, event, ownerID, serviceName, subSteps)
 	ret0, _ := ret[0].(error)
@@ -134,10 +133,10 @@ func (mr *MockConnectionManagerMockRecorder) Disconnect(ownerID interface{}) *go
 }
 
 // GetClient mocks base method.
-func (m *MockConnectionManager) GetClient(ownerID string) (*models.ConnectedClient, bool) {
+func (m *MockConnectionManager) GetClient(ownerID string) (*domain.ConnectedClient, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetClient", ownerID)
-	ret0, _ := ret[0].(*models.ConnectedClient)
+	ret0, _ := ret[0].(*domain.ConnectedClient)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -249,10 +248,10 @@ func (mr *MockCacheManagerMockRecorder) ClearThreadRoles(threadID interface{}) *
 }
 
 // GetContractGraph mocks base method.
-func (m *MockCacheManager) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, bool) {
+func (m *MockCacheManager) GetContractGraph(contractName string, version int, companyID string) (*domain.ContractGraph, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetContractGraph", contractName, version, companyID)
-	ret0, _ := ret[0].(*models.ContractGraph)
+	ret0, _ := ret[0].(*domain.ContractGraph)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -294,10 +293,10 @@ func (mr *MockCacheManagerMockRecorder) GetStepStatus(stepHashKey interface{}) *
 }
 
 // GetThread mocks base method.
-func (m *MockCacheManager) GetThread(threadID string) (*models.Thread, bool) {
+func (m *MockCacheManager) GetThread(threadID string) (*domain.Thread, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetThread", threadID)
-	ret0, _ := ret[0].(*models.Thread)
+	ret0, _ := ret[0].(*domain.Thread)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -324,7 +323,7 @@ func (mr *MockCacheManagerMockRecorder) GetUserRole(threadID, userID interface{}
 }
 
 // SetContractGraph mocks base method.
-func (m *MockCacheManager) SetContractGraph(contractName string, version int, companyID string, graph *models.ContractGraph) {
+func (m *MockCacheManager) SetContractGraph(contractName string, version int, companyID string, graph *domain.ContractGraph) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetContractGraph", contractName, version, companyID, graph)
 }
@@ -360,7 +359,7 @@ func (mr *MockCacheManagerMockRecorder) SetStepStatus(stepHashKey, status interf
 }
 
 // SetThread mocks base method.
-func (m *MockCacheManager) SetThread(threadID string, thread *models.Thread) {
+func (m *MockCacheManager) SetThread(threadID string, thread *domain.Thread) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetThread", threadID, thread)
 }
@@ -407,76 +406,76 @@ func (m *MockContractGraphValidator) EXPECT() *MockContractGraphValidatorMockRec
 }
 
 // GetContractByNameAndCompany mocks base method.
-func (m *MockContractGraphValidator) GetContractByNameAndCompany(contractName, companyID string) (*models.Contract, error) {
+func (m *MockContractGraphValidator) GetContractByNameAndCompany(ctx context.Context, contractName, companyID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetContractByNameAndCompany", contractName, companyID)
-	ret0, _ := ret[0].(*models.Contract)
+	ret := m.ctrl.Call(m, "GetContractByNameAndCompany", ctx, contractName, companyID)
+	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetContractByNameAndCompany indicates an expected call of GetContractByNameAndCompany.
-func (mr *MockContractGraphValidatorMockRecorder) GetContractByNameAndCompany(contractName, companyID interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) GetContractByNameAndCompany(ctx, contractName, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContractByNameAndCompany", reflect.TypeOf((*MockContractGraphValidator)(nil).GetContractByNameAndCompany), contractName, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContractByNameAndCompany", reflect.TypeOf((*MockContractGraphValidator)(nil).GetContractByNameAndCompany), ctx, contractName, companyID)
 }
 
 // GetContractGraph mocks base method.
-func (m *MockContractGraphValidator) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
+func (m *MockContractGraphValidator) GetContractGraph(ctx context.Context, contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetContractGraph", contractName, version, companyID)
-	ret0, _ := ret[0].(*models.ContractGraph)
+	ret := m.ctrl.Call(m, "GetContractGraph", ctx, contractName, version, companyID)
+	ret0, _ := ret[0].(*domain.ContractGraph)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetContractGraph indicates an expected call of GetContractGraph.
-func (mr *MockContractGraphValidatorMockRecorder) GetContractGraph(contractName, version, companyID interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) GetContractGraph(ctx, contractName, version, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContractGraph", reflect.TypeOf((*MockContractGraphValidator)(nil).GetContractGraph), contractName, version, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContractGraph", reflect.TypeOf((*MockContractGraphValidator)(nil).GetContractGraph), ctx, contractName, version, companyID)
 }
 
 // LoadContractGraphIntoCache mocks base method.
-func (m *MockContractGraphValidator) LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error) {
+func (m *MockContractGraphValidator) LoadContractGraphIntoCache(ctx context.Context, contractName string, version int, companyID string) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LoadContractGraphIntoCache", contractName, version, companyID)
+	ret := m.ctrl.Call(m, "LoadContractGraphIntoCache", ctx, contractName, version, companyID)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // LoadContractGraphIntoCache indicates an expected call of LoadContractGraphIntoCache.
-func (mr *MockContractGraphValidatorMockRecorder) LoadContractGraphIntoCache(contractName, version, companyID interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) LoadContractGraphIntoCache(ctx, contractName, version, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadContractGraphIntoCache", reflect.TypeOf((*MockContractGraphValidator)(nil).LoadContractGraphIntoCache), contractName, version, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadContractGraphIntoCache", reflect.TypeOf((*MockContractGraphValidator)(nil).LoadContractGraphIntoCache), ctx, contractName, version, companyID)
 }
 
 // ValidateStepContext mocks base method.
-func (m *MockContractGraphValidator) ValidateStepContext(stepNode models.GraphNode, context map[string]string) error {
+func (m *MockContractGraphValidator) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, context map[string]string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateStepContext", stepNode, context)
+	ret := m.ctrl.Call(m, "ValidateStepContext", ctx, stepNode, context)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ValidateStepContext indicates an expected call of ValidateStepContext.
-func (mr *MockContractGraphValidatorMockRecorder) ValidateStepContext(stepNode, context interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) ValidateStepContext(ctx, stepNode, context interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepContext", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepContext), stepNode, context)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepContext", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepContext), ctx, stepNode, context)
 }
 
 // ValidateStepInContract mocks base method.
-func (m *MockContractGraphValidator) ValidateStepInContract(contractName string, version int, stepName string, context map[string]string, companyID string) error {
+func (m *MockContractGraphValidator) ValidateStepInContract(ctx context.Context, contractName string, version int, stepName string, context map[string]string, companyID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateStepInContract", contractName, version, stepName, context, companyID)
+	ret := m.ctrl.Call(m, "ValidateStepInContract", ctx, contractName, version, stepName, context, companyID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ValidateStepInContract indicates an expected call of ValidateStepInContract.
-func (mr *MockContractGraphValidatorMockRecorder) ValidateStepInContract(contractName, version, stepName, context, companyID interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) ValidateStepInContract(ctx, contractName, version, stepName, context, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepInContract", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepInContract), contractName, version, stepName, context, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepInContract", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepInContract), ctx, contractName, version, stepName, context, companyID)
 }
 
 // MockBackgroundService is a mock of BackgroundService interface.
@@ -608,31 +607,31 @@ func (m *MockTimeoutMonitor) EXPECT() *MockTimeoutMonitorMockRecorder {
 }
 
 // CancelTimeout mocks base method.
-func (m *MockTimeoutMonitor) CancelTimeout(timeoutID, threadID, reason string) error {
+func (m *MockTimeoutMonitor) CancelTimeout(ctx context.Context, timeoutID, threadID, reason string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CancelTimeout", timeoutID, threadID, reason)
+	ret := m.ctrl.Call(m, "CancelTimeout", ctx, timeoutID, threadID, reason)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CancelTimeout indicates an expected call of CancelTimeout.
-func (mr *MockTimeoutMonitorMockRecorder) CancelTimeout(timeoutID, threadID, reason interface{}) *gomock.Call {
+func (mr *MockTimeoutMonitorMockRecorder) CancelTimeout(ctx, timeoutID, threadID, reason interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelTimeout", reflect.TypeOf((*MockTimeoutMonitor)(nil).CancelTimeout), timeoutID, threadID, reason)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CancelTimeout", reflect.TypeOf((*MockTimeoutMonitor)(nil).CancelTimeout), ctx, timeoutID, threadID, reason)
 }
 
 // ScheduleTimeout mocks base method.
-func (m *MockTimeoutMonitor) ScheduleTimeout(event models.TimeoutEvent) error {
+func (m *MockTimeoutMonitor) ScheduleTimeout(ctx context.Context, event domain.TimeoutEvent) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ScheduleTimeout", event)
+	ret := m.ctrl.Call(m, "ScheduleTimeout", ctx, event)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ScheduleTimeout indicates an expected call of ScheduleTimeout.
-func (mr *MockTimeoutMonitorMockRecorder) ScheduleTimeout(event interface{}) *gomock.Call {
+func (mr *MockTimeoutMonitorMockRecorder) ScheduleTimeout(ctx, event interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleTimeout", reflect.TypeOf((*MockTimeoutMonitor)(nil).ScheduleTimeout), event)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleTimeout", reflect.TypeOf((*MockTimeoutMonitor)(nil).ScheduleTimeout), ctx, event)
 }
 
 // MockContractService is a mock of ContractService interface.
@@ -704,18 +703,18 @@ func (mr *MockContractServiceMockRecorder) DeleteContractVersion(ctx, contractID
 }
 
 // GetAllContractVersions mocks base method.
-func (m *MockContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string) (int, interface{}) {
+func (m *MockContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string, limit, offset int) (int, interface{}) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllContractVersions", ctx, contractID, requesterID)
+	ret := m.ctrl.Call(m, "GetAllContractVersions", ctx, contractID, requesterID, limit, offset)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(interface{})
 	return ret0, ret1
 }
 
 // GetAllContractVersions indicates an expected call of GetAllContractVersions.
-func (mr *MockContractServiceMockRecorder) GetAllContractVersions(ctx, contractID, requesterID interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) GetAllContractVersions(ctx, contractID, requesterID, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllContractVersions", reflect.TypeOf((*MockContractService)(nil).GetAllContractVersions), ctx, contractID, requesterID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllContractVersions", reflect.TypeOf((*MockContractService)(nil).GetAllContractVersions), ctx, contractID, requesterID, limit, offset)
 }
 
 // GetAllContracts mocks base method.
@@ -764,11 +763,11 @@ func (mr *MockContractServiceMockRecorder) GetContractVersion(ctx, contractID, v
 }
 
 // PreviewContract mocks base method.
-func (m *MockContractService) PreviewContract(yamlString string) (*validator.Contract, *models.ContractGraph, *validator.ValidationResult, error) {
+func (m *MockContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PreviewContract", yamlString)
 	ret0, _ := ret[0].(*validator.Contract)
-	ret1, _ := ret[1].(*models.ContractGraph)
+	ret1, _ := ret[1].(*domain.ContractGraph)
 	ret2, _ := ret[2].(*validator.ValidationResult)
 	ret3, _ := ret[3].(error)
 	return ret0, ret1, ret2, ret3
@@ -833,10 +832,10 @@ func (mr *MockThreadServiceMockRecorder) EndThread(ctx, threadID, actorID, actor
 }
 
 // HandleAddRefs mocks base method.
-func (m *MockThreadService) HandleAddRefs(ctx context.Context, req *models.AddRefsRequest, ownerID string) *models.AddRefsResponse {
+func (m *MockThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCmd, ownerID string) *domain.AddRefsResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleAddRefs", ctx, req, ownerID)
-	ret0, _ := ret[0].(*models.AddRefsResponse)
+	ret0, _ := ret[0].(*domain.AddRefsResponse)
 	return ret0
 }
 
@@ -847,10 +846,10 @@ func (mr *MockThreadServiceMockRecorder) HandleAddRefs(ctx, req, ownerID interfa
 }
 
 // HandleClose mocks base method.
-func (m *MockThreadService) HandleClose(ownerID string) *models.CloseConnectionResponse {
+func (m *MockThreadService) HandleClose(ownerID string) *domain.CloseConnectionResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleClose", ownerID)
-	ret0, _ := ret[0].(*models.CloseConnectionResponse)
+	ret0, _ := ret[0].(*domain.CloseConnectionResponse)
 	return ret0
 }
 
@@ -861,10 +860,10 @@ func (mr *MockThreadServiceMockRecorder) HandleClose(ownerID interface{}) *gomoc
 }
 
 // HandleConnect mocks base method.
-func (m *MockThreadService) HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse {
+func (m *MockThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCmd) *domain.ConnectResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleConnect", ctx, req)
-	ret0, _ := ret[0].(*models.ConnectResponse)
+	ret0, _ := ret[0].(*domain.ConnectResponse)
 	return ret0
 }
 
@@ -875,40 +874,40 @@ func (mr *MockThreadServiceMockRecorder) HandleConnect(ctx, req interface{}) *go
 }
 
 // HandleInviteParty mocks base method.
-func (m *MockThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error) {
+func (m *MockThreadService) HandleInviteParty(ctx context.Context, req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HandleInviteParty", req, ownerID, companyID, threadIDs)
-	ret0, _ := ret[0].(*models.InvitePartyResponse)
+	ret := m.ctrl.Call(m, "HandleInviteParty", ctx, req, ownerID, companyID, threadIDs)
+	ret0, _ := ret[0].(*domain.InvitePartyResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // HandleInviteParty indicates an expected call of HandleInviteParty.
-func (mr *MockThreadServiceMockRecorder) HandleInviteParty(req, ownerID, companyID, threadIDs interface{}) *gomock.Call {
+func (mr *MockThreadServiceMockRecorder) HandleInviteParty(ctx, req, ownerID, companyID, threadIDs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleInviteParty", reflect.TypeOf((*MockThreadService)(nil).HandleInviteParty), req, ownerID, companyID, threadIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleInviteParty", reflect.TypeOf((*MockThreadService)(nil).HandleInviteParty), ctx, req, ownerID, companyID, threadIDs)
 }
 
 // HandleJoinThread mocks base method.
-func (m *MockThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
+func (m *MockThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinThreadCmd, userID, companyID string) (*domain.JoinThreadResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HandleJoinThread", req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.JoinThreadResponse)
+	ret := m.ctrl.Call(m, "HandleJoinThread", ctx, req, userID, companyID)
+	ret0, _ := ret[0].(*domain.JoinThreadResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // HandleJoinThread indicates an expected call of HandleJoinThread.
-func (mr *MockThreadServiceMockRecorder) HandleJoinThread(req, ownerID, companyID interface{}) *gomock.Call {
+func (mr *MockThreadServiceMockRecorder) HandleJoinThread(ctx, req, userID, companyID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleJoinThread", reflect.TypeOf((*MockThreadService)(nil).HandleJoinThread), req, ownerID, companyID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleJoinThread", reflect.TypeOf((*MockThreadService)(nil).HandleJoinThread), ctx, req, userID, companyID)
 }
 
 // HandleRecordEvent mocks base method.
-func (m *MockThreadService) HandleRecordEvent(ctx context.Context, req *models.RecordEventRequest, ownerID, companyID string) *models.RecordEventResponse {
+func (m *MockThreadService) HandleRecordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleRecordEvent", ctx, req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.RecordEventResponse)
+	ret0, _ := ret[0].(*domain.RecordEventResponse)
 	return ret0
 }
 
@@ -919,10 +918,10 @@ func (mr *MockThreadServiceMockRecorder) HandleRecordEvent(ctx, req, ownerID, co
 }
 
 // HandleStartThread mocks base method.
-func (m *MockThreadService) HandleStartThread(ctx context.Context, req *models.StartThreadRequest, ownerID, companyID string) *models.StartThreadResponse {
+func (m *MockThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleStartThread", ctx, req, ownerID, companyID)
-	ret0, _ := ret[0].(*models.StartThreadResponse)
+	ret0, _ := ret[0].(*domain.StartThreadResponse)
 	return ret0
 }
 
@@ -1000,10 +999,10 @@ func (mr *MockInvitationTokenServiceMockRecorder) ValidateAccessLevel(accessLeve
 }
 
 // ValidateToken mocks base method.
-func (m *MockInvitationTokenService) ValidateToken(tokenString string) (*models.ThreadInvitationClaims, error) {
+func (m *MockInvitationTokenService) ValidateToken(tokenString string) (*domain.ThreadInvitationClaims, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateToken", tokenString)
-	ret0, _ := ret[0].(*models.ThreadInvitationClaims)
+	ret0, _ := ret[0].(*domain.ThreadInvitationClaims)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -1089,7 +1088,7 @@ func (mr *MockNotificationRouterMockRecorder) HandleAck(ackToken interface{}) *g
 }
 
 // HandleConnect mocks base method.
-func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn types.WSConnection, connMutex types.WSMutex) error {
+func (m *MockNotificationRouter) HandleConnect(sessionID, ownerID string, maxInFlight int, conn domain.WSConnection, connMutex domain.WSMutex) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "HandleConnect", sessionID, ownerID, maxInFlight, conn, connMutex)
 	ret0, _ := ret[0].(error)
@@ -1154,7 +1153,7 @@ func (m *MockNotificationPublisher) EXPECT() *MockNotificationPublisherMockRecor
 }
 
 // PublishNotification mocks base method.
-func (m *MockNotificationPublisher) PublishNotification(ctx context.Context, notification models.ValidationNotification) error {
+func (m *MockNotificationPublisher) PublishNotification(ctx context.Context, notification domain.ValidationNotification) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PublishNotification", ctx, notification)
 	ret0, _ := ret[0].(error)
@@ -1206,10 +1205,10 @@ func (mr *MockAuthServiceMockRecorder) GetUserRoles(ctx, userID, scope, expiresA
 }
 
 // ValidateApiKey mocks base method.
-func (m *MockAuthService) ValidateApiKey(apiKey string) (*types.UserInfo, error) {
+func (m *MockAuthService) ValidateApiKey(apiKey string) (*domain.UserInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateApiKey", apiKey)
-	ret0, _ := ret[0].(*types.UserInfo)
+	ret0, _ := ret[0].(*domain.UserInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -23,13 +23,13 @@ func NewPublisher(client *Client) *Publisher {
 	return &Publisher{client: client}
 }
 
-func (p *Publisher) PublishNotification(ctx context.Context, notification models.ValidationNotification) error {
+func (p *Publisher) PublishNotification(ctx context.Context, notification domain.ValidationNotification) error {
 	contract := notification.ContractName
 	if contract == "" {
 		contract = "global"
 	}
 
-	_, notifType, _ := strings.Cut(notification.NotificationType, ".")
+	_, notifType, _ := strings.Cut(string(notification.NotificationType), ".")
 	if notifType == "" {
 		notifType = unknownNotificationType
 	}
@@ -43,7 +43,25 @@ func (p *Publisher) PublishNotification(ctx context.Context, notification models
 		notification.StepName,
 	)
 
-	data, err := json.Marshal(notification)
+	// Explicitly map to map[string]interface{} to maintain camelCase JSON keys
+	// while keeping the domain struct pure (no JSON tags).
+	data, err := json.Marshal(map[string]interface{}{
+		"notificationId":   notification.NotificationID,
+		"threadId":         notification.ThreadID,
+		"stepId":           notification.StepID,
+		"stepName":         notification.StepName,
+		"ownerId":          notification.OwnerID,
+		"contractName":     notification.ContractName,
+		"source":           string(notification.Source),
+		"notificationType": string(notification.NotificationType),
+		"stepStatus":       notification.StepStatus,
+		"status":           notification.Status,
+		"violationType":    notification.ViolationType,
+		"severity":         notification.Severity,
+		"message":          notification.Message,
+		"details":          notification.Details,
+		"timestamp":        notification.Timestamp,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal notification: %w", err)
 	}

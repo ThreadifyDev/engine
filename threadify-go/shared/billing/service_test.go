@@ -7,7 +7,7 @@ import (
 
 	billingmocks "threadify-go/shared/billing/mocks"
 	"threadify-go/shared/config"
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +26,7 @@ func TestBillingService_GetCreditAccount(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(repo *billingmocks.MockPlanRepository) {
-				repo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&models.CreditAccount{ID: "acc_123"}, nil)
+				repo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(&domain.CreditAccount{ID: "acc_123"}, nil)
 			},
 		},
 		{

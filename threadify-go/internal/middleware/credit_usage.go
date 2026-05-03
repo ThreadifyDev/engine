@@ -7,19 +7,19 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	billingmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 )
 
 const (
 	egressTimeout = 5 * time.Second
 )
 
-func CreditUsageMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.HandlerFunc {
+func CreditUsageMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if path == "/health" || path == "/metrics" {
@@ -103,7 +103,7 @@ func CreditUsageMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.Ha
 	}
 }
 
-func EgressMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.HandlerFunc {
+func EgressMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
@@ -114,7 +114,7 @@ func EgressMiddleware(planSvc types.PlanService, logger *zap.Logger) gin.Handler
 
 		var companyID string
 		if accountRaw, exists := c.Get(sharedauth.CtxCreditAccount); exists {
-			if account, ok := accountRaw.(*billingmodels.CreditAccount); ok && account != nil {
+			if account, ok := accountRaw.(*shareddomain.CreditAccount); ok && account != nil {
 				companyID = account.CompanyID
 			}
 		}

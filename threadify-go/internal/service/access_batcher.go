@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -26,8 +26,8 @@ type AccessBatcher struct {
 	buffer        chan *AccessWrite
 	batchSize     int
 	flushInterval time.Duration
-	accessRepo    types.AccessRepository
-	luaScripts    types.LuaScriptManager
+	accessRepo    domain.AccessRepository
+	luaScripts    domain.LuaScriptManager
 	stopChan      chan struct{}
 	stopOnce      sync.Once
 	wg            sync.WaitGroup
@@ -39,8 +39,8 @@ func NewAccessBatcher(
 	bufferSize int,
 	batchSize int,
 	flushInterval time.Duration,
-	accessRepo types.AccessRepository,
-	luaScripts types.LuaScriptManager,
+	accessRepo domain.AccessRepository,
+	luaScripts domain.LuaScriptManager,
 	logger *zap.Logger,
 ) *AccessBatcher {
 	return &AccessBatcher{
@@ -151,7 +151,7 @@ func (b *AccessBatcher) flush(batch []*AccessWrite) {
 	errorCount := 0
 
 	for _, write := range batch {
-		_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+		_, err := b.accessRepo.GrantOrUpdateAccess(ctx, domain.GrantAccessParams{
 			ThreadID:    write.ThreadID,
 			UserID:      write.UserID,
 			Role:        write.Role,
@@ -186,7 +186,7 @@ func (b *AccessBatcher) writeSync(write *AccessWrite) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := b.accessRepo.GrantOrUpdateAccess(ctx, types.GrantAccessParams{
+	_, err := b.accessRepo.GrantOrUpdateAccess(ctx, domain.GrantAccessParams{
 		ThreadID:    write.ThreadID,
 		UserID:      write.UserID,
 		Role:        write.Role,

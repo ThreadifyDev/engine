@@ -24,6 +24,7 @@ import (
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	postgresrepo "github.com/threadify/engine/internal/repository/postgres"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -72,10 +73,32 @@ func run(configPath string, logger *zap.Logger) error {
 		return fmt.Errorf("init schema: %w", err)
 	}
 
+	valkeyClient, err := database.NewValkeyService(
+		cfg.Redis.Host,
+		cfg.Redis.Port,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.Redis.PoolSize,
+		cfg.Redis.MinIdleConns,
+		cfg.Redis.MaxIdleConns,
+		cfg.Redis.MaxRetries,
+		cfg.Redis.DialTimeoutMs,
+		cfg.Redis.ReadTimeoutMs,
+		cfg.Redis.WriteTimeoutMs,
+		cfg.Redis.PoolTimeoutMs,
+		cfg.Redis.ConnMaxIdleTimeMs,
+	)
+	if err != nil {
+		return fmt.Errorf("connect valkey: %w", err)
+	}
+	defer valkeyClient.Close()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	stepStateConsumer, intelligenceConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, logger)
+	metricsRepo := postgresrepo.NewMetricsRepository(db.Pool, valkeyClient, logger)
+
+	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, metricsRepo, logger)
 	if err != nil {
 		logger.Warn("NATS consumers not started", zap.Error(err))
 	}
@@ -104,9 +127,6 @@ func run(configPath string, logger *zap.Logger) error {
 	if stepStateConsumer != nil {
 		stepStateConsumer.Stop()
 	}
-	if intelligenceConsumer != nil {
-		intelligenceConsumer.Stop()
-	}
 	if natsConn != nil {
 		natsConn.Drain()
 	}
@@ -126,8 +146,9 @@ func startNATSConsumers(
 	ctx context.Context,
 	cfg *appconfig.Config,
 	db *database.PostgresDB,
+	metricsInvalidator archiver.MetricsInvalidator,
 	logger *zap.Logger,
-) (stepState *archiver.StepStateConsumer, intel *archiver.IntelligenceConsumer, natsConn *nats.Conn, err error) {
+) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -135,7 +156,7 @@ func startNATSConsumers(
 
 	nc, err := nats.Connect(natsURL)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("connect nats: %w", err)
+		return nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
 	hostname, _ := os.Hostname()
@@ -144,11 +165,11 @@ func startNATSConsumers(
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create jetstream: %w", err)
+		return nil, nil, fmt.Errorf("create jetstream: %w", err)
 	}
 
 	natsConsumer, err := archiver.NewNATSConsumer(
-		js, db.Pool,
+		js, db.Pool, metricsInvalidator,
 		cfg.Archiver.Streams.BatchSize,
 		cfg.Archiver.Streams.BlockTimeout,
 		consumerPrefix+"-nats",
@@ -157,7 +178,7 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
 	}
 
 	go func() {
@@ -180,33 +201,16 @@ func startNATSConsumers(
 	)
 	if err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create step state consumer: %w", err)
+		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
 	}
 
 	if err := stepStateConsumer.Start(ctx); err != nil {
 		nc.Close()
-		return nil, nil, nil, fmt.Errorf("start step state consumer: %w", err)
-	}
-
-	intelligenceConsumer, err := archiver.NewIntelligenceConsumer(
-		js, db.Pool,
-		cfg.Archiver.Streams.BatchSize,
-		flushInterval,
-		consumerPrefix+"-intelligence",
-		logger,
-	)
-	if err != nil {
-		nc.Close()
-		return nil, nil, nil, fmt.Errorf("create intelligence consumer: %w", err)
-	}
-
-	if err := intelligenceConsumer.Start(ctx); err != nil {
-		nc.Close()
-		return nil, nil, nil, fmt.Errorf("start intelligence consumer: %w", err)
+		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
 	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return stepStateConsumer, intelligenceConsumer, nc, nil
+	return stepStateConsumer, nc, nil
 }
 
 func maskURL(url string) string {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	billingmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -33,12 +33,12 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
-					Return(&billingmodels.WebhookEvent{
+					Return(&shareddomain.WebhookEvent{
 						Type:              "invoice.paid",
 						ExternalInvoiceID: "inv_123",
 					}, nil)
 
-				snapshot := &billingmodels.BillingSnapshot{
+				snapshot := &shareddomain.BillingSnapshot{
 					ID:                "snap_1",
 					ExternalInvoiceID: "inv_123",
 					CompanyID:         testCompanyID,
@@ -75,7 +75,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
-					Return(&billingmodels.WebhookEvent{
+					Return(&shareddomain.WebhookEvent{
 						Type:               "checkout.session.completed",
 						ExternalCustomerID: "cus_1",
 						AmountMillicents:   1000,
@@ -97,7 +97,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
-					Return(&billingmodels.WebhookEvent{
+					Return(&shareddomain.WebhookEvent{
 						Type: "unknown.event",
 					}, nil)
 			},
@@ -112,7 +112,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
-					Return(&billingmodels.WebhookEvent{
+					Return(&shareddomain.WebhookEvent{
 						Type:              "invoice.paid",
 						ExternalInvoiceID: "inv_err",
 					}, nil)

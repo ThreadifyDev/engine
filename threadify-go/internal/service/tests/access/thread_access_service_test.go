@@ -7,7 +7,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"go.uber.org/zap"
@@ -28,7 +28,7 @@ func TestThreadAccessService_GetUserRole_CacheHit(t *testing.T) {
 
 func TestThreadAccessService_CheckThreadAccess_OwnerShortcut(t *testing.T) {
 	svc := service.NewThreadAccessService(nil, nil, nil, nil, zap.NewNop())
-	thread := &models.Thread{ID: "t1", OwnerID: "u1"}
+	thread := &domain.Thread{ID: "t1", OwnerID: "u1"}
 
 	got, err := svc.CheckThreadAccess(context.Background(), "t1", "u1", "thread.write.*", thread)
 	require.NoError(t, err)
@@ -37,7 +37,7 @@ func TestThreadAccessService_CheckThreadAccess_OwnerShortcut(t *testing.T) {
 
 func TestThreadAccessService_BatchCheckThreadAccess_OwnedThreadsBypassRepo(t *testing.T) {
 	svc := service.NewThreadAccessService(nil, nil, nil, nil, zap.NewNop())
-	threads := []*models.Thread{
+	threads := []*domain.Thread{
 		{ID: "t1", OwnerID: "u1"},
 		{ID: "t2", OwnerID: "u1"},
 	}

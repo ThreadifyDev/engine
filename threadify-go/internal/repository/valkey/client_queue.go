@@ -6,24 +6,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type ClientQueue struct {
-	valkey types.ValkeyStringClient
+	valkey domain.ValkeyStringClient
 	ttl    time.Duration
 }
 
-func NewClientQueue(valkey types.ValkeyStringClient, ttlSeconds int) *ClientQueue {
+func NewClientQueue(valkey domain.ValkeyStringClient, ttlSeconds int) *ClientQueue {
 	return &ClientQueue{
 		valkey: valkey,
 		ttl:    time.Duration(ttlSeconds) * time.Second,
 	}
 }
 
-func (q *ClientQueue) AddClient(client *models.ConnectedClient) error {
-	data, err := json.Marshal(client)
+func (q *ClientQueue) AddClient(client *domain.ConnectedClient) error {
+	data, err := json.Marshal(fromConnectedClientDomain(client))
 	if err != nil {
 		return fmt.Errorf("marshal client: %w", err)
 	}
@@ -32,19 +31,19 @@ func (q *ClientQueue) AddClient(client *models.ConnectedClient) error {
 	return q.valkey.Set(context.Background(), key, string(data), q.ttl)
 }
 
-func (q *ClientQueue) GetClient(ownerID string) (*models.ConnectedClient, error) {
+func (q *ClientQueue) GetClient(ownerID string) (*domain.ConnectedClient, error) {
 	key := fmt.Sprintf("client:%s", ownerID)
 	data, err := q.valkey.Get(context.Background(), key)
 	if err != nil {
 		return nil, err
 	}
 
-	var client models.ConnectedClient
-	if err := json.Unmarshal([]byte(data), &client); err != nil {
+	var model connectedClientModel
+	if err := json.Unmarshal([]byte(data), &model); err != nil {
 		return nil, fmt.Errorf("unmarshal client: %w", err)
 	}
 
-	return &client, nil
+	return model.ToDomain(), nil
 }
 
 func (q *ClientQueue) RemoveClient(ownerID string) error {

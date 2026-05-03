@@ -12,16 +12,15 @@ import (
 	"time"
 
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
 type StepEventService struct {
-	valkeyRepo       types.StepEventValkeyClient
-	threadRepo       types.ThreadRepository
+	valkeyRepo       domain.StepEventValkeyClient
+	threadRepo       domain.ThreadRepository
 	natsPublisher    *natsrepo.ArchivalPublisher
 	config           *config.Config
 	logger           *zap.Logger
@@ -30,8 +29,8 @@ type StepEventService struct {
 }
 
 func NewStepEventService(
-	valkeyRepo types.StepEventValkeyClient,
-	threadRepo types.ThreadRepository,
+	valkeyRepo domain.StepEventValkeyClient,
+	threadRepo domain.ThreadRepository,
 	natsPublisher *natsrepo.ArchivalPublisher,
 	cfg *config.Config,
 	logger *zap.Logger,
@@ -81,7 +80,7 @@ func loadLuaScript(filename string) (string, error) {
 	return "", fmt.Errorf("lua script not found: %s", filename)
 }
 
-func (ses *StepEventService) RecordStepEventDirect(ctx context.Context, event models.StepEvent, ownerID, serviceName string, subSteps []models.SubStepRequest) error {
+func (ses *StepEventService) RecordStepEventDirect(ctx context.Context, event domain.StepEvent, ownerID, serviceName string, subSteps []domain.SubStepCmd) error {
 	if err := ses.validateStepEvent(event); err != nil {
 		return fmt.Errorf("invalid step data: %w", err)
 	}
@@ -112,7 +111,7 @@ func (ses *StepEventService) RecordStepEventDirect(ctx context.Context, event mo
 	return nil
 }
 
-func (ses *StepEventService) processSubSteps(ctx context.Context, threadID, stepID string, subSteps []models.SubStepRequest) error {
+func (ses *StepEventService) processSubSteps(ctx context.Context, threadID, stepID string, subSteps []domain.SubStepCmd) error {
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -146,7 +145,7 @@ type HashResult struct {
 	ThreadID string
 }
 
-func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event models.StepEvent, ownerID, serviceName string) (*HashResult, error) {
+func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event domain.StepEvent, ownerID, serviceName string) (*HashResult, error) {
 	version := ses.config.Security.HashChainCurrentVersion
 	if version == "" {
 		ses.logger.Error("hash_chain_current_version not configured")
@@ -215,7 +214,7 @@ func (ses *StepEventService) executeAtomicHashScript(ctx context.Context, event 
 	return nil, fmt.Errorf("failed to update hash after %d attempts (race condition)", maxRetries)
 }
 
-func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event models.StepEvent, ownerID, serviceName string) map[string]interface{} {
+func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event domain.StepEvent, ownerID, serviceName string) map[string]interface{} {
 	activityValues := map[string]interface{}{
 		"type":            "step_recorded",
 		"threadId":        event.ThreadID,
@@ -245,7 +244,7 @@ func (ses *StepEventService) createActivityEvent(hashResult *HashResult, event m
 	return activityValues
 }
 
-func (ses *StepEventService) validateStepEvent(event models.StepEvent) error {
+func (ses *StepEventService) validateStepEvent(event domain.StepEvent) error {
 	if event.StepID == "" {
 		return ErrStepIdRequired
 	}

@@ -761,6 +761,11 @@ class GraphQLClient {
           profileType {
             name
             type
+            metricsConfig {
+              templateId
+              name
+              parameters
+            }
           }
           name
           createdAt
@@ -782,6 +787,18 @@ class GraphQLClient {
 
     const data = await this.request<{ entityProfile: any }>(query, options);
     return data.entityProfile;
+  }
+
+  async getComputedMetrics(options: { id?: string; refKey?: string; type?: string; range: string }): Promise<any> {
+    const query = `
+      query GetComputedMetrics($id: String, $refKey: String, $type: String, $range: String) {
+        entityProfile(id: $id, refKey: $refKey, type: $type) {
+          computedMetrics(range: $range)
+        }
+      }
+    `;
+    const data = await this.request<{ entityProfile: { computedMetrics: any } }>(query, options);
+    return data.entityProfile?.computedMetrics ?? null;
   }
 }
 

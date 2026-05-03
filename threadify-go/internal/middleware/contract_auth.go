@@ -6,10 +6,10 @@ import (
 	sharedauth "threadify-go/shared/auth"
 
 	"github.com/gin-gonic/gin"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 )
 
-func ContractRBACMiddleware(rbacLoader types.RBACLoader, permission string) gin.HandlerFunc {
+func ContractRBACMiddleware(rbacLoader domain.RBACLoader, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, exists := c.Get(sharedauth.CtxUserID)
 		if !exists {
