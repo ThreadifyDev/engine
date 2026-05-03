@@ -4,33 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
-	"github.com/threadify/engine/internal/repository/postgres"
+	"github.com/threadify/engine/internal/dto"
+	"github.com/threadify/engine/internal/mapper"
+
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
 // ContractValidationService implements the ContractGraphValidator interface.
 type ContractValidationService struct {
-	graphRepo    types.ContractGraphRepository
+	graphRepo    domain.ContractGraphRepository
 	contractRepo contractRepo
-	cacheManager types.CacheManager
+	cacheManager domain.CacheManager
 	logger       *zap.Logger
 }
 
 type contractRepo interface {
-	GetByNameAndCompany(ctx context.Context, name, companyID string) (*models.Contract, error)
-	GetVersion(ctx context.Context, contractID string, version int) (*models.ContractVersion, error)
+	GetByNameAndCompany(ctx context.Context, name, companyID string) (*domain.Contract, error)
+	GetVersion(ctx context.Context, contractID string, version int) (*domain.ContractVersion, error)
 }
 
 // NewContractValidationServiceFromParts creates a ContractValidationService from explicit parts.
 // This is primarily intended for tests.
 func NewContractValidationServiceFromParts(
-	graphRepo types.ContractGraphRepository,
+	graphRepo domain.ContractGraphRepository,
 	contractRepo contractRepo,
-	cacheManager types.CacheManager,
+	cacheManager domain.CacheManager,
 	logger *zap.Logger,
 ) *ContractValidationService {
 	return &ContractValidationService{
@@ -42,7 +42,7 @@ func NewContractValidationServiceFromParts(
 }
 
 // NewContractValidationService creates a new contract validation service.
-func NewContractValidationService(graphRepo types.ContractGraphRepository, contractRepo *postgres.ContractRepository, cacheManager types.CacheManager, logger *zap.Logger) types.ContractGraphValidator {
+func NewContractValidationService(graphRepo domain.ContractGraphRepository, contractRepo contractRepo, cacheManager domain.CacheManager, logger *zap.Logger) domain.ContractGraphValidator {
 	return &ContractValidationService{
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,
@@ -52,8 +52,8 @@ func NewContractValidationService(graphRepo types.ContractGraphRepository, contr
 }
 
 // ValidateStepInContract checks if a step exists in the contract graph and validates its context.
-func (v *ContractValidationService) ValidateStepInContract(contractID string, version int, stepName string, businessCtx map[string]string, ownerID string) error {
-	graph, err := v.GetContractGraph(contractID, version, ownerID)
+func (v *ContractValidationService) ValidateStepInContract(ctx context.Context, contractID string, version int, stepName string, businessCtx map[string]string, ownerID string) error {
+	graph, err := v.GetContractGraph(ctx, contractID, version, ownerID)
 	if err != nil {
 		return err
 	}
@@ -63,55 +63,28 @@ func (v *ContractValidationService) ValidateStepInContract(contractID string, ve
 		return fmt.Errorf("step %q not found in contract %q version %d", stepName, contractID, version)
 	}
 
-	return v.ValidateStepContext(stepNode, businessCtx)
+	return v.ValidateStepContext(ctx, stepNode, businessCtx)
 }
 
 // ValidateStepContext validates the business context for a step node.
 // Accepts an already-fetched node to avoid duplicate graph lookups.
-func (v *ContractValidationService) ValidateStepContext(stepNode models.GraphNode, businessCtx map[string]string) error {
+func (v *ContractValidationService) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, businessCtx map[string]string) error {
 	if stepNode.BusinessContext == nil {
 		return nil
 	}
 
-	for _, requiredField := range v.extractRequiredFields(stepNode.BusinessContext) {
-		if _, exists := businessCtx[requiredField]; !exists {
-			return fmt.Errorf("required context field %q is missing", requiredField)
+	for _, field := range stepNode.BusinessContext.Required {
+		if _, exists := businessCtx[field]; !exists {
+			return fmt.Errorf("required context field %q is missing", field)
 		}
 	}
 
 	return nil
 }
 
-// extractRequiredFields extracts required fields from BusinessContext regardless of its runtime type.
-func (v *ContractValidationService) extractRequiredFields(businessContext interface{}) []string {
-	switch bc := businessContext.(type) {
-	case *models.BusinessContext:
-		// Direct struct pointer — from graph builder.
-		return bc.Required
-	case map[string]interface{}:
-		// Map — from JSON unmarshal (cache/database).
-		reqFields, ok := bc["required"].([]interface{})
-		if !ok {
-			return nil
-		}
-		fields := make([]string, 0, len(reqFields))
-		for _, field := range reqFields {
-			if s, ok := field.(string); ok {
-				fields = append(fields, s)
-			}
-		}
-		return fields
-	default:
-		return nil
-	}
-}
-
 // GetContractGraph retrieves a contract graph via three-tier lookup:
 // memory cache → Valkey → PostgreSQL.
-func (v *ContractValidationService) GetContractGraph(contractName string, version int, companyID string) (*models.ContractGraph, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
+func (v *ContractValidationService) GetContractGraph(ctx context.Context, contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	targetVersion, err := v.resolveVersion(ctx, contractName, version, companyID)
 	if err != nil {
 		return nil, err
@@ -148,25 +121,23 @@ func (v *ContractValidationService) GetContractGraph(contractName string, versio
 		return nil, fmt.Errorf("no graph found in contract %q v%d", contractName, targetVersion)
 	}
 
-	var loadedGraph models.ContractGraph
-	if err := json.Unmarshal(contractVersion.Graph, &loadedGraph); err != nil {
+	var graphDTO dto.ContractGraphDTO
+	if err := json.Unmarshal(contractVersion.Graph, &graphDTO); err != nil {
 		return nil, fmt.Errorf("failed to parse contract graph: %w", err)
 	}
+	loadedGraph := mapper.FromContractGraphDTO(&graphDTO)
 
-	if err := v.graphRepo.Save(ctx, contractName, targetVersion, companyID, &loadedGraph); err != nil {
+	if err := v.graphRepo.Save(ctx, contractName, targetVersion, companyID, loadedGraph); err != nil {
 		v.logger.Warn("failed to cache contract graph in Valkey", zap.Error(err))
 	}
-	v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, &loadedGraph)
+	v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, loadedGraph)
 
-	return &loadedGraph, nil
+	return loadedGraph, nil
 }
 
 // LoadContractGraphIntoCache preloads a contract graph using the three-tier strategy.
 // Returns the resolved version that was loaded (version 0 resolves to latest).
-func (v *ContractValidationService) LoadContractGraphIntoCache(contractName string, version int, companyID string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
+func (v *ContractValidationService) LoadContractGraphIntoCache(ctx context.Context, contractName string, version int, companyID string) (int, error) {
 	targetVersion, err := v.resolveVersion(ctx, contractName, version, companyID)
 	if err != nil {
 		return 0, err
@@ -176,7 +147,7 @@ func (v *ContractValidationService) LoadContractGraphIntoCache(contractName stri
 		return targetVersion, nil
 	}
 
-	_, err = v.GetContractGraph(contractName, version, companyID)
+	_, err = v.GetContractGraph(ctx, contractName, targetVersion, companyID)
 	return targetVersion, err
 }
 
@@ -196,11 +167,9 @@ func (v *ContractValidationService) resolveVersion(ctx context.Context, contract
 }
 
 // GetContractByNameAndCompany retrieves a contract by name and company ID.
-func (v *ContractValidationService) GetContractByNameAndCompany(contractName string, companyID string) (*models.Contract, error) {
+func (v *ContractValidationService) GetContractByNameAndCompany(ctx context.Context, contractName string, companyID string) (*domain.Contract, error) {
 	if v.contractRepo == nil {
 		return nil, ErrContractRepoNotAvailable
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	return v.contractRepo.GetByNameAndCompany(ctx, contractName, companyID)
 }

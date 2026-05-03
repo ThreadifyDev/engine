@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"go.uber.org/zap"
 )
@@ -31,9 +30,9 @@ func parseTimestamp(s string) (time.Time, error) {
 //go:embed lua/validate_and_update_step_state.lua
 var validateAndUpdateStepStateScript string
 
-// StepStateRepository implements types.StepStateRepository
+// StepStateRepository implements domain.StepStateRepository
 type StepStateRepository struct {
-	client       types.StepStateValkeyClient
+	client       domain.StepStateValkeyClient
 	scriptHashes map[string]string
 	postgresRepo *postgres.StepStateRepository // For PostgreSQL fallback
 	ttl          int                           // TTL in seconds for step keys
@@ -41,7 +40,7 @@ type StepStateRepository struct {
 }
 
 // NewStepStateRepository creates a new step state repository
-func NewStepStateRepository(client types.StepStateValkeyClient, ttl int, logger *zap.Logger) types.StepStateRepository {
+func NewStepStateRepository(client domain.StepStateValkeyClient, ttl int, logger *zap.Logger) domain.StepStateRepository {
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
@@ -54,7 +53,7 @@ func NewStepStateRepository(client types.StepStateValkeyClient, ttl int, logger 
 // NewStepStateRepositoryWithPostgres creates a new step state repository with PostgreSQL fallback
 func NewStepStateRepositoryWithPostgres(
 	ttl int,
-	client types.StepStateValkeyClient,
+	client domain.StepStateValkeyClient,
 	postgresRepo *postgres.StepStateRepository,
 	logger *zap.Logger,
 ) *StepStateRepository {
@@ -82,8 +81,8 @@ func (r *StepStateRepository) LoadScripts(ctx context.Context) error {
 // ValidateAndUpdateStepState implements the interface
 func (r *StepStateRepository) ValidateAndUpdateStepState(
 	ctx context.Context,
-	params types.ValidateStepParams,
-) (*types.StepStateResult, error) {
+	params domain.ValidateStepParams,
+) (*domain.StepStateResult, error) {
 
 	// Marshal parameters to JSON
 	existingViolationsJSON := "[]"
@@ -187,7 +186,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 	}
 
 	// Parse JSON response
-	var luaResult types.StepStateResult
+	var luaResult domain.StepStateResult
 	if err := json.Unmarshal([]byte(resultStr), &luaResult); err != nil {
 		return nil, fmt.Errorf("failed to parse Lua result: %w", err)
 	}
@@ -199,7 +198,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 // 1. Try Redis hash first (async validator's live data)
 // 2. Fallback to PostgreSQL if cache miss (inactive/archived steps)
 // 3. NO write-back to prevent data conflicts with async validator
-func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadID, stepName, idempotencyKey string) (*models.StepStateInfo, error) {
+func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadID, stepName, idempotencyKey string) (*domain.StepStateInfo, error) {
 	// Add timeout context for production robustness
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -219,7 +218,7 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 			zap.String("idempotency_key", idempotencyKey))
 
 		// Parse hash fields into StepState
-		stepState := &models.StepStateInfo{
+		stepState := &domain.StepStateInfo{
 			ThreadID:       threadID,
 			StepName:       stepName,
 			IdempotencyKey: idempotencyKey,
@@ -295,7 +294,7 @@ func (r *StepStateRepository) GetStepStateWithCache(ctx context.Context, threadI
 
 // GetStepState retrieves a step state from Redis hash only (legacy method)
 // Returns nil if not found (step states are ephemeral operational data)
-func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*models.StepStateInfo, error) {
+func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepName, idempotencyKey string) (*domain.StepStateInfo, error) {
 	stepKey := fmt.Sprintf("thread:%s:steps:%s:%s", threadID, stepName, idempotencyKey)
 
 	// Get all hash fields
@@ -319,7 +318,7 @@ func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepNa
 		zap.String("idempotency_key", idempotencyKey))
 
 	// Parse hash fields into StepStateInfo
-	stepState := &models.StepStateInfo{
+	stepState := &domain.StepStateInfo{
 		ThreadID:       threadID,
 		StepName:       stepName,
 		IdempotencyKey: idempotencyKey,
@@ -366,7 +365,7 @@ func (r *StepStateRepository) GetStepState(ctx context.Context, threadID, stepNa
 // ListSteps retrieves all step states for a thread with hot/cold fallback
 // Uses pipeline for efficient Valkey reads and batch query for PostgreSQL fallback
 // Optional filters: stepName, idempotencyKey, status (nil = no filter)
-func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, stepName, idempotencyKey, status *string) ([]*models.StepStateInfo, error) {
+func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, stepName, idempotencyKey, status *string) ([]*domain.StepStateInfo, error) {
 	pattern := fmt.Sprintf("thread:%s:steps:*", threadID)
 
 	// Scan for all step keys
@@ -377,7 +376,7 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 
 	// Hot path: Read from Valkey (direct calls since pipeline doesn't support HGetAll)
 	if len(keys) > 0 {
-		var steps []*models.StepStateInfo
+		var steps []*domain.StepStateInfo
 		hasData := false
 
 		for _, key := range keys {
@@ -408,7 +407,7 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 			hasData = true
 
 			// Parse step state from hash
-			step := &models.StepStateInfo{
+			step := &domain.StepStateInfo{
 				ThreadID:       threadID,
 				StepName:       stepNameFromKey,
 				IdempotencyKey: idempKeyFromKey,
@@ -448,7 +447,7 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 	// Cold path: Fallback to PostgreSQL with batch query
 	if r.postgresRepo == nil {
 		r.logger.Debug("No steps in cache and no PostgreSQL fallback", zap.String("thread_id", threadID))
-		return []*models.StepStateInfo{}, nil
+		return []*domain.StepStateInfo{}, nil
 	}
 
 	r.logger.Info("Cache miss for steps, querying PostgreSQL", zap.String("thread_id", threadID))
@@ -461,12 +460,12 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 
 	steps := stepsMap[threadID]
 	if steps == nil {
-		steps = []*models.StepStateInfo{}
+		steps = []*domain.StepStateInfo{}
 	}
 
 	// Apply filters to PostgreSQL results
 	if stepName != nil || idempotencyKey != nil || status != nil {
-		filteredSteps := make([]*models.StepStateInfo, 0)
+		filteredSteps := make([]*domain.StepStateInfo, 0)
 		for _, step := range steps {
 			if stepName != nil && step.StepName != *stepName {
 				continue
@@ -498,14 +497,14 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	userID string,
-	permCheck *types.PermissionCheckResult,
+	permCheck *domain.PermissionCheckResult,
 	stepName *string,
 	idempotencyKey *string,
 	status *string,
-) ([]*models.StepStateInfo, error) {
+) ([]*domain.StepStateInfo, error) {
 	// If no access, return empty
 	if permCheck == nil || !permCheck.HasAccess {
-		return []*models.StepStateInfo{}, nil
+		return []*domain.StepStateInfo{}, nil
 	}
 
 	pattern := fmt.Sprintf("thread:%s:steps:*", threadID)
@@ -518,7 +517,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 
 	// Hot path: Read from Valkey
 	if len(keys) > 0 {
-		var steps []*models.StepStateInfo
+		var steps []*domain.StepStateInfo
 		hasData := false
 
 		for _, key := range keys {
@@ -549,7 +548,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 			hasData = true
 
 			// Parse step state from hash
-			step := &models.StepStateInfo{
+			step := &domain.StepStateInfo{
 				ThreadID:       threadID,
 				StepName:       stepNameFromKey,
 				IdempotencyKey: idempKeyFromKey,
@@ -603,7 +602,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	// Cold path: Fallback to PostgreSQL with SQL-level permission filtering
 	if r.postgresRepo == nil {
 		r.logger.Debug("No steps in cache and no PostgreSQL fallback", zap.String("thread_id", threadID))
-		return []*models.StepStateInfo{}, nil
+		return []*domain.StepStateInfo{}, nil
 	}
 
 	r.logger.Info("Cache miss for steps, querying PostgreSQL with permission check",
@@ -627,7 +626,7 @@ func (r *StepStateRepository) GetStepHistoryWithPermissionCheck(
 	endAt *string,
 	activityType *string,
 	actorFilter *string,
-) ([]models.StepHistory, error) {
+) ([]domain.StepHistory, error) {
 	// Step history always queries PostgreSQL directly (archival data)
 	if r.postgresRepo == nil {
 		return nil, fmt.Errorf("step history requires PostgreSQL repository")

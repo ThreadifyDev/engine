@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +33,7 @@ func (r *ThreadRepository) extendAllThreadTTLs(ctx context.Context, threadID str
 }
 
 // GetStepStatus checks step status in cache, Valkey, or PostgreSQL with optional write-back
-func (r *ThreadRepository) GetStepStatus(ctx context.Context, query types.StepStatusQuery, opts ...types.ThreadReadOptions) (string, error) {
+func (r *ThreadRepository) GetStepStatus(ctx context.Context, query domain.StepStatusQuery, opts ...domain.ThreadReadOptions) (string, error) {
 	stepKey := query.StepName + ":" + query.IdempotencyKey
 	stepHashKey := "thread:" + query.ThreadID + ":steps:" + stepKey
 
@@ -63,7 +62,7 @@ func (r *ThreadRepository) GetStepStatus(ctx context.Context, query types.StepSt
 }
 
 // GetCompletedStepsCount returns count of completed steps
-func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (int64, error) {
+func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) (int64, error) {
 	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	currentStepsKey := fmt.Sprintf("thread:%s:current_steps", threadID)
@@ -129,7 +128,7 @@ func (r *ThreadRepository) GetCompletedStepsCount(ctx context.Context, threadID 
 }
 
 // GetCompletedSteps returns list of completed step names
-func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) ([]string, error) {
+func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) ([]string, error) {
 	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
 
 	currentStepsKey := "thread:" + threadID + ":current_steps"
@@ -199,7 +198,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 // IMPORTANT: This must match the format written by the hot path Lua script:
 // See: /internal/repository/valkey/lua/validate_and_update_step_state.lua (lines 238-254)
 // If you change the Lua script's HSET fields, update this function to match!
-func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, threadID string, steps []*models.StepStateInfo) error {
+func (r *ThreadRepository) writeBackAllStepsToValkey(ctx context.Context, threadID string, steps []*domain.StepStateInfo) error {
 	if len(steps) == 0 {
 		return nil
 	}

@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
-	"threadify-go/api/internal/utils"
-	"threadify-go/shared/rbac"
 	"time"
+
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
+	"threadify-go/api/internal/utils"
 
 	"go.uber.org/zap"
 )
@@ -14,18 +14,18 @@ import (
 const defaultServiceAccountRole = "standard_service"
 
 type APIKeyService struct {
-	apiKeyRepo         repository.APIKeyRepository
-	serviceAccountRepo repository.ServiceAccountRepository
-	userRoleRepo       repository.UserRoleRepository
-	rbacLoader         *rbac.Loader
+	apiKeyRepo         domain.APIKeyRepository
+	serviceAccountRepo domain.ServiceAccountRepository
+	userRoleRepo       domain.UserRoleRepository
+	rbacLoader         ports.RBACRoleLoader
 	logger             *zap.Logger
 }
 
 func NewAPIKeyService(
-	apiKeyRepo repository.APIKeyRepository,
-	serviceAccountRepo repository.ServiceAccountRepository,
-	userRoleRepo repository.UserRoleRepository,
-	rbacLoader *rbac.Loader,
+	apiKeyRepo domain.APIKeyRepository,
+	serviceAccountRepo domain.ServiceAccountRepository,
+	userRoleRepo domain.UserRoleRepository,
+	rbacLoader ports.RBACRoleLoader,
 	logger *zap.Logger,
 ) *APIKeyService {
 	return &APIKeyService{
@@ -41,8 +41,8 @@ func (s *APIKeyService) CreateAPIKey(
 	ctx context.Context,
 	userID string,
 	companyID string,
-	req *models.CreateAPIKeyRequest,
-) (*models.CreateAPIKeyResponse, error) {
+	req *domain.CreateAPIKeyCmd,
+) (*domain.APIKeyCredentials, error) {
 	if req.Name == "" {
 		return nil, ErrApiKeyNameRequired
 	}
@@ -54,6 +54,10 @@ func (s *APIKeyService) CreateAPIKey(
 
 	key, err := utils.GenerateAPIKey()
 	if err != nil {
+		s.logger.Error("create api key: failed to generate key",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
@@ -63,8 +67,6 @@ func (s *APIKeyService) CreateAPIKey(
 		expiresAt = &expiry
 	}
 
-	// DB constraint chk_api_key_owner requires exactly one of user_id /
-	// service_account_id to be non-null.
 	var ownerUserID *string
 	if serviceAccountID == nil {
 		ownerUserID = &userID
@@ -73,7 +75,7 @@ func (s *APIKeyService) CreateAPIKey(
 	keyHash := utils.HashAPIKey(key)
 	keyPrefix := utils.GetKeyPrefix(key)
 
-	apiKey := &models.APIKey{
+	apiKey := &domain.APIKey{
 		ID:               utils.GenerateID(),
 		KeyHash:          keyHash,
 		KeyPrefix:        keyPrefix,
@@ -86,29 +88,49 @@ func (s *APIKeyService) CreateAPIKey(
 	}
 
 	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
+		s.logger.Error("create api key: failed to persist",
+			zap.String("company_id", companyID),
+			zap.String("name", req.Name),
+			zap.Error(err),
+		)
 		return nil, err
 	}
-	return &models.CreateAPIKeyResponse{
+
+	s.logger.Info("create api key: key created",
+		zap.String("key_id", apiKey.ID),
+		zap.String("key_prefix", keyPrefix),
+		zap.String("company_id", companyID),
+		zap.String("name", req.Name),
+	)
+
+	return &domain.APIKeyCredentials{
 		Key:       key,
 		KeyPrefix: keyPrefix,
 		APIKey:    apiKey,
 	}, nil
 }
 
-// resolveServiceAccount returns the service account ID to associate with the
-// new API key, creating one if necessary.
 func (s *APIKeyService) resolveServiceAccount(
 	ctx context.Context,
 	userID string,
 	companyID string,
-	req *models.CreateAPIKeyRequest,
+	req *domain.CreateAPIKeyCmd,
 ) (*string, error) {
 	if req.ServiceAccountID != nil {
 		sa, err := s.serviceAccountRepo.FindByID(ctx, *req.ServiceAccountID)
 		if err != nil || sa == nil {
+			s.logger.Warn("resolve service account: not found",
+				zap.String("service_account_id", *req.ServiceAccountID),
+				zap.Error(err),
+			)
 			return nil, ErrServiceAccountNotFound
 		}
 		if sa.CompanyID != companyID {
+			s.logger.Warn("resolve service account: company mismatch",
+				zap.String("service_account_id", *req.ServiceAccountID),
+				zap.String("expected_company", companyID),
+				zap.String("actual_company", sa.CompanyID),
+			)
 			return nil, ErrUnauthorizedCompany
 		}
 		return req.ServiceAccountID, nil
@@ -122,6 +144,10 @@ func (s *APIKeyService) resolveServiceAccount(
 	if req.CreateServiceAccount {
 		apiLevelRoles := s.rbacLoader.GetRolesByLevel("api_level")
 		if _, exists := apiLevelRoles[role]; !exists {
+			s.logger.Warn("resolve service account: invalid role",
+				zap.String("role", role),
+				zap.String("company_id", companyID),
+			)
 			return nil, ErrInvalidServiceAccountRole
 		}
 	}
@@ -131,7 +157,7 @@ func (s *APIKeyService) resolveServiceAccount(
 		name += " (auto-generated)"
 	}
 
-	sa := &models.ServiceAccount{
+	sa := &domain.ServiceAccount{
 		ID:        utils.GenerateID(),
 		CompanyID: companyID,
 		Name:      name,
@@ -142,51 +168,103 @@ func (s *APIKeyService) resolveServiceAccount(
 	}
 
 	if err := s.serviceAccountRepo.Create(ctx, sa); err != nil {
+		s.logger.Error("resolve service account: failed to create service account",
+			zap.String("company_id", companyID),
+			zap.String("name", name),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
 	if err := s.userRoleRepo.AssignRoleToServiceAccount(ctx, sa.ID, role, userID); err != nil {
+		s.logger.Error("resolve service account: failed to assign role",
+			zap.String("service_account_id", sa.ID),
+			zap.String("role", role),
+			zap.Error(err),
+		)
 		return nil, ErrFailedToAssignRole
 	}
+
+	s.logger.Info("resolve service account: service account created",
+		zap.String("service_account_id", sa.ID),
+		zap.String("company_id", companyID),
+		zap.String("role", role),
+	)
+
 	return &sa.ID, nil
 }
 
-func (s *APIKeyService) ListAPIKeys(ctx context.Context, companyID string) ([]*models.APIKey, error) {
-	return s.apiKeyRepo.FindByCompanyID(ctx, companyID)
+func (s *APIKeyService) ListAPIKeys(ctx context.Context, companyID string) ([]*domain.APIKey, error) {
+	keys, err := s.apiKeyRepo.FindByCompanyID(ctx, companyID)
+	if err != nil {
+		s.logger.Error("list api keys: failed to fetch keys",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
+		return nil, err
+	}
+	return keys, nil
 }
 
 func (s *APIKeyService) RevokeAPIKey(ctx context.Context, keyID, companyID string) error {
 	key, err := s.apiKeyRepo.FindByID(ctx, keyID)
 	if err != nil {
+		s.logger.Error("revoke api key: failed to fetch key",
+			zap.String("key_id", keyID),
+			zap.Error(err),
+		)
 		return err
 	}
 	if key == nil {
 		return ErrApiKeyNotFound
 	}
 	if key.CompanyID != companyID {
+		s.logger.Warn("revoke api key: company mismatch",
+			zap.String("key_id", keyID),
+			zap.String("expected_company", companyID),
+			zap.String("actual_company", key.CompanyID),
+		)
 		return ErrUnauthorized
 	}
-	return s.apiKeyRepo.Revoke(ctx, keyID)
+
+	if err := s.apiKeyRepo.Revoke(ctx, keyID); err != nil {
+		s.logger.Error("revoke api key: failed to revoke",
+			zap.String("key_id", keyID),
+			zap.Error(err),
+		)
+		return err
+	}
+
+	s.logger.Info("revoke api key: key revoked",
+		zap.String("key_id", keyID),
+		zap.String("company_id", companyID),
+	)
+
+	return nil
 }
 
-func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*models.APIKey, error) {
-	apiKey, err := s.apiKeyRepo.FindByHash(ctx, utils.HashAPIKey(key))
+func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*domain.APIKey, error) {
+	keyHash := utils.HashAPIKey(key)
+
+	apiKey, err := s.apiKeyRepo.FindByHash(ctx, keyHash)
 	if err != nil {
+		s.logger.Error("validate api key: failed to fetch key", zap.Error(err))
 		return nil, err
 	}
 	if apiKey == nil {
 		return nil, ErrInvalidApiKey
 	}
 	if apiKey.RevokedAt != nil {
+		s.logger.Warn("validate api key: key revoked", zap.String("key_id", apiKey.ID))
 		return nil, ErrApiKeyRevoked
 	}
 	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
+		s.logger.Warn("validate api key: key expired",
+			zap.String("key_id", apiKey.ID),
+			zap.Time("expires_at", *apiKey.ExpiresAt),
+		)
 		return nil, ErrApiKeyExpiredAPI
 	}
-
-	// TODO: Move last_used_at tracking to NATS for async processing
-	// Currently commented out - spawns unbounded goroutines and data not actively used
-	// go s.apiKeyRepo.UpdateLastUsed(apiKey.ID)
 
 	return apiKey, nil
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/config"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"go.uber.org/zap"
@@ -33,12 +33,12 @@ func TestStepEventService_RecordStepEventDirect_ValidatesRequiredFields(t *testi
 
 	tests := []struct {
 		name    string
-		event   models.StepEvent
+		event   domain.StepEvent
 		wantErr error
 	}{
 		{
 			name: "missing step id",
-			event: models.StepEvent{
+			event: domain.StepEvent{
 				ThreadID: "t1",
 				Context:  map[string]interface{}{"foo": "bar"},
 			},
@@ -46,7 +46,7 @@ func TestStepEventService_RecordStepEventDirect_ValidatesRequiredFields(t *testi
 		},
 		{
 			name: "missing thread id",
-			event: models.StepEvent{
+			event: domain.StepEvent{
 				StepID:  "s1",
 				Context: map[string]interface{}{"foo": "bar"},
 			},
@@ -54,7 +54,7 @@ func TestStepEventService_RecordStepEventDirect_ValidatesRequiredFields(t *testi
 		},
 		{
 			name: "missing context",
-			event: models.StepEvent{
+			event: domain.StepEvent{
 				StepID:   "s1",
 				ThreadID: "t1",
 			},
@@ -105,7 +105,7 @@ func TestStepEventService_RecordStepEventDirect_ConfigErrors(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			event := models.StepEvent{
+			event := domain.StepEvent{
 				ThreadID:    "thread-123",
 				StepID:      "step-456",
 				StepName:    "process",
@@ -137,7 +137,7 @@ func TestStepEventService_RecordStepEventDirect_Success(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	event := models.StepEvent{
+	event := domain.StepEvent{
 		ThreadID:    "thread-123",
 		StepID:      "step-456",
 		StepName:    "process",

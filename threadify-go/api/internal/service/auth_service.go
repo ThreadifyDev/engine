@@ -8,17 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
-	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
-	sharemodels "threadify-go/shared/models"
-	sharedrepo "threadify-go/shared/repository"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -33,56 +27,43 @@ type OutboxWorkerTrigger interface {
 	Trigger()
 }
 
-func newSignupCreditAccount(companyID string, billingCycleStart time.Time, balanceMillicents, rateLimitTPS, payloadLimitBytes int64) *sharemodels.CreditAccount {
-	return &sharemodels.CreditAccount{
-		ID:                               uuid.NewString(),
-		CompanyID:                        companyID,
-		BillingCycleStart:                billingCycleStart,
-		CreditBalanceMillicents:          balanceMillicents,
-		CreditMinBalanceMillicents:       0,
-		CreditMaxMonthlyChargeMillicents: sharemodels.CreditDisabled,
-		CreditAutoTopupMillicents:        0,
-		CreditMonthlyChargedMillicents:   0,
-		RateLimitTPS:                     rateLimitTPS,
-		PayloadLimitBytes:                payloadLimitBytes,
-	}
+type billingService interface {
+	ProvisionSignupCredits(ctx context.Context, companyID string) error
 }
 
 type AuthService struct {
-	pool           interfaces.DBPool
-	userRepo       repository.UserRepository
-	companyRepo    repository.CompanyRepository
-	userRoleRepo   repository.UserRoleRepository
-	outboxRepo     repository.OutboxRepository
-	invitationRepo repository.TeamInvitationRepository
-	planRepo       sharedrepo.PlanRepository
+	txManager      domain.TxManager
+	userRepo       domain.UserRepository
+	companyRepo    domain.CompanyRepository
+	userRoleRepo   domain.UserRoleRepository
+	outboxRepo     domain.OutboxRepository
+	invitationRepo domain.TeamInvitationRepository
 	emailSvc       EmailService
 	authClient     sharedauth.AuthClient
-	jwksVerifier   *sharedauth.JWKSVerifier
+	jwksVerifier   sharedauth.TokenVerifier
+	billingService billingService
 	outboxWorker   OutboxWorkerTrigger
 	encryptionKey  []byte
 	logger         *zap.Logger
-
-	signupCreditsMillicents int64
-	signupRateLimitTPS      int64
-	signupPayloadLimitBytes int64
 }
 
 func NewAuthService(
-	pool interfaces.DBPool,
-	userRepo repository.UserRepository,
-	companyRepo repository.CompanyRepository,
-	userRoleRepo repository.UserRoleRepository,
+	txManager domain.TxManager,
+	userRepo domain.UserRepository,
+	companyRepo domain.CompanyRepository,
+	userRoleRepo domain.UserRoleRepository,
 	emailSvc EmailService,
 	authClient sharedauth.AuthClient,
-	outboxRepo repository.OutboxRepository,
-	invitationRepo repository.TeamInvitationRepository,
+	jwksVerifier sharedauth.TokenVerifier,
+	billingSvc billingService,
+	outboxRepo domain.OutboxRepository,
+	invitationRepo domain.TeamInvitationRepository,
 	outboxWorker OutboxWorkerTrigger,
 	encryptionKey []byte,
 	logger *zap.Logger,
 ) *AuthService {
 	return &AuthService{
-		pool:           pool,
+		txManager:      txManager,
 		userRepo:       userRepo,
 		companyRepo:    companyRepo,
 		userRoleRepo:   userRoleRepo,
@@ -90,28 +71,15 @@ func NewAuthService(
 		invitationRepo: invitationRepo,
 		emailSvc:       emailSvc,
 		authClient:     authClient,
+		jwksVerifier:   jwksVerifier,
+		billingService: billingSvc,
 		outboxWorker:   outboxWorker,
 		encryptionKey:  encryptionKey,
 		logger:         logger,
 	}
 }
 
-func (s *AuthService) SetJWKSVerifier(verifier *sharedauth.JWKSVerifier) {
-	s.jwksVerifier = verifier
-}
-
-func (s *AuthService) ConfigureSignupCredits(planRepo sharedrepo.PlanRepository, signupCreditsMillicents, rateLimitTPS, payloadLimitBytes int64) {
-	s.planRepo = planRepo
-	s.signupCreditsMillicents = signupCreditsMillicents
-	s.signupRateLimitTPS = rateLimitTPS
-	s.signupPayloadLimitBytes = payloadLimitBytes
-}
-
-func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) error {
-	if err := validation.ValidateSignupRequest(req); err != nil {
-		return err
-	}
-
+func (s *AuthService) Signup(ctx context.Context, req *domain.SignupCmd) error {
 	company, invitation, userRole, err := s.resolveSignupContext(ctx, req)
 	if err != nil {
 		return err
@@ -141,14 +109,14 @@ func (s *AuthService) Signup(ctx context.Context, req *models.SignupRequest) err
 	return nil
 }
 
-func (s *AuthService) resolveSignupContext(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+func (s *AuthService) resolveSignupContext(ctx context.Context, req *domain.SignupCmd) (*domain.Company, *domain.TeamInvitation, string, error) {
 	if req.InvitationToken != nil && *req.InvitationToken != "" {
 		return s.resolveInvitationSignup(ctx, req)
 	}
 	return s.resolveRegularSignup(ctx, req)
 }
 
-func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *domain.SignupCmd) (*domain.Company, *domain.TeamInvitation, string, error) {
 	inv, err := s.invitationRepo.GetByToken(ctx, *req.InvitationToken)
 	if err != nil {
 		s.logger.Error("signup: failed to get invitation", zap.Error(err))
@@ -157,11 +125,8 @@ func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *models.S
 	if inv == nil {
 		return nil, nil, "", fmt.Errorf("invitation not found")
 	}
-	if inv.Status != "pending" {
-		return nil, nil, "", fmt.Errorf("invitation already used or expired")
-	}
-	if time.Now().After(inv.ExpiresAt) {
-		return nil, nil, "", fmt.Errorf("invitation has expired")
+	if err := inv.CanBeAccepted(); err != nil {
+		return nil, nil, "", err
 	}
 
 	company, err := s.companyRepo.FindByID(ctx, inv.CompanyID)
@@ -179,13 +144,13 @@ func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *models.S
 	return company, inv, inv.Role, nil
 }
 
-func (s *AuthService) resolveRegularSignup(ctx context.Context, req *models.SignupRequest) (*models.Company, *models.TeamInvitation, string, error) {
+func (s *AuthService) resolveRegularSignup(ctx context.Context, req *domain.SignupCmd) (*domain.Company, *domain.TeamInvitation, string, error) {
 	if err := s.checkUserExists(ctx, req.Email); err != nil {
 		return nil, nil, "", err
 	}
 
 	now := time.Now()
-	company := &models.Company{
+	company := &domain.Company{
 		ID:        utils.GenerateID(),
 		Name:      strings.TrimSpace(req.CompanyName),
 		Industry:  req.Industry,
@@ -213,13 +178,13 @@ func (s *AuthService) checkUserExists(ctx context.Context, email string) error {
 
 func (s *AuthService) persistSignup(
 	ctx context.Context,
-	user *models.User,
-	company *models.Company,
-	invitation *models.TeamInvitation,
+	user *domain.User,
+	company *domain.Company,
+	invitation *domain.TeamInvitation,
 	userRole string,
-	outboxEvent *models.OutboxEvent,
+	outboxEvent *domain.OutboxEvent,
 ) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.txManager.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -254,9 +219,10 @@ func (s *AuthService) persistSignup(
 	return nil
 }
 
-func buildUser(req *models.SignupRequest, companyID string, invitation *models.TeamInvitation) *models.User {
+func buildUser(req *domain.SignupCmd, companyID string, invitation *domain.TeamInvitation) *domain.User {
+
 	now := time.Now()
-	user := &models.User{
+	user := &domain.User{
 		ID:        utils.GenerateID(),
 		CompanyID: companyID,
 		Email:     req.Email,
@@ -276,10 +242,10 @@ func buildUser(req *models.SignupRequest, companyID string, invitation *models.T
 }
 
 func (s *AuthService) buildRegisterAuthUserEvent(
-	user *models.User,
-	company *models.Company,
+	user *domain.User,
+	company *domain.Company,
 	password, fullName string,
-) (*models.OutboxEvent, error) {
+) (*domain.OutboxEvent, error) {
 	payload, err := json.Marshal(map[string]string{
 		"email":        user.Email,
 		"password":     password,
@@ -303,22 +269,18 @@ func (s *AuthService) buildRegisterAuthUserEvent(
 		payload[i] = 0
 	}
 
-	return &models.OutboxEvent{
+	return &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeRegisterAuthUser,
+		Type:        domain.EventTypeRegisterAuthUser,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: user.ID,
 	}, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clientIP string) (*models.AuthResponse, error) {
-	if err := validation.ValidateLoginRequest(req); err != nil {
-		return nil, err
-	}
-
+func (s *AuthService) Login(ctx context.Context, req *domain.LoginCmd, clientIP string) (*domain.AuthSession, error) {
 	localUser, err := s.resolveLocalUser(ctx, req.Email)
 	if err != nil {
 		return nil, err
@@ -342,7 +304,7 @@ func (s *AuthService) Login(ctx context.Context, req *models.LoginRequest, clien
 	return s.issueLoginOTP(ctx, userInfo.Email)
 }
 
-func (s *AuthService) resolveLocalUser(ctx context.Context, email string) (*models.User, error) {
+func (s *AuthService) resolveLocalUser(ctx context.Context, email string) (*domain.User, error) {
 	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, serror.ErrUserNotFound) {
@@ -354,7 +316,7 @@ func (s *AuthService) resolveLocalUser(ctx context.Context, email string) (*mode
 	return user, nil
 }
 
-func (s *AuthService) handleUnverifiedUser(ctx context.Context, user *models.User) (*models.AuthResponse, error) {
+func (s *AuthService) handleUnverifiedUser(ctx context.Context, user *domain.User) (*domain.AuthSession, error) {
 	s.logger.Debug("login: email not verified; re-queuing verification email",
 		zap.String("user_id", user.ID),
 	)
@@ -362,7 +324,7 @@ func (s *AuthService) handleUnverifiedUser(ctx context.Context, user *models.Use
 		s.logger.Error("login: failed to queue verification email", zap.Error(err))
 		return nil, fmt.Errorf("login: queue verification email: %w", err)
 	}
-	return &models.AuthResponse{
+	return &domain.AuthSession{
 		Email:                     user.Email,
 		OTPRequired:               true,
 		EmailVerificationRequired: true,
@@ -373,9 +335,9 @@ func (s *AuthService) handleUnverifiedUser(ctx context.Context, user *models.Use
 func (s *AuthService) handleAuthError(
 	ctx context.Context,
 	authErr error,
-	req *models.LoginRequest,
-	localUser *models.User,
-) (*models.AuthResponse, error) {
+	req *domain.LoginCmd,
+	localUser *domain.User,
+) (*domain.AuthSession, error) {
 	switch {
 	case errors.Is(authErr, sharedauth.ErrAuthInvalidCredentials):
 		return nil, ErrInvalidCredentials
@@ -390,7 +352,7 @@ func (s *AuthService) handleAuthError(
 	}
 }
 
-func (s *AuthService) handleLegacyLogin(ctx context.Context, req *models.LoginRequest, localUser *models.User) (*models.AuthResponse, error) {
+func (s *AuthService) handleLegacyLogin(ctx context.Context, req *domain.LoginCmd, localUser *domain.User) (*domain.AuthSession, error) {
 	s.logger.Info("login: legacy user detected, verifying stored password hash",
 		zap.String("user_id", localUser.ID),
 	)
@@ -422,7 +384,7 @@ func (s *AuthService) verifyLegacyPassword(ctx context.Context, email, password 
 	return nil
 }
 
-func (s *AuthService) clearStaleLegacyHash(ctx context.Context, localUser *models.User) error {
+func (s *AuthService) clearStaleLegacyHash(ctx context.Context, localUser *domain.User) error {
 	if localUser == nil {
 		return nil
 	}
@@ -449,7 +411,7 @@ func (s *AuthService) clearStaleLegacyHash(ctx context.Context, localUser *model
 	return nil
 }
 
-func (s *AuthService) issueLoginOTP(ctx context.Context, email string) (*models.AuthResponse, error) {
+func (s *AuthService) issueLoginOTP(ctx context.Context, email string) (*domain.AuthSession, error) {
 	code, err := s.authClient.GenerateLoginOTP(ctx, email)
 	if err != nil {
 		s.logger.Error("login: failed to generate OTP", zap.Error(err))
@@ -461,23 +423,19 @@ func (s *AuthService) issueLoginOTP(ctx context.Context, email string) (*models.
 		return nil, fmt.Errorf("login: send OTP email: %w", err)
 	}
 
-	return &models.AuthResponse{
+	return &domain.AuthSession{
 		Email:       email,
 		OTPRequired: true,
 		Message:     "A login code has been sent to your email.",
 	}, nil
 }
 
-func isLegacyUser(u *models.User) bool {
+func isLegacyUser(u *domain.User) bool {
 	return u != nil && (u.AuthUserID == nil || strings.TrimSpace(*u.AuthUserID) == "")
 }
 
 // @TODO - We should switch this to resetPassword as forgotPassword should not be resetting the user's account
-func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPasswordRequest) error {
-	if err := validation.ValidateForgotPasswordRequest(req); err != nil {
-		return err
-	}
-
+func (s *AuthService) ForgotPassword(ctx context.Context, req *domain.ForgotPasswordCmd) error {
 	user, err := s.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return fmt.Errorf("find user: %w", err)
@@ -493,7 +451,7 @@ func (s *AuthService) ForgotPassword(ctx context.Context, req *models.ForgotPass
 	return s.issueForgotPasswordReset(ctx, req.Email)
 }
 
-func (s *AuthService) handleLegacyForgotPassword(ctx context.Context, user *models.User) error {
+func (s *AuthService) handleLegacyForgotPassword(ctx context.Context, user *domain.User) error {
 	s.logger.Debug("forgot password: legacy user detected, queuing migration",
 		zap.String("user_id", user.ID),
 	)
@@ -539,7 +497,7 @@ func generateSecurePassword() string {
 	return utils.GenerateID() + utils.GenerateID()
 }
 
-func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswordRequest) error {
+func (s *AuthService) ResetPassword(ctx context.Context, req *domain.ResetPasswordCmd) error {
 	if err := s.authClient.ResetPasswordWithOTP(ctx, req.Token, req.Password); err != nil {
 		switch {
 		case errors.Is(err, sharedauth.ErrAuthInvalidToken):
@@ -555,7 +513,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, req *models.ResetPasswo
 	return nil
 }
 
-func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRequest) (*models.AuthResponse, error) {
+func (s *AuthService) VerifyEmail(ctx context.Context, req *domain.VerifyEmailCmd) (*domain.AuthSession, error) {
 	accessToken, userInfo, err := s.authClient.VerifyEmailWithOTP(ctx, req.Email, req.Token)
 	if err != nil {
 		switch {
@@ -587,60 +545,20 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *models.VerifyEmailRe
 	s.logger.Info("verify email: email verified", zap.String("user_id", user.ID))
 
 	if !wasAlreadyVerified {
-		if err := s.provisionSignupCredits(ctx, user.CompanyID); err != nil {
+		if err := s.billingService.ProvisionSignupCredits(ctx, user.CompanyID); err != nil {
 			return nil, fmt.Errorf("provision signup credits: %w", err)
 		}
 		s.sendWelcomeEmailAsync(user)
 	}
 
-	return &models.AuthResponse{
+	return &domain.AuthSession{
 		Token:   accessToken,
 		User:    user,
 		Message: "Email verified and logged in.",
 	}, nil
 }
 
-func (s *AuthService) provisionSignupCredits(ctx context.Context, companyID string) error {
-	if s.planRepo == nil || strings.TrimSpace(companyID) == "" {
-		return nil
-	}
-	if s.signupCreditsMillicents <= 0 && s.signupRateLimitTPS <= 0 && s.signupPayloadLimitBytes <= 0 {
-		return nil
-	}
-
-	account, err := s.planRepo.GetCreditAccount(ctx, companyID)
-	if err != nil {
-		return fmt.Errorf("get credit account: %w", err)
-	}
-	if account != nil {
-		return nil
-	}
-
-	start := time.Now().UTC().Truncate(24 * time.Hour)
-	newAccount := newSignupCreditAccount(
-		companyID,
-		start,
-		s.signupCreditsMillicents,
-		s.signupRateLimitTPS,
-		s.signupPayloadLimitBytes,
-	)
-
-	if err := s.planRepo.CreateCreditAccount(ctx, newAccount); err != nil {
-		if errors.Is(err, serror.ErrDuplicateCreditAccount) {
-			return nil
-		}
-		return fmt.Errorf("create credit account: %w", err)
-	}
-
-	s.logger.Info("signup credits provisioned",
-		zap.String("company_id", companyID),
-		zap.Int64("amount_millicents", s.signupCreditsMillicents),
-	)
-
-	return nil
-}
-
-func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string) (*models.User, error) {
+func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string) (*domain.User, error) {
 	user, err := s.userRepo.FindByAuthUserID(ctx, sub)
 	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
 		return nil, fmt.Errorf("find user by auth ID: %w", err)
@@ -656,7 +574,7 @@ func (s *AuthService) resolveVerifiedUser(ctx context.Context, sub, email string
 	return user, nil
 }
 
-func (s *AuthService) sendWelcomeEmailAsync(user *models.User) {
+func (s *AuthService) sendWelcomeEmailAsync(user *domain.User) {
 	var name string
 	if user.FullName != nil {
 		name = *user.FullName
@@ -705,49 +623,10 @@ func (s *AuthService) GetUserRoles(ctx context.Context, userID, principalType st
 	}
 }
 
-func (s *AuthService) resolveUserFromAuthIdentity(ctx context.Context, emailHint string, info *sharedauth.AuthUserInfo) (*models.User, error) {
-	email := normalizeEmail(emailHint)
-	if info != nil && strings.TrimSpace(info.Email) != "" {
-		email = normalizeEmail(info.Email)
-	}
-
-	var user *models.User
-	var err error
-
-	if email != "" {
-		user, err = s.userRepo.FindByEmail(ctx, email)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			return nil, fmt.Errorf("find user by email: %w", err)
-		}
-	}
-
-	if user == nil && info != nil && strings.TrimSpace(info.Sub) != "" {
-		sub := strings.TrimSpace(info.Sub)
-		user, err = s.userRepo.FindByAuthUserID(ctx, sub)
-		if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
-			return nil, fmt.Errorf("find user by auth ID: %w", err)
-		}
-	}
-
-	if user == nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	if info != nil && strings.TrimSpace(info.Sub) != "" &&
-		(user.AuthUserID == nil || strings.TrimSpace(*user.AuthUserID) == "") {
-		sub := strings.TrimSpace(info.Sub)
-		if err := s.userRepo.UpdateAuthUserID(ctx, user.ID, sub); err == nil {
-			user.AuthUserID = &sub
-		}
-	}
-
-	return user, nil
-}
-
 func (s *AuthService) queueVerificationEmail(ctx context.Context, userID, email string) error {
 	email = normalizeEmail(email)
 
-	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, models.EventTypeSendVerificationEmail, userID)
+	inflight, err := s.outboxRepo.ExistsPendingByReference(ctx, domain.EventTypeSendVerificationEmail, userID)
 	if err != nil {
 		return fmt.Errorf("check inflight verification email: %w", err)
 	}
@@ -770,12 +649,12 @@ func (s *AuthService) queueVerificationEmail(ctx context.Context, userID, email 
 		payload[i] = 0
 	}
 
-	if err := s.outboxRepo.Create(ctx, &models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeSendVerificationEmail,
+		Type:        domain.EventTypeSendVerificationEmail,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: userID,
 	}); err != nil {
@@ -792,11 +671,7 @@ func (s *AuthService) queueVerificationEmail(ctx context.Context, userID, email 
 	return nil
 }
 
-func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.ResendVerificationEmailRequest) error {
-	if err := validation.ValidateResendVerificationEmailRequest(req); err != nil {
-		return err
-	}
-
+func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *domain.ResendVerificationEmailCmd) error {
 	email := normalizeEmail(req.Email)
 
 	user, err := s.userRepo.FindByEmail(ctx, email)
@@ -811,7 +686,7 @@ func (s *AuthService) ResendVerificationEmail(ctx context.Context, req *models.R
 		return nil
 	}
 
-	alreadyQueued, err := s.outboxRepo.ExistsByReference(ctx, models.EventTypeSendVerificationEmail, user.ID)
+	alreadyQueued, err := s.outboxRepo.ExistsByReference(ctx, domain.EventTypeSendVerificationEmail, user.ID)
 	if err != nil {
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}

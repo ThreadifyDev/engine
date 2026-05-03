@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"threadify-go/shared/config"
-	"threadify-go/shared/models"
+	"threadify-go/shared/domain"
 
 	stripe "github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/client"
@@ -17,14 +17,14 @@ import (
 type InvoiceProvider interface {
 	Name() string
 	SkipInvoicing() bool
-	IssueTopupInvoice(snapshot *models.BillingSnapshot) (*models.InvoiceResult, error)
-	CreateCheckoutSession(params models.CheckoutSessionParams) (string, error)
+	IssueTopupInvoice(snapshot *domain.BillingSnapshot) (*domain.InvoiceResult, error)
+	CreateCheckoutSession(params domain.CheckoutSessionParams) (string, error)
 }
 
 type WebhookProvider interface {
 	Name() string
 	SignatureHeader() string
-	VerifyAndParse(body []byte, signature string) (*models.WebhookEvent, error)
+	VerifyAndParse(body []byte, signature string) (*domain.WebhookEvent, error)
 }
 
 // isStripeResourceMissingError checks if the error is a Stripe resource_missing error
@@ -73,22 +73,22 @@ func (p *NoOpBillingProvider) Name() string            { return "noop" }
 func (p *NoOpBillingProvider) SkipInvoicing() bool     { return true }
 func (p *NoOpBillingProvider) SignatureHeader() string { return "" }
 
-func (p *NoOpBillingProvider) IssueTopupInvoice(_ *models.BillingSnapshot) (*models.InvoiceResult, error) {
-	return &models.InvoiceResult{ExternalInvoiceID: "", ProviderName: "noop"}, nil
+func (p *NoOpBillingProvider) IssueTopupInvoice(_ *domain.BillingSnapshot) (*domain.InvoiceResult, error) {
+	return &domain.InvoiceResult{ExternalInvoiceID: "", ProviderName: "noop"}, nil
 }
 
-func (p *NoOpBillingProvider) VerifyAndParse(body []byte, _ string) (*models.WebhookEvent, error) {
+func (p *NoOpBillingProvider) VerifyAndParse(body []byte, _ string) (*domain.WebhookEvent, error) {
 	if len(body) == 0 {
 		return nil, nil
 	}
-	var event models.WebhookEvent
+	var event domain.WebhookEvent
 	if err := json.Unmarshal(body, &event); err != nil {
 		return nil, err
 	}
 	return &event, nil
 }
 
-func (p *NoOpBillingProvider) CreateCheckoutSession(_ models.CheckoutSessionParams) (string, error) {
+func (p *NoOpBillingProvider) CreateCheckoutSession(_ domain.CheckoutSessionParams) (string, error) {
 	return "https://example.com/checkout", nil
 }
 
@@ -119,13 +119,13 @@ func (p *StripeBillingProvider) Name() string            { return "stripe" }
 func (p *StripeBillingProvider) SkipInvoicing() bool     { return false }
 func (p *StripeBillingProvider) SignatureHeader() string { return stripeSignatureHeader }
 
-func (p *StripeBillingProvider) IssueTopupInvoice(snapshot *models.BillingSnapshot) (*models.InvoiceResult, error) {
+func (p *StripeBillingProvider) IssueTopupInvoice(snapshot *domain.BillingSnapshot) (*domain.InvoiceResult, error) {
 	if snapshot.ExternalCustomerID == "" {
 		return nil, errors.New("stripe: missing external_customer_id on billing snapshot")
 	}
 
 	if snapshot.TotalCents <= 0 {
-		return &models.InvoiceResult{ExternalInvoiceID: "", ProviderName: "stripe"}, nil
+		return &domain.InvoiceResult{ExternalInvoiceID: "", ProviderName: "stripe"}, nil
 	}
 
 	invParams := &stripe.InvoiceParams{
@@ -166,13 +166,13 @@ func (p *StripeBillingProvider) IssueTopupInvoice(snapshot *models.BillingSnapsh
 		return nil, fmt.Errorf("stripe: finalize top-up invoice: %w", err)
 	}
 
-	return &models.InvoiceResult{
+	return &domain.InvoiceResult{
 		ExternalInvoiceID: inv.ID,
 		ProviderName:      "stripe",
 	}, nil
 }
 
-func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*models.WebhookEvent, error) {
+func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*domain.WebhookEvent, error) {
 	event, err := stripe.ConstructEvent(body, signature, p.webhookSecret, stripe.WithIgnoreAPIVersionMismatch())
 	if err != nil {
 		return nil, fmt.Errorf("stripe: signature verification failed: %w", err)
@@ -190,7 +190,7 @@ func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*
 			customerID = inv.Customer.ID
 		}
 
-		return &models.WebhookEvent{
+		return &domain.WebhookEvent{
 			Type:               string(event.Type),
 			ExternalInvoiceID:  inv.ID,
 			ExternalCustomerID: customerID,
@@ -220,7 +220,7 @@ func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*
 			maxMonthly, _ = strconv.ParseInt(max, 10, 64)
 		}
 
-		return &models.WebhookEvent{
+		return &domain.WebhookEvent{
 			Type:                 string(event.Type),
 			ExternalCustomerID:   customerID,
 			AmountMillicents:     initialAmount,
@@ -235,7 +235,7 @@ func (p *StripeBillingProvider) VerifyAndParse(body []byte, signature string) (*
 }
 
 func (p *StripeBillingProvider) CreateCheckoutSession(
-	checkoutParams models.CheckoutSessionParams,
+	checkoutParams domain.CheckoutSessionParams,
 ) (string, error) {
 	amountCents := checkoutParams.InitialAmountMillicents / 1000
 	if amountCents <= 0 {

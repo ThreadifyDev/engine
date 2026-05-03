@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
@@ -14,17 +14,17 @@ import (
 )
 
 type TeamInvitationHandler struct {
-	invitationSvc iface.TeamInvitationService
+	invitationSvc ports.TeamInvitationService
 }
 
-func NewTeamInvitationHandler(invitationSvc iface.TeamInvitationService) *TeamInvitationHandler {
+func NewTeamInvitationHandler(invitationSvc ports.TeamInvitationService) *TeamInvitationHandler {
 	return &TeamInvitationHandler{
 		invitationSvc: invitationSvc,
 	}
 }
 
 func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
-	var req models.SendInvitationRequest
+	var req dto.SendInvitationRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -36,7 +36,7 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 
 	userID, exists := ctxString(c, sharedauth.CtxUserID)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SendInvitationResponse{
+		c.JSON(http.StatusUnauthorized, dto.SendInvitationResponse{
 			Success: false,
 			Error:   "Unauthorized",
 		})
@@ -45,7 +45,7 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 
 	companyID, exists := ctxString(c, sharedauth.CtxCompanyID)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SendInvitationResponse{
+		c.JSON(http.StatusUnauthorized, dto.SendInvitationResponse{
 			Success: false,
 			Error:   "Unauthorized",
 		})
@@ -64,21 +64,21 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 	)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
-			c.JSON(de.Code, models.SendInvitationResponse{
+			c.JSON(de.Code, dto.SendInvitationResponse{
 				Success: false,
 				Error:   de.Message,
 			})
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, models.SendInvitationResponse{
+		c.JSON(http.StatusInternalServerError, dto.SendInvitationResponse{
 			Success: false,
 			Error:   "Failed to send invitation",
 		})
 		return
 	}
 
-	c.JSON(http.StatusCreated, models.SendInvitationResponse{
+	c.JSON(http.StatusCreated, dto.SendInvitationResponse{
 		Success:      true,
 		InvitationID: invitation.ID,
 		ExpiresAt:    invitation.ExpiresAt.Unix(),
@@ -88,7 +88,7 @@ func (h *TeamInvitationHandler) SendInvitation(c *gin.Context) {
 
 // ValidateInvitation handles POST /api/team/invitation/validate
 func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
-	var req models.ValidateInvitationRequest
+	var req dto.ValidateInvitationRequest
 	if !bindJSON(c, &req) {
 		return
 	}
@@ -108,7 +108,7 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.ValidateInvitationResponse{
+	c.JSON(http.StatusOK, dto.ValidateInvitationResponse{
 		CompanyName: result.CompanyName,
 		Email:       result.Email,
 	})
@@ -135,12 +135,12 @@ func (h *TeamInvitationHandler) ListInvitations(c *gin.Context) {
 	}
 
 	// Convert to response format
-	response := models.ListInvitationsResponse{
-		Invitations: make([]*models.InvitationListItem, 0, len(invitations)),
+	response := dto.ListInvitationsResponse{
+		Invitations: make([]*dto.InvitationListItem, 0, len(invitations)),
 	}
 
 	for _, inv := range invitations {
-		response.Invitations = append(response.Invitations, &models.InvitationListItem{
+		response.Invitations = append(response.Invitations, &dto.InvitationListItem{
 			ID:        inv.ID,
 			Email:     inv.Email,
 			Role:      inv.Role,
@@ -198,7 +198,7 @@ func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
 	)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
-			c.JSON(de.Code, models.SendInvitationResponse{
+			c.JSON(de.Code, dto.SendInvitationResponse{
 				Success: false,
 				Error:   de.Message,
 			})
@@ -209,7 +209,7 @@ func (h *TeamInvitationHandler) ResendInvitation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SendInvitationResponse{
+	c.JSON(http.StatusOK, dto.SendInvitationResponse{
 		Success:      true,
 		InvitationID: refreshedInvitation.ID,
 		ExpiresAt:    refreshedInvitation.ExpiresAt.Unix(),

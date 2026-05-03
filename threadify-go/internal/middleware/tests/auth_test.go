@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/middleware"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 
@@ -24,7 +24,7 @@ func TestAuthMiddleware(t *testing.T) {
 		mockAuthSvc := enginemocks.NewMockAuthService(ctrl)
 
 		apiKey := "test-api-key"
-		userInfo := &types.UserInfo{
+		userInfo := &domain.UserInfo{
 			OwnerID:   "user-123",
 			CompanyID: "comp-123",
 			Role:      "admin",

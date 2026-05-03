@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 	"threadify-go/shared/rbac"
 
@@ -62,7 +62,7 @@ func TestServiceAccountHandler_CRUD(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.ServiceAccountSvc.EXPECT().
 					CreateServiceAccount(gomock.Any(), companyID, userID, gomock.Any()).
-					Return(&models.ServiceAccount{ID: saID, Name: "my-sa"}, nil)
+					Return(&domain.ServiceAccount{ID: saID, Name: "my-sa"}, nil)
 			},
 			wantStatus: http.StatusCreated,
 		},
@@ -81,7 +81,7 @@ func TestServiceAccountHandler_CRUD(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.ServiceAccountSvc.EXPECT().
 					GetServiceAccount(gomock.Any(), saID, companyID).
-					Return(&models.ServiceAccount{ID: saID, Name: "my-sa"}, nil)
+					Return(&domain.ServiceAccount{ID: saID, Name: "my-sa"}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -89,19 +89,36 @@ func TestServiceAccountHandler_CRUD(t *testing.T) {
 			name:   "update_success",
 			method: "PUT",
 			path:   "/service-accounts/" + saID,
-			body:   map[string]string{"name": "new-name"},
+			body: map[string]any{
+				"name":        "new-name",
+				"description": "full payload",
+				"is_active":   false,
+			},
 			setupMock: func(d *common.MockedHandlers) {
 				d.ServiceAccountSvc.EXPECT().
 					UpdateServiceAccount(gomock.Any(), saID, companyID, gomock.Any()).
-					Return(&models.ServiceAccount{ID: saID, Name: "new-name"}, nil)
+					Return(&domain.ServiceAccount{ID: saID, Name: "new-name"}, nil)
 			},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "update_rejects_partial_put",
+			method: "PUT",
+			path:   "/service-accounts/" + saID,
+			body:   map[string]any{"name": "new-name"},
+			setupMock: func(d *common.MockedHandlers) {
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "update_not_found",
 			method: "PUT",
 			path:   "/service-accounts/missing",
-			body:   map[string]string{"name": "x"},
+			body: map[string]any{
+				"name":        "x",
+				"description": "",
+				"is_active":   true,
+			},
 			setupMock: func(d *common.MockedHandlers) {
 				d.ServiceAccountSvc.EXPECT().
 					UpdateServiceAccount(gomock.Any(), "missing", companyID, gomock.Any()).

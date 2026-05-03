@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"net/http"
-	iface "threadify-go/api/internal/interfaces"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/ports"
 	serror "threadify-go/shared/errors"
 	"threadify-go/shared/rbac"
 
@@ -11,11 +12,11 @@ import (
 )
 
 type ServiceAccountHandler struct {
-	serviceAccountService iface.ServiceAccountService
+	serviceAccountService ports.ServiceAccountService
 	rbacLoader            *rbac.Loader
 }
 
-func NewServiceAccountHandler(serviceAccountService iface.ServiceAccountService, rbacLoader *rbac.Loader) *ServiceAccountHandler {
+func NewServiceAccountHandler(serviceAccountService ports.ServiceAccountService, rbacLoader *rbac.Loader) *ServiceAccountHandler {
 	return &ServiceAccountHandler{
 		serviceAccountService: serviceAccountService,
 		rbacLoader:            rbacLoader,
@@ -27,12 +28,16 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	userID := c.GetString("userID")
 
-	var req *models.CreateServiceAccountRequest
+	var req dto.CreateServiceAccountRequest
 	if !bindJSON(c, &req) {
 		return
 	}
 
-	serviceAccount, err := h.serviceAccountService.CreateServiceAccount(c.Request.Context(), companyID, userID, req)
+	sa, err := h.serviceAccountService.CreateServiceAccount(c.Request.Context(), companyID, userID, &domain.CreateServiceAccountCmd{
+		Name:        req.Name,
+		Description: req.Description,
+		Role:        req.Role,
+	})
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -43,7 +48,7 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"service_account": serviceAccount,
+		"service_account": mapServiceAccountToDTO(sa),
 		"message":         "Service account created successfully",
 	})
 }
@@ -52,14 +57,19 @@ func (h *ServiceAccountHandler) CreateServiceAccount(c *gin.Context) {
 func (h *ServiceAccountHandler) ListServiceAccounts(c *gin.Context) {
 	companyID := c.GetString("companyID")
 
-	serviceAccounts, err := h.serviceAccountService.ListServiceAccounts(c.Request.Context(), companyID)
+	sas, err := h.serviceAccountService.ListServiceAccounts(c.Request.Context(), companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
+	dtos := make([]*dto.ServiceAccount, len(sas))
+	for i, sa := range sas {
+		dtos[i] = mapServiceAccountToDTO(sa)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"service_accounts": serviceAccounts,
+		"service_accounts": dtos,
 	})
 }
 
@@ -68,7 +78,7 @@ func (h *ServiceAccountHandler) GetServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	id := c.Param("id")
 
-	serviceAccount, err := h.serviceAccountService.GetServiceAccount(c.Request.Context(), id, companyID)
+	sa, err := h.serviceAccountService.GetServiceAccount(c.Request.Context(), id, companyID)
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -79,7 +89,7 @@ func (h *ServiceAccountHandler) GetServiceAccount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"service_account": serviceAccount,
+		"service_account": mapServiceAccountToDTO(sa),
 	})
 }
 
@@ -88,12 +98,20 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 	companyID := c.GetString("companyID")
 	id := c.Param("id")
 
-	var req models.UpdateServiceAccountRequest
+	var req dto.UpdateServiceAccountRequest
 	if !bindJSON(c, &req) {
 		return
 	}
+	if err := req.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	serviceAccount, err := h.serviceAccountService.UpdateServiceAccount(c.Request.Context(), id, companyID, &req)
+	sa, err := h.serviceAccountService.UpdateServiceAccount(c.Request.Context(), id, companyID, &domain.UpdateServiceAccountCmd{
+		Name:        req.Name,
+		Description: req.Description,
+		IsActive:    req.IsActive,
+	})
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
@@ -104,7 +122,7 @@ func (h *ServiceAccountHandler) UpdateServiceAccount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"service_account": serviceAccount,
+		"service_account": mapServiceAccountToDTO(sa),
 		"message":         "Service account updated successfully",
 	})
 }
@@ -148,4 +166,21 @@ func (h *ServiceAccountHandler) GetPermissions(c *gin.Context) {
 		"scope": scope,
 		"roles": roles,
 	})
+}
+
+func mapServiceAccountToDTO(sa *domain.ServiceAccount) *dto.ServiceAccount {
+	if sa == nil {
+		return nil
+	}
+	return &dto.ServiceAccount{
+		ID:          sa.ID,
+		CompanyID:   sa.CompanyID,
+		Name:        sa.Name,
+		Description: sa.Description,
+		IsActive:    sa.IsActive,
+		CreatedBy:   sa.CreatedBy,
+		LastUsedAt:  sa.LastUsedAt,
+		CreatedAt:   sa.CreatedAt,
+		UpdatedAt:   sa.UpdatedAt,
+	}
 }

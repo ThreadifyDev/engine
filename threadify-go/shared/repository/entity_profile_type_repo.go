@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
+	"threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
-	"threadify-go/shared/models"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -15,6 +18,8 @@ import (
 )
 
 const maxTypes = 5
+
+var paramRegex = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])@([a-zA-Z0-9_]+)`)
 
 type EntityProfileTypeRepo struct {
 	pool *pgxpool.Pool
@@ -45,15 +50,22 @@ func dedupe(in []string) []string {
 	return out
 }
 
-func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	if len(profileType.Type) > maxTypes {
 		return serror.ErrEntityProfileTypeExceedsMaxTypes
 	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("create entity profile type: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
 	query := `
 		INSERT INTO entity_profile_type (id, company_id, name, slug, type, description, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	if _, err := r.pool.Exec(ctx, query,
+	if _, err := tx.Exec(ctx, query,
 		profileType.ID,
 		profileType.CompanyID,
 		profileType.Name,
@@ -68,10 +80,81 @@ func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileTy
 		}
 		return fmt.Errorf("create entity profile type: %w", err)
 	}
-	return nil
+
+	if len(profileType.Metrics) > 0 {
+		metricQuery := `
+			INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters)
+			VALUES ($1, $2, $3, $4)
+		`
+		for _, m := range profileType.Metrics {
+			params := m.Parameters
+			if params == nil {
+				params = make(map[string]any)
+			}
+			var name *string
+			if m.Name != "" {
+				name = &m.Name
+			}
+			if _, err := tx.Exec(ctx, metricQuery, profileType.ID, m.TemplateID, name, params); err != nil {
+				return fmt.Errorf("create entity profile type metrics: %w", err)
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileTypes []*domain.EntityProfileType) error {
+	if len(profileTypes) == 0 {
+		return nil
+	}
+
+	var typeIDs []string
+	typeMap := make(map[string]*domain.EntityProfileType)
+	for _, pt := range profileTypes {
+		typeIDs = append(typeIDs, pt.ID)
+		typeMap[pt.ID] = pt
+	}
+
+	query := `
+		SELECT m.entity_profile_type_id, m.metrics_template_id, m.name, t.metrics_name, m.parameters 
+		FROM entity_profile_type_metrics m
+		JOIN metrics_template t ON t.id = m.metrics_template_id
+		WHERE m.entity_profile_type_id = ANY($1)
+	`
+	rows, err := r.pool.Query(ctx, query, typeIDs)
+	if err != nil {
+		return fmt.Errorf("populate metrics: query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var typeID, tmplID, tmplName string
+		var customName *string
+		var params map[string]any
+
+		if err := rows.Scan(&typeID, &tmplID, &customName, &tmplName, &params); err != nil {
+			return fmt.Errorf("populate metrics: scan: %w", err)
+		}
+
+		name := tmplName
+		if customName != nil && *customName != "" {
+			name = *customName
+		}
+
+		if pt, ok := typeMap[typeID]; ok {
+			pt.Metrics = append(pt.Metrics, domain.EntityTypeMetric{
+				TemplateID: tmplID,
+				Name:       name,
+				Parameters: params,
+			})
+		}
+	}
+
+	return rows.Err()
+}
+
+func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
@@ -84,9 +167,9 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 	}
 	defer rows.Close()
 
-	var profileTypes []*models.EntityProfileType
+	var profileTypes []*domain.EntityProfileType
 	for rows.Next() {
-		var pt models.EntityProfileType
+		var pt domain.EntityProfileType
 		if err := rows.Scan(
 			&pt.ID,
 			&pt.CompanyID,
@@ -105,16 +188,21 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("get entity profile types: rows: %w", err)
 	}
+
+	if err := r.populateMetrics(ctx, profileTypes); err != nil {
+		return nil, err
+	}
+
 	return profileTypes, nil
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE id = $1 AND archived_at IS NULL
 	`
-	var pt models.EntityProfileType
+	var pt domain.EntityProfileType
 	if err := r.pool.QueryRow(ctx, query, profileTypeID).Scan(
 		&pt.ID,
 		&pt.CompanyID,
@@ -131,16 +219,21 @@ func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileT
 		}
 		return nil, fmt.Errorf("get entity profile type by id: %w", err)
 	}
+
+	if err := r.populateMetrics(ctx, []*domain.EntityProfileType{&pt}); err != nil {
+		return nil, err
+	}
+
 	return &pt, nil
 }
 
-func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*models.EntityProfileType, error) {
+func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*domain.EntityProfileType, error) {
 	query := `
 		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE company_id = $1 AND slug = $2 AND archived_at IS NULL
 	`
-	var pt models.EntityProfileType
+	var pt domain.EntityProfileType
 	if err := r.pool.QueryRow(ctx, query, companyID, profileType).Scan(
 		&pt.ID,
 		&pt.CompanyID,
@@ -157,10 +250,15 @@ func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, compan
 		}
 		return nil, fmt.Errorf("get entity profile type by type: %w", err)
 	}
+
+	if err := r.populateMetrics(ctx, []*domain.EntityProfileType{&pt}); err != nil {
+		return nil, err
+	}
+
 	return &pt, nil
 }
 
-func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileType *models.EntityProfileType) error {
+func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("update entity profile type: begin tx: %w", err)
@@ -217,6 +315,34 @@ func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileTy
 		return fmt.Errorf("update entity profile type: update: %w", err)
 	}
 
+	// Update metrics (full replacement)
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM entity_profile_type_metrics
+		WHERE entity_profile_type_id = $1
+	`, profileType.ID); err != nil {
+		return fmt.Errorf("update entity profile type: delete metrics: %w", err)
+	}
+
+	if len(profileType.Metrics) > 0 {
+		metricQuery := `
+			INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters)
+			VALUES ($1, $2, $3, $4)
+		`
+		for _, m := range profileType.Metrics {
+			params := m.Parameters
+			if params == nil {
+				params = make(map[string]any)
+			}
+			var name *string
+			if m.Name != "" {
+				name = &m.Name
+			}
+			if _, err := tx.Exec(ctx, metricQuery, profileType.ID, m.TemplateID, name, params); err != nil {
+				return fmt.Errorf("update entity profile type: insert metric: %w", err)
+			}
+		}
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -232,6 +358,116 @@ func (r *EntityProfileTypeRepo) ArchiveProfileType(ctx context.Context, companyI
 	}
 	if tag.RowsAffected() == 0 {
 		return serror.ErrEntityProfileTypeNotFound
+	}
+	return nil
+}
+
+func extractParameters(sqlQuery string) []string {
+	ignoredParams := map[string]struct{}{
+		"ref_value":  {},
+		"ref_keys":   {},
+		"start_time": {},
+		"end_time":   {},
+	}
+
+	matches := paramRegex.FindAllStringSubmatch(sqlQuery, -1)
+	params := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+
+	for _, match := range matches {
+		if len(match) <= 1 {
+			continue
+		}
+		paramName := match[1]
+		if _, ok := ignoredParams[paramName]; ok {
+			continue
+		}
+		if _, ok := seen[paramName]; ok {
+			continue
+		}
+		seen[paramName] = struct{}{}
+		params = append(params, paramName)
+	}
+
+	return params
+}
+
+func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*domain.MetricsTemplate, error) {
+	query := `
+		SELECT id, metrics_name, sql_content
+		FROM metrics_template
+		ORDER BY metrics_name ASC
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics templates: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []*domain.MetricsTemplate
+	for rows.Next() {
+		var id, name, sqlContent string
+		if err := rows.Scan(&id, &name, &sqlContent); err != nil {
+			return nil, fmt.Errorf("failed to scan metrics template: %w", err)
+		}
+
+		templates = append(templates, &domain.MetricsTemplate{
+			ID:          id,
+			MetricsName: name,
+			Parameters:  extractParameters(sqlContent),
+			SQLContent:  sqlContent,
+		})
+	}
+
+	return templates, rows.Err()
+}
+
+func (r *EntityProfileTypeRepo) GetMetricsTemplate(ctx context.Context, id string) (*domain.MetricsTemplate, error) {
+	query := `
+		SELECT id, metrics_name, sql_content
+		FROM metrics_template
+		WHERE id = $1
+	`
+	var tmpl domain.MetricsTemplate
+	err := r.pool.QueryRow(ctx, query, id).Scan(&tmpl.ID, &tmpl.MetricsName, &tmpl.SQLContent)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("metrics template not found: %s", id)
+		}
+		return nil, fmt.Errorf("failed to get metrics template: %w", err)
+	}
+
+	tmpl.Parameters = extractParameters(tmpl.SQLContent)
+	return &tmpl, nil
+}
+
+func (r *EntityProfileTypeRepo) ValidateMetricsSQL(ctx context.Context, sqlContent string, params map[string]any) error {
+	cleanQuery := strings.ReplaceAll(sqlContent, ";", "")
+	cleanQuery = strings.TrimSpace(cleanQuery)
+	if cleanQuery == "" {
+		return fmt.Errorf("template SQL content is empty")
+	}
+
+	// Build dummy args matching what the evaluation engine provides
+	args := pgx.NamedArgs{
+		"start_time": time.Now().Add(-7 * 24 * time.Hour),
+		"end_time":   time.Now(),
+		"ref_value":  "__validate_dummy__",
+		"ref_keys":   []string{"__validate_dummy__"},
+	}
+	for k, v := range params {
+		if _, exists := args[k]; !exists {
+			args[k] = v
+		}
+	}
+
+	explainQuery := fmt.Sprintf("EXPLAIN SELECT * FROM (%s) AS subquery LIMIT 1000", cleanQuery)
+
+	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if _, err := r.pool.Exec(validateCtx, explainQuery, args); err != nil {
+		return fmt.Errorf("invalid metrics template SQL: %w", err)
 	}
 	return nil
 }

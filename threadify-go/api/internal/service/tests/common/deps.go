@@ -3,7 +3,7 @@ package common
 import (
 	"testing"
 
-	"threadify-go/api/internal/interfaces"
+	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/service"
 	agentrepomocks "threadify-go/api/internal/service/mocks/repository/agent"
 	apikeyrepomocks "threadify-go/api/internal/service/mocks/repository/apikey"
@@ -16,6 +16,7 @@ import (
 	agentmocks "threadify-go/api/internal/service/mocks/service/agent"
 	apikeymocks "threadify-go/api/internal/service/mocks/service/api_key"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
+	billingmocks "threadify-go/api/internal/service/mocks/service/billing"
 	emailmocks "threadify-go/api/internal/service/mocks/service/email"
 	entityprofilemocks "threadify-go/api/internal/service/mocks/service/entity_profile_type"
 	serviceaccountmocks "threadify-go/api/internal/service/mocks/service/service_account"
@@ -51,6 +52,7 @@ type MockedDeps struct {
 	ServiceAccountSvc *serviceaccountmocks.MockServiceAccountService
 	EntityProfileSvc  *entityprofilemocks.MockEntityProfileTypeService
 	UserSvc           *usermocks.MockUserService
+	BillingSvc        *billingmocks.MockBillingService
 
 	Logger *zap.Logger
 }
@@ -78,24 +80,28 @@ func NewMockDeps(t *testing.T) *MockedDeps {
 		EmailSvc:          emailmocks.NewMockEmailService(ctrl),
 		ServiceAccountSvc: serviceaccountmocks.NewMockServiceAccountService(ctrl),
 		EntityProfileSvc:  entityprofilemocks.NewMockEntityProfileTypeService(ctrl),
+		BillingSvc:        billingmocks.NewMockBillingService(ctrl),
 
 		Logger: zap.NewNop(),
 	}
 }
 
 func (d *MockedDeps) NewAuthService(
-	pool interfaces.DBPool,
+	pool ports.DBPool,
 	authClient sharedauth.AuthClient,
+	jwksVerifier sharedauth.TokenVerifier,
 	outboxWorker service.OutboxWorkerTrigger,
 	encryptionKey []byte,
 ) *service.AuthService {
 	return service.NewAuthService(
-		pool,
+		ports.WrapAsTxManager(pool),
 		d.UserRepo,
 		d.CompanyRepo,
 		d.UserRoleRepo,
 		d.EmailSvc,
 		authClient,
+		jwksVerifier,
+		d.BillingSvc,
 		d.OutboxRepo,
 		d.InvitationRepo,
 		outboxWorker,
@@ -104,7 +110,7 @@ func (d *MockedDeps) NewAuthService(
 	)
 }
 
-func (d *MockedDeps) NewAPIKeyService(rbacLoader *rbac.Loader) *service.APIKeyService {
+func (d *MockedDeps) NewAPIKeyService(rbacLoader ports.RBACRoleLoader) *service.APIKeyService {
 	return service.NewAPIKeyService(
 		d.APIKeyRepoInternal,
 		d.ServiceAccountRepo,
@@ -133,6 +139,7 @@ func (d *MockedDeps) NewTeamInvitationService(
 
 func (d *MockedDeps) NewServiceAccountService() *service.ServiceAccountService {
 	return service.NewServiceAccountService(
+		d.Logger,
 		d.ServiceAccountRepo,
 		d.UserRoleRepo,
 	)
@@ -155,4 +162,20 @@ func (d *MockedDeps) NewAgentService(engineURL, openaiKey string, maxMsg, maxTok
 		sumTok,
 		d.Logger,
 	)
+}
+
+type RBACRoleLoaderWrapper struct {
+	Loader *rbac.Loader
+}
+
+func (w *RBACRoleLoaderWrapper) GetRolesByLevel(level string) map[string]struct{} {
+	if w.Loader == nil {
+		return nil
+	}
+	roles := w.Loader.GetRolesByLevel(level)
+	result := make(map[string]struct{}, len(roles))
+	for roleName := range roles {
+		result[roleName] = struct{}{}
+	}
+	return result
 }

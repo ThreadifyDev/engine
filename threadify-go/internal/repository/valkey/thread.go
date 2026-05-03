@@ -2,12 +2,12 @@ package valkey
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/repository/postgres"
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"github.com/threadify/engine/internal/workerpool"
@@ -16,13 +16,13 @@ import (
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
-	valkey            types.ThreadValkeyClient
+	valkey            domain.ThreadValkeyClient
 	ttl               int // TTL in seconds
 	postgresRepo      *postgres.ThreadRepository
 	stepStatePostgres *postgres.StepStateRepository // For step state queries
-	cacheManager      types.CacheManager       // For duplicate detection via LRU cache
+	cacheManager      domain.CacheManager           // For duplicate detection via LRU cache
 	writeBackPool     *workerpool.Pool              // For async cache write-backs
-	luaScripts        types.LuaScriptManager   // For atomic Lua script operations
+	luaScripts        domain.LuaScriptManager       // For atomic Lua script operations
 	logger            *zap.Logger
 }
 
@@ -30,11 +30,11 @@ type ThreadRepository struct {
 // PostgreSQL fallback is always required for production hot/cold architecture
 func NewThreadRepository(
 	ttl int,
-	valkey types.ThreadValkeyClient,
+	valkey domain.ThreadValkeyClient,
 	postgresRepo *postgres.ThreadRepository,
 	stepStatePostgres *postgres.StepStateRepository,
-	cacheManager types.CacheManager,
-	luaScripts types.LuaScriptManager,
+	cacheManager domain.CacheManager,
+	luaScripts domain.LuaScriptManager,
 	logger *zap.Logger,
 ) *ThreadRepository {
 	return &ThreadRepository{
@@ -59,12 +59,12 @@ func (r *ThreadRepository) SetWriteBackPool(pool *workerpool.Pool) {
 }
 
 // Save stores a thread in Valkey
-func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) error {
+func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) error {
 	key := r.getThreadKey(thread.ID)
 	metaKey := r.getThreadMetaKey(thread.ID)
 
-	// Serialize thread to JSON
-	data, err := thread.ToJSON()
+	// Serialize thread to JSON using repository model
+	data, err := json.Marshal(fromThreadDomain(thread))
 	if err != nil {
 		return fmt.Errorf("failed to serialize thread: %w", err)
 	}
@@ -94,7 +94,7 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *models.Thread) erro
 }
 
 // Get retrieves a thread from Valkey (hot) or PostgreSQL (cold) with optional write-back
-func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...types.ThreadReadOptions) (*models.Thread, error) {
+func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...domain.ThreadReadOptions) (*domain.Thread, error) {
 	r.logger.Debug("Get thread called", zap.String("thread_id", threadID))
 
 	shouldWriteBack := len(opts) > 0 && opts[0].WriteBack
@@ -144,7 +144,7 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...typ
 }
 
 // getFromValkey retrieves thread from Valkey only (internal helper)
-func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (*models.Thread, error) {
+func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (*domain.Thread, error) {
 	key := r.getThreadKey(threadID)
 	metaKey := r.getThreadMetaKey(threadID)
 
@@ -159,10 +159,12 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 	}
 
 	// Deserialize thread
-	thread, err := models.FromJSON([]byte(data))
+	var model threadModel
+	err = json.Unmarshal([]byte(data), &model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize thread: %w", err)
 	}
+	thread := model.ToDomain()
 
 	// Get metadata from hash and overlay it (hash is source of truth)
 	meta, err := r.valkey.HGetAll(ctx, metaKey)
@@ -176,7 +178,7 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 		for key, value := range meta {
 			switch key {
 			case "status":
-				thread.Status = models.ThreadStatus(value)
+				thread.Status = domain.ThreadStatus(value)
 			case "completedAt":
 				if value != "" {
 					if completedAt, err := time.Parse(time.RFC3339, value); err == nil {
@@ -350,7 +352,7 @@ func (r *ThreadRepository) GetThreadWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	companyID string,
-) (*models.Thread, error) {
+) (*domain.Thread, error) {
 	// Try Valkey first (hot path)
 	thread, err := r.getFromValkey(ctx, threadID)
 	if err == nil && thread != nil {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 	serror "threadify-go/shared/errors"
 
@@ -31,7 +31,7 @@ func TestTeamInvitationService_SendInvitation(t *testing.T) {
 	tests := []struct {
 		name      string
 		setupMock func(deps *common.MockedDeps)
-		validate  func(t *testing.T, invitation *models.TeamInvitation, err error)
+		validate  func(t *testing.T, invitation *domain.TeamInvitation, err error)
 	}{
 		{
 			name: "success",
@@ -40,7 +40,7 @@ func TestTeamInvitationService_SendInvitation(t *testing.T) {
 				deps.InvitationRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 				deps.OutboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 			},
-			validate: func(t *testing.T, invitation *models.TeamInvitation, err error) {
+			validate: func(t *testing.T, invitation *domain.TeamInvitation, err error) {
 				t.Helper()
 				require.NoError(t, err)
 				require.NotNil(t, invitation)
@@ -52,12 +52,12 @@ func TestTeamInvitationService_SendInvitation(t *testing.T) {
 		{
 			name: "user_already_exists",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&models.User{ID: "user_123"}, nil)
+				deps.UserRepo.EXPECT().FindByEmail(gomock.Any(), email).Return(&domain.User{ID: "user_123"}, nil)
 			},
-			validate: func(t *testing.T, invitation *models.TeamInvitation, err error) {
+			validate: func(t *testing.T, invitation *domain.TeamInvitation, err error) {
 				t.Helper()
 				require.Error(t, err)
-				assert.ErrorContains(t, err, "already has an account")
+				assert.ErrorContains(t, err, "user with this email already exists")
 			},
 		},
 	}
@@ -79,12 +79,12 @@ func TestTeamInvitationService_ValidateToken(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		invitation *models.TeamInvitation
+		invitation *domain.TeamInvitation
 		wantErr    string
 	}{
 		{
 			name: "success",
-			invitation: &models.TeamInvitation{
+			invitation: &domain.TeamInvitation{
 				Token:     token,
 				Status:    "pending",
 				ExpiresAt: time.Now().Add(time.Hour),
@@ -92,7 +92,7 @@ func TestTeamInvitationService_ValidateToken(t *testing.T) {
 		},
 		{
 			name: "expired",
-			invitation: &models.TeamInvitation{
+			invitation: &domain.TeamInvitation{
 				Token:     token,
 				Status:    "pending",
 				ExpiresAt: time.Now().Add(-time.Hour),
@@ -108,7 +108,7 @@ func TestTeamInvitationService_ValidateToken(t *testing.T) {
 
 			deps.InvitationRepo.EXPECT().GetByToken(gomock.Any(), token).Return(tt.invitation, nil)
 			if tt.invitation != nil && tt.invitation.Status == "pending" && time.Now().Before(tt.invitation.ExpiresAt) {
-				deps.CompanyRepo.EXPECT().FindByID(gomock.Any(), tt.invitation.CompanyID).Return(&models.Company{Name: "Test Co"}, nil)
+				deps.CompanyRepo.EXPECT().FindByID(gomock.Any(), tt.invitation.CompanyID).Return(&domain.Company{Name: "Test Co"}, nil)
 			}
 
 			res, err := svc.ValidateToken(context.Background(), token)

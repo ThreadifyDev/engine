@@ -15,8 +15,8 @@ type APIServerConfig struct {
 	PubKey      string
 	SecretKey   string
 
-	PlunkAPIURL string
-	PlunkAPIKey string
+	EmailAPIURL string
+	EmailAPIKey string
 
 	OutboxEncryptionKey string
 }
@@ -25,7 +25,7 @@ func WriteConfig(dir string, cfg APIServerConfig) (string, error) {
 	if dir == "" {
 		return "", fmt.Errorf("dir is required")
 	}
-	if cfg.PostgresURL == "" || cfg.NATSURL == "" || cfg.SupabaseURL == "" || cfg.PlunkAPIURL == "" {
+	if cfg.PostgresURL == "" || cfg.NATSURL == "" || cfg.SupabaseURL == "" || cfg.EmailAPIURL == "" {
 		return "", fmt.Errorf("missing required config fields")
 	}
 	if cfg.Port <= 0 {
@@ -38,8 +38,8 @@ func WriteConfig(dir string, cfg APIServerConfig) (string, error) {
 	if cfg.SecretKey == "" {
 		cfg.SecretKey = "sk_test"
 	}
-	if cfg.PlunkAPIKey == "" {
-		cfg.PlunkAPIKey = "plunk_test"
+	if cfg.EmailAPIKey == "" {
+		cfg.EmailAPIKey = "plunk_test"
 	}
 	if cfg.OutboxEncryptionKey == "" {
 		cfg.OutboxEncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -59,15 +59,16 @@ web_api:
   cors_origins: "*"
   outbox_encryption_key: %q
   email:
-    plunk_api_key: %q
-    plunk_from_email: "noreply@threadify.dev"
-    plunk_api_url: %q
+    provider: "plunk"
+    api_key: %q
+    from_email: "noreply@threadify.dev"
+    api_url: %q
 auth_provider: "supabase"
 supabase:
   url: %q
   publishable_key: %q
   secret_key: %q
-`, cfg.PostgresURL, cfg.NATSURL, cfg.SupabaseURL+"/auth/v1/.well-known/jwks.json", cfg.Port, cfg.OutboxEncryptionKey, cfg.PlunkAPIKey, cfg.PlunkAPIURL, cfg.SupabaseURL, cfg.PubKey, cfg.SecretKey)
+`, cfg.PostgresURL, cfg.NATSURL, cfg.SupabaseURL+"/auth/v1/.well-known/jwks.json", cfg.Port, cfg.OutboxEncryptionKey, cfg.EmailAPIKey, cfg.EmailAPIURL, cfg.SupabaseURL, cfg.PubKey, cfg.SecretKey)
 
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		return "", fmt.Errorf("write config: %w", err)

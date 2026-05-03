@@ -2,16 +2,21 @@
 
 package generated
 
+import (
+	"github.com/threadify/engine/internal/graphql/scalars"
+)
+
 type EntityProfile struct {
-	ID            string                `json:"id"`
-	RefKey        string                `json:"refKey"`
-	CompanyID     string                `json:"companyId"`
-	ProfileTypeID string                `json:"profileTypeId"`
-	ProfileType   *EntityProfileType    `json:"profileType,omitempty"`
-	Name          *string               `json:"name,omitempty"`
-	CreatedAt     string                `json:"createdAt"`
-	LastActiveAt  string                `json:"lastActiveAt"`
-	Metrics       *EntityProfileMetrics `json:"metrics,omitempty"`
+	ID              string                `json:"id"`
+	RefKey          string                `json:"refKey"`
+	CompanyID       string                `json:"companyId"`
+	ProfileTypeID   string                `json:"profileTypeId"`
+	ProfileType     *EntityProfileType    `json:"profileType,omitempty"`
+	Name            *string               `json:"name,omitempty"`
+	CreatedAt       string                `json:"createdAt"`
+	LastActiveAt    string                `json:"lastActiveAt"`
+	Metrics         *EntityProfileMetrics `json:"metrics,omitempty"`
+	ComputedMetrics scalars.JSON          `json:"computedMetrics,omitempty"`
 }
 
 type EntityProfileConnection struct {
@@ -33,13 +38,20 @@ type EntityProfileMetrics struct {
 }
 
 type EntityProfileType struct {
-	ID          string   `json:"id"`
-	CompanyID   string   `json:"companyId"`
-	Name        string   `json:"name"`
-	Type        []string `json:"type"`
-	Description *string  `json:"description,omitempty"`
-	CreatedAt   string   `json:"createdAt"`
-	UpdatedAt   string   `json:"updatedAt"`
+	ID            string                    `json:"id"`
+	CompanyID     string                    `json:"companyId"`
+	Name          string                    `json:"name"`
+	Type          []string                  `json:"type"`
+	Description   *string                   `json:"description,omitempty"`
+	CreatedAt     string                    `json:"createdAt"`
+	UpdatedAt     string                    `json:"updatedAt"`
+	MetricsConfig []*EntityTypeMetricConfig `json:"metricsConfig,omitempty"`
+}
+
+type EntityTypeMetricConfig struct {
+	TemplateID string       `json:"templateId"`
+	Name       *string      `json:"name,omitempty"`
+	Parameters scalars.JSON `json:"parameters,omitempty"`
 }
 
 type Mutation struct {

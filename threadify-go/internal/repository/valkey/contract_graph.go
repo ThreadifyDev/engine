@@ -6,18 +6,19 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
+	"github.com/threadify/engine/internal/mapper"
 )
 
 // ContractGraphRepository handles contract graph caching in Valkey (Redis)
 type ContractGraphRepository struct {
-	valkey types.ValkeyStringClient
+	valkey domain.ValkeyStringClient
 	ttl    int // TTL in seconds
 }
 
 // NewContractGraphRepository creates a new contract graph repository
-func NewContractGraphRepository(valkey types.ValkeyStringClient, ttl int) *ContractGraphRepository {
+func NewContractGraphRepository(valkey domain.ValkeyStringClient, ttl int) *ContractGraphRepository {
 	return &ContractGraphRepository{
 		valkey: valkey,
 		ttl:    ttl,
@@ -26,11 +27,12 @@ func NewContractGraphRepository(valkey types.ValkeyStringClient, ttl int) *Contr
 
 // Save stores a contract graph in Valkey cache
 // contractName and version are passed separately since they're stored in the DB, not in the graph
-func (r *ContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *models.ContractGraph) error {
+func (r *ContractGraphRepository) Save(ctx context.Context, contractName string, version int, companyID string, graph *domain.ContractGraph) error {
 	key := r.getGraphKey(contractName, version, companyID)
 
-	// Serialize graph to JSON
-	data, err := json.Marshal(graph)
+	// Map to DTO for consistent snake_case serialization
+	graphDTO := mapper.ToContractGraphDTO(graph)
+	data, err := json.Marshal(graphDTO)
 	if err != nil {
 		return fmt.Errorf("failed to serialize contract graph: %w", err)
 	}
@@ -45,7 +47,7 @@ func (r *ContractGraphRepository) Save(ctx context.Context, contractName string,
 }
 
 // Get retrieves a contract graph from Valkey cache
-func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, version int, companyID string) (*models.ContractGraph, error) {
+func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, version int, companyID string) (*domain.ContractGraph, error) {
 	key := r.getGraphKey(contractName, version, companyID)
 
 	// Get from Valkey
@@ -58,14 +60,14 @@ func (r *ContractGraphRepository) Get(ctx context.Context, contractName string, 
 		return nil, fmt.Errorf("contract graph not found: %s v%d", contractName, version)
 	}
 
-	// Deserialize graph
-	var graph models.ContractGraph
-	err = json.Unmarshal([]byte(data), &graph)
+	// Deserialize via DTO to handle snake_case mapping
+	var graphDTO dto.ContractGraphDTO
+	err = json.Unmarshal([]byte(data), &graphDTO)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize contract graph: %w", err)
 	}
 
-	return &graph, nil
+	return mapper.FromContractGraphDTO(&graphDTO), nil
 }
 
 // Delete removes a contract graph from Valkey cache

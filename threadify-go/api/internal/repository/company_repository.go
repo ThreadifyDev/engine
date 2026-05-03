@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -13,11 +14,15 @@ type companyRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewCompanyRepository(pool *pgxpool.Pool) CompanyRepository {
+func NewCompanyRepository(pool *pgxpool.Pool) domain.CompanyRepository {
 	return &companyRepository{pool: pool}
 }
 
-func (r *companyRepository) CreateTx(ctx context.Context, execer DBExecer, company *models.Company) error {
+func (r *companyRepository) CreateTx(ctx context.Context, tx domain.ExecContext, company *domain.Company) error {
+	execer, ok := tx.(ports.SQLExecutor)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
+	}
 	const query = `
         INSERT INTO companies (id, name, industry, size, use_case, created_at, updated_at)
         VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NOW(), NOW())
@@ -29,8 +34,8 @@ func (r *companyRepository) CreateTx(ctx context.Context, execer DBExecer, compa
 	return nil
 }
 
-func (r *companyRepository) FindByID(ctx context.Context, id string) (*models.Company, error) {
-	company := &models.Company{}
+func (r *companyRepository) FindByID(ctx context.Context, id string) (*domain.Company, error) {
+	company := &domain.Company{}
 	const query = `
         SELECT id, name, industry, size, use_case, created_at, updated_at
         FROM companies WHERE id = $1
@@ -67,7 +72,11 @@ func (r *companyRepository) Delete(ctx context.Context, id string) error {
 	return r.DeleteTx(ctx, r.pool, id)
 }
 
-func (r *companyRepository) DeleteTx(ctx context.Context, execer DBExecer, id string) error {
+func (r *companyRepository) DeleteTx(ctx context.Context, tx domain.ExecContext, id string) error {
+	execer, ok := tx.(ports.SQLExecutor)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
+	}
 	_, err := execer.Exec(ctx, `DELETE FROM companies WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete company: %w", err)

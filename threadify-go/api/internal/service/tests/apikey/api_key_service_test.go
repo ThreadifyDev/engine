@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 	"threadify-go/shared/rbac"
 
@@ -54,24 +54,24 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *models.CreateAPIKeyRequest
+		req       *domain.CreateAPIKeyCmd
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 	}{
 		{
 			name: "success_with_existing_sa",
-			req: &models.CreateAPIKeyRequest{
+			req: &domain.CreateAPIKeyCmd{
 				Name:             "Test Key",
 				ServiceAccountID: strPtr("sa_123"),
 			},
 			setupMock: func(deps *common.MockedDeps) {
-				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), "sa_123").Return(&models.ServiceAccount{ID: "sa_123", CompanyID: companyID}, nil)
+				deps.ServiceAccountRepo.EXPECT().FindByID(gomock.Any(), "sa_123").Return(&domain.ServiceAccount{ID: "sa_123", CompanyID: companyID}, nil)
 				deps.APIKeyRepoInternal.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 			},
 		},
 		{
 			name: "invalid_sa_role",
-			req: &models.CreateAPIKeyRequest{
+			req: &domain.CreateAPIKeyCmd{
 				Name:                 "Invalid Role Key",
 				CreateServiceAccount: true,
 				ServiceAccountRole:   strPtr("invalid_role"),
@@ -81,7 +81,7 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 		},
 		{
 			name: "sa_not_found",
-			req: &models.CreateAPIKeyRequest{
+			req: &domain.CreateAPIKeyCmd{
 				Name:             "Missing SA",
 				ServiceAccountID: strPtr("non_existent"),
 			},
@@ -95,7 +95,7 @@ func TestAPIKeyService_CreateAPIKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			deps := common.NewMockDeps(t)
-			svc := deps.NewAPIKeyService(loader)
+			svc := deps.NewAPIKeyService(&common.RBACRoleLoaderWrapper{Loader: loader})
 
 			tt.setupMock(deps)
 
@@ -124,7 +124,7 @@ func TestAPIKeyService_RevokeAPIKey(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.APIKeyRepoInternal.EXPECT().FindByID(gomock.Any(), keyID).Return(&models.APIKey{ID: keyID, CompanyID: companyID}, nil)
+				deps.APIKeyRepoInternal.EXPECT().FindByID(gomock.Any(), keyID).Return(&domain.APIKey{ID: keyID, CompanyID: companyID}, nil)
 				deps.APIKeyRepoInternal.EXPECT().Revoke(gomock.Any(), keyID).Return(nil)
 			},
 		},
@@ -138,7 +138,7 @@ func TestAPIKeyService_RevokeAPIKey(t *testing.T) {
 		{
 			name: "unauthorized",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.APIKeyRepoInternal.EXPECT().FindByID(gomock.Any(), keyID).Return(&models.APIKey{ID: keyID, CompanyID: "other"}, nil)
+				deps.APIKeyRepoInternal.EXPECT().FindByID(gomock.Any(), keyID).Return(&domain.APIKey{ID: keyID, CompanyID: "other"}, nil)
 			},
 			wantErr: true,
 		},
@@ -172,7 +172,7 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 			name: "revoked_key",
 			setupMock: func(deps *common.MockedDeps) {
 				now := time.Now()
-				deps.APIKeyRepoInternal.EXPECT().FindByHash(gomock.Any(), gomock.Any()).Return(&models.APIKey{RevokedAt: &now}, nil)
+				deps.APIKeyRepoInternal.EXPECT().FindByHash(gomock.Any(), gomock.Any()).Return(&domain.APIKey{RevokedAt: &now}, nil)
 			},
 			wantErr: true,
 		},
@@ -180,7 +180,7 @@ func TestAPIKeyService_ValidateAPIKey(t *testing.T) {
 			name: "expired_key",
 			setupMock: func(deps *common.MockedDeps) {
 				past := time.Now().Add(-time.Hour)
-				deps.APIKeyRepoInternal.EXPECT().FindByHash(gomock.Any(), gomock.Any()).Return(&models.APIKey{ExpiresAt: &past}, nil)
+				deps.APIKeyRepoInternal.EXPECT().FindByHash(gomock.Any(), gomock.Any()).Return(&domain.APIKey{ExpiresAt: &past}, nil)
 			},
 			wantErr: true,
 		},

@@ -18,9 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
-	"github.com/threadify/engine/internal/types"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/metrics"
-	"github.com/threadify/engine/internal/models"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/valkey"
@@ -39,14 +38,14 @@ var fallbackValidRoles = map[string]bool{
 
 // ThreadService orchestrates thread operations across multiple repositories.
 type ThreadService struct {
-	repo                  types.ThreadRepository
-	accessRepo            types.AccessRepository
-	activityRepo          types.ActivityRepository
-	graphRepo             types.ContractGraphRepository
-	stepEventService      types.StepEventProcessor
-	cacheManager          types.CacheManager
-	connectionMgr         types.ConnectionManager
-	contractValidator     types.ContractGraphValidator
+	repo                  domain.ThreadRepository
+	accessRepo            domain.AccessRepository
+	activityRepo          domain.ActivityRepository
+	graphRepo             domain.ContractGraphRepository
+	stepEventService      domain.StepEventProcessor
+	cacheManager          domain.CacheManager
+	connectionMgr         domain.ConnectionManager
+	contractValidator     domain.ContractGraphValidator
 	authService           *AuthService
 	accessService         *ThreadAccessService
 	validationService     *ValidationService
@@ -54,8 +53,8 @@ type ThreadService struct {
 	invitationService     *InvitationTokenService
 	scopeResolver         *ScopeResolver
 	notificationConsumer  *NotificationConsumer
-	planService           types.PlanService
-	valkeyClient          types.ThreadValkeyClient
+	planService           domain.PlanService
+	valkeyClient          domain.ThreadValkeyClient
 	luaScripts            *valkey.LuaScriptManager
 	natsArchivalPublisher *natsrepo.ArchivalPublisher
 	rbacLoader            *rbac.Loader
@@ -74,11 +73,11 @@ func NewThreadService(
 	threadRepo *valkey.ThreadRepository,
 	contractTTLSeconds int,
 	natsClient *natsrepo.Client,
-	natsPublisher types.NotificationPublisher,
+	natsPublisher domain.NotificationPublisher,
 	natsArchivalPublisher *natsrepo.ArchivalPublisher,
 	authService *AuthService,
-	planService types.PlanService,
-	cacheManager types.CacheManager,
+	planService domain.PlanService,
+	cacheManager domain.CacheManager,
 	workerPools *workerpool.Pools,
 	logger *zap.Logger,
 ) *ThreadService {
@@ -104,38 +103,38 @@ func NewThreadService(
 	return svc
 }
 
-func (s *ThreadService) GetNotificationConsumer() types.NotificationConsumer {
+func (s *ThreadService) GetNotificationConsumer() domain.NotificationConsumer {
 	return s.notificationConsumer
 }
 
-func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRequest) *models.ConnectResponse {
+func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCmd) *domain.ConnectResponse {
 	if req.ApiKey == "" {
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "API key is required"}
+		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "API key is required"}
 	}
 
 	userInfo, err := s.authService.ValidateApiKey(req.ApiKey)
 	if err != nil {
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
+		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
 	}
 
 	meter, err := s.planService.CheckBalancePositive(ctx, userInfo.CompanyID)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNoAccount):
-			return &models.ConnectResponse{
+			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
 				Message: "No billing account found. Please set up a credit account in the dashboard.",
 			}
 		case errors.Is(err, ErrInsufficientCredit):
-			return &models.ConnectResponse{
+			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
 				Message: "Insufficient credits. Please top up your account to continue.",
 			}
 		default:
 			s.logger.Error("failed to verify limits during connect", zap.Error(err), zap.String("company_id", userInfo.CompanyID))
-			return &models.ConnectResponse{
+			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
 				Message: "Failed to verify credit account status. Please try again later.",
@@ -144,7 +143,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 	}
 
 	if meter == nil {
-		return &models.ConnectResponse{
+		return &domain.ConnectResponse{
 			Action:  ActionConnect,
 			Status:  StepStatusError,
 			Message: "Credit account details are currently unavailable. Please contact support.",
@@ -152,10 +151,10 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 	}
 
 	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
-		return &models.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to establish connection"}
+		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to establish connection"}
 	}
 
-	return &models.ConnectResponse{
+	return &domain.ConnectResponse{
 		Action:    ActionConnect,
 		Status:    StepStatusSuccess,
 		Message:   "Connected successfully",
@@ -164,12 +163,12 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *models.ConnectRe
 	}
 }
 
-func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.StartThreadRequest, ownerID, companyID string) *models.StartThreadResponse {
+func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
 	start := perf.Now()
 	perf.LogStructured("HandleStartThread BEGIN", zap.String("owner", ownerID), zap.String("contract", req.ContractName))
 
-	errResp := func(msg string) *models.StartThreadResponse {
-		return &models.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: msg}
+	errResp := func(msg string) *domain.StartThreadResponse {
+		return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: msg}
 	}
 
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
@@ -185,13 +184,13 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	var contractVersion int
 	var parsedContractName, contractUUID string
-	var contractGraph *models.ContractGraph
+	var contractGraph *domain.ContractGraph
 
 	if req.ContractName != "" {
 		parsedContractName, contractVersion = parseContractIdentifier(req.ContractName)
 
 		t := time.Now()
-		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(parsedContractName, contractVersion, companyID)
+		actualVersion, err := s.contractValidator.LoadContractGraphIntoCache(ctx, parsedContractName, contractVersion, companyID)
 		metrics.OperationDuration.WithLabelValues(ActionStartThread, "contract_load").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("Failed to load contract")
@@ -199,7 +198,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		contractVersion = actualVersion
 
 		// Get contract graph (already cached from LoadContractGraphIntoCache above)
-		contractGraph, err = s.contractValidator.GetContractGraph(parsedContractName, contractVersion, companyID)
+		contractGraph, err = s.contractValidator.GetContractGraph(ctx, parsedContractName, contractVersion, companyID)
 		if err != nil {
 			return errResp("Failed to load contract graph")
 		}
@@ -210,7 +209,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		}
 
 		t = time.Now()
-		contract, err := s.contractValidator.GetContractByNameAndCompany(parsedContractName, companyID)
+		contract, err := s.contractValidator.GetContractByNameAndCompany(ctx, parsedContractName, companyID)
 		metrics.OperationDuration.WithLabelValues(ActionStartThread, "contract_fetch").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("Failed to retrieve contract")
@@ -220,10 +219,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	threadID := uuid.New().String()
 
-	label := req.Label
-	if label == "" && req.Refs != nil {
-		label = req.Refs["label"]
-	}
+	label := StartThreadLabel(req)
 
 	var contractIDPtr *string
 	if contractUUID != "" {
@@ -234,7 +230,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		contractVersionPtr = &contractVersion
 	}
 
-	thread := &models.Thread{
+	thread := &domain.Thread{
 		ID:              threadID,
 		Label:           label,
 		ContractID:      contractIDPtr,
@@ -242,7 +238,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 		ContractVersion: contractVersionPtr,
 		OwnerID:         ownerID,
 		CompanyID:       companyID,
-		Status:          models.ThreadStatusActive,
+		Status:          domain.ThreadStatusActive,
 		StartedAt:       time.Now(),
 	}
 
@@ -257,7 +253,23 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	// Thread creator always gets "owner" runtime_role (invariant)
 	runtimeRole := "owner"
 
-	threadDataBytes, err := thread.ToJSON()
+	// Serialize thread to JSON using explicit mapping for storage
+	threadDataBytes, err := json.Marshal(map[string]interface{}{
+		"id":              thread.ID,
+		"contractId":      thread.ContractID,
+		"contractVersion": thread.ContractVersion,
+		"contractName":    thread.ContractName,
+		"refs":            thread.Refs,
+		"ownerId":         thread.OwnerID,
+		"companyId":       thread.CompanyID,
+		"label":           thread.Label,
+		"createdBy":       thread.CreatedBy,
+		"status":          string(thread.Status),
+		"lastHash":        thread.LastHash,
+		"startedAt":       thread.StartedAt,
+		"completedAt":     thread.CompletedAt,
+		"error":           thread.Error,
+	})
 	if err != nil {
 		return errResp("Failed to serialize thread")
 	}
@@ -289,7 +301,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	// Schedule thread max duration timeout if contract has max_duration validation
 	if contractGraph != nil && s.notificationService != nil {
-		go func(graph *models.ContractGraph) {
+		go func(graph *domain.ContractGraph) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -299,7 +311,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 
-	return &models.StartThreadResponse{
+	return &domain.StartThreadResponse{
 		Action:   ActionStartThread,
 		Status:   StepStatusSuccess,
 		Message:  "Thread started successfully",
@@ -307,7 +319,18 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *models.Start
 	}
 }
 
-func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.RecordEventRequest, ownerID, companyID string) *models.RecordEventResponse {
+func StartThreadLabel(req *domain.StartThreadCmd) string {
+	if req == nil {
+		return ""
+	}
+	label := req.Label
+	if label == "" && req.Refs != nil {
+		label = req.Refs["label"]
+	}
+	return label
+}
+
+func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
 	start := perf.Now()
 	perf.LogStructured("HandleRecordEvent BEGIN",
 		zap.String("owner", ownerID),
@@ -315,8 +338,8 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		zap.String("step", req.StepName),
 	)
 
-	errResp := func(msg string) *models.RecordEventResponse {
-		return &models.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
+	errResp := func(msg string) *domain.RecordEventResponse {
+		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
 	}
 
 	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
@@ -350,7 +373,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		return errResp("Access denied: You don't have write permission for this thread")
 	}
 
-	if thread.Status == models.ThreadStatusCompleted {
+	if thread.Status == domain.ThreadStatusCompleted {
 		return errResp("Cannot add steps to completed thread")
 	}
 
@@ -373,17 +396,17 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	if idempotencyKey != "" {
 		idempCtx, idempCancel := context.WithTimeout(ctx, 5*time.Second)
 		t = time.Now()
-		existingStatus, err := s.repo.GetStepStatus(idempCtx, types.StepStatusQuery{
+		existingStatus, err := s.repo.GetStepStatus(idempCtx, domain.StepStatusQuery{
 			ThreadID:       req.ThreadID,
 			StepName:       req.StepName,
 			ExpectedStatus: req.Status,
 			IdempotencyKey: idempotencyKey,
-		}, types.ThreadReadOptions{WriteBack: true})
+		}, domain.ThreadReadOptions{WriteBack: true})
 		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
 			if existingStatus == ThreadStatusCompleted || existingStatus == StepStatusSuccess {
-				return &models.RecordEventResponse{
+				return &domain.RecordEventResponse{
 					Action:      ActionRecordThreadEvent,
 					Status:      StepStatusError,
 					Message:     "Step with this signature already completed",
@@ -397,8 +420,8 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		req.IdempotencyKey = idempotencyKey
 	}
 
-	var graph *models.ContractGraph
-	var stepNode models.GraphNode
+	var graph *domain.ContractGraph
+	var stepNode domain.GraphNode
 
 	if thread.ContractName != "" {
 		version := 0
@@ -407,7 +430,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		}
 
 		t = time.Now()
-		graph, err = s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
+		graph, err = s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "contract_validate").Observe(time.Since(t).Seconds())
 		if err != nil {
 			return errResp("failed to load contract")
@@ -419,7 +442,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 			return errResp(fmt.Sprintf("Step '%s' not found in contract '%s'", req.StepName, thread.ContractName))
 		}
 
-		if !s.hasSuccessfulSteps(thread) {
+		if !s.hasSuccessfulSteps(ctx, thread) {
 			if !slices.Contains(graph.Graph.EntryPoints, req.StepName) {
 				return errResp(fmt.Sprintf("Thread must start with one of the entry points: %v. Attempted step: '%s'", graph.Graph.EntryPoints, req.StepName))
 			}
@@ -440,7 +463,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		}
 
 		t = time.Now()
-		if err := s.contractValidator.ValidateStepContext(stepNode, req.Context); err != nil {
+		if err := s.contractValidator.ValidateStepContext(ctx, stepNode, req.Context); err != nil {
 			metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_context_validate").Observe(time.Since(t).Seconds())
 			return errResp(fmt.Sprintf("Step validation failed: %v", err))
 		}
@@ -473,7 +496,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 		contextInterface[k] = v
 	}
 
-	stepEvent := models.StepEvent{
+	stepEvent := domain.StepEvent{
 		StepID:         stepID,
 		ThreadID:       req.ThreadID,
 		StepName:       req.StepName,
@@ -517,7 +540,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 
 	perf.LogStructured("HandleRecordEvent COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
 
-	return &models.RecordEventResponse{
+	return &domain.RecordEventResponse{
 		Action:   ActionRecordThreadEvent,
 		Status:   StepStatusSuccess,
 		Message:  "Step Event recorded successfully",
@@ -526,7 +549,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *models.Recor
 	}
 }
 
-func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerID, companyID string, threadIDs []string) (*models.InvitePartyResponse, error) {
+func (s *ThreadService) HandleInviteParty(ctx context.Context, req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	accessLevel := req.AccessLevel
 	if accessLevel == "" {
 		accessLevel = "external"
@@ -558,7 +581,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		return nil, shderrors.ErrAccessDenied
 	}
 
-	contractGraph, err := s.GetContractGraphForThread(thread)
+	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err != nil {
 		s.logger.Debug("no contract graph for thread", zap.String("thread", threadID), zap.Error(err))
 	}
@@ -573,7 +596,7 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 		return nil, fmt.Errorf("failed to create invitation token")
 	}
 
-	return &models.InvitePartyResponse{
+	return &domain.InvitePartyResponse{
 		Action:      ActionInviteParty,
 		Status:      StepStatusSuccess,
 		ThreadToken: threadToken,
@@ -584,9 +607,9 @@ func (s *ThreadService) HandleInviteParty(req *models.InvitePartyRequest, ownerI
 	}, nil
 }
 
-func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID, companyID string) (*models.JoinThreadResponse, error) {
+func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinThreadCmd, ownerID, companyID string) (*domain.JoinThreadResponse, error) {
 	var threadID, role, accessLevel, invitedBy string
-	var thread *models.Thread
+	var thread *domain.Thread
 
 	switch {
 	case req.ThreadToken != "":
@@ -630,7 +653,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 		}
 	}
 
-	contractGraph, err := s.GetContractGraphForThread(thread)
+	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err == nil && len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, role) {
 		return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", role, contractGraph.Parties)
 	}
@@ -653,7 +676,7 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 		}
 	}
 
-	return &models.JoinThreadResponse{
+	return &domain.JoinThreadResponse{
 		Action:      ActionJoinThread,
 		Status:      "success",
 		ThreadID:    threadID,
@@ -663,20 +686,20 @@ func (s *ThreadService) HandleJoinThread(req *models.JoinThreadRequest, ownerID,
 	}, nil
 }
 
-func (s *ThreadService) HandleClose(ownerID string) *models.CloseConnectionResponse {
+func (s *ThreadService) HandleClose(ownerID string) *domain.CloseConnectionResponse {
 	if ownerID != "" {
 		s.connectionMgr.Disconnect(ownerID)
 	}
-	return &models.CloseConnectionResponse{
+	return &domain.CloseConnectionResponse{
 		Action:  ActionCloseConnection,
 		Status:  "success",
 		Message: "Connection closed successfully",
 	}
 }
 
-func (s *ThreadService) HandleAddRefs(ctx context.Context, req *models.AddRefsRequest, ownerID string) *models.AddRefsResponse {
-	errResp := func(msg string) *models.AddRefsResponse {
-		return &models.AddRefsResponse{Action: ActionAddRefs, Status: "error", Message: msg}
+func (s *ThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCmd, ownerID string) *domain.AddRefsResponse {
+	errResp := func(msg string) *domain.AddRefsResponse {
+		return &domain.AddRefsResponse{Action: ActionAddRefs, Status: "error", Message: msg}
 	}
 
 	if req.ThreadID == "" {
@@ -709,7 +732,7 @@ func (s *ThreadService) HandleAddRefs(ctx context.Context, req *models.AddRefsRe
 
 	go s.publishRefsToNATS(req.ThreadID, req.Refs)
 
-	return &models.AddRefsResponse{
+	return &domain.AddRefsResponse{
 		Action:   ActionAddRefs,
 		Status:   "success",
 		Message:  fmt.Sprintf("Added %d refs to thread", len(req.Refs)),
@@ -739,7 +762,7 @@ func (s *ThreadService) EndThread(
 	// Early exit: if Valkey already shows "completed" or "cancelled", return error.
 	// The NotificationService updates Valkey synchronously on terminal step completion,
 	// so this guard will catch duplicate EndThread calls.
-	if thread.Status == models.ThreadStatusCompleted || thread.Status == models.ThreadStatusCancelled {
+	if thread.Status == domain.ThreadStatusCompleted || thread.Status == domain.ThreadStatusCancelled {
 		s.logger.Debug("thread already terminal, rejecting EndThread",
 			zap.String("thread_id", threadID),
 			zap.String("current_status", string(thread.Status)))
@@ -799,7 +822,16 @@ func (s *ThreadService) EndThread(
 
 	// 4. Notify via worker pool.
 	if s.notificationService != nil {
-		s.notificationService.submitNotificationJob(models.ValidationNotification{
+		notificationSource := domain.NotificationSourceThread
+		notificationType := domain.NotificationType(fmt.Sprintf("thread.%s", status))
+
+		// Special handling for cancellations: route as step.cancelled for WS subscriptions
+		if status == string(domain.ThreadStatusCancelled) {
+			notificationSource = domain.NotificationSourceStep
+			notificationType = domain.NotificationTypeStepCancelled
+		}
+
+		s.notificationService.submitNotificationJob(domain.ValidationNotification{
 			ThreadID:         threadID,
 			StepName:         "global",
 			OwnerID:          actorID,
@@ -808,8 +840,8 @@ func (s *ThreadService) EndThread(
 			Status:           "none",
 			Severity:         "info",
 			Message:          "Thread " + status + ": " + reason,
-			Source:           models.NotificationSourceThread,
-			NotificationType: "thread." + status,
+			Source:           notificationSource,
+			NotificationType: notificationType,
 		})
 	}
 
@@ -818,12 +850,12 @@ func (s *ThreadService) EndThread(
 
 // GetThread retrieves a thread from cache, then Valkey, then PostgreSQL.
 // Egress is metered by default for caller-visible read paths.
-func (s *ThreadService) GetThread(threadID string) (*models.Thread, error) {
+func (s *ThreadService) GetThread(threadID string) (*domain.Thread, error) {
 	return s.getThread(threadID)
 }
 
 // getThread is an internal variant that can skip egress metering for write-only paths.
-func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
+func (s *ThreadService) getThread(threadID string) (*domain.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
 		return thread, nil
 	}
@@ -831,7 +863,7 @@ func (s *ThreadService) getThread(threadID string) (*models.Thread, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	thread, err := s.repo.Get(ctx, threadID, types.ThreadReadOptions{WriteBack: true})
+	thread, err := s.repo.Get(ctx, threadID, domain.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load thread: %w", err)
 	}
@@ -898,7 +930,7 @@ func (s *ThreadService) IsValidRole(role string) bool {
 }
 
 // GetContractGraphForThread fetches the contract graph for a given thread.
-func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*models.ContractGraph, error) {
+func (s *ThreadService) GetContractGraphForThread(ctx context.Context, thread *domain.Thread) (*domain.ContractGraph, error) {
 	if thread.ContractName == "" {
 		return nil, errors.New("thread has no contract")
 	}
@@ -906,18 +938,18 @@ func (s *ThreadService) GetContractGraphForThread(thread *models.Thread) (*model
 	if thread.ContractVersion != nil {
 		version = *thread.ContractVersion
 	}
-	return s.contractValidator.GetContractGraph(thread.ContractName, version, thread.CompanyID)
+	return s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
 }
 
-func (s *ThreadService) GetContractValidator() types.ContractGraphValidator {
+func (s *ThreadService) GetContractValidator() domain.ContractGraphValidator {
 	return s.contractValidator
 }
 
 // hasSuccessfulSteps reports whether the thread has any completed steps.
-func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
+func (s *ThreadService) hasSuccessfulSteps(ctx context.Context, thread *domain.Thread) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, types.ThreadReadOptions{WriteBack: true})
+	count, err := s.repo.GetCompletedStepsCount(ctx, thread.ID, domain.ThreadReadOptions{WriteBack: true})
 	if err != nil {
 		return false
 	}
@@ -926,7 +958,7 @@ func (s *ThreadService) hasSuccessfulSteps(thread *models.Thread) bool {
 
 // publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
 // It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
-func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *models.Thread, role string, access *types.UserAccess, runtimeRole string) {
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *domain.Thread, role string, access *domain.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",
@@ -1057,7 +1089,7 @@ func ParseContractIdentifier(identifier string) (name string, version int) {
 }
 
 // validateRecordEventRequest checks that all required fields are present.
-func validateRecordEventRequest(req *models.RecordEventRequest) error {
+func validateRecordEventRequest(req *domain.RecordEventCmd) error {
 	switch {
 	case req.ThreadID == "":
 		return errors.New("Thread ID is required")
@@ -1076,6 +1108,6 @@ func validateRecordEventRequest(req *models.RecordEventRequest) error {
 }
 
 // ValidateRecordEventRequest is an exported wrapper around validateRecordEventRequest (primarily for tests).
-func ValidateRecordEventRequest(req *models.RecordEventRequest) error {
+func ValidateRecordEventRequest(req *domain.RecordEventCmd) error {
 	return validateRecordEventRequest(req)
 }

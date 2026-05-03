@@ -8,8 +8,7 @@ import (
 	"math"
 	"time"
 
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
@@ -28,9 +27,9 @@ const (
 
 type OutboxWorker struct {
 	pool          *pgxpool.Pool
-	outboxRepo    repository.OutboxRepository
-	userRepo      repository.UserRepository
-	companyRepo   repository.CompanyRepository
+	outboxRepo    domain.OutboxRepository
+	userRepo      domain.UserRepository
+	companyRepo   domain.CompanyRepository
 	authClient    sharedauth.AuthClient
 	emailSvc      service.EmailService
 	encryptionKey []byte
@@ -40,14 +39,15 @@ type OutboxWorker struct {
 
 func NewOutboxWorker(
 	pool *pgxpool.Pool,
-	outboxRepo repository.OutboxRepository,
-	userRepo repository.UserRepository,
-	companyRepo repository.CompanyRepository,
+	outboxRepo domain.OutboxRepository,
+	userRepo domain.UserRepository,
+	companyRepo domain.CompanyRepository,
 	authClient sharedauth.AuthClient,
 	emailSvc service.EmailService,
 	encryptionKey []byte,
 	logger *zap.Logger,
 ) *OutboxWorker {
+
 	return &OutboxWorker{
 		pool:          pool,
 		outboxRepo:    outboxRepo,
@@ -156,7 +156,7 @@ func (w *OutboxWorker) processEvents(ctx context.Context) {
 	}
 }
 
-func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEvent) error {
+func (w *OutboxWorker) handleEvent(ctx context.Context, event *domain.OutboxEvent) error {
 	plaintext, err := utils.Decrypt(event.Payload, w.encryptionKey)
 	if err != nil {
 		return fmt.Errorf("decrypt payload: %w", err)
@@ -173,37 +173,37 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 	}
 
 	switch event.Type {
-	case models.EventTypeRegisterAuthUser:
+	case domain.EventTypeRegisterAuthUser:
 		w.logger.Debug("outbox: dispatching register-auth-user",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleRegisterAuthUser(ctx, event, data)
-	case models.EventTypeSendVerificationEmail:
+	case domain.EventTypeSendVerificationEmail:
 		w.logger.Debug("outbox: dispatching send-verification-email",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleSendVerificationEmail(ctx, data)
-	case models.EventTypeSendPasswordResetEmail:
+	case domain.EventTypeSendPasswordResetEmail:
 		w.logger.Debug("outbox: dispatching send-password-reset-email",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleSendPasswordResetEmail(ctx, data)
-	case models.EventTypeMigrateLegacyUser:
+	case domain.EventTypeMigrateLegacyUser:
 		w.logger.Debug("outbox: dispatching migrate-legacy-user",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleMigrateLegacyUser(ctx, data)
-	case models.EventTypeSendTeamInvitation:
+	case domain.EventTypeSendTeamInvitation:
 		w.logger.Debug("outbox: dispatching send-team-invitation",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
 		)
 		return w.handleSendTeamInvitation(ctx, data)
-	case models.EventTypeUpdateAuthUserEmail:
+	case domain.EventTypeUpdateAuthUserEmail:
 		w.logger.Debug("outbox: dispatching update-auth-user-email",
 			zap.String("event_id", event.ID),
 			zap.String("reference_id", event.ReferenceID),
@@ -214,7 +214,7 @@ func (w *OutboxWorker) handleEvent(ctx context.Context, event *models.OutboxEven
 	}
 }
 
-func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.OutboxEvent, data map[string]string) error {
+func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *domain.OutboxEvent, data map[string]string) error {
 	fields, err := getFields(data, "user_id", "email", "password", "company_id")
 	if err != nil {
 		return err
@@ -259,7 +259,7 @@ func (w *OutboxWorker) handleRegisterAuthUser(ctx context.Context, _ *models.Out
 		)
 	}
 
-	alreadyQueued, err := w.outboxRepo.ExistsByReference(ctx, models.EventTypeSendVerificationEmail, userID)
+	alreadyQueued, err := w.outboxRepo.ExistsByReference(ctx, domain.EventTypeSendVerificationEmail, userID)
 	if err != nil {
 		return fmt.Errorf("check existing verification email event: %w", err)
 	}
@@ -289,12 +289,12 @@ func (w *OutboxWorker) queueVerificationEmail(ctx context.Context, userID, email
 		payload[i] = 0
 	}
 
-	if err := w.outboxRepo.Create(ctx, &models.OutboxEvent{
+	if err := w.outboxRepo.Create(ctx, &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeSendVerificationEmail,
+		Type:        domain.EventTypeSendVerificationEmail,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: userID,
 	}); err != nil {

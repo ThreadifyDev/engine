@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -44,9 +44,9 @@ func TestUserHandler_GetProfile(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.UserSvc.EXPECT().
 					GetProfile(gomock.Any(), userID, companyID).
-					Return(&models.UserProfileResult{
-						User:    &models.User{ID: userID, Email: "user@example.com"},
-						Company: &models.Company{ID: companyID, Name: "Acme Corp"},
+					Return(&domain.UserProfile{
+						User:    &domain.User{ID: userID, Email: "user@example.com"},
+						Company: &domain.Company{ID: companyID, Name: "Acme Corp"},
 					}, nil)
 			},
 			wantStatus: http.StatusOK,
@@ -74,9 +74,9 @@ func TestUserHandler_GetProfile(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.UserSvc.EXPECT().
 					GetProfile(gomock.Any(), userID, companyID).
-					Return(&models.UserProfileResult{
-						User:    &models.User{ID: userID},
-						Company: &models.Company{ID: companyID},
+					Return(&domain.UserProfile{
+						User:    &domain.User{ID: userID},
+						Company: &domain.Company{ID: companyID},
 					}, nil)
 			},
 			wantStatus: http.StatusOK,
@@ -123,7 +123,7 @@ func TestUserHandler_UpdateProfile(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.UserSvc.EXPECT().
 					UpdateProfile(gomock.Any(), userID, companyID, gomock.Any()).
-					Return(&models.User{ID: userID}, nil)
+					Return(&domain.User{ID: userID}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -184,7 +184,7 @@ func TestUserHandler_ListTeamMembers(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.UserSvc.EXPECT().
 					ListTeamMembers(gomock.Any(), companyID).
-					Return([]*models.TeamMember{{ID: "u1", Email: "u1@test.com", Role: "admin"}}, nil)
+					Return([]*domain.TeamMember{{ID: "u1", Email: "u1@test.com", Role: "admin"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},

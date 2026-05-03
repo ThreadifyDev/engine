@@ -33,4 +33,8 @@ func (t *NatsOutboxTrigger) Trigger() {
 			zap.Error(err),
 		)
 	}
+
+	t.logger.Info("nats_trigger: outbox trigger published successfully",
+		zap.String("subject", t.subject),
+	)
 }

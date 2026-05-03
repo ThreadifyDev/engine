@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
+	"threadify-go/api/internal/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -14,19 +15,23 @@ type outboxRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewOutboxRepository(pool *pgxpool.Pool) OutboxRepository {
+func NewOutboxRepository(pool *pgxpool.Pool) domain.OutboxRepository {
 	return &outboxRepository{pool: pool}
 }
 
-func (r *outboxRepository) Create(ctx context.Context, event *models.OutboxEvent) error {
+func (r *outboxRepository) Create(ctx context.Context, event *domain.OutboxEvent) error {
 	return r.CreateTx(ctx, r.pool, event)
 }
 
-func (r *outboxRepository) CreateTx(ctx context.Context, execer DBExecer, event *models.OutboxEvent) error {
-	return r.insert(ctx, execer, event)
+func (r *outboxRepository) CreateTx(ctx context.Context, tx domain.ExecContext, event *domain.OutboxEvent) error {
+	return r.insert(ctx, tx, event)
 }
 
-func (r *outboxRepository) insert(ctx context.Context, execer DBExecer, event *models.OutboxEvent) error {
+func (r *outboxRepository) insert(ctx context.Context, tx domain.ExecContext, event *domain.OutboxEvent) error {
+	execer, ok := tx.(ports.SQLExecutor)
+	if !ok {
+		return fmt.Errorf("invalid execer type: expected ports.SQLExecutor, got %T", tx)
+	}
 	const query = `
 		INSERT INTO outbox_events
 			(id, type, payload, status, retry_count, max_retries, next_run_at, reference_id, created_at, updated_at)
@@ -43,7 +48,7 @@ func (r *outboxRepository) insert(ctx context.Context, execer DBExecer, event *m
 	return nil
 }
 
-func (r *outboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*models.OutboxEvent, error) {
+func (r *outboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*domain.OutboxEvent, error) {
 	const query = `
 		UPDATE outbox_events
 		SET status = $1, updated_at = NOW()
@@ -60,9 +65,9 @@ func (r *outboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*m
 		          next_run_at, error_log, reference_id, created_at, updated_at
 	`
 	rows, err := r.pool.Query(ctx, query,
-		models.OutboxStatusProcessing,
-		models.OutboxStatusPending,
-		models.OutboxStatusFailed,
+		domain.OutboxStatusProcessing,
+		domain.OutboxStatusPending,
+		domain.OutboxStatusFailed,
 		limit,
 	)
 	if err != nil {
@@ -70,9 +75,9 @@ func (r *outboxRepository) FetchPendingDue(ctx context.Context, limit int) ([]*m
 	}
 	defer rows.Close()
 
-	var events []*models.OutboxEvent
+	var events []*domain.OutboxEvent
 	for rows.Next() {
-		e := &models.OutboxEvent{}
+		e := &domain.OutboxEvent{}
 		if err := rows.Scan(
 			&e.ID, &e.Type, &e.Payload, &e.Status,
 			&e.RetryCount, &e.MaxRetries, &e.NextRunAt,
@@ -119,7 +124,7 @@ func (r *outboxRepository) MarkDone(ctx context.Context, id string) error {
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2
 	`
-	_, err := r.pool.Exec(ctx, query, models.OutboxStatusDone, id)
+	_, err := r.pool.Exec(ctx, query, domain.OutboxStatusDone, id)
 	if err != nil {
 		return fmt.Errorf("mark outbox event done: %w", err)
 	}
@@ -140,8 +145,8 @@ func (r *outboxRepository) MarkFailedWithRetry(ctx context.Context, id, lastErr 
 		WHERE id = $5
 	`
 	_, err := r.pool.Exec(ctx, query,
-		models.OutboxStatusDead,
-		models.OutboxStatusPending,
+		domain.OutboxStatusDead,
+		domain.OutboxStatusPending,
 		lastErr,
 		nextRunAt,
 		id,
@@ -154,7 +159,7 @@ func (r *outboxRepository) MarkFailedWithRetry(ctx context.Context, id, lastErr 
 
 func (r *outboxRepository) PruneProcessed(ctx context.Context, before time.Time) (int64, error) {
 	const query = `DELETE FROM outbox_events WHERE status = $1 AND created_at < $2`
-	result, err := r.pool.Exec(ctx, query, models.OutboxStatusDone, before)
+	result, err := r.pool.Exec(ctx, query, domain.OutboxStatusDone, before)
 	if err != nil {
 		return 0, fmt.Errorf("prune outbox: %w", err)
 	}

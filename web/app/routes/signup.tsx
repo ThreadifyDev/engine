@@ -112,7 +112,7 @@ export default function Signup() {
           <p className="mt-2 text-sm text-gray-600">
             {invitationToken 
               ? 'Complete your account setup to join the team' 
-              : 'Turn customer requests into intelligence'}
+              : 'Service delivery intelligence for how your business delivers'}
           </p>
         </div>
 

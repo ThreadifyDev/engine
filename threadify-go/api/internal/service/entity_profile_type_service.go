@@ -5,8 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/api/internal/models"
-	sharedmodels "threadify-go/shared/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/shared/repository"
 	"threadify-go/shared/slug"
 
@@ -51,17 +50,31 @@ func normalizeTypes(types []string) []string {
 func (s *EntityProfileTypeService) CreateEntityProfileType(
 	ctx context.Context,
 	companyID string,
-	req *models.CreateEntityProfileTypeRequest,
-) (*sharedmodels.EntityProfileType, error) {
-	profileType := &sharedmodels.EntityProfileType{
+	req *domain.CreateEntityProfileTypeCmd,
+) (*domain.EntityProfileType, error) {
+	profileType := &domain.EntityProfileType{
 		ID:          uuid.New().String(),
 		CompanyID:   companyID,
 		Name:        req.Name,
 		Slug:        slug.ToSlug(req.Name),
 		Type:        normalizeTypes(req.Type),
 		Description: req.Description,
+		Metrics:     req.Metrics,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
+	}
+
+	if len(req.Metrics) > 0 {
+		for _, m := range req.Metrics {
+			tmpl, err := s.repo.GetMetricsTemplate(ctx, m.TemplateID)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.repo.ValidateMetricsSQL(ctx, tmpl.SQLContent, m.Parameters); err != nil {
+				s.logger.Warn("invalid metric template bind attempt", zap.String("templateID", m.TemplateID), zap.Error(err))
+				return nil, err
+			}
+		}
 	}
 
 	if err := s.repo.CreateProfileType(ctx, profileType); err != nil {
@@ -76,7 +89,7 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 func (s *EntityProfileTypeService) ListEntityProfileTypes(
 	ctx context.Context,
 	companyID string,
-) ([]*sharedmodels.EntityProfileType, error) {
+) ([]*domain.EntityProfileType, error) {
 	types, err := s.repo.GetProfileTypesByCompanyID(ctx, companyID)
 	if err != nil {
 		s.logger.Error("failed to list entity profile types", zap.Error(err))
@@ -87,23 +100,49 @@ func (s *EntityProfileTypeService) ListEntityProfileTypes(
 	return types, nil
 }
 
+func (s *EntityProfileTypeService) ListMetricsTemplates(
+	ctx context.Context,
+) ([]*domain.MetricsTemplate, error) {
+	templates, err := s.repo.ListMetricsTemplates(ctx)
+	if err != nil {
+		s.logger.Error("failed to list metrics templates", zap.Error(err))
+		return nil, err
+	}
+
+	return templates, nil
+}
+
 func (s *EntityProfileTypeService) UpdateEntityProfileType(
 	ctx context.Context,
 	companyID, id string,
-	req *models.UpdateEntityProfileTypeRequest,
-) (*sharedmodels.EntityProfileType, error) {
+	req *domain.UpdateEntityProfileTypeCmd,
+) (*domain.EntityProfileType, error) {
 	var nextTypes []string
 	if req.Type != nil {
 		nextTypes = normalizeTypes(req.Type)
 	}
 
-	profileType := &sharedmodels.EntityProfileType{
+	profileType := &domain.EntityProfileType{
 		ID:          id,
 		CompanyID:   companyID,
 		Name:        req.Name,
 		Slug:        slug.ToSlug(req.Name),
 		Description: req.Description,
 		Type:        nextTypes,
+		Metrics:     req.Metrics,
+	}
+
+	if len(req.Metrics) > 0 {
+		for _, m := range req.Metrics {
+			tmpl, err := s.repo.GetMetricsTemplate(ctx, m.TemplateID)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.repo.ValidateMetricsSQL(ctx, tmpl.SQLContent, m.Parameters); err != nil {
+				s.logger.Warn("invalid metric template bind attempt during update", zap.String("templateID", m.TemplateID), zap.Error(err))
+				return nil, err
+			}
+		}
 	}
 
 	if err := s.repo.UpdateProfileType(ctx, profileType); err != nil {

@@ -3,12 +3,12 @@ package validation
 import (
 	"fmt"
 	"strings"
-	"threadify-go/api/internal/models"
+	"threadify-go/api/internal/dto"
 )
 
 const maxTypes = 5
 
-func ValidateCreateEntityProfileTypeRequest(req *models.CreateEntityProfileTypeRequest) error {
+func ValidateCreateEntityProfileTypeRequest(req *dto.CreateEntityProfileTypeRequest) error {
 	b := &validationBuilder{}
 
 	if req == nil {
@@ -39,7 +39,7 @@ func ValidateCreateEntityProfileTypeRequest(req *models.CreateEntityProfileTypeR
 	return b.err()
 }
 
-func ValidateUpdateEntityProfileTypeRequest(req *models.UpdateEntityProfileTypeRequest) error {
+func ValidateUpdateEntityProfileTypeRequest(req *dto.UpdateEntityProfileTypeRequest) error {
 	b := &validationBuilder{}
 
 	if len(req.Type) > maxTypes {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 type AuthRepository struct {
@@ -17,7 +17,7 @@ func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 }
 
 // ValidateAPIKey retrieves API key information with service account and role details
-func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*models.AuthInfo, error) {
+func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*domain.AuthInfo, error) {
 	query := `
 		SELECT
 			sa.id as owner_id,
@@ -34,7 +34,7 @@ func (r *AuthRepository) ValidateAPIKey(ctx context.Context, keyHash string) (*m
 		LIMIT 1
 	`
 
-	var info models.AuthInfo
+	var info domain.AuthInfo
 	var isActive bool
 
 	err := r.db.QueryRow(ctx, query, keyHash).Scan(

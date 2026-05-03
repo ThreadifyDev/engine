@@ -1,13 +1,14 @@
 package tests
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	"threadify-go/api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,9 @@ func TestAgentHandler_GetConversations(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AgentSvc.EXPECT().
 					GetConversations(gomock.Any(), agentCompanyID).
-					Return([]models.AgentConversation{{ID: "conv_1", Title: "Conv 1"}}, nil)
+					Return([]domain.AgentConversation{{ID: "conv_1", Title: "Conv 1"}}, nil)
+				d.AgentSvc.EXPECT().GetMaxTokens().Return(1000)
+				d.AgentSvc.EXPECT().GetMaxMessages().Return(50)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -80,7 +83,7 @@ func TestAgentHandler_GetConversationMessages(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AgentSvc.EXPECT().
 					GetMessagesForUser(gomock.Any(), agentCompanyID, convID).
-					Return([]*models.AgentMessage{{ID: "m1", Content: "Hello"}}, nil)
+					Return([]*domain.AgentMessage{{ID: "m1", Content: "Hello"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -131,8 +134,8 @@ func TestAgentHandler_Chat(t *testing.T) {
 			setAuthHeader: true,
 			setupMock: func(d *common.MockedHandlers) {
 				d.AgentSvc.EXPECT().
-					ChatStream(gomock.Any(), "Bearer token", agentUserID, agentCompanyID, "c1", "hi", gomock.Any(), gomock.Any()).
-					DoAndReturn(func(ctx, auth, u, c, conv, msg, skill interface{}, onEvent models.StreamHandler) error {
+					ChatStreamEino(gomock.Any(), "Bearer token", agentUserID, agentCompanyID, "c1", "hi", "", gomock.Any()).
+					DoAndReturn(func(ctx context.Context, auth, u, c, conv, msg, skill string, onEvent domain.StreamHandler) error {
 						onEvent("message", "reply")
 						return nil
 					})

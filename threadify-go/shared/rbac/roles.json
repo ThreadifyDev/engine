@@ -13,6 +13,11 @@
         "contract.delete.*",
         "serviceaccount.*",
         "query.execution.*",
+        "entity_profile_type.create",
+        "entity_profile_type.read",
+        "entity_profile_type.update",
+        "entity_profile_type.delete",
+        "metrics_template.read",
         "member.invite",
         "member.delete",
         "member.view"
@@ -30,6 +35,11 @@
         "contract.update.*",
         "serviceaccount.*",
         "query.execution.*",
+        "entity_profile_type.create",
+        "entity_profile_type.read",
+        "entity_profile_type.update",
+        "entity_profile_type.delete",
+        "metrics_template.read",
         "member.view"
       ]
     },
@@ -39,6 +49,8 @@
       "permissions": [
         "contract.read.*",
         "member.view",
+        "entity_profile_type.read",
+        "metrics_template.read",
         "query.execution.read"
       ]
     }

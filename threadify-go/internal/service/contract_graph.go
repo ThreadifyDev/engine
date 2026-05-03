@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,7 +19,7 @@ func NewGraphBuilder() *GraphBuilder {
 
 // BuildGraph converts contract content (YAML/JSON) to a ContractGraph.
 // Only builds the execution graph — metadata (contract_id, version) is stored in DB.
-func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error) {
+func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error) {
 	contract, err := parseContract(content)
 	if err != nil {
 		return nil, err
@@ -51,8 +51,8 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 		finalStep = terminalSteps[0]
 	}
 
-	return &models.ContractGraph{
-		Graph: models.Graph{
+	return &domain.ContractGraph{
+		Graph: domain.Graph{
 			Nodes:         nodes,
 			EntryPoints:   entryPoints,
 			TerminalSteps: terminalSteps,
@@ -66,8 +66,8 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*models.ContractGraph, error)
 
 // parseContract tries JSON first (PascalCase from Go serialization),
 // then YAML (snake_case from user input).
-func parseContract(content []byte) (*models.ContractYAML, error) {
-	var contract models.ContractYAML
+func parseContract(content []byte) (*domain.ContractYAML, error) {
+	var contract domain.ContractYAML
 	if err := json.Unmarshal(content, &contract); err == nil {
 		return &contract, nil
 	}
@@ -78,7 +78,7 @@ func parseContract(content []byte) (*models.ContractYAML, error) {
 }
 
 // stepOwner returns the resolved owner for a step (Owner takes precedence over Role).
-func stepOwner(step models.Step) string {
+func stepOwner(step domain.Step) string {
 	if step.Owner != "" {
 		return step.Owner
 	}
@@ -86,7 +86,7 @@ func stepOwner(step models.Step) string {
 }
 
 // validateParties checks that every step owner is declared in the contract's parties list.
-func (b *GraphBuilder) validateParties(contract *models.ContractYAML) error {
+func (b *GraphBuilder) validateParties(contract *domain.ContractYAML) error {
 	if len(contract.Parties) == 0 {
 		return nil
 	}
@@ -104,11 +104,11 @@ func (b *GraphBuilder) validateParties(contract *models.ContractYAML) error {
 }
 
 // buildNodes constructs the full node map for steps and parallel groups.
-func (b *GraphBuilder) buildNodes(contract *models.ContractYAML, transitions []models.Transition) map[string]models.GraphNode {
-	nodes := make(map[string]models.GraphNode, len(contract.Steps)+len(contract.Groups))
+func (b *GraphBuilder) buildNodes(contract *domain.ContractYAML, transitions []domain.Transition) map[string]domain.GraphNode {
+	nodes := make(map[string]domain.GraphNode, len(contract.Steps)+len(contract.Groups))
 
 	for _, step := range contract.Steps {
-		nodes[step.ID] = models.GraphNode{
+		nodes[step.ID] = domain.GraphNode{
 			ID:              step.ID,
 			Owner:           stepOwner(step),
 			Role:            stepOwner(step),
@@ -131,7 +131,7 @@ func (b *GraphBuilder) buildNodes(contract *models.ContractYAML, transitions []m
 			}
 			maxDuration = group.Rules.MaxCombinedDuration
 		}
-		nodes[group.ID] = models.GraphNode{
+		nodes[group.ID] = domain.GraphNode{
 			ID:          group.ID,
 			Type:        "parallel_group",
 			Mode:        mode,
@@ -147,7 +147,7 @@ func (b *GraphBuilder) buildNodes(contract *models.ContractYAML, transitions []m
 }
 
 // findParentGroup returns the ID of the group that contains stepID, or "".
-func (b *GraphBuilder) findParentGroup(stepID string, groups []models.Group) string {
+func (b *GraphBuilder) findParentGroup(stepID string, groups []domain.Group) string {
 	for _, group := range groups {
 		if slices.Contains(group.Steps, stepID) {
 			return group.ID
@@ -157,7 +157,7 @@ func (b *GraphBuilder) findParentGroup(stepID string, groups []models.Group) str
 }
 
 // findGroupNext returns the steps outside the group that the group transitions into.
-func (b *GraphBuilder) findGroupNext(group models.Group, transitions []models.Transition) []string {
+func (b *GraphBuilder) findGroupNext(group domain.Group, transitions []domain.Transition) []string {
 	next := make([]string, 0)
 	for _, transition := range transitions {
 		if slices.Contains(group.Steps, transition.From) {
@@ -172,7 +172,7 @@ func (b *GraphBuilder) findGroupNext(group models.Group, transitions []models.Tr
 }
 
 // findGroupDependsOn returns the steps outside the group that the group depends on.
-func (b *GraphBuilder) findGroupDependsOn(group models.Group, transitions []models.Transition) []string {
+func (b *GraphBuilder) findGroupDependsOn(group domain.Group, transitions []domain.Transition) []string {
 	dependsOn := make([]string, 0)
 	for _, transition := range transitions {
 		for _, toStep := range transition.To {
@@ -185,7 +185,7 @@ func (b *GraphBuilder) findGroupDependsOn(group models.Group, transitions []mode
 }
 
 // findNextFromTransitions returns steps reachable from stepID via outgoing transitions.
-func (b *GraphBuilder) findNextFromTransitions(stepID string, transitions []models.Transition) []string {
+func (b *GraphBuilder) findNextFromTransitions(stepID string, transitions []domain.Transition) []string {
 	next := make([]string, 0)
 	for _, transition := range transitions {
 		if transition.From == stepID {
@@ -200,7 +200,7 @@ func (b *GraphBuilder) findNextFromTransitions(stepID string, transitions []mode
 }
 
 // findDependsOnFromTransitions returns steps that must complete before stepID.
-func (b *GraphBuilder) findDependsOnFromTransitions(stepID string, transitions []models.Transition) []string {
+func (b *GraphBuilder) findDependsOnFromTransitions(stepID string, transitions []domain.Transition) []string {
 	dependsOn := make([]string, 0)
 	for _, transition := range transitions {
 		if slices.Contains(transition.To, stepID) && !slices.Contains(dependsOn, transition.From) {
@@ -211,7 +211,7 @@ func (b *GraphBuilder) findDependsOnFromTransitions(stepID string, transitions [
 }
 
 // deriveEntryPoints returns steps with no incoming transitions.
-func (b *GraphBuilder) deriveEntryPoints(steps []models.Step, transitions []models.Transition) []string {
+func (b *GraphBuilder) deriveEntryPoints(steps []domain.Step, transitions []domain.Transition) []string {
 	entryPoints := make([]string, 0, len(steps))
 	for _, step := range steps {
 		if len(b.findDependsOnFromTransitions(step.ID, transitions)) == 0 {
@@ -222,7 +222,7 @@ func (b *GraphBuilder) deriveEntryPoints(steps []models.Step, transitions []mode
 }
 
 // deriveTerminalSteps returns steps with no outgoing transitions.
-func (b *GraphBuilder) deriveTerminalSteps(steps []models.Step, transitions []models.Transition) []string {
+func (b *GraphBuilder) deriveTerminalSteps(steps []domain.Step, transitions []domain.Transition) []string {
 	terminalSteps := make([]string, 0, len(steps))
 	for _, step := range steps {
 		if len(b.findNextFromTransitions(step.ID, transitions)) == 0 {
@@ -233,7 +233,7 @@ func (b *GraphBuilder) deriveTerminalSteps(steps []models.Step, transitions []mo
 }
 
 // buildTransitionsFromDependsOn converts legacy depends_on step fields into Transition structs.
-func (b *GraphBuilder) buildTransitionsFromDependsOn(steps []models.Step) []models.Transition {
+func (b *GraphBuilder) buildTransitionsFromDependsOn(steps []domain.Step) []domain.Transition {
 	// seen maps from-step -> set of to-steps to deduplicate edges.
 	seen := make(map[string]map[string]struct{})
 	for _, step := range steps {
@@ -251,13 +251,13 @@ func (b *GraphBuilder) buildTransitionsFromDependsOn(steps []models.Step) []mode
 		}
 	}
 
-	transitions := make([]models.Transition, 0, len(seen))
+	transitions := make([]domain.Transition, 0, len(seen))
 	for from, toSet := range seen {
 		to := make([]string, 0, len(toSet))
 		for stepID := range toSet {
 			to = append(to, stepID)
 		}
-		transitions = append(transitions, models.Transition{From: from, To: to})
+		transitions = append(transitions, domain.Transition{From: from, To: to})
 	}
 	return transitions
 }

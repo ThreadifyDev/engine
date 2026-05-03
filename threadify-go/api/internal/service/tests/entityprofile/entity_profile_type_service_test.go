@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	threadifymodels "threadify-go/api/internal/models"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
-	sharedmodels "threadify-go/shared/models"
+	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func TestEntityProfileTypeService_ListEntityProfileTypes(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypesByCompanyID(gomock.Any(), companyID).Return([]*sharedmodels.EntityProfileType{
+				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypesByCompanyID(gomock.Any(), companyID).Return([]*shareddomain.EntityProfileType{
 					{ID: "1", Name: "Type 1"},
 				}, nil)
 			},
@@ -123,13 +123,13 @@ func TestEntityProfileTypeService_CreateEntityProfileType(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		req       *threadifymodels.CreateEntityProfileTypeRequest
+		req       *domain.CreateEntityProfileTypeCmd
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 	}{
 		{
 			name: "success",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "Test Profile",
 				Type:        []string{"test", "test_alt"},
 				Description: "A test profile type",
@@ -140,7 +140,7 @@ func TestEntityProfileTypeService_CreateEntityProfileType(t *testing.T) {
 		},
 		{
 			name: "error",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name: "Error Profile",
 				Type: []string{"error"},
 			},
@@ -180,14 +180,14 @@ func TestEntityProfileTypeService_UpdateEntityProfileType_AddTypes(t *testing.T)
 	deps := common.NewMockDeps(t)
 	svc := deps.NewEntityProfileTypeService()
 
-	req := &threadifymodels.UpdateEntityProfileTypeRequest{
+	req := &domain.UpdateEntityProfileTypeCmd{
 		Name: "Updated Name",
 		Type: []string{"vip", "partner"},
 	}
 
 	deps.EntityProfileTypeRepo.EXPECT().
 		UpdateProfileType(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, pt *sharedmodels.EntityProfileType) error {
+		DoAndReturn(func(_ context.Context, pt *shareddomain.EntityProfileType) error {
 			assert.Equal(t, typeID, pt.ID)
 			assert.Equal(t, companyID, pt.CompanyID)
 			assert.Equal(t, "Updated Name", pt.Name)
@@ -207,14 +207,14 @@ func TestEntityProfileTypeService_CreateEntityProfileType_MaxTypesEdgeCases(t *t
 
 	tests := []struct {
 		name      string
-		req       *threadifymodels.CreateEntityProfileTypeRequest
+		req       *domain.CreateEntityProfileTypeCmd
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 		errMsg    string
 	}{
 		{
 			name: "exactly max types - success",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "Max Types Profile",
 				Type:        []string{"type1", "type2", "type3", "type4", "type5"},
 				Description: "Profile with exactly max types",
@@ -225,7 +225,7 @@ func TestEntityProfileTypeService_CreateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "exceeds max types - should pass validation at service layer",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "Too Many Types Profile",
 				Type:        []string{"type1", "type2", "type3", "type4", "type5", "type6"},
 				Description: "Profile with too many types",
@@ -236,7 +236,7 @@ func TestEntityProfileTypeService_CreateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "duplicate types within max limit - success",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "Duplicate Types Profile",
 				Type:        []string{"type1", "type2", "type2", "type3", "type1"},
 				Description: "Profile with duplicate types",
@@ -247,7 +247,7 @@ func TestEntityProfileTypeService_CreateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "empty and whitespace types filtered - success",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "Whitespace Types Profile",
 				Type:        []string{"type1", "", "  ", "type2", "\ttype3\t"},
 				Description: "Profile with empty and whitespace types",
@@ -258,7 +258,7 @@ func TestEntityProfileTypeService_CreateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "no types - should pass validation at service layer",
-			req: &threadifymodels.CreateEntityProfileTypeRequest{
+			req: &domain.CreateEntityProfileTypeCmd{
 				Name:        "No Types Profile",
 				Type:        []string{"", "  ", "\t"},
 				Description: "Profile with no valid types",
@@ -295,14 +295,14 @@ func TestEntityProfileTypeService_UpdateEntityProfileType_MaxTypesEdgeCases(t *t
 
 	tests := []struct {
 		name      string
-		req       *threadifymodels.UpdateEntityProfileTypeRequest
+		req       *domain.UpdateEntityProfileTypeCmd
 		setupMock func(deps *common.MockedDeps)
 		wantErr   bool
 		errMsg    string
 	}{
 		{
 			name: "exactly max types - success",
-			req: &threadifymodels.UpdateEntityProfileTypeRequest{
+			req: &domain.UpdateEntityProfileTypeCmd{
 				Name: "Updated Max Types",
 				Type: []string{"type1", "type2", "type3", "type4", "type5"},
 			},
@@ -312,7 +312,7 @@ func TestEntityProfileTypeService_UpdateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "exceeds max types - should pass validation at service layer",
-			req: &threadifymodels.UpdateEntityProfileTypeRequest{
+			req: &domain.UpdateEntityProfileTypeCmd{
 				Name: "Too Many Types",
 				Type: []string{"type1", "type2", "type3", "type4", "type5", "type6"},
 			},
@@ -322,7 +322,7 @@ func TestEntityProfileTypeService_UpdateEntityProfileType_MaxTypesEdgeCases(t *t
 		},
 		{
 			name: "duplicate types within max limit - success",
-			req: &threadifymodels.UpdateEntityProfileTypeRequest{
+			req: &domain.UpdateEntityProfileTypeCmd{
 				Name: "Duplicate Types Update",
 				Type: []string{"vip", "partner", "vip", "customer"},
 			},
@@ -393,7 +393,7 @@ func TestEntityProfileTypeService_TypeNormalization(t *testing.T) {
 			deps := common.NewMockDeps(t)
 			svc := deps.NewEntityProfileTypeService()
 
-			req := &threadifymodels.CreateEntityProfileTypeRequest{
+			req := &domain.CreateEntityProfileTypeCmd{
 				Name:        "Test Profile",
 				Type:        tt.input,
 				Description: "Test description",
@@ -404,6 +404,67 @@ func TestEntityProfileTypeService_TypeNormalization(t *testing.T) {
 			res, err := svc.CreateEntityProfileType(context.Background(), companyID, req)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, res.Type)
+		})
+	}
+}
+func TestEntityProfileTypeService_ListMetricsTemplates(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMock   func(deps *common.MockedDeps)
+		wantErr     bool
+		expectedLen int
+	}{
+		{
+			name: "success",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
+					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
+				}, nil)
+			},
+			expectedLen: 1,
+		},
+		{
+			name: "error",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return(nil, assert.AnError)
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty results",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{}, nil)
+			},
+			expectedLen: 0,
+		},
+		{
+			name: "multiple templates",
+			setupMock: func(deps *common.MockedDeps) {
+				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
+					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
+					{ID: "2", MetricsName: "Metric 2", Parameters: []string{"param1", "param2"}},
+				}, nil)
+			},
+			expectedLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			svc := deps.NewEntityProfileTypeService()
+			tt.setupMock(deps)
+
+			res, err := svc.ListMetricsTemplates(context.Background())
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, res, tt.expectedLen)
+				if tt.expectedLen > 0 {
+					assert.Equal(t, "Metric 1", res[0].MetricsName)
+				}
+			}
 		})
 	}
 }

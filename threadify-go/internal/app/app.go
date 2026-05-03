@@ -24,6 +24,7 @@ import (
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
@@ -33,7 +34,6 @@ import (
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
-	"github.com/threadify/engine/internal/types"
 	"github.com/threadify/engine/internal/workerpool"
 )
 
@@ -77,7 +77,7 @@ type services struct {
 	invitation          *service.InvitationTokenService
 	billingOrchestrator *service.BillingOrchestrator
 	luaScriptManager    *valkey.LuaScriptManager
-	rbacLoader          types.RBACLoader
+	rbacLoader          domain.RBACLoader
 }
 
 type appHandlers struct {
@@ -169,6 +169,10 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*in
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 
+	if err := db.InitDefaultMetrics(ctx); err != nil {
+		return nil, fmt.Errorf("init default metrics: %w", err)
+	}
+
 	valkeyService, err := database.NewValkeyService(
 		cfg.Redis.Host,
 		cfg.Redis.Port,
@@ -223,6 +227,7 @@ type repositories struct {
 	plan              *sharedrepo.PlanRepo
 	entityProfile     *sharedrepo.EntityProfileRepo
 	entityProfileType sharedrepo.EntityProfileTypeRepository
+	metrics           *postgres.MetricsRepository
 
 	// valkey
 	threadCache     *valkey.ThreadRepository
@@ -239,7 +244,7 @@ func initRepositories(
 	cfg *config.Config,
 	inf *infra,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader types.RBACLoader,
+	rbacLoader domain.RBACLoader,
 	logger *zap.Logger) (*repositories, error) {
 	r := &repositories{}
 
@@ -258,6 +263,7 @@ func initRepositories(
 	r.plan = sharedrepo.NewPlanRepo(inf.db.Pool)
 	r.entityProfile = sharedrepo.NewEntityProfileRepo(inf.db.Pool)
 	r.entityProfileType = sharedrepo.NewEntityProfileTypeRepository(inf.db.Pool)
+	r.metrics = postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
 
 	// --- valkey ---
 	threadTTL := int(time.Duration(cfg.Cache.ThreadTTLMs) * time.Millisecond / time.Second)
@@ -295,7 +301,7 @@ func initServices(
 	inf *infra,
 	repos *repositories,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader types.RBACLoader,
+	rbacLoader domain.RBACLoader,
 	logger *zap.Logger,
 ) (*services, error) {
 	svcs := &services{
@@ -419,7 +425,7 @@ func initHandlers(
 		svcs.threadAccess, svcs.thread.GetContractValidator(), repos.contract,
 		repos.refs, repos.stepState, repos.activity, repos.actor,
 		repos.notification, repos.subStep,
-		repos.entityProfile, repos.entityProfileType,
+		repos.entityProfile, repos.entityProfileType, repos.metrics,
 		svcs.plan, logger,
 	)
 
@@ -493,7 +499,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	return r
 }
 
-func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac types.RBACLoader, plan types.PlanService, logger *zap.Logger) {
+func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac domain.RBACLoader, plan domain.PlanService, logger *zap.Logger) {
 	ch := hdlrs.contractHandler
 
 	contracts := rg.Group("/contracts")

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -42,7 +42,7 @@ func TestTeamInvitationHandler_SendInvitation(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.InvitationSvc.EXPECT().
 					SendInvitation(gomock.Any(), companyID, "new@test.com", "member", adminID, gomock.Any()).
-					Return(&models.TeamInvitation{ID: "inv_1"}, nil)
+					Return(&domain.TeamInvitation{ID: "inv_1"}, nil)
 			},
 			wantStatus: http.StatusCreated,
 		},
@@ -106,7 +106,7 @@ func TestTeamInvitationHandler_InvitationManagement(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.InvitationSvc.EXPECT().
 					ListByCompany(gomock.Any(), companyID).
-					Return([]*models.TeamInvitation{{ID: "inv_1"}}, nil)
+					Return([]*domain.TeamInvitation{{ID: "inv_1"}}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -117,7 +117,7 @@ func TestTeamInvitationHandler_InvitationManagement(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.InvitationSvc.EXPECT().
 					GetByID(gomock.Any(), invID).
-					Return(&models.TeamInvitation{ID: invID, CompanyID: companyID, Status: "pending"}, nil)
+					Return(&domain.TeamInvitation{ID: invID, CompanyID: companyID, Status: "pending"}, nil)
 				d.InvitationSvc.EXPECT().
 					CancelInvitation(gomock.Any(), invID).
 					Return(nil)

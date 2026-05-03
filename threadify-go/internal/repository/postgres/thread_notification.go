@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 )
 
 // ThreadNotificationRepository handles queries for thread notifications
@@ -26,8 +26,8 @@ func NewThreadNotificationRepository(pool *pgxpool.Pool) *ThreadNotificationRepo
 func (r *ThreadNotificationRepository) GetThreadNotifications(
 	ctx context.Context,
 	threadID string,
-	options *models.ThreadNotificationQueryOptions,
-) ([]*models.ThreadNotification, error) {
+	options *domain.ThreadNotificationQueryOptions,
+) ([]*domain.ThreadNotification, error) {
 	query := `
 		SELECT 
 			payload->>'notification_id' as notification_id,
@@ -119,9 +119,9 @@ func (r *ThreadNotificationRepository) GetThreadNotifications(
 	}
 	defer rows.Close()
 
-	var notifications []*models.ThreadNotification
+	var notifications []*domain.ThreadNotification
 	for rows.Next() {
-		var notif models.ThreadNotification
+		var notif domain.ThreadNotification
 		var detailsStr *string
 		var idempotencyKey, stepStatus, validationStatus, violationType, severity *string
 
@@ -186,7 +186,7 @@ func (r *ThreadNotificationRepository) GetThreadNotifications(
 func (r *ThreadNotificationRepository) GetNotificationSummary(
 	ctx context.Context,
 	threadID string,
-) (*models.NotificationSummary, error) {
+) (*domain.NotificationSummary, error) {
 	query := `
 		SELECT 
 			COUNT(*) as total_notifications,
@@ -199,7 +199,7 @@ func (r *ThreadNotificationRepository) GetNotificationSummary(
 		WHERE thread_id = $1 AND activity_type = 'validation_result'
 	`
 
-	var summary models.NotificationSummary
+	var summary domain.NotificationSummary
 	err := r.pool.QueryRow(ctx, query, threadID).Scan(
 		&summary.TotalNotifications,
 		&summary.CriticalCount,

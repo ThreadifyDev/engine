@@ -12,7 +12,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/threadify/engine/internal/config"
-	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"go.uber.org/zap"
 )
 
@@ -21,22 +20,28 @@ type StreamEvent struct {
 	Data     map[string]string
 }
 
+type MetricsInvalidator interface {
+	InvalidateEntityMetrics(ctx context.Context, profileID string) error
+}
+
 type NATSConsumer struct {
-	js           JetStreamPublisher
-	db           DBExecer
-	writer       ConsumerWriter
-	batchSize    int
-	batchTimeout time.Duration
-	consumerName string
-	stopOnce     sync.Once
-	stopChan     chan struct{}
-	cfg          *config.Config
-	logger       *zap.Logger
+	js                 JetStreamPublisher
+	db                 DBExecer
+	metricsInvalidator MetricsInvalidator
+	writer             ConsumerWriter
+	batchSize          int
+	batchTimeout       time.Duration
+	consumerName       string
+	stopOnce           sync.Once
+	stopChan           chan struct{}
+	cfg                *config.Config
+	logger             *zap.Logger
 }
 
 func NewNATSConsumer(
 	js JetStreamPublisher,
 	db DBExecer,
+	metricsInvalidator MetricsInvalidator,
 	batchSize int,
 	batchTimeout time.Duration,
 	consumerName string,
@@ -44,15 +49,16 @@ func NewNATSConsumer(
 	logger *zap.Logger,
 ) (*NATSConsumer, error) {
 	return &NATSConsumer{
-		js:           js,
-		db:           db,
-		writer:       NewPostgresWriter(db, logger),
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		consumerName: consumerName,
-		stopChan:     make(chan struct{}),
-		cfg:          cfg,
-		logger:       logger,
+		js:                 js,
+		db:                 db,
+		metricsInvalidator: metricsInvalidator,
+		writer:             NewPostgresWriter(db, logger),
+		batchSize:          batchSize,
+		batchTimeout:       batchTimeout,
+		consumerName:       consumerName,
+		stopChan:           make(chan struct{}),
+		cfg:                cfg,
+		logger:             logger,
 	}, nil
 }
 
@@ -319,17 +325,11 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 		return err
 	}
 
-	if len(profileIDs) > 0 {
-		payload, err := json.Marshal(profileIDs)
-		if err != nil {
-			return fmt.Errorf("marshal profile ids for publish: %w", err)
-		}
-		if _, err := c.js.Publish(ctx, natsrepo.SubjectProfileRecalculate, payload); err != nil {
-			c.logger.Error("failed to publish profile recalculation event",
-				zap.Strings("profile_ids", profileIDs),
-				zap.Error(err),
-			)
-			return fmt.Errorf("publish profile recalculate event: %w", err)
+	if c.metricsInvalidator != nil {
+		for _, profileID := range profileIDs {
+			if profileID != "" {
+				_ = c.metricsInvalidator.InvalidateEntityMetrics(ctx, profileID)
+			}
 		}
 	}
 

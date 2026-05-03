@@ -8,27 +8,27 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"go.uber.org/zap"
 )
 
 type fakeContractRepo struct {
-	contract *models.Contract
-	version  *models.ContractVersion
+	contract *domain.Contract
+	version  *domain.ContractVersion
 	getErr   error
 	verErr   error
 }
 
-func (f fakeContractRepo) GetByNameAndCompany(_ context.Context, _, _ string) (*models.Contract, error) {
+func (f fakeContractRepo) GetByNameAndCompany(_ context.Context, _, _ string) (*domain.Contract, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
 	return f.contract, nil
 }
 
-func (f fakeContractRepo) GetVersion(_ context.Context, _ string, _ int) (*models.ContractVersion, error) {
+func (f fakeContractRepo) GetVersion(_ context.Context, _ string, _ int) (*domain.ContractVersion, error) {
 	if f.verErr != nil {
 		return nil, f.verErr
 	}
@@ -40,49 +40,54 @@ func TestContractValidationService_ValidateStepContext_Table(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		node      models.GraphNode
+		node      domain.GraphNode
 		ctx       map[string]string
 		wantError bool
 	}{
 		{
 			name: "no business context passes",
-			node: models.GraphNode{ID: "s1"},
+			node: domain.GraphNode{ID: "s1"},
 			ctx:  map[string]string{},
 		},
 		{
 			name: "struct required missing errors",
-			node: models.GraphNode{ID: "s1", BusinessContext: &models.BusinessContext{Required: []string{"a"}}},
+			node: domain.GraphNode{ID: "s1", BusinessContext: &domain.BusinessContext{Required: []string{"a"}}},
 			ctx:  map[string]string{},
 			// wantError
 			wantError: true,
 		},
 		{
 			name: "struct required satisfied passes",
-			node: models.GraphNode{ID: "s1", BusinessContext: &models.BusinessContext{Required: []string{"a"}}},
+			node: domain.GraphNode{ID: "s1", BusinessContext: &domain.BusinessContext{Required: []string{"a"}}},
 			ctx:  map[string]string{"a": "1"},
 		},
 		{
-			name: "map required missing errors",
-			node: models.GraphNode{ID: "s1", BusinessContext: map[string]interface{}{"required": []interface{}{"a"}}},
-			ctx:  map[string]string{},
-			// wantError
+			name: "business context required field missing errors",
+			node: domain.GraphNode{
+				ID: "s1",
+				BusinessContext: &domain.BusinessContext{
+					Required: []string{"a"},
+				},
+			},
+			ctx:       map[string]string{},
 			wantError: true,
 		},
 		{
-			name: "map required wrong type is ignored",
-			node: models.GraphNode{ID: "s1", BusinessContext: map[string]interface{}{"required": "a"}},
-			ctx:  map[string]string{},
-		},
-		{
-			name: "unsupported business context type is ignored",
-			node: models.GraphNode{ID: "s1", BusinessContext: 123},
-			ctx:  map[string]string{},
+			name: "business context with required fields",
+			node: domain.GraphNode{
+				ID: "s1",
+				BusinessContext: &domain.BusinessContext{
+					Required: []string{"a"},
+				},
+			},
+			ctx:       map[string]string{},
+			wantError: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := svc.ValidateStepContext(tc.node, tc.ctx)
+			err := svc.ValidateStepContext(context.Background(), tc.node, tc.ctx)
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -95,23 +100,23 @@ func TestContractValidationService_ValidateStepContext_Table(t *testing.T) {
 func TestContractValidationService_ValidateStepInContract_Table(t *testing.T) {
 	tests := []struct {
 		name      string
-		graph     *models.ContractGraph
+		graph     *domain.ContractGraph
 		step      string
 		ctx       map[string]string
 		wantError bool
 	}{
 		{
 			name: "missing step errors",
-			graph: &models.ContractGraph{Graph: models.Graph{
-				Nodes: map[string]models.GraphNode{"s1": {ID: "s1"}},
+			graph: &domain.ContractGraph{Graph: domain.Graph{
+				Nodes: map[string]domain.GraphNode{"s1": {ID: "s1"}},
 			}},
 			step:      "missing",
 			wantError: true,
 		},
 		{
 			name: "existing step validates context",
-			graph: &models.ContractGraph{Graph: models.Graph{
-				Nodes: map[string]models.GraphNode{"s1": {ID: "s1", BusinessContext: &models.BusinessContext{Required: []string{"a"}}}},
+			graph: &domain.ContractGraph{Graph: domain.Graph{
+				Nodes: map[string]domain.GraphNode{"s1": {ID: "s1", BusinessContext: &domain.BusinessContext{Required: []string{"a"}}}},
 			}},
 			step:      "s1",
 			ctx:       map[string]string{"a": "1"},
@@ -119,8 +124,8 @@ func TestContractValidationService_ValidateStepInContract_Table(t *testing.T) {
 		},
 		{
 			name: "existing step missing context errors",
-			graph: &models.ContractGraph{Graph: models.Graph{
-				Nodes: map[string]models.GraphNode{"s1": {ID: "s1", BusinessContext: &models.BusinessContext{Required: []string{"a"}}}},
+			graph: &domain.ContractGraph{Graph: domain.Graph{
+				Nodes: map[string]domain.GraphNode{"s1": {ID: "s1", BusinessContext: &domain.BusinessContext{Required: []string{"a"}}}},
 			}},
 			step:      "s1",
 			ctx:       map[string]string{},
@@ -140,7 +145,7 @@ func TestContractValidationService_ValidateStepInContract_Table(t *testing.T) {
 
 			svc := service.NewContractValidationServiceFromParts(graphRepo, nil, cache, zap.NewNop())
 
-			err := svc.ValidateStepInContract("c1", 1, tc.step, tc.ctx, "o1")
+			err := svc.ValidateStepInContract(context.Background(), "c1", 1, tc.step, tc.ctx, "o1")
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -162,7 +167,7 @@ func TestContractValidationService_GetContractGraph_Table(t *testing.T) {
 			version: 1,
 			setup: func(t *testing.T, graphRepo *enginemocks.MockContractGraphRepository, cache *enginemocks.MockCacheManager) *service.ContractValidationService {
 				t.Helper()
-				cached := &models.ContractGraph{Graph: models.Graph{Nodes: map[string]models.GraphNode{}}}
+				cached := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{}}}
 				cache.EXPECT().GetContractGraph("c1", 1, "o1").Return(cached, true).Times(1)
 				return service.NewContractValidationServiceFromParts(graphRepo, nil, cache, zap.NewNop())
 			},
@@ -172,7 +177,7 @@ func TestContractValidationService_GetContractGraph_Table(t *testing.T) {
 			version: 1,
 			setup: func(t *testing.T, graphRepo *enginemocks.MockContractGraphRepository, cache *enginemocks.MockCacheManager) *service.ContractValidationService {
 				t.Helper()
-				graph := &models.ContractGraph{Graph: models.Graph{Nodes: map[string]models.GraphNode{"s1": {ID: "s1"}}}}
+				graph := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{"s1": {ID: "s1"}}}}
 				cache.EXPECT().GetContractGraph("c1", 1, "o1").Return(nil, false).Times(1)
 				graphRepo.EXPECT().Get(gomock.Any(), "c1", 1, "o1").Return(graph, nil).Times(1)
 				cache.EXPECT().SetContractGraph("c1", 1, "o1", graph).Times(1)
@@ -201,7 +206,7 @@ func TestContractValidationService_GetContractGraph_Table(t *testing.T) {
 			cache := enginemocks.NewMockCacheManager(ctrl)
 			svc := tc.setup(t, graphRepo, cache)
 
-			_, err := svc.GetContractGraph("c1", tc.version, "o1")
+			_, err := svc.GetContractGraph(context.Background(), "c1", tc.version, "o1")
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -221,7 +226,7 @@ func TestContractValidationService_GetContractGraph_ResolvesLatestAndFallsBackTo
 	cache.EXPECT().GetContractGraph("c1", 7, "o1").Return(nil, false).Times(1)
 	graphRepo.EXPECT().Get(gomock.Any(), "c1", 7, "o1").Return(nil, errors.New("not found")).Times(1)
 
-	graph := &models.ContractGraph{Graph: models.Graph{Nodes: map[string]models.GraphNode{"s1": {ID: "s1"}}}}
+	graph := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{"s1": {ID: "s1"}}}}
 	graphJSON, err := json.Marshal(graph)
 	require.NoError(t, err)
 
@@ -230,12 +235,12 @@ func TestContractValidationService_GetContractGraph_ResolvesLatestAndFallsBackTo
 
 	svc := service.NewContractValidationServiceFromParts(
 		graphRepo,
-		fakeContractRepo{contract: &models.Contract{ID: "cid", LatestVersion: 7}, version: &models.ContractVersion{Graph: graphJSON}},
+		fakeContractRepo{contract: &domain.Contract{ID: "cid", LatestVersion: 7}, version: &domain.ContractVersion{Graph: graphJSON}},
 		cache,
 		zap.NewNop(),
 	)
 
-	got, err := svc.GetContractGraph("c1", 0, "o1")
+	got, err := svc.GetContractGraph(context.Background(), "c1", 0, "o1")
 	require.NoError(t, err)
 	require.Contains(t, got.Graph.Nodes, "s1")
 }
@@ -243,17 +248,17 @@ func TestContractValidationService_GetContractGraph_ResolvesLatestAndFallsBackTo
 func TestContractValidationService_GetContractGraph_PostgresEdgeCases(t *testing.T) {
 	tests := []struct {
 		name      string
-		version   *models.ContractVersion
+		version   *domain.ContractVersion
 		wantError string
 	}{
 		{
 			name:      "empty graph errors",
-			version:   &models.ContractVersion{Graph: nil},
+			version:   &domain.ContractVersion{Graph: nil},
 			wantError: "no graph found",
 		},
 		{
 			name:      "invalid graph json errors",
-			version:   &models.ContractVersion{Graph: []byte("{bad-json")},
+			version:   &domain.ContractVersion{Graph: []byte("{bad-json")},
 			wantError: "failed to parse contract graph",
 		},
 	}
@@ -271,12 +276,12 @@ func TestContractValidationService_GetContractGraph_PostgresEdgeCases(t *testing
 
 			svc := service.NewContractValidationServiceFromParts(
 				graphRepo,
-				fakeContractRepo{contract: &models.Contract{ID: "cid", LatestVersion: 7}, version: tc.version},
+				fakeContractRepo{contract: &domain.Contract{ID: "cid", LatestVersion: 7}, version: tc.version},
 				cache,
 				zap.NewNop(),
 			)
 
-			_, err := svc.GetContractGraph("c1", 0, "o1")
+			_, err := svc.GetContractGraph(context.Background(), "c1", 0, "o1")
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantError)
 		})
@@ -290,17 +295,17 @@ func TestContractValidationService_LoadContractGraphIntoCache_ResolvesVersionAnd
 	graphRepo := enginemocks.NewMockContractGraphRepository(ctrl)
 	cache := enginemocks.NewMockCacheManager(ctrl)
 
-	cached := &models.ContractGraph{Graph: models.Graph{Nodes: map[string]models.GraphNode{}}}
+	cached := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{}}}
 	cache.EXPECT().GetContractGraph("c1", 7, "o1").Return(cached, true).Times(1)
 
 	svc := service.NewContractValidationServiceFromParts(
 		graphRepo,
-		fakeContractRepo{contract: &models.Contract{ID: "cid", LatestVersion: 7}},
+		fakeContractRepo{contract: &domain.Contract{ID: "cid", LatestVersion: 7}},
 		cache,
 		zap.NewNop(),
 	)
 
-	v, err := svc.LoadContractGraphIntoCache("c1", 0, "o1")
+	v, err := svc.LoadContractGraphIntoCache(context.Background(), "c1", 0, "o1")
 	require.NoError(t, err)
 	require.Equal(t, 7, v)
 }
@@ -308,13 +313,13 @@ func TestContractValidationService_LoadContractGraphIntoCache_ResolvesVersionAnd
 func TestContractValidationService_GetContractByNameAndCompany(t *testing.T) {
 	t.Run("nil repo", func(t *testing.T) {
 		svc := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop())
-		_, err := svc.GetContractByNameAndCompany("c1", "o1")
+		_, err := svc.GetContractByNameAndCompany(context.Background(), "c1", "o1")
 		require.ErrorIs(t, err, service.ErrContractRepoNotAvailable)
 	})
 
 	t.Run("repo error propagates", func(t *testing.T) {
 		svc := service.NewContractValidationServiceFromParts(nil, fakeContractRepo{getErr: errors.New("db down")}, nil, zap.NewNop())
-		_, err := svc.GetContractByNameAndCompany("c1", "o1")
+		_, err := svc.GetContractByNameAndCompany(context.Background(), "c1", "o1")
 		require.Error(t, err)
 	})
 }

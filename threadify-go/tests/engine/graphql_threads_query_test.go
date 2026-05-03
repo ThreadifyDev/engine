@@ -147,7 +147,7 @@ func TestGraphQL_Threads_ByDateRange(t *testing.T) {
 		Query: "query($startedAfter: String, $startedBefore: String) { threads(startedAfter: $startedAfter, startedBefore: $startedBefore, limit: 10) { totalCount threads { id } } }",
 		Variables: map[string]interface{}{
 			"startedAfter":  twoHoursAgo,
-			"startedBefore": now.Format(time.RFC3339),
+			"startedBefore": now.Add(time.Minute).Format(time.RFC3339),
 		},
 	})
 

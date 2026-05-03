@@ -7,7 +7,7 @@ package enginemocks
 import (
 	context "context"
 	reflect "reflect"
-	models "threadify-go/shared/models"
+	domain "threadify-go/shared/domain"
 
 	gomock "github.com/golang/mock/gomock"
 )
@@ -36,7 +36,7 @@ func (m *MockInvoiceProvider) EXPECT() *MockInvoiceProviderMockRecorder {
 }
 
 // CreateCheckoutSession mocks base method.
-func (m *MockInvoiceProvider) CreateCheckoutSession(params models.CheckoutSessionParams) (string, error) {
+func (m *MockInvoiceProvider) CreateCheckoutSession(params domain.CheckoutSessionParams) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateCheckoutSession", params)
 	ret0, _ := ret[0].(string)
@@ -51,10 +51,10 @@ func (mr *MockInvoiceProviderMockRecorder) CreateCheckoutSession(params interfac
 }
 
 // IssueTopupInvoice mocks base method.
-func (m *MockInvoiceProvider) IssueTopupInvoice(snapshot *models.BillingSnapshot) (*models.InvoiceResult, error) {
+func (m *MockInvoiceProvider) IssueTopupInvoice(snapshot *domain.BillingSnapshot) (*domain.InvoiceResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IssueTopupInvoice", snapshot)
-	ret0, _ := ret[0].(*models.InvoiceResult)
+	ret0, _ := ret[0].(*domain.InvoiceResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -145,10 +145,10 @@ func (mr *MockWebhookProviderMockRecorder) SignatureHeader() *gomock.Call {
 }
 
 // VerifyAndParse mocks base method.
-func (m *MockWebhookProvider) VerifyAndParse(payload []byte, signature string) (*models.WebhookEvent, error) {
+func (m *MockWebhookProvider) VerifyAndParse(payload []byte, signature string) (*domain.WebhookEvent, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "VerifyAndParse", payload, signature)
-	ret0, _ := ret[0].(*models.WebhookEvent)
+	ret0, _ := ret[0].(*domain.WebhookEvent)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -183,7 +183,7 @@ func (m *MockBillingWebhookService) EXPECT() *MockBillingWebhookServiceMockRecor
 }
 
 // ApplyCreditTopup mocks base method.
-func (m *MockBillingWebhookService) ApplyCreditTopup(ctx context.Context, snapshot *models.BillingSnapshot) error {
+func (m *MockBillingWebhookService) ApplyCreditTopup(ctx context.Context, snapshot *domain.BillingSnapshot) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ApplyCreditTopup", ctx, snapshot)
 	ret0, _ := ret[0].(error)
@@ -211,10 +211,10 @@ func (mr *MockBillingWebhookServiceMockRecorder) ClearCreditTopupPending(ctx, co
 }
 
 // FindSnapshotByInvoiceID mocks base method.
-func (m *MockBillingWebhookService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*models.BillingSnapshot, error) {
+func (m *MockBillingWebhookService) FindSnapshotByInvoiceID(ctx context.Context, externalInvoiceID string) (*domain.BillingSnapshot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindSnapshotByInvoiceID", ctx, externalInvoiceID)
-	ret0, _ := ret[0].(*models.BillingSnapshot)
+	ret0, _ := ret[0].(*domain.BillingSnapshot)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

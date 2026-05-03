@@ -17,8 +17,8 @@ type Config struct {
 
 	APIKeyTTL time.Duration
 
-	PlunkAPIKey    string
-	PlunkFromEmail string
+	EmailAPIKey    string
+	EmailFromEmail string
 
 	ThreadifyEngineURL        string
 	ThreadifyEngineGraphQLURL string
@@ -57,8 +57,8 @@ func Load() (*Config, error) {
 		JWTExpiration:             jwtExp,
 		RefreshTokenExpiration:    refreshTokenExp,
 		APIKeyTTL:                 apiKeyTTL,
-		PlunkAPIKey:               getEnv("PLUNK_API_KEY", ""),
-		PlunkFromEmail:            getEnv("PLUNK_FROM_EMAIL", "noreply@threadify.dev"),
+		EmailAPIKey:               getEnv("EMAIL_API_KEY", ""),
+		EmailFromEmail:            getEnv("EMAIL_FROM_EMAIL", "noreply@threadify.dev"),
 		ThreadifyEngineURL:        getEnv("THREADIFY_ENGINE_URL", "http://localhost:8081"),
 		ThreadifyEngineGraphQLURL: getEnv("THREADIFY_ENGINE_GRAPHQL_URL", "http://localhost:8081/graphql"),
 		ThreadifyEngineUserID:     getEnv("THREADIFY_ENGINE_USER_ID", "123456"),

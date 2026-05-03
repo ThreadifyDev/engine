@@ -10,8 +10,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"github.com/threadify/engine/internal/types"
-	"github.com/threadify/engine/internal/models"
+	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 )
@@ -22,7 +21,7 @@ func TestAuthService_ValidateApiKey(t *testing.T) {
 		setup    func(t *testing.T) (*service.AuthService, func())
 		key      string
 		wantErr  error
-		wantInfo *types.UserInfo
+		wantInfo *domain.UserInfo
 	}{
 		{
 			name: "nil repo returns ErrDatabaseNotConfigured",
@@ -57,7 +56,7 @@ func TestAuthService_ValidateApiKey(t *testing.T) {
 				expired := time.Now().Add(-time.Minute)
 				repo.EXPECT().
 					ValidateAPIKey(gomock.Any(), gomock.Any()).
-					Return(&models.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1", ExpiresAt: &expired}, nil).
+					Return(&domain.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1", ExpiresAt: &expired}, nil).
 					Times(1)
 				return svc, func() { svc.Stop(); ctrl.Finish() }
 			},
@@ -72,12 +71,12 @@ func TestAuthService_ValidateApiKey(t *testing.T) {
 				svc := service.NewAuthService(repo, 60)
 				repo.EXPECT().
 					ValidateAPIKey(gomock.Any(), gomock.Any()).
-					Return(&models.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"}, nil).
+					Return(&domain.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"}, nil).
 					Times(1)
 				return svc, func() { svc.Stop(); ctrl.Finish() }
 			},
 			key:      "k1",
-			wantInfo: &types.UserInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"},
+			wantInfo: &domain.UserInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"},
 		},
 	}
 
@@ -115,17 +114,17 @@ func TestAuthService_ValidateApiKey_SingleflightDedupesConcurrentRequests(t *tes
 
 	repo.EXPECT().
 		ValidateAPIKey(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string) (*models.AuthInfo, error) {
+		DoAndReturn(func(_ context.Context, _ string) (*domain.AuthInfo, error) {
 			calls.Add(1)
 			<-release
-			return &models.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"}, nil
+			return &domain.AuthInfo{OwnerID: "o1", CompanyID: "c1", Role: "r1"}, nil
 		}).
 		Times(1)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	var got1, got2 *types.UserInfo
+	var got1, got2 *domain.UserInfo
 	var err1, err2 error
 
 	go func() { defer wg.Done(); got1, err1 = svc.ValidateApiKey("k1") }()

@@ -3,33 +3,34 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/models"
-	"threadify-go/api/internal/repository"
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
+	serror "threadify-go/shared/errors"
 
 	"go.uber.org/zap"
 )
 
 type TeamInvitationService struct {
-	invitationRepo repository.TeamInvitationRepository
-	outboxRepo     repository.OutboxRepository
+	invitationRepo domain.TeamInvitationRepository
+	outboxRepo     domain.OutboxRepository
 	outboxWorker   OutboxWorkerTrigger
-	userRepo       repository.UserRepository
-	companyRepo    repository.CompanyRepository
+	userRepo       domain.UserRepository
+	companyRepo    domain.CompanyRepository
 	encryptionKey  []byte
 	frontendURL    string
 	logger         *zap.Logger
 }
 
 func NewTeamInvitationService(
-	invitationRepo repository.TeamInvitationRepository,
-	outboxRepo repository.OutboxRepository,
+	invitationRepo domain.TeamInvitationRepository,
+	outboxRepo domain.OutboxRepository,
 	outboxWorker OutboxWorkerTrigger,
-	userRepo repository.UserRepository,
-	companyRepo repository.CompanyRepository,
+	userRepo domain.UserRepository,
+	companyRepo domain.CompanyRepository,
 	encryptionKey []byte,
 	frontendURL string,
 	logger *zap.Logger,
@@ -46,78 +47,79 @@ func NewTeamInvitationService(
 	}
 }
 
-// SendInvitation creates an invitation and queues an email via outbox
 func (s *TeamInvitationService) SendInvitation(
 	ctx context.Context,
 	companyID, email, role, invitedBy string,
 	expiryDuration time.Duration,
-) (*models.TeamInvitation, error) {
-	// Check if user already exists
+) (*domain.TeamInvitation, error) {
 	existingUser, err := s.userRepo.FindByEmail(ctx, email)
-	if err == nil && existingUser != nil {
-		return nil, fmt.Errorf("user with email %s already has an account", email)
+	if err != nil && !errors.Is(err, serror.ErrUserNotFound) {
+		s.logger.Error("send invitation: failed to check existing user",
+			zap.String("email", email),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("check existing user: %w", err)
+	}
+	if existingUser != nil {
+		s.logger.Warn("send invitation: user already has an account",
+			zap.String("email", email),
+			zap.String("company_id", companyID),
+		)
+		return nil, ErrUserAlreadyExists
 	}
 
-	// Generate invitation token
-	token := utils.GenerateID()
-	invitationID := utils.GenerateID()
-
-	invitation := &models.TeamInvitation{
-		ID:        invitationID,
+	invitation := &domain.TeamInvitation{
+		ID:        utils.GenerateID(),
 		CompanyID: companyID,
 		Email:     email,
 		Role:      role,
 		InvitedBy: invitedBy,
 		Status:    "pending",
-		Token:     token,
+		Token:     utils.GenerateID(),
 		ExpiresAt: time.Now().Add(expiryDuration),
 		CreatedAt: time.Now(),
 	}
 
-	// Save invitation to database
 	if err := s.invitationRepo.Create(ctx, invitation); err != nil {
+		s.logger.Error("send invitation: failed to persist invitation",
+			zap.String("email", email),
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("create invitation: %w", err)
 	}
 
-	// Queue email via outbox
 	if err := s.queueInvitationEmail(ctx, invitation); err != nil {
-		s.logger.Error("failed to queue invitation email",
-			zap.String("invitation_id", invitationID),
+		s.logger.Error("send invitation: failed to queue email",
+			zap.String("invitation_id", invitation.ID),
 			zap.String("email", email),
 			zap.Error(err),
 		)
-		// Don't fail the invitation creation if email queueing fails
-		// The outbox worker will retry
 	}
 
-	s.logger.Info("invitation created and email queued",
-		zap.String("invitation_id", invitationID),
+	s.logger.Info("send invitation: invitation created",
+		zap.String("invitation_id", invitation.ID),
 		zap.String("email", email),
 		zap.String("role", role),
+		zap.String("company_id", companyID),
 	)
 
 	return invitation, nil
 }
 
-// queueInvitationEmail creates an outbox event to send the invitation email
-func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invitation *models.TeamInvitation) error {
-	// Build invitation link
+func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invitation *domain.TeamInvitation) error {
 	inviteLink := fmt.Sprintf("%s/signup?invitation_token=%s", s.frontendURL, invitation.Token)
 
-	// Create payload
-	payload := map[string]string{
+	payloadJSON, err := json.Marshal(map[string]string{
 		"email":       invitation.Email,
 		"role":        invitation.Role,
 		"invite_link": inviteLink,
 		"expires_at":  invitation.ExpiresAt.Format(time.RFC3339),
-	}
-
-	payloadJSON, err := json.Marshal(payload)
+	})
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
-	// Encrypt payload
 	encrypted, err := utils.Encrypt(payloadJSON, s.encryptionKey)
 	if err != nil {
 		for i := range payloadJSON {
@@ -129,22 +131,18 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 		payloadJSON[i] = 0
 	}
 
-	// Create outbox event
-	event := &models.OutboxEvent{
+	if err := s.outboxRepo.Create(ctx, &domain.OutboxEvent{
 		ID:          utils.GenerateID(),
-		Type:        models.EventTypeSendTeamInvitation,
+		Type:        domain.EventTypeSendTeamInvitation,
 		Payload:     encrypted,
-		Status:      models.OutboxStatusPending,
-		MaxRetries:  models.OutboxDefaultMaxRetries,
+		Status:      domain.OutboxStatusPending,
+		MaxRetries:  domain.OutboxDefaultMaxRetries,
 		NextRunAt:   time.Now(),
 		ReferenceID: invitation.ID,
-	}
-
-	if err := s.outboxRepo.Create(ctx, event); err != nil {
+	}); err != nil {
 		return fmt.Errorf("create outbox event: %w", err)
 	}
 
-	// Trigger outbox worker to process immediately
 	if s.outboxWorker != nil {
 		s.outboxWorker.Trigger()
 	}
@@ -152,26 +150,37 @@ func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invita
 	return nil
 }
 
-func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string) (*models.ValidateTokenResult, error) {
+func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string) (*domain.InvitationTokenInfo, error) {
 	invitation, err := s.invitationRepo.GetByToken(ctx, token)
 	if err != nil {
+		s.logger.Warn("validate token: failed to retrieve invitation", zap.Error(err))
 		return nil, fmt.Errorf("get invitation: %w", err)
 	}
-
 	if invitation == nil {
+		s.logger.Warn("validate token: invitation not found")
 		return nil, fmt.Errorf("invitation not found")
 	}
-
 	if invitation.Status != "pending" {
+		s.logger.Warn("validate token: invitation already used",
+			zap.String("invitation_id", invitation.ID),
+			zap.String("status", invitation.Status),
+		)
 		return nil, fmt.Errorf("invitation already used")
 	}
-
-	if time.Now().After(invitation.ExpiresAt) {
+	if invitation.IsExpired() {
+		s.logger.Warn("validate token: invitation expired",
+			zap.String("invitation_id", invitation.ID),
+			zap.Time("expired_at", invitation.ExpiresAt),
+		)
 		return nil, fmt.Errorf("invitation expired")
 	}
 
 	company, err := s.companyRepo.FindByID(ctx, invitation.CompanyID)
 	if err != nil {
+		s.logger.Error("validate token: failed to retrieve company",
+			zap.String("company_id", invitation.CompanyID),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("get company: %w", err)
 	}
 
@@ -180,62 +189,127 @@ func (s *TeamInvitationService) ValidateToken(ctx context.Context, token string)
 		companyName = company.Name
 	}
 
-	return &models.ValidateTokenResult{
+	return &domain.InvitationTokenInfo{
 		CompanyName: companyName,
 		Email:       invitation.Email,
 	}, nil
 }
 
-// MarkAccepted marks an invitation as accepted
 func (s *TeamInvitationService) MarkAccepted(ctx context.Context, invitationID, userID string) error {
-	return s.invitationRepo.MarkAccepted(ctx, invitationID, userID)
+	err := s.invitationRepo.MarkAccepted(ctx, invitationID, userID)
+	if err != nil {
+		s.logger.Error("mark accepted: failed to update invitation",
+			zap.String("invitation_id", invitationID),
+			zap.String("user_id", userID),
+			zap.Error(err),
+		)
+		return fmt.Errorf("mark accepted: %w", err)
+	}
+
+	return nil
 }
 
-// GetByCompanyAndEmail retrieves pending invitation for a company and email
-func (s *TeamInvitationService) GetByCompanyAndEmail(ctx context.Context, companyID, email string) (*models.TeamInvitation, error) {
-	return s.invitationRepo.GetPendingByCompanyAndEmail(ctx, companyID, email)
+func (s *TeamInvitationService) GetByCompanyAndEmail(ctx context.Context, companyID, email string) (*domain.TeamInvitation, error) {
+	invitation, err := s.invitationRepo.GetPendingByCompanyAndEmail(ctx, companyID, email)
+	if err != nil {
+		s.logger.Error("get by company and email: failed to retrieve invitation",
+			zap.String("company_id", companyID),
+			zap.String("email", email),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("get by company and email: %w", err)
+	}
+	s.logger.Info("get by company and email: invitation found",
+		zap.String("invitation_id", invitation.ID),
+		zap.String("email", email),
+		zap.String("company_id", companyID),
+	)
+
+	return invitation, nil
 }
 
-// GetByID retrieves an invitation by ID
-func (s *TeamInvitationService) GetByID(ctx context.Context, invitationID string) (*models.TeamInvitation, error) {
-	return s.invitationRepo.GetByID(ctx, invitationID)
+func (s *TeamInvitationService) GetByID(ctx context.Context, invitationID string) (*domain.TeamInvitation, error) {
+	invitation, err := s.invitationRepo.GetByID(ctx, invitationID)
+	if err != nil {
+		s.logger.Error("get by id: failed to retrieve invitation",
+			zap.String("invitation_id", invitationID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("get by id: %w", err)
+	}
+
+	s.logger.Info("get by id: invitation found",
+		zap.String("invitation_id", invitation.ID),
+		zap.String("email", invitation.Email),
+		zap.String("company_id", invitation.CompanyID),
+	)
+
+	return invitation, nil
 }
 
-// ListByCompany retrieves all invitations for a company
-func (s *TeamInvitationService) ListByCompany(ctx context.Context, companyID string) ([]*models.TeamInvitation, error) {
-	return s.invitationRepo.ListByCompany(ctx, companyID)
+func (s *TeamInvitationService) ListByCompany(ctx context.Context, companyID string) ([]*domain.TeamInvitation, error) {
+	invitations, err := s.invitationRepo.ListByCompany(ctx, companyID)
+	if err != nil {
+		s.logger.Error("list by company: failed to retrieve invitations",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("list by company: %w", err)
+	}
+
+	s.logger.Info("list by company: invitations found",
+		zap.String("company_id", companyID),
+		zap.Int("count", len(invitations)),
+	)
+
+	return invitations, nil
 }
 
-// CancelInvitation permanently deletes a pending invitation
 func (s *TeamInvitationService) CancelInvitation(ctx context.Context, invitationID string) error {
-	return s.invitationRepo.Delete(ctx, invitationID)
+	err := s.invitationRepo.Delete(ctx, invitationID)
+	if err != nil {
+		s.logger.Error("cancel invitation: failed to delete invitation",
+			zap.String("invitation_id", invitationID),
+			zap.Error(err),
+		)
+		return fmt.Errorf("cancel invitation: %w", err)
+	}
+
+	s.logger.Info("cancel invitation: invitation deleted",
+		zap.String("invitation_id", invitationID),
+	)
+
+	return nil
 }
 
-// RefreshInvitation updates an existing invitation with a new token and expiry, and resends the email
-func (s *TeamInvitationService) RefreshInvitation(ctx context.Context, invitation *models.TeamInvitation, duration time.Duration) (*models.TeamInvitation, error) {
-	// Generate new token
+func (s *TeamInvitationService) RefreshInvitation(ctx context.Context, invitation *domain.TeamInvitation, duration time.Duration) (*domain.TeamInvitation, error) {
 	newToken := utils.GenerateID()
 	expiresAt := time.Now().Add(duration)
 
-	// Update invitation in database
-	err := s.invitationRepo.RefreshInvitation(ctx, invitation.ID, newToken, expiresAt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh invitation: %w", err)
+	if err := s.invitationRepo.RefreshInvitation(ctx, invitation.ID, newToken, expiresAt); err != nil {
+		s.logger.Error("refresh invitation: failed to update invitation",
+			zap.String("invitation_id", invitation.ID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("refresh invitation: %w", err)
 	}
 
-	// Update invitation object
 	invitation.Token = newToken
 	invitation.ExpiresAt = expiresAt
 
-	// Queue email via outbox (reuse existing method)
 	if err := s.queueInvitationEmail(ctx, invitation); err != nil {
-		s.logger.Error("failed to queue invitation email",
+		s.logger.Error("refresh invitation: failed to queue email",
 			zap.String("invitation_id", invitation.ID),
 			zap.String("email", invitation.Email),
 			zap.Error(err),
 		)
-		// Don't fail the refresh if email queueing fails
 	}
+
+	s.logger.Info("refresh invitation: invitation refreshed",
+		zap.String("invitation_id", invitation.ID),
+		zap.String("email", invitation.Email),
+		zap.Time("expires_at", expiresAt),
+	)
 
 	return invitation, nil
 }

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
-	"threadify-go/api/internal/models"
 	serror "threadify-go/shared/errors"
 
 	"github.com/gin-gonic/gin"
@@ -48,7 +48,7 @@ func TestAuthHandler_AuthFlows(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AuthSvc.EXPECT().
 					Login(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&models.AuthResponse{Token: "jwt.token.abc"}, nil)
+					Return(&domain.AuthSession{Token: "jwt.token.abc"}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -104,7 +104,7 @@ func TestAuthHandler_AuthFlows(t *testing.T) {
 			setupMock: func(d *common.MockedHandlers) {
 				d.AuthSvc.EXPECT().
 					VerifyEmail(gomock.Any(), gomock.Any()).
-					Return(&models.AuthResponse{Token: "verified-jwt"}, nil)
+					Return(&domain.AuthSession{Token: "verified-jwt"}, nil)
 			},
 			wantStatus: http.StatusOK,
 		},
