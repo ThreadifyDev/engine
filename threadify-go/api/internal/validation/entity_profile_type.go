@@ -7,6 +7,7 @@ import (
 )
 
 const maxTypes = 5
+const maxDescriptionLen = 255
 
 func ValidateCreateEntityProfileTypeRequest(req *dto.CreateEntityProfileTypeRequest) error {
 	b := &validationBuilder{}
@@ -18,6 +19,10 @@ func ValidateCreateEntityProfileTypeRequest(req *dto.CreateEntityProfileTypeRequ
 
 	if strings.TrimSpace(req.Name) == "" {
 		b.add("name", "Name is required.")
+	}
+
+	if len(req.Description) > maxDescriptionLen {
+		b.add("description", fmt.Sprintf("Description cannot exceed %d characters.", maxDescriptionLen))
 	}
 
 	hasTypes := false
@@ -41,6 +46,10 @@ func ValidateCreateEntityProfileTypeRequest(req *dto.CreateEntityProfileTypeRequ
 
 func ValidateUpdateEntityProfileTypeRequest(req *dto.UpdateEntityProfileTypeRequest) error {
 	b := &validationBuilder{}
+
+	if len(req.Description) > maxDescriptionLen {
+		b.add("description", fmt.Sprintf("Description cannot exceed %d characters.", maxDescriptionLen))
+	}
 
 	if len(req.Type) > maxTypes {
 		b.add("type", fmt.Sprintf("Types cannot exceed %d values.", maxTypes))
