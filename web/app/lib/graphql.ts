@@ -713,18 +713,21 @@ class GraphQLClient {
     search?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[]; description?: string; metricsConfig?: any[] } }> {
+  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: any }> {
     const query = `
       query EntityProfilesByType($type: String!, $search: String, $limit: Int, $offset: Int) {
         entityProfilesByType(type: $type, search: $search, limit: $limit, offset: $offset) {
           totalCount
           profileType {
+            id
+            companyId
             name
             type
             description
             metricsConfig {
               name
               templateId
+              parameters
             }
           }
           items {

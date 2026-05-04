@@ -28,14 +28,14 @@ type NATSConsumer struct {
 	js                 JetStreamPublisher
 	db                 DBExecer
 	metricsInvalidator MetricsInvalidator
-	writer       ConsumerWriter
-	batchSize    int
-	batchTimeout time.Duration
-	consumerName string
-	stopOnce     sync.Once
-	stopChan     chan struct{}
-	cfg          *config.Config
-	logger       *zap.Logger
+	writer             ConsumerWriter
+	batchSize          int
+	batchTimeout       time.Duration
+	consumerName       string
+	stopOnce           sync.Once
+	stopChan           chan struct{}
+	cfg                *config.Config
+	logger             *zap.Logger
 }
 
 func NewNATSConsumer(
@@ -52,13 +52,13 @@ func NewNATSConsumer(
 		js:                 js,
 		db:                 db,
 		metricsInvalidator: metricsInvalidator,
-		writer:       NewPostgresWriter(db, logger),
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		consumerName: consumerName,
-		stopChan:     make(chan struct{}),
-		cfg:          cfg,
-		logger:       logger,
+		writer:             NewPostgresWriter(db, logger),
+		batchSize:          batchSize,
+		batchTimeout:       batchTimeout,
+		consumerName:       consumerName,
+		stopChan:           make(chan struct{}),
+		cfg:                cfg,
+		logger:             logger,
 	}, nil
 }
 
@@ -170,7 +170,7 @@ func (c *NATSConsumer) consumeStream(ctx context.Context, streamName, subject st
 		BatchProcessingDuration.WithLabelValues(streamName).Observe(elapsed.Seconds())
 		if err != nil {
 			if strings.Contains(err.Error(), "wait for thread metadata") {
-				c.logger.Warn("batch processing delayed (waiting for thread metadata)", zap.String("stream", streamName), zap.Error(err))
+				c.logger.Debug("batch processing delayed (waiting for thread metadata)", zap.String("stream", streamName), zap.Error(err))
 			} else {
 				c.logger.Error("failed to process batch", zap.String("stream", streamName), zap.Error(err))
 			}
