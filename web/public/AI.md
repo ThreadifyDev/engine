@@ -4,7 +4,7 @@
 
 For implementation syntax in your language, see:
 - **JavaScript/TypeScript**: [AI-javascript.md](https://threadify.dev/AI-javascript.md)
-- **Python**: [AI-python.md](https://threadify.dev/AI-python.md) (Coming Soon)
+- **Python**: [AI-python.md](https://threadify.dev/AI-python.md)
 - **Go**: [AI-go.md](https://threadify.dev/AI-go.md)
 
 ---

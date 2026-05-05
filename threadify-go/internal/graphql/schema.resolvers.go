@@ -744,7 +744,7 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 	}
 
 	if refKey != nil && typeArg != nil && *refKey != "" && *typeArg != "" {
-		profile, err := r.entityProfileRepo.GetProfileByTypeName(ctx, companyID, *typeArg, *refKey)
+		profile, err := r.entityProfileRepo.GetProfileByTypeName(ctx, companyID, slug.ToSlug(*typeArg), *refKey)
 		if err != nil || profile == nil {
 			return nil, nil
 		}
