@@ -450,6 +450,37 @@ if err != nil {
 }
 ```
 
+### OpenTelemetry Integration
+Because Go is statically typed, the OpenTelemetry integration requires its own sub-module to avoid bloating the core SDK for users who do not use OpenTelemetry.
+
+**Install:**
+```bash
+go get github.com/ThreadifyDev/go-sdk/otel
+```
+
+**Usage:**
+```go
+import (
+    "go.opentelemetry.io/otel"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+    threadify "github.com/ThreadifyDev/go-sdk"
+    threadifyotel "github.com/ThreadifyDev/go-sdk/otel"
+)
+
+// 1. Connect to Threadify
+conn, _ := threadify.Connect(ctx, "api-key")
+
+// 2. Create the Exporter
+exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{
+    Refs: []string{"rider.id"},
+})
+
+// 3. Register with OpenTelemetry
+provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+otel.SetTracerProvider(provider)
+```
+
 ---
 
 ## Common Mistakes
