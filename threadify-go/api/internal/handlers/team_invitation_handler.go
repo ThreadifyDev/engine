@@ -104,7 +104,7 @@ func (h *TeamInvitationHandler) ValidateInvitation(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token"})
 		return
 	}
 

@@ -18,14 +18,14 @@ func AuthAccessTokenAuth(authService *service.AuthService) gin.HandlerFunc {
 		}
 		token, err := sharedauth.ExtractBearerToken(authHeader)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
 			c.Abort()
 			return
 		}
 
 		claims, err := authService.VerifyToken(c.Request.Context(), token)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
 			return
 		}

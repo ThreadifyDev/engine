@@ -60,7 +60,7 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}

@@ -3,7 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"threadify-go/api/internal/service"
@@ -11,6 +11,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// safeErrorMessage maps HTTP status codes to generic, user-facing messages.
+func safeErrorMessage(status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return "Unauthorized"
+	case status == http.StatusForbidden:
+		return "Access denied"
+	case status == http.StatusNotFound:
+		return "Not found"
+	case status == http.StatusBadRequest:
+		return "Invalid request"
+	case status >= 500:
+		return "An internal error occurred"
+	default:
+		return "Request failed"
+	}
+}
 
 const entityProfileProxyTimeout = 15 * time.Second
 
@@ -29,7 +47,7 @@ func NewEntityProfileProxyHandler(engineGraphQLURL string) *EntityProfileProxyHa
 func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string, variables map[string]interface{}) (json.RawMessage, int, error) {
 	authHeader := c.GetHeader(service.HeaderAuthorization)
 	if authHeader == "" {
-		return nil, http.StatusUnauthorized, fmt.Errorf("authorization header required")
+		return nil, http.StatusUnauthorized, errors.New("authorization header required")
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
@@ -39,7 +57,7 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, h.engineGraphQLURL, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create request: %w", err)
+		return nil, http.StatusInternalServerError, errors.New("failed to create request")
 	}
 
 	req.Header.Set(service.HeaderAuthorization, authHeader)
@@ -48,17 +66,17 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		return nil, http.StatusBadGateway, fmt.Errorf("engine unavailable: %w", err)
+		return nil, http.StatusBadGateway, errors.New("engine unavailable")
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to read response: %w", err)
+		return nil, http.StatusInternalServerError, errors.New("failed to read response")
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, resp.StatusCode, fmt.Errorf("engine error")
+		return nil, resp.StatusCode, errors.New("engine error")
 	}
 
 	var gqlResp struct {
@@ -66,7 +84,7 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 		Errors json.RawMessage `json:"errors"`
 	}
 	if err := json.Unmarshal(respBody, &gqlResp); err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("invalid engine response: %w", err)
+		return nil, http.StatusInternalServerError, errors.New("invalid engine response")
 	}
 
 	return gqlResp.Data, http.StatusOK, nil
@@ -97,7 +115,7 @@ func (h *EntityProfileProxyHandler) GetEntityProfile(c *gin.Context) {
 		"type":   typeName,
 	})
 	if err != nil {
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, gin.H{"error": safeErrorMessage(status)})
 		return
 	}
 
@@ -129,7 +147,7 @@ func (h *EntityProfileProxyHandler) ListEntityProfileTypes(c *gin.Context) {
 
 	data, status, err := h.graphqlRequest(c, query, nil)
 	if err != nil {
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(status, gin.H{"error": safeErrorMessage(status)})
 		return
 	}
 

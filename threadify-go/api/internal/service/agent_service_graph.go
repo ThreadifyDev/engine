@@ -320,7 +320,7 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 		s.logger.Warn("GraphQL payment/auth error",
 			zap.Int("status", resp.StatusCode),
 			zap.String("response", string(respBody)))
-		return "", fmt.Errorf("%w: %s", ErrPaymentRequired, string(respBody))
+		return "", ErrPaymentRequired
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -329,7 +329,7 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 			zap.String("query", query),
 			zap.Any("variables", variables),
 			zap.String("response", string(respBody)))
-		return "", fmt.Errorf("GraphQL error (status %d): %s", resp.StatusCode, string(respBody))
+		return "", errors.New("query execution failed")
 	}
 
 	return string(respBody), nil

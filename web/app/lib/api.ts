@@ -13,6 +13,31 @@ const API_BASE_URL = getApiBaseUrl();
 
 import yaml from 'js-yaml';
 
+// Patterns that indicate internal error details which should not reach users.
+const INTERNAL_ERROR_PATTERNS = [
+  /SQLSTATE\s+\d+/i,
+  /violates\s+foreign\s+key/i,
+  /syntax\s+error/i,
+  /connection\s+refused/i,
+  /at\s+\S+\.go:\d+/i,
+  /goroutine\s+\d+/i,
+  /internal\/\S+/i,
+  /\/threadify-go\/\S+/i,
+  /localhost:\d+/i,
+  /http:\/\/\S+/i,
+  /tcp:\/\/\S+/i,
+];
+
+function sanitizeErrorMessage(raw: string): string {
+  if (typeof raw !== 'string') return 'An error occurred';
+  for (const pattern of INTERNAL_ERROR_PATTERNS) {
+    if (pattern.test(raw)) {
+      return 'An internal error occurred. Please try again or contact support.';
+    }
+  }
+  return raw;
+}
+
 export class ValidationError extends Error {
   details?: Array<{ field: string; message: string }>;
 
@@ -158,7 +183,7 @@ class ApiClient {
 
     if (!response.ok) {
       // Prefer 'message' field for user-friendly errors, fallback to 'error' field
-      let errorMessage = data.message || data.error || 'An error occurred';
+      let errorMessage = sanitizeErrorMessage(data.message || data.error || 'An error occurred');
 
       // Cleanup internal billing error prefixes
       if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {

@@ -15,7 +15,7 @@ export default function Footer() {
             <a href="https://threadify.dev/AI.md" className="text-sm text-gray-600 hover:text-gray-900 transition">AI.md</a>
           </div>
         </div>
-        <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. Service delivery intelligence platform.</p>
+        <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. service-delivery intelligence platform.</p>
       </div>
     </footer>
   );

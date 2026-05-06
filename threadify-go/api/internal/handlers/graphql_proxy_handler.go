@@ -64,7 +64,9 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	}
 
 	if resp.StatusCode >= 400 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		// Preserve the engine's status code but return a generic message.
+		// Do not forward the raw engine response body to avoid leaking internals.
+		c.JSON(resp.StatusCode, gin.H{"error": "Request could not be completed"})
 		return
 	}
 

@@ -56,7 +56,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred.", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 
@@ -130,7 +130,7 @@ func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
 		return
 	}
 

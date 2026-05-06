@@ -47,7 +47,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -72,7 +72,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusUnauthorized, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusUnauthorized, "Invalid credentials")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -127,8 +127,8 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, _ := authErrorResponse(err, http.StatusInternalServerError, "Unable to process password reset request.")
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "Unable to process password reset request.")
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -173,7 +173,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	authResp, err := h.authService.VerifyEmail(c.Request.Context(), &domain.VerifyEmailCmd{Email: req.Email, Token: req.Token})
 	if err != nil {
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -212,7 +212,7 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
