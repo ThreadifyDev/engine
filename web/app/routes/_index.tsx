@@ -7,7 +7,7 @@ import '~/styles/homepage-story.css';
 
 export const meta: MetaFunction = () => {
   return [
-    { title: "Threadify — Service Delivery Intelligence" },
+    { title: "Threadify — service-delivery Intelligence" },
     { name: "description", content: "Threadify captures and validates how your business delivers on every customer request — turning that into intelligence for your teams, systems, and agents." },
   ];
 };

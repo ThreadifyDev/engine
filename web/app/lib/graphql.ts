@@ -3,6 +3,31 @@ import { getConfig } from '../config.client';
 
 const GRAPHQL_ENDPOINT = '/api/graphql'; // Proxy endpoint on Web API
 
+// Patterns that indicate internal error details which should not reach users.
+const INTERNAL_ERROR_PATTERNS = [
+  /SQLSTATE\s+\d+/i,
+  /violates\s+foreign\s+key/i,
+  /syntax\s+error/i,
+  /connection\s+refused/i,
+  /at\s+\S+\.go:\d+/i,
+  /goroutine\s+\d+/i,
+  /internal\/\S+/i,
+  /\/threadify-go\/\S+/i,
+  /localhost:\d+/i,
+  /http:\/\/\S+/i,
+  /tcp:\/\/\S+/i,
+];
+
+function sanitizeErrorMessage(raw: string): string {
+  if (typeof raw !== 'string') return 'An error occurred';
+  for (const pattern of INTERNAL_ERROR_PATTERNS) {
+    if (pattern.test(raw)) {
+      return 'An internal error occurred. Please try again or contact support.';
+    }
+  }
+  return raw;
+}
+
 export interface GraphQLError {
   message: string;
   path?: string[];
@@ -226,14 +251,14 @@ class GraphQLClient {
     }
 
     if (!response.ok) {
-      throw new Error(`GraphQL request failed: ${response.statusText}`);
+      throw new Error('GraphQL request failed');
     }
 
     const result: GraphQLResponse<T> = await response.json();
 
     if (result.errors) {
       // Check if error is due to authentication
-      const errorMessage = result.errors[0]?.message || 'GraphQL request failed';
+      const errorMessage = sanitizeErrorMessage(result.errors[0]?.message || 'GraphQL request failed');
       if (errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('invalid token')) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');

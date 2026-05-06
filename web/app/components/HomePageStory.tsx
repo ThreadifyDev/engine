@@ -232,7 +232,7 @@ step.addContext(data).success()`}
               />
               <div className="mt-6">
                 <a href="https://docs.threadify.dev/core-concepts/tracking-workflows" className="inline-flex items-center gap-2 text-black font-medium hover:gap-3 transition-all">
-                  Learn how to track service delivery
+                  Learn how to track service-delivery
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </div>
@@ -247,7 +247,7 @@ step.addContext(data).success()`}
                 <h4 className="text-lg sm:text-xl font-semibold text-black leading-tight">Native OpenTelemetry Support</h4>
               </div>
               <p className="text-gray-600 text-lg max-w-2xl">
-                Already instrumented with OTel? Drop in the Threadify Exporter to automatically convert your existing technical traces into business-level service delivery intelligence.
+                Already instrumented with OTel? Use the exporter from our SDK to automatically convert your existing technical traces into business-level service-delivery intelligence.
               </p>
             </div>
             <a 
@@ -296,7 +296,7 @@ step.addContext(data).success()`}
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
                 <p>
-                  Define what correct looks like - Contracts. Threadify validates every execution against it in real time.
+                  Define what correct looks like — Contracts. Threadify validates every execution against it in real time.
                 </p>
                 <p>
                   A step skipped. A sequence broken. A partner silent. You know instantly.
@@ -304,6 +304,11 @@ step.addContext(data).success()`}
                 <p className="text-black font-medium">
                   Not from a batch job. Not from a customer complaint. The instant it happens.
                 </p>
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-100">
+                  <p className="text-gray-600 text-sm">
+                    <span className="font-semibold text-gray-900">Not sure what your contract should look like?</span> Run your process once and ask the AI to generate it from what it saw. Ready in seconds.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -515,7 +520,7 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
 
           <div className="text-center space-y-4 pt-8">
             <p className="text-lg font-semibold text-gray-900">
-              Service delivery doesn't stop at your boundary. Your visibility shouldn't either.
+              service-delivery doesn't stop at your boundary. Your visibility shouldn't either.
             </p>
             <p className="text-black font-bold text-2xl">One thread. Their steps and yours. Full picture.</p>
           </div>
@@ -527,7 +532,7 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-5xl md:text-6xl font-bold mb-6">
             <span className="bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 bg-clip-text text-transparent">
-              Service Delivery Intelligence.
+              service-delivery Intelligence.
             </span>
           </h2>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
