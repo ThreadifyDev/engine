@@ -532,7 +532,7 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-5xl md:text-6xl font-bold mb-6">
             <span className="bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 bg-clip-text text-transparent">
-              service-delivery Intelligence.
+              Service-delivery Intelligence.
             </span>
           </h2>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
