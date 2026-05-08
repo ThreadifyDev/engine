@@ -552,10 +552,13 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 func (s *ThreadService) HandleInviteParty(ctx context.Context, req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	accessLevel := req.AccessLevel
 	if accessLevel == "" {
-		accessLevel = "external"
+		accessLevel = domain.AccessLevelExternal
 	}
 	if err := s.invitationService.ValidateAccessLevel(accessLevel); err != nil {
 		return nil, err
+	}
+	if accessLevel == domain.AccessLevelOwner {
+		return nil, fmt.Errorf("owner access level cannot be assigned via invitation token")
 	}
 
 	expiry, err := s.invitationService.ParseExpiry(req.ExpiresIn)
@@ -617,15 +620,15 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		if err != nil {
 			return nil, ErrInvalidThreadToken
 		}
+		if claims.AccessLevel == domain.AccessLevelOwner {
+			return nil, fmt.Errorf("owner access level cannot be assigned via invitation token")
+		}
 		threadID = claims.ThreadID
 		role = claims.Role
 		accessLevel = claims.AccessLevel
 		invitedBy = claims.InvitedBy
 
 	case req.ThreadID != "":
-		if req.Role == "" {
-			req.Role = "participant"
-		}
 		var err error
 		thread, err = s.getThread(req.ThreadID)
 		if err != nil {
@@ -633,6 +636,11 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		}
 		if thread.CompanyID != companyID {
 			return nil, fmt.Errorf("can only join threads from same company")
+		}
+
+		// Auto-resolve role from service identity if not explicitly provided
+		if req.Role == "" {
+			req.Role = s.resolveRoleFromService(ownerID, thread)
 		}
 		if !s.IsValidRole(req.Role) {
 			return nil, fmt.Errorf("invalid role: %s", req.Role)
@@ -653,14 +661,49 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		}
 	}
 
+	// Owner invariant: creator can never be downgraded via join.
+	existingAccess, accessErr := s.accessRepo.GetUserAccess(ctx, threadID, ownerID)
+	if accessErr == nil && existingAccess != nil && existingAccess.RuntimeRole == domain.AccessLevelOwner {
+		s.logger.Debug("owner re-joining thread, preserving owner runtime_role",
+			zap.String("user_id", ownerID), zap.String("thread_id", threadID))
+		return &domain.JoinThreadResponse{
+			Action:      ActionJoinThread,
+			Status:      "success",
+			ThreadID:    threadID,
+			Role:        role,
+			AccessLevel: domain.AccessLevelOwner,
+			Message:     "Already owner of thread",
+		}, nil
+	}
+
 	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err == nil && len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, role) {
 		return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", role, contractGraph.Parties)
 	}
 
 	var explicitScope *string
-	if accessLevel != "" {
-		explicitScope = &accessLevel
+	if req.ThreadToken != "" {
+		if companyID != thread.CompanyID {
+			// External company joining via token: respect observer and participant,
+			// cap anything higher at external.
+			switch accessLevel {
+			case domain.AccessLevelObserver, domain.AccessLevelParticipant:
+				explicitScope = &accessLevel
+			default:
+				ext := domain.AccessLevelExternal
+				explicitScope = &ext
+				accessLevel = domain.AccessLevelExternal
+			}
+		} else {
+			// Same company joining via token: respect the token's access level.
+			if accessLevel != "" {
+				explicitScope = &accessLevel
+			}
+		}
+	} else {
+		// Direct join: force participant runtime_role.
+		participant := domain.AccessLevelParticipant
+		explicitScope = &participant
 	}
 	if err := s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, explicitScope); err != nil {
 		s.logger.Error("failed to grant access",
@@ -669,11 +712,8 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 	}
 
 	if accessLevel == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if access, err := s.accessRepo.GetUserAccess(ctx, threadID, ownerID); err == nil && access != nil {
-			accessLevel = access.RuntimeRole
-		}
+		// Direct joins always report participant.
+		accessLevel = domain.AccessLevelParticipant
 	}
 
 	return &domain.JoinThreadResponse{
@@ -927,6 +967,35 @@ func (s *ThreadService) IsValidRole(role string) bool {
 		return fallbackValidRoles[role]
 	}
 	return slices.Contains(s.rbacLoader.GetAllRuntimeLevelRoles(), role)
+}
+
+// resolveRoleFromService derives a role from the connected service name.
+// It strips the "-service" suffix (e.g. "merchant-service" -> "merchant") and
+// checks if the derived role is a valid party in the thread's contract.
+// Falls back to "participant" if no match or no contract.
+func (s *ThreadService) resolveRoleFromService(ownerID string, thread *domain.Thread) string {
+	client, connected := s.connectionMgr.GetClient(ownerID)
+	if !connected {
+		return "participant"
+	}
+
+	candidate := strings.TrimSuffix(client.ServiceName, "-service")
+	if candidate == "" {
+		return "participant"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	graph, err := s.GetContractGraphForThread(ctx, thread)
+	if err != nil || len(graph.Parties) == 0 {
+		return candidate
+	}
+
+	if slices.Contains(graph.Parties, candidate) {
+		return candidate
+	}
+	return "participant"
 }
 
 // GetContractGraphForThread fetches the contract graph for a given thread.

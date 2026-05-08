@@ -253,33 +253,21 @@ export default function ThreadChat() {
           }
         }
         // Smart contract detection fallback for history
-        if (!processedMsg.contractPreview) {
-          const hasMarkdownYaml = processedMsg.content.includes('```yaml');
-          const hasRawYaml = processedMsg.content.includes('contract_name:') && processedMsg.content.includes('steps:');
-          
-          if (hasMarkdownYaml || hasRawYaml) {
-            let yamlText = '';
-            if (hasMarkdownYaml) {
-              const start = processedMsg.content.indexOf('```yaml') + 7;
-              const end = processedMsg.content.indexOf('```', start);
-              yamlText = (end !== -1 ? processedMsg.content.slice(start, end) : processedMsg.content.slice(start)).trim();
-            } else {
-              // Try to find start of YAML block (fuzzy search for first key: value pair)
-              const match = processedMsg.content.match(/[a-z0-9_]+:\s*[^\n]+/i);
-              if (match) {
-                 yamlText = processedMsg.content.slice(match.index).trim();
-              }
-            }
+        // Only detect contracts from explicit markdown YAML blocks to avoid
+        // false positives when thread analyzer mentions contracts in natural language.
+        if (!processedMsg.contractPreview && processedMsg.content.includes('```yaml')) {
+          const start = processedMsg.content.indexOf('```yaml') + 7;
+          const end = processedMsg.content.indexOf('```', start);
+          const yamlText = (end !== -1 ? processedMsg.content.slice(start, end) : processedMsg.content.slice(start)).trim();
 
-            if (yamlText.length > 20) {
-              const formattedYaml = formatAndCleanYaml(yamlText);
-              const engineResponseStr = processedMsg.relatedToolCall?.response;
-              let engineResponse = null;
-              if (engineResponseStr) {
-                try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
-              }
-              processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
+          if (yamlText.length > 20 && /^contract_name:/m.test(yamlText)) {
+            const formattedYaml = formatAndCleanYaml(yamlText);
+            const engineResponseStr = processedMsg.relatedToolCall?.response;
+            let engineResponse = null;
+            if (engineResponseStr) {
+              try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
             }
+            processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
           }
         }
 
@@ -504,24 +492,16 @@ export default function ThreadChat() {
                 displayContent = displayContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
                 displayContent = displayContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
                 
-                // Smart contract detection (Fuzzy - look for markdown or structural YAML keys)
+                // Smart contract detection: only trigger for explicit markdown YAML blocks
+                // to avoid false positives from thread analysis responses.
                 const hasMarkdownYaml = assistantContent.includes('```yaml');
-                const hasRawYaml = /([a-z0-9_]+:\s*[^\n]+[\n\r]*){3,}/i.test(assistantContent);
                 
-                if (hasMarkdownYaml || hasRawYaml) {
-                  let yamlText = '';
-                  if (hasMarkdownYaml) {
-                    const start = assistantContent.indexOf('```yaml') + 7;
-                    const end = assistantContent.indexOf('```', start);
-                    yamlText = (end !== -1 ? assistantContent.slice(start, end) : assistantContent.slice(start)).trim();
-                  } else {
-                    const match = assistantContent.match(/[a-z0-9_]+:\s*[^\n]+/i);
-                    if (match) {
-                      yamlText = assistantContent.slice(match.index).trim();
-                    }
-                  }
+                if (hasMarkdownYaml) {
+                  const start = assistantContent.indexOf('```yaml') + 7;
+                  const end = assistantContent.indexOf('```', start);
+                  const yamlText = (end !== -1 ? assistantContent.slice(start, end) : assistantContent.slice(start)).trim();
 
-                  if (yamlText.length > 20) {
+                  if (yamlText.length > 20 && /^contract_name:/m.test(yamlText)) {
                     // During streaming, only use regex-based repair for speed/stability
                     // Wait, actually let's keep the cleaned one for basic structure
                     const cleanedYaml = yamlText.replace(/([a-z0-9\]}])(version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:|id:|owner:|type:|business_context:|required:|from:|to:)/gi, '$1\n$2');

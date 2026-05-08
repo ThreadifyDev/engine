@@ -23,11 +23,18 @@ type EntityProfileType struct {
 	Metrics     []EntityTypeMetric `json:"metrics,omitempty"`
 }
 
+type ParameterDefinition struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Values      []string `json:"values,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
 type MetricsTemplateResponse struct {
-	ID          string   `json:"id"`
-	MetricsName string   `json:"metrics_name"`
-	Parameters  []string `json:"parameters"`
-	SQLContent  string   `json:"sql_content"`
+	ID                   string                `json:"id"`
+	MetricsName          string                `json:"metrics_name"`
+	ParameterDefinitions []ParameterDefinition `json:"parameter_definitions"`
+	SQLContent           string                `json:"sql_content"`
 }
 
 type CreateEntityProfileTypeRequest struct {

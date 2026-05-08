@@ -645,10 +645,17 @@ export interface EntityProfileType {
   metrics?: EntityTypeMetric[];
 }
 
+export interface ParameterDefinition {
+  name: string;
+  type: string;
+  values?: string[];
+  description?: string;
+}
+
 export interface MetricsTemplateResponse {
   id: string;
   metrics_name: string;
-  parameters: string[];
+  parameter_definitions: ParameterDefinition[];
   sql_content: string;
 }
 

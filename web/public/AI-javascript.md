@@ -201,11 +201,36 @@ connection.unsubscribe('thread.completed');
 
 ### Join Thread
 ```javascript
-// With token
+// With token (accessLevel comes from the invitation)
 const thread = await connection.join(invitationToken);
 
-// Direct join
-const thread = await connection.join(threadId, 'participant');
+// Direct join (defaults to participant accessLevel)
+const thread = await connection.join(threadId);
+const thread = await connection.join(threadId, 'supplier');
+```
+
+### Invite Party
+
+```javascript
+// Invite as external (default)
+const invite = await thread.inviteParty({
+  role: 'supplier'
+});
+
+// Invite as observer (read-only)
+const invite = await thread.inviteParty({
+  role: 'supplier',
+  accessLevel: Threadify.FOR_OBSERVER
+});
+
+// Invite as participant (active)
+const invite = await thread.inviteParty({
+  role: 'inventory-service',
+  accessLevel: Threadify.FOR_PARTICIPANT
+});
+
+// Join using the token
+const thread = await connection.join(invite.token);
 ```
 
 ### Error Handling

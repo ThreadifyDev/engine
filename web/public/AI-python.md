@@ -303,22 +303,33 @@ print(str(notif))  # "[critical] order_placed: Payment validation failed"
 
 ### Join Thread
 ```python
-# With token
+# With token (accessLevel comes from the invitation)
 thread = await conn.join(token=invitation_token)
 
-# Direct join
-thread = await conn.join(thread_id=thread_id, role="participant")
+# Direct join (defaults to participant accessLevel)
+thread = await conn.join(thread_id=thread_id)
+thread = await conn.join(thread_id=thread_id, role="supplier")
 ```
 
 ### Invite Parties
 ```python
-# Create invitation for external party
+# Create invitation for external party (default)
 invitation = await thread.invite_party(
     InviteOptions(
-        role="participant",
-        access_level="external",  # Optional, defaults to "external"
-        expires_in="48h",          # Optional, defaults to "24h"
+        role="supplier",
+        access_level=Threadify.FOR_EXTERNAL,  # Optional: FOR_EXTERNAL (default), FOR_OBSERVER, FOR_PARTICIPANT
+        expires_in="48h",                   # Optional, defaults to "24h"
     )
+)
+
+# Invite as observer (read-only)
+invitation = await thread.invite_party(
+    InviteOptions(role="supplier", access_level=Threadify.FOR_OBSERVER)
+)
+
+# Invite as participant (active)
+invitation = await thread.invite_party(
+    InviteOptions(role="inventory-service", access_level=Threadify.FOR_PARTICIPANT)
 )
 
 # Share invitation token

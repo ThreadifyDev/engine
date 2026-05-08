@@ -8,11 +8,18 @@ type EntityTypeMetric struct {
 	Parameters map[string]any
 }
 
+type ParameterDef struct {
+	Name        string
+	Type        string
+	Values      []string
+	Description string
+}
+
 type MetricsTemplate struct {
-	ID          string
-	MetricsName string
-	Parameters  []string
-	SQLContent  string
+	ID                   string
+	MetricsName          string
+	ParameterDefinitions []ParameterDef
+	SQLContent           string
 }
 
 type EntityProfileType struct {

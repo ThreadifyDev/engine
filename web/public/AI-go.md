@@ -377,16 +377,16 @@ fmt.Println(n.String()) // "[critical] order_placed: Payment validation failed"
 
 ### Join Thread
 ```go
-// With token
+// With token (accessLevel comes from the invitation)
 thread, err := conn.Join(ctx, threadify.WithJoinToken(invitationToken))
 if err != nil {
     log.Fatal(err)
 }
 
-// Direct join
+// Direct join (defaults to participant accessLevel)
 thread, err := conn.Join(ctx, 
     threadify.WithJoinThreadID(threadID),
-    threadify.WithJoinRole("participant"),
+    threadify.WithJoinRole("supplier"),
 )
 if err != nil {
     log.Fatal(err)
@@ -395,15 +395,27 @@ if err != nil {
 
 ### Invite Parties
 ```go
-// Create invitation for external party
+// Create invitation for external party (default)
 invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
-    Role:        "participant",
-    AccessLevel: "external",  // Optional, defaults to "external"
-    ExpiresIn:   "48h",        // Optional, defaults to "24h"
+    Role:        "supplier",
+    AccessLevel: threadify.ForExternal,  // Optional: ForExternal (default), ForObserver, ForParticipant
+    ExpiresIn:   "48h",                 // Optional, defaults to "24h"
 })
 if err != nil {
     log.Fatal(err)
 }
+
+// Invite as observer (read-only)
+invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
+    Role:        "supplier",
+    AccessLevel: threadify.ForObserver,
+})
+
+// Invite as participant (active)
+invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
+    Role:        "inventory-service",
+    AccessLevel: threadify.ForParticipant,
+})
 
 // Share invitation token
 fmt.Println("Token:", invitation.Token)

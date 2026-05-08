@@ -191,16 +191,43 @@ Every step must have one of three statuses:
 **What it does:** Join an existing thread to add steps or modify it
 
 **Variants:**
-1. **With invitation token** - External parties
-2. **Direct join** - Internal services with threadId + role
+1. **With invitation token** - External or cross-company parties. Access level was set at invite time via `inviteParty`.
+2. **Direct join** - Internal services with threadId. Always defaults to `participant` access level.
 
 **Parameters:**
-- `token` - JWT invitation token
+- `token` - JWT invitation token (access level comes from the invitation)
 - OR
-- `threadId` - Thread ID to join
-- `role` - Role for access control (`owner`, `participant`, `observer`, `external`)
+- `threadId` - Thread ID to join (direct join, defaults to participant)
+- `role` - Role for direct join only (e.g., "supplier", "merchant")
 
 **Returns:** Thread instance with write access (can record steps)
+
+---
+
+### 11. Inviting Parties
+
+**What it does:** Create an invitation token for another party to join a thread
+
+**Access Levels:**
+- `Threadify.FOR_EXTERNAL` (default) - External party with limited access
+- `Threadify.FOR_OBSERVER` - Read-only observer access
+- `Threadify.FOR_PARTICIPANT` - Active participant access
+
+**Parameters:**
+- `role` (required) - Business/contract role (e.g., "supplier", "merchant")
+- `accessLevel` (optional) - Use enum constants. Defaults to `FOR_EXTERNAL`.
+- `expiresIn` (optional) - Token expiry duration (default: "24h")
+
+**Returns:** Invitation token and metadata
+
+**Example:**
+
+```javascript
+const invite = await thread.inviteParty({
+  role: 'supplier',
+  accessLevel: Threadify.FOR_OBSERVER
+});
+```
 
 ---
 

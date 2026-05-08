@@ -329,7 +329,7 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 			zap.String("query", query),
 			zap.Any("variables", variables),
 			zap.String("response", string(respBody)))
-		return "", errors.New("query execution failed")
+		return "", fmt.Errorf("GraphQL returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return string(respBody), nil

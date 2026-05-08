@@ -210,10 +210,19 @@ func toMetricsTemplateDTO(t *domain.MetricsTemplate) *dto.MetricsTemplateRespons
 	if t == nil {
 		return nil
 	}
+	defs := make([]dto.ParameterDefinition, len(t.ParameterDefinitions))
+	for i, d := range t.ParameterDefinitions {
+		defs[i] = dto.ParameterDefinition{
+			Name:        d.Name,
+			Type:        d.Type,
+			Values:      d.Values,
+			Description: d.Description,
+		}
+	}
 	return &dto.MetricsTemplateResponse{
-		ID:          t.ID,
-		MetricsName: t.MetricsName,
-		Parameters:  t.Parameters,
-		SQLContent:  t.SQLContent,
+		ID:                   t.ID,
+		MetricsName:          t.MetricsName,
+		ParameterDefinitions: defs,
+		SQLContent:           t.SQLContent,
 	}
 }
