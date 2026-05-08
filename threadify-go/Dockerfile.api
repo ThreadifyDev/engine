@@ -33,6 +33,7 @@ COPY --from=builder /app/bin/server /app/server
 COPY --from=builder /app/shared/rbac /app/shared/rbac
 COPY --from=builder /app/api/code_samples /app/code_samples
 COPY --from=builder /app/config/subscription.yaml /app/config/subscription.yaml
+COPY --from=builder /app/config/prompts /app/config/prompts
 
 # Expose ports
 EXPOSE 8081 3001

@@ -40,7 +40,7 @@ const (
 	}`
 )
 
-func (s *AgentService) readPromptConfig(filename string) string {
+func (s *AgentService) readPromptConfig(filename string) (string, error) {
 	paths := []string{
 		"../config/prompts/" + filename,
 		"config/prompts/" + filename,
@@ -49,11 +49,10 @@ func (s *AgentService) readPromptConfig(filename string) string {
 	for _, p := range paths {
 		if b, err := os.ReadFile(p); err == nil {
 			s.logger.Debug("loaded prompt config", zap.String("file", p), zap.Int("bytes", len(b)))
-			return string(b)
+			return string(b), nil
 		}
 	}
-	s.logger.Warn("failed to load prompt config", zap.String("filename", filename))
-	return ""
+	return "", fmt.Errorf("prompt config not found: %s (checked paths: %v)", filename, paths)
 }
 
 func intPtr(i int) *int {
@@ -361,18 +360,29 @@ func (s *AgentService) recordUsage(ctx context.Context, authHeader string, token
 	return nil
 }
 
-func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, isNew bool, message string, skill string) []openai.ChatCompletionMessage {
+func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, isNew bool, message string, skill string) ([]openai.ChatCompletionMessage, error) {
 	var roleDescription string
 	switch skill {
 	case domain.SkillSupport:
-		roleDescription = s.readPromptConfig("skill_support.txt")
+		rd, err := s.readPromptConfig("skill_support.txt")
+		if err != nil {
+			return nil, err
+		}
+		roleDescription = rd
 	case domain.SkillDesign:
-		roleDescription = s.readPromptConfig("skill_design.txt")
+		rd, err := s.readPromptConfig("skill_design.txt")
+		if err != nil {
+			return nil, err
+		}
+		roleDescription = rd
 	default:
 		roleDescription = `You are Threadify's thread analyzer. Analyze execution threads using GraphQL queries.`
 	}
 
-	agentSystemPrompt := s.readPromptConfig("agent_system.txt")
+	agentSystemPrompt, err := s.readPromptConfig("agent_system.txt")
+	if err != nil {
+		return nil, err
+	}
 
 	systemPrompt := openai.ChatCompletionMessage{
 		Role:    domain.RoleSystem,
@@ -408,7 +418,7 @@ func (s *AgentService) buildInitialMessages(ctx context.Context, convID string, 
 	}
 
 	messages = append(messages, openai.ChatCompletionMessage{Role: domain.RoleUser, Content: message})
-	return messages
+	return messages, nil
 }
 
 type graphqlTool struct {
@@ -525,7 +535,10 @@ func (s *AgentService) BuildAgentGraph(ctx context.Context) (compose.Runnable[co
 		}
 
 		return compose.InvokableLambda(func(ctx context.Context, state *AgentState) (*AgentState, error) {
-			sysRawMsgs := s.buildInitialMessages(ctx, state.ConversationID, false, "", skill)
+			sysRawMsgs, err := s.buildInitialMessages(ctx, state.ConversationID, false, "", skill)
+			if err != nil {
+				return nil, err
+			}
 
 			var sysContent string
 			for _, m := range sysRawMsgs {

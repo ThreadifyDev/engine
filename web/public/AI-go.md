@@ -488,6 +488,12 @@ exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOption
     Refs: []string{"rider.id"},
 })
 
+// Filter spans by name — exact match or prefix wildcard with *
+exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{
+    Refs:    []string{"rider.id"},
+    Filters: []string{"invoke_llm", "adk.before*", "llm.*"},
+})
+
 // 3. Register with OpenTelemetry
 provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 otel.SetTracerProvider(provider)

@@ -256,6 +256,12 @@ const connection = await Threadify.connect('api-key', 'checkout-service');
 // Create exporter (Optionally extract OTel attributes into Threadify refs)
 const exporter = connection.createSpanExporter({ refs: ['order.id'] });
 
+// Filter spans by name — exact match or prefix wildcard with *
+const exporter = connection.createSpanExporter({
+  refs: ['order.id'],
+  filters: ['invoke_llm', 'adk.before*', 'llm.*']
+});
+
 // Register with OTel
 const provider = new BasicTracerProvider();
 provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
