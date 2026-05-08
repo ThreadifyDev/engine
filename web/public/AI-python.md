@@ -379,6 +379,12 @@ conn = await Threadify.connect("api-key", service_name="checkout-service")
 # 2. Create the Exporter
 exporter = conn.create_span_exporter(options={"refs": ["order.id", "customer.id"]})
 
+# Filter spans by name — exact match or prefix wildcard with *
+exporter = conn.create_span_exporter(options={
+    "refs": ["order.id", "customer.id"],
+    "filters": ["invoke_llm", "adk.before*", "llm.*"],
+})
+
 # 3. Register with OpenTelemetry
 provider = TracerProvider()
 provider.add_span_processor(BatchSpanProcessor(exporter))
