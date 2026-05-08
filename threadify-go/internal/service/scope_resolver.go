@@ -61,7 +61,7 @@ func (r *ScopeResolver) ValidateConfig() error {
 // ResolveScope determines the notification scope for a user in a thread.
 //
 // Resolution order:
-//  1. Creator  → always "owner"
+//  1. Creator  → always owner
 //  2. Explicit scope provided (from invitation)
 //  3. Contract role_defaults
 //  4. Contract default_scope
@@ -76,8 +76,8 @@ func (r *ScopeResolver) ResolveScope(
 
 	// 1. Creator is always owner.
 	if isCreator {
-		r.logger.Debug("resolved scope (creator)", append(scopeFields, zap.String("result", "owner"))...)
-		return "owner", nil
+		r.logger.Debug("resolved scope (creator)", append(scopeFields, zap.String("result", domain.AccessLevelOwner))...)
+		return domain.AccessLevelOwner, nil
 	}
 
 	// 2. Explicit scope provided (from invitation).

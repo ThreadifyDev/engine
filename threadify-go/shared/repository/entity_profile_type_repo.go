@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
 
@@ -360,7 +361,9 @@ func (r *EntityProfileTypeRepo) ArchiveProfileType(ctx context.Context, companyI
 	return nil
 }
 
-func extractParameters(sqlQuery string) []string {
+var paramCommentRegex = regexp.MustCompile(`(?m)^--\s*@param\s+([a-zA-Z0-9_]+)\s+(enum\([^)]+\)|[a-zA-Z0-9_]+)(?:\s+(.*))?$`)
+
+func extractParameters(sqlQuery string) []domain.ParameterDef {
 	ignoredParams := map[string]struct{}{
 		"ref_value":  {},
 		"ref_keys":   {},
@@ -368,10 +371,55 @@ func extractParameters(sqlQuery string) []string {
 		"end_time":   {},
 	}
 
-	matches := paramRegex.FindAllStringSubmatch(sqlQuery, -1)
-	params := make([]string, 0, len(matches))
-	seen := make(map[string]struct{}, len(matches))
+	// 1. Parse explicit parameter definitions from comments
+	defs := make(map[string]domain.ParameterDef)
+	commentMatches := paramCommentRegex.FindAllStringSubmatch(sqlQuery, -1)
+	for _, match := range commentMatches {
+		if len(match) < 3 {
+			continue
+		}
+		name := match[1]
+		if _, ok := ignoredParams[name]; ok {
+			continue
+		}
+		typeStr := match[2]
+		desc := ""
+		if len(match) > 3 {
+			desc = match[3]
+		}
 
+		def := domain.ParameterDef{
+			Name:        name,
+			Type:        typeStr,
+			Description: desc,
+		}
+
+		// Extract enum values
+		if len(typeStr) > 5 && typeStr[:5] == "enum(" && typeStr[len(typeStr)-1] == ')' {
+			inner := typeStr[5 : len(typeStr)-1]
+			var values []string
+			for _, v := range strings.Split(inner, ",") {
+				values = append(values, strings.TrimSpace(v))
+			}
+			def.Type = "enum"
+			def.Values = values
+		}
+
+		defs[name] = def
+	}
+
+	// 2. Fall back to regex-discovered @bindings for params without comments
+	// Strip single-line comments to avoid matching @param inside -- comments
+	var lines []string
+	for _, line := range strings.Split(sqlQuery, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "--") {
+			lines = append(lines, line)
+		}
+	}
+	sqlWithoutComments := strings.Join(lines, "\n")
+
+	matches := paramRegex.FindAllStringSubmatch(sqlWithoutComments, -1)
 	for _, match := range matches {
 		if len(match) <= 1 {
 			continue
@@ -380,11 +428,40 @@ func extractParameters(sqlQuery string) []string {
 		if _, ok := ignoredParams[paramName]; ok {
 			continue
 		}
-		if _, ok := seen[paramName]; ok {
+		if _, ok := defs[paramName]; ok {
 			continue
 		}
-		seen[paramName] = struct{}{}
-		params = append(params, paramName)
+		defs[paramName] = domain.ParameterDef{
+			Name: paramName,
+			Type: "string",
+		}
+	}
+
+	// 3. Build ordered slice (preserve comment order, then fallback order)
+	params := make([]domain.ParameterDef, 0)
+	seen := make(map[string]struct{})
+	for _, match := range commentMatches {
+		name := match[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		if def, ok := defs[name]; ok {
+			params = append(params, def)
+			seen[name] = struct{}{}
+		}
+	}
+	for _, match := range matches {
+		if len(match) <= 1 {
+			continue
+		}
+		name := match[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		if def, ok := defs[name]; ok {
+			params = append(params, def)
+			seen[name] = struct{}{}
+		}
 	}
 
 	return params
@@ -410,10 +487,10 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*do
 		}
 
 		templates = append(templates, &domain.MetricsTemplate{
-			ID:          id,
-			MetricsName: name,
-			Parameters:  extractParameters(sqlContent),
-			SQLContent:  sqlContent,
+			ID:                   id,
+			MetricsName:          name,
+			ParameterDefinitions: extractParameters(sqlContent),
+			SQLContent:           sqlContent,
 		})
 	}
 

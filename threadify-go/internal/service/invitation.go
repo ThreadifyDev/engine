@@ -14,7 +14,7 @@ import (
 )
 
 // allowedAccessLevels is the fixed set of valid access levels.
-var allowedAccessLevels = []string{"owner", "participant", "observer", "external"}
+var allowedAccessLevels = []string{domain.AccessLevelOwner, domain.AccessLevelParticipant, domain.AccessLevelObserver, domain.AccessLevelExternal}
 
 // InvitationConfig represents configuration for the invitation system.
 type InvitationConfig struct {

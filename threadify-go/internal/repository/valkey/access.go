@@ -518,10 +518,10 @@ func (r *AccessRepository) GetUsersByPermissions(
 func (r *AccessRepository) getRuntimeRolesForPermissions(requiredPermissions []string) []string {
 	// Fallback to all roles if RBAC loader not available (should not happen in production)
 	if r.rbacLoader == nil {
-		return []string{"owner", "participant", "observer", "external"}
+		return []string{domain.AccessLevelOwner, domain.AccessLevelParticipant, domain.AccessLevelObserver, domain.AccessLevelExternal}
 	}
 
-	allRuntimeRoles := []string{"owner", "participant", "observer", "external"}
+	allRuntimeRoles := []string{domain.AccessLevelOwner, domain.AccessLevelParticipant, domain.AccessLevelObserver, domain.AccessLevelExternal}
 	matchedRoles := make([]string, 0, len(allRuntimeRoles))
 
 	// For each runtime role, check if it has ANY of the required permissions

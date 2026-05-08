@@ -3,7 +3,7 @@ import { useNavigate } from '@remix-run/react';
 import { X, Settings } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
-import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric } from '~/lib/api';
+import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric, ParameterDefinition } from '~/lib/api';
 import { TagInput } from './TagInput';
 
 interface ProfileTypeModalProps {
@@ -237,26 +237,82 @@ export function ProfileTypeModal({
 }
 
 // Sub-component for Metric Configuration
-function MetricSelectionCard({ 
-  template, 
-  metric, 
-  onChange, 
-  onRemove 
-}: { 
-  template: MetricsTemplateResponse; 
-  metric: EntityTypeMetric; 
+function MetricSelectionCard({
+  template,
+  metric,
+  onChange,
+  onRemove
+}: {
+  template: MetricsTemplateResponse;
+  metric: EntityTypeMetric;
   onChange: (m: EntityTypeMetric) => void;
   onRemove: () => void;
 }) {
-  const handleParamChange = (param: string, value: string) => {
+  const handleParamChange = (param: string, value: any) => {
     onChange({
       ...metric,
       parameters: { ...metric.parameters, [param]: value }
     });
   };
 
-  const threadStatuses = ['active', 'completed', 'failed', 'cancelled'];
-  const stepStatuses = ['pending', 'in_progress', 'completed', 'failed', 'skipped'];
+  const renderParamInput = (def: ParameterDefinition) => {
+    const val = metric.parameters?.[def.name];
+
+    switch (def.type) {
+      case 'enum':
+        return (
+          <select
+            value={val || ''}
+            onChange={(e) => handleParamChange(def.name, e.target.value)}
+            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
+          >
+            <option value="" disabled>Select {def.name}...</option>
+            {(def.values || []).map((v: string) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+        );
+
+      case 'number':
+        return (
+          <input
+            type="number"
+            value={val || ''}
+            onChange={(e) => handleParamChange(def.name, e.target.value)}
+            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
+            placeholder={def.description || `Enter ${def.name}...`}
+          />
+        );
+
+      case 'boolean':
+        return (
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={val === true || val === 'true'}
+                onChange={(e) => handleParamChange(def.name, e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-1 peer-focus:ring-black rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black" />
+            </div>
+            <span className="text-sm text-gray-700">{def.description || def.name}</span>
+          </label>
+        );
+
+      case 'string':
+      default:
+        return (
+          <input
+            type="text"
+            value={val || ''}
+            onChange={(e) => handleParamChange(def.name, e.target.value)}
+            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
+            placeholder={def.description || `Enter ${def.name}...`}
+          />
+        );
+    }
+  };
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
@@ -267,70 +323,22 @@ function MetricSelectionCard({
       >
         <X className="w-4 h-4" />
       </button>
-      
+
       <div className="flex items-center gap-2 mb-3">
         <Settings className="w-4 h-4 text-gray-500" />
         <h4 className="text-sm font-semibold text-gray-900">{template.metrics_name}</h4>
       </div>
 
-      {(template.parameters || []).length === 0 ? (
+      {(template.parameter_definitions || []).length === 0 ? (
         <p className="text-xs text-gray-500 italic">No configuration required for this metric.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {(template.parameters || []).map((param) => {
-            const val = metric.parameters?.[param] || '';
-            const isStatus = param === 'status' || param === 'thread_status';
-            const isStepStatus = param === 'step_status';
-            const isGranularity = param === 'granularity';
-
-            return (
-              <div key={param} className="flex flex-col gap-1">
-                <label className="text-xs font-mono text-gray-600">@{param}</label>
-                {isStatus ? (
-                  <select
-                    value={val}
-                    onChange={(e) => handleParamChange(param, e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
-                  >
-                    <option value="" disabled>Select status...</option>
-                    {threadStatuses.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                ) : isStepStatus ? (
-                  <select
-                    value={val}
-                    onChange={(e) => handleParamChange(param, e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
-                  >
-                    <option value="" disabled>Select step status...</option>
-                    {stepStatuses.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                ) : isGranularity ? (
-                  <select
-                    value={val}
-                    onChange={(e) => handleParamChange(param, e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
-                  >
-                    <option value="" disabled>Select granularity...</option>
-                    <option value="15m">15 Minutes</option>
-                    <option value="1h">1 Hour</option>
-                    <option value="1d">1 Day</option>
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={val}
-                    onChange={(e) => handleParamChange(param, e.target.value)}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:border-black focus:ring-1 focus:ring-black outline-none bg-white"
-                    placeholder={`Enter ${param}...`}
-                  />
-                )}
-              </div>
-            );
-          })}
+          {(template.parameter_definitions || []).map((def) => (
+            <div key={def.name} className="flex flex-col gap-1">
+              <label className="text-xs font-mono text-gray-600">@{def.name}</label>
+              {renderParamInput(def)}
+            </div>
+          ))}
         </div>
       )}
     </div>

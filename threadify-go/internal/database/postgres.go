@@ -1069,48 +1069,52 @@ END $$;
 // InitDefaultMetrics inserts the core metrics templates if they don't already exist.
 func (db *PostgresDB) InitDefaultMetrics(ctx context.Context) error {
 	query := `
-	INSERT INTO metrics_template (id, metrics_name, sql_content) VALUES 
+	INSERT INTO metrics_template (id, metrics_name, sql_content) VALUES
 	(
-		'metric_outcome_rate', 
-		'Outcome Rate', 
-		'SELECT 
+		'metric_outcome_rate',
+		'Outcome Rate',
+		'-- @param status enum(active, completed, cancelled, failed) Thread status to measure against
+SELECT
     COUNT(CASE WHEN t.status = @status THEN 1 END) AS matched_threads,
     COUNT(*) AS total_threads,
     ROUND(
-        (COUNT(CASE WHEN t.status = @status THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 
+        (COUNT(CASE WHEN t.status = @status THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100,
         2
     ) AS outcome_rate_percentage
 FROM thread_refs tr
 JOIN threads t ON t.id = tr.thread_id
 WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
-  AND t.created_at >= @start_time 
+  AND t.created_at >= @start_time
   AND t.created_at <= @end_time;'
 	),
 	(
-		'metric_avg_delivery_time', 
-		'Avg Delivery Time per Contract', 
-		'SELECT 
+		'metric_avg_delivery_time',
+		'Avg Delivery Time per Contract',
+		'SELECT
     t.contract_name,
     ROUND(AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2) AS avg_duration_ms,
     cv.expected_duration_ms
 FROM thread_refs tr
 JOIN threads t ON t.id = tr.thread_id
-JOIN contract_versions cv 
-  ON cv.contract_id::text = t.contract_id 
+JOIN contract_versions cv
+  ON cv.contract_id::text = t.contract_id
   AND cv.version = t.contract_version
 WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
   AND t.status = ''completed''
-  AND t.created_at >= @start_time 
+  AND t.created_at >= @start_time
   AND t.created_at <= @end_time
   AND cv.expected_duration_ms IS NOT NULL
 GROUP BY t.contract_name, cv.expected_duration_ms;'
 	),
 	(
-		'metric_frequent_failure_point', 
-		'Top Failure Points', 
-		'SELECT 
+		'metric_frequent_failure_point',
+		'Top Failure Points',
+		'-- @param thread_status enum(active, completed, cancelled, failed) Filter by thread outcome
+-- @param step_status enum(success, failed, error, pending, completed, in_progress) Filter by step status
+-- @param limit number Maximum results to return
+SELECT
     tss.step_name,
     COUNT(*) AS failure_count
 FROM thread_refs tr
@@ -1120,16 +1124,17 @@ WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
   AND t.status = @thread_status
   AND tss.status = @step_status
-  AND t.created_at >= @start_time 
+  AND t.created_at >= @start_time
   AND t.created_at <= @end_time
 GROUP BY tss.step_name
 ORDER BY failure_count DESC
 LIMIT @limit::int;'
 	),
 	(
-		'metric_thread_volume', 
-		'Volume Over Time', 
-		'SELECT 
+		'metric_thread_volume',
+		'Volume Over Time',
+		'-- @param granularity enum(15m, 1h, 1d, 1w, 1M) Time bucket size
+SELECT
     DATE_TRUNC(@granularity::text, t.created_at) AS period,
     t.status AS thread_outcome,
     COUNT(*) AS thread_count
@@ -1137,12 +1142,12 @@ FROM thread_refs tr
 JOIN threads t ON t.id = tr.thread_id
 WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
-  AND t.created_at >= @start_time 
+  AND t.created_at >= @start_time
   AND t.created_at <= @end_time
 GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
 ORDER BY period ASC, thread_outcome;'
 	)
-	ON CONFLICT (id) DO UPDATE SET 
+	ON CONFLICT (id) DO UPDATE SET
 		metrics_name = EXCLUDED.metrics_name,
 		sql_content = EXCLUDED.sql_content;
 	`
