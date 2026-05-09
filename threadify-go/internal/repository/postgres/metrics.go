@@ -219,7 +219,7 @@ func (r *MetricsRepository) GetCachedEntityMetrics(ctx context.Context, profileI
 
 	hashKey := "entity_metrics:" + profileID
 	fieldKey := rangeVal + ":" + configVersion
-	
+
 	cachedData, err := r.valkeyClient.HGet(ctx, hashKey, fieldKey)
 	if err != nil || cachedData == "" {
 		return nil, false
@@ -256,7 +256,7 @@ func (r *MetricsRepository) CacheEntityMetrics(ctx context.Context, profileID, r
 
 	hashKey := "entity_metrics:" + profileID
 	fieldKey := rangeVal + ":" + configVersion
-	
+
 	if err := r.valkeyClient.HSet(ctx, hashKey, fieldKey, string(resultBytes)); err != nil {
 		r.logger.Warn("failed to cache entity metrics",
 			zap.String("profileID", profileID),

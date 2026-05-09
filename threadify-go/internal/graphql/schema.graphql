@@ -386,10 +386,24 @@ type EntityProfile {
   computedMetrics(range: String): JSON
 }
 
+type CustomMetricDefinition {
+  name: String!
+  target: String
+  stepName: String
+  operation: String
+  field: String
+  filters: JSON
+  groupBy: String
+  granularity: String
+  visualisation: String
+}
+
 type EntityTypeMetricConfig {
+  id: String
   templateId: String!
   name: String
   parameters: JSON
+  customDefinition: CustomMetricDefinition
 }
 
 type EntityProfileType {

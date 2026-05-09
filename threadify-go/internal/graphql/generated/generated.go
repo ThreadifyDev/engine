@@ -62,6 +62,18 @@ type ComplexityRoot struct {
 		Validation         func(childComplexity int) int
 	}
 
+	CustomMetricDefinition struct {
+		Field         func(childComplexity int) int
+		Filters       func(childComplexity int) int
+		Granularity   func(childComplexity int) int
+		GroupBy       func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Operation     func(childComplexity int) int
+		StepName      func(childComplexity int) int
+		Target        func(childComplexity int) int
+		Visualisation func(childComplexity int) int
+	}
+
 	EntityProfile struct {
 		CompanyID       func(childComplexity int) int
 		ComputedMetrics func(childComplexity int, rangeArg *string) int
@@ -105,9 +117,11 @@ type ComplexityRoot struct {
 	}
 
 	EntityTypeMetricConfig struct {
-		Name       func(childComplexity int) int
-		Parameters func(childComplexity int) int
-		TemplateID func(childComplexity int) int
+		CustomDefinition func(childComplexity int) int
+		ID               func(childComplexity int) int
+		Name             func(childComplexity int) int
+		Parameters       func(childComplexity int) int
+		TemplateID       func(childComplexity int) int
 	}
 
 	Graph struct {
@@ -474,6 +488,61 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ContractGraph.Validation(childComplexity), true
 
+	case "CustomMetricDefinition.field":
+		if e.ComplexityRoot.CustomMetricDefinition.Field == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Field(childComplexity), true
+	case "CustomMetricDefinition.filters":
+		if e.ComplexityRoot.CustomMetricDefinition.Filters == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Filters(childComplexity), true
+	case "CustomMetricDefinition.granularity":
+		if e.ComplexityRoot.CustomMetricDefinition.Granularity == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Granularity(childComplexity), true
+	case "CustomMetricDefinition.groupBy":
+		if e.ComplexityRoot.CustomMetricDefinition.GroupBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.GroupBy(childComplexity), true
+	case "CustomMetricDefinition.name":
+		if e.ComplexityRoot.CustomMetricDefinition.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Name(childComplexity), true
+	case "CustomMetricDefinition.operation":
+		if e.ComplexityRoot.CustomMetricDefinition.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Operation(childComplexity), true
+	case "CustomMetricDefinition.stepName":
+		if e.ComplexityRoot.CustomMetricDefinition.StepName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.StepName(childComplexity), true
+	case "CustomMetricDefinition.target":
+		if e.ComplexityRoot.CustomMetricDefinition.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Target(childComplexity), true
+	case "CustomMetricDefinition.visualisation":
+		if e.ComplexityRoot.CustomMetricDefinition.Visualisation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Visualisation(childComplexity), true
+
 	case "EntityProfile.companyId":
 		if e.ComplexityRoot.EntityProfile.CompanyID == nil {
 			break
@@ -663,6 +732,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.EntityProfileType.UpdatedAt(childComplexity), true
 
+	case "EntityTypeMetricConfig.customDefinition":
+		if e.ComplexityRoot.EntityTypeMetricConfig.CustomDefinition == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.CustomDefinition(childComplexity), true
+	case "EntityTypeMetricConfig.id":
+		if e.ComplexityRoot.EntityTypeMetricConfig.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.ID(childComplexity), true
 	case "EntityTypeMetricConfig.name":
 		if e.ComplexityRoot.EntityTypeMetricConfig.Name == nil {
 			break
@@ -2233,10 +2314,24 @@ type EntityProfile {
   computedMetrics(range: String): JSON
 }
 
+type CustomMetricDefinition {
+  name: String!
+  target: String
+  stepName: String
+  operation: String
+  field: String
+  filters: JSON
+  groupBy: String
+  granularity: String
+  visualisation: String
+}
+
 type EntityTypeMetricConfig {
+  id: String
   templateId: String!
   name: String
   parameters: JSON
+  customDefinition: CustomMetricDefinition
 }
 
 type EntityProfileType {
@@ -3120,6 +3215,267 @@ func (ec *executionContext) fieldContext_ContractGraph_notificationConfig(_ cont
 				return ec.fieldContext_NotificationConfig_roleDefaults(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type NotificationConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_name(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_target(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_target,
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_stepName(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_stepName,
+		func(ctx context.Context) (any, error) {
+			return obj.StepName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_stepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_operation(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_operation,
+		func(ctx context.Context) (any, error) {
+			return obj.Operation, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_field(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_field,
+		func(ctx context.Context) (any, error) {
+			return obj.Field, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_field(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_filters(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_filters,
+		func(ctx context.Context) (any, error) {
+			return obj.Filters, nil
+		},
+		nil,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_filters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_groupBy(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_groupBy,
+		func(ctx context.Context) (any, error) {
+			return obj.GroupBy, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_groupBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_granularity(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_granularity,
+		func(ctx context.Context) (any, error) {
+			return obj.Granularity, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_granularity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_visualisation(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_visualisation,
+		func(ctx context.Context) (any, error) {
+			return obj.Visualisation, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_visualisation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4080,14 +4436,47 @@ func (ec *executionContext) fieldContext_EntityProfileType_metricsConfig(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityTypeMetricConfig_id(ctx, field)
 			case "templateId":
 				return ec.fieldContext_EntityTypeMetricConfig_templateId(ctx, field)
 			case "name":
 				return ec.fieldContext_EntityTypeMetricConfig_name(ctx, field)
 			case "parameters":
 				return ec.fieldContext_EntityTypeMetricConfig_parameters(ctx, field)
+			case "customDefinition":
+				return ec.fieldContext_EntityTypeMetricConfig_customDefinition(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityTypeMetricConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_id(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4175,6 +4564,55 @@ func (ec *executionContext) fieldContext_EntityTypeMetricConfig_parameters(_ con
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_customDefinition(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_customDefinition,
+		func(ctx context.Context) (any, error) {
+			return obj.CustomDefinition, nil
+		},
+		nil,
+		ec.marshalOCustomMetricDefinition2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐCustomMetricDefinition,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_customDefinition(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_CustomMetricDefinition_name(ctx, field)
+			case "target":
+				return ec.fieldContext_CustomMetricDefinition_target(ctx, field)
+			case "stepName":
+				return ec.fieldContext_CustomMetricDefinition_stepName(ctx, field)
+			case "operation":
+				return ec.fieldContext_CustomMetricDefinition_operation(ctx, field)
+			case "field":
+				return ec.fieldContext_CustomMetricDefinition_field(ctx, field)
+			case "filters":
+				return ec.fieldContext_CustomMetricDefinition_filters(ctx, field)
+			case "groupBy":
+				return ec.fieldContext_CustomMetricDefinition_groupBy(ctx, field)
+			case "granularity":
+				return ec.fieldContext_CustomMetricDefinition_granularity(ctx, field)
+			case "visualisation":
+				return ec.fieldContext_CustomMetricDefinition_visualisation(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CustomMetricDefinition", field.Name)
 		},
 	}
 	return fc, nil
@@ -11424,6 +11862,61 @@ func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var customMetricDefinitionImplementors = []string{"CustomMetricDefinition"}
+
+func (ec *executionContext) _CustomMetricDefinition(ctx context.Context, sel ast.SelectionSet, obj *CustomMetricDefinition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, customMetricDefinitionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CustomMetricDefinition")
+		case "name":
+			out.Values[i] = ec._CustomMetricDefinition_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "target":
+			out.Values[i] = ec._CustomMetricDefinition_target(ctx, field, obj)
+		case "stepName":
+			out.Values[i] = ec._CustomMetricDefinition_stepName(ctx, field, obj)
+		case "operation":
+			out.Values[i] = ec._CustomMetricDefinition_operation(ctx, field, obj)
+		case "field":
+			out.Values[i] = ec._CustomMetricDefinition_field(ctx, field, obj)
+		case "filters":
+			out.Values[i] = ec._CustomMetricDefinition_filters(ctx, field, obj)
+		case "groupBy":
+			out.Values[i] = ec._CustomMetricDefinition_groupBy(ctx, field, obj)
+		case "granularity":
+			out.Values[i] = ec._CustomMetricDefinition_granularity(ctx, field, obj)
+		case "visualisation":
+			out.Values[i] = ec._CustomMetricDefinition_visualisation(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var entityProfileImplementors = []string{"EntityProfile"}
 
 func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.SelectionSet, obj *EntityProfile) graphql.Marshaler {
@@ -11716,6 +12209,8 @@ func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("EntityTypeMetricConfig")
+		case "id":
+			out.Values[i] = ec._EntityTypeMetricConfig_id(ctx, field, obj)
 		case "templateId":
 			out.Values[i] = ec._EntityTypeMetricConfig_templateId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -11725,6 +12220,8 @@ func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast
 			out.Values[i] = ec._EntityTypeMetricConfig_name(ctx, field, obj)
 		case "parameters":
 			out.Values[i] = ec._EntityTypeMetricConfig_parameters(ctx, field, obj)
+		case "customDefinition":
+			out.Values[i] = ec._EntityTypeMetricConfig_customDefinition(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -15217,6 +15714,13 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOCustomMetricDefinition2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐCustomMetricDefinition(ctx context.Context, sel ast.SelectionSet, v *CustomMetricDefinition) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._CustomMetricDefinition(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx context.Context, sel ast.SelectionSet, v *EntityProfile) graphql.Marshaler {

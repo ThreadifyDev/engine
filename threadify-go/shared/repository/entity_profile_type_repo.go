@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -81,10 +82,9 @@ func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileTy
 	}
 
 	if len(profileType.Metrics) > 0 {
-		metricQuery := `
-			INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters)
-			VALUES ($1, $2, $3, $4)
-		`
+		var values []string
+		var args []interface{}
+		n := 1
 		for _, m := range profileType.Metrics {
 			params := m.Parameters
 			if params == nil {
@@ -94,9 +94,17 @@ func (r *EntityProfileTypeRepo) CreateProfileType(ctx context.Context, profileTy
 			if m.Name != "" {
 				name = &m.Name
 			}
-			if _, err := tx.Exec(ctx, metricQuery, profileType.ID, m.TemplateID, name, params); err != nil {
-				return fmt.Errorf("create entity profile type metrics: %w", err)
+			var customDef interface{}
+			if m.CustomDefinition != nil {
+				customDef = m.CustomDefinition
 			}
+			values = append(values, "($"+fmt.Sprint(n)+", $"+fmt.Sprint(n+1)+", $"+fmt.Sprint(n+2)+", $"+fmt.Sprint(n+3)+"::jsonb, $"+fmt.Sprint(n+4)+"::jsonb)")
+			args = append(args, profileType.ID, m.TemplateID, name, params, customDef)
+			n += 5
+		}
+		query := "INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters, custom_definition) VALUES " + strings.Join(values, ", ")
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return fmt.Errorf("create entity profile type metrics: %w", err)
 		}
 	}
 
@@ -116,9 +124,9 @@ func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileType
 	}
 
 	query := `
-		SELECT m.entity_profile_type_id, m.metrics_template_id, m.name, t.metrics_name, m.parameters 
+		SELECT m.id, m.entity_profile_type_id, m.metrics_template_id, m.name, t.metrics_name, m.parameters, m.custom_definition
 		FROM entity_profile_type_metrics m
-		JOIN metrics_template t ON t.id = m.metrics_template_id
+		LEFT JOIN metrics_template t ON t.id = m.metrics_template_id
 		WHERE m.entity_profile_type_id = ANY($1)
 	`
 	rows, err := r.pool.Query(ctx, query, typeIDs)
@@ -128,24 +136,40 @@ func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileType
 	defer rows.Close()
 
 	for rows.Next() {
-		var typeID, tmplID, tmplName string
+		var metricID string
+		var typeID, tmplID string
+		var tmplName *string
 		var customName *string
 		var params map[string]any
+		var customDefRaw []byte
 
-		if err := rows.Scan(&typeID, &tmplID, &customName, &tmplName, &params); err != nil {
+		if err := rows.Scan(&metricID, &typeID, &tmplID, &customName, &tmplName, &params, &customDefRaw); err != nil {
 			return fmt.Errorf("populate metrics: scan: %w", err)
 		}
 
-		name := tmplName
+		name := ""
+		if tmplName != nil && *tmplName != "" {
+			name = *tmplName
+		}
 		if customName != nil && *customName != "" {
 			name = *customName
 		}
 
+		var customDef *domain.MetricDefinition
+		if len(customDefRaw) > 0 {
+			customDef = &domain.MetricDefinition{}
+			if err := json.Unmarshal(customDefRaw, customDef); err != nil {
+				return fmt.Errorf("populate metrics: unmarshal custom_definition: %w", err)
+			}
+		}
+
 		if pt, ok := typeMap[typeID]; ok {
 			pt.Metrics = append(pt.Metrics, domain.EntityTypeMetric{
-				TemplateID: tmplID,
-				Name:       name,
-				Parameters: params,
+				ID:               metricID,
+				TemplateID:       tmplID,
+				Name:             name,
+				Parameters:       params,
+				CustomDefinition: customDef,
 			})
 		}
 	}
@@ -314,20 +338,58 @@ func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileTy
 		return fmt.Errorf("update entity profile type: update: %w", err)
 	}
 
-	// Update metrics (full replacement)
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM entity_profile_type_metrics
-		WHERE entity_profile_type_id = $1
-	`, profileType.ID); err != nil {
-		return fmt.Errorf("update entity profile type: delete metrics: %w", err)
+	// Delete only metrics marked for deletion
+	if len(profileType.MarkedForDeletion) > 0 {
+		// Collect custom template IDs to clean up
+		var customTemplateIDs []string
+		rows, err := tx.Query(ctx, `
+			SELECT metrics_template_id
+			FROM entity_profile_type_metrics
+			WHERE id = ANY($1) AND metrics_template_id LIKE 'custom_%'
+		`, profileType.MarkedForDeletion)
+		if err != nil {
+			return fmt.Errorf("update entity profile type: query custom templates: %w", err)
+		}
+		for rows.Next() {
+			var tmplID string
+			if err := rows.Scan(&tmplID); err != nil {
+				rows.Close()
+				return fmt.Errorf("update entity profile type: scan custom template: %w", err)
+			}
+			customTemplateIDs = append(customTemplateIDs, tmplID)
+		}
+		rows.Close()
+
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM entity_profile_type_metrics
+			WHERE id = ANY($1)
+		`, profileType.MarkedForDeletion); err != nil {
+			return fmt.Errorf("update entity profile type: delete marked metrics: %w", err)
+		}
+
+		// Clean up orphaned custom metrics_template rows
+		if len(customTemplateIDs) > 0 {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM metrics_template
+				WHERE id = ANY($1)
+			`, customTemplateIDs); err != nil {
+				return fmt.Errorf("update entity profile type: delete custom templates: %w", err)
+			}
+		}
 	}
 
-	if len(profileType.Metrics) > 0 {
-		metricQuery := `
-			INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters)
-			VALUES ($1, $2, $3, $4)
-		`
-		for _, m := range profileType.Metrics {
+	// Update modified metrics — single bulk UPDATE
+	var modifiedMetrics []domain.EntityTypeMetric
+	for _, m := range profileType.Metrics {
+		if m.ID != "" && slices.Contains(profileType.ModifiedMetricIDs, m.ID) {
+			modifiedMetrics = append(modifiedMetrics, m)
+		}
+	}
+	if len(modifiedMetrics) > 0 {
+		var values []string
+		var args []interface{}
+		n := 1
+		for _, m := range modifiedMetrics {
 			params := m.Parameters
 			if params == nil {
 				params = make(map[string]any)
@@ -336,9 +398,59 @@ func (r *EntityProfileTypeRepo) UpdateProfileType(ctx context.Context, profileTy
 			if m.Name != "" {
 				name = &m.Name
 			}
-			if _, err := tx.Exec(ctx, metricQuery, profileType.ID, m.TemplateID, name, params); err != nil {
-				return fmt.Errorf("update entity profile type: insert metric: %w", err)
+			var customDef interface{}
+			if m.CustomDefinition != nil {
+				customDef = m.CustomDefinition
 			}
+			values = append(values, "($"+fmt.Sprint(n)+"::uuid, $"+fmt.Sprint(n+1)+", $"+fmt.Sprint(n+2)+", $"+fmt.Sprint(n+3)+"::jsonb, $"+fmt.Sprint(n+4)+"::jsonb)")
+			args = append(args, m.ID, m.TemplateID, name, params, customDef)
+			n += 5
+		}
+		query := `
+			UPDATE entity_profile_type_metrics
+			SET metrics_template_id = v.metrics_template_id,
+			    name = v.name,
+			    parameters = v.parameters,
+			    custom_definition = v.custom_definition
+			FROM (VALUES ` + strings.Join(values, ", ") + `) AS v(id, metrics_template_id, name, parameters, custom_definition)
+			WHERE entity_profile_type_metrics.id = v.id
+		`
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return fmt.Errorf("update entity profile type: update metrics: %w", err)
+		}
+	}
+
+	// Insert new metrics (those without an ID are new) — bulk insert
+	var newMetrics []domain.EntityTypeMetric
+	for _, m := range profileType.Metrics {
+		if m.ID == "" {
+			newMetrics = append(newMetrics, m)
+		}
+	}
+	if len(newMetrics) > 0 {
+		var values []string
+		var args []interface{}
+		n := 1
+		for _, m := range newMetrics {
+			params := m.Parameters
+			if params == nil {
+				params = make(map[string]any)
+			}
+			var name *string
+			if m.Name != "" {
+				name = &m.Name
+			}
+			var customDef interface{}
+			if m.CustomDefinition != nil {
+				customDef = m.CustomDefinition
+			}
+			values = append(values, "($"+fmt.Sprint(n)+", $"+fmt.Sprint(n+1)+", $"+fmt.Sprint(n+2)+", $"+fmt.Sprint(n+3)+"::jsonb, $"+fmt.Sprint(n+4)+"::jsonb)")
+			args = append(args, profileType.ID, m.TemplateID, name, params, customDef)
+			n += 5
+		}
+		query := "INSERT INTO entity_profile_type_metrics (entity_profile_type_id, metrics_template_id, name, parameters, custom_definition) VALUES " + strings.Join(values, ", ")
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return fmt.Errorf("update entity profile type: insert metrics: %w", err)
 		}
 	}
 
@@ -495,4 +607,34 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*do
 	}
 
 	return templates, rows.Err()
+}
+
+func (r *EntityProfileTypeRepo) CreateMetricsTemplate(ctx context.Context, companyID, id, name, sqlContent string) error {
+	query := `
+		INSERT INTO metrics_template (id, company_id, metrics_name, sql_content)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE SET
+			company_id = EXCLUDED.company_id,
+			metrics_name = EXCLUDED.metrics_name,
+			sql_content = EXCLUDED.sql_content,
+			updated_at = NOW()
+	`
+	_, err := r.pool.Exec(ctx, query, id, companyID, name, sqlContent)
+	if err != nil {
+		return fmt.Errorf("create metrics template: %w", err)
+	}
+	return nil
+}
+
+func (r *EntityProfileTypeRepo) UpdateMetricsTemplate(ctx context.Context, id, name, sqlContent string) error {
+	query := `
+		UPDATE metrics_template
+		SET metrics_name = $1, sql_content = $2, updated_at = NOW()
+		WHERE id = $3
+	`
+	_, err := r.pool.Exec(ctx, query, name, sqlContent, id)
+	if err != nil {
+		return fmt.Errorf("update metrics template: %w", err)
+	}
+	return nil
 }

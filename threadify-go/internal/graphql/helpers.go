@@ -88,15 +88,45 @@ func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityPr
 	desc := t.Description
 	var metricsConfig []*generated.EntityTypeMetricConfig
 	for _, m := range t.Metrics {
-		var nameStr *string
+		var nameStr, idStr *string
 		if m.Name != "" {
 			name := m.Name
 			nameStr = &name
 		}
+		if m.ID != "" {
+			id := m.ID
+			idStr = &id
+		}
+		var customDef *generated.CustomMetricDefinition
+		if m.CustomDefinition != nil {
+			d := m.CustomDefinition
+			customDef = &generated.CustomMetricDefinition{
+				Name:          d.Name,
+				Operation:     strPtr(d.Operation),
+				Field:         strPtr(d.Field),
+				GroupBy:       strPtr(d.GroupBy),
+				Granularity:   strPtr(d.Granularity),
+				Visualisation: strPtr(d.Visualisation),
+				Target:        strPtr(d.Target),
+				StepName:      strPtr(d.StepName),
+			}
+			if len(d.Filters) > 0 {
+				filters := make([]map[string]interface{}, len(d.Filters))
+				for i, f := range d.Filters {
+					filters[i] = map[string]interface{}{
+						"key":   f.Key,
+						"value": f.Value,
+					}
+				}
+				customDef.Filters = filters
+			}
+		}
 		metricsConfig = append(metricsConfig, &generated.EntityTypeMetricConfig{
-			TemplateID: m.TemplateID,
-			Name:       nameStr,
-			Parameters: m.Parameters,
+			ID:               idStr,
+			TemplateID:       m.TemplateID,
+			Name:             nameStr,
+			Parameters:       m.Parameters,
+			CustomDefinition: customDef,
 		})
 	}
 
@@ -110,6 +140,13 @@ func toGraphQLProfileType(t *shareddomain.EntityProfileType) *generated.EntityPr
 		UpdatedAt:     t.UpdatedAt.Format(time.RFC3339),
 		MetricsConfig: metricsConfig,
 	}
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // formatColumnName converts snake_case to Title Case

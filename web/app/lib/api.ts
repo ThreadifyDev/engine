@@ -602,7 +602,7 @@ class ApiClient {
     return this.request('/entity-profile-types');
   }
 
-  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
+  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[]; marked_for_deletion?: string[]; modified_metric_ids?: string[] }): Promise<any> {
     return this.request(`/entity-profile-types/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -621,6 +621,19 @@ class ApiClient {
     return this.request('/metrics-templates');
   }
 
+  async getPricing(): Promise<{ credit: {
+    ingress_cost_millicents: number;
+    egress_cost_millicents: number;
+    seat_cost_millicents: number;
+    contract_cost_millicents: number;
+    llm_token_cost_millicents: number;
+    rate_limit_tps: number;
+    payload_limit_bytes: number;
+    custom_metric_cost_per_complexity_millicents: number;
+  } }> {
+    return this.request('/pricing');
+  }
+
   async getEntityProfile(refKey: string, type: string): Promise<any> {
     // Note: Use encodeURIComponent to safely pass refKey and type
     return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
@@ -628,9 +641,28 @@ class ApiClient {
 
 }
 
+export interface CustomMetricFilter {
+  key: string;
+  value: string;
+}
+
+export interface CustomMetricDefinition {
+  name: string;
+  target?: 'thread' | 'step';
+  step_name?: string;
+  operation: 'COUNT' | 'RATE' | 'AVG' | 'SUM' | 'MIN' | 'MAX';
+  field: string;
+  filters?: CustomMetricFilter[];
+  group_by?: string;
+  granularity?: string;
+  visualisation?: string;
+}
+
 export interface EntityTypeMetric {
-  template_id: string;
+  id?: string;
+  template_id?: string;
   parameters?: Record<string, any>;
+  custom_definition?: CustomMetricDefinition;
 }
 
 export interface EntityProfileType {
@@ -656,7 +688,6 @@ export interface MetricsTemplateResponse {
   id: string;
   metrics_name: string;
   parameter_definitions: ParameterDefinition[];
-  sql_content: string;
 }
 
 export interface EntityProfileMetrics {
