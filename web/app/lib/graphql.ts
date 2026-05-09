@@ -750,9 +750,21 @@ class GraphQLClient {
             type
             description
             metricsConfig {
-              name
+              id
               templateId
+              name
               parameters
+              customDefinition {
+                name
+                target
+                stepName
+                operation
+                field
+                filters
+                groupBy
+                granularity
+                visualisation
+              }
             }
           }
           items {
@@ -795,9 +807,21 @@ class GraphQLClient {
             name
             type
             metricsConfig {
+              id
               templateId
               name
               parameters
+              customDefinition {
+                name
+                target
+                stepName
+                operation
+                field
+                filters
+                groupBy
+                granularity
+                visualisation
+              }
             }
           }
           name

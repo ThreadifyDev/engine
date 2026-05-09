@@ -2,10 +2,29 @@ package domain
 
 import "time"
 
+type MetricFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type MetricDefinition struct {
+	Name          string
+	Target        string
+	StepName      string
+	Operation     string
+	Field         string
+	Filters       []MetricFilter
+	GroupBy       string
+	Granularity   string
+	Visualisation string
+}
+
 type EntityTypeMetric struct {
-	TemplateID string
-	Name       string
-	Parameters map[string]any
+	ID               string
+	TemplateID       string
+	Name             string
+	Parameters       map[string]any
+	CustomDefinition *MetricDefinition
 }
 
 type ParameterDef struct {
@@ -35,7 +54,9 @@ type EntityProfileType struct {
 
 	Metrics []EntityTypeMetric
 
-	TypesToAdd []string
+	TypesToAdd        []string
+	MarkedForDeletion []string
+	ModifiedMetricIDs []string
 }
 
 type EntityProfile struct {

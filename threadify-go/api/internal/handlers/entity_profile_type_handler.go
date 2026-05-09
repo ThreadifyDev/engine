@@ -44,9 +44,11 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
 	for _, m := range req.Metrics {
 		metrics = append(metrics, domain.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
 		})
 	}
 
@@ -118,17 +120,21 @@ func (h *EntityProfileTypeHandler) UpdateEntityProfileType(c *gin.Context) {
 	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
 	for _, m := range req.Metrics {
 		metrics = append(metrics, domain.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
 		})
 	}
 
 	profileType, err := h.entityProfileTypeService.UpdateEntityProfileType(c.Request.Context(), compID, id, &domain.UpdateEntityProfileTypeCmd{
-		Name:        req.Name,
-		Type:        req.Type,
-		Description: req.Description,
-		Metrics:     metrics,
+		Name:              req.Name,
+		Type:              req.Type,
+		Description:       req.Description,
+		Metrics:           metrics,
+		MarkedForDeletion: req.MarkedForDeletion,
+		ModifiedMetricIDs: req.ModifiedMetricIDs,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -186,9 +192,11 @@ func toEntityProfileTypeDTO(t *domain.EntityProfileType) *dto.EntityProfileType 
 	metrics := make([]dto.EntityTypeMetric, 0, len(t.Metrics))
 	for _, m := range t.Metrics {
 		metrics = append(metrics, dto.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDTOCustomDefinition(m.CustomDefinition),
 		})
 	}
 
@@ -203,6 +211,54 @@ func toEntityProfileTypeDTO(t *domain.EntityProfileType) *dto.EntityProfileType 
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 		Metrics:     metrics,
+	}
+}
+
+func toDTOCustomDefinition(d *domain.MetricDefinition) *dto.CustomMetricDefinition {
+	if d == nil {
+		return nil
+	}
+	filters := make([]dto.CustomMetricFilter, len(d.Filters))
+	for i, f := range d.Filters {
+		filters[i] = dto.CustomMetricFilter{
+			Key:   f.Key,
+			Value: f.Value,
+		}
+	}
+	return &dto.CustomMetricDefinition{
+		Name:          d.Name,
+		Target:        d.Target,
+		StepName:      d.StepName,
+		Operation:     d.Operation,
+		Field:         d.Field,
+		Filters:       filters,
+		GroupBy:       d.GroupBy,
+		Granularity:   d.Granularity,
+		Visualisation: d.Visualisation,
+	}
+}
+
+func toDomainMetricDefinition(d *dto.CustomMetricDefinition) *domain.MetricDefinition {
+	if d == nil {
+		return nil
+	}
+	filters := make([]domain.MetricFilter, len(d.Filters))
+	for i, f := range d.Filters {
+		filters[i] = domain.MetricFilter{
+			Key:   f.Key,
+			Value: f.Value,
+		}
+	}
+	return &domain.MetricDefinition{
+		Name:          d.Name,
+		Target:        d.Target,
+		StepName:      d.StepName,
+		Operation:     d.Operation,
+		Field:         d.Field,
+		Filters:       filters,
+		GroupBy:       d.GroupBy,
+		Granularity:   d.Granularity,
+		Visualisation: d.Visualisation,
 	}
 }
 
@@ -223,6 +279,5 @@ func toMetricsTemplateDTO(t *domain.MetricsTemplate) *dto.MetricsTemplateRespons
 		ID:                   t.ID,
 		MetricsName:          t.MetricsName,
 		ParameterDefinitions: defs,
-		SQLContent:           t.SQLContent,
 	}
 }

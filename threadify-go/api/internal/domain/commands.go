@@ -83,10 +83,12 @@ type CreateEntityProfileTypeCmd struct {
 }
 
 type UpdateEntityProfileTypeCmd struct {
-	Name        string
-	Type        []string
-	Description string
-	Metrics     []EntityTypeMetric
+	Name              string
+	Type              []string
+	Description       string
+	Metrics           []EntityTypeMetric
+	MarkedForDeletion []string
+	ModifiedMetricIDs []string
 }
 
 type UpdateProfileCmd struct {

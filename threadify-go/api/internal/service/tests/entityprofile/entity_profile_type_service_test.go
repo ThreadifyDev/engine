@@ -418,7 +418,7 @@ func TestEntityProfileTypeService_ListMetricsTemplates(t *testing.T) {
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
 				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
-					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
+					{ID: "1", MetricsName: "Metric 1", ParameterDefinitions: []shareddomain.ParameterDef{{Name: "param1"}}},
 				}, nil)
 			},
 			expectedLen: 1,
@@ -441,8 +441,8 @@ func TestEntityProfileTypeService_ListMetricsTemplates(t *testing.T) {
 			name: "multiple templates",
 			setupMock: func(deps *common.MockedDeps) {
 				deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{
-					{ID: "1", MetricsName: "Metric 1", Parameters: []string{"param1"}},
-					{ID: "2", MetricsName: "Metric 2", Parameters: []string{"param1", "param2"}},
+					{ID: "1", MetricsName: "Metric 1", ParameterDefinitions: []shareddomain.ParameterDef{{Name: "param1"}}},
+					{ID: "2", MetricsName: "Metric 2", ParameterDefinitions: []shareddomain.ParameterDef{{Name: "param1"}, {Name: "param2"}}},
 				}, nil)
 			},
 			expectedLen: 2,

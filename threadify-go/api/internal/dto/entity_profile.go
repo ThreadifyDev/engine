@@ -4,10 +4,29 @@ import (
 	"time"
 )
 
+type CustomMetricFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type CustomMetricDefinition struct {
+	Name          string               `json:"name"`
+	Target        string               `json:"target"`
+	StepName      string               `json:"step_name,omitempty"`
+	Operation     string               `json:"operation"`
+	Field         string               `json:"field"`
+	Filters       []CustomMetricFilter `json:"filters"`
+	GroupBy       string               `json:"group_by"`
+	Granularity   string               `json:"granularity"`
+	Visualisation string               `json:"visualisation"`
+}
+
 type EntityTypeMetric struct {
-	TemplateID string         `json:"template_id"`
-	Name       string         `json:"name,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
+	ID               string                  `json:"id,omitempty"`
+	TemplateID       string                  `json:"template_id,omitempty"`
+	Name             string                  `json:"name,omitempty"`
+	Parameters       map[string]any          `json:"parameters,omitempty"`
+	CustomDefinition *CustomMetricDefinition `json:"custom_definition,omitempty"`
 }
 
 type EntityProfileType struct {
@@ -45,8 +64,10 @@ type CreateEntityProfileTypeRequest struct {
 }
 
 type UpdateEntityProfileTypeRequest struct {
-	Name        string             `json:"name" binding:"required"`
-	Type        []string           `json:"type"`
-	Description string             `json:"description"`
-	Metrics     []EntityTypeMetric `json:"metrics,omitempty"`
+	Name              string             `json:"name" binding:"required"`
+	Type              []string           `json:"type"`
+	Description       string             `json:"description"`
+	Metrics           []EntityTypeMetric `json:"metrics,omitempty"`
+	MarkedForDeletion []string           `json:"marked_for_deletion,omitempty"`
+	ModifiedMetricIDs []string           `json:"modified_metric_ids,omitempty"`
 }

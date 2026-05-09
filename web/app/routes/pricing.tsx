@@ -21,6 +21,7 @@ type CreditConfig = {
   seat_cost_millicents: number;
   contract_cost_millicents: number;
   llm_token_cost_millicents: number;
+  custom_metric_cost_per_complexity_millicents: number;
 };
 
 type PricingAPIResponse = {

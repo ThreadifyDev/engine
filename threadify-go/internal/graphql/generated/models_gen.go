@@ -6,6 +6,18 @@ import (
 	"github.com/threadify/engine/internal/graphql/scalars"
 )
 
+type CustomMetricDefinition struct {
+	Name          string       `json:"name"`
+	Target        *string      `json:"target,omitempty"`
+	StepName      *string      `json:"stepName,omitempty"`
+	Operation     *string      `json:"operation,omitempty"`
+	Field         *string      `json:"field,omitempty"`
+	Filters       scalars.JSON `json:"filters,omitempty"`
+	GroupBy       *string      `json:"groupBy,omitempty"`
+	Granularity   *string      `json:"granularity,omitempty"`
+	Visualisation *string      `json:"visualisation,omitempty"`
+}
+
 type EntityProfile struct {
 	ID              string                `json:"id"`
 	RefKey          string                `json:"refKey"`
@@ -49,9 +61,11 @@ type EntityProfileType struct {
 }
 
 type EntityTypeMetricConfig struct {
-	TemplateID string       `json:"templateId"`
-	Name       *string      `json:"name,omitempty"`
-	Parameters scalars.JSON `json:"parameters,omitempty"`
+	ID               *string                 `json:"id,omitempty"`
+	TemplateID       string                  `json:"templateId"`
+	Name             *string                 `json:"name,omitempty"`
+	Parameters       scalars.JSON            `json:"parameters,omitempty"`
+	CustomDefinition *CustomMetricDefinition `json:"customDefinition,omitempty"`
 }
 
 type Mutation struct {

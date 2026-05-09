@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
 	"threadify-go/api/internal/domain"
+	"threadify-go/shared/metricbuilder"
 	"threadify-go/shared/repository"
 	"threadify-go/shared/slug"
 
@@ -52,6 +54,11 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 	companyID string,
 	req *domain.CreateEntityProfileTypeCmd,
 ) (*domain.EntityProfileType, error) {
+	metrics, err := s.resolveCustomMetrics(ctx, companyID, req.Metrics, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	profileType := &domain.EntityProfileType{
 		ID:          uuid.New().String(),
 		CompanyID:   companyID,
@@ -59,7 +66,7 @@ func (s *EntityProfileTypeService) CreateEntityProfileType(
 		Slug:        slug.ToSlug(req.Name),
 		Type:        normalizeTypes(req.Type),
 		Description: req.Description,
-		Metrics:     req.Metrics,
+		Metrics:     metrics,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -109,14 +116,22 @@ func (s *EntityProfileTypeService) UpdateEntityProfileType(
 		nextTypes = normalizeTypes(req.Type)
 	}
 
+	metrics, err := s.resolveCustomMetrics(ctx, companyID, req.Metrics, req.ModifiedMetricIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	profileType := &domain.EntityProfileType{
-		ID:          id,
-		CompanyID:   companyID,
-		Name:        req.Name,
-		Slug:        slug.ToSlug(req.Name),
-		Description: req.Description,
-		Type:        nextTypes,
-		Metrics:     req.Metrics,
+		ID:                id,
+		CompanyID:         companyID,
+		Name:              req.Name,
+		Slug:              slug.ToSlug(req.Name),
+		Description:       req.Description,
+		Type:              nextTypes,
+		Metrics:           metrics,
+		UpdatedAt:         time.Now(),
+		MarkedForDeletion: req.MarkedForDeletion,
+		ModifiedMetricIDs: req.ModifiedMetricIDs,
 	}
 
 	if err := s.repo.UpdateProfileType(ctx, profileType); err != nil {
@@ -126,6 +141,56 @@ func (s *EntityProfileTypeService) UpdateEntityProfileType(
 
 	s.logger.Info("entity profile type updated successfully", zap.String("id", id))
 	return profileType, nil
+}
+
+func (s *EntityProfileTypeService) resolveCustomMetrics(ctx context.Context, companyID string, metrics []domain.EntityTypeMetric, modifiedIDs []string) ([]domain.EntityTypeMetric, error) {
+	resolved := make([]domain.EntityTypeMetric, 0, len(metrics))
+	for _, m := range metrics {
+		if m.CustomDefinition != nil {
+			sql, err := metricbuilder.BuildSQLFromDefinition(m.CustomDefinition)
+			if err != nil {
+				s.logger.Error("failed to build SQL from custom definition", zap.Error(err))
+				return nil, err
+			}
+
+			isModified := m.ID != "" && slices.Contains(modifiedIDs, m.ID)
+
+			if isModified {
+				// Update existing custom template
+				if err := s.repo.UpdateMetricsTemplate(ctx, m.TemplateID, m.CustomDefinition.Name, sql); err != nil {
+					s.logger.Error("failed to update metrics template from custom definition", zap.Error(err))
+					return nil, err
+				}
+			} else if m.ID == "" {
+				// Create new custom template
+				templateID := "custom_" + uuid.New().String()
+				if err := s.repo.CreateMetricsTemplate(ctx, companyID, templateID, m.CustomDefinition.Name, sql); err != nil {
+					s.logger.Error("failed to create metrics template from custom definition", zap.Error(err))
+					return nil, err
+				}
+				m.TemplateID = templateID
+			}
+
+			params := m.Parameters
+			if params == nil {
+				params = make(map[string]any)
+			}
+			if m.CustomDefinition.Target == "step" && m.CustomDefinition.StepName != "" {
+				params["step_name"] = m.CustomDefinition.StepName
+			}
+
+			resolved = append(resolved, domain.EntityTypeMetric{
+				ID:               m.ID,
+				TemplateID:       m.TemplateID,
+				Name:             m.CustomDefinition.Name,
+				Parameters:       params,
+				CustomDefinition: m.CustomDefinition,
+			})
+		} else {
+			resolved = append(resolved, m)
+		}
+	}
+	return resolved, nil
 }
 
 func (s *EntityProfileTypeService) ArchiveEntityProfileType(

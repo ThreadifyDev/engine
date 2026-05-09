@@ -8,8 +8,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
-	"github.com/threadify/engine/internal/config"
 	sharedconfig "threadify-go/shared/config"
+
+	"github.com/threadify/engine/internal/config"
 )
 
 func TestPricingHandler_ReturnsCreditConfig(t *testing.T) {
@@ -34,5 +35,5 @@ func TestPricingHandler_ReturnsCreditConfig(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"credit":{"ingress_cost_millicents":10,"egress_cost_millicents":20,"seat_cost_millicents":0,"contract_cost_millicents":30,"llm_token_cost_millicents":0,"rate_limit_tps":40,"payload_limit_bytes":50}}`, w.Body.String())
+	require.JSONEq(t, `{"credit":{"ingress_cost_millicents":10,"egress_cost_millicents":20,"seat_cost_millicents":0,"contract_cost_millicents":30,"llm_token_cost_millicents":0,"custom_metric_cost_per_complexity_millicents":0,"rate_limit_tps":40,"payload_limit_bytes":50}}`, w.Body.String())
 }

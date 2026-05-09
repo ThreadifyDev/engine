@@ -276,6 +276,34 @@ func (mr *MockEntityProfileTypeRepositoryMockRecorder) ListMetricsTemplates(ctx 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMetricsTemplates", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).ListMetricsTemplates), ctx)
 }
 
+// CreateMetricsTemplate mocks base method.
+func (m *MockEntityProfileTypeRepository) CreateMetricsTemplate(ctx context.Context, companyID, id, name, sqlContent string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateMetricsTemplate", ctx, companyID, id, name, sqlContent)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateMetricsTemplate indicates an expected call of CreateMetricsTemplate.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) CreateMetricsTemplate(ctx, companyID, id, name, sqlContent interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMetricsTemplate", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).CreateMetricsTemplate), ctx, companyID, id, name, sqlContent)
+}
+
+// UpdateMetricsTemplate mocks base method.
+func (m *MockEntityProfileTypeRepository) UpdateMetricsTemplate(ctx context.Context, id, name, sqlContent string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMetricsTemplate", ctx, id, name, sqlContent)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMetricsTemplate indicates an expected call of UpdateMetricsTemplate.
+func (mr *MockEntityProfileTypeRepositoryMockRecorder) UpdateMetricsTemplate(ctx, id, name, sqlContent interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMetricsTemplate", reflect.TypeOf((*MockEntityProfileTypeRepository)(nil).UpdateMetricsTemplate), ctx, id, name, sqlContent)
+}
+
 // UpdateProfileType mocks base method.
 func (m *MockEntityProfileTypeRepository) UpdateProfileType(ctx context.Context, profileType *domain.EntityProfileType) error {
 	m.ctrl.T.Helper()

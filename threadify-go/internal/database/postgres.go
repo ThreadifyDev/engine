@@ -1024,11 +1024,15 @@ END $$;
 	DROP TABLE IF EXISTS entity_profile_metrics CASCADE;
 	CREATE TABLE IF NOT EXISTS metrics_template (
 		id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) REFERENCES companies(id) ON DELETE CASCADE,
 		metrics_name VARCHAR(255) NOT NULL,
 		sql_content TEXT NOT NULL,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+	ALTER TABLE metrics_template ADD COLUMN IF NOT EXISTS company_id VARCHAR(255);
+	ALTER TABLE metrics_template DROP CONSTRAINT IF EXISTS metrics_template_company_id_fkey;
+	ALTER TABLE metrics_template ADD CONSTRAINT metrics_template_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
 
 	CREATE TABLE IF NOT EXISTS entity_profile_type_metrics (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1041,6 +1045,9 @@ END $$;
 
 	-- Migration: Add name column if it doesn't exist (for existing databases)
 	ALTER TABLE entity_profile_type_metrics ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+
+	-- Migration: Add custom_definition column for storing sentence-builder metric config
+	ALTER TABLE entity_profile_type_metrics ADD COLUMN IF NOT EXISTS custom_definition JSONB;
 
 	-- Migration: if the table was created with the old composite PK, upgrade it
 	DO $$ BEGIN
@@ -1069,9 +1076,10 @@ END $$;
 // InitDefaultMetrics inserts the core metrics templates if they don't already exist.
 func (db *PostgresDB) InitDefaultMetrics(ctx context.Context) error {
 	query := `
-	INSERT INTO metrics_template (id, metrics_name, sql_content) VALUES
+	INSERT INTO metrics_template (id, company_id, metrics_name, sql_content) VALUES
 	(
 		'metric_outcome_rate',
+		NULL,
 		'Outcome Rate',
 		'-- @param status enum(active, completed, cancelled, failed) Thread status to measure against
 SELECT
@@ -1090,6 +1098,7 @@ WHERE tr.ref_value = @ref_value
 	),
 	(
 		'metric_avg_delivery_time',
+		NULL,
 		'Avg Delivery Time per Contract',
 		'SELECT
     t.contract_name,
@@ -1110,6 +1119,7 @@ GROUP BY t.contract_name, cv.expected_duration_ms;'
 	),
 	(
 		'metric_frequent_failure_point',
+		NULL,
 		'Top Failure Points',
 		'-- @param thread_status enum(active, completed, cancelled, failed) Filter by thread outcome
 -- @param step_status enum(success, failed, error, pending, completed, in_progress) Filter by step status
@@ -1132,6 +1142,7 @@ LIMIT @limit::int;'
 	),
 	(
 		'metric_thread_volume',
+		NULL,
 		'Volume Over Time',
 		'-- @param granularity enum(15m, 1h, 1d, 1w, 1M) Time bucket size
 SELECT
@@ -1148,6 +1159,7 @@ GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
 ORDER BY period ASC, thread_outcome;'
 	)
 	ON CONFLICT (id) DO UPDATE SET
+		company_id = EXCLUDED.company_id,
 		metrics_name = EXCLUDED.metrics_name,
 		sql_content = EXCLUDED.sql_content;
 	`

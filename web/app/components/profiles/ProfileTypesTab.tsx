@@ -131,6 +131,17 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                 {pt.metrics && pt.metrics.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-1">
                     {pt.metrics.map((m, i) => {
+                      if (m.custom_definition) {
+                        return (
+                          <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium bg-purple-50 text-purple-600 border border-purple-100 px-1.5 py-0.5 rounded group cursor-pointer hover:bg-purple-100 transition-colors"
+                            onClick={() => { setEditData(pt); setIsEditModalOpen(true); }}
+                            title="Click to edit this metric"
+                          >
+                            <Settings className="w-2.5 h-2.5" />
+                            {m.custom_definition.name || 'Custom Metric'}
+                          </span>
+                        );
+                      }
                       const tmpl = metricsTemplates.find(t => t.id === m.template_id);
                       return (
                         <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded">

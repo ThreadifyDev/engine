@@ -71,15 +71,29 @@ export default function EntityProfilesByType() {
         limit: PAGE_SIZE,
         offset,
       });
+
       setItems(res.items || []);
       setTotal(res.totalCount || 0);
+
       if (res.profileType) {
         setProfileType({
           ...res.profileType,
           metrics: res.profileType.metricsConfig?.map((m: any) => ({
+            id: m.id,
             template_id: m.templateId,
             name: m.name,
-            parameters: m.parameters || {}
+            parameters: m.parameters || {},
+            custom_definition: m.customDefinition ? {
+              name: m.customDefinition.name,
+              target: m.customDefinition.target,
+              step_name: m.customDefinition.stepName,
+              operation: m.customDefinition.operation,
+              field: m.customDefinition.field,
+              filters: m.customDefinition.filters || [],
+              group_by: m.customDefinition.groupBy,
+              granularity: m.customDefinition.granularity,
+              visualisation: m.customDefinition.visualisation,
+            } : undefined,
           })) || []
         } as EntityProfileType);
       }
@@ -110,6 +124,7 @@ export default function EntityProfilesByType() {
             initialData={profileType}
             metricsTemplates={metricsTemplates}
             onRefresh={fetchProfiles}
+            persistedTypes={profileType?.type || []}
           />
         )}
 
