@@ -160,98 +160,175 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
       )}
 
       {!isLoading && !error && groupedData && Object.keys(groupedData).length > 0 && (
-        <div className="space-y-12">
-          {Object.entries(groupedData).map(([tagline, statuses]) => (
-            <div key={tagline} className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-              <div className="flex items-center gap-4 mb-6">
-                <h2 className="text-xs font-black text-gray-900 uppercase tracking-[0.2em]">
-                  {tagline}
-                </h2>
-                <div className="h-px bg-gray-100 flex-1" />
-              </div>
-              
-              <div className="space-y-8">
-                {Object.entries(statuses).map(([status, items]) => (
-                  <div key={status} className="space-y-4">
-                    {status !== 'General' && (
-                      <div className="flex items-center gap-2 px-1">
-                        <div className={`w-1.5 h-1.5 rounded-full ${
-                          items[0].statusColorRef.toLowerCase() === 'completed' ? 'bg-emerald-500' : 
-                          items[0].statusColorRef.toLowerCase() === 'active' ? 'bg-blue-500' : 'bg-gray-400'
-                        }`} />
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                          {status}
-                        </span>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {items.map((item, idx) => (
-                        <div key={idx} className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-all duration-200 group">
-                          <div className="px-5 py-3 border-b border-gray-50 bg-gray-50/30 group-hover:bg-gray-50/50 transition-colors">
-                            <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-tight">{item.header}</h3>
-                          </div>
-                          <div className="p-5 flex-1 flex flex-col justify-center min-h-[120px]">
-                            {Array.isArray(item.result) ? (
-                              item.result.length === 0 ? (
-                                <p className="text-xs text-gray-400 italic text-center">No data recorded</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-sm">
-                                    <thead>
-                                      <tr className="border-b border-gray-100">
-                                        {Object.keys(item.result[0]).map(col => (
-                                          <th key={col} className="text-left text-[10px] font-bold text-gray-400 pb-2 pr-4 font-mono uppercase tracking-tighter">{col}</th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                      {item.result.slice(0, 5).map((row: any, i: number) => (
-                                        <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                                          {Object.values(row).map((val: any, j: number) => (
-                                            <td key={j} className="py-2 pr-4 text-gray-900 font-mono text-[11px] whitespace-nowrap">
-                                              {formatValue(val)}
-                                            </td>
+        <div className="flex flex-wrap items-start gap-6">
+          {Object.entries(groupedData).map(([tagline, statuses]) => {
+            // Find all unique scalar headers
+            const scalarHeadersSet = new Set<string>();
+            let hasMultipleStatuses = false;
+            let statusCount = 0;
+            
+            Object.entries(statuses).forEach(([status, items]) => {
+              if (status !== 'General') {
+                hasMultipleStatuses = true;
+              }
+              statusCount++;
+              items.forEach(item => {
+                if (!Array.isArray(item.result) && !(typeof item.result === 'object' && item.result !== null)) {
+                  scalarHeadersSet.add(item.header);
+                }
+              });
+            });
+            
+            const scalarHeaders = Array.from(scalarHeadersSet);
+            const showStatusColumn = hasMultipleStatuses || (!statuses['General'] && statusCount > 0);
+            
+            const hasScalars = scalarHeaders.length > 0;
+            const hasOtherItems = Object.values(statuses).some(items => 
+              items.some(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null))
+            );
+
+            return (
+              <div key={tagline} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-full">
+                {/* Metric Name as Card Header */}
+                <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/80">
+                  <h2 className="text-[11px] font-black text-gray-800 uppercase tracking-[0.15em]">
+                    {tagline}
+                  </h2>
+                </div>
+
+                <div className="flex flex-col">
+                  {/* Scalar Metrics Table */}
+                  {hasScalars && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left whitespace-nowrap">
+                        <thead>
+                          <tr className="border-b border-gray-100 bg-white">
+                            {showStatusColumn && (
+                              <th className="py-3 px-5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                                Group / Status
+                              </th>
+                            )}
+                            {scalarHeaders.map(h => (
+                              <th key={h} className="py-3 px-5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {Object.entries(statuses).map(([status, items]) => {
+                            const scalarItems = items.filter(i => !Array.isArray(i.result) && !(typeof i.result === 'object' && i.result !== null));
+                            if (scalarItems.length === 0) return null;
+                            
+                            const itemsByHeader = new Map(scalarItems.map(i => [i.header, i]));
+                            const firstItem = scalarItems[0];
+                            const statusColor = firstItem?.statusColorRef?.toLowerCase() || '';
+
+                            return (
+                              <tr key={status} className="hover:bg-gray-50/50 transition-colors bg-white">
+                                {showStatusColumn && (
+                                  <td className="py-3 px-5">
+                                    {status !== 'General' ? (
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                          statusColor === 'completed' ? 'bg-emerald-500' :
+                                          statusColor === 'active' ? 'bg-blue-500' : 'bg-gray-400'
+                                        }`} />
+                                        <span className="text-[11px] font-bold text-gray-600 uppercase tracking-tight">{status}</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[11px] font-bold text-gray-400 uppercase tracking-tight">GENERAL</span>
+                                    )}
+                                  </td>
+                                )}
+                                {scalarHeaders.map(h => {
+                                  const item = itemsByHeader.get(h);
+                                  return (
+                                    <td key={h} className="py-3 px-5 text-gray-900 font-mono text-[13px]">
+                                      {item ? formatValue(item.result) : '—'}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Other Items (Arrays / Objects) */}
+                  {hasOtherItems && (
+                    <div className={`p-5 grid grid-cols-1 gap-5 ${hasScalars ? 'border-t border-gray-100 bg-gray-50/30' : 'bg-white'}`}>
+                      {Object.entries(statuses).map(([status, items]) => {
+                        const otherItems = items.filter(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null));
+                        return otherItems.map((item, idx) => (
+                          <div key={`${status}-${idx}`} className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
+                            <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                              <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-tight">{item.header}</h3>
+                              {status !== 'General' && (
+                                <span className="text-[9px] font-bold text-gray-400 uppercase bg-white border border-gray-200 px-1.5 py-0.5 rounded">
+                                  {status}
+                                </span>
+                              )}
+                            </div>
+                            <div className="p-4 flex-1 flex flex-col justify-center min-h-[60px]">
+                              {Array.isArray(item.result) ? (
+                                item.result.length === 0 ? (
+                                  <p className="text-xs text-gray-400 italic text-center">No data recorded</p>
+                                ) : (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                      <thead>
+                                        <tr className="border-b border-gray-100">
+                                          {Object.keys(item.result[0]).map(col => (
+                                            <th key={col} className="py-2 pr-4 text-[10px] font-bold text-gray-400 uppercase tracking-tighter whitespace-nowrap">{col}</th>
                                           ))}
                                         </tr>
-                                      ))}
-                                      {item.result.length > 5 && (
-                                        <tr>
-                                          <td colSpan={Object.keys(item.result[0]).length} className="pt-3 text-[10px] text-gray-400 text-center italic">
-                                            + {item.result.length - 5} more rows
-                                          </td>
-                                        </tr>
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )
-                            ) : typeof item.result === 'object' && item.result !== null ? (
-                              <div className="grid grid-cols-2 gap-4">
-                                {Object.entries(item.result).map(([key, val]) => (
-                                  <div key={key} className="flex flex-col items-center justify-center bg-gray-50/50 rounded-lg p-3">
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight mb-1">{key}</span>
-                                    <span className="text-2xl font-bold text-gray-900 tabular-nums tracking-tight">
-                                      {formatValue(val)}
-                                    </span>
+                                      </thead>
+                                      <tbody className="divide-y divide-gray-50">
+                                        {item.result.slice(0, 5).map((row: any, i: number) => (
+                                          <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                                            {Object.values(row).map((val: any, j: number) => (
+                                              <td key={j} className="py-2 pr-4 text-gray-900 font-mono text-[11px] whitespace-nowrap">
+                                                {formatValue(val)}
+                                              </td>
+                                            ))}
+                                          </tr>
+                                        ))}
+                                        {item.result.length > 5 && (
+                                          <tr>
+                                            <td colSpan={Object.keys(item.result[0]).length} className="pt-3 text-[10px] text-gray-400 text-center italic">
+                                              + {item.result.length - 5} more rows
+                                            </td>
+                                          </tr>
+                                        )}
+                                      </tbody>
+                                    </table>
                                   </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col items-center justify-center py-2">
-                                <span className="text-4xl font-bold text-gray-900 tabular-nums tracking-tight">
-                                  {formatValue(item.result)}
-                                </span>
-                              </div>
-                            )}
+                                )
+                              ) : (
+                                <div className="flex flex-row flex-wrap gap-4 justify-center">
+                                  {Object.entries(item.result as Record<string, any>).map(([key, val]) => (
+                                    <div key={key} className="flex flex-col items-center justify-center">
+                                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight mb-1">{key}</span>
+                                      <span className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
+                                        {formatValue(val)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ));
+                      })}
                     </div>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
