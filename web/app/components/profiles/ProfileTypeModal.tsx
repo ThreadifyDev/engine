@@ -560,7 +560,8 @@ function CustomMetricCard({
             Group: {def.group_by}
           </span>
         )}
-        {def.visualisation && (
+        {/* visualisation badge — commented out for now */}
+        {false && def.visualisation && (
           <span className="bg-white border border-gray-200 px-2 py-0.5 rounded">
             {def.visualisation}
           </span>

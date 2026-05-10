@@ -225,6 +225,17 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                                   </table>
                                 </div>
                               )
+                            ) : typeof item.result === 'object' && item.result !== null ? (
+                              <div className="grid grid-cols-2 gap-4">
+                                {Object.entries(item.result).map(([key, val]) => (
+                                  <div key={key} className="flex flex-col items-center justify-center bg-gray-50/50 rounded-lg p-3">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight mb-1">{key}</span>
+                                    <span className="text-2xl font-bold text-gray-900 tabular-nums tracking-tight">
+                                      {formatValue(val)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
                             ) : (
                               <div className="flex flex-col items-center justify-center py-2">
                                 <span className="text-4xl font-bold text-gray-900 tabular-nums tracking-tight">
