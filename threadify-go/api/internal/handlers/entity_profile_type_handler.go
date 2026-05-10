@@ -226,15 +226,15 @@ func toDTOCustomDefinition(d *domain.MetricDefinition) *dto.CustomMetricDefiniti
 		}
 	}
 	return &dto.CustomMetricDefinition{
-		Name:          d.Name,
-		Target:        d.Target,
-		StepName:      d.StepName,
-		Operation:     d.Operation,
-		Field:         d.Field,
-		Filters:       filters,
-		GroupBy:       d.GroupBy,
-		Granularity:   d.Granularity,
-		Visualisation: d.Visualisation,
+		Name:        d.Name,
+		Target:      d.Target,
+		StepName:    d.StepName,
+		Operation:   d.Operation,
+		Field:       d.Field,
+		Filters:     filters,
+		GroupBy:     d.GroupBy,
+		Granularity: d.Granularity,
+		// Visualisation: d.Visualisation, // commented out for now
 	}
 }
 
@@ -250,15 +250,15 @@ func toDomainMetricDefinition(d *dto.CustomMetricDefinition) *domain.MetricDefin
 		}
 	}
 	return &domain.MetricDefinition{
-		Name:          d.Name,
-		Target:        d.Target,
-		StepName:      d.StepName,
-		Operation:     d.Operation,
-		Field:         d.Field,
-		Filters:       filters,
-		GroupBy:       d.GroupBy,
-		Granularity:   d.Granularity,
-		Visualisation: d.Visualisation,
+		Name:        d.Name,
+		Target:      d.Target,
+		StepName:    d.StepName,
+		Operation:   d.Operation,
+		Field:       d.Field,
+		Filters:     filters,
+		GroupBy:     d.GroupBy,
+		Granularity: d.Granularity,
+		// Visualisation: d.Visualisation, // commented out for now
 	}
 }
 

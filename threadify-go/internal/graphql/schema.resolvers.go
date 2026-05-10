@@ -167,9 +167,14 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		if len(results) == 0 {
 			continue
 		} else if len(results) == 1 {
-			for k, v := range results[0] {
-				// Use the metric display name as prefix to clarify context
-				combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+			if len(results[0]) == 1 {
+				// Single column, single row: flatten to a scalar for clean display
+				for k, v := range results[0] {
+					combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+				}
+			} else {
+				// Multi-column, single row: keep as an object so label/value pairs render together
+				combinedResults[metricDisplayName+paramSuffix] = results[0]
 			}
 		} else {
 			combinedResults[metricDisplayName+paramSuffix] = results

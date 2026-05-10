@@ -128,7 +128,8 @@ export default function SentenceBuilderMetricForm({
         next.target = deriveTargetFromField(next.field);
       }
 
-      // Auto-adjust visualisation when groupBy changes
+      // Auto-adjust visualisation when groupBy changes — commented out for now
+      /*
       if (updates.group_by !== undefined && updates.group_by !== prev.group_by) {
         const visOptions = getVisualisationOptions(next.group_by || 'none');
         if (!visOptions.includes(next.visualisation || '')) {
@@ -138,6 +139,7 @@ export default function SentenceBuilderMetricForm({
           next.granularity = undefined;
         }
       }
+      */
 
       return next;
     });
@@ -192,7 +194,7 @@ export default function SentenceBuilderMetricForm({
 
   const validFields = getValidFields(definition.operation || 'COUNT');
   const showGranularity = definition.group_by === 'period';
-  const visOptions = getVisualisationOptions(definition.group_by || 'none');
+  // const visOptions = getVisualisationOptions(definition.group_by || 'none'); // commented out for now
   const target = deriveTargetFromField(definition.field);
   const showStepName = target === 'step';
 
@@ -326,7 +328,7 @@ export default function SentenceBuilderMetricForm({
           )}
         </div>
 
-        {/* Visualisation */}
+        {/* Visualisation — commented out for now
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-500">shown as</span>
           <select
@@ -339,6 +341,7 @@ export default function SentenceBuilderMetricForm({
             ))}
           </select>
         </div>
+        */}
       </div>
 
       {/* Step Name (required when target is step) */}

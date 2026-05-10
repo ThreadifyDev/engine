@@ -72,7 +72,8 @@ var validOperations = []string{"COUNT", "RATE", "AVG", "SUM", "MIN", "MAX"}
 var validFields = []string{"threads", "steps", "violations", "retries", "stepCount", "outcome", "duration"}
 var validGroupBy = []string{"step name", "outcome", "process type", "violation type", "period", "none"}
 var validGranularity = []string{"hour", "day", "week", "month"}
-var validVisualisation = []string{"number", "line", "table", "bar"}
+
+// var validVisualisation = []string{"number", "line", "table", "bar"} // commented out for now
 
 func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricDefinition, prefix string) {
 	if def == nil {
@@ -107,9 +108,10 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 		b.add(prefix+".granularity", "Granularity must be one of: hour, day, week, month.")
 	}
 
-	if def.Visualisation != "" && !slices.Contains(validVisualisation, def.Visualisation) {
-		b.add(prefix+".visualisation", "Visualisation must be one of: number, line, table, bar.")
-	}
+	// visualisation validation — commented out for now
+	// if def.Visualisation != "" && !slices.Contains(validVisualisation, def.Visualisation) {
+	// 	b.add(prefix+".visualisation", "Visualisation must be one of: number, line, table, bar.")
+	// }
 
 	for i, f := range def.Filters {
 		if f.Key == "" || f.Value == "" {
