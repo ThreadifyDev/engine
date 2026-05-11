@@ -264,14 +264,18 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                         const otherItems = items.filter(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null));
                         return otherItems.map((item, idx) => (
                           <div key={`${status}-${idx}`} className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
-                            <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-                              <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-tight">{item.header}</h3>
-                              {status !== 'General' && (
-                                <span className="text-[9px] font-bold text-gray-400 uppercase bg-white border border-gray-200 px-1.5 py-0.5 rounded">
-                                  {status}
-                                </span>
-                              )}
-                            </div>
+                            {(item.header.toUpperCase() !== tagline.toUpperCase() || status !== 'General') && (
+                              <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                                {item.header.toUpperCase() !== tagline.toUpperCase() && (
+                                  <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-tight">{item.header}</h3>
+                                )}
+                                {status !== 'General' && (
+                                  <span className={`text-[9px] font-bold text-gray-500 uppercase bg-white border border-gray-200 px-1.5 py-0.5 rounded ${item.header.toUpperCase() === tagline.toUpperCase() ? 'ml-0' : 'ml-auto'}`}>
+                                    {status}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             <div className="p-4 flex-1 flex flex-col justify-center min-h-[60px]">
                               {Array.isArray(item.result) ? (
                                 item.result.length === 0 ? (
