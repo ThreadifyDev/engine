@@ -43,6 +43,7 @@ export default function HomePageStory() {
           <div className="md:hidden absolute top-16 left-0 right-0 bg-white border-b border-gray-100 shadow-xl py-4 px-6 flex flex-col gap-4">
             <a href="#how-it-works" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">How it works</a>
             <a href="https://docs.threadify.dev" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Documentation</a>
+            <Link to="https://blog.threadify.dev" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Our Blog</Link>
             <Link to="/pricing" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Pricing</Link>
             <hr className="border-gray-100 my-2" />
             <Link to="/login" onClick={() => setIsMobileMenuOpen(false)} className="text-base font-medium text-gray-700 py-2">Sign in</Link>
@@ -74,7 +75,7 @@ export default function HomePageStory() {
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-500 max-w-3xl mx-auto mb-12 leading-relaxed font-light">
-              Track every customer request from start to finish — across every system, team, and partner involved
+              Uptime doesn't mean delivery. Threadify captures and validates how your business logic actually executes — for every customer.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
@@ -223,12 +224,8 @@ export default function HomePageStory() {
                 title="Start tracking"
                 headerColor="gray"
                 code={`// Start tracking
-const thread = await threadify.start();
-thread.step("payment_captured")
-
-// Add context
-const step = thread.step("fraud_check")
-step.addContext(data).success()`}
+const thread = await threadify.start("thread-for-order-123");
+thread.step("fraud_check").addContext(data).success()`}
               />
               <div className="mt-6">
                 <a href="https://docs.threadify.dev/core-concepts/tracking-workflows" className="inline-flex items-center gap-2 text-black font-medium hover:gap-3 transition-all">
@@ -246,8 +243,8 @@ step.addContext(data).success()`}
                 <span className="bg-black text-white text-[10px] sm:text-xs font-bold px-2 py-1 rounded uppercase tracking-wider whitespace-nowrap w-fit">Zero Code Changes</span>
                 <h4 className="text-lg sm:text-xl font-semibold text-black leading-tight">Native OpenTelemetry Support</h4>
               </div>
-              <p className="text-gray-600 text-lg max-w-2xl">
-                Already instrumented with OTel? Use the exporter from our SDK to automatically convert your existing technical traces into business-level service-delivery intelligence.
+              <p className="text-gray-600 text-lg">
+                Already instrumented with OTel? Drop in the Threadify exporter. Your traces become threads. Instantly.
               </p>
             </div>
             <a 
@@ -384,7 +381,7 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
             Every thread is one moment. Every customer has many.
           </h2>
           <p className="text-xl text-gray-600 leading-relaxed mb-6">
-            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Threadify aggregates execution across every entity — customer, partner, feature — into an <span className="font-semibold text-gray-900">Entity Profile</span> so you can see the patterns that matter.
+            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Create an <span className="font-semibold text-gray-900">Entity Profile</span> — for a customer, an agent, anything. Threadify builds the intelligence as threads flow in.
           </p>
           <p className="text-xl text-black font-medium">
             Intelligence from execution, not guesswork.
@@ -493,14 +490,14 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
               title="Your API"
               headerColor="gray"
               code={`// Invite partner to thread
-                const invitation = await thread
-                  .inviteParty({
-                    role: "logistics",
-                    expiresIn: "48h"
-                  });
+const invitation = await thread
+  .inviteParty({
+    role: "logistics",
+    expiresIn: "48h"
+  });
 
-                // Share token with partner
-                console.log(invitation.token);`}
+// Share token with partner
+console.log(invitation.token);`}
               />
 
             {/* Partner API - Join */}
@@ -508,19 +505,19 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
               title="Partner API"
               headerColor="purple"
               code={`// Join thread with token
-                const thread = await connection
-                  .join(invitationToken);
+const thread = await connection
+  .join(invitationToken);
 
-                // Record their steps
-                await thread.step('package_shipped')
-                  .addContext({ tracking: '1Z999' })
-                  .success();`}
+// Record their steps
+await thread.step('package_shipped')
+  .addContext({ tracking: '1Z999' })
+  .success();`}
             />
           </div>
 
           <div className="text-center space-y-4 pt-8">
             <p className="text-lg font-semibold text-gray-900">
-              service-delivery doesn't stop at your boundary. Your visibility shouldn't either.
+              Service delivery doesn't stop at your boundary. Your visibility shouldn't either.
             </p>
             <p className="text-black font-bold text-2xl">One thread. Their steps and yours. Full picture.</p>
           </div>
