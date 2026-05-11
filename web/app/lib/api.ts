@@ -58,6 +58,7 @@ export interface SignupData {
   company_size?: string;
   use_case?: string;
   invitation_token?: string;
+  middle_name?: string;
 }
 
 export interface LoginData {

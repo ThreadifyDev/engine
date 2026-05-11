@@ -12,6 +12,7 @@ type SignupRequest struct {
 	CompanySize     *string `json:"company_size"`
 	UseCase         *string `json:"use_case"`
 	InvitationToken *string `json:"invitation_token"`
+	MiddleName      string  `json:"middle_name"`
 }
 
 type LoginRequest struct {

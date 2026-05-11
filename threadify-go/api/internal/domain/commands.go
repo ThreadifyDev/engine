@@ -10,6 +10,7 @@ type SignupCmd struct {
 	CompanySize     *string
 	UseCase         *string
 	InvitationToken *string
+	MiddleName      string
 }
 
 type LoginCmd struct {

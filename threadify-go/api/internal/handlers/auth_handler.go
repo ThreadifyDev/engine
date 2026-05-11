@@ -6,6 +6,7 @@ import (
 	"strings"
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/metrics"
 	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	serror "threadify-go/shared/errors"
@@ -33,6 +34,16 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
+	// Honeypot check
+	if strings.TrimSpace(req.MiddleName) != "" {
+		metrics.BotDetectionsTotal.WithLabelValues("middle_name").Inc()
+		// Return 201 to make the bot think it succeeded
+		c.JSON(http.StatusCreated, gin.H{
+			"message": "Signup successful.",
+		})
+		return
+	}
+
 	if err := h.authService.Signup(c.Request.Context(), &domain.SignupCmd{
 		CompanyName:     req.CompanyName,
 		Email:           req.Email,
@@ -43,6 +54,7 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		CompanySize:     req.CompanySize,
 		UseCase:         req.UseCase,
 		InvitationToken: req.InvitationToken,
+		MiddleName:      req.MiddleName,
 	}); err != nil {
 		if respondValidationError(c, err) {
 			return
