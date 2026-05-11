@@ -134,7 +134,7 @@ export default function EntityProfilesByType() {
             to="/u/profiles"
             className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 transition-colors"
           >
-            <ChevronLeft className="w-4 h-4" /> Back to Profile Types
+            <ChevronLeft className="w-4 h-4" /> Back to Entity Profile Types
           </Link>
         </div>
 
