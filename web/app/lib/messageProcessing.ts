@@ -111,7 +111,7 @@ export const processMessagesFromHistory = (allMessages: RawMessage[]): Message[]
           if (processedMsg.content.includes('```yaml')) {
             processedMsg.content = processedMsg.content.replace(
               /```yaml\n?([\s\S]*?)```/,
-              `\`\`\`yaml\n${formattedYaml}\n\`\`\``
+              `\`\`\`yaml\n${formattedYaml}\n\`\`\`\n\n`
             );
           }
         }
