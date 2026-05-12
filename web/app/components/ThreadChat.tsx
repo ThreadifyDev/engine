@@ -16,19 +16,17 @@ const formatAndCleanYaml = (input: string): string => {
   
   let cleaned = input.trim();
   
-  // 1. Fix list items that are mashed together: "  - id: foo    owner:" -> "  - id: foo\n    owner:"
-  // Match list items and add proper line breaks
+  // 0. Fix top-level keywords mashed together without spaces (e.g. "interactions.entry_points:")
+  cleaned = cleaned.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n$2');
+  
+  // 1. Fix list items at start: "steps:  - id: foo" or "]  - id: foo" -> "steps:\n  - id: foo"
+  cleaned = cleaned.replace(/(?<=\S)(\s{2,})(-\s+[a-z_]+:)/gi, '\n$1$2');
+  
+  // 2. Fix properties following list items: "- id: foo    owner:" -> "- id: foo\n    owner:"
   cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s{2,})([a-z_]+:)/gi, '$1\n    $3');
   
-  // 2. Fix top-level properties mashed together
-  cleaned = cleaned.replace(/([^\s\n])([a-z_]+:)/gi, (match, char, keyword) => {
-    // Don't split if it's part of a word (e.g., "checkout-service")
-    if (char.match(/[a-z_-]/i)) return match;
-    return `${char}\n${keyword}`;
-  });
-  
-  // 3. Fix list items at start of line that are mashed: "  - id: foo  - id: bar" -> "  - id: foo\n  - id: bar"
-  cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s+)(-\s+[a-z_]+:)/gi, '$1\n$3');
+  // 3. Fix other properties mashed together: "owner: foo    type: bar"
+  cleaned = cleaned.replace(/(?<=\S)(\s{2,})([a-z_]+:)/gi, '\n$1$2');
   
   // 4. Fix terminal_steps mashup
   cleaned = cleaned.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
@@ -201,12 +199,8 @@ export default function ThreadChat() {
 
         // UI cleanup for common AI formatting quirks (Aggressive Regex)
         let content = msg.content;
-        // Fix mashed keywords at start or inside text (EXCLUDING underscores to not break terminal_steps)
-        content = content.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
-        content = content.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+        // Fix mashed keywords at start or inside text
+        content = content.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n\n$2');
         
         // Final fallback to repair what we might have broken or what AI broke
         content = content.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
@@ -602,11 +596,7 @@ export default function ThreadChat() {
                     if (msg.id === assistantMessageId) {
                       // Apply the same content cleanup as loadConversation
                       let cleanedContent = msg.content;
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n\n$2');
                       cleanedContent = cleanedContent.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
                       cleanedContent = cleanedContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
                       cleanedContent = cleanedContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');

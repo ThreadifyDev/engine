@@ -106,6 +106,14 @@ export const processMessagesFromHistory = (allMessages: RawMessage[]): Message[]
             try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
           }
           processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
+          
+          // Overwrite the raw YAML in the markdown code block with the fully formatted version
+          if (processedMsg.content.includes('```yaml')) {
+            processedMsg.content = processedMsg.content.replace(
+              /```yaml\n?([\s\S]*?)```/,
+              `\`\`\`yaml\n${formattedYaml}\n\`\`\``
+            );
+          }
         }
       }
     }

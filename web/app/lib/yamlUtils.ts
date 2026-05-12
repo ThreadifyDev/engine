@@ -8,6 +8,9 @@ export const formatAndCleanYaml = (input: string): string => {
   
   let cleaned = input.trim();
   
+  // 0. Fix top-level keywords mashed together without spaces (e.g. "interactions.entry_points:")
+  cleaned = cleaned.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n$2');
+  
   // 1. Fix list items at start: "steps:  - id: foo" or "]  - id: foo" -> "steps:\n  - id: foo"
   cleaned = cleaned.replace(/(?<=\S)(\s{2,})(-\s+[a-z_]+:)/gi, '\n$1$2');
   

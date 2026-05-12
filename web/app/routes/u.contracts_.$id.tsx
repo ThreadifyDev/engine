@@ -2,9 +2,10 @@ import { useState } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import SideNav from '~/components/SideNav';
 import YamlEditor from '~/components/YamlEditor';
+import Alert from '~/components/Alert';
 
 export const meta: MetaFunction = () => {
   return [
@@ -21,6 +22,7 @@ export default function ContractDetail() {
   const [updateYaml, setUpdateYaml] = useState('');
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
+  const [updateErrorDetails, setUpdateErrorDetails] = useState<Array<{ field: string; message: string }>>([]);
 
   // Check authentication
   const token = api.getStoredToken();
@@ -50,6 +52,7 @@ export default function ContractDetail() {
     e.preventDefault();
     setUpdating(true);
     setUpdateError('');
+    setUpdateErrorDetails([]);
 
     try {
       await api.updateContract(id!, { yaml: updateYaml });
@@ -58,7 +61,12 @@ export default function ContractDetail() {
       setShowUpdateModal(false);
       setUpdateYaml('');
     } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : 'Failed to update contract');
+      if (err instanceof ValidationError) {
+        setUpdateError(err.message);
+        setUpdateErrorDetails(err.details || []);
+      } else {
+        setUpdateError(err instanceof Error ? err.message : 'Failed to update contract');
+      }
     } finally {
       setUpdating(false);
     }
@@ -212,9 +220,12 @@ export default function ContractDetail() {
                 />
               </div>
               {updateError && (
-                <div className="mb-4 p-3 bg-red-50 border-2 border-red-600 text-red-600">
-                  {updateError}
-                </div>
+                <Alert 
+                  type="error" 
+                  message={updateError} 
+                  details={updateErrorDetails} 
+                  className="mb-4"
+                />
               )}
                 <div className="flex justify-end items-center gap-6 mt-2">
                   <button
@@ -223,6 +234,7 @@ export default function ContractDetail() {
                       setShowUpdateModal(false);
                       setUpdateYaml('');
                       setUpdateError('');
+                      setUpdateErrorDetails([]);
                     }}
                     className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
                   >
