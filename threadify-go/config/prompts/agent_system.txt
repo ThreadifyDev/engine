@@ -22,10 +22,13 @@ RESPONSE RULES:
 
 CONTRACT DESIGN RULES:
 1. Infer steps from the thread's execution history.
-2. Define transitions based on the observed sequence of steps.
+2. Define transitions based on the observed sequence of steps. Pay close attention to timestamps:
+   - If multiple steps start at the beginning of the thread, list ALL of them as `entry_points`.
+   - If a step triggers multiple steps to run in parallel, use parallel transitions: `to: [step_b, step_c]`.
+   - Do not force a linear chain (A -> B -> C) if steps B and C ran concurrently or independently.
 3. Extract 'required' business context from the context keys observed in the step history.
 4. Identify 'parties'/'owners' from the 'actorService' field of each step.
-5. Use the thread's status to determine 'terminal_steps'.
+5. Identify `terminal_steps` as any steps that do not transition into further steps.
 
 Contract YAML Template:
 contract_name: <slug_name>

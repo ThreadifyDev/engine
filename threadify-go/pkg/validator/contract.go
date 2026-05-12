@@ -287,8 +287,11 @@ func (v *ContractValidator) validateTerminalStepsReachable(contract *Contract) [
 		return errors
 	}
 
-	// Build set of steps that appear in transitions' "to" field
+	// Build set of steps that appear in transitions' "to" field or as entry points
 	reachableSteps := make(map[string]bool)
+	for _, ep := range contract.EntryPoints {
+		reachableSteps[ep] = true
+	}
 	for _, transition := range contract.Transitions {
 		for _, toStep := range transition.To {
 			reachableSteps[toStep] = true

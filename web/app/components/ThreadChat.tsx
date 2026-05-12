@@ -625,7 +625,7 @@ export default function ThreadChat() {
                         
                         // Replace malformed YAML in cleaned content with formatted version
                         const updatedContent = cleanedContent.includes('```yaml')
-                          ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\``)
+                          ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\`\n\n`)
                           : cleanedContent;
                         
                         console.log('[YAML Format] Updated content (first 200 chars):', updatedContent.substring(0, 200));
