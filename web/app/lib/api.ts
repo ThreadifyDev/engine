@@ -209,8 +209,9 @@ class ApiClient {
       }
 
       // If we have validation details, throw ValidationError
-      if (data.details && Array.isArray(data.details)) {
-        throw new ValidationError(errorMessage, data.details);
+      const errorDetails = data.details || data.errors;
+      if (errorDetails && Array.isArray(errorDetails)) {
+        throw new ValidationError(errorMessage, errorDetails);
       }
 
       throw new Error(errorMessage);
