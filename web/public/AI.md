@@ -53,8 +53,15 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 - `label` (optional, recommended) - A descriptive name for the thread
 - `contractName` (optional) - Name of contract to use
 - `serviceName` (optional) - Service identifier
+- `tags` (optional) - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
 
 **Returns:** Thread instance
+
+**Tags:**
+- Immutable string labels attached at thread creation
+- Used for categorization, filtering, and organizing threads
+- Set via SDK `start()` or OpenTelemetry `threadify.tags` span attribute
+- Queryable via GraphQL `threads(tags: ["production"])`
 
 ---
 

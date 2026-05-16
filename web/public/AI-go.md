@@ -63,6 +63,14 @@ thread, err := conn.Start(ctx, "Order-789", "order_fulfillment",
 if err != nil {
     log.Fatal(err)
 }
+
+// With tags (immutable labels for filtering)
+thread, err := conn.Start(ctx, "Order-789", "order_fulfillment",
+    threadify.WithTags("production", "v2.1"),
+)
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -162,22 +170,6 @@ err := thread.AddRefs(ctx, map[string]string{
     "stripe_payment_id": "pi_123",
     "order_id": "ORD-456",
 })
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-**Step-level references** (called on step):
-
-```go
-// Add references specific to this step
-result, err := thread.Step("process_payment").
-    AddRefs(map[string]string{
-        "transaction_id": "txn_789",
-        "receipt_id": "rcpt_456",
-    }).
-    AddContext(map[string]any{"amount": 99.99}).
-    Success(ctx)
 if err != nil {
     log.Fatal(err)
 }
@@ -487,6 +479,9 @@ conn, _ := threadify.Connect(ctx, "api-key")
 exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{
     Refs: []string{"rider.id"},
 })
+
+// Tag threads via OTel span attributes
+span.SetAttributes(attribute.StringSlice("threadify.tags", []string{"production", "v2.1"}))
 
 // Filter spans by name — exact match or prefix wildcard with *
 exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{

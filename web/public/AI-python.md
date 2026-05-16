@@ -53,6 +53,13 @@ thread = await conn.start(
     contract_name="order_fulfillment",
     service_name="merchant-service",
 )
+
+# With tags (immutable labels for filtering)
+thread = await conn.start(
+    "Order-789",
+    contract_name="order_fulfillment",
+    tags=["production", "v2.1"],
+)
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -146,20 +153,6 @@ await thread.add_refs({
     "stripe_payment_id": "pi_123",
     "order_id": "ORD-456",
 })
-```
-
-**Step-level references** (called on step):
-
-```python
-result = await (
-    thread.step("process_payment")
-    .add_refs({
-        "transaction_id": "txn_789",
-        "receipt_id": "rcpt_456",
-    })
-    .add_context({"amount": "99.99"})
-    .success()
-)
 ```
 
 ### Link Threads
@@ -378,6 +371,9 @@ conn = await Threadify.connect("api-key", service_name="checkout-service")
 
 # 2. Create the Exporter
 exporter = conn.create_span_exporter(options={"refs": ["order.id", "customer.id"]})
+
+# Tag threads via OTel span attributes
+span.set_attribute("threadify.tags", ["production", "v2.1"])
 
 # Filter spans by name — exact match or prefix wildcard with *
 exporter = conn.create_span_exporter(options={
