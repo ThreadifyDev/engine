@@ -61,7 +61,7 @@ type StepState struct {
 	StepName       string
 	Status         string
 	IdempotencyKey string
-	Context        map[string]string
+	Context        map[string]any
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	RetryCount     int
@@ -136,7 +136,7 @@ type ThreadEvent struct {
 	UserID    string
 	Role      string
 	Refs      map[string]string
-	Context   map[string]string
+	Context   map[string]any
 	Status    string // "success", "failed", "in_progress"
 	Timestamp time.Time
 }

@@ -493,10 +493,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		finishedAtTime = time.Now()
 	}
 
-	contextInterface := make(map[string]interface{}, len(req.Context))
-	for k, v := range req.Context {
-		contextInterface[k] = v
-	}
+	contextInterface := convertContext(req.Context)
 
 	stepEvent := domain.StepEvent{
 		StepID:         stepID,
@@ -643,9 +640,6 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		// Auto-resolve role from service identity if not explicitly provided
 		if req.Role == "" {
 			req.Role = s.resolveRoleFromService(ownerID, thread)
-		}
-		if !s.IsValidRole(req.Role) {
-			return nil, fmt.Errorf("invalid role: %s", req.Role)
 		}
 		threadID = req.ThreadID
 		role = req.Role

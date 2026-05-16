@@ -1,7 +1,4 @@
-import { useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
-import { api } from '~/lib/api';
 import HomePageStory from '~/components/HomePageStory';
 import '~/styles/homepage-story.css';
 
@@ -13,14 +10,5 @@ export const meta: MetaFunction = () => {
 };
 
 export default function Index() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Redirect to dashboard if already authenticated
-    if (api.isAuthenticated()) {
-      navigate('/u/dashboard');
-    }
-  }, [navigate]);
-
   return <HomePageStory />;
 }

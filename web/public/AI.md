@@ -18,7 +18,9 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 **Core Components:**
 - **Thread** - One customer request flowing through your system
 - **Step** - One action in the workflow
-- **Contract** - YAML validation rules enforced at runtime
+
+**Optional (Advanced):**
+- **Contract** - YAML validation rules enforced at runtime. Only use this after you are comfortable with basic thread and step instrumentation.
 
 ---
 
@@ -46,21 +48,22 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 
 **Variants:**
 1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
-2. **With contract** - Contract-based workflow with validation
-3. **With service name** - Specify which service is starting
+2. **With service name** - Specify which service is starting
+3. **With tags** - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
 
 **Parameters:**
 - `label` (optional, recommended) - A descriptive name for the thread
-- `contractName` (optional) - Name of contract to use
 - `serviceName` (optional) - Service identifier
 - `tags` (optional) - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
+
+> **Default to no contracts.** Only use them if the user explicitly asks.
 
 **Returns:** Thread instance
 
 **Tags:**
 - Immutable string labels attached at thread creation
 - Used for categorization, filtering, and organizing threads
-- Set via SDK `start()` or OpenTelemetry `threadify.tags` span attribute
+- Set via SDK `start()` or OTel span attributes (if the codebase already uses OpenTelemetry)
 - Queryable via GraphQL `threads(tags: ["production"])`
 
 ---
@@ -159,10 +162,12 @@ Every step must have one of three statuses:
 
 **What it does:** Subscribe to real-time events
 
-**Event Types:**
+**Event Types (Basic):**
 - `step.success` - Step completed successfully
 - `step.failed` - Step failed
 - `step.error` - Step errored
+
+**Event Types (Contract-only — Advanced):**
 - `rule.violated` - Contract validation failed
 - `rule.passed` - Contract validation passed
 
@@ -238,9 +243,11 @@ const invite = await thread.inviteParty({
 
 ---
 
-### 11. Contracts (YAML)
+### 11. Contracts (YAML) — ONLY If User Explicitly Requests
 
-**What it does:** Defines business rules enforced at runtime
+**What it does:** Defines business rules enforced at runtime.
+
+**When to use:** ONLY if the user explicitly asks for contracts (e.g., "use a contract", "add contract validation", "enforce business rules"). Otherwise, default to basic thread and step instrumentation WITHOUT contracts.
 
 **Structure:**
 ```yaml
@@ -283,7 +290,9 @@ transitions:
 
 ---
 
-## OpenTelemetry Integration (OTel)
+## OpenTelemetry Integration (OTel) — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel integration if the user explicitly asks for it OR the codebase already imports OpenTelemetry libraries.
 
 **What it does:** Automatically converts OpenTelemetry traces into Threadify execution graphs.
 

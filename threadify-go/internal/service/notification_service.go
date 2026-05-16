@@ -500,7 +500,8 @@ func (s *NotificationService) processValidationNotifications(
 	}
 
 	previousStepName := extractStepName(result.PreviousStep)
-	contextJSON := marshalContext(req.Context)
+	convertedCtx := convertContext(req.Context)
+	contextJSON := marshalContext(convertedCtx)
 
 	if err := s.activityRepo.ArchiveStepState(ctx, buildStepStateSnapshot(
 		stepID, threadID, stepName, idempotencyKey, result.Status, ownerID, req,
@@ -888,7 +889,7 @@ func buildStepStateSnapshot(
 		PreviousStep:   previousStep,
 		Actor:          ownerID,
 		ActorService:   req.ServiceName,
-		LatestContext:  marshalContext(req.Context),
+		LatestContext:  marshalContext(convertContext(req.Context)),
 	}
 }
 
@@ -900,8 +901,26 @@ func extractStepName(previousStep string) string {
 	return ""
 }
 
+// convertContext converts a map[string]string (SDK wire format) to map[string]any by
+// attempting to JSON-parse each string value. Values that are valid JSON become nested
+// objects/arrays; values that are not valid JSON are kept as plain strings.
+func convertContext(raw map[string]string) map[string]any {
+	out := make(map[string]any, len(raw))
+	parsedCount := 0
+	for k, v := range raw {
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			out[k] = parsed
+			parsedCount++
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // marshalContext serialises a context map to a JSON string, returning "{}" on empty input or error.
-func marshalContext(ctx map[string]string) string {
+func marshalContext(ctx map[string]any) string {
 	if len(ctx) == 0 {
 		return "{}"
 	}

@@ -59,9 +59,9 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
   const navItems = [
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
+    { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
     { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
-    { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
     { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },
     { path: '/u/settings', label: 'Settings', icon: Settings },

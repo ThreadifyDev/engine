@@ -38,14 +38,14 @@ const connection = await Threadify.connect('api-key', 'my-service', {
 // With label (Recommended)
 const thread = await connection.start('Order-123');
 
-// With label and contract
-const thread = await connection.start('Order-789', 'order_fulfillment');
-
-// With label, contract, and options
-const thread = await connection.start('Order-789', 'order_fulfillment', { serviceName: 'merchant-service' });
+// With label and service name
+const thread = await connection.start('Order-789', '', { serviceName: 'merchant-service' });
 
 // With tags (immutable labels for filtering)
-const thread = await connection.start('Order-789', 'order_fulfillment', { tags: ['production', 'v2.1'] });
+const thread = await connection.start('Order-789', '', { tags: ['production', 'v2.1'] });
+
+// ONLY if user explicitly asks for contracts:
+// const thread = await connection.start('Order-789', 'order_fulfillment');
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -187,6 +187,7 @@ connection.subscribe('step.success', 'order_placed', (notification) => {
   notification.ack();
 });
 
+// Advanced (contract-only): Subscribe to contract validation events
 connection.subscribe('rule.violated', 'payment_processed', (notification) => {
   console.log('Violation:', notification.severity);
   notification.ack();
@@ -248,7 +249,10 @@ try {
 }
 ```
 
-### OpenTelemetry Exporter
+### OpenTelemetry Exporter — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel if the user explicitly asks OR the codebase already imports `@opentelemetry/api`.
+
 ```javascript
 import { trace } from '@opentelemetry/api';
 import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
