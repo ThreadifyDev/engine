@@ -145,16 +145,6 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 			continue
 		}
 
-		var paramSuffix string
-		if len(params) > 0 {
-			var paramStrs []string
-			for k, v := range params {
-				paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
-			}
-			sort.Strings(paramStrs)
-			paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
-		}
-
 		// Determine the display name: use custom Name if set, otherwise fallback to Template's MetricsName
 		metricDisplayName := template.MetricsName
 		if metricConfig.Name != nil && *metricConfig.Name != "" {
@@ -164,7 +154,49 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 			metricDisplayName = metricConfig.TemplateID
 		}
 
+		// Build param suffix from parameters and custom filter values
+		var paramStrs []string
+		for k, v := range params {
+			paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
+		}
+
+		var filterKey string
+		var filterCount int
+		if metricConfig.CustomDefinition != nil && metricConfig.CustomDefinition.Filters != nil {
+			if filtersSlice, ok := metricConfig.CustomDefinition.Filters.([]interface{}); ok {
+				for _, item := range filtersSlice {
+					if f, ok := item.(map[string]interface{}); ok {
+						key, _ := f["key"].(string)
+						value, _ := f["value"].(string)
+						if key != "" && value != "" {
+							paramStrs = append(paramStrs, value)
+							filterKey = key
+							filterCount++
+						}
+					}
+				}
+			}
+		}
+		sort.Strings(paramStrs)
+		var paramSuffix string
+		if len(paramStrs) > 0 {
+			paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
+		}
+
+		// For custom metrics with exactly one filter, derive display name from the filter key
+		if filterCount == 1 && filterKey != "" {
+			metricDisplayName = strings.Title(filterKey)
+		}
+
 		if len(results) == 0 {
+			var emptyVal interface{} = 0
+			if metricConfig.CustomDefinition != nil && metricConfig.CustomDefinition.GroupBy != nil {
+				groupBy := *metricConfig.CustomDefinition.GroupBy
+				if groupBy != "" && groupBy != "none" {
+					emptyVal = []interface{}{}
+				}
+			}
+			combinedResults[metricDisplayName+paramSuffix] = emptyVal
 			continue
 		} else if len(results) == 1 {
 			if len(results[0]) == 1 {
@@ -181,8 +213,8 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		}
 	}
 
-	// Don't cache or return empty results — they indicate total evaluation failure,
-	// not a genuine "no metrics" state (which is handled by the metricsConfig check above).
+	// If all metrics are unconfigured, return nil. Empty metric results (0 or [])
+	// are already added to combinedResults above so they still appear in the UI.
 	if len(combinedResults) == 0 {
 		return nil, nil
 	}
@@ -294,7 +326,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*domain.Thread, 
 }
 
 // Threads is the resolver for the threads field.
-func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	resolverStart := perf.Now()
 	perf.Log("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
@@ -321,7 +353,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 
 	// Query threads with SQL-based access filtering (includes archived data)
 	queryStart := perf.Now()
-	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, contractName, contractVersion, status, tags, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
 	perf.Log("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", perf.Since(queryStart), len(threads), totalCount)
 
 	if err != nil {
@@ -347,7 +379,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 }
 
 // ThreadsByContract is the resolver for the threadsByContract field.
-func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context
 	ownerID, companyID, _, err := getUserInfoFromContext(ctx)
 	if err != nil {
@@ -364,7 +396,7 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	}
 
 	// Query threads with SQL-based access filtering
-	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, tags, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to query threads by contract",
 			zap.String("company_id", companyID),

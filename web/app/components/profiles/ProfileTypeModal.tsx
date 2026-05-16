@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
-import { X, Settings, Plus, FileJson, LayoutTemplate, Edit2 } from 'lucide-react';
+import { X, Settings, Plus, FileJson, LayoutTemplate, Edit2, Copy } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
 import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric, ParameterDefinition, CustomMetricDefinition } from '~/lib/api';
@@ -41,14 +41,14 @@ export function ProfileTypeModal({
   // Reset form when modal opens/closes or initialData changes
   useEffect(() => {
     if (isOpen) {
-      setFormData(mode === 'edit' && initialData ? { ...initialData } : { ...defaultData });
+      setFormData(initialData ? { ...initialData } : { ...defaultData });
       setError(null);
       setAddingMode('none');
       setMarkedForDeletion([]);
       setModifiedMetricIds([]);
       setEditingMetricIndex(null);
     }
-  }, [isOpen, mode, initialData]);
+  }, [isOpen, initialData]);
 
   if (!isOpen) return null;
 
@@ -160,6 +160,25 @@ export function ProfileTypeModal({
     }
   };
 
+  const duplicateMetric = (idx: number) => {
+    const metrics = formData.metrics || [];
+    const source = metrics[idx];
+    if (!source) return;
+
+    // Create a clone without the ID
+    const clone: EntityTypeMetric = JSON.parse(JSON.stringify(source));
+    delete clone.id;
+
+    if (clone.custom_definition) {
+      clone.custom_definition.name = `${clone.custom_definition.name} (Copy)`;
+    }
+
+    const newMetrics = [...metrics];
+    // Insert after the original
+    newMetrics.splice(idx + 1, 0, clone);
+    setFormData({ ...formData, metrics: newMetrics });
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh]">
@@ -246,6 +265,7 @@ export function ProfileTypeModal({
                             key={`custom-${idx}`}
                             metric={m}
                             onRemove={() => removeMetric(idx)}
+                            onDuplicate={() => duplicateMetric(idx)}
                             onEdit={() => {
                               setAddingMode('custom');
                               setCustomFormKey(k => k + 1);
@@ -263,6 +283,7 @@ export function ProfileTypeModal({
                           metric={m}
                           onChange={(updatedMetric) => updateMetric(idx, updatedMetric)}
                           onRemove={() => removeMetric(idx)}
+                          onDuplicate={() => duplicateMetric(idx)}
                         />
                       );
                     })
@@ -400,12 +421,14 @@ function MetricSelectionCard({
   template,
   metric,
   onChange,
-  onRemove
+  onRemove,
+  onDuplicate
 }: {
   template: MetricsTemplateResponse;
   metric: EntityTypeMetric;
   onChange: (m: EntityTypeMetric) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
 }) {
   const handleParamChange = (param: string, value: any) => {
     onChange({
@@ -475,13 +498,24 @@ function MetricSelectionCard({
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-3 right-3 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <X className="w-4 h-4" />
-      </button>
+      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={onDuplicate}
+          className="p-1 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
+          title="Duplicate metric"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+          title="Remove metric"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
       <div className="flex items-center gap-2 mb-3">
         <Settings className="w-4 h-4 text-gray-500" />
@@ -508,10 +542,12 @@ function MetricSelectionCard({
 function CustomMetricCard({
   metric,
   onRemove,
+  onDuplicate,
   onEdit,
 }: {
   metric: EntityTypeMetric;
   onRemove: () => void;
+  onDuplicate: () => void;
   onEdit: () => void;
 }) {
   const def = metric.custom_definition!;
@@ -520,6 +556,14 @@ function CustomMetricCard({
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
       <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={onDuplicate}
+          className="p-1 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
+          title="Duplicate metric"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
         <button
           type="button"
           onClick={onEdit}

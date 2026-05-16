@@ -13,6 +13,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/service/tests/common"
 	"github.com/threadify/engine/pkg/validator"
@@ -376,14 +377,16 @@ func TestContractService_GetContractVersion_GraphParseFallback(t *testing.T) {
 	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
-	// invalid json -> returns contractVersion directly
+	// invalid json in graph field -> mapper passes it through as raw message
 	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{Graph: []byte("{bad-json")}, nil)
 
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	_, ok := resp.(*domain.ContractVersion)
+	versionDTO, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
+	require.Equal(t, "c", versionDTO.ContractName)
+	require.Equal(t, json.RawMessage("{bad-json"), versionDTO.Graph)
 }
 
 func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *testing.T) {
@@ -402,11 +405,11 @@ func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *test
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	m, ok := resp.(map[string]interface{})
+	versionDTO, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
-	require.Equal(t, "v1", m["id"])
-	require.Equal(t, "c", m["contractName"])
-	require.NotNil(t, m["graph"])
+	require.Equal(t, "v1", versionDTO.ID)
+	require.Equal(t, "c", versionDTO.ContractName)
+	require.NotNil(t, versionDTO.Graph)
 }
 
 func TestContractService_DeleteContractVersion_Table(t *testing.T) {

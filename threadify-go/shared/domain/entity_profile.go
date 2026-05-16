@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type MetricFilter struct {
 	Key   string `json:"key"`
@@ -17,6 +21,27 @@ type MetricDefinition struct {
 	GroupBy       string
 	Granularity   string
 	Visualisation string
+}
+
+func (m *MetricDefinition) Validate() error {
+	if m.Name == "" {
+		return fmt.Errorf("metric name is required")
+	}
+	if m.Target == "thread" {
+		if m.GroupBy == "step name" || m.GroupBy == "outcome" || m.GroupBy == "actor service" {
+			return fmt.Errorf("cannot group by %s when target is thread", m.GroupBy)
+		}
+		for _, f := range m.Filters {
+			key := strings.ToLower(strings.TrimSpace(f.Key))
+			if key == "step name" || key == "step outcome" || key == "actor" || key == "actor service" {
+				return fmt.Errorf("cannot filter by %s when target is thread", key)
+			}
+		}
+	}
+	if m.GroupBy == "period" && m.Granularity == "" {
+		return fmt.Errorf("granularity is required when grouping by period")
+	}
+	return nil
 }
 
 type EntityTypeMetric struct {

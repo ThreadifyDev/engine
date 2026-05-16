@@ -239,6 +239,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		OwnerID:         ownerID,
 		CompanyID:       companyID,
 		Status:          domain.ThreadStatusActive,
+		Tags:            req.Tags,
 		StartedAt:       time.Now(),
 	}
 
@@ -269,6 +270,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		"startedAt":       thread.StartedAt,
 		"completedAt":     thread.CompletedAt,
 		"error":           thread.Error,
+		"tags":            thread.Tags,
 	})
 	if err != nil {
 		return errResp("Failed to serialize thread")

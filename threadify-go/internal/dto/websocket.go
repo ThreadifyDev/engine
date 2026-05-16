@@ -23,6 +23,7 @@ type StartThreadRequest struct {
 	ContractName string            `json:"contractName"`
 	Role         string            `json:"role"`
 	Refs         map[string]string `json:"refs,omitempty"`
+	Tags         []string          `json:"tags,omitempty"`
 }
 
 type StartThreadResponse struct {

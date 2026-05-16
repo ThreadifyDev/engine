@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric } from '~/lib/api';
-import { Database, Plus, Edit2, Trash2, X, ArrowRight, Settings } from 'lucide-react';
+import { Database, Plus, Edit2, Trash2, X, ArrowRight, Settings, Copy } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
 import { ProfileTypeModal } from './ProfileTypeModal';
@@ -46,13 +46,37 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
     }
   };
 
+  const handleDuplicate = (pt: EntityProfileType) => {
+    const clone: Partial<EntityProfileType> = JSON.parse(JSON.stringify(pt));
+    delete clone.id;
+    delete clone.slug;
+    // @ts-ignore
+    delete clone.created_at;
+    // @ts-ignore
+    delete clone.updated_at;
+    // @ts-ignore
+    delete clone.company_id;
+    
+    clone.name = `Copy of ${clone.name}`;
+    if (clone.metrics) {
+      clone.metrics = clone.metrics.map(m => {
+        const mClone = { ...m };
+        delete mClone.id;
+        return mClone;
+      });
+    }
+    
+    setEditData(clone as EntityProfileType);
+    setIsCreateModalOpen(true);
+  };
+
   const persistedTypes = editData?.type || [];
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center border-b border-gray-200 pb-5">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Profile Types</h2>
+          <h2 className="text-xl font-bold text-gray-900">Entity Profile Types</h2>
           <p className="text-sm text-gray-500 mt-1">Configure the kinds of entities you want to track across your threads.</p>
         </div>
         <button
@@ -100,6 +124,13 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                 <div className="flex justify-between items-start mb-3">
                   <h3 className="text-base font-semibold text-gray-900 mb-1">{pt.name}</h3>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      title="Duplicate"
+                      onClick={() => handleDuplicate(pt)}
+                      className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       title="Edit"
                       onClick={() => { setEditData(pt); setIsEditModalOpen(true); }}
@@ -171,7 +202,11 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
       <ProfileTypeModal
         isOpen={isCreateModalOpen}
         mode="create"
-        onClose={() => setIsCreateModalOpen(false)}
+        initialData={editData}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setEditData(null);
+        }}
         metricsTemplates={metricsTemplates}
         onRefresh={onRefresh}
       />

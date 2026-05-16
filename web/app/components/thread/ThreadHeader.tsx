@@ -121,6 +121,20 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
             ) : null}
           </div>
         )}
+
+        {/* Tags */}
+        {thread.tags && thread.tags.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {thread.tags.map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Metadata Row */}

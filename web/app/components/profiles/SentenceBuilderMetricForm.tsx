@@ -13,15 +13,17 @@ const OPERATIONS = ['COUNT', 'RATE', 'AVG', 'SUM', 'MIN', 'MAX'] as const;
 const FIELD_OPTIONS: Record<string, string[]> = {
   COUNT: ['threads', 'steps', 'violations', 'retries', 'stepCount'],
   RATE: ['outcome', 'violations'],
-  AVG: ['duration'],
+  AVG: ['duration', 'retries'],
   SUM: ['violations', 'retries', 'duration', 'stepCount'],
   MIN: ['duration'],
-  MAX: ['duration'],
+  MAX: ['duration', 'retries'],
 };
 
 const FILTER_KEYS = [
   'step name',
   'step outcome',
+  'actor',
+  'actor service',
   'thread outcome',
   'process type',
   'violation type',
@@ -32,8 +34,7 @@ const STEP_OUTCOMES = ['success', 'failed', 'error'];
 const THREAD_OUTCOMES = ['success', 'failed', 'error', 'incomplete'];
 const VIOLATION_TYPES = ['sla_breach', 'missing_step', 'wrong_sequence', 'unexpected_outcome', 'partner_silent'];
 
-const GROUP_BY_OPTIONS = ['step name', 'outcome', 'process type', 'violation type', 'period', 'none'] as const;
-const GRANULARITY_OPTIONS = ['hour', 'day', 'week', 'month'] as const;
+const GROUP_BY_OPTIONS = ['step name', 'outcome', 'process type', 'violation type', 'tag', 'none'] as const;
 const VISUALISATION_OPTIONS = ['number', 'line', 'table', 'bar'] as const;
 
 function getValidFields(operation: string): string[] {
@@ -56,7 +57,6 @@ function getFilterValueOptions(key: string): string[] | null {
 
 function getVisualisationOptions(groupBy: string): string[] {
   if (!groupBy || groupBy === 'none') return ['number'];
-  if (groupBy === 'period') return ['line'];
   return ['table', 'bar'];
 }
 
@@ -73,7 +73,7 @@ function calculateComplexity(def: CustomMetricDefinition): number {
     score += def.filters.length;
   }
   if (def.group_by && def.group_by !== 'none') {
-    score += def.group_by === 'period' ? 3 : 2;
+    score += 2;
   }
   if (def.field === 'violations') {
     score += 2;
@@ -126,6 +126,16 @@ export default function SentenceBuilderMetricForm({
       // Auto-derive target from field
       if (updates.field) {
         next.target = deriveTargetFromField(next.field);
+        
+        // Remove step filters and invalid group by if target changes to thread
+        if (next.target === 'thread') {
+          if (next.filters) {
+            next.filters = next.filters.filter(f => !['step name', 'step outcome', 'actor', 'actor service'].includes(f.key));
+          }
+          if (['step name', 'outcome', 'actor', 'actor service'].includes(next.group_by || 'none')) {
+            next.group_by = 'none';
+          }
+        }
       }
 
       // Auto-adjust visualisation when groupBy changes — commented out for now
@@ -184,19 +194,30 @@ export default function SentenceBuilderMetricForm({
   });
 
   const handleSave = () => {
-    const target = deriveTargetFromField(definition.field);
     if (!definition.name || !definition.operation || !definition.field) return;
-    if (target === 'step' && !definition.step_name) return;
     onSubmit(getDefinitionWithTarget());
     setJustSaved(true);
     setTimeout(() => setJustSaved(false), 1200);
   };
 
   const validFields = getValidFields(definition.operation || 'COUNT');
-  const showGranularity = definition.group_by === 'period';
   // const visOptions = getVisualisationOptions(definition.group_by || 'none'); // commented out for now
   const target = deriveTargetFromField(definition.field);
   const showStepName = target === 'step';
+
+  const availableFilterKeys = FILTER_KEYS.filter(k => {
+    if (target === 'thread' && ['step name', 'step outcome', 'actor', 'actor service'].includes(k)) {
+      return false;
+    }
+    return true;
+  });
+
+  // 'step name' and 'outcome' are valid for both targets (step name maps to
+  // s.step_name for step target, t.contract_name for thread target).
+  // 'violation type' requires the validations join — keep it available always.
+  // 'process type' groups by t.contract_name — valid for both targets.
+  // 'period' is always valid.
+  const availableGroupByOptions = GROUP_BY_OPTIONS;
 
   return (
     <div className="space-y-5">
@@ -254,7 +275,7 @@ export default function SentenceBuilderMetricForm({
                 className="bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-black focus:border-black outline-none"
               >
                 <option value="">Select filter...</option>
-                {FILTER_KEYS.map(k => (
+                {availableFilterKeys.map(k => (
                   <option key={k} value={k}>{k}</option>
                 ))}
               </select>
@@ -306,26 +327,10 @@ export default function SentenceBuilderMetricForm({
             onChange={e => updateDefinition({ group_by: e.target.value })}
             className="bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-black focus:border-black outline-none"
           >
-            {GROUP_BY_OPTIONS.map(g => (
+            {availableGroupByOptions.map(g => (
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
-
-          {showGranularity && (
-            <>
-              <span className="text-sm text-gray-500">every</span>
-              <select
-                value={definition.granularity || 'day'}
-                onChange={e => updateDefinition({ granularity: e.target.value })}
-                className="bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-black focus:border-black outline-none"
-                required={showGranularity}
-              >
-                {GRANULARITY_OPTIONS.map(g => (
-                  <option key={g} value={g}>{g}</option>
-                ))}
-              </select>
-            </>
-          )}
         </div>
 
         {/* Visualisation — commented out for now
@@ -344,20 +349,21 @@ export default function SentenceBuilderMetricForm({
         */}
       </div>
 
-      {/* Step Name (required when target is step) */}
+      {/* Step Name (optional filter when target is step) */}
       {showStepName && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Step name</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Step name <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
           <input
             type="text"
             value={definition.step_name || ''}
             onChange={e => updateDefinition({ step_name: e.target.value })}
             placeholder="e.g. order_placed"
             className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none"
-            required
           />
           <p className="text-xs text-gray-500 mt-1">
-            Required when measuring step-level metrics
+            Leave empty to include all steps, or specify a step name to filter
           </p>
         </div>
       )}
