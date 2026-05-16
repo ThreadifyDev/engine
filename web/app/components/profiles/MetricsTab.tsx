@@ -9,6 +9,14 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+
+  const toggleTable = (key: string) => {
+    setExpandedTables(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -262,8 +270,13 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                     <div className={`p-5 grid grid-cols-1 gap-5 ${hasScalars ? 'border-t border-gray-100 bg-gray-50/30' : 'bg-white'}`}>
                       {Object.entries(statuses).map(([status, items]) => {
                         const otherItems = items.filter(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null));
-                        return otherItems.map((item, idx) => (
-                          <div key={`${status}-${idx}`} className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
+                        return otherItems.map((item, idx) => {
+                          const tableKey = `${tagline}-${status}-${idx}`;
+                          const isExpanded = expandedTables[tableKey];
+                          const displayData = Array.isArray(item.result) ? (isExpanded ? item.result : item.result.slice(0, 5)) : item.result;
+
+                          return (
+                          <div key={tableKey} className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
                             {(item.header.toUpperCase() !== tagline.toUpperCase() || status !== 'General') && (
                               <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
                                 {item.header.toUpperCase() !== tagline.toUpperCase() && (
@@ -291,7 +304,7 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-gray-50">
-                                        {item.result.slice(0, 5).map((row: any, i: number) => (
+                                        {displayData.map((row: any, i: number) => (
                                           <tr key={i} className="hover:bg-gray-50/50 transition-colors">
                                             {Object.values(row).map((val: any, j: number) => (
                                               <td key={j} className="py-2 pr-4 text-gray-900 font-mono text-[11px] whitespace-nowrap">
@@ -300,10 +313,25 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                                             ))}
                                           </tr>
                                         ))}
-                                        {item.result.length > 5 && (
+                                        {item.result.length > 5 && !isExpanded && (
                                           <tr>
-                                            <td colSpan={Object.keys(item.result[0]).length} className="pt-3 text-[10px] text-gray-400 text-center italic">
-                                              + {item.result.length - 5} more rows
+                                            <td 
+                                              colSpan={Object.keys(item.result[0]).length} 
+                                              className="pt-3 pb-1 text-[10px] text-gray-400 text-center italic cursor-pointer hover:text-gray-600 transition-colors"
+                                              onClick={() => toggleTable(tableKey)}
+                                            >
+                                              + {item.result.length - 5} more rows (click to expand)
+                                            </td>
+                                          </tr>
+                                        )}
+                                        {item.result.length > 5 && isExpanded && (
+                                          <tr>
+                                            <td 
+                                              colSpan={Object.keys(item.result[0]).length} 
+                                              className="pt-3 pb-1 text-[10px] text-gray-400 text-center italic cursor-pointer hover:text-gray-600 transition-colors"
+                                              onClick={() => toggleTable(tableKey)}
+                                            >
+                                              Show less
                                             </td>
                                           </tr>
                                         )}
@@ -325,9 +353,10 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                               )}
                             </div>
                           </div>
-                        ));
-                      })}
-                    </div>
+                        );
+                      });
+                    })}
+                  </div>
                   )}
                 </div>
               </div>

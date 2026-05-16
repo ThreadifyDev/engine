@@ -12,7 +12,7 @@ This file contains **Python-specific syntax only**. For concepts, see AI.md.
 pip install threadify-sdk
 ```
 
-**Optional:** For OpenTelemetry integration, also install:
+**Optional (OTel only):**
 ```bash
 pip install opentelemetry-api opentelemetry-sdk
 ```
@@ -44,22 +44,20 @@ conn = await Threadify.connect(
 # With label (Recommended)
 thread = await conn.start("Checkout-123")
 
-# With label and contract
-thread = await conn.start("Order-789", contract_name="order_fulfillment")
-
-# With label, contract, and options
+# With label and service name
 thread = await conn.start(
     "Order-789",
-    contract_name="order_fulfillment",
     service_name="merchant-service",
 )
 
 # With tags (immutable labels for filtering)
 thread = await conn.start(
     "Order-789",
-    contract_name="order_fulfillment",
     tags=["production", "v2.1"],
 )
+
+# ONLY if user explicitly asks for contracts:
+# thread = await conn.start("Order-789", contract_name="order_fulfillment")
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -247,6 +245,7 @@ conn.subscribe("step.success", "order_placed", lambda n: (
     n.ack(),
 ))
 
+# Advanced (contract-only): Subscribe to contract validation events
 conn.subscribe("rule.violated", "payment_processed", lambda n: (
     print("Violation:", n.severity),
     n.ack(),
@@ -264,13 +263,7 @@ conn.unsubscribe("thread.completed")
 
 ### Notification Helper Methods
 ```python
-# Check notification status
-if notif.is_violated:
-    # Rule violated
-if notif.is_passed:
-    # Rule passed
-
-# Check severity
+# Check severity (for contract validation events)
 if notif.is_critical:
     # Critical severity
 if notif.is_warning:
@@ -356,9 +349,9 @@ except Exception as e:
     )
 ```
 
-### OpenTelemetry Integration
+### OpenTelemetry Integration — ONLY for Existing OTel Codebases
 
-The Python SDK includes the OpenTelemetry SpanExporter in the core package.
+**Default to manual instrumentation.** Only use OTel if the user explicitly asks OR the codebase already imports `opentelemetry`.
 
 ```python
 from opentelemetry import trace

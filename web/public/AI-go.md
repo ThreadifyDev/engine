@@ -50,14 +50,8 @@ if err != nil {
     log.Fatal(err)
 }
 
-// With label and contract
-thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
-if err != nil {
-    log.Fatal(err)
-}
-
-// With label, contract, and options
-thread, err := conn.Start(ctx, "Order-789", "order_fulfillment", 
+// With label and service name
+thread, err := conn.Start(ctx, "Order-789", "",
     threadify.WithService("merchant-service"),
 )
 if err != nil {
@@ -65,12 +59,15 @@ if err != nil {
 }
 
 // With tags (immutable labels for filtering)
-thread, err := conn.Start(ctx, "Order-789", "order_fulfillment",
+thread, err := conn.Start(ctx, "Order-789", "",
     threadify.WithTags("production", "v2.1"),
 )
 if err != nil {
     log.Fatal(err)
 }
+
+// ONLY if user explicitly asks for contracts:
+// thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -324,14 +321,15 @@ if err != nil {
     log.Fatal(err)
 }
 
+// Advanced (contract-only): Subscribe to contract validation events
 err = conn.Subscribe(ctx, "rule.violated", "payment_processed", func(n *threadify.Notification) {
     fmt.Println("Violation:", n.Severity)
-    
+
     // Check violation status
     if n.IsViolated() && n.IsCritical() {
         // Handle critical violation
     }
-    
+
     n.Ack()
 })
 if err != nil {
@@ -344,11 +342,7 @@ defer conn.Unsubscribe(ctx, "step.success", "order_placed")
 
 ### Notification Helper Methods
 ```go
-// Check notification status
-if n.IsViolated() { /* rule violated */ }
-if n.IsPassed() { /* rule passed */ }
-
-// Check severity
+// Check severity (for contract validation events)
 if n.IsCritical() { /* critical severity */ }
 if n.IsWarning() { /* warning severity */ }
 if n.IsInfo() { /* info severity */ }
@@ -454,15 +448,18 @@ if err != nil {
 }
 ```
 
-### OpenTelemetry Integration
-Because Go is statically typed, the OpenTelemetry integration requires its own sub-module to avoid bloating the core SDK for users who do not use OpenTelemetry.
+### OpenTelemetry Integration — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel if the user explicitly asks OR the codebase already imports `go.opentelemetry.io/otel`.
+
+Because Go is statically typed, the OTel integration requires its own sub-module:
 
 **Install:**
 ```bash
 go get github.com/ThreadifyDev/go-sdk/otel
 ```
 
-**Usage:**
+**Usage (ONLY if codebase already uses OTel):**
 ```go
 import (
     "go.opentelemetry.io/otel"
@@ -563,60 +560,37 @@ import (
 func main() {
     ctx := context.Background()
     
-    conn, err := threadify.Connect(ctx, "api-key", 
+    conn, _ := threadify.Connect(ctx, "api-key",
         threadify.WithServiceName("checkout-service"),
     )
-    if err != nil {
-        log.Fatal(err)
-    }
     defer conn.Close()
-    
-    thread, err := conn.Start(ctx, "", "Checkout Process")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Add external references to the thread
-    err = thread.AddRefs(ctx, map[string]string{
+
+    thread, _ := conn.Start(ctx, "Checkout Process", "")
+
+    thread.AddRefs(ctx, map[string]string{
         "customer_id": "123",
         "order_id": "ORD-789",
     })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    _, err = thread.Step("validate_cart").
+
+    thread.Step("validate_cart").
         AddContext(map[string]any{"items": 3, "total": 99.99}).
         Success(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
+
     payment, err := processPayment()
     if err != nil {
-        _, stepErr := thread.Step("charge_payment").
+        thread.Step("charge_payment").
             AddContext(map[string]any{"error": err.Error()}).
             Failed(ctx)
-        if stepErr != nil {
-            log.Fatal(stepErr)
-        }
         return
     }
-    
-    // Add payment provider reference
-    err = thread.AddRefs(ctx, map[string]string{
+
+    thread.AddRefs(ctx, map[string]string{
         "stripe_payment_id": payment.ID,
     })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    _, err = thread.Step("charge_payment").
+
+    thread.Step("charge_payment").
         AddContext(map[string]any{"amount": 99.99, "method": "card"}).
         Success(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
 }
 
 func processPayment() (*Payment, error) {

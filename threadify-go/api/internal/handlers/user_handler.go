@@ -164,6 +164,7 @@ func mapUserProfileToDTO(result *domain.UserProfile, minimal bool) gin.H {
 		"user": user,
 		"company": gin.H{
 			"details_completed": detailsCompleted,
+			"name":              company.Name,
 			"industry":          stringPtrToString(company.Industry),
 			"company_size":      stringPtrToString(company.Size),
 			"use_case":          stringPtrToString(company.UseCase),
