@@ -43,6 +43,9 @@ const thread = await connection.start('Order-789', 'order_fulfillment');
 
 // With label, contract, and options
 const thread = await connection.start('Order-789', 'order_fulfillment', { serviceName: 'merchant-service' });
+
+// With tags (immutable labels for filtering)
+const thread = await connection.start('Order-789', 'order_fulfillment', { tags: ['production', 'v2.1'] });
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -255,6 +258,9 @@ const connection = await Threadify.connect('api-key', 'checkout-service');
 
 // Create exporter (Optionally extract OTel attributes into Threadify refs)
 const exporter = connection.createSpanExporter({ refs: ['order.id'] });
+
+// Tag threads via OTel span attributes
+span.setAttribute('threadify.tags', ['production', 'v2.1']);
 
 // Filter spans by name — exact match or prefix wildcard with *
 const exporter = connection.createSpanExporter({
