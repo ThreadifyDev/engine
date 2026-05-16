@@ -70,7 +70,7 @@ func ValidateUpdateEntityProfileTypeRequest(req *dto.UpdateEntityProfileTypeRequ
 var validTargets = []string{"thread", "step"}
 var validOperations = []string{"COUNT", "RATE", "AVG", "SUM", "MIN", "MAX"}
 var validFields = []string{"threads", "steps", "violations", "retries", "stepCount", "outcome", "duration"}
-var validGroupBy = []string{"step name", "outcome", "process type", "violation type", "period", "none"}
+var validGroupBy = []string{"step name", "outcome", "process type", "violation type", "tag", "none"}
 var validGranularity = []string{"hour", "day", "week", "month"}
 
 // var validVisualisation = []string{"number", "line", "table", "bar"} // commented out for now
@@ -88,10 +88,6 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 		b.add(prefix+".target", "Target must be 'thread' or 'step'.")
 	}
 
-	if def.Target == "step" && strings.TrimSpace(def.StepName) == "" {
-		b.add(prefix+".step_name", "Step name is required when target is 'step'.")
-	}
-
 	if !slices.Contains(validOperations, def.Operation) {
 		b.add(prefix+".operation", "Operation must be one of: COUNT, RATE, AVG, SUM, MIN, MAX.")
 	}
@@ -101,7 +97,7 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 	}
 
 	if def.GroupBy != "" && !slices.Contains(validGroupBy, def.GroupBy) {
-		b.add(prefix+".group_by", "Group by must be one of: step name, outcome, process type, violation type, period, none.")
+		b.add(prefix+".group_by", "Group by must be one of: step name, outcome, process type, violation type, tag, none.")
 	}
 
 	if def.Granularity != "" && !slices.Contains(validGranularity, def.Granularity) {
@@ -116,6 +112,18 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 	for i, f := range def.Filters {
 		if f.Key == "" || f.Value == "" {
 			b.add(prefix+fmt.Sprintf(".filters[%d]", i), "Filter key and value are required.")
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(f.Key))
+		if def.Target == "thread" && (key == "step name" || key == "step outcome" || key == "actor" || key == "actor service") {
+			b.add(prefix+fmt.Sprintf(".filters[%d].key", i), "Cannot filter by '"+key+"' when target is 'thread'.")
+		}
+	}
+
+	if def.Target == "thread" {
+		groupBy := strings.ToLower(strings.TrimSpace(def.GroupBy))
+		if groupBy == "step name" || groupBy == "outcome" || groupBy == "actor service" {
+			b.add(prefix+".group_by", "Cannot group by '"+groupBy+"' when target is 'thread'.")
 		}
 	}
 }

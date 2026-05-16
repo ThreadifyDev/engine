@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	shderrors "threadify-go/shared/errors"
@@ -108,6 +109,14 @@ func (b *threadQueryBuilder) addOptionalIntFilter(condition string, val *int) {
 	}
 }
 
+func (b *threadQueryBuilder) addOptionalTagsFilter(tags []string) {
+	if len(tags) > 0 {
+		b.where += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM thread_tags tt WHERE tt.thread_id = t.id AND tt.tag = ANY($%d))", b.argIdx)
+		b.args = append(b.args, tags)
+		b.argIdx++
+	}
+}
+
 func (b *threadQueryBuilder) buildSelect(cols, from, orderLimit string) string {
 	return "SELECT " + cols + " FROM " + from + " WHERE " + b.where + orderLimit
 }
@@ -123,7 +132,13 @@ func (b *threadQueryBuilder) paginatedArgs(limit, offset int) []interface{} {
 // --- Repository methods ---
 
 func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) error {
-	_, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
 		INSERT INTO threads (
 			id, label, contract_id, contract_name, contract_version, owner_id, company_id,
 			status, created_at, updated_at, error
@@ -142,6 +157,31 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) erro
 	)
 	if err != nil {
 		return fmt.Errorf("save thread: %w", err)
+	}
+
+	// Bulk write tags into the normalised thread_tags table.
+	if len(thread.Tags) > 0 {
+		placeholders := make([]string, 0, len(thread.Tags))
+		args := make([]interface{}, 0, len(thread.Tags)*3)
+		argIdx := 1
+		for _, tag := range thread.Tags {
+			placeholders = append(placeholders, fmt.Sprintf("($%d,$%d,$%d)", argIdx, argIdx+1, argIdx+2))
+			args = append(args, thread.ID, tag, thread.CompanyID)
+			argIdx += 3
+		}
+
+		query := "INSERT INTO thread_tags (thread_id, tag, company_id) VALUES " +
+			strings.Join(placeholders, ", ") +
+			" ON CONFLICT (thread_id, tag) DO NOTHING"
+
+		_, err = tx.Exec(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("save thread tags: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
 }
@@ -226,7 +266,9 @@ func (r *ThreadRepository) QueryThreads(
 	companyID string,
 	actor, contractName *string,
 	contractVersion *int,
-	status, startedAfter, startedBefore, completedAfter, completedBefore *string,
+	status *string,
+	tags []string,
+	startedAfter, startedBefore, completedAfter, completedBefore *string,
 	limit, offset int,
 ) ([]*domain.Thread, error) {
 	repoStart := perf.Now()
@@ -248,6 +290,7 @@ func (r *ThreadRepository) QueryThreads(
 	b.addOptionalFilter("t.contract_name = $%d", contractName)
 	b.addOptionalIntFilter("t.contract_version = $%d", contractVersion)
 	b.addOptionalFilter("t.status = $%d", status)
+	b.addOptionalTagsFilter(tags)
 	b.addOptionalFilter("t.created_at >= $%d", startedAfter)
 	b.addOptionalFilter("t.created_at <= $%d", startedBefore)
 	b.addOptionalFilter("t.completed_at >= $%d", completedAfter)
@@ -267,7 +310,9 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 	companyID, userID string,
 	actor, contractName *string,
 	contractVersion *int,
-	status, startedAfter, startedBefore, completedAfter, completedBefore *string,
+	status *string,
+	tags []string,
+	startedAfter, startedBefore, completedAfter, completedBefore *string,
 	limit, offset int,
 ) ([]*domain.Thread, int, error) {
 	repoStart := perf.Now()
@@ -287,6 +332,7 @@ func (r *ThreadRepository) QueryThreadsWithAccess(
 		b.addOptionalIntFilter("t.contract_version = $%d", contractVersion)
 	}
 	b.addOptionalFilter("t.status = $%d", status)
+	b.addOptionalTagsFilter(tags)
 	b.addOptionalFilter("t.created_at >= $%d", startedAfter)
 	b.addOptionalFilter("t.created_at <= $%d", startedBefore)
 	b.addOptionalFilter("t.completed_at >= $%d", completedAfter)
@@ -319,7 +365,9 @@ func (r *ThreadRepository) QueryThreadsByContract(
 	ctx context.Context,
 	companyID, contractName string,
 	contractVersion *int,
-	actor, status, startedAfter, startedBefore *string,
+	actor, status *string,
+	tags []string,
+	startedAfter, startedBefore *string,
 	limit, offset int,
 ) ([]*domain.Thread, error) {
 	from := "threads t"
@@ -335,6 +383,7 @@ func (r *ThreadRepository) QueryThreadsByContract(
 		b.argIdx++
 	}
 	b.addOptionalFilter("t.status = $%d", status)
+	b.addOptionalTagsFilter(tags)
 	b.addOptionalFilter("t.created_at >= $%d", startedAfter)
 	b.addOptionalFilter("t.created_at <= $%d", startedBefore)
 
@@ -349,7 +398,7 @@ func (r *ThreadRepository) QueryThreadsByContract(
 
 func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit, offset int) ([]*domain.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
+		SELECT id, label, contract_id, contract_version, owner_id, company_id, status, created_at, updated_at, error
 		FROM threads WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		ownerID, limit, offset,
 	)
@@ -362,7 +411,7 @@ func (r *ThreadRepository) GetByOwner(ctx context.Context, ownerID string, limit
 
 func (r *ThreadRepository) GetByContract(ctx context.Context, contractID string, limit, offset int) ([]*domain.Thread, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, label, contract_id, contract_version, owner_id, company_id, created_at, updated_at, error
+		SELECT id, label, contract_id, contract_version, owner_id, company_id, status, created_at, updated_at, error
 		FROM threads WHERE contract_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		contractID, limit, offset,
 	)
@@ -563,22 +612,26 @@ func scanThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
 	return threads, nil
 }
 
-// scanSimpleThreadRows scans the slim 8-column rows returned by GetByOwner/GetByContract.
+// scanSimpleThreadRows scans the slim rows returned by GetByOwner/GetByContract.
 func scanSimpleThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
 	var threads []*domain.Thread
 	for rows.Next() {
 		var t domain.Thread
 		var createdAt, updatedAt time.Time
 		var label *string
+		var status *string
 		if err := rows.Scan(
 			&t.ID, &label, &t.ContractID, &t.ContractVersion,
-			&t.OwnerID, &t.CompanyID,
+			&t.OwnerID, &t.CompanyID, &status,
 			&createdAt, &updatedAt, &t.Error,
 		); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 		if label != nil {
 			t.Label = *label
+		}
+		if status != nil {
+			t.Status = domain.ThreadStatus(*status)
 		}
 		t.StartedAt = createdAt
 		threads = append(threads, &t)

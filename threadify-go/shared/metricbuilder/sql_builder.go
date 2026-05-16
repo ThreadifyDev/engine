@@ -13,6 +13,9 @@ func BuildSQLFromDefinition(def *domain.MetricDefinition) (string, error) {
 	if def == nil {
 		return "", fmt.Errorf("metric definition is nil")
 	}
+	if err := def.Validate(); err != nil {
+		return "", fmt.Errorf("invalid metric definition: %w", err)
+	}
 	return buildSentenceBuilderSQL(def)
 }
 
@@ -33,6 +36,33 @@ func buildSentenceBuilderSQL(def *domain.MetricDefinition) (string, error) {
 	return sql, nil
 }
 
+func needsValidationsJoin(def *domain.MetricDefinition) bool {
+	if def.Field == "violations" {
+		return true
+	}
+	if def.GroupBy == "violation type" {
+		return true
+	}
+	for _, f := range def.Filters {
+		if strings.ToLower(strings.TrimSpace(f.Key)) == "violation type" {
+			return true
+		}
+	}
+	return false
+}
+
+func needsTagsJoin(def *domain.MetricDefinition) bool {
+	if def.GroupBy == "tag" {
+		return true
+	}
+	for _, f := range def.Filters {
+		if strings.ToLower(strings.TrimSpace(f.Key)) == "tags" {
+			return true
+		}
+	}
+	return false
+}
+
 func buildBaseQuery(def *domain.MetricDefinition) (sq.SelectBuilder, error) {
 	selectClause, err := buildSelectClause(def)
 	if err != nil {
@@ -43,11 +73,20 @@ func buildBaseQuery(def *domain.MetricDefinition) (sq.SelectBuilder, error) {
 		b := sq.Select(selectClause).
 			From("thread_refs tr").
 			Join("threads t ON t.id = tr.thread_id").
-			Join("thread_step_states s ON s.thread_id = tr.thread_id").
-			Where("tr.ref_value = @ref_value").
+			Join("thread_step_states s ON s.thread_id = tr.thread_id")
+
+		if needsValidationsJoin(def) {
+			b = b.Join("thread_validations v ON v.thread_id = t.id")
+		}
+		if needsTagsJoin(def) {
+			b = b.Join("thread_tags tt ON tt.thread_id = t.id")
+		}
+
+		b = b.Where("tr.ref_value = @ref_value").
 			Where("tr.ref_key = ANY(@ref_keys)").
 			Where("t.created_at >= @start_time").
 			Where("t.created_at <= @end_time")
+
 		if def.StepName != "" {
 			b = b.Where("s.step_name = @step_name")
 		}
@@ -56,11 +95,20 @@ func buildBaseQuery(def *domain.MetricDefinition) (sq.SelectBuilder, error) {
 
 	b := sq.Select(selectClause).
 		From("thread_refs tr").
-		Join("threads t ON t.id = tr.thread_id").
-		Where("tr.ref_value = @ref_value").
+		Join("threads t ON t.id = tr.thread_id")
+
+	if needsValidationsJoin(def) {
+		b = b.Join("thread_validations v ON v.thread_id = t.id")
+	}
+	if needsTagsJoin(def) {
+		b = b.Join("thread_tags tt ON tt.thread_id = t.id")
+	}
+
+	b = b.Where("tr.ref_value = @ref_value").
 		Where("tr.ref_key = ANY(@ref_keys)").
 		Where("t.created_at >= @start_time").
 		Where("t.created_at <= @end_time")
+
 	return b, nil
 }
 
@@ -99,12 +147,28 @@ func buildSelectClause(def *domain.MetricDefinition) (string, error) {
 		}
 	}
 
+	if groupBy == "actor" {
+		if target == "step" {
+			parts = append(parts, "s.actor AS label")
+		}
+	}
+
+	if groupBy == "actor service" {
+		if target == "step" {
+			parts = append(parts, "s.actor_service AS label")
+		}
+	}
+
 	if groupBy == "process type" {
 		parts = append(parts, "t.contract_name AS label")
 	}
 
 	if groupBy == "violation type" {
 		parts = append(parts, "v.violation_type AS label")
+	}
+
+	if groupBy == "tag" {
+		parts = append(parts, "tt.tag AS label")
 	}
 
 	parts = append(parts, expr+" AS value")
@@ -160,6 +224,9 @@ func buildCountExpression(field, target string) (string, error) {
 func buildRateExpression(field, target string) (string, error) {
 	switch field {
 	case "outcome":
+		if target == "step" {
+			return "ROUND((COUNT(CASE WHEN s.status = 'completed' THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 2)", nil
+		}
 		return "ROUND((COUNT(CASE WHEN t.status = 'completed' THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 2)", nil
 	case "violations":
 		return "ROUND((COUNT(DISTINCT v.validation_id)::numeric / NULLIF(COUNT(DISTINCT t.id), 0)) * 100, 2)", nil
@@ -175,6 +242,11 @@ func buildAvgExpression(field, target string) (string, error) {
 			return "ROUND(AVG(EXTRACT(EPOCH FROM (s.finished_at - s.started_at)) * 1000)::numeric, 2)", nil
 		}
 		return "ROUND(AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2)", nil
+	case "retries":
+		if target == "step" {
+			return "ROUND(AVG(s.retry_count)::numeric, 2)", nil
+		}
+		return "ROUND(AVG(s.retry_count)::numeric, 2)", nil
 	default:
 		return "AVG(0)", nil
 	}
@@ -223,6 +295,11 @@ func buildMaxExpression(field, target string) (string, error) {
 			return "ROUND(MAX(EXTRACT(EPOCH FROM (s.finished_at - s.started_at)) * 1000)::numeric, 2)", nil
 		}
 		return "ROUND(MAX(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2)", nil
+	case "retries":
+		if target == "step" {
+			return "MAX(s.retry_count)", nil
+		}
+		return "MAX(s.retry_count)", nil
 	default:
 		return "MAX(0)", nil
 	}
@@ -245,15 +322,24 @@ func applyFilters(b sq.SelectBuilder, def *domain.MetricDefinition) sq.SelectBui
 			if def.Target == "step" {
 				b = b.Where("s.status = '" + value + "'")
 			}
+		case "actor":
+			if def.Target == "step" {
+				b = b.Where("s.actor = '" + value + "'")
+			} else {
+				b = b.Where("t.owner_id = '" + value + "'")
+			}
+		case "actor service":
+			if def.Target == "step" {
+				b = b.Where("s.actor_service = '" + value + "'")
+			}
 		case "thread outcome":
 			b = b.Where("t.status = '" + value + "'")
 		case "process type":
 			b = b.Where("t.contract_name = '" + value + "'")
 		case "violation type":
-			b = b.Join("thread_validations v ON v.thread_id = t.id")
 			b = b.Where("v.violation_type = '" + value + "'")
 		case "tags":
-			b = b.Where("EXISTS (SELECT 1 FROM thread_refs tr2 WHERE tr2.thread_id = t.id AND tr2.ref_key = '" + value + "')")
+			b = b.Where("tt.tag = '" + value + "'")
 		}
 	}
 	return b
@@ -280,10 +366,20 @@ func applyGroupBy(b sq.SelectBuilder, def *domain.MetricDefinition) sq.SelectBui
 		} else {
 			b = b.GroupBy("t.status")
 		}
+	case "actor":
+		if def.Target == "step" {
+			b = b.GroupBy("s.actor")
+		}
+	case "actor service":
+		if def.Target == "step" {
+			b = b.GroupBy("s.actor_service")
+		}
 	case "process type":
 		b = b.GroupBy("t.contract_name")
 	case "violation type":
 		b = b.GroupBy("v.violation_type")
+	case "tag":
+		b = b.GroupBy("tt.tag")
 	case "period":
 		if granularity != "" {
 			b = b.GroupBy("DATE_TRUNC('" + granularity + "', t.created_at)")

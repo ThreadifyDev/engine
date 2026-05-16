@@ -23,6 +23,7 @@ type StartThreadCmd struct {
 	ContractName string
 	Role         string
 	Refs         map[string]string
+	Tags         []string
 }
 
 type StartThreadResponse struct {

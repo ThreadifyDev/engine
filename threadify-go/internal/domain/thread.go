@@ -38,6 +38,7 @@ type Thread struct {
 	Label           string // New field for user-friendly thread label
 	CreatedBy       string // User or service account that created the thread
 	Status          ThreadStatus
+	Tags            []string // Tags associated with the thread
 	LastHash        string
 	Violated        *ThreadViolation // Tracks failed steps and violations
 	StartedAt       time.Time

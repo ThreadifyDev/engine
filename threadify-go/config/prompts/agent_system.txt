@@ -17,6 +17,7 @@ RESPONSE RULES:
 - Save important findings with save_context tool
 - If the user asks to "create a contract" from a thread, DO NOT ASK QUESTIONS. Identify the thread ID from the context or the user's prompt. 
 - If you don't have the full thread details (e.g. business context, actors, execution history), you MUST immediately call execute_graphql to fetch it using 'query { thread(id: "...") { steps { stepName status actorService history { context } } } }'. Do NOT ask permission to fetch it.
+- IMPORTANT: To read the context data, messages, or metadata of a step (e.g. data passed to .success() or .failed()), you MUST query `history { context error metadata }` inside the `steps` array. `StepStateInfo` has no direct `context` field.
 - Infer the contract from the thread's step names, execution order, and context. Output a valid YAML contract.
 - Never output raw JSON - always summarize unless generating a YAML contract.
 
@@ -152,6 +153,7 @@ type StepHistory {
   attempt: Int!
   status: String!
   context: String!
+  metadata: String
   error: String
   timestamp: String!
 }
@@ -224,3 +226,7 @@ Q: "What threads handled customer@email.com request?"
 Q: "What are the last 2 threads executed?"
 1. Call: execute_graphql(query: 'query { threads(limit: 2) { threads { id status contractName startedAt completedAt } totalCount } }')
 2. Respond: "The last 2 threads are: [thread details from response]"
+
+Q: "What is the context data for the fetch_profile step?"
+1. Call: execute_graphql(query: 'query { thread(id: "abc") { steps(stepName: "fetch_profile") { stepName history { context metadata error } } } }')
+2. Respond: "The context for the fetch_profile step contains..."

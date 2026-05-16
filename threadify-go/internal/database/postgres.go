@@ -224,6 +224,19 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_thread_refs_lookup_optimized 
 		ON thread_refs(ref_key, ref_value, thread_id);
 
+	-- Thread tags: normalised one-row-per-tag table for filtering and GROUP BY in metrics.
+	-- Tags are immutable after thread creation.
+	CREATE TABLE IF NOT EXISTS thread_tags (
+		thread_id  VARCHAR(255) NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+		tag        TEXT         NOT NULL,
+		company_id VARCHAR(255) NOT NULL,
+		created_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (thread_id, tag)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_thread_tags_company_tag ON thread_tags (company_id, tag);
+	CREATE INDEX IF NOT EXISTS idx_thread_tags_tag         ON thread_tags (tag);
+
 	CREATE TABLE IF NOT EXISTS thread_activities (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		thread_id TEXT NOT NULL,

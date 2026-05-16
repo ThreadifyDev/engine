@@ -714,6 +714,21 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                       )}
                     </div>
                   )}
+                  {thread.tags && thread.tags.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {thread.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {thread.tags.length > 3 && (
+                        <span className="text-xs text-gray-500">+{thread.tags.length - 3}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

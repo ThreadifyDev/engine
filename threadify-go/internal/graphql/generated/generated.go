@@ -185,8 +185,8 @@ type ComplexityRoot struct {
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread                func(childComplexity int, id string) int
 		ThreadChain           func(childComplexity int, rootID string, maxDepth *int) int
-		Threads               func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
-		ThreadsByContract     func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
+		Threads               func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
+		ThreadsByContract     func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ThreadsByRef          func(childComplexity int, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ValidationResults     func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
 		VerifyStepIntegrity   func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
@@ -272,6 +272,7 @@ type ComplexityRoot struct {
 		StartedAt           func(childComplexity int) int
 		Status              func(childComplexity int) int
 		Steps               func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
+		Tags                func(childComplexity int) int
 		ThreadChain         func(childComplexity int, maxDepth *int) int
 		ValidationResults   func(childComplexity int, options *domain.ValidationQueryOptions) int
 	}
@@ -360,8 +361,8 @@ type NotificationConfigResolver interface {
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*domain.Thread, error)
-	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
-	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error)
@@ -404,6 +405,7 @@ type ThreadResolver interface {
 
 	Steps(ctx context.Context, obj *domain.Thread, stepName *string, idempotencyKey *string, status *string) ([]*domain.StepStateInfo, error)
 	ValidationResults(ctx context.Context, obj *domain.Thread, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error)
+
 	NotificationSummary(ctx context.Context, obj *domain.Thread) (*domain.NotificationSummary, error)
 	Notifications(ctx context.Context, obj *domain.Thread, options *domain.ThreadNotificationQueryOptions) ([]*domain.ThreadNotification, error)
 	ThreadChain(ctx context.Context, obj *domain.Thread, maxDepth *int) ([]*domain.Thread, error)
@@ -1082,7 +1084,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.Threads(childComplexity, args["actor"].(*string), args["contractName"].(*string), args["contractVersion"].(*int), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["completedAfter"].(*string), args["completedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+		return e.ComplexityRoot.Query.Threads(childComplexity, args["actor"].(*string), args["contractName"].(*string), args["contractVersion"].(*int), args["status"].(*string), args["tags"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["completedAfter"].(*string), args["completedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.threadsByContract":
 		if e.ComplexityRoot.Query.ThreadsByContract == nil {
 			break
@@ -1093,7 +1095,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.ThreadsByContract(childComplexity, args["contractName"].(string), args["contractVersion"].(*int), args["actor"].(*string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+		return e.ComplexityRoot.Query.ThreadsByContract(childComplexity, args["contractName"].(string), args["contractVersion"].(*int), args["actor"].(*string), args["status"].(*string), args["tags"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.threadsByRef":
 		if e.ComplexityRoot.Query.ThreadsByRef == nil {
 			break
@@ -1554,6 +1556,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Thread.Steps(childComplexity, args["stepName"].(*string), args["idempotencyKey"].(*string), args["status"].(*string)), true
+	case "Thread.tags":
+		if e.ComplexityRoot.Thread.Tags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Thread.Tags(childComplexity), true
 	case "Thread.threadChain":
 		if e.ComplexityRoot.Thread.ThreadChain == nil {
 			break
@@ -2013,6 +2021,8 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Tags set at thread creation time (immutable)
+  tags: [String!]
   # Get notification summary counts (lightweight - load this first)
   notificationSummary: NotificationSummary!
   # Get notifications for this thread with full context (execution, validation, thread events)
@@ -2094,6 +2104,7 @@ type Query {
     contractName: String
     contractVersion: Int
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     completedAfter: String
@@ -2108,6 +2119,7 @@ type Query {
     contractVersion: Int
     actor: String
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     limit: Int = 50
@@ -2612,26 +2624,31 @@ func (ec *executionContext) field_Query_threadsByContract_args(ctx context.Conte
 		return nil, err
 	}
 	args["status"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "tags", ec.unmarshalOString2ᚕstringᚄ)
 	if err != nil {
 		return nil, err
 	}
-	args["startedAfter"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	args["tags"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["startedBefore"] = arg5
-	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	args["startedAfter"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["limit"] = arg6
-	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	args["startedBefore"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
 	if err != nil {
 		return nil, err
 	}
-	args["offset"] = arg7
+	args["limit"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg8
 	return args, nil
 }
 
@@ -2699,36 +2716,41 @@ func (ec *executionContext) field_Query_threads_args(ctx context.Context, rawArg
 		return nil, err
 	}
 	args["status"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "tags", ec.unmarshalOString2ᚕstringᚄ)
 	if err != nil {
 		return nil, err
 	}
-	args["startedAfter"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	args["tags"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["startedBefore"] = arg5
-	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "completedAfter", ec.unmarshalOString2ᚖstring)
+	args["startedAfter"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["completedAfter"] = arg6
-	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "completedBefore", ec.unmarshalOString2ᚖstring)
+	args["startedBefore"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "completedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["completedBefore"] = arg7
-	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	args["completedAfter"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "completedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["limit"] = arg8
-	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	args["completedBefore"] = arg8
+	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
 	if err != nil {
 		return nil, err
 	}
-	args["offset"] = arg9
+	args["limit"] = arg9
+	arg10, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg10
 	return args, nil
 }
 
@@ -5639,6 +5661,8 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -5675,7 +5699,7 @@ func (ec *executionContext) _Query_threads(ctx context.Context, field graphql.Co
 		ec.fieldContext_Query_threads,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+			return ec.Resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["tags"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
 		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadConnection,
@@ -5722,7 +5746,7 @@ func (ec *executionContext) _Query_threadsByContract(ctx context.Context, field 
 		ec.fieldContext_Query_threadsByContract,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+			return ec.Resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["tags"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
 		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadConnection,
@@ -5912,6 +5936,8 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -8585,6 +8611,35 @@ func (ec *executionContext) fieldContext_Thread_validationResults(ctx context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _Thread_tags(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_tags,
+		func(ctx context.Context) (any, error) {
+			return obj.Tags, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_tags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_notificationSummary(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8764,6 +8819,8 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -8918,6 +8975,8 @@ func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Cont
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -14064,6 +14123,8 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tags":
+			out.Values[i] = ec._Thread_tags(ctx, field, obj)
 		case "notificationSummary":
 			field := field
 

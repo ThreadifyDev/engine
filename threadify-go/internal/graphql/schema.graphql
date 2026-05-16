@@ -85,6 +85,8 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Tags set at thread creation time (immutable)
+  tags: [String!]
   # Get notification summary counts (lightweight - load this first)
   notificationSummary: NotificationSummary!
   # Get notifications for this thread with full context (execution, validation, thread events)
@@ -166,6 +168,7 @@ type Query {
     contractName: String
     contractVersion: Int
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     completedAfter: String
@@ -180,6 +183,7 @@ type Query {
     contractVersion: Int
     actor: String
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     limit: Int = 50

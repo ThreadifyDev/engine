@@ -209,6 +209,7 @@ export interface Thread {
   createdBy?: string;
   lastHash?: string;
   refs?: Record<string, any>;
+  tags?: string[];
   startedAt?: string;
   completedAt?: string;
   error?: string;
@@ -292,6 +293,7 @@ class GraphQLClient {
           createdBy
           lastHash
           refs
+          tags
           startedAt
           completedAt
           error
@@ -479,6 +481,7 @@ class GraphQLClient {
   async getThreads(options?: {
     contractName?: string;
     status?: string;
+    tags?: string[];
     limit?: number;
     offset?: number;
     startedAfter?: string;
@@ -488,6 +491,7 @@ class GraphQLClient {
       query GetThreads(
         $contractName: String
         $status: String
+        $tags: [String!]
         $limit: Int
         $offset: Int
         $startedAfter: String
@@ -496,6 +500,7 @@ class GraphQLClient {
         threads(
           contractName: $contractName
           status: $status
+          tags: $tags
           limit: $limit
           offset: $offset
           startedAfter: $startedAfter
@@ -507,6 +512,7 @@ class GraphQLClient {
             contractName
             contractVersion
             status
+            tags
             refs
             startedAt
             completedAt
@@ -525,6 +531,7 @@ class GraphQLClient {
     contractName: string;
     contractVersion?: number;
     status?: string;
+    tags?: string[];
     limit?: number;
     offset?: number;
     startedAfter?: string;
@@ -535,6 +542,7 @@ class GraphQLClient {
         $contractName: String!
         $contractVersion: Int
         $status: String
+        $tags: [String!]
         $limit: Int
         $offset: Int
         $startedAfter: String
@@ -544,6 +552,7 @@ class GraphQLClient {
           contractName: $contractName
           contractVersion: $contractVersion
           status: $status
+          tags: $tags
           limit: $limit
           offset: $offset
           startedAfter: $startedAfter
@@ -555,6 +564,7 @@ class GraphQLClient {
             contractName
             contractVersion
             status
+            tags
             refs
             startedAt
             completedAt

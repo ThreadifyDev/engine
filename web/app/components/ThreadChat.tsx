@@ -605,30 +605,23 @@ export default function ThreadChat() {
                       const yamlContent = extractContractYaml(cleanedContent);
                       
                       if (yamlContent) {
-                        console.log('[YAML Format] Extracted YAML (first 200 chars):', yamlContent.substring(0, 200));
-                        
                         // Format and validate YAML using js-yaml
                         let formattedYaml = yamlContent;
                         let parseError = null;
-                        
+
                         try {
                           // Apply formatAndCleanYaml which already does parse + dump internally
-                          console.log('[YAML Format] Calling formatAndCleanYaml...');
                           formattedYaml = formatAndCleanYaml(yamlContent);
-                          console.log('[YAML Format] Successfully formatted! (first 200 chars):', formattedYaml.substring(0, 200));
                         } catch (e) {
-                          console.warn('[YAML Format] Formatting failed:', e);
                           // If even formatAndCleanYaml fails, use original
                           formattedYaml = yamlContent;
                           parseError = e instanceof Error ? e.message : 'Invalid YAML format';
                         }
-                        
+
                         // Replace malformed YAML in cleaned content with formatted version
                         const updatedContent = cleanedContent.includes('```yaml')
                           ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\`\n\n`)
                           : cleanedContent;
-                        
-                        console.log('[YAML Format] Updated content (first 200 chars):', updatedContent.substring(0, 200));
                         
                         // Call preview API to get graph data
                         api.previewContract({ yaml: formattedYaml })

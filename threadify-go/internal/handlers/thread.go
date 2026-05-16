@@ -369,6 +369,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			ContractName: req.ContractName,
 			Role:         req.Role,
 			Refs:         req.Refs,
+			Tags:         req.Tags,
 		}, session.ownerID, session.companyID)
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()
