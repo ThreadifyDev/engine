@@ -1047,6 +1047,12 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var tagsJSON string
+	if len(thread.Tags) > 0 {
+		tagsBytes, _ := json.Marshal(thread.Tags)
+		tagsJSON = string(tagsBytes)
+	}
+
 	if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
 		"threadId":        threadID,
 		"label":           thread.Label,
@@ -1058,6 +1064,7 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 		"status":          string(thread.Status),
 		"error":           "",
 		"startedAt":       thread.StartedAt.Format(time.RFC3339),
+		"tags":            tagsJSON,
 	}); err != nil {
 		s.logger.Error("failed to publish thread metadata to NATS", zap.Error(err))
 	}

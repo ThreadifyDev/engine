@@ -282,6 +282,46 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 	}
 
 	w.logger.Info("wrote thread metadata", zap.Int("count", rb.len()), zap.Int("skipped", skipped))
+
+	// Batch insert tags into thread_tags table
+	tagRows := newRowBuilder(3)
+	for _, e := range events {
+		companyID := e.Data["companyId"]
+		if companyID == "" || !validCompanies[companyID] {
+			continue
+		}
+		tagsJSON := e.Data["tags"]
+		if tagsJSON == "" {
+			continue
+		}
+		var tags []string
+		if err := json.Unmarshal([]byte(tagsJSON), &tags); err != nil {
+			w.logger.Warn("failed to parse tags JSON, skipping tags",
+				zap.String("thread_id", e.Data["threadId"]),
+				zap.String("tags_json", tagsJSON),
+				zap.Error(err),
+			)
+			continue
+		}
+		for _, tag := range tags {
+			tagRows.add(e.Data["threadId"], tag, companyID)
+		}
+	}
+	if tagRows.len() > 0 {
+		tagQuery := "INSERT INTO thread_tags (thread_id, tag, company_id) VALUES " + tagRows.placeholders() +
+			" ON CONFLICT (thread_id, tag) DO NOTHING"
+		if err := w.batchExec(ctx, "batch upsert thread tags", tagQuery, tagRows.Values); err != nil {
+			w.logger.Error("batch upsert thread tags failed",
+				zap.Int("values", len(tagRows.Values)),
+				zap.Int("rows", tagRows.len()),
+				zap.Error(err),
+			)
+			// Don't fail the whole operation if tags fail; thread metadata already written
+		} else {
+			w.logger.Info("wrote thread tags", zap.Int("count", tagRows.len()))
+		}
+	}
+
 	return nil
 }
 

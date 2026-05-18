@@ -687,9 +687,29 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
                 </div>
 
-                <p className="text-xs text-gray-500 font-mono mb-2 truncate">
-                  {thread.contractName && thread.contractVersion ? `${thread.contractName} v${thread.contractVersion}` : '-'}
-                </p>
+                {thread.contractName && thread.contractVersion ? (
+                  <p className="text-xs text-gray-500 font-mono mb-2 truncate">
+                    {`${thread.contractName} v${thread.contractVersion}`}
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-1 mb-2">
+                    {thread.tags && thread.tags.length > 0 && (
+                      <>
+                        {thread.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        {thread.tags.length > 3 && (
+                          <span className="text-[10px] text-gray-500">+{thread.tags.length - 3}</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3 text-xs text-gray-600">
                   {thread.startedAt && (
@@ -703,10 +723,10 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                       {Object.entries(refs).slice(0, 2).map(([key, value]) => (
                         <span
                           key={key}
-                          className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded"
+                          className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
                         >
-                          <span className="font-medium">{key}:</span>
-                          <span className="ml-0.5">{String(value)}</span>
+                          <span className="font-medium text-gray-500">{key}:</span>
+                          <span className="ml-0.5 font-mono text-gray-700">{String(value)}</span>
                         </span>
                       ))}
                       {Object.keys(refs).length > 2 && (
@@ -714,18 +734,19 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                       )}
                     </div>
                   )}
-                  {thread.tags && thread.tags.length > 0 && (
+                  {/* Tags for threads with a contract are displayed next to the contract */}
+                  {thread.contractName && thread.tags && thread.tags.length > 0 && (
                     <div className="flex items-center gap-1">
                       {thread.tags.slice(0, 3).map((tag) => (
                         <span
                           key={tag}
-                          className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+                          className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200"
                         >
                           {tag}
                         </span>
                       ))}
                       {thread.tags.length > 3 && (
-                        <span className="text-xs text-gray-500">+{thread.tags.length - 3}</span>
+                        <span className="text-[10px] text-gray-500">+{thread.tags.length - 3}</span>
                       )}
                     </div>
                   )}
