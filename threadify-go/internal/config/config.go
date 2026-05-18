@@ -225,6 +225,7 @@ type WebSocketConfig struct {
 	WriteBufferSize         int `yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 	MaxInFlightMax          int `yaml:"max_in_flight_max" mapstructure:"max_in_flight_max"`
 	MaxInFlightDefault      int `yaml:"max_in_flight_default" mapstructure:"max_in_flight_default"`
+	ReadDeadlineSeconds     int `yaml:"read_deadline_seconds" mapstructure:"read_deadline_seconds"`
 }
 
 // WorkerPoolsConfig holds configuration for all worker pools

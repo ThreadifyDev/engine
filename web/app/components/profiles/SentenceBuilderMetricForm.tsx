@@ -203,7 +203,6 @@ export default function SentenceBuilderMetricForm({
   const validFields = getValidFields(definition.operation || 'COUNT');
   // const visOptions = getVisualisationOptions(definition.group_by || 'none'); // commented out for now
   const target = deriveTargetFromField(definition.field);
-  const showStepName = target === 'step';
 
   const availableFilterKeys = FILTER_KEYS.filter(k => {
     if (target === 'thread' && ['step name', 'step outcome', 'actor', 'actor service'].includes(k)) {
@@ -348,25 +347,6 @@ export default function SentenceBuilderMetricForm({
         </div>
         */}
       </div>
-
-      {/* Step Name (optional filter when target is step) */}
-      {showStepName && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Step name <span className="text-gray-400 font-normal">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={definition.step_name || ''}
-            onChange={e => updateDefinition({ step_name: e.target.value })}
-            placeholder="e.g. order_placed"
-            className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Leave empty to include all steps, or specify a step name to filter
-          </p>
-        </div>
-      )}
 
       {/* Complexity & Cost */}
       <div className="flex items-center gap-4 text-sm text-gray-600">

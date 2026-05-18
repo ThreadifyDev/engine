@@ -37,6 +37,7 @@ const (
 	ActionUnsubscribe       = "unsubscribe"
 	ActionCloseThread       = "closeThread"
 	ActionThreadEnd         = "threadEnd"
+	ActionHeartbeat         = "heartbeat"
 )
 
 const (
@@ -48,6 +49,7 @@ const (
 
 	defaultWebSocketReadLimitBytes = int64(2 * 1024 * 1024) // 2MB safety cap before auth/plan resolution
 	readLimitOverheadBytes         = int64(64 * 1024)       // JSON envelope overhead allowance
+	defaultReadDeadlineSeconds     = 60                     // fallback if not set in config
 )
 
 var upgrader websocket.Upgrader
@@ -255,6 +257,11 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	}
 
 	for {
+		deadline := h.websocketConfig.ReadDeadlineSeconds
+		if deadline <= 0 {
+			deadline = defaultReadDeadlineSeconds
+		}
+		conn.SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
 		messageType, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			break
@@ -484,6 +491,9 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			return h.newErrorResponse(ActionUnsubscribe, "Step name is required", "")
 		}
 		return map[string]interface{}{"action": ActionUnsubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Unsubscribed from %s", req.StepName)}
+
+	case ActionHeartbeat:
+		return map[string]interface{}{"action": ActionHeartbeat, "status": StatusSuccess}
 
 	case ActionCloseThread, ActionThreadEnd:
 		var req struct {

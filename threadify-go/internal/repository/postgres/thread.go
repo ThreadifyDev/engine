@@ -20,7 +20,8 @@ import (
 // threadSelectCols is the canonical column list for full thread SELECT queries.
 const threadSelectCols = `t.id, t.label, t.contract_id, t.contract_name, t.contract_version,
 	t.owner_id, t.company_id, t.status, t.error,
-	t.created_at, t.updated_at, t.completed_at`
+	t.created_at, t.updated_at, t.completed_at,
+	(SELECT COALESCE(array_agg(tag), '{}') FROM thread_tags WHERE thread_id = t.id) as tags`
 
 type ThreadRepository struct {
 	pool     *pgxpool.Pool
@@ -40,15 +41,19 @@ func scanThreadRow(row pgx.Row, thread *domain.Thread) error {
 	var contractID, contractName *string
 	var contractVersion *int
 	var status, errorMsg, label *string
+	var tags []string
 
 	if err := row.Scan(
 		&thread.ID, &label, &contractID, &contractName, &contractVersion,
 		&thread.OwnerID, &thread.CompanyID,
 		&status, &errorMsg,
 		&createdAt, &updatedAt, &completedAt,
+		&tags,
 	); err != nil {
 		return err
 	}
+
+	thread.Tags = tags
 
 	if label != nil {
 		thread.Label = *label

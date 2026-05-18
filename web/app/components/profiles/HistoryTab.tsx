@@ -133,10 +133,10 @@ export default function HistoryTab({
                         .map(([key, value]) => (
                           <span
                             key={key}
-                            className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded"
+                            className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
                           >
-                            <span className="font-medium">{key}:</span>
-                            <span className="ml-0.5">{String(value)}</span>
+                            <span className="font-medium text-gray-500">{key}:</span>
+                            <span className="ml-0.5 font-mono text-gray-700">{String(value)}</span>
                           </span>
                         ))}
                       {Object.keys(refs).length > 2 && (

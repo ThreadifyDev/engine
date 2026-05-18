@@ -161,24 +161,20 @@ export default function EntityProfileDetail() {
                 )}
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                {profile.profileType?.type?.map((key: string) => (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs">
+                  <span className="font-medium text-gray-500">{type}:</span>
+                  <span className="font-mono text-gray-700">{refKey}</span>
+                </span>
+                
+                {profile.profileType?.type?.filter((k: string) => k !== type).map((key: string) => (
                   <span 
                     key={key}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider ${
-                      key === refKey 
-                        ? 'bg-blue-100 text-blue-700 border border-blue-200' 
-                        : 'bg-gray-100 text-gray-600 border border-gray-200'
-                    }`}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs opacity-60"
+                    title="Missing value for this identifier type"
                   >
-                    {key}
+                    <span className="font-medium text-gray-500">{key}</span>
                   </span>
                 ))}
-                {!profile.profileType && (
-                  <>
-                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-xs">{type}</span>
-                    <span className="ml-2 text-gray-400 font-mono text-xs">{refKey}</span>
-                  </>
-                )}
               </div>
             </div>
           </div>
