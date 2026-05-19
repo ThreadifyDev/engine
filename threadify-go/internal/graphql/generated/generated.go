@@ -177,6 +177,7 @@ type ComplexityRoot struct {
 	Query struct {
 		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
+		ContractViolations    func(childComplexity int, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfile         func(childComplexity int, id *string, refKey *string, typeArg *string) int
 		EntityProfileHistory  func(childComplexity int, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfileTypes    func(childComplexity int) int
@@ -376,6 +377,7 @@ type QueryResolver interface {
 	EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*EntityProfile, error)
 	EntityProfileTypes(ctx context.Context) ([]*EntityProfileType, error)
 	EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*EntityProfileConnection, error)
+	ContractViolations(ctx context.Context, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*domain.ThreadNotification, error)
 }
 type StepHistoryResolver interface {
 	Error(ctx context.Context, obj *domain.StepHistory) (*string, error)
@@ -990,6 +992,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ContractGraph(childComplexity, args["name"].(string), args["version"].(*int)), true
+	case "Query.contractViolations":
+		if e.ComplexityRoot.Query.ContractViolations == nil {
+			break
+		}
+
+		args, err := ec.field_Query_contractViolations_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ContractViolations(childComplexity, args["contractName"].(*string), args["refKey"].(*string), args["refValue"].(*string), args["severity"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.entityProfile":
 		if e.ComplexityRoot.Query.EntityProfile == nil {
 			break
@@ -2195,6 +2208,18 @@ type Query {
     limit: Int
     offset: Int
   ): EntityProfileConnection!
+  
+  # Get violations across threads, filterable by contract, entity, and severity.
+  contractViolations(
+    contractName: String
+    refKey: String
+    refValue: String
+    severity: [String!]
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [ThreadNotification!]!
 }
 
 type EntityProfileConnection {
@@ -2426,6 +2451,52 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 		return nil, err
 	}
 	args["version"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_contractViolations_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "contractName", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["contractName"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "refKey", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["refKey"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "refValue", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["refValue"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "severity", ec.unmarshalOString2ᚕstringᚄ)
+	if err != nil {
+		return nil, err
+	}
+	args["severity"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg7
 	return args, nil
 }
 
@@ -6512,6 +6583,77 @@ func (ec *executionContext) fieldContext_Query_entityProfilesByType(ctx context.
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_entityProfilesByType_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_contractViolations(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_contractViolations,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ContractViolations(ctx, fc.Args["contractName"].(*string), fc.Args["refKey"].(*string), fc.Args["refValue"].(*string), fc.Args["severity"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadNotificationᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_contractViolations(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "notificationId":
+				return ec.fieldContext_ThreadNotification_notificationId(ctx, field)
+			case "threadId":
+				return ec.fieldContext_ThreadNotification_threadId(ctx, field)
+			case "stepId":
+				return ec.fieldContext_ThreadNotification_stepId(ctx, field)
+			case "stepName":
+				return ec.fieldContext_ThreadNotification_stepName(ctx, field)
+			case "idempotencyKey":
+				return ec.fieldContext_ThreadNotification_idempotencyKey(ctx, field)
+			case "source":
+				return ec.fieldContext_ThreadNotification_source(ctx, field)
+			case "notificationType":
+				return ec.fieldContext_ThreadNotification_notificationType(ctx, field)
+			case "stepStatus":
+				return ec.fieldContext_ThreadNotification_stepStatus(ctx, field)
+			case "validationStatus":
+				return ec.fieldContext_ThreadNotification_validationStatus(ctx, field)
+			case "violationType":
+				return ec.fieldContext_ThreadNotification_violationType(ctx, field)
+			case "severity":
+				return ec.fieldContext_ThreadNotification_severity(ctx, field)
+			case "message":
+				return ec.fieldContext_ThreadNotification_message(ctx, field)
+			case "details":
+				return ec.fieldContext_ThreadNotification_details(ctx, field)
+			case "timestamp":
+				return ec.fieldContext_ThreadNotification_timestamp(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ThreadNotification", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_contractViolations_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -13150,6 +13292,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_entityProfilesByType(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contractViolations":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contractViolations(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

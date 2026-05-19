@@ -187,6 +187,20 @@ func (mr *MockConsumerWriterMockRecorder) WriteThreadMetadata(ctx, events interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteThreadMetadata", reflect.TypeOf((*MockConsumerWriter)(nil).WriteThreadMetadata), ctx, events)
 }
 
+// WriteThreadNotifications mocks base method.
+func (m *MockConsumerWriter) WriteThreadNotifications(ctx context.Context, events []archiver.StreamEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WriteThreadNotifications", ctx, events)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteThreadNotifications indicates an expected call of WriteThreadNotifications.
+func (mr *MockConsumerWriterMockRecorder) WriteThreadNotifications(ctx, events interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteThreadNotifications", reflect.TypeOf((*MockConsumerWriter)(nil).WriteThreadNotifications), ctx, events)
+}
+
 // WriteThreadValidations mocks base method.
 func (m *MockConsumerWriter) WriteThreadValidations(ctx context.Context, events []archiver.StreamEvent) error {
 	m.ctrl.T.Helper()

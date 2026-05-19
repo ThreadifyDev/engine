@@ -61,8 +61,8 @@ func TestGraphQL_ComputedMetrics_FullFlow(t *testing.T) {
 	require.True(t, ok, "computedMetrics should be a JSON object (map), got %T", rawMetrics)
 	require.NotEmpty(t, computedMetrics, "computedMetrics should not be empty")
 
-	val, exists := computedMetrics["Thread Count: Total Threads"]
-	require.True(t, exists, "expected key 'Thread Count: Total Threads' in computedMetrics, got keys: %v", keysOf(computedMetrics))
+	val, exists := computedMetrics["thread_count:total_threads"]
+	require.True(t, exists, "expected key 'thread_count:total_threads' in computedMetrics, got keys: %v", keysOf(computedMetrics))
 
 	totalThreads, ok := val.(float64)
 	require.True(t, ok, "expected float64 for total_threads, got %T", val)
@@ -87,7 +87,7 @@ func TestGraphQL_ComputedMetrics_FullFlow(t *testing.T) {
 	computedMetrics2, ok := profile2["computedMetrics"].(map[string]interface{})
 	require.True(t, ok, "cached computedMetrics should also be a map")
 
-	val2, exists2 := computedMetrics2["Thread Count: Total Threads"]
+	val2, exists2 := computedMetrics2["thread_count:total_threads"]
 	require.True(t, exists2, "cached result should have same key")
 	require.Equal(t, totalThreads, val2.(float64))
 }
@@ -180,10 +180,10 @@ func TestGraphQL_ComputedMetrics_MultipleTemplates(t *testing.T) {
 	require.True(t, ok)
 
 	// Check keys are properly formatted with names and params suffix
-	require.Contains(t, computedMetrics, "Metric One: Count One (p1: v1)")
-	require.Contains(t, computedMetrics, "Metric Two: Count Two")
-	require.Equal(t, float64(1), computedMetrics["Metric One: Count One (p1: v1)"])
-	require.Equal(t, float64(1), computedMetrics["Metric Two: Count Two"])
+	require.Contains(t, computedMetrics, "metric_one:count_one (p1:v1)")
+	require.Contains(t, computedMetrics, "metric_two:count_two")
+	require.Equal(t, float64(1), computedMetrics["metric_one:count_one (p1:v1)"])
+	require.Equal(t, float64(1), computedMetrics["metric_two:count_two"])
 }
 
 func TestGraphQL_ComputedMetrics_CompanyIsolation(t *testing.T) {
@@ -244,8 +244,11 @@ func TestGraphQL_ComputedMetrics_ZeroActivity(t *testing.T) {
 
 	require.Empty(t, gqlResp.Errors)
 
-	// Expect computedMetrics to be null when NO queries returned results
-	require.Nil(t, gqlResp.Data["entityProfile"].(map[string]interface{})["computedMetrics"])
+	// Expect computedMetrics to be 0 for 'Activity' when NO queries returned results
+	computedMetrics := gqlResp.Data["entityProfile"].(map[string]interface{})["computedMetrics"]
+	require.NotNil(t, computedMetrics)
+	metricsMap := computedMetrics.(map[string]interface{})
+	require.Equal(t, float64(0), metricsMap["activity"])
 }
 
 func TestGraphQL_ComputedMetrics_MultiRowResults(t *testing.T) {
@@ -280,8 +283,8 @@ func TestGraphQL_ComputedMetrics_MultiRowResults(t *testing.T) {
 	require.True(t, ok)
 
 	// We expect the result to be under the metric name directly as a JSON array
-	val, exists := computedMetrics["MultiRow Metric"]
-	require.True(t, exists, "Expected MultiRow Metric key in response")
+	val, exists := computedMetrics["multirow_metric"]
+	require.True(t, exists, "Expected 'multirow_metric' key in response")
 
 	list, ok := val.([]interface{})
 	require.True(t, ok, "Expected value to be an array")

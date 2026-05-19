@@ -157,7 +157,7 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		// Build param suffix from parameters and custom filter values
 		var paramStrs []string
 		for k, v := range params {
-			paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
+			paramStrs = append(paramStrs, k+":"+fmt.Sprint(v))
 		}
 
 		var filterKey string
@@ -169,7 +169,7 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 						key, _ := f["key"].(string)
 						value, _ := f["value"].(string)
 						if key != "" && value != "" {
-							paramStrs = append(paramStrs, value)
+							paramStrs = append(paramStrs, key+":"+value)
 							filterKey = key
 							filterCount++
 						}
@@ -180,13 +180,15 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		sort.Strings(paramStrs)
 		var paramSuffix string
 		if len(paramStrs) > 0 {
-			paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
+			paramSuffix = " (" + strings.Join(paramStrs, ", ") + ")"
 		}
 
 		// For custom metrics with exactly one filter, derive display name from the filter key
 		if filterCount == 1 && filterKey != "" {
-			metricDisplayName = strings.Title(filterKey)
+			metricDisplayName = filterKey
 		}
+
+		metricKey := toSnakeCase(metricDisplayName)
 
 		if len(results) == 0 {
 			var emptyVal interface{} = 0
@@ -196,20 +198,20 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 					emptyVal = []interface{}{}
 				}
 			}
-			combinedResults[metricDisplayName+paramSuffix] = emptyVal
+			combinedResults[metricKey+paramSuffix] = emptyVal
 			continue
 		} else if len(results) == 1 {
 			if len(results[0]) == 1 {
 				// Single column, single row: flatten to a scalar for clean display
 				for k, v := range results[0] {
-					combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
+					combinedResults[metricKey+":"+k+paramSuffix] = v
 				}
 			} else {
 				// Multi-column, single row: keep as an object so label/value pairs render together
-				combinedResults[metricDisplayName+paramSuffix] = results[0]
+				combinedResults[metricKey+paramSuffix] = results[0]
 			}
 		} else {
-			combinedResults[metricDisplayName+paramSuffix] = results
+			combinedResults[metricKey+paramSuffix] = results
 		}
 	}
 
@@ -906,6 +908,52 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		TotalCount:  total,
 		ProfileType: graphqlPt,
 	}, nil
+}
+
+// ContractViolations is the resolver for the contractViolations field.
+func (r *queryResolver) ContractViolations(ctx context.Context, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*domain.ThreadNotification, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	limitVal := 50
+	if limit != nil && *limit > 0 {
+		limitVal = *limit
+	}
+	offsetVal := 0
+	if offset != nil && *offset > 0 {
+		offsetVal = *offset
+	}
+
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	notifRepo := postgres.NewThreadNotificationRepository(postgresRepo.GetPool())
+
+	notifications, err := notifRepo.GetGlobalNotifications(
+		ctx,
+		companyID,
+		contractName,
+		refKey,
+		refValue,
+		severity,
+		startedAfter,
+		startedBefore,
+		limitVal,
+		offsetVal,
+	)
+	if err != nil {
+		r.logger.Error("failed to get contract violations",
+			zap.String("company_id", companyID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("failed to fetch contract violations: %w", err)
+	}
+
+	return notifications, nil
 }
 
 // Error is the resolver for the error field on StepHistory.

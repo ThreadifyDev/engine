@@ -259,6 +259,18 @@ type Query {
     limit: Int
     offset: Int
   ): EntityProfileConnection!
+  
+  # Get violations across threads, filterable by contract, entity, and severity.
+  contractViolations(
+    contractName: String
+    refKey: String
+    refValue: String
+    severity: [String!]
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [ThreadNotification!]!
 }
 
 type EntityProfileConnection {
