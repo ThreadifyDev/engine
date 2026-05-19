@@ -23,6 +23,7 @@ type ConsumerWriter interface {
 	WriteThreadMetadata(ctx context.Context, events []StreamEvent) ([]string, error)
 	WriteThreadAccess(ctx context.Context, events []StreamEvent) error
 	WriteThreadValidations(ctx context.Context, events []StreamEvent) error
+	WriteThreadNotifications(ctx context.Context, events []StreamEvent) error
 }
 
 type JetStreamPublisher interface {

@@ -159,3 +159,26 @@ func formatColumnName(s string) string {
 	}
 	return strings.Join(words, " ")
 }
+
+// toSnakeCase converts any display string to snake_case.
+// It lowercases, replaces spaces/hyphens with underscores, and collapses multiple underscores.
+func toSnakeCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "-", "_")
+	// Replace any run of non-alphanumeric chars (except underscore) with underscore
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevUnderscore = false
+		} else if !prevUnderscore {
+			b.WriteRune('_')
+			prevUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}

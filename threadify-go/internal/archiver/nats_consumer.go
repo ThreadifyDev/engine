@@ -76,6 +76,7 @@ func (c *NATSConsumer) Start(ctx context.Context) error {
 		{"thread_metadata", "metadata.thread", c.processThreadMetadata},
 		{"thread_access", "access.thread", c.processThreadAccess},
 		{"thread_validations", "validations.thread", c.processThreadValidations},
+		{"thread_notifications", "notifications.thread", c.processThreadNotifications},
 		{"usage_sync", "usage.sync", c.processUsageSync},
 	}
 
@@ -365,6 +366,18 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	c.logDroppedMalformed("thread_validations", failed)
 	err := c.writer.WriteThreadValidations(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
+	return err
+}
+
+func (c *NATSConsumer) processThreadNotifications(ctx context.Context, msgs []jetstream.Msg) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	start := time.Now()
+	events, failed := c.parseMsgs("thread_notifications", msgs)
+	c.logDroppedMalformed("thread_notifications", failed)
+	err := c.writer.WriteThreadNotifications(ctx, events)
+	c.logPerf("notifications.thread", len(msgs), start)
 	return err
 }
 

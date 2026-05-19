@@ -569,9 +569,9 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 			       t.created_at, t.updated_at, t.completed_at, 1 AS depth
 			FROM threads t
 			WHERE t.id=$1 AND t.company_id=$2
-
+			
 			UNION ALL
-
+			
 			SELECT t.id, t.label, t.contract_id, t.contract_name, t.contract_version,
 			       t.owner_id, t.company_id, t.status, t.error,
 			       t.created_at, t.updated_at, t.completed_at, tc.depth+1
@@ -582,10 +582,11 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 			  AND tc.depth < $3
 			  AND t.company_id = $2
 		)
-		SELECT id, label, contract_id, contract_name, contract_version,
-		       owner_id, company_id, status, error,
-		       created_at, updated_at, completed_at
-		FROM thread_chain ORDER BY depth ASC`,
+		SELECT tc.id, tc.label, tc.contract_id, tc.contract_name, tc.contract_version,
+		       tc.owner_id, tc.company_id, tc.status, tc.error,
+		       tc.created_at, tc.updated_at, tc.completed_at,
+		       (SELECT COALESCE(array_agg(tag), '{}') FROM thread_tags WHERE thread_id = tc.id) as tags
+		FROM thread_chain tc ORDER BY tc.depth ASC`,
 		rootID, companyID, depth,
 	)
 	if err != nil {
@@ -593,6 +594,10 @@ func (r *ThreadRepository) GetThreadChainWithPermissionCheck(ctx context.Context
 	}
 	defer rows.Close()
 	return scanThreadRows(rows)
+}
+
+func (r *ThreadRepository) GetPool() *pgxpool.Pool {
+	return r.pool
 }
 
 // --- row scanning helpers ---

@@ -53,7 +53,6 @@ type MetricsTemplateResponse struct {
 	ID                   string                `json:"id"`
 	MetricsName          string                `json:"metrics_name"`
 	ParameterDefinitions []ParameterDefinition `json:"parameter_definitions"`
-	SQLContent           string                `json:"sql_content"`
 }
 
 type CreateEntityProfileTypeRequest struct {

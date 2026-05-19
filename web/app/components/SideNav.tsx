@@ -102,8 +102,26 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
         </div>
       </div>
 
+      {/* Navigation Items */}
+      <nav className="flex-1 py-4">
+        {navItems.map((item) => (
+          <button
+            key={item.path}
+            onClick={() => navigate(item.path)}
+            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${isActive(item.path)
+                ? 'bg-white text-black'
+                : 'text-gray-300 hover:bg-gray-900 hover:text-white'
+              }`}
+            title={isCollapsed ? item.label : undefined}
+          >
+            <item.icon className="w-5 h-5 flex-shrink-0" />
+            {(!isCollapsed || isMobileOpen) && <span className="truncate">{item.label}</span>}
+          </button>
+        ))}
+      </nav>
+
       {/* Wallet Balance */}
-      <div className="px-4 py-3 border-b border-gray-800">
+      <div className="px-4 py-3 border-t border-gray-800">
         <button
           onClick={() => navigate('/u/settings?tab=billing')}
           className={`w-full flex items-center gap-3 transition-colors ${
@@ -132,24 +150,6 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
           )}
         </button>
       </div>
-
-      {/* Navigation Items */}
-      <nav className="flex-1 py-4">
-        {navItems.map((item) => (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${isActive(item.path)
-                ? 'bg-white text-black'
-                : 'text-gray-300 hover:bg-gray-900 hover:text-white'
-              }`}
-            title={isCollapsed ? item.label : undefined}
-          >
-            <item.icon className="w-5 h-5 flex-shrink-0" />
-            {(!isCollapsed || isMobileOpen) && <span className="truncate">{item.label}</span>}
-          </button>
-        ))}
-      </nav>
 
       {/* Logout Button */}
       <div className="p-4 border-t border-gray-800">

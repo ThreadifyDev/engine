@@ -161,11 +161,6 @@ export default function EntityProfileDetail() {
                 )}
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs">
-                  <span className="font-medium text-gray-500">{type}:</span>
-                  <span className="font-mono text-gray-700">{refKey}</span>
-                </span>
-                
                 {profile.profileType?.type?.filter((k: string) => k !== type).map((key: string) => (
                   <span 
                     key={key}
