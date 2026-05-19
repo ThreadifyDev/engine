@@ -111,14 +111,14 @@ export default function EntityProfileDetail() {
   if (error || !profile) {
     return (
       <AppLayout>
-        <div className="p-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto mt-12">
-          <button 
+        <div className="p-8">
+          <button
             onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
             className="text-red-700 hover:text-red-800 mb-6 flex items-center gap-2 text-sm font-medium transition-colors"
           >
             <ChevronLeft className="w-4 h-4" /> Back to Profiles
           </button>
-          
+
           <div className="bg-red-50 border border-red-100 rounded-xl p-8 text-center flex flex-col items-center">
             <AlertTriangle className="w-12 h-12 text-red-400 mb-4" />
             <h2 className="text-xl font-bold text-red-900 mb-2">Profile Not Found</h2>

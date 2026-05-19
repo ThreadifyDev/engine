@@ -217,7 +217,7 @@ export default function ThreadDetailPage() {
                   title={!thread.contractName ? 'Thread is not attached to a contract' : ''}
                 >
                   <AlertTriangle className="w-4 h-4" />
-                  Flow Validations
+                  Contract Validations
                   {thread.notificationSummary && (thread.notificationSummary.hasCritical || thread.notificationSummary.hasWarnings) && (
                     <span className="ml-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
                       {thread.notificationSummary.criticalCount + thread.notificationSummary.warningCount}
