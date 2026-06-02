@@ -14,7 +14,7 @@ const INTERNAL_ERROR_PATTERNS = [
   /internal\/\S+/i,
   /\/threadify-go\/\S+/i,
   /localhost:\d+/i,
-  /http:\/\/\S+/i,
+  /https?:\/\/\S+/i,
   /tcp:\/\/\S+/i,
 ];
 
@@ -228,9 +228,7 @@ class GraphQLClient {
     // Make GraphQL request through the Web API proxy
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     // Use Web API URL from runtime configuration
-    const apiUrl = typeof window !== 'undefined'
-      ? this.getApiUrl()
-      : 'http://localhost:3001';
+    const apiUrl = this.getApiUrl();
 
     const response = await fetch(`${apiUrl}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
@@ -866,6 +864,18 @@ class GraphQLClient {
     `;
     const data = await this.request<{ entityProfile: { computedMetrics: any } }>(query, options);
     return data.entityProfile?.computedMetrics ?? null;
+  }
+
+  async getDeliveryHealthMetrics(options: { id?: string; refKey?: string; type?: string; range: string }): Promise<any> {
+    const query = `
+      query GetDeliveryHealthMetrics($id: String, $refKey: String, $type: String, $range: String) {
+        entityProfile(id: $id, refKey: $refKey, type: $type) {
+          deliveryHealth(range: $range)
+        }
+      }
+    `;
+    const data = await this.request<{ entityProfile: { deliveryHealth: any } }>(query, options);
+    return data.entityProfile?.deliveryHealth ?? null;
   }
 }
 

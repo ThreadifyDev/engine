@@ -182,3 +182,93 @@ func toSnakeCase(s string) string {
 	}
 	return strings.Trim(b.String(), "_")
 }
+
+func calculateHealthScore(metrics map[string]interface{}) map[string]interface{} {
+	// Extract metric values with safe type assertions
+	getFloatValue := func(key string) float64 {
+		if m, ok := metrics[key].(map[string]interface{}); ok {
+			if val, ok := m["value"].(float64); ok {
+				return val
+			}
+			if val, ok := m["value"].(int64); ok {
+				return float64(val)
+			}
+		}
+		return 0
+	}
+
+	successRate := getFloatValue("success_rate")
+	failureRate := getFloatValue("overall_failure_rate")
+	errorRate := getFloatValue("error_rate")
+	recoveryRate := getFloatValue("recovery_rate")
+	stepFailureBreadth := getFloatValue("step_failure_breadth")
+
+	// Weighted scoring algorithm
+	// Success rate: 40% weight (higher is better)
+	// Failure rate: 30% weight (lower is better)
+	// Error rate: 15% weight (lower is better)
+	// Recovery rate: 10% weight (higher is better, null = neutral)
+	// Step failure breadth: 5% weight (lower is better)
+
+	score := 0.0
+
+	// Success rate contribution (0-40 points)
+	score += (successRate / 100.0) * 40.0
+
+	// Failure rate contribution (0-30 points, inverted)
+	score += ((100.0 - failureRate) / 100.0) * 30.0
+
+	// Error rate contribution (0-15 points, inverted)
+	score += ((100.0 - errorRate) / 100.0) * 15.0
+
+	// Recovery rate contribution (0-10 points)
+	if recoveryRate > 0 {
+		score += (recoveryRate / 100.0) * 10.0
+	} else {
+		// Neutral if no recovery data
+		score += 5.0
+	}
+
+	// Step failure breadth contribution (0-5 points, inverted)
+	score += ((100.0 - stepFailureBreadth) / 100.0) * 5.0
+
+	// Clamp to 0-100
+	if score < 0 {
+		score = 0
+	}
+	if score > 100 {
+		score = 100
+	}
+
+	// Determine status band
+	var status string
+	var trend string
+
+	if score >= 80 {
+		status = "Healthy"
+	} else if score >= 60 {
+		status = "At Risk"
+	} else if score >= 40 {
+		status = "Degraded"
+	} else {
+		status = "Critical"
+	}
+
+	// Simple trend analysis based on success vs failure
+	if successRate >= 80 && failureRate <= 20 {
+		trend = "Stable"
+	} else if successRate >= 60 && failureRate <= 40 {
+		trend = "Improving"
+	} else if failureRate > 50 {
+		trend = "Declining"
+	} else {
+		trend = "Fluctuating"
+	}
+
+	return map[string]interface{}{
+		"value":       score,
+		"status":      status,
+		"trend":       trend,
+		"description": "Overall delivery health score based on success rate, failure patterns, and recovery capability.",
+	}
+}

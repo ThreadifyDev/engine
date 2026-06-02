@@ -400,6 +400,7 @@ type EntityProfile {
   lastActiveAt: String!
   metrics: EntityProfileMetrics
   computedMetrics(range: String): JSON
+  deliveryHealth(range: String): JSON
 }
 
 type CustomMetricDefinition {

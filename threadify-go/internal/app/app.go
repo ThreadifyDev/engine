@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
@@ -453,6 +454,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	gqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: hdlrs.graphqlResolver}))
 	gqlHandler.Use(extension.FixedComplexityLimit(1000))
 	gqlHandler.Use(extension.Introspection{})
+	gqlHandler.SetErrorPresenter(sanitizeGraphQLError)
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -481,10 +483,10 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
 	// MCP.
-	mcpGroup := r.Group("/mcp")
-	mcpGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthAPIKey))
-	mcpGroup.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
-	mountMCPServer(mcpGroup, cfg, svcs.plan, logger)
+	sseGroup := r.Group("/sse")
+	sseGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthAPIKey))
+	sseGroup.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
+	mountMCPServer(sseGroup, cfg, svcs.plan, logger)
 
 	// Public v1.
 	v1Public := r.Group("/v1")
@@ -590,6 +592,27 @@ func graphqlMiddleware(h *handler.Server) gin.HandlerFunc {
 		}
 		h.ServeHTTP(c.Writer, c.Request.WithContext(ctx))
 	}
+}
+
+var internalErrorPatterns = []string{
+	"SQLSTATE",
+	"violates foreign key",
+	"connection refused",
+	"threadify-go/",
+	"supabase.co",
+	"plunk.so",
+	"api.plunk",
+	"useplunk",
+}
+
+func sanitizeGraphQLError(ctx context.Context, err error) *gqlerror.Error {
+	msg := err.Error()
+	for _, pattern := range internalErrorPatterns {
+		if strings.Contains(strings.ToLower(msg), strings.ToLower(pattern)) {
+			return gqlerror.Errorf("An internal error occurred. Please try again or contact support.")
+		}
+	}
+	return gqlerror.Wrap(err)
 }
 
 func LoadConfig() (*config.Config, error) {

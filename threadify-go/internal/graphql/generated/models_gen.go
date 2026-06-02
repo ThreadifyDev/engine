@@ -29,6 +29,7 @@ type EntityProfile struct {
 	LastActiveAt    string                `json:"lastActiveAt"`
 	Metrics         *EntityProfileMetrics `json:"metrics,omitempty"`
 	ComputedMetrics scalars.JSON          `json:"computedMetrics,omitempty"`
+	DeliveryHealth  scalars.JSON          `json:"deliveryHealth,omitempty"`
 }
 
 type EntityProfileConnection struct {

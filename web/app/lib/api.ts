@@ -1,12 +1,12 @@
 // API client for backend communication
 
-// Get API URL from window.__ENV__ (injected by Remix root loader)
-// Falls back to localhost for development
+import { getConfig } from '../config.client';
+
 const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined' && (window as any).__ENV__?.API_URL) {
-    return `${(window as any).__ENV__.API_URL}/api`;
+  if (typeof window !== 'undefined') {
+    return getConfig().apiUrl + '/api';
   }
-  return 'http://localhost:3001/api';
+  throw new Error('getApiBaseUrl() can only be called on the client');
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -24,7 +24,7 @@ const INTERNAL_ERROR_PATTERNS = [
   /internal\/\S+/i,
   /\/threadify-go\/\S+/i,
   /localhost:\d+/i,
-  /http:\/\/\S+/i,
+  /https?:\/\/\S+/i,
   /tcp:\/\/\S+/i,
 ];
 
@@ -124,7 +124,30 @@ export interface CreditAccountDTO {
   updated_at: string;
 }
 
+export interface PlanDTO {
+  subscription_tier: string;
+  status: string;
+  billing_cycle: string;
+  billing_end: string;
+}
+
+export interface UsageMeterDTO {
+  bandwidth_ingress_balance: number;
+  max_bandwidth_ingress: number;
+  bandwidth_egress_balance: number;
+  max_bandwidth_egress: number;
+  max_team_seats: number;
+  max_contract_limit: number;
+  max_rate_limit: number;
+  max_payload_bytes: number;
+  hot_storage_days: number;
+  cold_storage_days: number;
+  support: string;
+}
+
 export interface GetCurrentPlanResponse {
+  plan: PlanDTO | null;
+  usage_meter: UsageMeterDTO | null;
   credit_account: CreditAccountDTO | null;
 }
 

@@ -179,9 +179,7 @@ func (s *plunkEmailService) send(ctx context.Context, payload plunkEmailRequest)
 	defer io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		errMsg := strings.TrimSpace(string(body))
-		return fmt.Errorf("email service error (status %d): %s", resp.StatusCode, errMsg)
+		return fmt.Errorf("email service error (status %d)", resp.StatusCode)
 	}
 
 	return nil

@@ -1040,10 +1040,14 @@ END $$;
 		company_id VARCHAR(255) REFERENCES companies(id) ON DELETE CASCADE,
 		metrics_name VARCHAR(255) NOT NULL,
 		sql_content TEXT NOT NULL,
+		description TEXT,
+		is_system BOOLEAN NOT NULL DEFAULT false,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
 	ALTER TABLE metrics_template ADD COLUMN IF NOT EXISTS company_id VARCHAR(255);
+	ALTER TABLE metrics_template ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false;
+	ALTER TABLE metrics_template ADD COLUMN IF NOT EXISTS description TEXT;
 	ALTER TABLE metrics_template DROP CONSTRAINT IF EXISTS metrics_template_company_id_fkey;
 	ALTER TABLE metrics_template ADD CONSTRAINT metrics_template_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
 
@@ -1089,11 +1093,12 @@ END $$;
 // InitDefaultMetrics inserts the core metrics templates if they don't already exist.
 func (db *PostgresDB) InitDefaultMetrics(ctx context.Context) error {
 	query := `
-	INSERT INTO metrics_template (id, company_id, metrics_name, sql_content) VALUES
+	INSERT INTO metrics_template (id, company_id, metrics_name, description, sql_content, is_system) VALUES
 	(
 		'metric_outcome_rate',
 		NULL,
 		'Outcome Rate',
+		'Percentage of threads matching a specific outcome status.',
 		'-- @param status enum(active, completed, cancelled, failed) Thread status to measure against
 SELECT
     COUNT(CASE WHEN t.status = @status THEN 1 END) AS matched_threads,
@@ -1107,12 +1112,14 @@ JOIN threads t ON t.id = tr.thread_id
 WHERE tr.ref_value = @ref_value
   AND tr.ref_key = ANY(@ref_keys)
   AND t.created_at >= @start_time
-  AND t.created_at <= @end_time;'
+  AND t.created_at <= @end_time;',
+		false
 	),
 	(
 		'metric_avg_delivery_time',
 		NULL,
 		'Avg Delivery Time per Contract',
+		'Average time taken from thread creation to completion vs expected SLA.',
 		'SELECT
     t.contract_name,
     ROUND(AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2) AS avg_duration_ms,
@@ -1128,12 +1135,14 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at >= @start_time
   AND t.created_at <= @end_time
   AND cv.expected_duration_ms IS NOT NULL
-GROUP BY t.contract_name, cv.expected_duration_ms;'
+GROUP BY t.contract_name, cv.expected_duration_ms;',
+		false
 	),
 	(
 		'metric_frequent_failure_point',
 		NULL,
 		'Top Failure Points',
+		'Steps where threads most frequently fail or error.',
 		'-- @param thread_status enum(active, completed, cancelled, failed) Filter by thread outcome
 -- @param step_status enum(success, failed, error, pending, completed, in_progress) Filter by step status
 -- @param limit number Maximum results to return
@@ -1151,12 +1160,14 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at <= @end_time
 GROUP BY tss.step_name
 ORDER BY failure_count DESC
-LIMIT @limit::int;'
+LIMIT @limit::int;',
+		false
 	),
 	(
 		'metric_thread_volume',
 		NULL,
 		'Volume Over Time',
+		'Volume of thread activity bucketed over time.',
 		'-- @param granularity enum(15m, 1h, 1d, 1w, 1M) Time bucket size
 SELECT
     DATE_TRUNC(@granularity::text, t.created_at) AS period,
@@ -1169,12 +1180,180 @@ WHERE tr.ref_value = @ref_value
   AND t.created_at >= @start_time
   AND t.created_at <= @end_time
 GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
-ORDER BY period ASC, thread_outcome;'
+ORDER BY period ASC, thread_outcome;',
+		false
+	),
+	(
+		'system_total_thread_count',
+		NULL,
+		'Total Thread Count',
+		'Volume of activity for this entity over time. Simple count of all threads.',
+		'SELECT COUNT(*) AS value
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time;',
+		true
+	),
+	(
+		'system_overall_failure_rate',
+		NULL,
+		'Overall Failure Rate',
+		'Proportion of threads that failed or were cancelled. Represents delivery failures.',
+		'SELECT 
+    ROUND(
+        (COUNT(CASE WHEN t.status IN (''failed'', ''cancelled'') THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100,
+        2
+    ) AS value
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time;',
+		true
+	),
+	(
+		'system_success_rate',
+		NULL,
+		'Success Rate',
+		'Proportion of threads that completed successfully.',
+		'SELECT 
+    ROUND(
+        (COUNT(CASE WHEN t.status = ''completed'' THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100,
+        2
+    ) AS value
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time;',
+		true
+	),
+	(
+		'system_avg_thread_duration',
+		NULL,
+		'Average Thread Duration',
+		'How long delivery typically takes for this entity (completed threads only).',
+		'SELECT 
+    ROUND(AVG(EXTRACT(EPOCH FROM (t.completed_at - t.created_at)) * 1000)::numeric, 2) AS value
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.status = ''completed''
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time;',
+		true
+	),
+	(
+		'system_error_rate',
+		NULL,
+		'Error Rate',
+		'System errors specifically, separate from business logic failures. Signals infrastructure problems.',
+		'SELECT 
+    ROUND(
+        (COUNT(CASE WHEN t.error IS NOT NULL AND t.error != '''' THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100,
+        2
+    ) AS value
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time;',
+		true
+	),
+	(
+		'system_recovery_rate',
+		NULL,
+		'Recovery Rate',
+		'When delivery fails for this entity, how often do they eventually succeed on retry.',
+		'WITH failed_threads AS (
+    SELECT t.id, t.contract_name, t.created_at
+    FROM thread_refs tr
+    JOIN threads t ON t.id = tr.thread_id
+    WHERE tr.ref_value = @ref_value
+      AND tr.ref_key = ANY(@ref_keys)
+      AND t.status IN (''failed'', ''error'')
+      AND t.created_at >= @start_time
+      AND t.created_at <= @end_time
+),
+recovered_threads AS (
+    SELECT DISTINCT ft.id
+    FROM failed_threads ft
+    JOIN thread_refs tr_rec ON tr_rec.ref_value = @ref_value AND tr_rec.ref_key = ANY(@ref_keys)
+    JOIN threads t_rec ON t_rec.id = tr_rec.thread_id
+    WHERE t_rec.status = ''completed''
+      AND t_rec.contract_name = ft.contract_name
+      AND t_rec.created_at > ft.created_at
+)
+SELECT 
+    ROUND(
+        (COUNT(rt.id)::numeric / NULLIF(COUNT(ft.id), 0)) * 100,
+        2
+    ) AS value
+FROM failed_threads ft
+LEFT JOIN recovered_threads rt ON ft.id = rt.id;',
+		true
+	),
+	(
+		'system_most_common_errors',
+		NULL,
+		'Most Common Errors',
+		'Which error messages surface most frequently for this entity.',
+		'SELECT
+    tss.error AS error_message,
+    COUNT(*) AS count
+FROM thread_refs tr
+JOIN threads t ON t.id = tr.thread_id
+JOIN thread_step_states tss ON t.id = tss.thread_id
+WHERE tr.ref_value = @ref_value
+  AND tr.ref_key = ANY(@ref_keys)
+  AND tss.status IN (''failed'', ''error'')
+  AND tss.error IS NOT NULL
+  AND tss.error != ''''
+  AND t.created_at >= @start_time
+  AND t.created_at <= @end_time
+GROUP BY tss.error
+ORDER BY count DESC
+LIMIT 5;',
+		true
+	),
+	(
+		'system_step_failure_breadth',
+		NULL,
+		'Step Failure Breadth',
+		'How widespread failures are across this entity''s process. High ratio = failures spreading.',
+		'WITH step_stats AS (
+    SELECT 
+        COUNT(DISTINCT CASE WHEN tss.status IN (''failed'', ''error'') THEN tss.step_name END) as failed_steps,
+        COUNT(DISTINCT tss.step_name) as total_steps
+    FROM thread_refs tr
+    JOIN threads t ON t.id = tr.thread_id
+    JOIN thread_step_states tss ON t.id = tss.thread_id
+    WHERE tr.ref_value = @ref_value
+      AND tr.ref_key = ANY(@ref_keys)
+      AND t.created_at >= @start_time
+      AND t.created_at <= @end_time
+)
+SELECT 
+    ROUND(
+        (failed_steps::numeric / NULLIF(total_steps, 0)) * 100,
+        2
+    ) AS value
+FROM step_stats;',
+		true
 	)
 	ON CONFLICT (id) DO UPDATE SET
 		company_id = EXCLUDED.company_id,
 		metrics_name = EXCLUDED.metrics_name,
-		sql_content = EXCLUDED.sql_content;
+		description = EXCLUDED.description,
+		sql_content = EXCLUDED.sql_content,
+		is_system = EXCLUDED.is_system;
 	`
 	_, err := db.Pool.Exec(ctx, query)
 	if err != nil {

@@ -7,15 +7,15 @@ import AppLayout from '~/components/AppLayout';
 import { 
   UserCircle, Activity, 
   ChevronLeft, AlertTriangle,
-  TrendingUp, TrendingDown, Calendar, Search, History as HistoryIcon, LayoutDashboard, BarChart2
+  History as HistoryIcon, LayoutDashboard, BarChart2
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 
 import OverviewTab from '~/components/profiles/OverviewTab';
 import MetricsTab from '~/components/profiles/MetricsTab';
+import DeliveryHealthTab from '~/components/profiles/DeliveryHealthTab';
 import HistoryTab from '~/components/profiles/HistoryTab';
 
-type TabType = 'overview' | 'history' | 'metrics';
+type TabType = 'overview' | 'history' | 'metrics' | 'delivery-health';
 
 export const meta: MetaFunction = ({ params }) => {
   return [
@@ -34,7 +34,7 @@ export default function EntityProfileDetail() {
   const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab') as TabType | null;
-  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview' || urlTab === 'metrics') ? urlTab : 'overview';
+  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview' || urlTab === 'metrics' || urlTab === 'delivery-health') ? urlTab : 'overview';
 
   useEffect(() => {
     if (!type || !refKey) {
@@ -77,6 +77,11 @@ export default function EntityProfileDetail() {
     if (!profile) return null;
     return <OverviewTab profile={profile} metrics={metrics} />;
   }, [profile, metrics]);
+
+  const memoizedDeliveryHealthTab = useMemo(() => {
+    if (!refKey || !type) return null;
+    return <DeliveryHealthTab refKey={refKey} type={type} />;
+  }, [refKey, type]);
 
   const memoizedMetricsTab = useMemo(() => {
     if (!refKey || !type) return null;
@@ -190,6 +195,17 @@ export default function EntityProfileDetail() {
               <LayoutDashboard className="w-4 h-4" />
               Overview
             </button>
+          <button
+              onClick={() => setSearchParams(prev => { prev.set('tab', 'delivery-health'); return prev; })}
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                activeTab === 'delivery-health'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <BarChart2 className="w-4 h-4" />
+              Delivery Health
+            </button>
             <button
               onClick={() => setSearchParams(prev => { prev.set('tab', 'metrics'); return prev; })}
               className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
@@ -216,6 +232,7 @@ export default function EntityProfileDetail() {
         </div>
         <div className="mt-4">
           {activeTab === 'overview' && memoizedOverviewTab}
+          {activeTab === 'delivery-health' && memoizedDeliveryHealthTab}
           {activeTab === 'metrics' && memoizedMetricsTab}
           {activeTab === 'history' && memoizedHistoryTab}
         </div>
