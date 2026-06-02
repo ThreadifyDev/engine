@@ -226,6 +226,121 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	return combinedResults, nil
 }
 
+// DeliveryHealth is the resolver for the deliveryHealth field.
+func (r *entityProfileResolver) DeliveryHealth(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (scalars.JSON, error) {
+	rangeVal := "7d"
+	if rangeArg != nil && *rangeArg != "" {
+		rangeVal = *rangeArg
+	}
+
+	var start, end time.Time
+	end = time.Now()
+
+	switch rangeVal {
+	case "7d":
+		start = end.AddDate(0, 0, -7)
+	case "30d":
+		start = end.AddDate(0, 0, -30)
+	case "90d":
+		start = end.AddDate(0, 0, -90)
+	default:
+		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
+	}
+
+	cacheVersion := "delivery_health"
+
+	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
+		return cached, nil
+	}
+
+	// Determine refKeys for the query
+	var refKeys []string
+	if obj.ProfileType != nil {
+		refKeys = obj.ProfileType.Type
+	} else if obj.ProfileTypeID != "" {
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, obj.ProfileTypeID)
+		if err != nil {
+			r.logger.Warn("failed to fetch profile type for delivery health", zap.String("profileTypeID", obj.ProfileTypeID), zap.Error(err))
+		} else {
+			refKeys = pType.Type
+		}
+	}
+
+	systemTemplateIDs := []string{
+		"system_total_thread_count",
+		"system_overall_failure_rate",
+		"system_success_rate",
+		"system_avg_thread_duration",
+		"system_error_rate",
+		"system_recovery_rate",
+		"system_most_common_errors",
+		"system_step_failure_breadth",
+	}
+
+	templates, err := r.metricsRepo.GetMetricsTemplatesByIDs(ctx, systemTemplateIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch delivery health templates: %w", err)
+	}
+
+	combinedResults := make(map[string]interface{})
+	emptyParams := make(map[string]any)
+
+	for _, template := range templates {
+		sqlQuery := template.SQLContent
+
+		results, err := r.metricsRepo.EvaluateEntityMetric(
+			ctx,
+			sqlQuery,
+			obj.RefKey,
+			refKeys,
+			start,
+			end,
+			emptyParams,
+		)
+		if err != nil {
+			r.logger.Warn("failed to evaluate delivery health query",
+				zap.String("template_id", template.ID),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		metricKey := toSnakeCase(template.MetricsName)
+
+		var finalVal interface{}
+		if len(results) == 0 {
+			finalVal = 0
+		} else if len(results) == 1 {
+			if len(results[0]) == 1 {
+				for _, v := range results[0] {
+					finalVal = v
+				}
+			} else {
+				finalVal = results[0]
+			}
+		} else {
+			finalVal = results
+		}
+
+		combinedResults[metricKey] = map[string]interface{}{
+			"value":       finalVal,
+			"description": template.Description,
+		}
+	}
+
+	if len(combinedResults) == 0 {
+		return nil, nil
+	}
+
+	// Calculate health score
+	healthScore := calculateHealthScore(combinedResults)
+	combinedResults["health_score"] = healthScore
+
+	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion, combinedResults)
+
+	return combinedResults, nil
+}
+
 // Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
 func (r *graphResolver) Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error) {
 	// Convert map[string]GraphNode to []*GraphNode array for GraphQL

@@ -5,8 +5,10 @@ export const getConfig = () => {
   if (typeof window === 'undefined') {
     throw new Error('getConfig() can only be called on the client');
   }
-  
+  if (!(window as any).__ENV__?.API_URL) {
+    throw new Error('Runtime configuration not found. Ensure window.__ENV__.API_URL is set by the server.');
+  }
   return {
-    apiUrl: (window as any).__ENV__?.API_URL || 'http://localhost:3001',
+    apiUrl: (window as any).__ENV__.API_URL,
   };
 };

@@ -29,6 +29,8 @@ models:
     fields:
       computedMetrics:
         resolver: true
+      deliveryHealth:
+        resolver: true
   SubStep:
     model: github.com/threadify/engine/internal/domain.SubStep
   JSON:

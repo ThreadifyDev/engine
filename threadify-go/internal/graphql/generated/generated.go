@@ -78,6 +78,7 @@ type ComplexityRoot struct {
 		CompanyID       func(childComplexity int) int
 		ComputedMetrics func(childComplexity int, rangeArg *string) int
 		CreatedAt       func(childComplexity int) int
+		DeliveryHealth  func(childComplexity int, rangeArg *string) int
 		ID              func(childComplexity int) int
 		LastActiveAt    func(childComplexity int) int
 		Metrics         func(childComplexity int) int
@@ -342,6 +343,7 @@ type ComplexityRoot struct {
 
 type EntityProfileResolver interface {
 	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (scalars.JSON, error)
+	DeliveryHealth(ctx context.Context, obj *EntityProfile, rangeArg *string) (scalars.JSON, error)
 }
 type GraphResolver interface {
 	Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error)
@@ -570,6 +572,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfile.CreatedAt(childComplexity), true
+	case "EntityProfile.deliveryHealth":
+		if e.ComplexityRoot.EntityProfile.DeliveryHealth == nil {
+			break
+		}
+
+		args, err := ec.field_EntityProfile_deliveryHealth_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.EntityProfile.DeliveryHealth(childComplexity, args["range"].(*string)), true
 	case "EntityProfile.id":
 		if e.ComplexityRoot.EntityProfile.ID == nil {
 			break
@@ -2349,6 +2362,7 @@ type EntityProfile {
   lastActiveAt: String!
   metrics: EntityProfileMetrics
   computedMetrics(range: String): JSON
+  deliveryHealth(range: String): JSON
 }
 
 type CustomMetricDefinition {
@@ -2390,6 +2404,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // region    ***************************** args.gotpl *****************************
 
 func (ec *executionContext) field_EntityProfile_computedMetrics_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "range", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["range"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_EntityProfile_deliveryHealth_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "range", ec.unmarshalOString2ᚖstring)
@@ -3914,6 +3939,47 @@ func (ec *executionContext) fieldContext_EntityProfile_computedMetrics(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityProfile_deliveryHealth(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_deliveryHealth,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.EntityProfile().DeliveryHealth(ctx, obj, fc.Args["range"].(*string))
+		},
+		nil,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_deliveryHealth(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_EntityProfile_deliveryHealth_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _EntityProfileConnection_items(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3958,6 +4024,8 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
 			case "computedMetrics":
 				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
+			case "deliveryHealth":
+				return ec.fieldContext_EntityProfile_deliveryHealth(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -6475,6 +6543,8 @@ func (ec *executionContext) fieldContext_Query_entityProfile(ctx context.Context
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
 			case "computedMetrics":
 				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
+			case "deliveryHealth":
+				return ec.fieldContext_EntityProfile_deliveryHealth(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -12175,6 +12245,39 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 					}
 				}()
 				res = ec._EntityProfile_computedMetrics(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "deliveryHealth":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EntityProfile_deliveryHealth(ctx, field, obj)
 				return res
 			}
 

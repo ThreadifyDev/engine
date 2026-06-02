@@ -393,7 +393,8 @@ export default function ThreadChat() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const apiUrl = (window as any).__ENV__?.API_URL || 'http://localhost:3001';
+      const { getConfig } = await import('../config.client');
+      const apiUrl = getConfig().apiUrl;
 
       const response = await fetch(`${apiUrl}/api/chat/ask`, {
         method: 'POST',

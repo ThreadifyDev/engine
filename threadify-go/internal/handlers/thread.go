@@ -50,6 +50,7 @@ const (
 	defaultWebSocketReadLimitBytes = int64(2 * 1024 * 1024) // 2MB safety cap before auth/plan resolution
 	readLimitOverheadBytes         = int64(64 * 1024)       // JSON envelope overhead allowance
 	defaultReadDeadlineSeconds     = 60                     // fallback if not set in config
+	pingWriteTimeoutSeconds        = 5                      // write deadline for sending a ping frame
 )
 
 var upgrader websocket.Upgrader
@@ -250,18 +251,48 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	defer conn.Close()
 	conn.SetReadLimit(defaultWebSocketReadLimitBytes)
 
+	deadlineSecs := h.websocketConfig.ReadDeadlineSeconds
+	if deadlineSecs <= 0 {
+		deadlineSecs = defaultReadDeadlineSeconds
+	}
+	readDeadline := time.Duration(deadlineSecs) * time.Second
+
+	// Reset read deadline whenever a pong arrives so the pinger keeps the
+	// connection alive through proxies and load balancers.
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(readDeadline))
+	})
+
 	session := &WSSession{
 		conn:      conn,
 		sessionID: uuid.New().String(),
 		ctx:       c.Request.Context(),
 	}
 
-	for {
-		deadline := h.websocketConfig.ReadDeadlineSeconds
-		if deadline <= 0 {
-			deadline = defaultReadDeadlineSeconds
+	// Server-side pinger: send a WebSocket ping frame at half the read-deadline
+	// interval. This keeps the TCP connection alive through infrastructure that
+	// drops idle connections (AWS ELB, nginx, GCP load balancer, etc.) without
+	// requiring any action from the SDK client.
+	pingStop := make(chan struct{})
+	go func() {
+		pingInterval := readDeadline / 2
+		ticker := time.NewTicker(pingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingStop:
+				return
+			case <-ticker.C:
+				session.sendMu.Lock()
+				writeDeadline := time.Now().Add(pingWriteTimeoutSeconds * time.Second)
+				_ = conn.WriteControl(websocket.PingMessage, nil, writeDeadline)
+				session.sendMu.Unlock()
+			}
 		}
-		conn.SetReadDeadline(time.Now().Add(time.Duration(deadline) * time.Second))
+	}()
+
+	for {
+		conn.SetReadDeadline(time.Now().Add(readDeadline))
 		messageType, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			break
@@ -285,6 +316,8 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 			break
 		}
 	}
+
+	close(pingStop)
 
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)

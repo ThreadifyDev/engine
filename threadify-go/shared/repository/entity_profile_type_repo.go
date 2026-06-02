@@ -583,6 +583,7 @@ func (r *EntityProfileTypeRepo) ListMetricsTemplates(ctx context.Context) ([]*do
 	query := `
 		SELECT id, metrics_name, sql_content
 		FROM metrics_template
+		WHERE is_system = false
 		ORDER BY metrics_name ASC
 	`
 	rows, err := r.pool.Query(ctx, query)
