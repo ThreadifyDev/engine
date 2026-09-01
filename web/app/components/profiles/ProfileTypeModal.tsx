@@ -34,8 +34,6 @@ export function ProfileTypeModal({
   const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [addingMode, setAddingMode] = useState<'none' | 'custom' | 'template'>('none');
   const [customFormKey, setCustomFormKey] = useState(0);
-  const [markedForDeletion, setMarkedForDeletion] = useState<string[]>([]);
-  const [modifiedMetricIds, setModifiedMetricIds] = useState<string[]>([]);
   const [editingMetricIndex, setEditingMetricIndex] = useState<number | null>(null);
 
   // Reset form when modal opens/closes or initialData changes
@@ -44,8 +42,6 @@ export function ProfileTypeModal({
       setFormData(initialData ? { ...initialData } : { ...defaultData });
       setError(null);
       setAddingMode('none');
-      setMarkedForDeletion([]);
-      setModifiedMetricIds([]);
       setEditingMetricIndex(null);
     }
   }, [isOpen, initialData]);
@@ -67,16 +63,13 @@ export function ProfileTypeModal({
         name: formData.name || '',
         type: formData.type || [],
         description: formData.description || '',
-        metrics: formData.metrics || [],
-        ...(mode === 'edit' && markedForDeletion.length > 0 ? { marked_for_deletion: markedForDeletion } : {}),
-        ...(mode === 'edit' && modifiedMetricIds.length > 0 ? { modified_metric_ids: modifiedMetricIds } : {})
+        metrics: (formData.metrics || []).map(({ id: _id, ...metric }) => metric),
       };
 
-      if (mode === 'edit' && initialData) {
-        await api.updateEntityProfileType(initialData.id, payload);
-      } else {
-        await api.createEntityProfileType(payload);
-      }
+      const profileSlug = mode === 'edit' && initialData
+        ? initialData.slug
+        : payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      await api.applyEntityProfileType(profileSlug, payload);
 
       onClose();
       await onRefresh();
@@ -111,14 +104,6 @@ export function ProfileTypeModal({
       newMetrics[editingMetricIndex] = { ...newMetrics[editingMetricIndex], custom_definition: definition };
       setFormData({ ...formData, metrics: newMetrics });
       
-      // Mark as modified if it has an ID
-      if (metrics[editingMetricIndex]?.id) {
-        setModifiedMetricIds(prev => {
-          if (prev.includes(metrics[editingMetricIndex].id!)) return prev;
-          return [...prev, metrics[editingMetricIndex].id!];
-        });
-      }
-      
       setEditingMetricIndex(null);
       setAddingMode('none');
     } else {
@@ -134,11 +119,6 @@ export function ProfileTypeModal({
 
   const removeMetric = (idx: number) => {
     const metrics = formData.metrics || [];
-    const metric = metrics[idx];
-    // If metric has an id (persisted), mark it for deletion instead of removing from local state
-    if (metric?.id) {
-      setMarkedForDeletion(prev => [...prev, metric.id!]);
-    }
     const newMetrics = [...metrics];
     newMetrics.splice(idx, 1);
     setFormData({ ...formData, metrics: newMetrics });
@@ -146,18 +126,9 @@ export function ProfileTypeModal({
 
   const updateMetric = (idx: number, updated: EntityTypeMetric) => {
     const metrics = formData.metrics || [];
-    const original = metrics[idx];
     const newMetrics = [...metrics];
     newMetrics[idx] = updated;
     setFormData({ ...formData, metrics: newMetrics });
-
-    // If editing an existing metric, mark it as modified
-    if (mode === 'edit' && original?.id && original.id === updated.id) {
-      setModifiedMetricIds(prev => {
-        if (prev.includes(original.id!)) return prev;
-        return [...prev, original.id!];
-      });
-    }
   };
 
   const duplicateMetric = (idx: number) => {
@@ -216,11 +187,13 @@ export function ProfileTypeModal({
                   <input
                     type="text"
                     required
+                    disabled={mode === 'edit'}
                     value={formData.name || ''}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                     placeholder="e.g. Courier Profile"
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none disabled:bg-gray-100 disabled:text-gray-500"
                   />
+                  {mode === 'edit' && <p className="text-xs text-gray-500 mt-1">The name is the profile identity. Rename it with an explicit rename operation.</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Type Key(s)</label>

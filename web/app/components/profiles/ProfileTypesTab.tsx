@@ -36,7 +36,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
     setDeleteError(null);
     try {
       setIsDeleting(true);
-      await api.archiveEntityProfileType(deleteData.id);
+      await api.archiveEntityProfileType(deleteData.slug);
       setDeleteData(null);
       await onRefresh();
     } catch (err: any) {
