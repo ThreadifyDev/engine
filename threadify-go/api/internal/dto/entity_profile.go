@@ -70,3 +70,39 @@ type UpdateEntityProfileTypeRequest struct {
 	MarkedForDeletion []string           `json:"marked_for_deletion,omitempty"`
 	ModifiedMetricIDs []string           `json:"modified_metric_ids,omitempty"`
 }
+
+// ApplyEntityProfileTypeRequest is the canonical, declarative profile type
+// payload shared by the UI and config clients.
+type ApplyEntityProfileTypeRequest struct {
+	Name        string             `json:"name" binding:"required"`
+	Type        []string           `json:"type"`
+	Description string             `json:"description"`
+	Metrics     []EntityTypeMetric `json:"metrics"`
+}
+
+type RenameEntityProfileTypeRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+type EntityProfileTypeChanges struct {
+	NameChanged        bool     `json:"name_changed"`
+	DescriptionChanged bool     `json:"description_changed"`
+	TypesChanged       bool     `json:"types_changed"`
+	MetricsAdded       []string `json:"metrics_added"`
+	MetricsUpdated     []string `json:"metrics_updated"`
+	MetricsRemoved     []string `json:"metrics_removed"`
+}
+
+type EntityProfileTypeBackfill struct {
+	Supported bool `json:"supported"`
+	Applied   bool `json:"applied"`
+}
+
+type ApplyEntityProfileTypeResponse struct {
+	Status     string                    `json:"status"`
+	DryRun     bool                      `json:"dry_run"`
+	ConfigHash string                    `json:"config_hash"`
+	Data       *EntityProfileType        `json:"data"`
+	Changes    EntityProfileTypeChanges  `json:"changes"`
+	Backfill   EntityProfileTypeBackfill `json:"backfill"`
+}

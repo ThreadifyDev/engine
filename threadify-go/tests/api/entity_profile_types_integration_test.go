@@ -12,7 +12,7 @@ func TestEntityProfileTypes_Lifecycle(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	t.Run("validation_error_blank_name", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/blank", map[string]any{
 			"name": " ",
 		}, user.AccessToken)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -22,23 +22,43 @@ func TestEntityProfileTypes_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("validation_error_missing_required_fields", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{}, user.AccessToken)
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/missing", map[string]any{}, user.AccessToken)
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
 		assert.NotEmpty(t, body["error"], "missing fields must produce an error message")
 	})
 
-	// Create
-	createResp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+	declaration := map[string]any{
 		"name":        "Customer",
 		"type":        []string{"customer", "buyer"},
 		"description": "A customer entity",
-	}, user.AccessToken)
-	require.Equal(t, http.StatusCreated, createResp.StatusCode, string(createResp.Body))
+		"metrics":     []any{},
+	}
+
+	// Plan must report the create without mutating state.
+	planResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer?dry_run=true", declaration, user.AccessToken)
+	require.Equal(t, http.StatusOK, planResp.StatusCode, string(planResp.Body))
+	planBody := decodeJSONBody(t, planResp)
+	assert.Equal(t, "created", planBody["status"])
+	assert.Equal(t, true, planBody["dry_run"])
+	assert.NotEmpty(t, planBody["config_hash"])
+	planChanges := planBody["changes"].(map[string]any)
+	assert.Equal(t, false, planChanges["name_changed"])
+	backfill := planBody["backfill"].(map[string]any)
+	assert.Equal(t, false, backfill["supported"])
+
+	listAfterPlan := doRawWithAuth(t, http.MethodGet, "/api/entity-profile-types", nil, "", user.AccessToken)
+	require.Equal(t, http.StatusOK, listAfterPlan.StatusCode)
+	assertEmptyOrNilList(t, decodeJSONBody(t, listAfterPlan), "data")
+
+	// Apply
+	createResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer", declaration, user.AccessToken)
+	require.Equal(t, http.StatusOK, createResp.StatusCode, string(createResp.Body))
 
 	createBody := decodeJSONBody(t, createResp)
-	assert.Equal(t, "Entity profile type created successfully.", createBody["message"])
+	assert.Equal(t, "created", createBody["status"])
+	assert.Equal(t, false, createBody["dry_run"])
 
 	data, ok := createBody["data"].(map[string]any)
 	require.True(t, ok, "create response must include a data object")
@@ -73,27 +93,50 @@ func TestEntityProfileTypes_Lifecycle(t *testing.T) {
 	listedTypes := listed["type"].([]any)
 	assert.ElementsMatch(t, []any{"buyer", "customer"}, listedTypes)
 
-	// Update
-	updateResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/"+id, map[string]any{
-		"name":        "Customer Updated",
+	// Update the same slug without implicitly changing identity.
+	updateResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer", map[string]any{
+		"name":        "Customer",
 		"description": "Updated description",
 		"type":        []string{"customer", "buyer", "vip"},
+		"metrics":     []any{},
 	}, user.AccessToken)
 	require.Equal(t, http.StatusOK, updateResp.StatusCode, string(updateResp.Body))
 
 	updateBody := decodeJSONBody(t, updateResp)
-	assert.Equal(t, "Entity profile type updated successfully.", updateBody["message"])
+	assert.Equal(t, "updated", updateBody["status"])
 
 	updated, ok := updateBody["data"].(map[string]any)
 	require.True(t, ok, "update response must include a data object")
 	assert.Equal(t, id, updated["id"], "updated item must retain the same id")
-	assert.Equal(t, "Customer Updated", updated["name"])
-	assert.Equal(t, "customer_updated", updated["slug"], "slug should be normalized from updated name")
+	assert.Equal(t, "Customer", updated["name"])
+	assert.Equal(t, "customer", updated["slug"])
 	assert.Equal(t, "Updated description", updated["description"])
 	updatedTypes := updated["type"].([]any)
 	assert.ElementsMatch(t, []any{"customer", "buyer", "vip"}, updatedTypes)
 
-	// Verify list reflects the update
+	implicitRenameResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer", map[string]any{
+		"name":        "Customer Updated",
+		"description": "Updated description",
+		"type":        []string{"customer", "buyer", "vip"},
+		"metrics":     []any{},
+	}, user.AccessToken)
+	require.Equal(t, http.StatusBadRequest, implicitRenameResp.StatusCode, string(implicitRenameResp.Body))
+	implicitRenameBody := decodeJSONBody(t, implicitRenameResp)
+	assert.Contains(t, implicitRenameBody["error"], "renames require an explicit rename operation")
+
+	// Rename is an explicit identity-changing operation.
+	renameResp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types/customer/rename", map[string]any{
+		"name": "Customer Updated",
+	}, user.AccessToken)
+	require.Equal(t, http.StatusOK, renameResp.StatusCode, string(renameResp.Body))
+	renameBody := decodeJSONBody(t, renameResp)
+	assert.Equal(t, "Entity profile type renamed successfully.", renameBody["message"])
+	renamed := renameBody["data"].(map[string]any)
+	assert.Equal(t, id, renamed["id"])
+	assert.Equal(t, "Customer Updated", renamed["name"])
+	assert.Equal(t, "customer_updated", renamed["slug"])
+
+	// Verify list reflects the update and explicit rename.
 	listAfterUpdate := doRawWithAuth(t, http.MethodGet, "/api/entity-profile-types", nil, "", user.AccessToken)
 	require.Equal(t, http.StatusOK, listAfterUpdate.StatusCode)
 
@@ -109,7 +152,7 @@ func TestEntityProfileTypes_Lifecycle(t *testing.T) {
 	assert.ElementsMatch(t, []any{"customer", "buyer", "vip"}, updatedListedTypes)
 
 	// Archive
-	archiveResp := doRawWithAuth(t, http.MethodDelete, "/api/entity-profile-types/"+id, nil, "", user.AccessToken)
+	archiveResp := doRawWithAuth(t, http.MethodDelete, "/api/entity-profile-types/customer_updated", nil, "", user.AccessToken)
 	require.Equal(t, http.StatusOK, archiveResp.StatusCode, string(archiveResp.Body))
 
 	archiveBody := decodeJSONBody(t, archiveResp)
@@ -129,9 +172,9 @@ func TestEntityProfileTypes_Unauthorized(t *testing.T) {
 		path   string
 	}{
 		{http.MethodGet, "/api/entity-profile-types"},
-		{http.MethodPost, "/api/entity-profile-types"},
-		{http.MethodPut, "/api/entity-profile-types/some-id"},
-		{http.MethodDelete, "/api/entity-profile-types/some-id"},
+		{http.MethodPut, "/api/entity-profile-types/customer"},
+		{http.MethodPost, "/api/entity-profile-types/customer/rename"},
+		{http.MethodDelete, "/api/entity-profile-types/customer"},
 	}
 
 	for _, ep := range endpoints {
@@ -151,20 +194,20 @@ func TestEntityProfileTypes_UpdateValidation(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	// First create a profile type to update
-	createResp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+	createResp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/test_profile", map[string]any{
 		"name":        "Test Profile",
 		"type":        []string{"customer", "buyer"},
 		"description": "Test description",
 	}, user.AccessToken)
-	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+	require.Equal(t, http.StatusOK, createResp.StatusCode)
 
 	createBody := decodeJSONBody(t, createResp)
 	data := createBody["data"].(map[string]any)
-	id := data["id"].(string)
+	assert.Equal(t, "test_profile", data["slug"])
 
 	t.Run("update_exceeds_max_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/"+id, map[string]any{
-			"name":        "Updated Profile",
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/test_profile", map[string]any{
+			"name":        "Test Profile",
 			"type":        []string{"type1", "type2", "type3", "type4", "type5", "type6"},
 			"description": "Updated description",
 		}, user.AccessToken)
@@ -176,27 +219,27 @@ func TestEntityProfileTypes_UpdateValidation(t *testing.T) {
 	})
 
 	t.Run("update_exactly_max_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/"+id, map[string]any{
-			"name":        "Max Types Profile",
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/test_profile", map[string]any{
+			"name":        "Test Profile",
 			"type":        []string{"type1", "type2", "type3", "type4", "type5"},
 			"description": "Profile with exactly max types",
 		}, user.AccessToken)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Entity profile type updated successfully.", body["message"])
+		assert.Equal(t, "updated", body["status"])
 	})
 
 	t.Run("update_with_duplicate_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/"+id, map[string]any{
-			"name":        "Duplicate Types Profile",
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/test_profile", map[string]any{
+			"name":        "Test Profile",
 			"type":        []string{"customer", "vip", "customer", "partner"},
 			"description": "Profile with duplicate types",
 		}, user.AccessToken)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Entity profile type updated successfully.", body["message"])
+		assert.Equal(t, "updated", body["status"])
 
 		// Verify duplicates are normalized
 		updated := body["data"].(map[string]any)
@@ -210,15 +253,15 @@ func TestEntityProfileTypes_UpdateValidation(t *testing.T) {
 	})
 
 	t.Run("update_with_empty_and_whitespace_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/"+id, map[string]any{
-			"name":        "Whitespace Types Profile",
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/test_profile", map[string]any{
+			"name":        "Test Profile",
 			"type":        []string{"vip", "", "  ", "\tpartner\t"},
 			"description": "Profile with whitespace types",
 		}, user.AccessToken)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Entity profile type updated successfully.", body["message"])
+		assert.Equal(t, "updated", body["status"])
 
 		// Verify whitespace is filtered
 		updated := body["data"].(map[string]any)
@@ -232,12 +275,12 @@ func TestEntityProfileTypes_SlugNormalization(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	t.Run("slug_normalization_with_special_characters", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer_support_agent", map[string]any{
 			"name":        "Customer Support Agent!!",
 			"type":        []string{"customer", "support"},
 			"description": "A customer support agent profile",
 		}, user.AccessToken)
-		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
 		data := body["data"].(map[string]any)
@@ -246,12 +289,12 @@ func TestEntityProfileTypes_SlugNormalization(t *testing.T) {
 	})
 
 	t.Run("slug_normalization_with_multiple_spaces_and_special_chars", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/vip_customer_manager", map[string]any{
 			"name":        "VIP   Customer++Manager",
 			"type":        []string{"vip", "customer", "manager"},
 			"description": "A VIP customer manager profile",
 		}, user.AccessToken)
-		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
 		data := body["data"].(map[string]any)
@@ -264,7 +307,7 @@ func TestEntityProfileTypes_CreateValidation(t *testing.T) {
 	user := setupAuthenticatedUser(t)
 
 	t.Run("create_exceeds_max_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/too_many_types", map[string]any{
 			"name":        "Too Many Types",
 			"type":        []string{"type1", "type2", "type3", "type4", "type5", "type6"},
 			"description": "Profile with too many types",
@@ -277,7 +320,7 @@ func TestEntityProfileTypes_CreateValidation(t *testing.T) {
 	})
 
 	t.Run("create_no_valid_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/no_valid_types", map[string]any{
 			"name":        "No Valid Types",
 			"type":        []string{"", "  ", "\t"},
 			"description": "Profile with no valid types",
@@ -290,15 +333,15 @@ func TestEntityProfileTypes_CreateValidation(t *testing.T) {
 	})
 
 	t.Run("create_with_duplicate_types", func(t *testing.T) {
-		resp := doJSONWithAuth(t, http.MethodPost, "/api/entity-profile-types", map[string]any{
+		resp := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/duplicate_types", map[string]any{
 			"name":        "Duplicate Types",
 			"type":        []string{"customer", "vip", "customer", "partner"},
 			"description": "Profile with duplicate types",
 		}, user.AccessToken)
-		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Entity profile type created successfully.", body["message"])
+		assert.Equal(t, "created", body["status"])
 
 		// Verify duplicates are normalized
 		created := body["data"].(map[string]any)

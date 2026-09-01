@@ -67,6 +67,15 @@ func ValidateUpdateEntityProfileTypeRequest(req *dto.UpdateEntityProfileTypeRequ
 	return b.err()
 }
 
+func ValidateApplyEntityProfileTypeRequest(req *dto.ApplyEntityProfileTypeRequest) error {
+	if req == nil {
+		return ValidateCreateEntityProfileTypeRequest(nil)
+	}
+	return ValidateCreateEntityProfileTypeRequest(&dto.CreateEntityProfileTypeRequest{
+		Name: req.Name, Type: req.Type, Description: req.Description, Metrics: req.Metrics,
+	})
+}
+
 var validTargets = []string{"thread", "step"}
 var validOperations = []string{"COUNT", "RATE", "AVG", "SUM", "MIN", "MAX"}
 var validFields = []string{"threads", "steps", "violations", "retries", "stepCount", "outcome", "duration"}

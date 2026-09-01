@@ -438,7 +438,7 @@ func buildRouter(
 	}
 
 	api := r.Group("/api")
-	api.Use(middleware.AuthAccessTokenAuth(svcs.authService))
+	api.Use(middleware.AuthAccessTokenAuth(svcs.authService, svcs.apiKeySvc))
 
 	user := api.Group("/user")
 	{
@@ -504,10 +504,10 @@ func buildRouter(
 
 	entityProfileType := api.Group("/entity-profile-types")
 	{
-		entityProfileType.POST("", requirePerm("entity_profile_type.create"), h.entityProfileType.CreateEntityProfileType)
 		entityProfileType.GET("", requirePerm("entity_profile_type.read"), h.entityProfileType.ListEntityProfileTypes)
-		entityProfileType.PUT("/:id", requirePerm("entity_profile_type.update"), h.entityProfileType.UpdateEntityProfileType)
-		entityProfileType.DELETE("/:id", requirePerm("entity_profile_type.delete"), h.entityProfileType.ArchiveEntityProfileType)
+		entityProfileType.PUT("/:slug", requirePerm("entity_profile_type.update"), h.entityProfileType.ApplyEntityProfileType)
+		entityProfileType.POST("/:slug/rename", requirePerm("entity_profile_type.update"), h.entityProfileType.RenameEntityProfileType)
+		entityProfileType.DELETE("/:slug", requirePerm("entity_profile_type.delete"), h.entityProfileType.ArchiveEntityProfileType)
 	}
 
 	entityProfiles := api.Group("/entity-profiles")

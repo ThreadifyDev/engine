@@ -619,23 +619,20 @@ class ApiClient {
   }
 
   // --- Entity Profile Management ---
-  async createEntityProfileType(data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
-    return this.post('/entity-profile-types', data);
-  }
-
   async listEntityProfileTypes(): Promise<any> {
     return this.request('/entity-profile-types');
   }
 
-  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[]; marked_for_deletion?: string[]; modified_metric_ids?: string[] }): Promise<any> {
-    return this.request(`/entity-profile-types/${id}`, {
+  async applyEntityProfileType(slug: string, data: EntityProfileTypeDeclaration, dryRun = false): Promise<ApplyEntityProfileTypeResponse> {
+    const suffix = dryRun ? '?dry_run=true' : '';
+    return this.request(`/entity-profile-types/${encodeURIComponent(slug)}${suffix}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
   }
 
-  async archiveEntityProfileType(id: string): Promise<any> {
-    return this.delete(`/entity-profile-types/${id}`);
+  async archiveEntityProfileType(slug: string): Promise<any> {
+    return this.delete(`/entity-profile-types/${encodeURIComponent(slug)}`);
   }
 
   async listEntityProfileTypesProxy(): Promise<any> {
@@ -686,8 +683,32 @@ export interface CustomMetricDefinition {
 export interface EntityTypeMetric {
   id?: string;
   template_id?: string;
+  name?: string;
   parameters?: Record<string, any>;
   custom_definition?: CustomMetricDefinition;
+}
+
+export interface EntityProfileTypeDeclaration {
+  name: string;
+  type: string[];
+  description?: string;
+  metrics: EntityTypeMetric[];
+}
+
+export interface ApplyEntityProfileTypeResponse {
+  status: 'created' | 'updated' | 'unchanged';
+  dry_run: boolean;
+  config_hash: string;
+  data: EntityProfileType;
+  changes: {
+    name_changed: boolean;
+    description_changed: boolean;
+    types_changed: boolean;
+    metrics_added: string[];
+    metrics_updated: string[];
+    metrics_removed: string[];
+  };
+  backfill: { supported: boolean; applied: boolean };
 }
 
 export interface EntityProfileType {

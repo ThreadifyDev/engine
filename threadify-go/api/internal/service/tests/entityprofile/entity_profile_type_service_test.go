@@ -8,11 +8,112 @@ import (
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 	shareddomain "threadify-go/shared/domain"
+	serror "threadify-go/shared/errors"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEntityProfileTypeService_ApplyEntityProfileType_DryRunCreateDoesNotMutate(t *testing.T) {
+	deps := common.NewMockDeps(t)
+	svc := deps.NewEntityProfileTypeService()
+	deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return([]*shareddomain.MetricsTemplate{}, nil)
+	deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), "company", "customer").Return(nil, serror.ErrEntityProfileTypeNotFound)
+
+	result, err := svc.ApplyEntityProfileType(context.Background(), "company", "customer", &domain.ApplyEntityProfileTypeCmd{
+		Name: "Customer", Type: []string{"customer_id"}, Metrics: []domain.EntityTypeMetric{},
+	}, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, "created", result.Status)
+	assert.True(t, result.DryRun)
+	assert.NotEmpty(t, result.ConfigHash)
+	assert.False(t, result.Backfill.Supported)
+}
+
+func TestEntityProfileTypeService_ApplyEntityProfileType_ReconcilesMetricsByName(t *testing.T) {
+	deps := common.NewMockDeps(t)
+	svc := deps.NewEntityProfileTypeService()
+	templates := []*shareddomain.MetricsTemplate{
+		{ID: "deliveries_template", MetricsName: "Deliveries"},
+		{ID: "latency_template", MetricsName: "Latency"},
+	}
+	current := &shareddomain.EntityProfileType{
+		ID: "profile-id", CompanyID: "company", Name: "Customer", Slug: "customer",
+		Type: []string{"customer_id"}, Description: "Old",
+		Metrics: []shareddomain.EntityTypeMetric{
+			{ID: "metric-1", Name: "Deliveries", TemplateID: "deliveries_template", Parameters: map[string]any{"window": "7d"}},
+			{ID: "metric-2", Name: "Failures", TemplateID: "failures_template", Parameters: map[string]any{}},
+		},
+	}
+	deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return(templates, nil)
+	deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), "company", "customer").Return(current, nil)
+	deps.EntityProfileTypeRepo.EXPECT().UpdateProfileType(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, profile *shareddomain.EntityProfileType) error {
+			assert.Equal(t, []string{"metric-2"}, profile.MarkedForDeletion)
+			assert.Equal(t, []string{"metric-1"}, profile.ModifiedMetricIDs)
+			require.Len(t, profile.Metrics, 2)
+			assert.Equal(t, "metric-1", profile.Metrics[0].ID)
+			assert.Empty(t, profile.Metrics[1].ID)
+			return nil
+		},
+	)
+
+	result, err := svc.ApplyEntityProfileType(context.Background(), "company", "customer", &domain.ApplyEntityProfileTypeCmd{
+		Name: "Customer", Type: []string{"customer_id"}, Description: "New",
+		Metrics: []domain.EntityTypeMetric{
+			{TemplateID: "deliveries_template", Parameters: map[string]any{"window": "30d"}},
+			{TemplateID: "latency_template", Parameters: map[string]any{}},
+		},
+	}, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, "updated", result.Status)
+	assert.Equal(t, []string{"Latency"}, result.Changes.MetricsAdded)
+	assert.Equal(t, []string{"Deliveries"}, result.Changes.MetricsUpdated)
+	assert.Equal(t, []string{"Failures"}, result.Changes.MetricsRemoved)
+}
+
+func TestEntityProfileTypeService_ApplyEntityProfileType_UnchangedSkipsWrite(t *testing.T) {
+	deps := common.NewMockDeps(t)
+	svc := deps.NewEntityProfileTypeService()
+	templates := []*shareddomain.MetricsTemplate{{ID: "deliveries", MetricsName: "Deliveries"}}
+	current := &shareddomain.EntityProfileType{
+		ID: "profile-id", CompanyID: "company", Name: "Customer", Slug: "customer",
+		Type: []string{"customer_id"}, Metrics: []shareddomain.EntityTypeMetric{{ID: "m1", Name: "Deliveries", TemplateID: "deliveries", Parameters: map[string]any{}}},
+	}
+	deps.EntityProfileTypeRepo.EXPECT().ListMetricsTemplates(gomock.Any()).Return(templates, nil)
+	deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), "company", "customer").Return(current, nil)
+
+	result, err := svc.ApplyEntityProfileType(context.Background(), "company", "customer", &domain.ApplyEntityProfileTypeCmd{
+		Name: "Customer", Type: []string{"customer_id"}, Metrics: []domain.EntityTypeMetric{{TemplateID: "deliveries", Parameters: map[string]any{}}},
+	}, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, "unchanged", result.Status)
+	assert.Same(t, current, result.Profile)
+}
+
+func TestEntityProfileTypeService_RenameEntityProfileType_IsExplicit(t *testing.T) {
+	deps := common.NewMockDeps(t)
+	svc := deps.NewEntityProfileTypeService()
+	current := &shareddomain.EntityProfileType{ID: "profile-id", CompanyID: "company", Name: "Customer", Slug: "customer", Type: []string{"customer_id"}}
+	deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), "company", "customer").Return(current, nil)
+	deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), "company", "account").Return(nil, serror.ErrEntityProfileTypeNotFound)
+	deps.EntityProfileTypeRepo.EXPECT().UpdateProfileType(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, profile *shareddomain.EntityProfileType) error {
+			assert.Equal(t, "Account", profile.Name)
+			assert.Equal(t, "account", profile.Slug)
+			return nil
+		},
+	)
+
+	result, err := svc.RenameEntityProfileType(context.Background(), "company", "customer", "Account")
+
+	require.NoError(t, err)
+	assert.Equal(t, "account", result.Slug)
+}
 
 // normalizeTypes is a copy of the service's normalizeTypes function for testing
 func normalizeTypes(types []string) []string {
@@ -90,13 +191,17 @@ func TestEntityProfileTypeService_ArchiveEntityProfileType(t *testing.T) {
 		{
 			name: "success",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.EntityProfileTypeRepo.EXPECT().ArchiveProfileType(gomock.Any(), companyID, typeID).Return(nil)
+				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), companyID, typeID).
+					Return(&shareddomain.EntityProfileType{ID: "stored_id"}, nil)
+				deps.EntityProfileTypeRepo.EXPECT().ArchiveProfileType(gomock.Any(), companyID, "stored_id").Return(nil)
 			},
 		},
 		{
 			name: "error",
 			setupMock: func(deps *common.MockedDeps) {
-				deps.EntityProfileTypeRepo.EXPECT().ArchiveProfileType(gomock.Any(), companyID, typeID).Return(assert.AnError)
+				deps.EntityProfileTypeRepo.EXPECT().GetProfileTypeByType(gomock.Any(), companyID, typeID).
+					Return(&shareddomain.EntityProfileType{ID: "stored_id"}, nil)
+				deps.EntityProfileTypeRepo.EXPECT().ArchiveProfileType(gomock.Any(), companyID, "stored_id").Return(assert.AnError)
 			},
 			wantErr: true,
 		},

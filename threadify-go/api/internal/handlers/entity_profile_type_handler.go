@@ -2,15 +2,107 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/dto"
 	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/slug"
 
 	"github.com/gin-gonic/gin"
 )
+
+func (h *EntityProfileTypeHandler) ApplyEntityProfileType(c *gin.Context) {
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req dto.ApplyEntityProfileTypeRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateApplyEntityProfileTypeRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+	pathSlug := c.Param("slug")
+	if expected := slug.ToSlug(req.Name); expected == "" || expected != pathSlug {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":         "profile slug must match the normalized profile name; renames require an explicit rename operation",
+			"expected_slug": expected,
+		})
+		return
+	}
+	dryRun := false
+	if raw := c.Query("dry_run"); raw != "" {
+		var err error
+		dryRun, err = strconv.ParseBool(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "dry_run must be true or false"})
+			return
+		}
+	}
+
+	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
+	for _, m := range req.Metrics {
+		metrics = append(metrics, domain.EntityTypeMetric{
+			TemplateID: m.TemplateID, Name: m.Name, Parameters: m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
+		})
+	}
+	result, err := h.entityProfileTypeService.ApplyEntityProfileType(
+		c.Request.Context(), companyID.(string), pathSlug,
+		&domain.ApplyEntityProfileTypeCmd{Name: req.Name, Type: req.Type, Description: req.Description, Metrics: metrics},
+		dryRun,
+	)
+	if err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusOK, dto.ApplyEntityProfileTypeResponse{
+		Status: result.Status, DryRun: result.DryRun, ConfigHash: result.ConfigHash,
+		Data: toEntityProfileTypeDTO(result.Profile),
+		Changes: dto.EntityProfileTypeChanges{
+			NameChanged: result.Changes.NameChanged, DescriptionChanged: result.Changes.DescriptionChanged,
+			TypesChanged: result.Changes.TypesChanged, MetricsAdded: result.Changes.MetricsAdded,
+			MetricsUpdated: result.Changes.MetricsUpdated, MetricsRemoved: result.Changes.MetricsRemoved,
+		},
+		Backfill: dto.EntityProfileTypeBackfill{Supported: result.Backfill.Supported, Applied: result.Backfill.Applied},
+	})
+}
+
+func (h *EntityProfileTypeHandler) RenameEntityProfileType(c *gin.Context) {
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var req dto.RenameEntityProfileTypeRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if slug.ToSlug(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	profile, err := h.entityProfileTypeService.RenameEntityProfileType(
+		c.Request.Context(), companyID.(string), c.Param("slug"), req.Name,
+	)
+	if err != nil {
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Entity profile type renamed successfully.", "data": toEntityProfileTypeDTO(profile)})
+}
 
 type EntityProfileTypeHandler struct {
 	entityProfileTypeService ports.EntityProfileTypeService
@@ -154,11 +246,12 @@ func (h *EntityProfileTypeHandler) ArchiveEntityProfileType(c *gin.Context) {
 		return
 	}
 	compID := companyID.(string)
-	id := c.Param("id")
+	profileSlug := c.Param("slug")
 
-	err := h.entityProfileTypeService.ArchiveEntityProfileType(c.Request.Context(), compID, id)
+	err := h.entityProfileTypeService.ArchiveEntityProfileType(c.Request.Context(), compID, profileSlug)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 

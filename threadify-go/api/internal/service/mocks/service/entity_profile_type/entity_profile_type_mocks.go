@@ -36,6 +36,36 @@ func (m *MockEntityProfileTypeService) EXPECT() *MockEntityProfileTypeServiceMoc
 	return m.recorder
 }
 
+// ApplyEntityProfileType mocks base method.
+func (m *MockEntityProfileTypeService) ApplyEntityProfileType(arg0 context.Context, arg1, arg2 string, arg3 *domain.ApplyEntityProfileTypeCmd, arg4 bool) (*domain.ApplyEntityProfileTypeResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyEntityProfileType", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(*domain.ApplyEntityProfileTypeResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ApplyEntityProfileType indicates an expected call of ApplyEntityProfileType.
+func (mr *MockEntityProfileTypeServiceMockRecorder) ApplyEntityProfileType(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyEntityProfileType", reflect.TypeOf((*MockEntityProfileTypeService)(nil).ApplyEntityProfileType), arg0, arg1, arg2, arg3, arg4)
+}
+
+// RenameEntityProfileType mocks base method.
+func (m *MockEntityProfileTypeService) RenameEntityProfileType(arg0 context.Context, arg1, arg2, arg3 string) (*domain0.EntityProfileType, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenameEntityProfileType", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(*domain0.EntityProfileType)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenameEntityProfileType indicates an expected call of RenameEntityProfileType.
+func (mr *MockEntityProfileTypeServiceMockRecorder) RenameEntityProfileType(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenameEntityProfileType", reflect.TypeOf((*MockEntityProfileTypeService)(nil).RenameEntityProfileType), arg0, arg1, arg2, arg3)
+}
+
 // ArchiveEntityProfileType mocks base method.
 func (m *MockEntityProfileTypeService) ArchiveEntityProfileType(arg0 context.Context, arg1, arg2 string) error {
 	m.ctrl.T.Helper()
