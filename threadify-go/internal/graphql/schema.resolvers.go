@@ -728,6 +728,66 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 	return graph, nil
 }
 
+// ProposeStep is the resolver for the proposeStep field.
+func (r *queryResolver) ProposeStep(ctx context.Context, threadID string, stepName string) (*domain.StepProposal, error) {
+	_, companyID, _, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, threadID, companyID)
+	if err != nil {
+		if errors.Is(err, shderrors.ErrAccessDenied) {
+			return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+		}
+		return nil, fmt.Errorf("failed to get thread: %w", err)
+	}
+	if thread.ContractName == "" || thread.ContractVersion == nil {
+		return nil, fmt.Errorf("thread %q has no contract", threadID)
+	}
+
+	graph, err := r.contractValidator.GetContractGraph(ctx, thread.ContractName, *thread.ContractVersion, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load contract graph: %w", err)
+	}
+
+	// Merge archived step facts with the ordered hot success set. PostgreSQL
+	// covers history that predates complete current_steps retention, while the
+	// hot set supplies successes that may not have reached the archiver yet and
+	// remains authoritative for the immediately previous step.
+	steps, err := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, threadID, companyID, nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load archived thread step facts: %w", err)
+	}
+	sort.SliceStable(steps, func(i, j int) bool {
+		return steps[i].LastUpdatedAt.Before(steps[j].LastUpdatedAt)
+	})
+
+	successfulSteps := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if step.Status == "success" || step.Status == "completed" {
+			successfulSteps = append(successfulSteps, step.StepName)
+		}
+	}
+
+	hotSteps, err := r.threadRepo.GetCompletedSteps(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current thread step facts: %w", err)
+	}
+	for _, stepKey := range hotSteps {
+		stepName, _, _ := strings.Cut(stepKey, ":")
+		if stepName != "" {
+			successfulSteps = append(successfulSteps, stepName)
+		}
+	}
+
+	proposal, err := service.EvaluateStepProposal(thread.ID, thread.Status, graph, stepName, successfulSteps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to propose step: %w", err)
+	}
+	return proposal, nil
+}
+
 // StepHistory is the resolver for the stepHistory field.
 func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context

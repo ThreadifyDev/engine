@@ -511,7 +511,7 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 	rows, err := r.pool.Query(ctx, `
 		SELECT step_name, last_updated_at
 		FROM thread_step_states
-		WHERE thread_id=$1 AND status='completed'
+		WHERE thread_id=$1 AND status IN ('success', 'completed')
 		ORDER BY last_updated_at ASC`,
 		threadID,
 	)
@@ -523,12 +523,8 @@ func (r *ThreadRepository) GetCompletedSteps(ctx context.Context, threadID strin
 	var steps []domain.StepWithTimestamp
 	for rows.Next() {
 		var step domain.StepWithTimestamp
-		var lastUpdatedAt string
-		if err := rows.Scan(&step.StepName, &lastUpdatedAt); err != nil {
+		if err := rows.Scan(&step.StepName, &step.CompletedAt); err != nil {
 			continue
-		}
-		if t, err := time.Parse(time.RFC3339, lastUpdatedAt); err == nil {
-			step.CompletedAt = t
 		}
 		steps = append(steps, step)
 	}

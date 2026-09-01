@@ -245,6 +245,62 @@ func TestContractValidationService_GetContractGraph_ResolvesLatestAndFallsBackTo
 	require.Contains(t, got.Graph.Nodes, "s1")
 }
 
+func TestContractValidationService_GetContractGraph_RebuildsLegacyDependencyGraph(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	graphRepo := enginemocks.NewMockContractGraphRepository(ctrl)
+	cache := enginemocks.NewMockCacheManager(ctrl)
+	legacyGraph := &domain.ContractGraph{
+		Graph: domain.Graph{Nodes: map[string]domain.GraphNode{
+			"authenticated": {ID: "authenticated", Type: "step"},
+			"charge":        {ID: "charge", Type: "step", DependsOn: []string{"authenticated"}},
+		}},
+		// Before partial-order semantics, depends_on was persisted here too.
+		Transitions: []domain.Transition{{From: "authenticated", To: []string{"charge"}}},
+	}
+	legacyGraphJSON := []byte(`{
+		"graph":{"nodes":{
+			"authenticated":{"id":"authenticated","type":"step","required":true,"next":["charge"]},
+			"charge":{"id":"charge","type":"step","required":true,"depends_on":["authenticated"]}
+		}},
+		"transitions":[{"From":"authenticated","To":["charge"]}]
+	}`)
+
+	cache.EXPECT().GetContractGraph("c1", 1, "o1").Return(legacyGraph, true).Times(1)
+	graphRepo.EXPECT().Get(gomock.Any(), "c1", 1, "o1").Return(nil, errors.New("not found")).Times(1)
+	graphRepo.EXPECT().Save(gomock.Any(), "c1", 1, "o1", gomock.Any()).Return(nil).Times(1)
+	cache.EXPECT().SetContractGraph("c1", 1, "o1", gomock.Any()).Times(1)
+
+	svc := service.NewContractValidationServiceFromParts(
+		graphRepo,
+		fakeContractRepo{
+			contract: &domain.Contract{ID: "cid", LatestVersion: 1},
+			version: &domain.ContractVersion{
+				Graph: legacyGraphJSON,
+				YAMLContent: `
+contract_name: c1
+parties: [agent]
+steps:
+  - id: authenticated
+    owner: agent
+  - id: charge
+    owner: agent
+    depends_on: [authenticated]
+`,
+			},
+		},
+		cache,
+		zap.NewNop(),
+	)
+
+	got, err := svc.GetContractGraph(context.Background(), "c1", 1, "o1")
+	require.NoError(t, err)
+	require.Equal(t, domain.CurrentContractGraphSemantics, got.SemanticsVersion)
+	require.Empty(t, got.Transitions)
+	require.Equal(t, []string{"authenticated"}, got.Graph.Nodes["charge"].DependsOn)
+}
+
 func TestContractValidationService_GetContractGraph_PostgresEdgeCases(t *testing.T) {
 	tests := []struct {
 		name      string

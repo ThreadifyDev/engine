@@ -193,6 +193,10 @@ func (s *NotificationService) handleNoContractStep(
 	default:
 		message = fmt.Sprintf("Step %q recorded with status %q (no contract)", stepName, req.Status)
 	}
+	idempKey := req.IdempotencyKey
+	if idempKey == "" {
+		idempKey = stepID
+	}
 
 	executionNotif := domain.ValidationNotification{
 		NotificationID: uuid.New().String(),
@@ -205,16 +209,15 @@ func (s *NotificationService) handleNoContractStep(
 		Status:         ValidationStatusNone,
 		Severity:       string(domain.SeverityInfo),
 		Message:        message,
-		Timestamp:      time.Now(),
+		Details: map[string]interface{}{
+			"context":        req.Context,
+			"idempotencyKey": idempKey,
+		},
+		Timestamp: time.Now(),
 	}
 
 	if s.natsPublisher != nil {
 		s.submitNotificationJob(executionNotif)
-	}
-
-	idempKey := req.IdempotencyKey
-	if idempKey == "" {
-		idempKey = stepID
 	}
 
 	if err := s.activityRepo.ArchiveStepState(ctx, buildStepStateSnapshot(
@@ -409,7 +412,11 @@ func (s *NotificationService) processValidationNotifications(
 		Status:         ValidationStatusNone,
 		Severity:       string(domain.SeverityInfo),
 		Message:        fmt.Sprintf("Step %q execution %s", stepName, originalStatus),
-		Timestamp:      time.Now(),
+		Details: map[string]interface{}{
+			"context":        req.Context,
+			"idempotencyKey": idempotencyKey,
+		},
+		Timestamp: time.Now(),
 	}
 
 	validationNotif := domain.ValidationNotification{
@@ -817,6 +824,7 @@ func buildValidateStepParams(
 ) domain.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
+	requiredSteps := []string{}
 	terminalSteps := []string{}
 	allowMultipleTerminals := false
 
@@ -826,6 +834,9 @@ func buildValidateStepParams(
 			if t.From == stepName && t.MaxRetries > 0 {
 				maxRetries = t.MaxRetries
 			}
+		}
+		if node, ok := graph.Graph.Nodes[stepName]; ok {
+			requiredSteps = slices.Clone(node.DependsOn)
 		}
 		terminalSteps = graph.Graph.TerminalSteps
 		if graph.Validation != nil {
@@ -844,6 +855,7 @@ func buildValidateStepParams(
 		Timestamp:              time.Now().Format(time.RFC3339Nano),
 		MaxRetries:             maxRetries,
 		TransitionsMap:         transitionsMap,
+		RequiredSteps:          requiredSteps,
 		TerminalSteps:          terminalSteps,
 		AllowMultipleTerminals: allowMultipleTerminals,
 		Actor:                  ownerID,

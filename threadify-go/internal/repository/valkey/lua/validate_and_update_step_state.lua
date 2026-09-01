@@ -30,6 +30,7 @@ local cjson = cjson
 -- ARGV[12]: threadID (passed from Go to avoid regex extraction)
 -- ARGV[13]: idempotencyKey (passed from Go to avoid regex extraction)
 -- ARGV[14]: actor (user who recorded this step, for .own permission filtering)
+-- ARGV[15]: requiredSteps (URL-encoded comma-separated partial-order prerequisites)
 
 local metaKey = KEYS[1]
 local currentStepsKey = KEYS[2]
@@ -50,6 +51,7 @@ local ttl = tonumber(ARGV[11]) or 604800  -- Default to 7 days if not provided
 local threadID = ARGV[12]  -- Passed from Go to avoid regex extraction
 local idempotencyKey = ARGV[13]  -- Passed from Go to avoid regex extraction
 local actor = ARGV[14] or ''  -- User who recorded this step (for .own permission filtering)
+local requiredStepsJSON = ARGV[15] or ''
 
 -- Extract stepName from stepKey (format: stepName:idempKey)
 local stepName = string.match(stepKey, '([^:]+):')
@@ -98,6 +100,7 @@ local hasCriticalViolation = false
 
 -- Parse transitions from pre-computed URL-encoded string format: "step1:next1,next2|step2:next3"
 local transitionsMap = {}
+local hasStrictTransitions = allowedTransitionsJSON ~= ''
 if allowedTransitionsJSON ~= '' then
     for transitionPair in string.gmatch(allowedTransitionsJSON, '([^|]+)') do
         local fromStep, toStepsStr = string.match(transitionPair, '([^:]+):(.*)')
@@ -122,6 +125,18 @@ if allowedTransitionsJSON ~= '' then
     end
 end
 
+-- Parse partial-order prerequisites for the current step.
+local requiredSteps = {}
+if requiredStepsJSON ~= '' then
+    for encodedStep in string.gmatch(requiredStepsJSON, '([^,]+)') do
+        local decodedStep = string.gsub(encodedStep, '+', ' ')
+        decodedStep = string.gsub(decodedStep, '%%([0-9A-Fa-f][0-9A-Fa-f])', function(hex)
+            return string.char(tonumber(hex, 16))
+        end)
+        table.insert(requiredSteps, decodedStep)
+    end
+end
+
 -- Parse terminal steps from pre-computed URL-encoded comma-separated string
 local terminalSteps = {}
 if terminalStepsJSON ~= '' then
@@ -138,7 +153,7 @@ end
 -- ---------------------------------------------------------------------------
 -- VALIDATION 1: Invalid Transition
 -- ---------------------------------------------------------------------------
-if previousStepName ~= '' then
+if hasStrictTransitions and previousStepName ~= '' then
     -- Look up allowed transitions FROM the previous step
     local allowedNextSteps = transitionsMap[previousStepName] or {}
     
@@ -176,7 +191,43 @@ if previousStepName ~= '' then
 end
 
 -- ---------------------------------------------------------------------------
--- VALIDATION 2: Multiple Terminal States
+-- VALIDATION 2: Partial-order prerequisites
+-- ---------------------------------------------------------------------------
+if #requiredSteps > 0 then
+    local completedSteps = {}
+    for i = 1, #currentSteps, 2 do
+        local completedStepName = string.match(currentSteps[i], '([^:]+):')
+        if completedStepName then
+            completedSteps[completedStepName] = true
+        end
+    end
+
+    local missingSteps = {}
+    for _, requiredStep in ipairs(requiredSteps) do
+        if not completedSteps[requiredStep] then
+            table.insert(missingSteps, requiredStep)
+        end
+    end
+
+    if #missingSteps > 0 then
+        hasCriticalViolation = true
+        table.insert(violations, {
+            violationType = 'missing_dependency',
+            severity = 'critical',
+            message = string.format("Step '%s' is missing required prior steps: %s", stepName, table.concat(missingSteps, ',')),
+            details = {
+                stepName = stepName,
+                stepId = stepID,
+                requiredSteps = table.concat(requiredSteps, ','),
+                missingSteps = table.concat(missingSteps, ','),
+                violatedAt = timestamp
+            }
+        })
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- VALIDATION 3: Multiple Terminal States
 -- ---------------------------------------------------------------------------
 if isTerminalStep == 'true' then
     local terminalCount = 0
@@ -215,7 +266,7 @@ if isTerminalStep == 'true' then
 end
 
 -- ---------------------------------------------------------------------------
--- VALIDATION 3: Retry Limit Exceeded
+-- VALIDATION 4: Retry Limit Exceeded
 -- ---------------------------------------------------------------------------
 local retryLimitViolated = false
 if isRetry and maxRetries > 0 then
@@ -299,11 +350,10 @@ end
 
 -- Update current_steps sorted set (only if success and no critical violations)
 if status == 'success' and not hasCriticalViolation then
-    if previousStepKey ~= '' then
-        redis.call('ZREM', currentStepsKey, previousStepKey)
-    end
-    
-    local score = redis.call('TIME')[1]
+    -- Keep the complete ordered success history. Strict transitions use the
+    -- latest member, while partial-order checks can match any earlier member.
+    local redisTime = redis.call('TIME')
+    local score = (redisTime[1] * 1000000) + redisTime[2]
     redis.call('ZADD', currentStepsKey, score, stepKey)
 end
 

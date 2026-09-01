@@ -450,7 +450,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		
 		-- Notification metadata
 		source VARCHAR(50) NOT NULL,              -- 'execution', 'validation', 'thread'
-		notification_type VARCHAR(100) NOT NULL,  -- 'execution.success', 'validation.violated', etc.
+		notification_type VARCHAR(100) NOT NULL,  -- 'step.success', 'rule.violated', etc.
 		
 		-- Status fields
 		step_status VARCHAR(50),                  -- 'success', 'failed', 'error' (from SDK)
@@ -688,7 +688,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		ON thread_activities(thread_id, (payload->>'severity'), recorded_at DESC)
 		WHERE activity_type = 'validation_result';
 
-	-- Notification type filter (validation.violated, validation.passed, etc.)
+	-- Notification type filter (rule.violated, rule.passed, etc.)
 	CREATE INDEX IF NOT EXISTS idx_thread_activities_notif_type 
 		ON thread_activities(thread_id, (payload->>'notification_type'), recorded_at DESC)
 		WHERE activity_type = 'validation_result';

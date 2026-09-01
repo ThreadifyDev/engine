@@ -487,8 +487,8 @@ func (r *NotificationRouter) buildUnionFilterSubjects(ownerID string) []string {
 				if et == "" {
 					continue
 				}
-				// Event types are prefixes like "validation.violated". Use a tail wildcard so
-				// it matches subtypes like "validation.violated.timeout" (and still includes
+				// Event types are prefixes like "rule.violated". Use a tail wildcard so
+				// it matches subtypes like "rule.violated.timeout" (and still includes
 				// contract + step tokens).
 				filterMap[fmt.Sprintf("%s.%s.>", base, et)] = true
 			}

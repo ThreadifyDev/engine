@@ -1,0 +1,17 @@
+name: Reviewer Nanite
+description: Converts a focused analysis into an ordered final plan.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8112/responses
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+  pushNotifications: false
+defaultInputModes: [text/plain]
+defaultOutputModes: [text/plain]
+skills:
+  - id: review-analysis
+    name: Review analysis
+    description: Produces an actionable plan and identifies its highest risk.
+    tags: [review, planning, nanites]

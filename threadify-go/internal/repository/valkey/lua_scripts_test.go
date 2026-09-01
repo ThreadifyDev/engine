@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,13 @@ func TestNewLuaScriptManager(t *testing.T) {
 	assert.NotNil(t, m)
 	assert.Equal(t, valkey, m.valkeyClient)
 	assert.NotNil(t, m.scriptHashes)
+}
+
+func TestStepValidationScript_RetainsHistoryForPartialOrderChecks(t *testing.T) {
+	assert.Contains(t, validateAndUpdateStepStateScript, "requiredStepsJSON")
+	assert.Contains(t, validateAndUpdateStepStateScript, "completedSteps[requiredStep]")
+	assert.NotContains(t, validateAndUpdateStepStateScript, "redis.call('ZREM', currentStepsKey")
+	assert.True(t, strings.Contains(validateAndUpdateStepStateScript, "redisTime[1] * 1000000"))
 }
 
 func TestLuaScriptManager_LoadScripts(t *testing.T) {

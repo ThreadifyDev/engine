@@ -133,6 +133,7 @@ type ComplexityRoot struct {
 
 	GraphNode struct {
 		BusinessContext func(childComplexity int) int
+		DependsOn       func(childComplexity int) int
 		ID              func(childComplexity int) int
 		MaxDuration     func(childComplexity int) int
 		Mode            func(childComplexity int) int
@@ -183,6 +184,7 @@ type ComplexityRoot struct {
 		EntityProfileHistory  func(childComplexity int, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfileTypes    func(childComplexity int) int
 		EntityProfilesByType  func(childComplexity int, typeArg string, search *string, limit *int, offset *int) int
+		ProposeStep           func(childComplexity int, threadID string, stepName string) int
 		ResolveActors         func(childComplexity int, ids []string) int
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread                func(childComplexity int, id string) int
@@ -218,6 +220,17 @@ type ComplexityRoot struct {
 		Hash     func(childComplexity int) int
 		PrevHash func(childComplexity int) int
 		Verified func(childComplexity int) int
+	}
+
+	StepProposal struct {
+		Allowed        func(childComplexity int) int
+		MissingSteps   func(childComplexity int) int
+		PreviousStep   func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		RequiredSteps  func(childComplexity int) int
+		SatisfiedSteps func(childComplexity int) int
+		StepName       func(childComplexity int) int
+		ThreadID       func(childComplexity int) int
 	}
 
 	StepStateInfo struct {
@@ -370,6 +383,7 @@ type QueryResolver interface {
 	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*domain.ContractGraph, error)
+	ProposeStep(ctx context.Context, threadID string, stepName string) (*domain.StepProposal, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error)
 	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*domain.ValidationResultInfo, error)
 	ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error)
@@ -805,6 +819,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.GraphNode.BusinessContext(childComplexity), true
+	case "GraphNode.dependsOn":
+		if e.ComplexityRoot.GraphNode.DependsOn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GraphNode.DependsOn(childComplexity), true
 	case "GraphNode.id":
 		if e.ComplexityRoot.GraphNode.ID == nil {
 			break
@@ -1056,6 +1076,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Query.EntityProfilesByType(childComplexity, args["type"].(string), args["search"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 
+	case "Query.proposeStep":
+		if e.ComplexityRoot.Query.ProposeStep == nil {
+			break
+		}
+
+		args, err := ec.field_Query_proposeStep_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ProposeStep(childComplexity, args["threadId"].(string), args["stepName"].(string)), true
 	case "Query.resolveActors":
 		if e.ComplexityRoot.Query.ResolveActors == nil {
 			break
@@ -1282,6 +1313,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StepIntegrityStatus.Verified(childComplexity), true
+
+	case "StepProposal.allowed":
+		if e.ComplexityRoot.StepProposal.Allowed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.Allowed(childComplexity), true
+	case "StepProposal.missingSteps":
+		if e.ComplexityRoot.StepProposal.MissingSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.MissingSteps(childComplexity), true
+	case "StepProposal.previousStep":
+		if e.ComplexityRoot.StepProposal.PreviousStep == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.PreviousStep(childComplexity), true
+	case "StepProposal.reason":
+		if e.ComplexityRoot.StepProposal.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.Reason(childComplexity), true
+	case "StepProposal.requiredSteps":
+		if e.ComplexityRoot.StepProposal.RequiredSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.RequiredSteps(childComplexity), true
+	case "StepProposal.satisfiedSteps":
+		if e.ComplexityRoot.StepProposal.SatisfiedSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.SatisfiedSteps(childComplexity), true
+	case "StepProposal.stepName":
+		if e.ComplexityRoot.StepProposal.StepName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.StepName(childComplexity), true
+	case "StepProposal.threadId":
+		if e.ComplexityRoot.StepProposal.ThreadID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.ThreadID(childComplexity), true
 
 	case "StepStateInfo.actor":
 		if e.ComplexityRoot.StepStateInfo.Actor == nil {
@@ -2094,12 +2174,24 @@ type GraphNode {
   type: String!
   mode: String
   required: Boolean!
+  dependsOn: [String!]!
   next: [String!]
   steps: [String!]
   timeout: String
   maxDuration: String
   businessContext: JSON
   parentGroup: String
+}
+
+type StepProposal {
+  threadId: ID!
+  stepName: String!
+  allowed: Boolean!
+  requiredSteps: [String!]!
+  satisfiedSteps: [String!]!
+  missingSteps: [String!]!
+  previousStep: String
+  reason: String!
 }
 
 type Transition {
@@ -2179,6 +2271,9 @@ type Query {
   
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
+
+  # Evaluate a candidate step against the successful facts already gathered for the thread.
+  proposeStep(threadId: ID!, stepName: String!): StepProposal!
   # Get step history by stepName:idempKey or stepName (max limit: 1000)
   stepHistory(
     threadId: String!
@@ -2605,6 +2700,22 @@ func (ec *executionContext) field_Query_entityProfilesByType_args(ctx context.Co
 		return nil, err
 	}
 	args["offset"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_proposeStep_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "threadId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["threadId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "stepName", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["stepName"] = arg1
 	return args, nil
 }
 
@@ -4813,6 +4924,8 @@ func (ec *executionContext) fieldContext_Graph_nodes(_ context.Context, field gr
 				return ec.fieldContext_GraphNode_mode(ctx, field)
 			case "required":
 				return ec.fieldContext_GraphNode_required(ctx, field)
+			case "dependsOn":
+				return ec.fieldContext_GraphNode_dependsOn(ctx, field)
 			case "next":
 				return ec.fieldContext_GraphNode_next(ctx, field)
 			case "steps":
@@ -5030,6 +5143,35 @@ func (ec *executionContext) fieldContext_GraphNode_required(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _GraphNode_dependsOn(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_GraphNode_dependsOn,
+		func(ctx context.Context) (any, error) {
+			return obj.DependsOn, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_GraphNode_dependsOn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "GraphNode",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -6152,6 +6294,65 @@ func (ec *executionContext) fieldContext_Query_contractGraph(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_contractGraph_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_proposeStep(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_proposeStep,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ProposeStep(ctx, fc.Args["threadId"].(string), fc.Args["stepName"].(string))
+		},
+		nil,
+		ec.marshalNStepProposal2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_proposeStep(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "threadId":
+				return ec.fieldContext_StepProposal_threadId(ctx, field)
+			case "stepName":
+				return ec.fieldContext_StepProposal_stepName(ctx, field)
+			case "allowed":
+				return ec.fieldContext_StepProposal_allowed(ctx, field)
+			case "requiredSteps":
+				return ec.fieldContext_StepProposal_requiredSteps(ctx, field)
+			case "satisfiedSteps":
+				return ec.fieldContext_StepProposal_satisfiedSteps(ctx, field)
+			case "missingSteps":
+				return ec.fieldContext_StepProposal_missingSteps(ctx, field)
+			case "previousStep":
+				return ec.fieldContext_StepProposal_previousStep(ctx, field)
+			case "reason":
+				return ec.fieldContext_StepProposal_reason(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StepProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_proposeStep_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -7379,6 +7580,238 @@ func (ec *executionContext) _StepIntegrityStatus_error(ctx context.Context, fiel
 func (ec *executionContext) fieldContext_StepIntegrityStatus_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_threadId,
+		func(ctx context.Context) (any, error) {
+			return obj.ThreadID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_threadId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_stepName(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_stepName,
+		func(ctx context.Context) (any, error) {
+			return obj.StepName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_stepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_allowed(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_allowed,
+		func(ctx context.Context) (any, error) {
+			return obj.Allowed, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_allowed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_requiredSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_requiredSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.RequiredSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_requiredSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_satisfiedSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_satisfiedSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.SatisfiedSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_satisfiedSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_missingSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_missingSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.MissingSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_missingSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_previousStep(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_previousStep,
+		func(ctx context.Context) (any, error) {
+			return obj.PreviousStep, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_previousStep(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_reason(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -12659,6 +13092,11 @@ func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "dependsOn":
+			out.Values[i] = ec._GraphNode_dependsOn(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
 		case "next":
 			out.Values[i] = ec._GraphNode_next(ctx, field, obj)
 		case "steps":
@@ -13212,6 +13650,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "proposeStep":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_proposeStep(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "stepHistory":
 			field := field
 
@@ -13604,6 +14064,77 @@ func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.Se
 			out.Values[i] = ec._StepIntegrityStatus_prevHash(ctx, field, obj)
 		case "error":
 			out.Values[i] = ec._StepIntegrityStatus_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var stepProposalImplementors = []string{"StepProposal"}
+
+func (ec *executionContext) _StepProposal(ctx context.Context, sel ast.SelectionSet, obj *domain.StepProposal) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, stepProposalImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StepProposal")
+		case "threadId":
+			out.Values[i] = ec._StepProposal_threadId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "stepName":
+			out.Values[i] = ec._StepProposal_stepName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allowed":
+			out.Values[i] = ec._StepProposal_allowed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "requiredSteps":
+			out.Values[i] = ec._StepProposal_requiredSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "satisfiedSteps":
+			out.Values[i] = ec._StepProposal_satisfiedSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "missingSteps":
+			out.Values[i] = ec._StepProposal_missingSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "previousStep":
+			out.Values[i] = ec._StepProposal_previousStep(ctx, field, obj)
+		case "reason":
+			out.Values[i] = ec._StepProposal_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -15657,6 +16188,20 @@ func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthread
 		return graphql.Null
 	}
 	return ec._StepIntegrityStatus(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNStepProposal2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal(ctx context.Context, sel ast.SelectionSet, v domain.StepProposal) graphql.Marshaler {
+	return ec._StepProposal(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNStepProposal2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal(ctx context.Context, sel ast.SelectionSet, v *domain.StepProposal) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._StepProposal(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepStateInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.StepStateInfo) graphql.Marshaler {
