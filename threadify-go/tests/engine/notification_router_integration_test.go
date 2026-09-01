@@ -94,7 +94,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 	})
 
 	t.Run("HandleSubscribe", func(t *testing.T) {
-		err := router.HandleSubscribe(sessionID, "test_step", "test_contract", []string{"validation.violated.timeout"})
+		err := router.HandleSubscribe(sessionID, "test_step", "test_contract", []string{"rule.violated.timeout"})
 		assert.NoError(t, err)
 
 		// Allow the consumer update to propagate.
@@ -112,7 +112,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 			StepName:         stepName,
 			ContractName:     contractName,
 			Source:           domain.NotificationSourceRule,
-			NotificationType: "validation.violated.timeout",
+			NotificationType: "rule.violated.timeout",
 			Status:           "violated",
 			ViolationType:    "timeout",
 			Severity:         "critical",
@@ -123,7 +123,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		data, err := json.Marshal(notification)
 		require.NoError(t, err)
 
-		msgSubject := fmt.Sprintf("notifications.user.%s.validation.violated.timeout.%s.%s", ownerID, contractName, stepName)
+		msgSubject := fmt.Sprintf("notifications.user.%s.rule.violated.timeout.%s.%s", ownerID, contractName, stepName)
 		_, err = js.Publish(ctx, msgSubject, data)
 		require.NoError(t, err)
 
@@ -150,7 +150,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 		assert.Equal(t, stepName, n.StepName)
 		assert.Equal(t, contractName, n.ContractName)
 		assert.Equal(t, "violated", n.Status)
-		assert.Equal(t, domain.NotificationType("validation.violated.timeout"), n.NotificationType)
+		assert.Equal(t, domain.NotificationType("rule.violated.timeout"), n.NotificationType)
 
 		require.NoError(t, router.HandleAck(envelope.AckToken))
 	})

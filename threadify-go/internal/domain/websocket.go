@@ -19,9 +19,11 @@ type ConnectResponse struct {
 
 type StartThreadCmd struct {
 	Action       string
+	ThreadID     string
 	Label        string
 	ContractName string
 	Role         string
+	ServiceName  string
 	Refs         map[string]string
 	Tags         []string
 }

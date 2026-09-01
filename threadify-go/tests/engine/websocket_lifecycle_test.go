@@ -89,7 +89,7 @@ func TestWebSocket_ExecutionSuccess_NotificationReceived(t *testing.T) {
 		}
 	}
 	require.NotNil(t, recordResp, "should receive recordThreadEvent response")
-	require.NotNil(t, notification, "should receive execution.success notification")
+	require.NotNil(t, notification, "should receive step.success notification")
 	require.Equal(t, "success", recordResp["status"])
 	require.Equal(t, "recordThreadEvent", recordResp["action"])
 

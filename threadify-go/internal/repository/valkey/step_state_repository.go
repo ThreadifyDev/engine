@@ -133,6 +133,16 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		transitionsStr = strings.Join(transitions, "|")
 	}
 
+	// Pre-compute the partial-order prerequisites for the proposed step.
+	var requiredStepsStr string
+	if len(params.RequiredSteps) > 0 {
+		encodedSteps := make([]string, 0, len(params.RequiredSteps))
+		for _, step := range params.RequiredSteps {
+			encodedSteps = append(encodedSteps, url.QueryEscape(step))
+		}
+		requiredStepsStr = strings.Join(encodedSteps, ",")
+	}
+
 	allowMultipleTerminalsStr := "false"
 	if params.AllowMultipleTerminals {
 		allowMultipleTerminalsStr = "true"
@@ -171,6 +181,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		params.ThreadID,           // ARGV[12] - threadID (passed to avoid regex extraction)
 		params.IdempotencyKey,     // ARGV[13] - idempotencyKey (passed to avoid regex extraction)
 		params.Actor,              // ARGV[14] - actor (user who recorded this step, for .own permission filtering)
+		requiredStepsStr,          // ARGV[15] - partial-order prerequisites
 	}
 
 	// Execute Lua script

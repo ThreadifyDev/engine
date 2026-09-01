@@ -164,14 +164,27 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 }
 
 func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
-	start := perf.Now()
-	perf.LogStructured("HandleStartThread BEGIN", zap.String("owner", ownerID), zap.String("contract", req.ContractName))
+	return s.startThread(ctx, req, ownerID, companyID, true)
+}
 
+// StartThreadForIngestion reuses the normal thread creation path for requests
+// already authenticated at the HTTP boundary.
+func (s *ThreadService) StartThreadForIngestion(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
+	return s.startThread(ctx, req, ownerID, companyID, false)
+}
+
+func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string, requireConnection bool) *domain.StartThreadResponse {
 	errResp := func(msg string) *domain.StartThreadResponse {
 		return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: msg}
 	}
+	if req == nil {
+		return errResp("Invalid request")
+	}
 
-	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
+	start := perf.Now()
+	perf.LogStructured("HandleStartThread BEGIN", zap.String("owner", ownerID), zap.String("contract", req.ContractName))
+
+	if ownerID == "" || companyID == "" || (requireConnection && !s.connectionMgr.IsConnected(ownerID)) {
 		return errResp("Not authenticated. Please connect first.")
 	}
 	if req.ContractName != "" && req.Role == "" {
@@ -217,7 +230,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		contractUUID = contract.ID
 	}
 
-	threadID := uuid.New().String()
+	threadID := req.ThreadID
+	if threadID == "" {
+		threadID = uuid.New().String()
+	}
 
 	label := StartThreadLabel(req)
 
@@ -239,6 +255,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		OwnerID:         ownerID,
 		CompanyID:       companyID,
 		Status:          domain.ThreadStatusActive,
+		Refs:            req.Refs,
 		Tags:            req.Tags,
 		StartedAt:       time.Now(),
 	}
@@ -290,7 +307,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 	s.cacheManager.SetThread(threadID, thread)
 
 	// Consolidate archival publication into a single sequential goroutine to minimize race conditions in the archiver.
-	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, access, runtimeRole)
+	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, req.ServiceName, access, runtimeRole)
 
 	// Process refs in hot cache (Valkey) if provided
 	if len(req.Refs) > 0 {
@@ -333,6 +350,23 @@ func StartThreadLabel(req *domain.StartThreadCmd) string {
 }
 
 func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
+	return s.recordEvent(ctx, req, ownerID, companyID, true)
+}
+
+// RecordEventForIngestion reuses the normal step write path for requests
+// already authenticated at the HTTP boundary.
+func (s *ThreadService) RecordEventForIngestion(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
+	return s.recordEvent(ctx, req, ownerID, companyID, false)
+}
+
+func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string, requireConnection bool) *domain.RecordEventResponse {
+	errResp := func(msg string) *domain.RecordEventResponse {
+		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
+	}
+	if req == nil {
+		return errResp("Invalid request")
+	}
+
 	start := perf.Now()
 	perf.LogStructured("HandleRecordEvent BEGIN",
 		zap.String("owner", ownerID),
@@ -340,11 +374,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		zap.String("step", req.StepName),
 	)
 
-	errResp := func(msg string) *domain.RecordEventResponse {
-		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
-	}
-
-	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
+	if ownerID == "" || companyID == "" || (requireConnection && !s.connectionMgr.IsConnected(ownerID)) {
 		return errResp("Not authenticated. Please connect first.")
 	}
 	if err := validateRecordEventRequest(req); err != nil {
@@ -375,10 +405,6 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		return errResp("Access denied: You don't have write permission for this thread")
 	}
 
-	if thread.Status == domain.ThreadStatusCompleted {
-		return errResp("Cannot add steps to completed thread")
-	}
-
 	t = time.Now()
 	contentHash := ""
 	if len(req.Context) > 0 {
@@ -407,15 +433,17 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
-			if existingStatus == ThreadStatusCompleted || existingStatus == StepStatusSuccess {
-				return &domain.RecordEventResponse{
-					Action:      ActionRecordThreadEvent,
-					Status:      StepStatusError,
-					Message:     "Step with this signature already completed",
-					IsDuplicate: true,
-				}
+			return &domain.RecordEventResponse{
+				Action:      ActionRecordThreadEvent,
+				Status:      StepStatusError,
+				Message:     "Step with this signature already recorded",
+				IsDuplicate: true,
 			}
 		}
+	}
+
+	if thread.Status == domain.ThreadStatusCompleted {
+		return errResp("Cannot add steps to completed thread")
 	}
 
 	if req.IdempotencyKey == "" && idempotencyKey != "" {
@@ -890,6 +918,23 @@ func (s *ThreadService) GetThread(threadID string) (*domain.Thread, error) {
 	return s.getThread(threadID)
 }
 
+// ValidateThreadForIngestion verifies an explicit OTLP thread target before a
+// trace correlation is persisted.
+func (s *ThreadService) ValidateThreadForIngestion(ctx context.Context, threadID, ownerID, companyID string) error {
+	thread, err := s.getThread(threadID)
+	if err != nil {
+		return shderrors.ErrThreadNotFound
+	}
+	if thread.CompanyID != companyID {
+		return shderrors.ErrAccessDenied
+	}
+	hasAccess, err := s.accessService.CheckThreadAccess(ctx, threadID, ownerID, "thread.write.*", thread)
+	if err != nil || !hasAccess {
+		return shderrors.ErrAccessDenied
+	}
+	return nil
+}
+
 // getThread is an internal variant that can skip egress metering for write-only paths.
 func (s *ThreadService) getThread(threadID string) (*domain.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
@@ -1023,7 +1068,7 @@ func (s *ThreadService) hasSuccessfulSteps(ctx context.Context, thread *domain.T
 
 // publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
 // It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
-func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *domain.Thread, role string, access *domain.UserAccess, runtimeRole string) {
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *domain.Thread, role, serviceName string, access *domain.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",
@@ -1094,9 +1139,10 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 	}
 
 	// 3. Publish Activity Log (subject: activity.log)
-	serviceName := ""
-	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
-		serviceName = client.ServiceName
+	if serviceName == "" {
+		if client, exists := s.connectionMgr.GetClient(ownerID); exists {
+			serviceName = client.ServiceName
+		}
 	}
 
 	if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, map[string]interface{}{

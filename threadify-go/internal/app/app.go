@@ -71,6 +71,7 @@ type services struct {
 	manager             *service.ServiceManager
 	auth                *service.AuthService
 	thread              *service.ThreadService
+	otelTrace           *service.OTelTraceService
 	stepEvent           *service.StepEventService
 	threadAccess        *service.ThreadAccessService
 	plan                *service.PlanService
@@ -84,6 +85,7 @@ type services struct {
 type appHandlers struct {
 	webhookHandler  *handlers.WebhookHandler
 	wsHandler       *handlers.WebSocketHandler
+	otlpTrace       *handlers.OTLPTraceHandler
 	contractHandler *handlers.ContractHandler
 	notifRouter     *handlers.NotificationRouter
 	graphqlResolver *graphql.Resolver
@@ -235,6 +237,7 @@ type repositories struct {
 	stepStateCache  *valkey.StepStateRepository
 	validationCache *valkey.ValidationRepository
 	access          *valkey.AccessRepository
+	otelTrace       *valkey.OTelTraceRepository
 
 	// nats
 	natsArchival     *natsrepo.ArchivalPublisher
@@ -287,6 +290,7 @@ func initRepositories(
 	accessRepo := valkey.NewAccessRepository(inf.valkey, threadTTL, logger)
 	accessRepo.SetRBACLoader(rbacLoader)
 	r.access = accessRepo
+	r.otelTrace = valkey.NewOTelTraceRepository(inf.valkey, 24*time.Hour, 30*time.Second)
 
 	// --- nats ---
 	natsClient := inf.natsPool.GetClient()
@@ -379,6 +383,7 @@ func initServices(
 		authSvc, planSvc, service.NewCacheService(logger),
 		inf.workerPools, logger,
 	)
+	svcs.otelTrace = service.NewOTelTraceService(svcs.thread, repos.otelTrace, logger)
 
 	svcs.invitation = service.NewInvitationTokenService(cfg.JWT.Secret, cfg.JWT.Issuer)
 
@@ -420,6 +425,7 @@ func initHandlers(
 		svcs.plan, inf.valkey, svcs.luaScriptManager,
 		&cfg.RateLimit, &cfg.WebSocket, logger,
 	)
+	h.otlpTrace = handlers.NewOTLPTraceHandler(svcs.otelTrace, svcs.auth, svcs.plan, logger)
 
 	h.graphqlResolver = graphql.NewResolver(
 		repos.threadCache, repos.stepStateCache, repos.validationCache, repos.access,
@@ -472,6 +478,10 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 
 	// WebSocket.
 	r.GET("/threads", hdlrs.wsHandler.HandleWebSocket)
+
+	// Standard OTLP/HTTP trace ingestion (API key authentication is handled by
+	// the OTLP handler so protocol errors remain protobuf-encoded).
+	r.POST("/v1/traces", hdlrs.otlpTrace.HandleTraces)
 
 	// GraphQL.
 	r.POST("/graphql",

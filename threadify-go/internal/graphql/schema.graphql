@@ -132,12 +132,24 @@ type GraphNode {
   type: String!
   mode: String
   required: Boolean!
+  dependsOn: [String!]!
   next: [String!]
   steps: [String!]
   timeout: String
   maxDuration: String
   businessContext: JSON
   parentGroup: String
+}
+
+type StepProposal {
+  threadId: ID!
+  stepName: String!
+  allowed: Boolean!
+  requiredSteps: [String!]!
+  satisfiedSteps: [String!]!
+  missingSteps: [String!]!
+  previousStep: String
+  reason: String!
 }
 
 type Transition {
@@ -217,6 +229,9 @@ type Query {
   
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
+
+  # Evaluate a candidate step against the successful facts already gathered for the thread.
+  proposeStep(threadId: ID!, stepName: String!): StepProposal!
   # Get step history by stepName:idempKey or stepName (max limit: 1000)
   stepHistory(
     threadId: String!

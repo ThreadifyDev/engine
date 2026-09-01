@@ -123,6 +123,18 @@ node test/example.js
 
 ## API Endpoints
 
+### OpenTelemetry traces
+
+```bash
+POST /v1/traces
+Content-Type: application/x-protobuf
+X-API-Key: <threadify-api-key>
+```
+
+The endpoint accepts binary OTLP/HTTP trace requests and gzip compression. See
+[OTLP Trace Ingestion](../docs/OTLP_INGESTION.md) for mapping, configuration,
+custom `threadify.*` attributes, and current signal support.
+
 ### Authentication
 
 

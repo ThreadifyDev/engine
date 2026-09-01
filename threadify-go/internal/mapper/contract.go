@@ -81,6 +81,7 @@ func ToContractGraphDTO(d *domain.ContractGraph) *dto.ContractGraphDTO {
 		return nil
 	}
 	dtoGraph := &dto.ContractGraphDTO{
+		SemanticsVersion: d.SemanticsVersion,
 		Graph: dto.GraphDTO{
 			Nodes:         make(map[string]dto.GraphNode, len(d.Graph.Nodes)),
 			EntryPoints:   d.Graph.EntryPoints,
@@ -153,6 +154,7 @@ func FromContractGraphDTO(d *dto.ContractGraphDTO) *domain.ContractGraph {
 	}
 
 	graph := &domain.ContractGraph{
+		SemanticsVersion: d.SemanticsVersion,
 		Graph: domain.Graph{
 			Nodes:         make(map[string]domain.GraphNode, len(d.Graph.Nodes)),
 			EntryPoints:   d.Graph.EntryPoints,

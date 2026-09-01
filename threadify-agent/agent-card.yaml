@@ -1,0 +1,26 @@
+name: Threadify Agent
+description: Analyzes Threadify execution graphs and designs contracts from live Threadify data.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8090
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+defaultInputModes:
+  - text/plain
+defaultOutputModes:
+  - text/plain
+skills:
+  - id: analyze-thread
+    name: Analyze a Threadify thread
+    description: Queries and explains authenticated thread, step, validation, and violation data.
+    tags: [threadify, support, analysis, debugging]
+    examples:
+      - Why did thread 5d724fa5-1234-5678-9abc-def012345678 fail?
+  - id: design-contract
+    name: Design a Threadify contract
+    description: Infers a valid Threadify YAML contract from an observed execution graph.
+    tags: [threadify, contracts, yaml, design]
+    examples:
+      - Create a contract from thread 5d724fa5-1234-5678-9abc-def012345678.

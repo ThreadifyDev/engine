@@ -18,6 +18,7 @@ type Step struct {
 	ID              string           `yaml:"id"`
 	Owner           string           `yaml:"owner"`
 	Type            string           `yaml:"type,omitempty"`
+	DependsOn       []string         `yaml:"depends_on,omitempty"`
 	Timeout         string           `yaml:"timeout,omitempty"`
 	BusinessContext *BusinessContext `yaml:"business_context,omitempty"`
 }

@@ -113,6 +113,14 @@ type ThreadService interface {
 	EndThread(ctx context.Context, threadID, actorID, actorService, status, reason string, recordedAt time.Time) error
 }
 
+// OTelThreadWriter exposes the existing thread write path to stateless,
+// authenticated telemetry ingestion without requiring a WebSocket session.
+type OTelThreadWriter interface {
+	StartThreadForIngestion(ctx context.Context, req *StartThreadCmd, ownerID, companyID string) *StartThreadResponse
+	RecordEventForIngestion(ctx context.Context, req *RecordEventCmd, ownerID, companyID string) *RecordEventResponse
+	ValidateThreadForIngestion(ctx context.Context, threadID, ownerID, companyID string) error
+}
+
 // InvitationTokenService defines the interface for invitation JWT token operations
 type InvitationTokenService interface {
 	CreateToken(threadID, userID, role, accessLevel string, expiry time.Duration) (string, error)
