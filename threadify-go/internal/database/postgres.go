@@ -551,7 +551,16 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	-- Step State Table: Archived snapshots of step state from Redis
 	-- This provides fast queries for historical step state without reconstructing from activities
-	CREATE TABLE IF NOT EXISTS thread_step_states (
+	CREATE TABLE IF NOT EXISTS thread_successful_contexts (
+  thread_id VARCHAR(255) NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  step_name VARCHAR(255) NOT NULL,
+  step_id VARCHAR(255) NOT NULL,
+  validation_order BIGINT NOT NULL,
+  context JSONB NOT NULL,
+  PRIMARY KEY(thread_id,step_name)
+ );
+
+ CREATE TABLE IF NOT EXISTS thread_step_states (
 		id VARCHAR(255) PRIMARY KEY,           -- Step UUID
 		thread_id VARCHAR(255) NOT NULL,       -- Thread UUID
 		step_name VARCHAR(255) NOT NULL,       -- Step name (e.g., 'order_placed')
@@ -777,7 +786,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- API keys table (for service account authentication)
 	CREATE TABLE IF NOT EXISTS api_keys (
 		id VARCHAR(255) PRIMARY KEY,
-		service_account_id VARCHAR(255) NOT NULL,
+		service_account_id VARCHAR(255),
 		user_id VARCHAR(255),
 		company_id VARCHAR(255) NOT NULL,
 		key_hash VARCHAR(255) NOT NULL UNIQUE,
@@ -793,6 +802,9 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
+
+	-- Human API keys use user_id; a service account is optional for that principal type.
+	ALTER TABLE api_keys ALTER COLUMN service_account_id DROP NOT NULL;
 
 	CREATE INDEX IF NOT EXISTS idx_api_keys_service_account ON api_keys(service_account_id);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);

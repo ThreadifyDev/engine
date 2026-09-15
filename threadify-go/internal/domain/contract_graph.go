@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/threadify/engine/pkg/contractcontent"
+
 // ContractGraph represents the DAG structure of a contract
 // Metadata (contract_id, version) is stored in contract_versions table
 type ContractGraph struct {
@@ -31,12 +33,14 @@ type GraphNode struct {
 	Type            string
 	Mode            string
 	Required        bool
+	FreshDependsOn  []string `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
 	DependsOn       []string
 	Next            []string
 	Steps           []string
 	Timeout         string
 	MaxDuration     string
 	BusinessContext *BusinessContext
+	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
 	ParentGroup     string
 }
 
@@ -58,12 +62,14 @@ type ContractYAML struct {
 
 // Step represents a workflow step
 type Step struct {
-	ID              string           `yaml:"id"`
-	Owner           string           `yaml:"owner,omitempty"`
-	Role            string           `yaml:"role,omitempty"`
-	DependsOn       []string         `yaml:"depends_on,omitempty"`
-	Timeout         string           `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext `yaml:"business_context,omitempty"`
+	ID              string                 `yaml:"id"`
+	Owner           string                 `yaml:"owner,omitempty"`
+	Role            string                 `yaml:"role,omitempty"`
+	FreshDependsOn  []string               `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	DependsOn       []string               `yaml:"depends_on,omitempty"`
+	Timeout         string                 `yaml:"timeout,omitempty"`
+	BusinessContext *BusinessContext       `yaml:"business_context,omitempty"`
+	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
 }
 
 // Group represents a parallel group of steps

@@ -1,0 +1,18 @@
+name: Threadify Analyst Agent
+description: Answers questions about customer support runs using read-only Threadify telemetry.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8121
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+defaultInputModes:
+  - text/plain
+defaultOutputModes:
+  - text/plain
+skills:
+  - id: support-telemetry
+    name: Support Telemetry Analysis
+    description: Find support runs and inspect recorded operations, timing, and failures.
+    tags: [threadify, support, telemetry]

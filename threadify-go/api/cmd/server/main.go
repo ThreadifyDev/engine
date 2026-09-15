@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		if err := runHealthCheck(); err != nil {
+			log.Printf("health check failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == "production")
 	if err != nil {
 		log.Fatalf("failed to initialize logger: %v", err)
@@ -73,6 +82,31 @@ func main() {
 	}
 
 	appLogger.Info("shutdown complete")
+}
+
+func runHealthCheck() error {
+	path := os.Getenv("CONFIG_PATH")
+	if path == "" {
+		path = "/app/config/config.yaml"
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", cfg.WebAPI.Port))
+	if err != nil {
+		return fmt.Errorf("request health endpoint: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("health endpoint returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func loadConfig(logger *zap.Logger) (*config.Config, error) {

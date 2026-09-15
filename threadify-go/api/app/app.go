@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -106,11 +105,19 @@ func New(
 		svcs.authService.ConfigureLicensedAccount(licensed.CompanyID(), licensed.OwnerEmail())
 	}
 
+	browser, err := sharedauth.NewBrowserService(ctx, pool, licensed)
+	if err != nil {
+		svcs.close(logger)
+		licensed.Close()
+		pool.Close()
+		return nil, fmt.Errorf("initialize browser authentication: %w", err)
+	}
+	sharedauth.SetBrowserService(browser)
 	hdlrs := initHandlers(cfg, svcs, rbacLoader)
 	handler := buildRouter(cfg, svcs, repos, rbacLoader, hdlrs, logger)
 
 	return &App{
-		Handler:  wrapRegistryManagement(handler, licensed),
+		Handler:  browser.Wrap(wrapRegistryManagement(handler, licensed)),
 		pool:     pool,
 		svcs:     svcs,
 		registry: licensed,
@@ -228,7 +235,7 @@ func initServices(
 		return nil, fmt.Errorf("init email service: %w", err)
 	}
 
-	authClient, err := sharedauth.NewAuthClientFromSharedConfig(cfg)
+	authClient, err := sharedauth.NewAuthClientFromConfig(sharedauth.AuthProviderConfig{Provider: "registry"})
 	if err != nil {
 		return nil, fmt.Errorf("init auth client: %w", err)
 	}
@@ -359,14 +366,7 @@ func initAuthService(
 		logger,
 	)
 
-	// Signup no longer creates a prepaid balance; Registry owns product access.
-
-	if cfg.JWKS.URL != "" {
-		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
-		logger.Info("JWKS verifier configured", zap.String("url", cfg.JWKS.URL))
-	} else {
-		logger.Warn("JWKS URL not configured — token verification disabled")
-	}
+	// Browser sessions are verified against the shared Registry-bound session store.
 
 	return authSvc
 }
@@ -423,7 +423,6 @@ func buildRouter(
 	r := gin.New()
 
 	r.Use(middleware.RecoveryWithLogger(logger))
-	r.Use(corsMiddleware(cfg.WebAPI.CORSOrigins))
 	r.Use(middleware.RequestLogger(logger))
 
 	r.GET("/health", func(c *gin.Context) {
@@ -431,22 +430,12 @@ func buildRouter(
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	auth := r.Group("/api/auth")
-	{
-		auth.POST("/signup", h.auth.Signup)
-		auth.POST("/login", h.auth.Login)
-		auth.POST("/forgot-password", h.auth.ForgotPassword)
-		auth.POST("/reset-password", h.auth.ResetPassword)
-		auth.POST("/logout", h.auth.Logout)
-		auth.POST("/verify-otp", h.auth.VerifyEmail)
-		auth.POST("/resend-verification", h.auth.ResendVerificationEmail)
-	}
+	// Password authentication is retired; BrowserService owns Registry-backed /auth routes.
 
 	r.GET("/api/code-samples", h.codeSamples.GetCodeSample)
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
 	r.GET("/api/pricing", h.pricing.GetPricing)
-	r.POST("/api/team/invitation/validate", h.teamInvitation.ValidateInvitation)
 
 	requirePerm := func(perm string) gin.HandlerFunc {
 		return rbac.RequirePermission(rbacLoader, repos.userRole, repos.serviceAccount, perm)
@@ -463,15 +452,7 @@ func buildRouter(
 		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
 	}
 
-	team := api.Group("/team")
-	{
-		team.GET("/members", requirePerm("member.view"), h.user.ListTeamMembers)
-		team.DELETE("/members/:id", requirePerm("member.delete"), h.user.RemoveTeamMember)
-		team.POST("/invitations", requirePerm("member.invite"), h.teamInvitation.SendInvitation)
-		team.GET("/invitations", requirePerm("member.view"), h.teamInvitation.ListInvitations)
-		team.POST("/invitations/:id/resend", requirePerm("member.invite"), h.teamInvitation.ResendInvitation)
-		team.DELETE("/invitations/:id", requirePerm("member.invite"), h.teamInvitation.CancelInvitation)
-	}
+	// User lifecycle and invitations are owned by the Engine at /v1/users.
 
 	api.POST("/api-keys", requirePerm("apikey.create"), h.apiKey.CreateAPIKey)
 	api.GET("/api-keys", requirePerm("apikey.read"), h.apiKey.ListAPIKeys)
@@ -533,24 +514,6 @@ func buildRouter(
 	}
 
 	return r
-}
-
-func corsMiddleware(originsCSV string) gin.HandlerFunc {
-	var origins []string
-	if strings.TrimSpace(originsCSV) != "" {
-		for _, o := range strings.Split(originsCSV, ",") {
-			if trimmed := strings.TrimSpace(o); trimmed != "" {
-				origins = append(origins, trimmed)
-			}
-		}
-	}
-	return cors.New(cors.Config{
-		AllowOrigins:     origins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	})
 }
 
 func initDB(ctx context.Context, url string) (*pgxpool.Pool, error) {

@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuthAccessTokenAuth accepts either a user JWT or a Threadify API key in the
+// AuthAccessTokenAuth accepts a Registry-backed browser session or Threadify API key in the
 // same Bearer header. This lets service accounts use the same management API as
 // the web UI while preserving RBAC on the routes that follow.
 func AuthAccessTokenAuth(authService ports.AuthService, apiKeyService ports.APIKeyService) gin.HandlerFunc {
@@ -45,10 +45,12 @@ func AuthAccessTokenAuth(authService ports.AuthService, apiKeyService ports.APIK
 		}
 
 		// Use internal UserID for RBAC role lookups (user_roles table stores by internal ID)
-		// AuthUserID is only used as Supabase bridge, not for internal operations
-		dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user")
-		if err == nil && len(dbRoles) > 0 {
-			claims.Roles = dbRoles
+		// Legacy verifier fixtures also resolve roles through the local user ID.
+		if !sharedauth.BrowserSessionsEnabled() {
+			dbRoles, err := authService.GetUserRoles(c.Request.Context(), claims.UserID, "user")
+			if err == nil && len(dbRoles) > 0 {
+				claims.Roles = dbRoles
+			}
 		}
 
 		sharedauth.SetGinContextFromClaims(c, claims)

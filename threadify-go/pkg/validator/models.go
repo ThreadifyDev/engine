@@ -1,5 +1,7 @@
 package validator
 
+import "github.com/threadify/engine/pkg/contractcontent"
+
 type Contract struct {
 	ContractName  string          `yaml:"contract_name"`
 	Version       int             `yaml:"version"`
@@ -15,12 +17,14 @@ type Contract struct {
 }
 
 type Step struct {
-	ID              string           `yaml:"id"`
-	Owner           string           `yaml:"owner"`
-	Type            string           `yaml:"type,omitempty"`
-	DependsOn       []string         `yaml:"depends_on,omitempty"`
-	Timeout         string           `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext `yaml:"business_context,omitempty"`
+	ID              string                 `yaml:"id"`
+	Owner           string                 `yaml:"owner"`
+	Type            string                 `yaml:"type,omitempty"`
+	FreshDependsOn  []string               `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	DependsOn       []string               `yaml:"depends_on,omitempty"`
+	Timeout         string                 `yaml:"timeout,omitempty"`
+	BusinessContext *BusinessContext       `yaml:"business_context,omitempty"`
+	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
 }
 
 type Group struct {

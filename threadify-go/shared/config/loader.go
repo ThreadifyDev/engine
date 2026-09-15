@@ -92,7 +92,6 @@ type Config struct {
 		Enabled                 bool   `yaml:"enabled"`
 		Port                    int    `yaml:"port"`
 		Host                    string `yaml:"host"`
-		CORSOrigins             string `yaml:"cors_origins"`
 		FrontendURL             string `yaml:"frontend_url"`
 		OutboxEncryptionKey     string `yaml:"outbox_encryption_key"`
 		SignupCreditsMillicents int64  `yaml:"signup_credits_millicents"`
@@ -107,11 +106,7 @@ type Config struct {
 		} `yaml:"threadify_engine"`
 		OpenAIAPIKey   string `yaml:"openai_api_key"`
 		APIKeyTTLHours int    `yaml:"api_key_ttl_hours"`
-		RateLimit      struct {
-			Requests      int `yaml:"requests"`
-			WindowMinutes int `yaml:"window_minutes"`
-		} `yaml:"rate_limit"`
-		Agent struct {
+		Agent          struct {
 			MaxMessages      int `yaml:"max_messages"`
 			MaxTokens        int `yaml:"max_tokens"`
 			SummaryMaxTokens int `yaml:"summary_max_tokens"`
@@ -140,6 +135,11 @@ func (c *Config) expandEnvVars() {
 	expand := expandEnv
 
 	c.Postgres.URL = expand(c.Postgres.URL)
+	c.Registry.URL = expand(c.Registry.URL)
+	c.Registry.LicenseKey = expand(c.Registry.LicenseKey)
+	c.Registry.InstallationID = expand(c.Registry.InstallationID)
+	c.Registry.CompanyID = expand(c.Registry.CompanyID)
+	c.Registry.BrowserOrigin = expand(c.Registry.BrowserOrigin)
 
 	c.Redis.Host = expand(c.Redis.Host)
 	c.Redis.Password = expand(c.Redis.Password)

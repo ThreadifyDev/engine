@@ -25,11 +25,7 @@ type Config struct {
 	ThreadifyEngineUserID     string
 
 	Port        string
-	CORSOrigins string
 	FrontendURL string
-
-	RateLimitRequests int
-	RateLimitWindow   time.Duration
 }
 
 func Load() (*Config, error) {
@@ -63,10 +59,7 @@ func Load() (*Config, error) {
 		ThreadifyEngineGraphQLURL: getEnv("THREADIFY_ENGINE_GRAPHQL_URL", "http://localhost:8081/graphql"),
 		ThreadifyEngineUserID:     getEnv("THREADIFY_ENGINE_USER_ID", "123456"),
 		Port:                      getEnv("PORT", "3001"),
-		CORSOrigins:               getEnv("CORS_ORIGINS", "http://localhost:3000"),
 		FrontendURL:               getEnv("FRONTEND_URL", "http://localhost:3000"),
-		RateLimitRequests:         100,
-		RateLimitWindow:           time.Minute,
 	}, nil
 }
 

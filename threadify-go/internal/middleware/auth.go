@@ -53,8 +53,10 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					return
 				}
 
-				if dbRoles, err := authSvc.GetUserRoles(c.Request.Context(), claims.UserID, "user", claims.ExpiresAt); err == nil && len(dbRoles) > 0 {
-					claims.Roles = dbRoles
+				if !sharedauth.BrowserSessionsEnabled() {
+					if dbRoles, err := authSvc.GetUserRoles(c.Request.Context(), claims.UserID, "user", claims.ExpiresAt); err == nil && len(dbRoles) > 0 {
+						claims.Roles = dbRoles
+					}
 				}
 
 				if err := registry.Default().CheckCompany(claims.CompanyID); err != nil {
@@ -62,6 +64,8 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					return
 				}
 				sharedauth.SetGinContextFromClaims(c, claims)
+				// Engine thread operations address both human and service principals by owner ID.
+				c.Set(sharedauth.CtxUserID, claims.UserID)
 				c.Next()
 				return
 			}
@@ -88,8 +92,8 @@ func unauthorizedMessage(mode AuthMode) string {
 }
 
 func setAPIKeyContext(c *gin.Context, userInfo *domain.UserInfo) {
-	roles := []string{}
-	if userInfo.Role != "" {
+	roles := userInfo.Roles
+	if len(roles) == 0 && userInfo.Role != "" {
 		roles = []string{userInfo.Role}
 	}
 	c.Set(sharedauth.CtxUserID, userInfo.OwnerID)

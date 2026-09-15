@@ -30,6 +30,8 @@ type StepStateConsumer struct {
 }
 
 type stepStateEvent struct {
+	SuccessOrder   string `json:"successOrder"`
+	SuccessContext string `json:"successContext"`
 	StepID         string `json:"stepId"`
 	ThreadID       string `json:"threadId"`
 	StepName       string `json:"stepName"`
@@ -152,26 +154,18 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 	pending := c.buffer
 	c.buffer = make([]pendingStepState, 0, c.batchSize)
 
-	type dedupKey struct{ threadID, stepName, idempKey string }
-	seen := make(map[dedupKey]int, len(pending))
-	deduped := make([]stepStateEvent, 0, len(pending))
+	events := make([]stepStateEvent, 0, len(pending))
 	for _, p := range pending {
-		k := dedupKey{p.event.ThreadID, p.event.StepName, p.event.IdempotencyKey}
-		if idx, ok := seen[k]; ok {
-			deduped[idx] = p.event
-		} else {
-			seen[k] = len(deduped)
-			deduped = append(deduped, p.event)
-		}
+		events = append(events, p.event)
 	}
 
 	c.logger.Info("flushing step states",
 		zap.Int("total", len(pending)),
-		zap.Int("unique", len(deduped)),
+		zap.Int("events", len(events)),
 		zap.String("consumer", c.consumerID),
 	)
 
-	if err := c.writeBatch(ctx, deduped); err != nil {
+	if err := c.writeBatch(ctx, events); err != nil {
 		c.logger.Error("flush failed, nacking batch",
 			zap.String("consumer", c.consumerID),
 			zap.Error(err),
@@ -194,22 +188,15 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 
 // processMessages is used by Runtime, whose worker owns batching and acknowledgements.
 func (c *StepStateConsumer) processMessages(ctx context.Context, msgs []jetstream.Msg) error {
-	type dedupKey struct{ threadID, stepName, idempotencyKey string }
-	seen := make(map[dedupKey]int, len(msgs))
 	events := make([]stepStateEvent, 0, len(msgs))
 	for _, msg := range msgs {
 		var event stepStateEvent
 		if err := json.Unmarshal(msg.Data(), &event); err != nil {
 			return fmt.Errorf("decode step state: %w", err)
 		}
-		key := dedupKey{event.ThreadID, event.StepName, event.IdempotencyKey}
-		if idx, ok := seen[key]; ok {
-			events[idx] = event
-		} else {
-			seen[key] = len(events)
-			events = append(events, event)
-		}
+		events = append(events, event)
 	}
+
 	return c.writeBatch(ctx, events)
 }
 
@@ -217,6 +204,33 @@ func (c *StepStateConsumer) writeBatch(ctx context.Context, events []stepStateEv
 	if len(events) == 0 {
 		return nil
 	}
+
+	// Persist successful attempts before mutable state deduplication can discard
+	// a success followed by a failed retry in the same message batch.
+	successes := make([]StreamEvent, 0, len(events))
+	for _, e := range events {
+		if e.SuccessOrder != "" {
+			successes = append(successes, StreamEvent{Data: map[string]string{
+				"threadId": e.ThreadID, "stepName": e.StepName, "stepId": e.StepID, "status": e.Status, "successOrder": e.SuccessOrder, "successContext": e.SuccessContext,
+			}})
+		}
+	}
+	if err := NewPostgresWriter(c.db, c.logger).writeSuccessfulContexts(ctx, successes); err != nil {
+		return err
+	}
+	type key struct{ thread, step, idempotency string }
+	seen := map[key]int{}
+	deduped := make([]stepStateEvent, 0, len(events))
+	for _, e := range events {
+		k := key{e.ThreadID, e.StepName, e.IdempotencyKey}
+		if i, ok := seen[k]; ok {
+			deduped[i] = e
+		} else {
+			seen[k] = len(deduped)
+			deduped = append(deduped, e)
+		}
+	}
+	events = deduped
 
 	const numCols = 14
 	placeholderRows := make([]string, 0, len(events))

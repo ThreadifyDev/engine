@@ -244,11 +244,6 @@ type LuaRegistry interface {
 	GetScriptHash(name string) (string, bool)
 }
 
-type RateLimiter interface {
-	CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute int, windowSeconds int) (bool, error)
-	CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow int, windowSeconds int) (bool, error)
-}
-
 type CreditManager interface {
 	DecrementCreditWithAutoTopup(ctx context.Context, params *DebitParams) (DebitResult, error)
 	GetAndResetCharged(ctx context.Context, balanceKey, chargedKey string) (int64, int64, error)
@@ -256,7 +251,6 @@ type CreditManager interface {
 
 type LuaScriptManager interface {
 	LuaRegistry
-	RateLimiter
 	CreditManager
 }
 

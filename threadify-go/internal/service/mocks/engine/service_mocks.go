@@ -451,17 +451,21 @@ func (mr *MockContractGraphValidatorMockRecorder) LoadContractGraphIntoCache(ctx
 }
 
 // ValidateStepContext mocks base method.
-func (m *MockContractGraphValidator) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, context map[string]string) error {
+func (m *MockContractGraphValidator) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, context map[string]string, threadID ...string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateStepContext", ctx, stepNode, context)
+	args := []interface{}{ctx, stepNode, context}
+	for _, id := range threadID {
+		args = append(args, id)
+	}
+	ret := m.ctrl.Call(m, "ValidateStepContext", args...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ValidateStepContext indicates an expected call of ValidateStepContext.
-func (mr *MockContractGraphValidatorMockRecorder) ValidateStepContext(ctx, stepNode, context interface{}) *gomock.Call {
+func (mr *MockContractGraphValidatorMockRecorder) ValidateStepContext(ctx, stepNode, context interface{}, threadID ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepContext", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepContext), ctx, stepNode, context)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateStepContext", reflect.TypeOf((*MockContractGraphValidator)(nil).ValidateStepContext), append([]interface{}{ctx, stepNode, context}, threadID...)...)
 }
 
 // ValidateStepInContract mocks base method.

@@ -1,6 +1,6 @@
 # Nanites with Harnest and Threadify
 
-This example runs three independent Harnest agents:
+This example targets Harnest 0.12.1 and runs three independent agents:
 
 | Agent | Responsibility | Threadify activity |
 | --- | --- | --- |
@@ -12,14 +12,31 @@ Threadify notifications are the work-distribution path. There is no A2A layer
 and no additional queue. Each worker acknowledges its notification only after
 its Harnest invocation and next Threadify step succeed.
 
+## Requirements
+
+- Harnest 0.12.1 installed on the host
+- Python 3 for the source materialization step; Harnest manages Python 3.12 for each agent
+- A running Threadify Engine with three service-account keys
+- PostgreSQL for durable Harnest sessions and checkpoints
+- An OpenAI-compatible model endpoint and credential
+
 ## Prepare
 
-Materialize the single Threadify plugin and shared worker adapter into each
-independently compilable agent:
+Materialize the single Threadify Harnest Extension and shared worker adapter
+into each independently compilable agent:
 
 ```bash
 python3 prepare.py
+python3 prepare.py --check
+
+harnest env sync dispatcher
+harnest env sync analyst
+harnest env sync reviewer
 ```
+
+The generated agents use the current `extensions/threadify/` and `lifecycle/`
+layout. Each checked-in `harnest.lock` pins Google ADK 2.8.0, the framework
+version resolved by Harnest 0.12.1.
 
 Create `contract.yaml` in the Threadify Engine. Give every Nanite its own
 Threadify service-account key. The dispatcher owns the workflow event stream;
@@ -53,7 +70,15 @@ Set the PostgreSQL DSN before both `harnest compile` and runtime startup.
 Compilation validates lifecycle storage factories but does not connect to the
 database.
 
-## Run
+## Test and run
+
+With the environment above set, run every offline agent contract:
+
+```bash
+harnest test dispatcher
+harnest test analyst
+harnest test reviewer
+```
 
 Start the workers in separate terminals:
 
@@ -76,7 +101,7 @@ cannot create a second logical step.
 
 ## SDK escape hatch
 
-The plugin re-exports the official Python SDK from
-`harnest.plugins.threadify`. Managed helpers emit Harnest mutation audit events;
+The extension re-exports the official Python SDK from
+`harnest.extensions.threadify`. Managed helpers emit Harnest mutation audit events;
 use `threadify.connection` or `delivery.connection` when a provider-specific SDK
 operation is required.

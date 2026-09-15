@@ -4068,59 +4068,6 @@ func (mr *MockLuaRegistryMockRecorder) GetScriptHash(name interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScriptHash", reflect.TypeOf((*MockLuaRegistry)(nil).GetScriptHash), name)
 }
 
-// MockRateLimiter is a mock of RateLimiter interface.
-type MockRateLimiter struct {
-	ctrl     *gomock.Controller
-	recorder *MockRateLimiterMockRecorder
-}
-
-// MockRateLimiterMockRecorder is the mock recorder for MockRateLimiter.
-type MockRateLimiterMockRecorder struct {
-	mock *MockRateLimiter
-}
-
-// NewMockRateLimiter creates a new mock instance.
-func NewMockRateLimiter(ctrl *gomock.Controller) *MockRateLimiter {
-	mock := &MockRateLimiter{ctrl: ctrl}
-	mock.recorder = &MockRateLimiterMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockRateLimiter) EXPECT() *MockRateLimiterMockRecorder {
-	return m.recorder
-}
-
-// CheckCompanyRateLimit mocks base method.
-func (m *MockRateLimiter) CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute, windowSeconds int) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckCompanyRateLimit", ctx, companyID, requestsPerMinute, windowSeconds)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckCompanyRateLimit indicates an expected call of CheckCompanyRateLimit.
-func (mr *MockRateLimiterMockRecorder) CheckCompanyRateLimit(ctx, companyID, requestsPerMinute, windowSeconds interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckCompanyRateLimit", reflect.TypeOf((*MockRateLimiter)(nil).CheckCompanyRateLimit), ctx, companyID, requestsPerMinute, windowSeconds)
-}
-
-// CheckIPRateLimit mocks base method.
-func (m *MockRateLimiter) CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow, windowSeconds int) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckIPRateLimit", ctx, ip, requestsPerWindow, windowSeconds)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckIPRateLimit indicates an expected call of CheckIPRateLimit.
-func (mr *MockRateLimiterMockRecorder) CheckIPRateLimit(ctx, ip, requestsPerWindow, windowSeconds interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIPRateLimit", reflect.TypeOf((*MockRateLimiter)(nil).CheckIPRateLimit), ctx, ip, requestsPerWindow, windowSeconds)
-}
-
 // MockCreditManager is a mock of CreditManager interface.
 type MockCreditManager struct {
 	ctrl     *gomock.Controller
@@ -4196,36 +4143,6 @@ func NewMockLuaScriptManager(ctrl *gomock.Controller) *MockLuaScriptManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockLuaScriptManager) EXPECT() *MockLuaScriptManagerMockRecorder {
 	return m.recorder
-}
-
-// CheckCompanyRateLimit mocks base method.
-func (m *MockLuaScriptManager) CheckCompanyRateLimit(ctx context.Context, companyID string, requestsPerMinute, windowSeconds int) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckCompanyRateLimit", ctx, companyID, requestsPerMinute, windowSeconds)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckCompanyRateLimit indicates an expected call of CheckCompanyRateLimit.
-func (mr *MockLuaScriptManagerMockRecorder) CheckCompanyRateLimit(ctx, companyID, requestsPerMinute, windowSeconds interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckCompanyRateLimit", reflect.TypeOf((*MockLuaScriptManager)(nil).CheckCompanyRateLimit), ctx, companyID, requestsPerMinute, windowSeconds)
-}
-
-// CheckIPRateLimit mocks base method.
-func (m *MockLuaScriptManager) CheckIPRateLimit(ctx context.Context, ip string, requestsPerWindow, windowSeconds int) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckIPRateLimit", ctx, ip, requestsPerWindow, windowSeconds)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckIPRateLimit indicates an expected call of CheckIPRateLimit.
-func (mr *MockLuaScriptManagerMockRecorder) CheckIPRateLimit(ctx, ip, requestsPerWindow, windowSeconds interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckIPRateLimit", reflect.TypeOf((*MockLuaScriptManager)(nil).CheckIPRateLimit), ctx, ip, requestsPerWindow, windowSeconds)
 }
 
 // DecrementCreditWithAutoTopup mocks base method.

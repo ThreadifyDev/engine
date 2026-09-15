@@ -79,6 +79,10 @@ func EvaluateStepProposal(
 		}
 	}
 
+	if len(node.FreshDependsOn) > 0 {
+		proposal.Reason = "Per-invocation prerequisites require waitFor to check and claim a fresh occurrence"
+		return proposal, nil
+	}
 	proposal.Allowed = true
 	proposal.Reason = "all contract constraints are satisfied"
 	return proposal, nil

@@ -40,7 +40,7 @@ export default function APIKeys() {
   }, [roles, serviceAccountRole]);
 
   useEffect(() => {
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;

@@ -1,239 +1,99 @@
-# Threadify Engine - Go Implementation
+# Threadify Engine
 
-Complete migration from Kotlin with full feature parity.
+Threadify is a Go engine for contracts, threads, validation, real-time events, and
+activity history. The `threadify` executable can run the engine, embedded NATS
+JetStream, and PostgreSQL persistence workers together. PostgreSQL and Valkey
+remain external services.
 
-## Structure
+The Web API and dashboard remain separate. Existing account authentication,
+credit billing, and payment behavior are unchanged; shared Fused/Threadify
+licensing is not implemented by this packaging change.
 
-```
-threadify-go/
-├── cmd/server/          # Main application entry point
-├── config/              # Configuration files
-├── internal/
-│   ├── models/          # Data models (Contract, WebSocket, DAO)
-│   ├── database/        # PostgreSQL connection & migrations
-│   ├── services/        # Business logic (Valkey, Contract, Auth, Thread)
-│   ├── handlers/        # HTTP/WebSocket handlers
-│   ├── middleware/      # Auth, logging middleware
-│   └── queue/           # Client queue management
-├── pkg/
-│   ├── validator/       # YAML contract validator
-│   └── lua/             # Redis Lua scripts
-└── tests/               # Integration tests
-```
+## Self-hosting
 
-## Features
+Download a verified release binary without a Go toolchain:
 
-✅ **Database**
-- PostgreSQL with connection pooling
-- Schema migrations
-- Contract versioning
-
-✅ **Caching**
-- Redis/Valkey service
-- Lua script support
-- Client queue management
-
-✅ **Authentication**
-- JWT token generation & verification
-- Protected routes middleware
-- Custom claims support
-
-✅ **REST API**
-- Contract CRUD operations
-- YAML validation
-- Version management
-- Soft deletes
-
-✅ **WebSocket**
-- Real-time thread management
-- Connect/authenticate
-- Start threads
-- Record events
-- Session management
-
-✅ **Services**
-- ContractService with YAML validation
-- AuthService (JWT)
-- ThreadService
-- ValkeyService with Lua scripts
-- ClientQueue
-
-✅ **Testing**
-- Contract API tests
-- WebSocket integration tests
-- Concurrent connection tests
-
-## Prerequisites
-
-```bash
-# PostgreSQL
-docker run -d -p 5434:5432 -e POSTGRES_DB=threadify -e POSTGRES_USER=td_engine -e POSTGRES_PASSWORD=tdtdtd postgres:15
-
-# Redis/Valkey
-docker run -d -p 6379:6379 redis:7 --requirepass threadify_secure_password
+```sh
+curl --fail --show-error --location --proto '=https' --proto-redir '=https' \
+  https://github.com/creativeJoe007/ThreadifyEngine/releases/latest/download/install.sh \
+  --output install.sh
+sh install.sh
 ```
 
-## Setup
+The installer supports Apple Silicon macOS, x86-64 Linux and Windows through
+Git Bash. It preserves existing config files; use `--version vX.Y.Z` to pin a
+published release. Configure the supplied templates before starting the Engine.
 
-```bash
-cd threadify-go
-go mod download
+
+See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration, persistent storage,
+external-broker deployments, container commands, and migration from a separate
+engine and archiver.
+
+To build from source instead:
+
+```sh
+make build
+# Configure copies of config/config.selfhost.yaml and
+# config/subscription.selfhost.yaml first; deploy the latter as subscription.yaml.
+./bin/threadify --config /absolute/path/to/config.yaml
 ```
 
-## Configuration
+The binary embeds RBAC definitions, Lua scripts, and the GraphQL schema. It does
+not need a checkout or Node runtime at deployment. `--mode combined` is the
+normal single-process mode; `--mode engine` and `--mode writer` retain split
+operation with an external broker.
 
-Edit `config/config.yaml`:
+## CLI
 
-```yaml
-server:
-  port: 8080
-  host: 0.0.0.0
-
-postgres:
-  url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
-
-redis:
-  host: localhost
-  port: 6379
-  password: threadify_secure_password
-
-jwt:
-  secret: your-secret-key
-  expiration_hours: 24
+```sh
+threadify-cli config set api-url https://threadify.example.com
+threadify-cli login
+threadify-cli whoami
+threadify-cli contracts create --file contract.yaml
 ```
 
-## Run
+The management CLI lives in the separate `ThreadifyDev/cli` repository (local checkout: `../threadify-cli`). See [CLI.md](docs/CLI.md)
+for profiles, thread queries and automation with service-account keys.
 
-```bash
-go run cmd/server/main.go
+## Repository structure
+
+```text
+cmd/server/          Combined executable entry point
+cmd/archiver/        Legacy standalone writer entry point
+config/              Runtime configuration and subscription templates
+internal/app/        Application assembly and HTTP routing
+internal/archiver/   Persistence consumers and batching
+internal/database/   PostgreSQL schema initialization
+internal/graphql/    GraphQL schema, generated server, and resolvers
+internal/service/    Engine business logic
+internal/repository/ PostgreSQL and Valkey repositories
+shared/              Shared module: authentication, billing, RBAC, configuration
+api/                 Separate Web API module
+tests/               Integration test module
 ```
-
-Server starts on `http://localhost:8080`
-
-## Test
-
-```bash
-# Run all tests
-go test ./tests/... -v
-
-# Test with SDK
-cd ../threadify-sdk
-node test/example.js
-```
-
-## API Endpoints
-
-### OpenTelemetry traces
-
-```bash
-POST /v1/traces
-Content-Type: application/x-protobuf
-X-API-Key: <threadify-api-key>
-```
-
-The endpoint accepts binary OTLP/HTTP trace requests and gzip compression. See
-[OTLP Trace Ingestion](../docs/OTLP_INGESTION.md) for mapping, configuration,
-custom `threadify.*` attributes, and current signal support.
-
-### Authentication
-
-
-### Contracts (Protected)
-```bash
-# Create
-POST /v1/contracts
-Headers: Authorization: Bearer <token>
-Body: YAML contract content
-
-# Get
-GET /v1/contracts/:id?version=1
-Headers: Authorization: Bearer <token>
-
-# Update
-PUT /v1/contracts/:id
-Headers: Authorization: Bearer <token>
-Body: Updated YAML content
-
-# Delete
-DELETE /v1/contracts/:id
-Headers: Authorization: Bearer <token>
-```
-
-### WebSocket
-```bash
-ws://localhost:8080/threads
-
-# Messages:
-{"action": "connect", "apiKey": "key", "ownerId": "owner-123"}
-{"action": "startThread", "contractId": "contract-123"}
-{"action": "recordThreadEvent", "threadId": "thread-123", "status": "completed"}
-{"action": "closeConnection"}
-```
-
-## Migration from Kotlin
-
-### Completed
-- ✅ Config management (Viper)
-- ✅ PostgreSQL + migrations
-- ✅ Redis/Valkey with Lua scripts
-- ✅ All models
-- ✅ ContractService + YAML validator
-- ✅ AuthService (JWT)
-- ✅ ThreadService
-- ✅ ClientQueue
-- ✅ REST API (Contracts CRUD)
-- ✅ WebSocket handler
-- ✅ JWT middleware
-- ✅ Logging (Zap)
-- ✅ Comprehensive tests
-
-### To Add (Easy Extensions)
-- SSE support (add Gin SSE middleware)
-- Prometheus metrics (add prometheus middleware)
-- Rate limiting (add rate limit middleware)
-- Task scheduling (add cron library)
-
-## Performance
-
-- Single binary deployment
-- ~10MB binary size
-- <50ms startup time
-- Concurrent WebSocket connections via goroutines
-- Connection pooling for DB & Redis
 
 ## Development
 
-```bash
-# Format code
-go fmt ./...
+Use the Go version in `go.mod` (currently Go 1.26). Release builds use the checked-in
+GraphQL generated code; regenerate it only when changing the schema:
 
-# Lint
-golangci-lint run
-
-# Build
-go build -o bin/server cmd/server/main.go
-
-# Run binary
-./bin/server
+```sh
+make build
+make generate-graphql
+make test-archiver
+make test-engine
+make test-shared
 ```
 
-## Differences from Kotlin
+Some tests need PostgreSQL, Valkey, or NATS; see [tests/README.md](tests/README.md)
+for the integration setup. Run `make help` for the existing API, archiver, Docker,
+and multi-architecture publishing targets.
 
-| Feature | Kotlin | Go |
-|---------|--------|-----|
-| Framework | Ktor | Gin |
-| ORM | Exposed | pgx (raw SQL) |
-| Concurrency | Coroutines | Goroutines |
-| Config | application.yaml | Viper |
-| Logging | Logback | Zap |
-| Binary Size | JVM required | 10MB standalone |
-| Startup | ~2s | <50ms |
+## OpenTelemetry traces
 
-## Next Steps
+`POST /v1/traces` accepts binary OTLP/HTTP trace requests with
+`Content-Type: application/x-protobuf` and `X-API-Key: <threadify-api-key>`, including
+gzip-compressed requests. See [OTLP Trace Ingestion](../docs/OTLP_INGESTION.md) for
+mapping, configuration, custom `threadify.*` attributes, and signal support.
 
-1. Add SSE for real-time events
-2. Add Prometheus metrics
-3. Add rate limiting
-4. Add comprehensive logging
-5. Add OpenAPI/Swagger docs
-6. Deploy with Docker
+See [WebSocket documentation](../docs/WEBSOCKET.md) for engine client connections.

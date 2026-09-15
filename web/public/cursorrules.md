@@ -108,7 +108,7 @@ await thread.step('process_order')
 ### External References
 ```javascript
 await thread.addRefs({
-  stripe_payment_id: 'pi_123',
+  payment_id: 'pi_123',
   order_id: 'ORD-456'
 });
 ```

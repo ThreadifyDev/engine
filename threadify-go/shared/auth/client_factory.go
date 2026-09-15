@@ -24,6 +24,8 @@ func NewAuthClientFromConfig(cfg AuthProviderConfig) (AuthClient, error) {
 	}
 
 	switch provider {
+	case "registry":
+		return ManagedAuthClient{}, nil
 	case providerSupabase:
 		return NewSupabaseClient(cfg.Supabase)
 	default:
@@ -42,6 +44,8 @@ func NewAuthClientFromSharedConfig(cfg *sharedconfig.Config) (AuthClient, error)
 	}
 
 	switch provider {
+	case "registry":
+		return ManagedAuthClient{}, nil
 	case providerSupabase:
 		return NewSupabaseClient(SupabaseAuthConfig{
 			URL:                   cfg.Supabase.URL,

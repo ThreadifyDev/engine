@@ -18,7 +18,6 @@ type Config struct {
 	Auth               AuthConfig                      `yaml:"auth" mapstructure:"auth"`
 	Queue              QueueConfig                     `yaml:"queue" mapstructure:"queue"`
 	ThreadActivities   ThreadActivitiesConfig          `yaml:"thread_activities" mapstructure:"thread_activities"`
-	RateLimit          RateLimitConfig                 `yaml:"rate_limit" mapstructure:"rate_limit"`
 	Cache              CacheConfig                     `yaml:"cache" mapstructure:"cache"`
 	Invitations        InvitationsConfig               `yaml:"invitations" mapstructure:"invitations"`
 	Logging            LoggingConfig                   `yaml:"logging" mapstructure:"logging"`
@@ -39,9 +38,9 @@ type Config struct {
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
-	Port        int    `yaml:"port" mapstructure:"port"`
-	Host        string `yaml:"host" mapstructure:"host"`
-	CORSOrigins string `yaml:"cors_origins" mapstructure:"cors_origins"`
+	PublicURL string `yaml:"public_url" mapstructure:"public_url"`
+	Port      int    `yaml:"port" mapstructure:"port"`
+	Host      string `yaml:"host" mapstructure:"host"`
 }
 
 // PostgresConfig holds PostgreSQL configuration
@@ -96,15 +95,6 @@ type QueueConfig struct {
 type ThreadActivitiesConfig struct {
 	BatchSize      int `yaml:"batch_size" mapstructure:"batch_size"`
 	BatchTimeoutMs int `yaml:"batch_timeout_ms" mapstructure:"batch_timeout_ms"`
-}
-
-// RateLimitConfig holds rate limiting configuration
-type RateLimitConfig struct {
-	Enabled             bool `yaml:"enabled" mapstructure:"enabled"`
-	IPRateLimitEnabled  bool `yaml:"ip_rate_limit_enabled" mapstructure:"ip_rate_limit_enabled"`
-	IPRequestsPerWindow int  `yaml:"ip_requests_per_window" mapstructure:"ip_requests_per_window"`
-	WindowSeconds       int  `yaml:"window_seconds" mapstructure:"window_seconds"`
-	RedisTimeoutMs      int  `yaml:"redis_timeout_ms" mapstructure:"redis_timeout_ms"` // Valkey timeout in milliseconds
 }
 
 // CacheConfig holds cache configuration

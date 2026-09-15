@@ -1,8 +1,67 @@
 import { useState, useEffect, useMemo } from 'react';
 import { graphqlClient } from '~/lib/graphql';
-import { Activity, BarChart2, Calendar, CheckCircle2, Clock } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart2, CheckCircle2, Clock, RefreshCw, ShieldAlert } from 'lucide-react';
 
 type MetricsRange = '7d' | '30d' | '90d';
+
+const METRIC_THEMES = {
+  positive: {
+    accent: 'border-t-emerald-400',
+    icon: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
+  },
+  negative: {
+    accent: 'border-t-rose-400',
+    icon: 'bg-rose-50 text-rose-600 ring-rose-100',
+  },
+  warning: {
+    accent: 'border-t-amber-400',
+    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
+  },
+  activity: {
+    accent: 'border-t-sky-400',
+    icon: 'bg-sky-50 text-sky-600 ring-sky-100',
+  },
+  neutral: {
+    accent: 'border-t-violet-400',
+    icon: 'bg-violet-50 text-violet-600 ring-violet-100',
+  },
+} as const;
+
+function getMetricTheme(name: string) {
+  const normalized = name.toLowerCase();
+  if (/failure|failed|error|violation/.test(normalized)) return METRIC_THEMES.negative;
+  if (/completion|success|completed/.test(normalized)) return METRIC_THEMES.positive;
+  if (/retry|duration|time|latency/.test(normalized)) return METRIC_THEMES.warning;
+  if (/activity|volume|count|execution/.test(normalized)) return METRIC_THEMES.activity;
+  return METRIC_THEMES.neutral;
+}
+
+function getMetricIcon(name: string) {
+  const normalized = name.toLowerCase();
+  if (/violation|error/.test(normalized)) return ShieldAlert;
+  if (/failure|failed/.test(normalized)) return AlertTriangle;
+  if (/completion|success/.test(normalized)) return CheckCircle2;
+  if (/retry/.test(normalized)) return RefreshCw;
+  if (/duration|time|latency/.test(normalized)) return Clock;
+  return BarChart2;
+}
+
+function getStatusStyle(status: string) {
+  const normalized = status.replace(/^status:\s*/i, '').toLowerCase();
+  if (/completed|success|passed/.test(normalized)) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (/failed|error|critical|violated/.test(normalized)) return 'border-rose-200 bg-rose-50 text-rose-700';
+  if (/active|running|progress/.test(normalized)) return 'border-sky-200 bg-sky-50 text-sky-700';
+  if (/warning|pending|retry/.test(normalized)) return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-gray-200 bg-gray-50 text-gray-600';
+}
+
+function humanizeLabel(value: string) {
+  return value
+    .replace(/^status:\s*/i, '')
+    .replace(/[_:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey: string; type: string; hasMetricsConfig: boolean }) {
   const [range, setRange] = useState<MetricsRange>('7d');
@@ -111,27 +170,27 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
   }, [data]);
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-5 sm:space-y-6">
       {/* Range selector & Notice */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <div className="grid grid-cols-3 rounded-lg bg-gray-200/70 p-1 sm:inline-grid">
           {(['7d', '30d', '90d'] as MetricsRange[]).map(r => (
             <button
               key={r}
               onClick={() => setRange(r)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              className={`min-w-0 rounded-md px-4 py-1.5 text-sm font-semibold transition-all ${
                 range === r
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                  ? 'bg-white text-gray-950 shadow-sm ring-1 ring-black/5'
+                  : 'text-gray-500 hover:text-gray-900'
               }`}
             >
               {r}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 italic">
-          <Activity className="w-3.5 h-3.5" />
-          <span>Metrics are computed asynchronously and may take up to 30 mins to update.</span>
+        <div className="flex min-w-0 items-start gap-2 text-xs leading-5 text-gray-500 sm:max-w-sm sm:items-center sm:text-right">
+          <Activity className="mt-0.5 h-4 w-4 flex-none text-gray-400 sm:mt-0" />
+          <span>Metrics may take up to 30 minutes to reflect new activity.</span>
         </div>
       </div>
 
@@ -168,106 +227,67 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
       )}
 
       {!isLoading && !error && groupedData && Object.keys(groupedData).length > 0 && (
-        <div className="flex flex-wrap items-start gap-6">
+        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:gap-5">
           {Object.entries(groupedData).map(([tagline, statuses]) => {
-            // Find all unique scalar headers
-            const scalarHeadersSet = new Set<string>();
-            let hasMultipleStatuses = false;
-            let statusCount = 0;
-            
-            Object.entries(statuses).forEach(([status, items]) => {
-              if (status !== 'General') {
-                hasMultipleStatuses = true;
-              }
-              statusCount++;
-              items.forEach(item => {
-                if (!Array.isArray(item.result) && !(typeof item.result === 'object' && item.result !== null)) {
-                  scalarHeadersSet.add(item.header);
-                }
-              });
-            });
-            
-            const scalarHeaders = Array.from(scalarHeadersSet);
-            const showStatusColumn = hasMultipleStatuses || (!statuses['General'] && statusCount > 0);
-            
-            const hasScalars = scalarHeaders.length > 0;
+            const theme = getMetricTheme(tagline);
+            const MetricIcon = getMetricIcon(tagline);
+            const hasScalars = Object.values(statuses).some(items =>
+              items.some(item => !Array.isArray(item.result) && !(typeof item.result === 'object' && item.result !== null))
+            );
             const hasOtherItems = Object.values(statuses).some(items => 
               items.some(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null))
             );
 
             return (
-              <div key={tagline} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500 max-w-full">
-                {/* Metric Name as Card Header */}
-                <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/80">
-                  <h2 className="text-[11px] font-black text-gray-800 uppercase tracking-[0.15em]">
+              <article
+                key={tagline}
+                className={`flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200 border-t-[3px] bg-white shadow-sm transition-shadow hover:shadow-md ${theme.accent}`}
+              >
+                <div className="flex min-h-[64px] items-center gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-3 sm:px-5">
+                  <div className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ring-1 ${theme.icon}`}>
+                    <MetricIcon className="h-[18px] w-[18px]" />
+                  </div>
+                  <h2 className="min-w-0 text-sm font-semibold leading-5 text-gray-900">
                     {tagline}
                   </h2>
                 </div>
 
-                <div className="flex flex-col">
-                  {/* Scalar Metrics Table */}
+                <div className="flex min-h-0 flex-1 flex-col">
                   {hasScalars && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left whitespace-nowrap">
-                        <thead>
-                          <tr className="border-b border-gray-100 bg-white">
-                            {showStatusColumn && (
-                              <th className="py-3 px-5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                                Group / Status
-                              </th>
-                            )}
-                            {scalarHeaders.map(h => (
-                              <th key={h} className="py-3 px-5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                          {Object.entries(statuses).map(([status, items]) => {
-                            const scalarItems = items.filter(i => !Array.isArray(i.result) && !(typeof i.result === 'object' && i.result !== null));
-                            if (scalarItems.length === 0) return null;
-                            
-                            const itemsByHeader = new Map(scalarItems.map(i => [i.header, i]));
-                            const firstItem = scalarItems[0];
-                            const statusColor = firstItem?.statusColorRef?.toLowerCase() || '';
+                    <div className="flex flex-1 flex-col justify-center space-y-4 p-4 sm:p-5">
+                      {Object.entries(statuses).map(([status, items]) => {
+                        const scalarItems = items.filter(item =>
+                          !Array.isArray(item.result) && !(typeof item.result === 'object' && item.result !== null)
+                        );
+                        if (scalarItems.length === 0) return null;
 
-                            return (
-                              <tr key={status} className="hover:bg-gray-50/50 transition-colors bg-white">
-                                {showStatusColumn && (
-                                  <td className="py-3 px-5">
-                                    {status !== 'General' ? (
-                                      <div className="flex items-center gap-2">
-                                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                          statusColor === 'completed' ? 'bg-emerald-500' :
-                                          statusColor === 'active' ? 'bg-blue-500' : 'bg-gray-400'
-                                        }`} />
-                                        <span className="text-[11px] font-bold text-gray-600 uppercase tracking-tight">{status}</span>
-                                      </div>
-                                    ) : (
-                                      <span className="text-[11px] font-bold text-gray-400 uppercase tracking-tight">GENERAL</span>
-                                    )}
-                                  </td>
-                                )}
-                                {scalarHeaders.map(h => {
-                                  const item = itemsByHeader.get(h);
-                                  return (
-                                    <td key={h} className="py-3 px-5 text-gray-900 font-mono text-[13px]">
-                                      {item ? formatValue(item.result) : '—'}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                        return (
+                          <section key={status} className="space-y-2.5">
+                            {status !== 'General' && (
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${getStatusStyle(status)}`}>
+                                {humanizeLabel(status)}
+                              </span>
+                            )}
+                            <dl className="grid grid-cols-2 gap-2 sm:[grid-template-columns:repeat(auto-fit,minmax(110px,1fr))]">
+                              {scalarItems.map(item => (
+                                <div key={item.metricName} className="min-w-0 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+                                  <dt className="break-words text-[10px] font-semibold uppercase leading-4 tracking-wide text-gray-500">
+                                    {humanizeLabel(item.header)}
+                                  </dt>
+                                  <dd className="mt-1 break-words font-mono text-xl font-semibold tabular-nums text-gray-950">
+                                    {formatValue(item.result)}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </section>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Other Items (Arrays / Objects) */}
                   {hasOtherItems && (
-                    <div className={`p-5 grid grid-cols-1 gap-5 ${hasScalars ? 'border-t border-gray-100 bg-gray-50/30' : 'bg-white'}`}>
+                    <div className={`grid grid-cols-1 gap-4 p-4 sm:p-5 ${hasScalars ? 'border-t border-gray-100 bg-gray-50/30' : ''}`}>
                       {Object.entries(statuses).map(([status, items]) => {
                         const otherItems = items.filter(i => Array.isArray(i.result) || (typeof i.result === 'object' && i.result !== null));
                         return otherItems.map((item, idx) => {
@@ -276,90 +296,100 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
                           const displayData = Array.isArray(item.result) ? (isExpanded ? item.result : item.result.slice(0, 5)) : item.result;
 
                           return (
-                          <div key={tableKey} className="bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col shadow-sm">
+                          <section key={tableKey} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
                             {(item.header.toUpperCase() !== tagline.toUpperCase() || status !== 'General') && (
-                              <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                              <div className="flex min-w-0 items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/60 px-3 py-2.5">
                                 {item.header.toUpperCase() !== tagline.toUpperCase() && (
-                                  <h3 className="text-[10px] font-bold text-gray-600 uppercase tracking-tight">{item.header}</h3>
+                                  <h3 className="min-w-0 break-words text-xs font-semibold text-gray-700">{item.header}</h3>
                                 )}
                                 {status !== 'General' && (
-                                  <span className={`text-[9px] font-bold text-gray-500 uppercase bg-white border border-gray-200 px-1.5 py-0.5 rounded ${item.header.toUpperCase() === tagline.toUpperCase() ? 'ml-0' : 'ml-auto'}`}>
-                                    {status}
+                                  <span className={`ml-auto inline-flex flex-none rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${getStatusStyle(status)}`}>
+                                    {humanizeLabel(status)}
                                   </span>
                                 )}
                               </div>
                             )}
-                            <div className="p-4 flex-1 flex flex-col justify-center min-h-[60px]">
+                            <div className="flex min-h-[88px] min-w-0 flex-1 flex-col justify-center p-3 sm:p-4">
                               {Array.isArray(item.result) ? (
                                 item.result.length === 0 ? (
-                                  <p className="text-xs text-gray-400 italic text-center">No data recorded</p>
+                                  <div className="flex flex-col items-center justify-center gap-2 py-3 text-center">
+                                    <Activity className="h-5 w-5 text-gray-300" />
+                                    <p className="text-xs text-gray-400">No data recorded</p>
+                                  </div>
                                 ) : (
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
+                                  <>
+                                    <div className="space-y-2 sm:hidden">
+                                      {displayData.map((row: any, rowIndex: number) => (
+                                        <dl key={rowIndex} className="divide-y divide-gray-100 rounded-lg border border-gray-100 bg-gray-50/50 px-3">
+                                          {Object.entries(row).map(([column, value]) => (
+                                            <div key={column} className="flex min-w-0 items-start justify-between gap-4 py-2">
+                                              <dt className="min-w-0 break-words text-[10px] font-semibold uppercase leading-4 tracking-wide text-gray-500">
+                                                {humanizeLabel(column)}
+                                              </dt>
+                                              <dd className="max-w-[60%] break-words text-right font-mono text-xs font-semibold text-gray-900">
+                                                {formatValue(value)}
+                                              </dd>
+                                            </div>
+                                          ))}
+                                        </dl>
+                                      ))}
+                                    </div>
+                                    <div className="hidden min-w-0 overflow-x-auto sm:block">
+                                    <table className="w-full text-left text-sm">
                                       <thead>
                                         <tr className="border-b border-gray-100">
                                           {Object.keys(item.result[0]).map(col => (
-                                            <th key={col} className="py-2 pr-4 text-[10px] font-bold text-gray-400 uppercase tracking-tighter whitespace-nowrap">{col}</th>
+                                            <th key={col} className="whitespace-nowrap px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 first:pl-0 last:pr-0">
+                                              {humanizeLabel(col)}
+                                            </th>
                                           ))}
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-gray-50">
                                         {displayData.map((row: any, i: number) => (
-                                          <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                                          <tr key={i} className="transition-colors hover:bg-gray-50/70">
                                             {Object.values(row).map((val: any, j: number) => (
-                                              <td key={j} className="py-2 pr-4 text-gray-900 font-mono text-[11px] whitespace-nowrap">
+                                              <td key={j} className="whitespace-nowrap px-2 py-2.5 font-mono text-xs text-gray-900 first:pl-0 last:pr-0">
                                                 {formatValue(val)}
                                               </td>
                                             ))}
                                           </tr>
                                         ))}
-                                        {item.result.length > 5 && !isExpanded && (
-                                          <tr>
-                                            <td 
-                                              colSpan={Object.keys(item.result[0]).length} 
-                                              className="pt-3 pb-1 text-[10px] text-gray-400 text-center italic cursor-pointer hover:text-gray-600 transition-colors"
-                                              onClick={() => toggleTable(tableKey)}
-                                            >
-                                              + {item.result.length - 5} more rows (click to expand)
-                                            </td>
-                                          </tr>
-                                        )}
-                                        {item.result.length > 5 && isExpanded && (
-                                          <tr>
-                                            <td 
-                                              colSpan={Object.keys(item.result[0]).length} 
-                                              className="pt-3 pb-1 text-[10px] text-gray-400 text-center italic cursor-pointer hover:text-gray-600 transition-colors"
-                                              onClick={() => toggleTable(tableKey)}
-                                            >
-                                              Show less
-                                            </td>
-                                          </tr>
-                                        )}
                                       </tbody>
                                     </table>
-                                  </div>
+                                    </div>
+                                    {item.result.length > 5 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleTable(tableKey)}
+                                        className="mt-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                                      >
+                                        {isExpanded ? 'Show less' : `Show ${item.result.length - 5} more`}
+                                      </button>
+                                    )}
+                                  </>
                                 )
                               ) : (
-                                <div className="flex flex-row flex-wrap gap-4 justify-center">
+                                <dl className="grid grid-cols-2 gap-2 sm:[grid-template-columns:repeat(auto-fit,minmax(110px,1fr))]">
                                   {Object.entries(item.result as Record<string, any>).map(([key, val]) => (
-                                    <div key={key} className="flex flex-col items-center justify-center">
-                                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight mb-1">{key}</span>
-                                      <span className="text-lg font-bold text-gray-900 tabular-nums tracking-tight">
+                                    <div key={key} className="min-w-0 rounded-lg bg-gray-50 p-3 text-center">
+                                      <dt className="break-words text-[10px] font-semibold uppercase leading-4 tracking-wide text-gray-500">{humanizeLabel(key)}</dt>
+                                      <dd className="mt-1 break-words font-mono text-lg font-semibold tabular-nums text-gray-950">
                                         {formatValue(val)}
-                                      </span>
+                                      </dd>
                                     </div>
                                   ))}
-                                </div>
+                                </dl>
                               )}
                             </div>
-                          </div>
+                          </section>
                         );
                       });
                     })}
                   </div>
                   )}
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>

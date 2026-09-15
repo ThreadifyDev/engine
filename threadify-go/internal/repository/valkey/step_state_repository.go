@@ -173,6 +173,7 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		fmt.Sprintf("thread:%s:violations", params.ThreadID),
 	}
 
+	freshJSON, _ := json.Marshal(params.FreshRequiredSteps)
 	// Prepare args
 	args := []interface{}{
 		stepKey,                   // ARGV[1]
@@ -190,6 +191,9 @@ func (r *StepStateRepository) ValidateAndUpdateStepState(
 		params.IdempotencyKey,     // ARGV[13] - idempotencyKey (passed to avoid regex extraction)
 		params.Actor,              // ARGV[14] - actor (user who recorded this step, for .own permission filtering)
 		requiredStepsStr,          // ARGV[15] - partial-order prerequisites
+		params.RawContext,         // ARGV[16] - original string context for successful references
+		string(freshJSON),         // ARGV[17] - prerequisites requiring fresh occurrences
+		params.InvocationID,       // ARGV[18] - claimed invocation
 	}
 
 	// Execute Lua script

@@ -37,6 +37,7 @@ type StartThreadResponse struct {
 }
 
 type RecordEventCmd struct {
+	InvocationID      string
 	Action            string
 	ThreadID          string
 	StepName          string

@@ -62,6 +62,7 @@ Create a new thread.
   "action": "startThread",
   "contractName": "payment_flow:3",  // Optional, format: "name:version"
   "role": "merchant",                 // Required if using contract
+  "tags": ["payments", "high-value"], // Optional, immutable after creation
   "refs": {
     "serviceName": "merchant-service",
     "orderId": "12345"
@@ -110,15 +111,14 @@ Record a step in the thread.
 ```
 
 ### 4. Invite Party
-Invite another user to the thread.
+Invite another party to join the thread.
 
 ```json
 {
   "action": "inviteParty",
-  "threadId": "thread-uuid",
-  "inviteeEmail": "user@example.com",
-  "permissions": ["read", "write"],
-  "role": "payment_processor"  // Optional, for contract workflows
+  "role": "payment_processor",
+  "accessLevel": "external",     // Optional: "external" (default), "observer", "participant"
+  "expiresIn": "24h"             // Optional, default: "24h"
 }
 ```
 
@@ -127,18 +127,30 @@ Invite another user to the thread.
 {
   "action": "inviteParty",
   "status": "success",
-  "invitationToken": "jwt-token",
-  "permissions": "read,write"
+  "threadToken": "jwt-token",
+  "role": "payment_processor",
+  "accessLevel": "external",
+  "expiresAt": 1736769600
 }
 ```
 
 ### 5. Join Thread
-Join a thread using invitation token.
+Join a thread using invitation token or direct thread ID.
 
+**Token-based join:**
 ```json
 {
   "action": "joinThread",
-  "invitationToken": "jwt-token"
+  "threadToken": "jwt-token"
+}
+```
+
+**Direct join (same company):**
+```json
+{
+  "action": "joinThread",
+  "threadId": "thread-uuid",
+  "role": "payment_processor"
 }
 ```
 
@@ -148,7 +160,8 @@ Join a thread using invitation token.
   "action": "joinThread",
   "status": "success",
   "threadId": "thread-uuid",
-  "permissions": "read,write",
+  "role": "payment_processor",
+  "accessLevel": "external",
   "message": "Successfully joined thread"
 }
 ```

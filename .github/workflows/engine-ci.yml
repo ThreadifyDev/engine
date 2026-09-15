@@ -8,6 +8,7 @@ on:
       - '!threadify-go/tests/api/**'
       - '.github/workflows/engine-*.yml'
       - '.github/scripts/*engine*'
+      - 'install.sh'
   # Main/tag pushes are validated by Engine release through this same workflow.
   workflow_call:
 
@@ -22,6 +23,17 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      browser-auth-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: threadify_auth_test
+          POSTGRES_PASSWORD: threadify_auth_test
+          POSTGRES_DB: threadify_auth_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U threadify_auth_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     defaults:
       run:
         working-directory: threadify-go
@@ -38,7 +50,13 @@ jobs:
             threadify-go/tests/go.sum
       - name: Test engine release versioning
         run: python3 ../.github/scripts/test_engine_version.py
+      - name: Test binary installer
+        run: |
+          sh -n ../install.sh
+          python3 ../.github/scripts/test_engine_installer.py
       - name: Test shared module
+        env:
+          THREADIFY_AUTH_TEST_DATABASE_URL: postgres://threadify_auth_test:threadify_auth_test@127.0.0.1:5432/threadify_auth_test?sslmode=disable
         run: go test ./...
         working-directory: threadify-go/shared
       - name: Test engine and embedded persistence

@@ -2,6 +2,8 @@ package config
 
 import (
 	"github.com/spf13/viper"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,5 +58,38 @@ func TestPersistenceCanBeDisabledExplicitly(t *testing.T) {
 	}
 	if cfg.Archiver.Enabled {
 		t.Fatal("explicit false overridden")
+	}
+}
+
+// A launch from another directory cannot silently select a different broker store.
+func TestEmbeddedStorageFollowsInstalledBinary(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cfg, err := runtimeConfig(t, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(filepath.Dir(executable), "data", "jetstream")
+	if cfg.NATS.StoreDir != want || cfg.NATS.StreamName != "NOTIFICATIONS" {
+		t.Fatalf("storage=%q want=%q stream=%q", cfg.NATS.StoreDir, want, cfg.NATS.StreamName)
+	}
+}
+
+// Explicit absolute paths preserve externally mounted or separately managed storage.
+func TestEmbeddedStorageAbsoluteOverride(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "store")
+	cfg, err := runtimeConfig(t, "nats:\n  store_dir: '"+dir+"'\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NATS.StoreDir != dir {
+		t.Fatalf("storage override changed: %q", cfg.NATS.StoreDir)
 	}
 }

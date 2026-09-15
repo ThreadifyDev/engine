@@ -40,6 +40,8 @@ type AccessReadOptions struct {
 }
 
 type StepStateSnapshot struct {
+	SuccessOrder   int64
+	SuccessContext string
 	ID             string
 	ThreadID       string
 	StepName       string
@@ -125,6 +127,9 @@ type PermissionCheckResult struct {
 
 // ValidateStepParams contains all parameters for step validation and update
 type ValidateStepParams struct {
+	FreshRequiredSteps     []string
+	InvocationID           string
+	RawContext             string
 	ThreadID               string
 	StepID                 string
 	StepName               string
@@ -143,14 +148,15 @@ type ValidateStepParams struct {
 
 // Violation represents a validation violation
 type Violation struct {
-	Type     string
-	Severity string
-	Message  string
-	Details  map[string]interface{}
+	Type     string                 `json:"violationType"`
+	Severity string                 `json:"severity"`
+	Message  string                 `json:"message"`
+	Details  map[string]interface{} `json:"details,omitempty"`
 }
 
 // StepStateResult contains the results of step validation and update
 type StepStateResult struct {
+	SuccessOrder         int64 `json:"successOrder,string"`
 	Status               string
 	Violations           []Violation
 	RetryCount           int

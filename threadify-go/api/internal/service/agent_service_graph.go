@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"threadify-go/shared/registry"
 	"time"
 
 	"threadify-go/api/internal/domain"
@@ -123,6 +124,11 @@ func (s *AgentService) ChatStreamEino(
 	skill string,
 	onEvent domain.StreamHandler,
 ) error {
+	if strings.TrimSpace(s.openaiAPIKey) == "" {
+		err := errors.New("AI assistant is unavailable because no model provider is configured. Ask your administrator to configure it.")
+		onEvent(domain.EventError, err.Error())
+		return err
+	}
 	if s.einoGraph == nil {
 		return errors.New("agent graph not initialized")
 	}
@@ -299,6 +305,13 @@ func (s *AgentService) executeGraphQL(ctx context.Context, authHeader, query str
 	req.Header.Set(HeaderContentType, ContentTypeJSON)
 	req.Header.Set(HeaderUserAgent, UserAgentAPI)
 
+	// Authenticate the internal hop so Engine does not count API-metered traffic twice.
+	// Production startup always installs a runtime; isolated handler tests may omit it.
+	if runtime := registry.Default(); runtime != nil {
+		if err := runtime.SignRequest(req); err != nil {
+			return "", fmt.Errorf("license verification unavailable: %w", err)
+		}
+	}
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		s.logger.Error("GraphQL request failed",

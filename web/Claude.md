@@ -326,9 +326,9 @@ Publisher Test: 100 notifications
 
 2. **Dynamic Role Resolution:**
    - `getRuntimeRolesForPermissions()` uses RBAC loader to map permissions → roles
-   - Supports wildcard permissions (e.g., `notification.execution.*`)
+   - Supports wildcard permissions (e.g., `notification.step.*`)
    - Only queries users in relevant roles (not all users)
-   - Example: `notification.execution.success.*` → `owner` role only
+   - Example: `notification.step.success.*` → `owner` role only
 
 3. **Access Batching Removed:**
    - Removed `AccessBatcher` service entirely
@@ -395,4 +395,3 @@ Publisher Test: 1000 notifications
 [NATS-PUBLISH] Published to notifications.user.{userID}...
 [NOTIF-SUCCESS] Published execution:1 validation:1 to 1 users
 ```
-

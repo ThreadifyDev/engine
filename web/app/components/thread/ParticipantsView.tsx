@@ -2,10 +2,29 @@ import { useQuery } from '@tanstack/react-query';
 import { Code, Users } from 'lucide-react';
 import { graphqlClient, type StepStateInfo } from '~/lib/graphql';
 
-export function ParticipantsView({ threadId, steps, stepHistory }: { threadId: string; steps: StepStateInfo[]; stepHistory?: any[] }) {
+interface ParticipantsViewProps {
+  threadId: string;
+  steps: StepStateInfo[];
+  stepHistory?: any[];
+  selectedService?: string | null;
+  onServiceSelect?: (service: string | null) => void;
+}
+
+export function ParticipantsView({
+  threadId,
+  steps,
+  stepHistory,
+  selectedService = null,
+  onServiceSelect,
+}: ParticipantsViewProps) {
   // Extract unique services and actor IDs from StepHistory objects
   const services = new Set<string>();
   const actorIds = new Set<string>();
+
+  steps.forEach(step => {
+    if (step.actorService) services.add(step.actorService);
+    if (step.actor) actorIds.add(step.actor);
+  });
   
   stepHistory?.forEach(item => {
     if (item.actorService) services.add(item.actorService);
@@ -19,14 +38,6 @@ export function ParticipantsView({ threadId, steps, stepHistory }: { threadId: s
     enabled: actorIds.size > 0,
   });
 
-  if (!stepHistory) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Services */}
@@ -37,11 +48,30 @@ export function ParticipantsView({ threadId, steps, stepHistory }: { threadId: s
         </h5>
         {services.size > 0 ? (
           <div className="space-y-2">
-            {Array.from(services).map(service => (
-              <div key={service} className="bg-gray-50 border border-gray-200 rounded-md p-3">
-                <div className="font-mono text-sm text-gray-900">{service}</div>
-              </div>
-            ))}
+            {Array.from(services).map(service => {
+              const isSelected = selectedService === service;
+              return (
+                <button
+                  key={service}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onServiceSelect?.(isSelected ? null : service)}
+                  className={`w-full rounded-md border p-3 text-left transition-all ${
+                    isSelected
+                      ? 'border-violet-400 bg-violet-50 ring-1 ring-violet-300'
+                      : selectedService
+                        ? 'border-gray-200 bg-gray-50 opacity-40 hover:opacity-70'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-gray-100'
+                  }`}
+                  title={isSelected ? 'Show all services' : `Show only steps from ${service}`}
+                >
+                  <div className="break-all font-mono text-sm text-gray-900">{service}</div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    {steps.filter(step => step.actorService === service).length} step(s)
+                  </div>
+                </button>
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-gray-500">No service information available</p>

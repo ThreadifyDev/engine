@@ -364,7 +364,7 @@ await thread.addRefs({
 // Link thread to multiple external systems
 await thread.addRefs({
     salesforceOpportunityId: 'SF-OPP-123',
-    stripePaymentIntent: 'pi_abc123',
+    paymentId: 'pi_abc123',
     hubspotDealId: 'DEAL-456',
     slackThreadTs: '1234567890.123456'
 });

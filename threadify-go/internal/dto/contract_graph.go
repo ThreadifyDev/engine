@@ -1,5 +1,7 @@
 package dto
 
+import "github.com/threadify/engine/pkg/contractcontent"
+
 // ContractGraphDTO represents the DAG structure of a contract for JSON serialization
 type ContractGraphDTO struct {
 	SemanticsVersion   int                 `json:"semantics_version,omitempty"`
@@ -20,19 +22,21 @@ type GraphDTO struct {
 
 // GraphNode represents a step or parallel group in the workflow
 type GraphNode struct {
-	ID              string           `json:"id"`
-	Owner           string           `json:"owner,omitempty"`
-	Role            string           `json:"role,omitempty"`
-	Type            string           `json:"type"`
-	Mode            string           `json:"mode,omitempty"`
-	Required        bool             `json:"required"`
-	DependsOn       []string         `json:"depends_on,omitempty"`
-	Next            []string         `json:"next,omitempty"`
-	Steps           []string         `json:"steps,omitempty"`
-	Timeout         string           `json:"timeout,omitempty"`
-	MaxDuration     string           `json:"max_duration,omitempty"`
-	BusinessContext *BusinessContext `json:"business_context,omitempty"`
-	ParentGroup     string           `json:"parent_group,omitempty"`
+	ID              string                 `json:"id"`
+	Owner           string                 `json:"owner,omitempty"`
+	Role            string                 `json:"role,omitempty"`
+	Type            string                 `json:"type"`
+	Mode            string                 `json:"mode,omitempty"`
+	Required        bool                   `json:"required"`
+	FreshDependsOn  []string               `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	DependsOn       []string               `json:"depends_on,omitempty"`
+	Next            []string               `json:"next,omitempty"`
+	Steps           []string               `json:"steps,omitempty"`
+	Timeout         string                 `json:"timeout,omitempty"`
+	MaxDuration     string                 `json:"max_duration,omitempty"`
+	BusinessContext *BusinessContext       `json:"business_context,omitempty"`
+	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	ParentGroup     string                 `json:"parent_group,omitempty"`
 }
 
 // BusinessContext represents the required and optional fields for a step

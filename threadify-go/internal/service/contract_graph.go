@@ -6,6 +6,8 @@ import (
 	"slices"
 
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/pkg/contractcontent"
+	"github.com/threadify/engine/pkg/validator"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,6 +25,15 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 	contract, err := parseContract(content)
 	if err != nil {
 		return nil, err
+	}
+
+	for i := range contract.Steps {
+		for _, dep := range contract.Steps[i].FreshDependsOn {
+			if !slices.Contains(contract.Steps[i].DependsOn, dep) {
+				contract.Steps[i].DependsOn = append(contract.Steps[i].DependsOn, dep)
+			}
+		}
+		contract.Steps[i].DependsOn = contractcontent.Dependencies(contract.Steps[i].DependsOn, contract.Steps[i].ContentRules)
 	}
 
 	// Explicit transitions retain their existing immediate-order semantics. Step
@@ -70,6 +81,11 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 // parseContract tries JSON first (PascalCase from Go serialization),
 // then YAML (snake_case from user input).
 func parseContract(content []byte) (*domain.ContractYAML, error) {
+	normalized, err := validator.NormalizeSource(string(content))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse contract: %w", err)
+	}
+	content = []byte(normalized)
 	var contract domain.ContractYAML
 	if err := json.Unmarshal(content, &contract); err == nil {
 		return &contract, nil
@@ -117,10 +133,12 @@ func (b *GraphBuilder) buildNodes(contract *domain.ContractYAML, transitions []d
 			Role:            stepOwner(step),
 			Type:            "step",
 			Required:        true,
+			FreshDependsOn:  append([]string{}, step.FreshDependsOn...),
 			DependsOn:       append([]string{}, step.DependsOn...),
 			Next:            b.findNextFromTransitions(step.ID, transitions),
 			Timeout:         step.Timeout,
 			BusinessContext: step.BusinessContext,
+			ContentRules:    step.ContentRules,
 			ParentGroup:     b.findParentGroup(step.ID, contract.Groups),
 		}
 	}

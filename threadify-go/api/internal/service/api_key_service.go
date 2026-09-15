@@ -4,6 +4,7 @@ import (
 	"context"
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/utils"
+	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/rbac"
 	"time"
 
@@ -179,6 +180,11 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*domain
 		return nil, ErrApiKeyExpiredAPI
 	}
 
+	if apiKey.UserID != nil && apiKey.ServiceAccountID == nil {
+		if err := sharedauth.RequireActiveUser(ctx, *apiKey.UserID, apiKey.CompanyID); err != nil {
+			return nil, ErrInvalidApiKey
+		}
+	}
 	// TODO: Move last_used_at tracking to NATS for async processing
 	// Currently commented out - spawns unbounded goroutines and data not actively used
 	// go s.apiKeyRepo.UpdateLastUsed(apiKey.ID)

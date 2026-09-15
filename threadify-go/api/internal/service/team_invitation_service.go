@@ -101,7 +101,7 @@ func (s *TeamInvitationService) SendInvitation(
 // queueInvitationEmail creates an outbox event to send the invitation email
 func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invitation *domain.TeamInvitation) error {
 	// Build invitation link
-	inviteLink := fmt.Sprintf("%s/signup?invitation_token=%s", s.frontendURL, invitation.Token)
+	inviteLink := fmt.Sprintf("%s/login", s.frontendURL)
 
 	// Create payload
 	payload := map[string]string{

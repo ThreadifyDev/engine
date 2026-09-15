@@ -10,6 +10,7 @@ on:
       - '!threadify-go/tests/api/**'
       - '.github/workflows/engine-*.yml'
       - '.github/scripts/*engine*'
+      - 'install.sh'
 
 # Serialize tagging/publishing so two main pushes cannot claim the same version.
 concurrency:
@@ -104,6 +105,7 @@ jobs:
           git log --format='* %s (%h)' "$revision" -- \
             threadify-go ':!threadify-go/api' ':!threadify-go/tests/api' \
             .github/workflows/engine-ci.yml .github/workflows/engine-release.yml \
+            install.sh .github/scripts/test_engine_installer.py \
             .github/scripts/engine-version.py .github/scripts/test_engine_version.py > "$RUNNER_TEMP/engine-notes.md"
       # GITHUB_TOKEN-created tags do not start another workflow. Publish directly
       # from the validated tag on main pushes, and use the same path for tag pushes.
@@ -117,3 +119,9 @@ jobs:
           GORELEASER_CURRENT_TAG: ${{ needs.tag.outputs.tag }}
           # Explicitly bypass SDK tags when computing engine release metadata.
           GORELEASER_PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag || needs.tag.outputs.tag }}
+      - name: Publish binary installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" install.sh --clobber

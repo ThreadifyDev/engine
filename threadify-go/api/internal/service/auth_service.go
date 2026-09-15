@@ -703,10 +703,50 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
-	if s.jwksVerifier == nil {
-		return nil, ErrJwtVerificationNotConfigured
+	// Production browser sessions are local, opaque, and revocable; no provider JWT fallback.
+	if sharedauth.BrowserSessionsEnabled() {
+		return sharedauth.VerifyBrowserSession(ctx, tokenString)
 	}
-	return s.jwksVerifier.Verify(ctx, tokenString)
+	if strings.Count(strings.TrimSpace(tokenString), ".") != 2 {
+		// Let middleware validate Threadify API keys locally; never send them
+		// to the external auth provider as if they were user sessions.
+		return nil, ErrAuthInvalidToken
+	}
+	var claims *sharedauth.TokenClaims
+	err := ErrJwtVerificationNotConfigured
+	if s.jwksVerifier != nil {
+		claims, err = s.jwksVerifier.Verify(ctx, tokenString)
+	}
+	if err != nil {
+		verifier, ok := s.authClient.(sharedauth.AccessTokenVerifier)
+		if !ok {
+			return nil, err
+		}
+		info, verifyErr := verifier.VerifyAccessToken(ctx, tokenString)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+		if info == nil || strings.TrimSpace(info.Sub) == "" {
+			return nil, ErrAuthInvalidToken
+		}
+		claims = &sharedauth.TokenClaims{Sub: info.Sub, AuthUserID: info.Sub, Email: info.Email, EmailVerified: info.EmailVerified}
+	}
+	if claims == nil || strings.TrimSpace(claims.Sub) == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	// Resolve tenant identity from our DB using the verified provider subject.
+	// JWT user_metadata may be missing, stale, or editable by the user.
+	user, err := s.userRepo.FindByAuthUserID(ctx, claims.Sub)
+	if err != nil || user == nil || user.ID == "" || user.CompanyID == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	claims.AuthUserID = claims.Sub
+	claims.UserID = user.ID
+	claims.CompanyID = user.CompanyID
+	claims.Email = user.Email
+	claims.EmailVerified = user.EmailVerified
+	claims.Roles = nil // Loaded from the local role repository by middleware.
+	return claims, nil
 }
 
 func (s *AuthService) GetUserRoles(ctx context.Context, userID, principalType string) ([]string, error) {

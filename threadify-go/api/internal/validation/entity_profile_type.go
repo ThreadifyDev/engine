@@ -79,8 +79,17 @@ func ValidateApplyEntityProfileTypeRequest(req *dto.ApplyEntityProfileTypeReques
 var validTargets = []string{"thread", "step"}
 var validOperations = []string{"COUNT", "RATE", "AVG", "SUM", "MIN", "MAX"}
 var validFields = []string{"threads", "steps", "violations", "retries", "stepCount", "outcome", "duration"}
-var validGroupBy = []string{"step name", "outcome", "process type", "violation type", "tag", "none"}
+var validFieldsByOperation = map[string][]string{
+	"COUNT": {"threads", "steps", "violations", "retries", "stepCount"},
+	"RATE":  {"outcome", "violations"},
+	"AVG":   {"duration", "retries"},
+	"SUM":   {"violations", "retries", "duration", "stepCount"},
+	"MIN":   {"duration"},
+	"MAX":   {"duration", "retries"},
+}
+var validGroupBy = []string{"step name", "outcome", "actor", "actor service", "process type", "violation type", "validation severity", "tag", "period", "none"}
 var validGranularity = []string{"hour", "day", "week", "month"}
+var validFilterKeys = []string{"step name", "step outcome", "actor", "actor service", "thread outcome", "process type", "violation type", "validation severity", "tags"}
 
 // var validVisualisation = []string{"number", "line", "table", "bar"} // commented out for now
 
@@ -103,10 +112,12 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 
 	if !slices.Contains(validFields, def.Field) {
 		b.add(prefix+".field", "Field is not valid for the selected operation.")
+	} else if fields, ok := validFieldsByOperation[def.Operation]; ok && !slices.Contains(fields, def.Field) {
+		b.add(prefix+".field", "Field is not valid for operation "+def.Operation+".")
 	}
 
 	if def.GroupBy != "" && !slices.Contains(validGroupBy, def.GroupBy) {
-		b.add(prefix+".group_by", "Group by must be one of: step name, outcome, process type, violation type, tag, none.")
+		b.add(prefix+".group_by", "Group by is not supported.")
 	}
 
 	if def.Granularity != "" && !slices.Contains(validGranularity, def.Granularity) {
@@ -124,15 +135,30 @@ func validateCustomMetricDefinition(b *validationBuilder, def *dto.CustomMetricD
 			continue
 		}
 		key := strings.ToLower(strings.TrimSpace(f.Key))
-		if def.Target == "thread" && (key == "step name" || key == "step outcome" || key == "actor" || key == "actor service") {
+		if !slices.Contains(validFilterKeys, key) {
+			b.add(prefix+fmt.Sprintf(".filters[%d].key", i), "Filter key is not supported.")
+		}
+		if def.Target == "thread" && (key == "step name" || key == "step outcome" || key == "actor service") {
 			b.add(prefix+fmt.Sprintf(".filters[%d].key", i), "Cannot filter by '"+key+"' when target is 'thread'.")
 		}
 	}
 
 	if def.Target == "thread" {
 		groupBy := strings.ToLower(strings.TrimSpace(def.GroupBy))
-		if groupBy == "step name" || groupBy == "outcome" || groupBy == "actor service" {
+		if groupBy == "step name" || groupBy == "actor service" {
 			b.add(prefix+".group_by", "Cannot group by '"+groupBy+"' when target is 'thread'.")
 		}
+		if def.Field == "steps" || def.Field == "retries" || def.Field == "stepCount" {
+			b.add(prefix+".field", "Field '"+def.Field+"' requires target 'step'.")
+		}
+	} else if def.Target == "step" && def.Field == "threads" {
+		b.add(prefix+".field", "Field 'threads' requires target 'thread'.")
+	}
+
+	if def.GroupBy == "period" && def.Granularity == "" {
+		b.add(prefix+".granularity", "Granularity is required when grouping by period.")
+	}
+	if def.Operation == "RATE" && def.Field == "violations" && (def.GroupBy == "violation type" || def.GroupBy == "validation severity") {
+		b.add(prefix+".group_by", "Violation rates can use a violation filter, but cannot be grouped by violation type or severity.")
 	}
 }

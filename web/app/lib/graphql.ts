@@ -1,7 +1,8 @@
-// GraphQL client for Threadify Engine (via Web API proxy)
+import { browserHeaders, purgeLegacyToken } from './browser-session';
+// GraphQL client connecting directly to the configured Threadify engine.
 import { getConfig } from '../config.client';
 
-const GRAPHQL_ENDPOINT = '/api/graphql'; // Proxy endpoint on Web API
+const GRAPHQL_ENDPOINT = '/graphql';
 
 // Patterns that indicate internal error details which should not reach users.
 const INTERNAL_ERROR_PATTERNS = [
@@ -167,7 +168,7 @@ export interface ThreadNotification {
   stepName: string;
   idempotencyKey?: string;
   source: string; // 'execution', 'validation', 'thread'
-  notificationType: string; // 'execution.success', 'validation.violated', etc.
+  notificationType: string; // 'step.success', 'rule.violated', etc.
   stepStatus?: string; // 'success', 'failed', 'error'
   validationStatus?: string; // 'passed', 'violated', 'none'
   violationType?: string;
@@ -221,20 +222,21 @@ export interface Thread {
 
 class GraphQLClient {
   private getApiUrl(): string {
-    return getConfig().apiUrl;
+    return getConfig().engineUrl.replace(/\/+$/, '');
   }
 
   private async request<T>(query: string, variables?: Record<string, any>): Promise<T> {
-    // Make GraphQL request through the Web API proxy
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    // Use Web API URL from runtime configuration
+    // The engine validates the existing bearer token.
+    purgeLegacyToken();
+    // Use the engine URL supplied by the server at runtime.
     const apiUrl = this.getApiUrl();
 
     const response = await fetch(`${apiUrl}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...browserHeaders(),
       },
       body: JSON.stringify({ query, variables }),
     });

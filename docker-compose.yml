@@ -171,7 +171,7 @@ services:
   #     # Secrets (no defaults in config.yaml, must be provided)
   #     JWT_SECRET: "${JWT_SECRET:-your-256-bit-secret-key-change-this-in-production-min-32-chars}"
   #     PLUNK_API_KEY: "${PLUNK_API_KEY}"
-  #     PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.com}"
+  #     PLUNK_FROM_EMAIL: "${PLUNK_FROM_EMAIL:-noreply@threadify.dev}"
   #   depends_on:
   #     threadify_storage:
   #       condition: service_healthy

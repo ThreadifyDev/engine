@@ -6,11 +6,106 @@ The dashboard and Web API remain separate applications. Fused Registry provision
 the licensed account and supplies Threadify bandwidth, rate, and entity-profile
 limits. Thread creation, event size, and token counts do not consume credits.
 
+## Install a release binary
+
+Download the installer from the latest Engine release, then run it:
+
+```sh
+curl --fail --show-error --location --proto '=https' --proto-redir '=https' \
+  https://github.com/creativeJoe007/ThreadifyEngine/releases/latest/download/install.sh \
+  --output install.sh
+sh install.sh
+```
+
+The installer selects Apple Silicon macOS, x86-64 Linux or x86-64 Windows
+(Git Bash), downloads the release archive and verifies its SHA-256 checksum
+before installing. It requires `curl`, `tar` (or `unzip` on Windows), and
+`sha256sum` or `shasum`. Other architectures must build from source.
+For native PowerShell, download and extract the Windows ZIP as described below.
+
+The default binary location is `$HOME/.local/bin/threadify` (`threadify.exe` on
+Windows). Configuration templates go into `${XDG_CONFIG_HOME:-$HOME/.config}/threadify`.
+Existing config files are preserved, including on upgrades. The installer needs
+no `sudo`, does not edit your shell profile, and does not start the Engine.
+Add the binary directory to `PATH` if you want to run `threadify` by name.
+
+To choose a published version or installation directories:
+
+```sh
+sh install.sh --version v1.2.3 \
+  --bin-dir "$HOME/.local/bin" \
+  --config-dir "$HOME/.config/threadify"
+```
+
+Replace `v1.2.3` with your desired release. Rerun the installer to upgrade;
+restart the Engine to use the new executable. Stop a running Windows Engine
+before replacing its binary.
+
+Follow the configuration requirements under **Build and configure** below:
+supply your Registry license, PostgreSQL and Valkey settings, and a persistent
+hash-chain secret. Start using the command printed by the installer, normally:
+
+```sh
+"$HOME/.local/bin/threadify" --config "${XDG_CONFIG_HOME:-$HOME/.config}/threadify/config.yaml"
+```
+
+Embedded NATS data defaults to `data/jetstream` beside the executable. Set an
+absolute `nats.store_dir` in YAML if you want a separate persistent data location.
+The installer downloads only the Engine and config templates; PostgreSQL, Valkey,
+the Web API and dashboard are deployed separately.
+
+## Manage an Engine from the CLI
+
+Install the separate `threadify-cli` client from `ThreadifyDev/cli` for login and resource commands:
+
+```sh
+threadify-cli config set api-url https://threadify.example.com
+threadify-cli login
+threadify-cli contracts create --file contract.yaml
+threadify-cli profile-types create --file customers.yaml
+```
+
+Use `threadify-cli help` or the [CLI guide](docs/CLI.md) for API-key setup, explicit
+profiles, thread references, integrity verification and logout. Client commands
+connect to your Engine without starting the server. Browser login requires the
+updated external UI and its configured `registry.browser_origin`.
+
+## Public Engine URL
+
+Set the address clients use to reach the Engine in `config.yaml`:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8081
+  public_url: "https://threadify.example.com"
+```
+
+The distributed configs also accept `THREADIFY_PUBLIC_URL`. An administrator can
+set the same address in **Settings → Engine → Engine URL**. The UI setting
+overrides the YAML default, is stored per installation in PostgreSQL, and survives
+restarts. **Use config default** removes that override. YAML changes take effect
+after restarting the Engine; UI changes take effect immediately.
+
+The JavaScript SDK accepts this one address as `engineUrl` and derives its
+WebSocket and GraphQL routes. OTLP/HTTP and MCP addresses appear in collapsed
+setup sections. Reverse-proxy path prefixes are supported;
+the proxy must strip the prefix before forwarding requests to the Engine.
+The public URL is an advertised client address. It does not configure DNS, TLS,
+the listener, browser authentication origins or the external UI's connection.
+Configure the UI's `ENGINE_URL` separately and use `registry.browser_origin` for
+the public UI origin. See [browser deployment](docs/BROWSER_AUTH.md).
+
+`GET /v1/engine/settings` returns the effective address, its config default,
+source (`config`, `ui`, or `unset`) and client endpoints. Administrators use
+`PUT /v1/engine/settings` with `{"public_url":"https://threadify.example.com"}`
+to save, or `DELETE /v1/engine/settings` to restore the config default.
+
 ## Engine CI and releases
 
 The engine uses `.github/workflows/engine-ci.yml` and `engine-release.yml`.
 Engine pull requests run the shared and engine unit suites, release-version
-script tests, GoReleaser validation, and compiled-binary E2E tests against
+script and installer tests, GoReleaser validation, and compiled-binary E2E tests against
 throwaway PostgreSQL and Valkey containers. The E2E suite includes entity
 profiles, contract creation and use, OTLP ingestion/completion, recorded trace
 timestamps, and hash verification.
@@ -23,7 +118,7 @@ engine tags use `vMAJOR.MINOR.PATCH`; SDK tags and SDK release workflows stay
 independent. Pushing an explicit stable engine tag runs the same release gate.
 Re-running a failed release reuses its existing tag and replaces uploaded assets.
 
-Each GitHub release contains three archives and `checksums.txt`:
+Each GitHub release contains `install.sh`, three archives and `checksums.txt`:
 
 | Host | Architecture | Archive |
 | --- | --- | --- |
@@ -90,21 +185,27 @@ cp config/subscription.selfhost.yaml "$HOME/threadify/config/subscription.yaml"
 
 Edit the deployed configuration before starting:
 
-- Set `nats.store_dir` to the absolute path of the `data/jetstream` directory you
-  just created. `/data/jetstream` in the template is the container default.
+- No NATS settings are required. The binary starts embedded NATS and uses
+  `data/jetstream` beside its resolved executable, independent of the working
+  directory. The directory is created at startup and must be writable by the
+  service user. An explicit absolute `nats.store_dir` overrides this location.
 - Set `POSTGRES_URL`, `VALKEY_HOST`, and `VALKEY_PASSWORD` in the process
   environment. Adjust Valkey port and database in YAML if necessary.
-- Supply the existing authentication provider settings: the template uses
-  `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the relevant `JWKS_URL`,
-  `JWKS_AUDIENCE`, and `JWKS_ISSUER` values for your account platform.
+- Set `THREADIFY_BROWSER_ORIGIN` to the exact public UI origin (for example,
+  `https://threadify.example.com`). Browser sign-in uses Fused Registry identity;
+  Supabase and JWKS settings are no longer required. See [browser authentication](docs/BROWSER_AUTH.md).
 - Generate your own `HASH_CHAIN_SECRET_V1` once with `openssl rand -hex 32` and
   retain it securely across restarts. Preserve all previous secret versions when
   rotating keys so historical activity chains remain verifiable.
-- Set `THREADIFY_REGISTRY_URL` to your Registry base URL and
-  `THREADIFY_LICENSE_KEY` to a license provisioned for Threadify (or both products).
+- Set `THREADIFY_LICENSE_KEY` to a license provisioned for Threadify (or both
+  products). The production Registry URL is built in; `THREADIFY_REGISTRY_URL`
+  is an optional local-testing override.
   The same key may also be used by Fused Engine. Keep `billing.provider: noop`;
   local credit prices no longer control admission. Registry limits remain in memory.
-- Review HTTP host, port, and allowed browser origins for your installation.
+- Review HTTP host and port. The standard configuration has no CORS or local
+  rate-limit fields; the incoming request allowance comes from Registry.
+  UI bundling remains a separate change. Until then, serve the browser UI and
+  its API routes through a same-origin reverse proxy.
 
 YAML strings of the form `$NAME:default` use the named environment variable or
 the supplied default; `$NAME` requires you to supply that value. Environment
@@ -156,7 +257,7 @@ nats:
   archival_max_bytes: 1073741824
 ```
 
-Keep the remaining NATS settings from the template. Supply broker authentication
+The remaining NATS settings use built-in defaults. Supply broker authentication
 and transport protection through your deployment's existing NATS configuration.
 Do not point multiple embedded processes at the same JetStream directory.
 
@@ -234,7 +335,7 @@ docker run --name threadify --stop-timeout 60 \
   threadify:local
 ```
 
-Use the template's `/data/jetstream` store path in the mounted configuration. The
+The release image sets `NATS_STORE_DIR=/data/jetstream` for its mounted volume. The
 configuration directory must contain both `config.yaml` and `subscription.yaml`.
 External service addresses must be reachable from the container; `localhost`
 inside it refers to the container itself. Existing Compose deployments that mount
@@ -271,7 +372,9 @@ go test ./cmd/server -run TestStandaloneBinaryPersistenceAndRestart -v -count=1
 ```
 
 The smoke test uses a local signed Registry fixture and no seeded credits. It
-checks thread persistence and bandwidth accounting across a restart. Set
+starts without NATS settings from a different working directory, verifies the
+broker store beside the executable, and checks thread persistence and bandwidth
+accounting across a restart. Set
 `THREADIFY_SMOKE_REGISTRY_URL` to an isolated Registry fixture to exercise actual
 Registry handlers; never point this test at a production Registry.
 

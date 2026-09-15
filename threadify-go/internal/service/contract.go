@@ -99,7 +99,7 @@ func (s *ContractService) enforceCredits(ctx context.Context, companyID string) 
 	return 0, nil
 }
 
-// PreviewContract validates YAML and builds a contract graph without persisting.
+// PreviewContract validates Gherkin-style or YAML source and builds its graph without persisting.
 func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	contract, validationResult := s.validator.Validate(yamlString)
 	if !validationResult.IsValid {

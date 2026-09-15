@@ -1,6 +1,6 @@
 # Threadify Harnest agent
 
-This is a standalone Harnest 0.9 agent. It does not replace or modify the Go
+This is a standalone Harnest 0.12.1 agent. It does not replace or modify the Go
 services. Authenticated clients call Harnest directly; its typed tools forward
 the same verified bearer header to the existing Threadify GraphQL endpoint.
 
@@ -30,7 +30,7 @@ The public data tool surface mirrors Threadify's stable MCP operations:
 constants. The model cannot submit arbitrary GraphQL, mutations, or
 subscriptions.
 
-The `threadify_guard` runtime plugin adds `propose_step` for planning and
+The `threadify_guard` Harnest Extension adds `propose_step` for planning and
 intercepts tools declared with `@guarded_step(...)` at Harnest's `before_tool`
 boundary. It asks Threadify's `proposeStep` query using the authenticated
 caller's bearer token. A denial returns `THREADIFY_EXECUTION_BLOCKED` with the
@@ -43,7 +43,7 @@ returned to the model until GraphQL confirms that Threadify persisted the exact
 successful step. Guarded tools are observed the same way after authorization;
 a blocked result is never recorded as a completed step.
 
-The same plugin attaches a telemetry exporter to Harnest's runtime exhaust. It
+The same extension attaches a telemetry exporter to Harnest's runtime exhaust. It
 exports only completed `execute_tool` spans, normalizes each tool name to a
 Threadify step, and correlates the resulting Thread with the Harnest session and
 agent through refs. Model calls and HTTP/server spans are excluded, so
@@ -52,7 +52,7 @@ Threadify receives the tool process the agent actually performed.
 Guard a real action tool by declaring its authored contract step:
 
 ```python
-from harnest.plugins.threadify_guard import guarded_step
+from harnest.extensions.threadify_guard import guarded_step
 from harnest.tool import tool
 
 @tool
@@ -68,6 +68,7 @@ Export these variables before running the standalone server:
 ```bash
 export LITELLM_MODEL=openai/gpt-4o-mini
 export OPENAI_API_KEY=...
+export THREADIFY_WS_URL=ws://127.0.0.1:8081/threads
 export THREADIFY_GRAPHQL_URL=http://127.0.0.1:8081/graphql
 export THREADIFY_OTLP_ENDPOINT=http://127.0.0.1:8081/v1/traces
 export THREADIFY_OTLP_API_KEY=...

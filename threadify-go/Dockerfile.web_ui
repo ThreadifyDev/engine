@@ -1,17 +1,20 @@
-# Build stage
-FROM node:20-alpine AS builder
+# syntax=docker/dockerfile:1
+
+# The Remix build output is platform-independent, so build it natively rather
+# than emulating each target architecture.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files from web
-COPY ../web/package*.json ./
+# Sources are resolved from the web build context.
+COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production=false
+RUN --mount=type=cache,target=/root/.npm npm ci --include=dev
 
 # Copy source code from web
-COPY ../web/ .
+COPY . ./
 
 # Build the Remix application (no build-time API URL needed - uses runtime config)
 RUN npm run build
@@ -29,8 +32,8 @@ RUN addgroup -g 1001 -S nodejs && \
 WORKDIR /app
 
 # Copy package files and install production dependencies only
-COPY ../web/package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+COPY package*.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
 # Copy built application from builder
 COPY --from=builder --chown=remix:nodejs /app/build ./build

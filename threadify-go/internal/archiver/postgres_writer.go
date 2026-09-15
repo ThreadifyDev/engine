@@ -644,7 +644,17 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	rb := newRowBuilder(cols)
 	var skipped int
 
-	for _, e := range events {
+	// A participant may join or reconnect several times before a batch flush.
+	// PostgreSQL cannot upsert the same conflict key twice in one INSERT.
+	// Keep the last state in stream order for each thread/participant pair.
+	lastAccess := make(map[[2]string]int, len(events))
+	for i, e := range events {
+		lastAccess[[2]string{e.Data["threadId"], e.Data["userId"]}] = i
+	}
+	for i, e := range events {
+		if lastAccess[[2]string{e.Data["threadId"], e.Data["userId"]}] != i {
+			continue
+		}
 		if !validThreads[e.Data["threadId"]] {
 			w.logger.Debug("skipping access for non-existent thread",
 				zap.String("thread_id", e.Data["threadId"]),
@@ -948,6 +958,10 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 }
 
 func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []StreamEvent) error {
+	// Process successes before state deduplication, which can retain a later failed retry.
+	if err := w.writeSuccessfulContexts(ctx, events); err != nil {
+		return err
+	}
 	if len(events) == 0 {
 		return nil
 	}
