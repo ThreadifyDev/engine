@@ -35,7 +35,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       previous_tag: ${{ steps.version.outputs.previous_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Select engine version
@@ -81,20 +81,20 @@ jobs:
       GOMAXPROCS: '2'
       GOFLAGS: '-p=2 -trimpath'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.tag }}
       - uses: ./.github/actions/setup-engine-go
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: valkey-*
           path: threadify-go/bundle
           merge-multiple: true
       - name: Restore bundled executable permissions
         run: chmod 755 threadify-go/bundle/*/valkey-server
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -116,7 +116,7 @@ jobs:
             .github/scripts/engine-version.py .github/scripts/test_engine_version.py > "$RUNNER_TEMP/engine-notes.md"
       # GITHUB_TOKEN-created tags do not start another workflow. Publish directly
       # from the validated tag on main pushes, and use the same path for tag pushes.
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           version: v2.18.0
           workdir: threadify-go
