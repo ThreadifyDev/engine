@@ -1,0 +1,91 @@
+{
+  "account_id": "8bf9099d-2ff9-4d88-a2eb-acb114679909",
+  "scope": "Registry issuance contract only; Node SDK test separately verifies Engine enforcement",
+  "passed": 14,
+  "checks": [
+    {
+      "field": "input_bandwidth_bytes",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "d75e757ab73a67a463d64d3442fb44c53160ac83587cd1a760e6df8b8c8df725"
+    },
+    {
+      "field": "input_bandwidth_bytes",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "9856d462dd63c5655c58d7b0fe10bad653416c376eab8ddfed9f63ad29423214"
+    },
+    {
+      "field": "output_bandwidth_bytes",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "3070b3fa20e533cc7b926367734fed181735126214b82f7c7853e7b9d253baa1"
+    },
+    {
+      "field": "output_bandwidth_bytes",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "863f7b8918e993481d8b6cedf063f41a8096d5f0abcc56e4a3d1c07a1f0c53f5"
+    },
+    {
+      "field": "input_bytes_per_second",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "b51ceb39fecf0d752b10c6304c23370f9897a35679795e7cc92910a8c99199e5"
+    },
+    {
+      "field": "input_bytes_per_second",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "becd3174d7ac3b2a4da7460fb9cb708a5d181c66af5a528246aa7254515cdf17"
+    },
+    {
+      "field": "output_bytes_per_second",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "7db8ba2535905eed21b8667fff21b681ca7c903b2b8ba1b0495538cbe7e35ef9"
+    },
+    {
+      "field": "output_bytes_per_second",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "faa45d976c1ebf782137a86236e9dbb068b52eb35b0ef01de0e203f533b032bc"
+    },
+    {
+      "field": "input_requests_per_second",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "76a00459352808093215dd52d062046ba0571ba50d615d8508d06cdd0325366e"
+    },
+    {
+      "field": "input_requests_per_second",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "ab747c1f481eb0f18cbc9903b7fb32b02a054ecfd8c0a3963419a9438a1d7401"
+    },
+    {
+      "field": "output_messages_per_second",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "0b5afa69a320814ca94957f593d650bd679a6353f96cf8ab3b1787ec296cc965"
+    },
+    {
+      "field": "output_messages_per_second",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "a1b53b8784977e88c26d1b81f9c89ef1df88f3bb9cbdbca5a9ff9469dea12ab4"
+    },
+    {
+      "field": "entity_profile_limit",
+      "value": 64,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "27ce5fe2aa1f4f194faddbcd20b3586bd5a3d985f6866f0f81417a3af464a179"
+    },
+    {
+      "field": "entity_profile_limit",
+      "value": 0,
+      "handshake_and_signed_heartbeat_match": true,
+      "revision": "88a4a1b35d232b01e59b3419ef734bc1f6b8f9b0d7b1a8a0bb2af24d0b238798"
+    }
+  ]
+}

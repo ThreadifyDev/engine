@@ -68,7 +68,11 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	c.Writer.Header().Set("Cache-Control", cacheControlNoCache)
 	c.Writer.Header().Set("Connection", connectionKeepAlive)
 
+	errorSent := false
 	onEvent := func(eventType, data string) {
+		if eventType == domain.EventError {
+			errorSent = true
+		}
 		c.SSEvent(eventType, data)
 		c.Writer.Flush()
 	}
@@ -83,7 +87,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		chatReq.Skill,
 		onEvent,
 	)
-	if err != nil {
+	if err != nil && !errorSent {
 		// Error is already sanitized and sent by ChatStreamEino via onEvent.
 		// Log the raw error but do not leak it to the client.
 		c.SSEvent(domain.EventError, "An unexpected error occurred")

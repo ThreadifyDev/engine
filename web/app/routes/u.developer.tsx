@@ -1,3 +1,4 @@
+import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
@@ -20,7 +21,7 @@ export default function Developer() {
 
   useEffect(() => {
     // Check authentication
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;
@@ -76,34 +77,11 @@ export default function Developer() {
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="mb-8">
-          <div className="flex gap-4">
-            <button
-              onClick={() => handleTabChange('api-keys')}
-              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
-                activeTab === 'api-keys'
-                  ? 'bg-black text-white -mb-0.5'
-                  : 'text-gray-800 hover:text-black'
-              }`}
-            >
-              API Keys
-            </button>
-            <button
-              onClick={() => handleTabChange('service-accounts')}
-              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
-                activeTab === 'service-accounts'
-                  ? 'bg-black text-white -mb-0.5'
-                  : 'text-gray-800 hover:text-black'
-              }`}
-            >
-              Service Accounts
-            </button>
-          </div>
-        </div>
+        <TabBar label="Developer" value={activeTab} onChange={handleTabChange} panelId="developer-panel" className="mb-6"
+          items={[{value:'api-keys',label:'API Keys'},{value:'service-accounts',label:'Service Accounts'}]} />
 
         {/* Tab Content */}
-        <div>
+        <div id="developer-panel" role="tabpanel" aria-label="Developer content">
           {activeTab === 'api-keys' && <APIKeysTab />}
           {activeTab === 'service-accounts' && <ServiceAccountsTab />}
         </div>

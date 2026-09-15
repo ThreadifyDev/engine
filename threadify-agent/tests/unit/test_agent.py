@@ -1,5 +1,6 @@
 import asyncio
 from inspect import signature
+from pathlib import Path
 
 
 def test_compiled_agent_has_threadify_tool(agent, tools):
@@ -84,6 +85,16 @@ def test_ambiguous_threadify_parameters_are_described(tools):
     assert "Reference field name" in violation_docs
     assert "Value stored under refKey" in violation_docs
     assert "Zero-based offset" in search_docs
+
+
+def test_agent_instructions_do_not_conflate_skills_with_permissions():
+    instructions = (
+        Path(__file__).resolve().parents[2] / "instructions.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Skills are agent instruction modules" in instructions
+    assert "Never use `list_skills`" in instructions
+    assert "HTTP 401/403" in instructions
 
 
 def test_oldest_thread_uses_bounded_count_then_exact_offset(tools, monkeypatch):

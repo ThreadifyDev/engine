@@ -108,7 +108,8 @@ func (s *TeamInvitationService) SendInvitation(
 }
 
 func (s *TeamInvitationService) queueInvitationEmail(ctx context.Context, invitation *domain.TeamInvitation) error {
-	inviteLink := fmt.Sprintf("%s/signup?invitation_token=%s", s.frontendURL, invitation.Token)
+	// Embedded login accepts invitations through the verified mailbox.
+	inviteLink := fmt.Sprintf("%s/login", s.frontendURL)
 
 	payloadJSON, err := json.Marshal(map[string]string{
 		"email":       invitation.Email,

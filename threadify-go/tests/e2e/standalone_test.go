@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"threadify-go/shared/testutil/registryfixture"
 	"time"
 
 	"github.com/spf13/viper"
@@ -51,6 +52,7 @@ func standaloneDirectory(t *testing.T) string {
 		require.NoError(t, vk.Terminate(ctx))
 	})
 	dir := t.TempDir()
+	registryServer := registryfixture.New(t, "8bf9099d-2ff9-4d88-a2eb-acb114679909")
 	v := viper.New()
 	v.SetConfigFile("../../config/config.selfhost.yaml")
 	require.NoError(t, v.ReadInConfig())
@@ -68,6 +70,7 @@ func standaloneDirectory(t *testing.T) string {
 	httpPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	for key, value := range map[string]any{
+		"registry.url": registryServer.URL, "registry.license_key": registryfixture.License, "registry.company_id": "8bf9099d-2ff9-4d88-a2eb-acb114679909",
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pg.ConnectionString,
 		"redis.host": address.Hostname(), "redis.port": port, "redis.password": "",
 		"runtime_mode": "combined", "nats.mode": "embedded", "nats.store_dir": filepath.Join(dir, "jetstream"),

@@ -45,6 +45,16 @@ type AuthService struct {
 	outboxWorker   OutboxWorkerTrigger
 	encryptionKey  []byte
 	logger         *zap.Logger
+
+	licensedCompanyID  string
+	licensedOwnerEmail string
+}
+
+// ConfigureLicensedAccount binds signup to the Registry-provisioned company;
+// mailbox verification remains required before the owner can authenticate.
+func (s *AuthService) ConfigureLicensedAccount(companyID, ownerEmail string) {
+	s.licensedCompanyID = companyID
+	s.licensedOwnerEmail = strings.TrimSpace(ownerEmail)
 }
 
 func NewAuthService(
@@ -128,9 +138,13 @@ func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *domain.S
 	if err := inv.CanBeAccepted(); err != nil {
 		return nil, nil, "", err
 	}
+	// An invitation cannot authorize a company outside this licensed deployment.
+	if s.licensedCompanyID != "" && inv.CompanyID != s.licensedCompanyID {
+		return nil, nil, "", fmt.Errorf("invitation does not belong to the licensed account")
+	}
 
 	company, err := s.companyRepo.FindByID(ctx, inv.CompanyID)
-	if err != nil {
+	if err != nil || company == nil {
 		s.logger.Error("signup: failed to get company for invitation", zap.Error(err))
 		return nil, nil, "", fmt.Errorf("company not found")
 	}
@@ -145,6 +159,20 @@ func (s *AuthService) resolveInvitationSignup(ctx context.Context, req *domain.S
 }
 
 func (s *AuthService) resolveRegularSignup(ctx context.Context, req *domain.SignupCmd) (*domain.Company, *domain.TeamInvitation, string, error) {
+	// Registry provisions the company; only its owner can bootstrap without an invitation.
+	if s.licensedCompanyID != "" {
+		if s.licensedOwnerEmail == "" || !strings.EqualFold(strings.TrimSpace(req.Email), s.licensedOwnerEmail) {
+			return nil, nil, "", fmt.Errorf("ask the licensed account owner for a team invitation")
+		}
+		if err := s.checkUserExists(ctx, req.Email); err != nil {
+			return nil, nil, "", err
+		}
+		company, err := s.companyRepo.FindByID(ctx, s.licensedCompanyID)
+		if err != nil || company == nil {
+			return nil, nil, "", fmt.Errorf("licensed account is unavailable")
+		}
+		return company, nil, "admin", nil
+	}
 	if err := s.checkUserExists(ctx, req.Email); err != nil {
 		return nil, nil, "", err
 	}
@@ -190,7 +218,8 @@ func (s *AuthService) persistSignup(
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	if invitation == nil {
+	// A licensed signup attaches to the company already reconciled at startup.
+	if invitation == nil && s.licensedCompanyID == "" {
 		if err := s.companyRepo.CreateTx(ctx, tx, company); err != nil {
 			return fmt.Errorf("create company: %w", err)
 		}
@@ -545,8 +574,11 @@ func (s *AuthService) VerifyEmail(ctx context.Context, req *domain.VerifyEmailCm
 	s.logger.Info("verify email: email verified", zap.String("user_id", user.ID))
 
 	if !wasAlreadyVerified {
-		if err := s.billingService.ProvisionSignupCredits(ctx, user.CompanyID); err != nil {
-			return nil, fmt.Errorf("provision signup credits: %w", err)
+		// Registry-backed accounts must not receive legacy local credit grants.
+		if s.licensedCompanyID == "" {
+			if err := s.billingService.ProvisionSignupCredits(ctx, user.CompanyID); err != nil {
+				return nil, fmt.Errorf("provision signup credits: %w", err)
+			}
 		}
 		s.sendWelcomeEmailAsync(user)
 	}
@@ -606,10 +638,50 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
-	if s.jwksVerifier == nil {
-		return nil, ErrJwtVerificationNotConfigured
+	// Production browser sessions are local, opaque, and revocable; no provider JWT fallback.
+	if sharedauth.BrowserSessionsEnabled() {
+		return sharedauth.VerifyBrowserSession(ctx, tokenString)
 	}
-	return s.jwksVerifier.Verify(ctx, tokenString)
+	if strings.Count(strings.TrimSpace(tokenString), ".") != 2 {
+		// Let middleware validate Threadify API keys locally; never send them
+		// to the external auth provider as if they were user sessions.
+		return nil, ErrAuthInvalidToken
+	}
+	var claims *sharedauth.TokenClaims
+	err := ErrJwtVerificationNotConfigured
+	if s.jwksVerifier != nil {
+		claims, err = s.jwksVerifier.Verify(ctx, tokenString)
+	}
+	if err != nil {
+		verifier, ok := s.authClient.(sharedauth.AccessTokenVerifier)
+		if !ok {
+			return nil, err
+		}
+		info, verifyErr := verifier.VerifyAccessToken(ctx, tokenString)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+		if info == nil || strings.TrimSpace(info.Sub) == "" {
+			return nil, ErrAuthInvalidToken
+		}
+		claims = &sharedauth.TokenClaims{Sub: info.Sub, AuthUserID: info.Sub, Email: info.Email, EmailVerified: info.EmailVerified}
+	}
+	if claims == nil || strings.TrimSpace(claims.Sub) == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	// Resolve tenant identity from our DB using the verified provider subject.
+	// JWT user_metadata may be missing, stale, or editable by the user.
+	user, err := s.userRepo.FindByAuthUserID(ctx, claims.Sub)
+	if err != nil || user == nil || user.ID == "" || user.CompanyID == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	claims.AuthUserID = claims.Sub
+	claims.UserID = user.ID
+	claims.CompanyID = user.CompanyID
+	claims.Email = user.Email
+	claims.EmailVerified = user.EmailVerified
+	claims.Roles = nil // Loaded from the local role repository by middleware.
+	return claims, nil
 }
 
 func (s *AuthService) GetUserRoles(ctx context.Context, userID, principalType string) ([]string, error) {

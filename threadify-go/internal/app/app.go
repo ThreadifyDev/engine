@@ -42,6 +42,7 @@ import (
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/workerpool"
+	"threadify-go/shared/registry"
 )
 
 type App struct {
@@ -57,6 +58,7 @@ type App struct {
 
 type infra struct {
 	cleanupOnce  sync.Once
+	registry     *registry.Runtime
 	broker       *broker.Runtime
 	persistence  *archiver.Runtime
 	db           *database.PostgresDB
@@ -68,6 +70,7 @@ type infra struct {
 
 func (i *infra) close() {
 	i.cleanupOnce.Do(func() {
+		i.registry.Close()
 		if i.persistence != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			_ = i.persistence.Close(ctx)
@@ -151,6 +154,12 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 			inf.close()
 		}
 	}()
+	licensed, err := registry.Start(ctx, cfg.Registry, inf.db.Pool, inf.natsPool.GetClient().JetStream())
+	if err != nil {
+		return nil, err
+	}
+	inf.registry = licensed
+	registry.SetDefault(licensed)
 	if cfg.RuntimeMode == "writer" {
 		metricsRepo := postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
 		if err := startPersistence(ctx, cfg, inf, metricsRepo, logger); err != nil {
@@ -199,8 +208,13 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 		return nil, err
 	}
 
+	browser, err := sharedauth.NewBrowserService(ctx, inf.db.Pool, licensed)
+	if err != nil {
+		return nil, fmt.Errorf("initialize browser authentication: %w", err)
+	}
+	sharedauth.SetBrowserService(browser)
 	return &App{
-		Handler: buildRouter(cfg, inf, svcs, repos, hdlrs, logger),
+		Handler: browser.Wrap(licensed.WrapEngine(browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger))))),
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,
@@ -242,6 +256,9 @@ func (a *App) Close(ctx context.Context) error {
 		}
 		if a.infra.persistence != nil {
 			a.closeErr = errors.Join(a.closeErr, a.infra.persistence.Close(ctx))
+		}
+		if a.infra.registry != nil {
+			a.infra.registry.Close()
 		}
 		if a.infra.natsPool != nil {
 			a.closeErr = errors.Join(a.closeErr, a.infra.natsPool.Drain(ctx))
@@ -441,21 +458,6 @@ func initServices(
 	// --- auth ---
 	authSvc := service.NewAuthService(repos.auth, cfg.Auth.CacheTTLSeconds)
 	svcs.auth = authSvc
-	if cfg.JWKS.URL == "" {
-		return nil, fmt.Errorf("jwks.url not configured")
-	}
-	authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
-	if cfg.Supabase.URL != "" {
-		verifier, err := sharedauth.NewSupabaseAccessTokenVerifier(sharedauth.SupabaseAuthConfig{
-			URL:                   cfg.Supabase.URL,
-			PublishableKey:        cfg.Supabase.PublishableKey,
-			RequestTimeoutSeconds: cfg.Supabase.RequestTimeoutSeconds,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("configure session verification: %w", err)
-		}
-		authSvc.SetSessionVerifier(verifier, repos.auth.FindSessionUser)
-	}
 	authSvc.SetWriteBackPool(inf.workerPools.WriteBack)
 	svcs.auth = authSvc
 
@@ -502,7 +504,7 @@ func initServices(
 	if err != nil {
 		return nil, fmt.Errorf("init jetstream: %w", err)
 	}
-	sm.Register(service.NewBillingCron(billingOrchestrator, js, logger))
+	_ = js // Legacy credit billing jobs no longer run; Registry owns billing.
 
 	// --- contract ---
 	svcs.contract = service.NewContractService(repos.contract, planSvc, logger)
@@ -557,7 +559,7 @@ func initHandlers(
 		svcs.thread, svcs.stepEvent, svcs.invitation,
 		svcs.thread.GetNotificationConsumer(), notifRouter,
 		svcs.plan, inf.valkey, svcs.luaScriptManager,
-		&cfg.RateLimit, &cfg.WebSocket, logger,
+		&cfg.WebSocket, logger,
 	)
 	h.otlpTrace = handlers.NewOTLPTraceHandler(svcs.otelTrace, svcs.auth, svcs.plan, logger)
 
@@ -587,9 +589,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(shutdownGuard(&inf.shuttingDown))
-	r.Use(middleware.CORSMiddleware(cfg.Server.CORSOrigins))
 	r.Use(requestLogger(logger))
-	r.Use(middleware.IPRateLimitMiddleware(svcs.luaScriptManager, &cfg.RateLimit))
 	r.Use(middleware.PrometheusMiddleware())
 
 	// Infrastructure endpoints.
@@ -628,6 +628,12 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	v1.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
 	v1.Use(middleware.EgressMiddleware(svcs.plan, logger))
 	mountContractRoutes(v1, hdlrs, svcs.rbacLoader, svcs.plan, logger)
+	v1.POST("/entity-profile-types", middleware.CreditUsageMiddleware(svcs.plan, logger),
+		middleware.ContractRBACMiddleware(svcs.rbacLoader, "entity_profile_type.create"),
+		handlers.CreateProfileType(repos.entityProfileType))
+	v1.PUT("/entity-profiles", middleware.CreditUsageMiddleware(svcs.plan, logger),
+		middleware.ContractRBACMiddleware(svcs.rbacLoader, "entity_profile_type.update"),
+		handlers.PutProfile(repos.entityProfileType, repos.entityProfile))
 
 	return r
 }
@@ -653,7 +659,12 @@ func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac domain.RB
 
 func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"credit": cfg.Subscription.Credit})
+		snapshot, err := registry.Default().Snapshot()
+		if err != nil {
+			c.JSON(registry.StatusCode(err), gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"billing_source": "registry", "limits": snapshot.Entitlements})
 	}
 }
 

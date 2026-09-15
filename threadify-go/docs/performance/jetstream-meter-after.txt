@@ -1,0 +1,12 @@
+goos: darwin
+goarch: arm64
+pkg: threadify-go/shared/registry
+cpu: Apple M4
+BenchmarkJetStreamAdmission/workers_1-10         	    1000	    312237 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+BenchmarkJetStreamAdmission/workers_1-10         	    1000	    229785 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+BenchmarkJetStreamAdmission/workers_8-10         	    1000	    229138 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+BenchmarkJetStreamAdmission/workers_8-10         	    1000	    265717 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+BenchmarkJetStreamAdmission/workers_32-10        	    1000	    312190 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+BenchmarkJetStreamAdmission/workers_32-10        	    1000	    272988 ns/op	         0 conflicts/op	         0 reads/op	         1.000 writes/op
+PASS
+ok  	threadify-go/shared/registry	2.805s

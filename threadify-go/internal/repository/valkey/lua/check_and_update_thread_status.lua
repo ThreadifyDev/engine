@@ -57,4 +57,5 @@ end
 -- SECTION 3: RETURN SUCCESS
 -- ============================================================================
 
+redis.call('PUBLISH',threadKey..':wait_changes','changed')
 return {1, newStatus}

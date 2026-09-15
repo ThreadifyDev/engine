@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"threadify-go/api/internal/service"
+	"threadify-go/shared/registry"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -50,6 +51,14 @@ func (h *GraphQLProxyHandler) ProxyGraphQL(c *gin.Context) {
 	req.Header.Set(service.HeaderContentType, service.ContentTypeJSON)
 	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
+	// Authenticate the internal hop so Engine does not count API-metered traffic twice.
+	// Production startup always installs a runtime; isolated handler tests may omit it.
+	if runtime := registry.Default(); runtime != nil {
+		if err := runtime.SignRequest(req); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "License verification unavailable"})
+			return
+		}
+	}
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Service temporarily unavailable"})

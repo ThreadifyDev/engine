@@ -30,6 +30,7 @@ type Runtime struct {
 	closing      bool
 	stop         chan struct{}
 	done         chan struct{}
+	metadataDone chan struct{}
 	shutdownCtx  context.Context
 	cancelWrites context.CancelFunc
 	shutdownErr  error
@@ -71,7 +72,7 @@ func NewRuntime(js JetStreamPublisher, db DBExecer, metrics MetricsInvalidator, 
 	if err != nil {
 		return nil, err
 	}
-	r := &Runtime{js: js, cfg: cfg, logger: logger, batchSize: size, stop: make(chan struct{}), done: make(chan struct{})}
+	r := &Runtime{js: js, cfg: cfg, logger: logger, batchSize: size, stop: make(chan struct{}), done: make(chan struct{}), metadataDone: make(chan struct{})}
 	for _, s := range []struct {
 		name, subject string
 		process       func(context.Context, []jetstream.Msg) error
@@ -202,8 +203,26 @@ func (r *Runtime) processingContext(normal context.Context) (context.Context, bo
 	return normal, false
 }
 
+// Reference writes received before shutdown must follow the metadata batches
+// that create their threads. This does not claim to drain unread broker backlog;
+// unacknowledged deliveries remain durable for replay.
+func (r *Runtime) waitForShutdownMetadata(ctx context.Context, s *runtimeStream) error {
+	if s.name == "thread_metadata" || s.name == "usage_sync" {
+		return ctx.Err()
+	}
+	select {
+	case <-r.metadataDone:
+		return ctx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (r *Runtime) runStream(ctx context.Context, s *runtimeStream) {
 	defer r.wg.Done()
+	if s.name == "thread_metadata" {
+		defer close(r.metadataDone)
+	}
 	defer s.healthy.Store(false)
 	messages := make(chan jetstream.Msg, r.batchSize)
 	readerDone := make(chan struct{})
@@ -258,9 +277,26 @@ func (r *Runtime) runStream(ctx context.Context, s *runtimeStream) {
 		}
 		BatchSize.WithLabelValues(s.name).Observe(float64(len(batch)))
 		start := time.Now()
-		err := s.processor(writeCtx, batch)
+		var err error
+		if closing {
+			err = r.waitForShutdownMetadata(writeCtx, s)
+		}
+		if err == nil {
+			err = s.processor(writeCtx, batch)
+		}
 		if !closing {
-			_, closing = r.processingContext(ctx)
+			var shutdownCtx context.Context
+			shutdownCtx, closing = r.processingContext(ctx)
+			// A normal in-flight batch can discover a missing thread just as
+			// shutdown begins. Retry once after metadata completes instead of
+			// treating the scheduling race as a permanent shutdown failure.
+			if closing && errors.Is(err, ErrThreadNotFound) && s.name != "thread_metadata" {
+				if waitErr := r.waitForShutdownMetadata(shutdownCtx, s); waitErr != nil {
+					err = waitErr
+				} else {
+					err = s.processor(shutdownCtx, batch)
+				}
+			}
 		}
 		BatchProcessingDuration.WithLabelValues(s.name).Observe(time.Since(start).Seconds())
 		s.healthy.Store(err == nil)

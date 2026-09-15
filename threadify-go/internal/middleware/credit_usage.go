@@ -62,8 +62,8 @@ func CreditUsageMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.H
 				})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "CREDIT_BALANCE_CHECK_FAILED",
-					"message": "Unable to verify credit balance. Please try again.",
+					"error":   "LICENSE_VERIFICATION_FAILED",
+					"message": "Unable to verify Threadify license. Please try again.",
 				})
 			}
 			c.Abort()
@@ -75,29 +75,14 @@ func CreditUsageMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.H
 				zap.String("company_id", companyID),
 			)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "CREDIT_BALANCE_CHECK_FAILED",
-				"message": "Unable to verify credit balance. Please try again.",
+				"error":   "LICENSE_VERIFICATION_FAILED",
+				"message": "Unable to verify Threadify license. Please try again.",
 			})
 			c.Abort()
 			return
 		}
 
 		c.Set(sharedauth.CtxCreditAccount, account)
-
-		allowed, err := planSvc.CheckRateLimit(c.Request.Context(), account)
-		if err != nil {
-			logger.Warn("credit usage middleware: rate limit check failed, failing open",
-				zap.Error(err),
-				zap.String("company_id", companyID),
-			)
-		} else if !allowed {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "RATE_LIMIT_EXCEEDED",
-				"message": "Company rate limit exceeded. Please upgrade your plan for higher TPS.",
-			})
-			c.Abort()
-			return
-		}
 
 		c.Next()
 	}

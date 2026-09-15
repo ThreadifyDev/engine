@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	sharedauth "threadify-go/shared/auth"
 	"time"
 
 	"threadify-go/api/internal/domain"
@@ -264,6 +265,12 @@ func (s *APIKeyService) ValidateAPIKey(ctx context.Context, key string) (*domain
 			zap.Time("expires_at", *apiKey.ExpiresAt),
 		)
 		return nil, ErrApiKeyExpiredAPI
+	}
+
+	if apiKey.UserID != nil && apiKey.ServiceAccountID == nil {
+		if err := sharedauth.RequireActiveUser(ctx, *apiKey.UserID, apiKey.CompanyID); err != nil {
+			return nil, ErrInvalidApiKey
+		}
 	}
 
 	return apiKey, nil

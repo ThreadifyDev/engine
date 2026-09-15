@@ -31,7 +31,7 @@ func (s *blockingConnectService) HandleConnect(context.Context, *domain.ConnectC
 func lifecycleWebSocketServer(t *testing.T, svc domain.ThreadService) (*WebSocketHandler, *httptest.Server) {
 	t.Helper()
 	handler := NewWebSocketHandler(svc, nil, nil, nil, nil, nil, nil, nil,
-		&config.RateLimitConfig{}, &config.WebSocketConfig{ReadDeadlineSeconds: 60}, zap.NewNop())
+		&config.WebSocketConfig{ReadDeadlineSeconds: 60}, zap.NewNop())
 	router := gin.New()
 	router.GET("/threads", handler.HandleWebSocket)
 	server := httptest.NewServer(router)

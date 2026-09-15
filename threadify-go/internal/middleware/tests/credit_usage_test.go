@@ -79,9 +79,6 @@ func TestCreditUsageMiddleware(t *testing.T) {
 		mockPlanSvc.EXPECT().
 			CheckBalancePositive(gomock.Any(), companyID).
 			Return(account, nil)
-		mockPlanSvc.EXPECT().
-			CheckRateLimit(gomock.Any(), account).
-			Return(true, nil)
 
 		r := gin.New()
 		r.Use(func(c *gin.Context) {
@@ -102,38 +99,6 @@ func TestCreditUsageMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("RateLimitExceeded", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockPlanSvc := enginemocks.NewMockPlanService(ctrl)
-
-		companyID := "comp-123"
-		account := &shareddomain.CreditAccount{CompanyID: companyID}
-
-		mockPlanSvc.EXPECT().
-			CheckBalancePositive(gomock.Any(), companyID).
-			Return(account, nil)
-		mockPlanSvc.EXPECT().
-			CheckRateLimit(gomock.Any(), account).
-			Return(false, nil)
-
-		r := gin.New()
-		r.Use(func(c *gin.Context) {
-			c.Set(sharedauth.CtxCompanyID, companyID)
-			c.Next()
-		})
-		r.Use(middleware.CreditUsageMiddleware(mockPlanSvc, logger))
-		r.GET("/test", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
-		r.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusTooManyRequests, w.Code)
-		assert.Contains(t, w.Body.String(), "RATE_LIMIT_EXCEEDED")
-	})
 }
 
 func TestEgressMiddleware(t *testing.T) {

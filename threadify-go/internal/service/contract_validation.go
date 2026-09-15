@@ -7,13 +7,20 @@ import (
 
 	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/mapper"
+	"github.com/threadify/engine/pkg/contractcontent"
 
 	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
 )
 
-// ContractValidationService implements the ContractGraphValidator interface.
+// SuccessfulContentReader resolves the latest validated success within a thread.
+type SuccessfulContentReader interface {
+	GetSuccessfulContent(context.Context, string, string) (map[string]string, error)
+}
+
+// ContractValidationService also resolves thread-bound successful content snapshots.
 type ContractValidationService struct {
+	references   SuccessfulContentReader
 	graphRepo    domain.ContractGraphRepository
 	contractRepo contractRepo
 	cacheManager domain.CacheManager
@@ -32,8 +39,14 @@ func NewContractValidationServiceFromParts(
 	contractRepo contractRepo,
 	cacheManager domain.CacheManager,
 	logger *zap.Logger,
+	readers ...SuccessfulContentReader,
 ) *ContractValidationService {
+	var reader SuccessfulContentReader
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
 	return &ContractValidationService{
+		references:   reader,
 		graphRepo:    graphRepo,
 		contractRepo: contractRepo,
 		cacheManager: cacheManager,
@@ -42,13 +55,8 @@ func NewContractValidationServiceFromParts(
 }
 
 // NewContractValidationService creates a new contract validation service.
-func NewContractValidationService(graphRepo domain.ContractGraphRepository, contractRepo contractRepo, cacheManager domain.CacheManager, logger *zap.Logger) domain.ContractGraphValidator {
-	return &ContractValidationService{
-		graphRepo:    graphRepo,
-		contractRepo: contractRepo,
-		cacheManager: cacheManager,
-		logger:       logger,
-	}
+func NewContractValidationService(graphRepo domain.ContractGraphRepository, contractRepo contractRepo, cacheManager domain.CacheManager, logger *zap.Logger, readers ...SuccessfulContentReader) domain.ContractGraphValidator {
+	return NewContractValidationServiceFromParts(graphRepo, contractRepo, cacheManager, logger, readers...)
 }
 
 // ValidateStepInContract checks if a step exists in the contract graph and validates its context.
@@ -68,7 +76,31 @@ func (v *ContractValidationService) ValidateStepInContract(ctx context.Context, 
 
 // ValidateStepContext validates the business context for a step node.
 // Accepts an already-fetched node to avoid duplicate graph lookups.
-func (v *ContractValidationService) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, businessCtx map[string]string) error {
+func (v *ContractValidationService) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, businessCtx map[string]string, threadID ...string) error {
+	// Resolve a step at most once per submission so its fields come from one snapshot.
+	snapshots := map[string]map[string]string{}
+	resolve := func(ref contractcontent.Reference) (string, error) {
+		if len(threadID) != 1 || threadID[0] == "" || v.references == nil {
+			return "", fmt.Errorf("step reference %s.%s requires thread context", ref.Step, ref.Field)
+		}
+		content, ok := snapshots[ref.Step]
+		if !ok {
+			var err error
+			content, err = v.references.GetSuccessfulContent(ctx, threadID[0], ref.Step)
+			if err != nil {
+				return "", fmt.Errorf("cannot resolve step reference %s.%s: %w", ref.Step, ref.Field, err)
+			}
+			snapshots[ref.Step] = content
+		}
+		value, ok := content[ref.Field]
+		if !ok {
+			return "", fmt.Errorf("referenced field %s.%s is missing from the latest successful step", ref.Step, ref.Field)
+		}
+		return value, nil
+	}
+	if err := contractcontent.CheckWithReferences(stepNode.ContentRules, businessCtx, resolve); err != nil {
+		return err
+	}
 	if stepNode.BusinessContext == nil {
 		return nil
 	}

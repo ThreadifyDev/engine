@@ -1,14 +1,11 @@
 {
   "type": "module",
   "dependencies": {
-    "@threadify/sdk": "^0.1.1",
+    "@threadify/sdk": "^0.1.2",
     "ws": "^8.19.0",
     "uuid": "^9.0.0"
   },
   "scripts": {
-    "test:push": "node test-push-notifications.js",
-    "test:consumer": "node test-consumer.js",
-    "test:publisher": "node test-publisher.js",
-    "test:hpa": "./test-hpa-scenario.sh"
+    "test:create-thread": "node customer-checkout-example.js"
   }
 }

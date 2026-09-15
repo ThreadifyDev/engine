@@ -22,6 +22,8 @@ type Contract struct {
 
 // ContractVersion represents a specific version of a contract
 type ContractVersion struct {
+	Source             string          `json:"source"`
+	SourceFormat       string          `json:"sourceFormat"`
 	ID                 string          `json:"id"`
 	Version            int             `json:"version"`
 	Content            string          `json:"content"`

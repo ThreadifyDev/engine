@@ -199,6 +199,9 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		b.logger,
 	)
 
+	waitRepo := valkey.NewWaitRepository(b.valkeyService.Client)
+	notificationService.waitRepo = waitRepo
+
 	scopeResolver := NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger)
 	var notificationConsumer *NotificationConsumer
 	if b.natsClient != nil {
@@ -206,6 +209,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	}
 
 	return &ThreadService{
+		waitRepo:              waitRepo,
 		timeoutMonitor:        timeoutMonitor,
 		repo:                  b.threadRepo,
 		accessRepo:            accessRepo,
@@ -214,7 +218,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		stepEventService:      b.stepEventService,
 		cacheManager:          cacheService,
 		connectionMgr:         NewConnectionService(b.logger),
-		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService, b.logger),
+		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService, b.logger, valkey.NewSuccessfulContentRepository(b.valkeyService, b.db.Pool)),
 		authService:           b.authService,
 		accessService:         accessService,
 		validationService:     validationService,

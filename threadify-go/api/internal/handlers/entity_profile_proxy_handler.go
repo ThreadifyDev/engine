@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"threadify-go/api/internal/service"
+	"threadify-go/shared/registry"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -68,6 +69,13 @@ func (h *EntityProfileProxyHandler) graphqlRequest(c *gin.Context, query string,
 	req.Header.Set(service.HeaderContentType, service.ContentTypeJSON)
 	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
+	// Authenticate the internal hop so Engine does not count API-metered traffic twice.
+	// Production startup always installs a runtime; isolated handler tests may omit it.
+	if runtime := registry.Default(); runtime != nil {
+		if err := runtime.SignRequest(req); err != nil {
+			return nil, http.StatusServiceUnavailable, errors.New("license verification unavailable")
+		}
+	}
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		return nil, http.StatusBadGateway, errors.New("engine unavailable")

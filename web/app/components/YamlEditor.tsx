@@ -8,6 +8,7 @@ interface YamlEditorProps {
   placeholder?: string;
   height?: string;
   readOnly?: boolean;
+  contractSource?: boolean;
 }
 
 export default function YamlEditor({
@@ -16,14 +17,17 @@ export default function YamlEditor({
   placeholder = 'Enter YAML here...',
   height = '400px',
   readOnly = false,
+  contractSource = false,
 }: YamlEditorProps) {
+  const firstLine = value.split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith("#"));
+  const isGherkin = contractSource && firstLine?.startsWith("Feature:");
   return (
     <div className="border-2 border-black">
       <CodeMirror
         value={value}
         height={height}
         extensions={[
-          yaml(),
+          ...(isGherkin ? [] : [yaml()]),
           EditorView.lineWrapping,
         ]}
         onChange={onChange}

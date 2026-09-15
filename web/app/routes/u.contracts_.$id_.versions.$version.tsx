@@ -1,10 +1,11 @@
+import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import { graphqlClient } from '~/lib/graphql';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import ContractGraphView from '~/components/ContractGraphView';
 
 export const meta: MetaFunction = () => {
@@ -31,7 +32,7 @@ export default function ContractVersionDetail() {
 
   useEffect(() => {
     // Check authentication
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;
@@ -58,23 +59,21 @@ export default function ContractVersionDetail() {
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-white">
-        <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-16">
+      <AppLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
             <p className="mt-4 text-black">Loading version...</p>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-screen bg-white">
-        <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-16">
+      <AppLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-600 mb-4">{error}</p>
             <button
@@ -85,14 +84,13 @@ export default function ContractVersionDetail() {
             </button>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="flex h-screen bg-white">
-      <SideNav />
-      <div className="flex-1 overflow-auto ml-16">
+    <AppLayout>
+      <div className="overflow-auto">
         <div className="p-8">
           {/* Header */}
           <div className="mb-8">
@@ -154,32 +152,11 @@ export default function ContractVersionDetail() {
 
           {/* Tabbed View */}
           <div>
-            {/* Tab Headers */}
-            <div className="flex border-b border-gray-200 mb-6">
-              <button
-                onClick={() => setActiveTab('diagram')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  activeTab === 'diagram'
-                    ? 'text-gray-900 border-b-2 border-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Graph
-              </button>
-              <button
-                onClick={() => setActiveTab('yaml')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ml-6 ${
-                  activeTab === 'yaml'
-                    ? 'text-gray-900 border-b-2 border-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                YAML
-              </button>
-            </div>
+            <TabBar label="Contract version" value={activeTab} onChange={setActiveTab} panelId="contract-panel" className="mb-6"
+              items={[{value:'diagram',label:'Graph'},{value:'yaml',label:'Source'}]} />
 
             {/* Tab Content */}
-            <div>
+            <div id="contract-panel" role="tabpanel" aria-label="Contract content">
               {activeTab === 'diagram' && (
                 <div>
                   {graphLoading ? (
@@ -214,17 +191,17 @@ export default function ContractVersionDetail() {
                     </h3>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText(versionData?.yamlContent || '');
-                        alert('YAML copied to clipboard!');
+                        navigator.clipboard.writeText(versionData?.source ?? versionData?.yamlContent ?? '');
+                        alert('Contract source copied to clipboard!');
                       }}
                       className="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-sm text-gray-700"
                     >
-                      Copy YAML
+                      Copy source
                     </button>
                   </div>
                   <pre className="bg-white border border-gray-200 rounded p-4 overflow-x-auto overflow-y-auto h-[calc(100vh-300px)]">
                     <code className="text-sm text-gray-900 font-mono">
-                      {versionData?.yamlContent || 'No YAML content available'}
+                      {versionData?.source ?? versionData?.yamlContent ?? 'No source available'}
                     </code>
                   </pre>
                 </div>
@@ -234,6 +211,6 @@ export default function ContractVersionDetail() {
 
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 }

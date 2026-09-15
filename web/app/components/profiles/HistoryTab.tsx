@@ -42,7 +42,7 @@ export default function HistoryTab({
 
   if (isLoading) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-gray-500 flex items-center justify-center gap-2">
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white p-6 text-center text-gray-500 sm:p-12">
         <Activity className="w-5 h-5 animate-pulse" /> Loading thread history…
       </div>
     );
@@ -50,7 +50,7 @@ export default function HistoryTab({
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center text-red-600">
+      <div className="rounded-lg border border-red-200 bg-red-50 p-5 text-center text-red-600 sm:p-8">
         {error}
       </div>
     );
@@ -58,7 +58,7 @@ export default function HistoryTab({
 
   if (threads.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-12 text-center flex flex-col items-center">
+      <div className="flex flex-col items-center rounded-lg border border-gray-200 bg-white p-6 text-center sm:p-12">
         <Search className="w-12 h-12 text-gray-300 mb-3" />
         <h3 className="text-lg font-medium text-gray-900">No threads referenced this entity</h3>
         <p className="text-gray-500 mt-1 max-w-md">
@@ -80,8 +80,8 @@ export default function HistoryTab({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="mb-3 text-xs text-gray-600">
+    <div className="min-w-0 space-y-3">
+      <div className="mb-3 text-xs text-gray-700">
         Found <span className="font-semibold text-gray-900">{totalCount}</span> thread
         {totalCount !== 1 ? 's' : ''} referencing this entity
       </div>
@@ -104,39 +104,39 @@ export default function HistoryTab({
           <div
             key={thread.id}
             onClick={() => navigate(`/u/threads/${thread.id}`)}
-            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
+            className="min-w-0 cursor-pointer rounded-lg border border-gray-200 bg-white p-3 transition-all hover:border-gray-300 hover:shadow-sm sm:p-4"
           >
-            <div className="flex justify-between items-start">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm text-gray-900 truncate">
+                <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 className="min-w-0 break-words text-sm font-semibold text-gray-900 sm:truncate">
                     {threadTitle}
                   </h3>
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
                 </div>
-                <p className="text-xs text-gray-500 font-mono mb-2 truncate">
+                <p className="mb-2 break-all font-mono text-xs text-gray-600 sm:truncate">
                   {thread.contractName && thread.contractVersion
                     ? `${thread.contractName} v${thread.contractVersion}`
                     : '-'}
                 </p>
-                <div className="flex items-center gap-3 text-xs text-gray-600">
+                <div className="flex min-w-0 flex-col items-start gap-2 text-xs text-gray-700 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   {thread.startedAt && (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                    <div className="flex items-center gap-1 whitespace-normal">
+                      <Calendar className="h-3 w-3 flex-shrink-0" />
                       {formatDistanceToNow(new Date(thread.startedAt), { addSuffix: true })}
                     </div>
                   )}
                   {Object.keys(refs).length > 0 && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {Object.entries(refs)
                         .slice(0, 2)
                         .map(([key, value]) => (
                           <span
                             key={key}
-                            className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
+                            className="inline-flex max-w-full min-w-0 flex-wrap items-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-xs"
                           >
-                            <span className="font-medium text-gray-500">{key}:</span>
-                            <span className="ml-0.5 font-mono text-gray-700">{String(value)}</span>
+                            <span className="break-all font-semibold text-gray-700">{key}:</span>
+                            <span className="ml-0.5 break-all font-mono font-medium text-gray-900">{String(value)}</span>
                           </span>
                         ))}
                       {Object.keys(refs).length > 2 && (
@@ -148,8 +148,8 @@ export default function HistoryTab({
                   )}
                 </div>
               </div>
-              <div className="ml-3 flex-shrink-0">
-                <button className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors">
+              <div className="flex flex-shrink-0 justify-end sm:ml-3">
+                <button className="rounded-md bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-800 transition-colors hover:bg-gray-100 hover:text-gray-950 sm:bg-transparent">
                   View →
                 </button>
               </div>

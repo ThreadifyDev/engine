@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/cloudwego/eino v0.8.11
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
-	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang/mock v1.6.0

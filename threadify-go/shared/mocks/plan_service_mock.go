@@ -106,21 +106,6 @@ func (mr *MockPlanServiceMockRecorder) CheckPayloadSize(ctx, account, payloadByt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPayloadSize", reflect.TypeOf((*MockPlanService)(nil).CheckPayloadSize), ctx, account, payloadBytes)
 }
 
-// CheckRateLimit mocks base method.
-func (m *MockPlanService) CheckRateLimit(ctx context.Context, account *domain.CreditAccount) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckRateLimit", ctx, account)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckRateLimit indicates an expected call of CheckRateLimit.
-func (mr *MockPlanServiceMockRecorder) CheckRateLimit(ctx, account interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRateLimit", reflect.TypeOf((*MockPlanService)(nil).CheckRateLimit), ctx, account)
-}
-
 // DecrementEgress mocks base method.
 func (m *MockPlanService) DecrementEgress(ctx context.Context, companyID string, bytes int64) error {
 	m.ctrl.T.Helper()

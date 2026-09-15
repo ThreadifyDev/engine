@@ -71,6 +71,11 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
     ? 'bg-yellow-500'
     : 'bg-blue-500';
 
+  // Licensed deployments show the live allowance instead of obsolete credit controls.
+  if (billingInfo?.billing_source === 'registry') {
+    return <RegistryAllowances billingInfo={billingInfo} />;
+  }
+
   return (
     <div key="billing-tab" className="max-w-6xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -240,5 +245,34 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
         </div>
       </div>
     </div>
+  );
+}
+
+// Registry values are display-only; plan changes are applied at the billing source.
+function RegistryAllowances({ billingInfo }: { billingInfo: GetCurrentPlanResponse }) {
+  const limits = billingInfo.entitlements;
+  const formatLimit = (value: number | undefined, bytes = false) => {
+    if (value === undefined) return 'Unavailable';
+    if (value === -1) return 'Unlimited';
+    if (!bytes) return value.toLocaleString();
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toLocaleString(undefined, { maximumFractionDigits: 2 })} GiB`;
+    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toLocaleString(undefined, { maximumFractionDigits: 2 })} MiB`;
+    return `${value.toLocaleString()} bytes`;
+  };
+  const rows = [
+    ['Monthly input bandwidth', formatLimit(limits?.input_bandwidth_bytes, true)],
+    ['Monthly output bandwidth', formatLimit(limits?.output_bandwidth_bytes, true)],
+    ['Incoming requests per second', formatLimit(limits?.input_requests_per_second)],
+    ['Entity profiles', formatLimit(limits?.entity_profile_limit)],
+  ];
+  return (
+    <section className="max-w-3xl rounded-lg border border-gray-200 bg-white p-8">
+      <h3 className="text-xl font-semibold text-gray-900">Threadify plan</h3>
+      <p className="mt-2 text-sm text-gray-600">Your plan is managed in Fused Registry. These are your current allowances.</p>
+      <dl className="mt-6 divide-y divide-gray-100">
+        {rows.map(([label, value]) => <div key={label} className="flex justify-between gap-6 py-3"><dt className="text-sm text-gray-600">{label}</dt><dd className="text-sm font-medium text-gray-900">{value}</dd></div>)}
+      </dl>
+      <p className="mt-6 text-sm text-gray-500">Threads have no count or individual size quota. Stored data is limited by your database capacity. Monthly bandwidth allowances reset at the start of each UTC calendar month.</p>
+    </section>
   );
 }

@@ -68,6 +68,15 @@ class EngineVersionTests(unittest.TestCase):
         self.commit("fix: engine")
         self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
 
+    def test_installer_changes_create_engine_releases(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        self.commit("feat: binary installer", "install.sh")
+        self.assertEqual(version.next_release(), ("v1.1.0", "v1.0.0"))
+        self.git("tag", "v1.1.0")
+        self.commit("test: installer validation", ".github/scripts/test_engine_installer.py")
+        self.assertEqual(version.next_release(), ("v1.1.1", "v1.1.0"))
+
     def test_unmerged_and_prerelease_tags_do_not_set_version(self):
         self.commit("feat: initial")
         self.git("tag", "v1.0.0")

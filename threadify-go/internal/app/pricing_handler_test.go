@@ -13,7 +13,7 @@ import (
 	"github.com/threadify/engine/internal/config"
 )
 
-func TestPricingHandler_ReturnsCreditConfig(t *testing.T) {
+func TestPricingHandler_DoesNotAdvertiseLegacyCreditPrices(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
@@ -35,5 +35,7 @@ func TestPricingHandler_ReturnsCreditConfig(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	require.JSONEq(t, `{"credit":{"ingress_cost_millicents":10,"egress_cost_millicents":20,"seat_cost_millicents":0,"contract_cost_millicents":30,"llm_token_cost_millicents":0,"custom_metric_cost_per_complexity_millicents":0,"rate_limit_tps":40,"payload_limit_bytes":50}}`, w.Body.String())
+	require.Contains(t, w.Body.String(), `"billing_source":"registry"`)
+	require.NotContains(t, w.Body.String(), "millicents")
+	require.NotContains(t, w.Body.String(), "payload_limit_bytes")
 }

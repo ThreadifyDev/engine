@@ -45,7 +45,7 @@ export function CompactStepTimeline({ steps, onStepClick, currentCompanyId }: { 
     }
   };
 
-  // Generate consistent color from company ID (Stripe-style light pastels)
+  // Generate consistent color from company ID (light pastels)
   const getCompanyColor = (companyId: string) => {
     // Simple hash function
     let hash = 0;
@@ -54,7 +54,7 @@ export function CompactStepTimeline({ steps, onStepClick, currentCompanyId }: { 
       hash = hash & hash; // Convert to 32bit integer
     }
     
-    // Stripe-style pastel colors (light, subtle, professional)
+    // Pastel colors (light, subtle, professional)
     const colors = [
       { border: 'border-purple-200', bg: 'bg-purple-50', text: 'text-purple-700' },
       { border: 'border-blue-200', bg: 'bg-blue-50', text: 'text-blue-700' },

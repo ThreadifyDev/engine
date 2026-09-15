@@ -23,6 +23,7 @@ type TokenVerifier interface {
 }
 
 type TokenClaims struct {
+	PrincipalType string
 	Sub           string
 	AuthUserID    string // Supabase auth_user_id (same as Sub)
 	UserID        string // Internal Threadify user ID from user_metadata.threadify_user_id

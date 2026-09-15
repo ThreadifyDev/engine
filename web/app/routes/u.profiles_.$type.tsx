@@ -16,6 +16,14 @@ export const meta: MetaFunction = ({ params }) => [
 
 const PAGE_SIZE = 20;
 
+const metricBadgeStyles = [
+  'border-emerald-200 bg-emerald-50 text-emerald-700',
+  'border-rose-200 bg-rose-50 text-rose-700',
+  'border-amber-200 bg-amber-50 text-amber-700',
+  'border-sky-200 bg-sky-50 text-sky-700',
+  'border-violet-200 bg-violet-50 text-violet-700',
+];
+
 export default function EntityProfilesByType() {
   const { type } = useParams();
   const navigate = useNavigate();
@@ -38,7 +46,7 @@ export default function EntityProfilesByType() {
   const [committed, setCommitted] = useState('');
 
   useEffect(() => {
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) navigate('/login');
   }, [navigate]);
 
@@ -114,7 +122,7 @@ export default function EntityProfilesByType() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="max-w-full overflow-hidden p-4 sm:p-6 lg:p-8">
         {/* Edit Modal */}
         {profileType && (
           <ProfileTypeModal
@@ -139,18 +147,19 @@ export default function EntityProfilesByType() {
         </div>
 
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-3xl font-bold font-mono tracking-tight text-gray-900 truncate">
+        <div className="mb-6 sm:mb-8">
+          <div className="mb-4 flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 flex min-w-0 items-start gap-2 sm:items-center sm:gap-3">
+                <h2 className="min-w-0 break-words text-2xl font-bold font-mono leading-tight tracking-tight text-gray-900 sm:text-3xl">
                   {profileType?.name || type}
                 </h2>
                 {profileType && (
                   <button
                     onClick={() => setIsEditModalOpen(true)}
-                    className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                    className="mt-0.5 shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 sm:mt-0"
                     title="Edit Profile Type"
+                    aria-label="Edit profile type"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
@@ -161,7 +170,7 @@ export default function EntityProfilesByType() {
                 {profileType?.type?.map((key: string) => (
                   <span
                     key={key}
-                    className="px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200/60 rounded text-[11px] font-mono"
+                    className="max-w-full break-all rounded border border-gray-200/60 bg-gray-100 px-2 py-0.5 font-mono text-[11px] text-gray-600"
                   >
                     {key}
                   </span>
@@ -170,7 +179,7 @@ export default function EntityProfilesByType() {
             </div>
             
             {/* Explicit search */}
-            <div className="w-full sm:w-64 shrink-0">
+            <div className="w-full min-w-0 lg:w-[28rem] lg:shrink-0">
               <InlineSearch
                 value={search}
                 onChange={setSearch}
@@ -183,21 +192,28 @@ export default function EntityProfilesByType() {
           </div>
           
           {profileType?.description && (
-            <p className="text-gray-600 mb-6 max-w-3xl text-sm leading-relaxed">
+            <p className="mb-5 max-w-3xl break-words text-sm leading-relaxed text-gray-600 sm:mb-6">
               {profileType.description}
             </p>
           )}
           
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4 border-t border-b border-gray-100 mb-6">
-            <div className="flex-1">
+          <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/60 p-4 sm:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Metrics</span>
+              <span className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600">
+                {total} {total === 1 ? 'profile' : 'profiles'} tracked
+              </span>
+            </div>
+            <div className="min-w-0">
               {profileType?.metrics && profileType.metrics.length > 0 ? (
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Metrics</span>
-                  <div className="w-px h-3 bg-gray-200 mx-1"></div>
+                <div className="flex min-w-0 flex-wrap gap-2">
                   {profileType.metrics.map((mc: any, idx: number) => (
-                    <span key={idx} className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100/50 rounded-md text-[11px] font-medium shadow-sm shadow-indigo-100/20">
-                      <Settings className="w-3.5 h-3.5 opacity-60" />
-                      {mc.name || mc.template_id}
+                    <span
+                      key={idx}
+                      className={`inline-flex max-w-full min-w-0 items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${metricBadgeStyles[idx % metricBadgeStyles.length]}`}
+                    >
+                      <Settings className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" />
+                      <span className="min-w-0 break-words leading-4">{mc.name || mc.template_id}</span>
                     </span>
                   ))}
                 </div>
@@ -205,24 +221,20 @@ export default function EntityProfilesByType() {
                 <span className="text-[11px] font-medium text-gray-400 italic">No metrics configured</span>
               )}
             </div>
-            
-            <p className="text-sm font-medium text-gray-500 shrink-0">
-              {total} {total === 1 ? 'profile' : 'profiles'} tracked
-            </p>
           </div>
         </div>
 
         {/* Content */}
         {isLoading && items.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-gray-500 flex items-center justify-center gap-2">
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 sm:p-12">
             <Activity className="w-5 h-5 animate-pulse" /> Loading profiles…
           </div>
         ) : error ? (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center text-red-600">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-600 sm:p-8">
             {error}
           </div>
         ) : items.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center flex flex-col items-center">
+          <div className="flex flex-col items-center rounded-lg border border-gray-200 bg-white p-8 text-center sm:p-12">
             <UserCircle className="w-12 h-12 text-gray-300 mb-3" />
             <h3 className="text-lg font-medium text-gray-900">
               {committed ? 'No matches' : 'No profiles yet'}
@@ -234,7 +246,7 @@ export default function EntityProfilesByType() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {items.map((p) => (
               <ProfileCard key={p.id} type={type!} profile={p} />
             ))}
@@ -243,11 +255,11 @@ export default function EntityProfilesByType() {
 
         {/* Pagination */}
         {total > PAGE_SIZE && (
-          <div className="mt-8 flex items-center justify-between">
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-500">
               Page {page} of {totalPages}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <button
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
                 disabled={offset === 0}
@@ -296,8 +308,8 @@ function InlineSearch({
   };
 
   return (
-    <div className="flex items-center gap-2 w-full sm:w-auto">
-      <div className="relative flex-1 sm:w-80 max-w-full">
+    <div className="grid w-full min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="relative min-w-0">
         <div className="absolute inset-y-0 left-3 flex items-center text-gray-400 pointer-events-none">
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -330,7 +342,7 @@ function InlineSearch({
       </div>
       <button
         onClick={onSearch}
-        className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors whitespace-nowrap"
+        className="w-full whitespace-nowrap rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 min-[420px]:w-auto"
       >
         Search
       </button>
@@ -391,16 +403,16 @@ function ProfileCard({ type, profile }: { type: string; profile: EntityProfileLi
     >
       <div className="h-1.5 bg-gradient-to-r from-gray-900 to-gray-700" />
 
-      <div className="p-5">
+      <div className="p-4 sm:p-5">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 text-white flex items-center justify-center font-semibold text-sm tracking-wide shrink-0">
             {initials}
           </div>
 
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-gray-900 truncate">{displayName}</h3>
+            <h3 className="break-words font-semibold text-gray-900">{displayName}</h3>
             {showRefKey && (
-              <code className="text-xs font-mono text-gray-500 truncate block">{p.refKey}</code>
+              <code className="block break-all font-mono text-xs text-gray-500">{p.refKey}</code>
             )}
           </div>
         </div>

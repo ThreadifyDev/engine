@@ -76,7 +76,7 @@ func (h *OTLPTraceHandler) HandleTraces(c *gin.Context) {
 		return
 	}
 	if account == nil {
-		h.writeStatus(c, http.StatusServiceUnavailable, codes.Unavailable, "trace ingestion is unavailable: billing account details are unavailable")
+		h.writeStatus(c, http.StatusServiceUnavailable, codes.Unavailable, "trace ingestion is unavailable: license details are unavailable")
 		return
 	}
 

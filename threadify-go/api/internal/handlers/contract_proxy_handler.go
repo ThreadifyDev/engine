@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"threadify-go/api/internal/service"
+	"threadify-go/shared/registry"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -71,6 +72,14 @@ func (h *ContractProxyHandler) proxyRequest(c *gin.Context, method, path, conten
 	req.Header.Set(service.HeaderContentType, contentType)
 	req.Header.Set(service.HeaderUserAgent, service.UserAgentAPI)
 
+	// Authenticate the internal hop so Engine does not count API-metered traffic twice.
+	// Production startup always installs a runtime; isolated handler tests may omit it.
+	if runtime := registry.Default(); runtime != nil {
+		if err := runtime.SignRequest(req); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "License verification unavailable"})
+			return nil, nil, err
+		}
+	}
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to connect to ThreadifyEngine"})
@@ -101,8 +110,6 @@ func (h *ContractProxyHandler) proxyRawBody(c *gin.Context, method, path, defaul
 
 	return h.proxyRequest(c, method, path, contentType, bodyBytes)
 }
-
-
 
 func (h *ContractProxyHandler) GetAllContracts(c *gin.Context) {
 	path := contractProxyPath

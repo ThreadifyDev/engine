@@ -1,12 +1,12 @@
 import asyncio
 
 from harnest.lifecycle import LifecycleListener
-from harnest.plugins.threadify_guard import guarded_step
-from harnest.plugins.threadify_guard.extensions.enforce import (
+from harnest.extensions.threadify_guard import guarded_step
+from harnest.extensions.threadify_guard.lifecycle.enforce import (
     attach_threadify_execution,
     enforce_threadify_execution,
 )
-from harnest.plugins.threadify_guard.extensions.telemetry import (
+from harnest.extensions.threadify_guard.lifecycle.telemetry import (
     ToolCompletion,
     _completion_span,
     _threadify_span,
@@ -38,7 +38,7 @@ def _listener(phase, callback, order):
         phase=phase,
         callback=callback,
         order=order,
-        relative_path="plugins/threadify_guard/extensions/enforce.py",
+        relative_path="extensions/threadify_guard/lifecycle/enforce.py",
         line=1,
         function_name=callback.__name__,
     )

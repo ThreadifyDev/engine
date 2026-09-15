@@ -134,7 +134,7 @@ Every step must have one of three statuses:
 **Usage:** Call `thread.addRefs(refs)` on the thread object
 
 **Parameters:**
-- `refs` - Key-value pairs (e.g., `{stripe_payment_id: 'pi_123'}`)
+- `refs` - Key-value pairs (e.g., `{payment_id: 'pi_123'}`)
 
 **Use cases:**
 - Link to payment provider IDs

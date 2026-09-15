@@ -56,7 +56,6 @@ jwks:
 web_api:
   port: %d
   frontend_url: "http://localhost"
-  cors_origins: "*"
   outbox_encryption_key: %q
   email:
     provider: "plunk"

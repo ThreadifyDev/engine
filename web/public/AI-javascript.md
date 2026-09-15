@@ -68,7 +68,7 @@ await thread.step('order_placed')
 ```javascript
 // Using payment provider transaction ID
 await thread.step('charge_payment')
-  .idempotencyKey(stripePayment.id)  // e.g., 'pi_3ABC123'
+  .idempotencyKey(payment.id)  // e.g., 'pi_3ABC123'
   .addContext({ amount: '99.99' })
   .success();
 
@@ -116,7 +116,7 @@ Called on the **thread object**:
 ```javascript
 // Add references to the thread
 await thread.addRefs({
-  stripe_payment_id: 'pi_123',
+  payment_id: 'pi_123',
   order_id: 'ORD-456'
 });
 
@@ -169,6 +169,21 @@ const thread = await connection.join(threadId, 'participant');
 // Now you can record steps
 await thread.step('new_step').success();
 ```
+
+### Find Threads by Reference
+
+```javascript
+const threads = await connection.getThreadsByRef({ order_id: 'ORD-1001' });
+const completed = await connection.getThreadsByRef(
+  { order_id: 'ORD-1001' },
+  { status: 'completed', limit: 10, offset: 0 }
+);
+const first = await connection.getThreadByRef({ order_id: 'ORD-1001' });
+```
+
+Provide exactly one ref pair. The plural method returns an array; the singular
+method returns the first match or `null`. Refs are not unique. These lookups read
+persisted data and do not create or join a thread.
 
 ### Query Thread Chain
 ```javascript
@@ -338,7 +353,7 @@ try {
   
   // Add payment provider reference
   await thread.addRefs({
-    stripe_payment_id: payment.id
+    payment_id: payment.id
   });
   
   await thread.step('charge_payment')

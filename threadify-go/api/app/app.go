@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -30,21 +29,27 @@ import (
 	"threadify-go/shared/config"
 	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
+	"threadify-go/shared/registry"
 	sharedrepo "threadify-go/shared/repository"
 )
 
 const dbConnectTimeout = 15 * time.Second
 
 type App struct {
-	Handler http.Handler
-	pool    *pgxpool.Pool
-	svcs    *services
+	Handler  http.Handler
+	pool     *pgxpool.Pool
+	svcs     *services
+	registry *registry.Runtime
 }
 
 func (a *App) Close(
 	ctx context.Context,
 	logger *zap.Logger,
 ) error {
+	// Stop outbound license workers before closing their usage database.
+	if a.registry != nil {
+		a.registry.Close()
+	}
 	if a.svcs != nil {
 		a.svcs.close(logger)
 	}
@@ -72,9 +77,17 @@ func New(
 		pool.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	// Registry creates the account and supplies the live, memory-only limits.
+	licensed, err := registry.Start(ctx, cfg.Registry, pool)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("initialize Registry license: %w", err)
+	}
+	registry.SetDefault(licensed)
 
 	rbacLoader, err := rbac.NewLoader(rbacPaths.Permissions, rbacPaths.Roles)
 	if err != nil {
+		licensed.Close()
 		pool.Close()
 		return nil, fmt.Errorf("load rbac: %w", err)
 	}
@@ -83,17 +96,37 @@ func New(
 
 	svcs, err := initServices(cfg, pool, repos, rbacLoader, logger)
 	if err != nil {
+		licensed.Close()
 		pool.Close()
 		return nil, fmt.Errorf("init services: %w", err)
 	}
+	if err := licensed.EnableJetStream(ctx, svcs.natsClient.JetStream()); err != nil {
+		licensed.Close()
+		svcs.close(logger)
+		pool.Close()
+		return nil, fmt.Errorf("initialize usage coordinator: %w", err)
+	}
+	// The first owner signs into the already provisioned company; other users need invitations.
+	if licensed != nil {
+		svcs.authService.ConfigureLicensedAccount(licensed.CompanyID(), licensed.OwnerEmail())
+	}
 
+	browser, err := sharedauth.NewBrowserService(ctx, pool, licensed)
+	if err != nil {
+		licensed.Close()
+		svcs.close(logger)
+		pool.Close()
+		return nil, fmt.Errorf("initialize browser authentication: %w", err)
+	}
+	sharedauth.SetBrowserService(browser)
 	hdlrs := initHandlers(cfg, svcs, rbacLoader)
 	handler := buildRouter(cfg, svcs, repos, rbacLoader, hdlrs, logger)
 
 	return &App{
-		Handler: handler,
-		pool:    pool,
-		svcs:    svcs,
+		Handler:  browser.Wrap(wrapRegistryManagement(handler, licensed)),
+		pool:     pool,
+		svcs:     svcs,
+		registry: licensed,
 	}, nil
 }
 
@@ -210,7 +243,7 @@ func initServices(
 		return nil, fmt.Errorf("init email service: %w", err)
 	}
 
-	authClient, err := sharedauth.NewAuthClientFromSharedConfig(cfg)
+	authClient, err := sharedauth.NewAuthClientFromConfig(sharedauth.AuthProviderConfig{Provider: "registry"})
 	if err != nil {
 		return nil, fmt.Errorf("init auth client: %w", err)
 	}
@@ -447,7 +480,6 @@ func buildRouter(
 	r := gin.New()
 
 	r.Use(middleware.RecoveryWithLogger(logger))
-	r.Use(corsMiddleware(cfg.WebAPI.CORSOrigins))
 	r.Use(middleware.RequestLogger(logger))
 
 	r.GET("/health", func(c *gin.Context) {
@@ -455,22 +487,12 @@ func buildRouter(
 	})
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	auth := r.Group("/api/auth")
-	{
-		auth.POST("/signup", h.auth.Signup)
-		auth.POST("/login", h.auth.Login)
-		auth.POST("/forgot-password", h.auth.ForgotPassword)
-		auth.POST("/reset-password", h.auth.ResetPassword)
-		auth.POST("/logout", h.auth.Logout)
-		auth.POST("/verify-otp", h.auth.VerifyEmail)
-		auth.POST("/resend-verification", h.auth.ResendVerificationEmail)
-	}
+	// Password authentication is retired; BrowserService owns Registry-backed /auth routes.
 
 	r.GET("/api/code-samples", h.codeSamples.GetCodeSample)
 	r.GET("/api/roles", h.role.GetRoles)
 	r.GET("/api/roles/:level", h.role.GetRolesByLevel)
 	r.GET("/api/pricing", h.pricing.GetPricing)
-	r.POST("/api/team/invitation/validate", h.teamInvitation.ValidateInvitation)
 
 	requirePerm := func(perm string) gin.HandlerFunc {
 		return rbac.RequirePermission(rbacLoader, repos.userRole, repos.serviceAccount, perm)
@@ -478,6 +500,7 @@ func buildRouter(
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthAccessTokenAuth(svcs.authService, svcs.apiKeySvc))
+	api.Use(licensedCompanyMiddleware())
 
 	user := api.Group("/user")
 	{
@@ -486,15 +509,7 @@ func buildRouter(
 		user.POST("/mark-instrumentation-done", h.user.MarkInstrumentationDone)
 	}
 
-	team := api.Group("/team")
-	{
-		team.GET("/members", requirePerm("member.view"), h.user.ListTeamMembers)
-		team.DELETE("/members/:id", requirePerm("member.delete"), h.user.RemoveTeamMember)
-		team.POST("/invitations", requirePerm("member.invite"), h.teamInvitation.SendInvitation)
-		team.GET("/invitations", requirePerm("member.view"), h.teamInvitation.ListInvitations)
-		team.POST("/invitations/:id/resend", requirePerm("member.invite"), h.teamInvitation.ResendInvitation)
-		team.DELETE("/invitations/:id", requirePerm("member.invite"), h.teamInvitation.CancelInvitation)
-	}
+	// User lifecycle and invitations are owned by the Engine at /v1/users.
 
 	api.POST("/api-keys", requirePerm("apikey.create"), h.apiKey.CreateAPIKey)
 	api.GET("/api-keys", requirePerm("apikey.read"), h.apiKey.ListAPIKeys)
@@ -525,7 +540,7 @@ func buildRouter(
 	api.POST("/graphql", h.graphqlProxy.ProxyGraphQL)
 
 	chat := api.Group("/chat")
-	chat.Use(middleware.AgentCreditCheckMiddleware(svcs.agentService))
+	// Registry transport allowances replace the former token-credit gate.
 	{
 		chat.GET("/conversations", h.agent.GetConversations)
 		chat.GET("/conversations/:id", h.agent.GetConversation)
@@ -556,24 +571,6 @@ func buildRouter(
 	}
 
 	return r
-}
-
-func corsMiddleware(originsCSV string) gin.HandlerFunc {
-	var origins []string
-	if strings.TrimSpace(originsCSV) != "" {
-		for _, o := range strings.Split(originsCSV, ",") {
-			if trimmed := strings.TrimSpace(o); trimmed != "" {
-				origins = append(origins, trimmed)
-			}
-		}
-	}
-	return cors.New(cors.Config{
-		AllowOrigins:     origins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	})
 }
 
 func initDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
