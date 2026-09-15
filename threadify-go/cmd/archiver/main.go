@@ -110,7 +110,22 @@ func run(configPath string, logger *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("start persistence: %w", err)
 	}
+	// Cover startup failures as well as shutdown, checkpointing while NATS is open.
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cleanupCancel()
+		_ = runtime.Close(cleanupCtx)
+		licensed.Close()
+		natsConn.Close()
+	}()
 
+	js, err := jetstream.New(natsConn)
+	if err != nil {
+		return err
+	}
+	if err := licensed.EnableJetStream(ctx, js); err != nil {
+		return err
+	}
 	metricsSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Archiver.MetricsPort),
 		Handler: promhttp.Handler(),
@@ -135,6 +150,7 @@ func run(configPath string, logger *zap.Logger) error {
 	defer shutdownCancel()
 	persistenceErr := runtime.Close(shutdownCtx)
 	cancel()
+	licensed.Close()
 	if natsConn != nil {
 		natsConn.Close()
 	}

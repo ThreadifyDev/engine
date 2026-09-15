@@ -18,6 +18,7 @@ func TestAccountingDelegationIsBoundOneUseAndEngineOnly(t *testing.T) {
 	if err := r.initializeStore(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	var calls int
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		data, err := io.ReadAll(req.Body)

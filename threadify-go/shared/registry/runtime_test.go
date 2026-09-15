@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"threadify-go/shared/testutil/natsfixture"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -74,7 +75,7 @@ func TestStartRequiresLicense(t *testing.T) {
 		t.Fatal("unlicensed production start succeeded")
 	}
 }
-func testPool(t *testing.T) *pgxpool.Pool {
+func testPool(t testing.TB) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("THREADIFY_REGISTRY_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -148,7 +149,7 @@ func TestDurableAllowancesRestartAndIdempotentReports(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := Config{URL: server.URL, LicenseKey: "license-one"}
-	r, err := Start(ctx, cfg, pool)
+	r, err := Start(ctx, cfg, pool, natsfixture.New(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func TestDurableAllowancesRestartAndIdempotentReports(t *testing.T) {
 	id := r.cfg.InstallationID
 	r.Close()
 	cfg.LicenseKey = "rotated-license"
-	r, err = Start(ctx, cfg, pool)
+	r, err = Start(ctx, cfg, pool, natsfixture.New(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestDurableAllowancesRestartAndIdempotentReports(t *testing.T) {
 	// The immediate startup report encountered the simulated lost response.
 	// Its committed IDs must remain available for an idempotent retry.
 	var pending int
-	if err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM threadify_registry_outbox`).Scan(&pending); err != nil || pending != 10 {
+	if err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM threadify_registry_outbox`).Scan(&pending); err != nil || pending < 1 {
 		t.Fatalf("lost retry data: %d %v", pending, err)
 	}
 	if err = r.FlushUsage(ctx); err != nil {
@@ -265,6 +266,7 @@ func TestBidirectionalLimitsAndRateWindows(t *testing.T) {
 	if err := r.initializeStore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	for _, metric := range []string{InputBytes, OutputBytes} {
 		if err := r.reserve(ctx, metric, 4, 10, -1, now); err != nil {
@@ -298,9 +300,17 @@ func TestBidirectionalLimitsAndRateWindows(t *testing.T) {
 	if err := r.reserve(ctx, InputRequests, 1, -1, 0, now); !errors.Is(err, ErrLimit) {
 		t.Fatalf("zero incoming request rate accepted: %v", err)
 	}
+	projectTestUsage(t, r)
 	var byteRateBuckets int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM threadify_registry_usage WHERE metric IN ($1,$2,$3) AND bucket_seconds=1`, InputBytes, OutputBytes, OutputMessages).Scan(&byteRateBuckets); err != nil || byteRateBuckets != 0 {
 		t.Fatalf("byte rate buckets=%d error=%v", byteRateBuckets, err)
+	}
+	// Projection after several compacted updates must retain both calendar months.
+	var byteMonths, reportedBytes int64
+	if err := pool.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM threadify_registry_usage WHERE metric IN ($1,$2)),
+ (SELECT sum(count) FROM threadify_registry_outbox WHERE metric IN ($1,$2))`, InputBytes, OutputBytes).Scan(&byteMonths, &reportedBytes); err != nil || byteMonths != 4 || reportedBytes != 40 {
+		t.Fatalf("month rollover projection: %d months, %d bytes: %v", byteMonths, reportedBytes, err)
 	}
 }
 
@@ -316,6 +326,7 @@ func TestRequestRateDoesNotLimitPayloadBytes(t *testing.T) {
 	if err := r.initializeStore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	for _, usage := range []struct {
 		metric string
 		count  int64
@@ -343,6 +354,7 @@ func TestHTTPDenialsBeforeInputAndOutput(t *testing.T) {
 			if err := r.initializeStore(context.Background()); err != nil {
 				t.Fatal(err)
 			}
+			enableTestMeter(t, r)
 			acceptedInput := false
 			h := r.Wrap(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if _, err := io.ReadAll(req.Body); err != nil {
@@ -381,6 +393,7 @@ func TestIncomingRateAllowsMultipleSSEMessages(t *testing.T) {
 	if err := r.initializeStore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	const event = "data: ok\n\n"
 	h := r.Wrap(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -397,6 +410,7 @@ func TestIncomingRateAllowsMultipleSSEMessages(t *testing.T) {
 	if w.Code != 200 || w.Body.String() != strings.Repeat(event, 20) {
 		t.Fatalf("stream status=%d bytes=%d", w.Code, w.Body.Len())
 	}
+	projectTestUsage(t, r)
 	for metric, want := range map[string]int64{InputRequests: 1, OutputMessages: 20, OutputBytes: int64(len(event) * 20)} {
 		var count int64
 		if err := pool.QueryRow(ctx, `SELECT COALESCE(SUM(count),0) FROM threadify_registry_usage WHERE metric=$1 AND bucket_seconds>1`, metric).Scan(&count); err != nil || count != want {

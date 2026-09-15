@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"threadify-go/shared/testutil/natsfixture"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,7 +46,7 @@ func TestRegistryProfileLimitPreservesThreadRefs(t *testing.T) {
 	snapshot := registry.Snapshot{AccountID: "account", WorkspaceID: "account", Email: "owner@example.test", HeartbeatIntervalSeconds: 60, GracePeriodSeconds: 300, Entitlements: registry.Entitlements{Revision: "1", EntityProfileLimit: 1}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { require.NoError(t, json.NewEncoder(w).Encode(snapshot)) }))
 	defer server.Close()
-	licensed, err := registry.Start(ctx, registry.Config{URL: server.URL, LicenseKey: "license", CompanyID: "company"}, pool)
+	licensed, err := registry.Start(ctx, registry.Config{URL: server.URL, LicenseKey: "license", CompanyID: "company"}, pool, natsfixture.New(t))
 	require.NoError(t, err)
 	defer licensed.Close()
 	registry.SetDefault(licensed)

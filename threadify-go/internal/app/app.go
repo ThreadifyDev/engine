@@ -154,7 +154,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 			inf.close()
 		}
 	}()
-	licensed, err := registry.Start(ctx, cfg.Registry, inf.db.Pool)
+	licensed, err := registry.Start(ctx, cfg.Registry, inf.db.Pool, inf.natsPool.GetClient().JetStream())
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +256,9 @@ func (a *App) Close(ctx context.Context) error {
 		}
 		if a.infra.persistence != nil {
 			a.closeErr = errors.Join(a.closeErr, a.infra.persistence.Close(ctx))
+		}
+		if a.infra.registry != nil {
+			a.infra.registry.Close()
 		}
 		if a.infra.natsPool != nil {
 			a.closeErr = errors.Join(a.closeErr, a.infra.natsPool.Drain(ctx))

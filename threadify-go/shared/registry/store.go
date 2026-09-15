@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +24,7 @@ func (r *Runtime) initializeStore(ctx context.Context) error {
 	// No license key, plan, entitlement revision or quota values are persisted.
 	_, err = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS threadify_registry_binding (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), account_id text NOT NULL, company_id text NOT NULL);
+ CREATE TABLE IF NOT EXISTS threadify_registry_projection (singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), epoch text NOT NULL, revision bigint NOT NULL);
  CREATE TABLE IF NOT EXISTS threadify_registry_delegations(nonce text PRIMARY KEY, expires_at timestamptz NOT NULL);
  CREATE TABLE IF NOT EXISTS threadify_registry_usage (
  account_id text NOT NULL, metric text NOT NULL, bucket_start timestamptz NOT NULL, bucket_seconds bigint NOT NULL, count bigint NOT NULL DEFAULT 0,
@@ -59,62 +59,6 @@ func (r *Runtime) reserve(ctx context.Context, metric string, n, monthly, rate i
 	return r.reserveMany(ctx, []usageReservation{{metric, n, monthly, rate}}, now)
 }
 
-func (r *Runtime) reserveMany(ctx context.Context, reservations []usageReservation, now time.Time) error {
-	// Deterministic row-lock ordering also covers overlapping batches on replicas.
-	sort.SliceStable(reservations, func(i, j int) bool { return reservations[i].metric < reservations[j].metric })
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	seconds := int64(month.AddDate(0, 1, 0).Sub(month) / time.Second)
-	batch := &pgx.Batch{}
-	for _, reservation := range reservations {
-		metric, n := reservation.metric, reservation.n
-		buckets := []struct {
-			start          time.Time
-			seconds, limit int64
-		}{{month, seconds, reservation.monthly}}
-		if metric == InputRequests {
-			buckets = append(buckets, struct {
-				start          time.Time
-				seconds, limit int64
-			}{now.Truncate(time.Second), 1, reservation.rate})
-		}
-		for _, b := range buckets {
-			// The unique index locks the authoritative bucket across all processes.
-			// A conditional UPSERT avoids a separate advisory lock and insert/update trip.
-			batch.Queue(`INSERT INTO threadify_registry_usage AS usage(account_id,metric,bucket_start,bucket_seconds,count)
-    SELECT $1,$2,$3,$4,$5::bigint WHERE $6::bigint=-1 OR $5::bigint <= $6
-    ON CONFLICT(account_id,metric,bucket_start,bucket_seconds) DO UPDATE SET count=usage.count+EXCLUDED.count
-    WHERE usage.count <= 9223372036854775807-EXCLUDED.count AND ($6::bigint=-1 OR usage.count <= $6-EXCLUDED.count)`, r.accountID, metric, b.start, b.seconds, n, b.limit)
-		}
-		batch.Queue(`INSERT INTO threadify_registry_outbox(report_id,account_id,installation_id,metric,bucket_start,bucket_seconds,count) VALUES($1,$2,$3,$4,$5,$6,$7)`, newID(), r.accountID, r.cfg.InstallationID, metric, month, seconds, n)
-	}
-	results := tx.SendBatch(ctx, batch)
-	var admissionErr error
-	for range batch.Len() {
-		tag, err := results.Exec()
-		if err != nil {
-			admissionErr = err
-			break
-		}
-		if tag.RowsAffected() != 1 {
-			admissionErr = ErrLimit
-			break
-		}
-	}
-	closeErr := results.Close()
-	if admissionErr != nil {
-		return admissionErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return tx.Commit(ctx)
-}
-
 var errOutboxEmpty = errors.New("Registry usage outbox is empty")
 
 // FlushUsage drains bounded batches so normal traffic cannot accumulate behind
@@ -122,6 +66,9 @@ var errOutboxEmpty = errors.New("Registry usage outbox is empty")
 func (r *Runtime) FlushUsage(ctx context.Context) error {
 	if r == nil {
 		return nil
+	}
+	if err := r.ProjectUsage(ctx); err != nil {
+		return err
 	}
 	cycleCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

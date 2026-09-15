@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
@@ -67,6 +69,8 @@ type Report struct {
 	Count         int64     `json:"count"`
 }
 type Runtime struct {
+	meter     atomic.Pointer[usageMeter]
+	closeOnce sync.Once
 	cfg       Config
 	accountID string
 	pool      *pgxpool.Pool
@@ -139,7 +143,9 @@ func resolveConfig(c Config) Config {
 	}
 	return c
 }
-func Start(ctx context.Context, cfg Config, pool *pgxpool.Pool) (*Runtime, error) {
+// Start verifies the license and starts background reporting. Supply JetStream
+// here, or call EnableJetStream before serving traffic after identity-only startup.
+func Start(ctx context.Context, cfg Config, pool *pgxpool.Pool, coordinators ...jetstream.JetStream) (*Runtime, error) {
 	cfg = resolveConfig(cfg)
 	u, err := url.Parse(cfg.URL)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || cfg.LicenseKey == "" {
@@ -191,6 +197,11 @@ func Start(ctx context.Context, cfg Config, pool *pgxpool.Pool) (*Runtime, error
 	if err := r.initializeStore(ctx); err != nil {
 		return nil, err
 	}
+	if len(coordinators) > 0 {
+		if err := r.EnableJetStream(ctx, coordinators[0]); err != nil {
+			return nil, err
+		}
+	}
 	// Attempt liveness immediately, but a failed heartbeat cannot invalidate the
 	// successful handshake. Explicit suspension/revocation still denies access.
 	_ = r.refresh(ctx, true)
@@ -209,10 +220,23 @@ func Start(ctx context.Context, cfg Config, pool *pgxpool.Pool) (*Runtime, error
 	return r, nil
 }
 func (r *Runtime) Close() {
-	if r != nil && r.cancel != nil {
-		r.cancel()
-		<-r.done
+	if r == nil {
+		return
 	}
+	r.closeOnce.Do(func() {
+		if r.cancel != nil {
+			r.cancel()
+			<-r.done
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := r.ProjectUsage(ctx); err != nil {
+			r.logProjectionError(err)
+		}
+	})
+}
+func (r *Runtime) logProjectionError(err error) {
+	slog.Warn("Usage checkpoint deferred; counters remain in JetStream", "error", err)
 }
 func (r *Runtime) Snapshot() (Snapshot, error) {
 	if r == nil {
@@ -330,6 +354,9 @@ func (r *Runtime) refresh(ctx context.Context, heartbeat bool) error {
 }
 func (r *Runtime) run(ctx context.Context) {
 	defer close(r.done)
+	projectionDone := make(chan struct{})
+	go func() { defer close(projectionDone); r.projectLoop(ctx) }()
+	defer func() { <-projectionDone }()
 	for {
 		r.mu.RLock()
 		interval := r.snapshot.HeartbeatIntervalSeconds
@@ -358,7 +385,7 @@ func (r *Runtime) Check(ctx context.Context, metric string, n int64) error {
 }
 
 // CheckBatch admits all increments together, or none. Entitlements stay in memory;
-// counters and reporting outbox entries commit in the same transaction.
+// one JetStream KV update records admission, then PostgreSQL reporting follows asynchronously.
 func (r *Runtime) CheckBatch(ctx context.Context, usage ...Usage) error {
 	if r == nil {
 		return nil
