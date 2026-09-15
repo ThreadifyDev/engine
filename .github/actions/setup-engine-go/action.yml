@@ -1,0 +1,27 @@
+name: Set up Engine Go cache
+description: Share compiled packages between Engine validation and publishing.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      id: go
+      with:
+        go-version-file: threadify-go/go.mod
+        cache: false
+    - name: Locate Go caches
+      id: paths
+      shell: bash
+      run: |
+        echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.paths.outputs.build }}
+          ${{ steps.paths.outputs.modules }}
+        # Refresh on each commit; both jobs use the same key. Dependency-only
+        # keys are immutable and never retain compilation of later source edits.
+        key: engine-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('threadify-go/go.mod', 'threadify-go/go.sum', 'threadify-go/shared/go.mod', 'threadify-go/shared/go.sum', 'threadify-go/tests/go.mod', 'threadify-go/tests/go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          engine-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('threadify-go/go.mod', 'threadify-go/go.sum', 'threadify-go/shared/go.mod', 'threadify-go/shared/go.sum', 'threadify-go/tests/go.mod', 'threadify-go/tests/go.sum') }}-
+          engine-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
