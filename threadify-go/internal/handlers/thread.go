@@ -68,6 +68,11 @@ type WebSocketHandler struct {
 	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
 	logger               *zap.Logger
+	lifecycleMu          sync.Mutex
+	shuttingDown         bool
+	activeHandlers       int
+	connections          map[*websocket.Conn]struct{}
+	shutdownDone         chan struct{}
 }
 
 type WSSession struct {
@@ -243,12 +248,44 @@ func (s *WSSession) enforceCredits(planSvc domain.PlanService, action string) *d
 }
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
+	h.lifecycleMu.Lock()
+	if h.shuttingDown {
+		h.lifecycleMu.Unlock()
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	h.activeHandlers++
+	h.lifecycleMu.Unlock()
+	defer func() {
+		h.lifecycleMu.Lock()
+		h.activeHandlers--
+		if h.shuttingDown && h.activeHandlers == 0 {
+			close(h.shutdownDone)
+		}
+		h.lifecycleMu.Unlock()
+	}()
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.logger.Error("websocket upgrade error", zap.Error(err))
 		return
 	}
 	defer conn.Close()
+	h.lifecycleMu.Lock()
+	if h.shuttingDown {
+		h.lifecycleMu.Unlock()
+		return
+	}
+	if h.connections == nil {
+		h.connections = make(map[*websocket.Conn]struct{})
+	}
+	h.connections[conn] = struct{}{}
+	h.lifecycleMu.Unlock()
+	defer func() {
+		h.lifecycleMu.Lock()
+		delete(h.connections, conn)
+		h.lifecycleMu.Unlock()
+	}()
 	conn.SetReadLimit(defaultWebSocketReadLimitBytes)
 
 	deadlineSecs := h.websocketConfig.ReadDeadlineSeconds
@@ -274,7 +311,15 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	// drops idle connections (AWS ELB, nginx, GCP load balancer, etc.) without
 	// requiring any action from the SDK client.
 	pingStop := make(chan struct{})
+	pingDone := make(chan struct{})
+	defer func() {
+		close(pingStop)
+		// Unblock a pending control-frame write before waiting for the pinger.
+		_ = conn.Close()
+		<-pingDone
+	}()
 	go func() {
+		defer close(pingDone)
 		pingInterval := readDeadline / 2
 		ticker := time.NewTicker(pingInterval)
 		defer ticker.Stop()
@@ -317,8 +362,6 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		}
 	}
 
-	close(pingStop)
-
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)
 		h.threadService.HandleClose(session.ownerID)
@@ -330,6 +373,35 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 					zap.String("session_id", session.sessionID), zap.Error(err))
 			}
 		}
+	}
+}
+
+// Shutdown rejects new upgrades, closes every upgraded connection (including
+// connections that never authenticated), and waits for handlers and pingers.
+// HTTP server shutdown alone does not wait for hijacked WebSocket connections.
+func (h *WebSocketHandler) Shutdown(ctx context.Context) error {
+	h.lifecycleMu.Lock()
+	if !h.shuttingDown {
+		h.shuttingDown = true
+		h.shutdownDone = make(chan struct{})
+		if h.activeHandlers == 0 {
+			close(h.shutdownDone)
+		}
+	}
+	done := h.shutdownDone
+	connections := make([]*websocket.Conn, 0, len(h.connections))
+	for conn := range h.connections {
+		connections = append(connections, conn)
+	}
+	h.lifecycleMu.Unlock()
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

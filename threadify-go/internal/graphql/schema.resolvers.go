@@ -1417,7 +1417,7 @@ func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName
 	if r.accessRepo != nil {
 		permCheck, err := r.accessRepo.CheckUserReadPermission(ctx, obj.ID, ownerID)
 		if err == nil && permCheck != nil && permCheck.HasAccess {
-			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, permCheck, stepName, idempotencyKey, status)
+			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, companyID, permCheck, stepName, idempotencyKey, status)
 			if err == nil {
 				return steps, nil
 			}

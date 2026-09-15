@@ -3,89 +3,129 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	"threadify-go/shared/logger"
-
 	"github.com/threadify/engine/internal/app"
+	"github.com/threadify/engine/internal/config"
 	"go.uber.org/zap"
+	"threadify-go/shared/logger"
 )
 
-const (
-	pprofAddr       = "localhost:6060"
-	shutdownTimeout = 30 * time.Second
+// Release builds inject these values through Go linker flags.
+var (
+	version = "dev"
+	commit  = "unknown"
 )
+
+const shutdownTimeout = 30 * time.Second
 
 func main() {
+	if err := run(os.Args[1:]); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
+	flags := flag.NewFlagSet("threadify", flag.ContinueOnError)
+	configPath := flags.String("config", os.Getenv("CONFIG_PATH"), "configuration file; subscription.yaml is loaded from the same directory")
+	mode := flags.String("mode", "", "combined (default), engine, or writer; split modes require external NATS")
+	showVersion := flags.Bool("version", false, "print version and commit, then exit")
+	healthcheck := flags.Bool("healthcheck", false, "check the configured server's health and exit")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	// Version inspection must work without configuration or external services.
+	if *showVersion {
+		fmt.Printf("threadify %s (%s)\n", version, commit)
+		return nil
+	}
+	cfg, err := app.LoadConfigPath(*configPath)
+	if err != nil {
+		return err
+	}
+	if *mode != "" {
+		cfg.RuntimeMode = *mode
+	}
+	if err := config.ValidateRuntime(cfg); err != nil {
+		return err
+	}
+	if *healthcheck {
+		return checkHealth(cfg)
+	}
+
 	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == "production")
 	if err != nil {
-		log.Fatalf("failed to initialize logger: %v", err)
+		return fmt.Errorf("initialize logger: %w", err)
 	}
 	defer appLogger.Sync() //nolint:errcheck
-
-	cfg, err := app.LoadConfig()
-	if err != nil {
-		appLogger.Fatal("failed to load config", zap.Error(err))
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	engineApp, err := app.New(ctx, cfg, appLogger)
 	if err != nil {
-		appLogger.Fatal("failed to initialize app", zap.Error(err))
+		return fmt.Errorf("initialize app: %w", err)
 	}
-
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-		Handler:      engineApp.Handler,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr: net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port)), Handler: engineApp.Handler,
+		ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second,
 	}
-
-	go startPprof(appLogger)
-
+	serveErr := make(chan error, 1)
 	go func() {
-		appLogger.Info("starting server", zap.String("address", srv.Addr))
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			appLogger.Fatal("server error", zap.Error(err))
-		}
+		appLogger.Info("starting Threadify", zap.String("address", srv.Addr), zap.String("mode", cfg.RuntimeMode), zap.String("broker", cfg.NATS.Mode))
+		serveErr <- srv.ListenAndServe()
 	}()
-
-	waitForShutdown(appLogger, srv, engineApp)
-}
-
-func startPprof(logger *zap.Logger) {
-	logger.Info("starting pprof server", zap.String("address", pprofAddr))
-	if err := http.ListenAndServe(pprofAddr, nil); err != nil {
-		logger.Error("pprof server error", zap.Error(err))
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case err := <-serveErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = err
+		}
 	}
-}
-
-func waitForShutdown(logger *zap.Logger, srv *http.Server, a *app.App) {
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
-	logger.Info("shutting down")
-
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	engineApp.BeginShutdown()
+	appLogger.Info("shutting down")
+	// Request cancellation must not cancel persistence's final writes.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("http shutdown error", zap.Error(err))
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		runErr = errors.Join(runErr, err)
+		_ = srv.Close()
 	}
+	runErr = errors.Join(runErr, engineApp.Close(shutdownCtx))
+	appLogger.Info("shutdown complete")
+	return runErr
+}
 
-	if err := a.Close(ctx); err != nil {
-		logger.Error("app close error", zap.Error(err))
+func checkHealth(cfg *config.Config) error {
+	host := cfg.Server.Host
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
 	}
-
-	logger.Info("shutdown complete")
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Get("http://" + net.JoinHostPort(host, strconv.Itoa(cfg.Server.Port)) + "/health")
+	if err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, response.Body)
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck: HTTP %d", response.StatusCode)
+	}
+	return nil
 }

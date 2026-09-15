@@ -293,6 +293,14 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 				}
 			}
 		} else {
+			threadID, _ := data["threadId"].(string)
+			if strings.TrimSpace(threadID) == "" {
+				c.logger.Warn("dropping activity log message without threadId",
+					zap.String("type", fmt.Sprintf("%v", data["type"])),
+				)
+				failed = append(failed, msg)
+				continue
+			}
 			events = append(events, StreamEvent{StreamID: msg.Subject(), Data: convertToStringMap(data)})
 		}
 	}

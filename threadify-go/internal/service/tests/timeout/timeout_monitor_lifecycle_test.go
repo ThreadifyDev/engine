@@ -85,7 +85,7 @@ func TestTimeoutMonitor_HandleTimeoutEvent_PublishErrorDoesNotAck(t *testing.T) 
 		Timeout:      "2m",
 		ContractName: "contract-b",
 		ScheduledAt:  time.Now().UTC(),
-		DeadlineAt:   time.Now().UTC().Add(2 * time.Minute),
+		DeadlineAt:   time.Now().UTC().Add(-time.Second),
 		Metadata:     map[string]interface{}{"owner_id": "owner-1"},
 	}
 	data, err := json.Marshal(event)
@@ -100,6 +100,44 @@ func TestTimeoutMonitor_HandleTimeoutEvent_PublishErrorDoesNotAck(t *testing.T) 
 	err = tm.HandleTimeoutEvent(msg)
 	require.Error(t, err)
 	assert.Equal(t, uint64(1), tm.GetMetrics()["fired"])
+	assert.Equal(t, uint64(0), tm.GetMetrics()["violations"])
+}
+
+func TestTimeoutMonitor_HandleTimeoutEvent_EarlyDeliveryIsDeferred(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	kv := timeoutmocks.NewMocktimeoutKV(ctrl)
+	pub := enginemocks.NewMockNotificationPublisher(ctrl)
+	msg := natsmocks.NewMockMsg(ctrl)
+
+	event := domain.TimeoutEvent{
+		ID:           "timeout-early",
+		ThreadID:     "thread-early",
+		Type:         domain.TimeoutTypeMaxDuration,
+		Timeout:      "30m",
+		ContractName: "contract-a",
+		ScheduledAt:  time.Now().UTC(),
+		DeadlineAt:   time.Now().UTC().Add(30 * time.Minute),
+		Metadata:     map[string]interface{}{"owner_id": "owner-1"},
+	}
+	data, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	msg.EXPECT().Data().Return(data).Times(1)
+	kv.EXPECT().Get(gomock.Any(), service.TimeoutCancellationKey(event.ID)).
+		Return(nil, jetstream.ErrKeyNotFound).Times(1)
+	msg.EXPECT().NakWithDelay(gomock.Any()).
+		DoAndReturn(func(delay time.Duration) error {
+			assert.Greater(t, delay, 29*time.Minute)
+			assert.LessOrEqual(t, delay, 30*time.Minute)
+			return nil
+		}).Times(1)
+
+	tm := service.NewTimeoutMonitorForTests(kv, pub, zap.NewNop())
+	err = tm.HandleTimeoutEvent(msg)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), tm.GetMetrics()["fired"])
 	assert.Equal(t, uint64(0), tm.GetMetrics()["violations"])
 }
 
@@ -130,7 +168,7 @@ func TestTimeoutMonitor_HandleTimeoutEvent_ConcurrentSuccess_IsRaceSafe(t *testi
 			Timeout:      "2m",
 			ContractName: "contract-c",
 			ScheduledAt:  time.Now().UTC(),
-			DeadlineAt:   time.Now().UTC().Add(2 * time.Minute),
+			DeadlineAt:   time.Now().UTC().Add(-time.Second),
 			Metadata:     map[string]interface{}{"owner_id": "owner-1"},
 		}
 		data, err := json.Marshal(event)

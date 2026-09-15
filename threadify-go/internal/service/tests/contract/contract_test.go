@@ -173,6 +173,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
 				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(2, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 			},
 		},
 		{
@@ -221,16 +222,20 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "charge version fails",
+			name: "charge failure does not undo persisted version",
 			yaml: "yaml",
-			want: 402,
+			want: 200,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
 				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
-				deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(errors.New("nope"))
+				// Charging happens after persistence; a billing failure is logged.
+				gomock.InOrder(
+					deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(nil),
+					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(errors.New("nope")),
+				)
 			},
 		},
 		{
@@ -243,7 +248,6 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
-				deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil)
 				deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(errors.New("db"))
 			},
 		},
@@ -258,8 +262,8 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
 				gomock.InOrder(
-					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil),
 					deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(nil),
+					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil),
 				)
 			},
 		},

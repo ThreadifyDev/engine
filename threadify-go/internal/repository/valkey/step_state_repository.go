@@ -30,12 +30,18 @@ func parseTimestamp(s string) (time.Time, error) {
 //go:embed lua/validate_and_update_step_state.lua
 var validateAndUpdateStepStateScript string
 
+type stepStatePostgresReader interface {
+	GetStepsBatch(context.Context, []string) (map[string][]*domain.StepStateInfo, error)
+	GetStepsWithPermissionCheck(context.Context, string, string, *string, *string, *string) ([]*domain.StepStateInfo, error)
+	GetStepHistoryWithPermissionCheck(context.Context, string, string, string, int, int, *string, *string, *string, *string) ([]domain.StepHistory, error)
+}
+
 // StepStateRepository implements domain.StepStateRepository
 type StepStateRepository struct {
 	client       domain.StepStateValkeyClient
 	scriptHashes map[string]string
-	postgresRepo *postgres.StepStateRepository // For PostgreSQL fallback
-	ttl          int                           // TTL in seconds for step keys
+	postgresRepo stepStatePostgresReader // For PostgreSQL fallback
+	ttl          int                     // TTL in seconds for step keys
 	logger       *zap.Logger
 }
 
@@ -60,9 +66,11 @@ func NewStepStateRepositoryWithPostgres(
 	repo := &StepStateRepository{
 		client:       client,
 		scriptHashes: make(map[string]string),
-		postgresRepo: postgresRepo,
 		ttl:          ttl,
 		logger:       logger,
+	}
+	if postgresRepo != nil {
+		repo.postgresRepo = postgresRepo
 	}
 	return repo
 }
@@ -393,7 +401,8 @@ func (r *StepStateRepository) ListSteps(ctx context.Context, threadID string, st
 		for _, key := range keys {
 			// Extract stepName and idempotencyKey from key
 			// Key format: thread:{threadID}:steps:{stepName}:{idempotencyKey}
-			parts := strings.Split(key, ":")
+			// Idempotency keys can contain colons (for example OTEL trace/span IDs).
+			parts := strings.SplitN(key, ":", 5)
 			if len(parts) < 5 {
 				continue
 			}
@@ -508,6 +517,7 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 	ctx context.Context,
 	threadID string,
 	userID string,
+	companyID string,
 	permCheck *domain.PermissionCheckResult,
 	stepName *string,
 	idempotencyKey *string,
@@ -534,7 +544,8 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		for _, key := range keys {
 			// Extract stepName and idempotencyKey from key
 			// Key format: thread:{threadID}:steps:{stepName}:{idempotencyKey}
-			parts := strings.Split(key, ":")
+			// Idempotency keys can contain colons (for example OTEL trace/span IDs).
+			parts := strings.SplitN(key, ":", 5)
 			if len(parts) < 5 {
 				continue
 			}
@@ -620,8 +631,22 @@ func (r *StepStateRepository) GetStepsWithPermissionCheck(
 		zap.String("thread_id", threadID),
 		zap.String("user_id", userID))
 
-	// Use SQL-level permission filtering
-	return r.postgresRepo.GetStepsWithPermissionCheck(ctx, threadID, userID, stepName, idempotencyKey, status)
+	// PostgreSQL authorizes the thread by company. Apply the same actor
+	// restriction as the cache for callers with only thread.read.own.
+	steps, err := r.postgresRepo.GetStepsWithPermissionCheck(ctx, threadID, companyID, stepName, idempotencyKey, status)
+	if err != nil {
+		return nil, err
+	}
+	if !permCheck.HasFullRead && permCheck.HasOwnRead {
+		ownedSteps := make([]*domain.StepStateInfo, 0, len(steps))
+		for _, step := range steps {
+			if step.Actor == userID {
+				ownedSteps = append(ownedSteps, step)
+			}
+		}
+		return ownedSteps, nil
+	}
+	return steps, nil
 }
 
 // GetStepHistoryWithPermissionCheck retrieves step history with permission filtering

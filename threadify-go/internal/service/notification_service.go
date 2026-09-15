@@ -198,6 +198,7 @@ func (s *NotificationService) handleNoContractStep(
 		idempKey = stepID
 	}
 
+	eventTimestamp := recordEventTimestamp(req)
 	executionNotif := domain.ValidationNotification{
 		NotificationID: uuid.New().String(),
 		ThreadID:       threadID,
@@ -213,7 +214,7 @@ func (s *NotificationService) handleNoContractStep(
 			"context":        req.Context,
 			"idempotencyKey": idempKey,
 		},
-		Timestamp: time.Now(),
+		Timestamp: eventTimestamp,
 	}
 
 	if s.natsPublisher != nil {
@@ -240,7 +241,7 @@ func (s *NotificationService) performNonBlockingValidations(
 	ownerID string,
 ) []domain.ValidationNotification {
 	notifications := make([]domain.ValidationNotification, 0, 5)
-	now := time.Now()
+	now := recordEventTimestamp(req)
 
 	// 1. Step Timeout Exceeded (Critical)
 	if violation := s.validationService.CheckStepTimeout(stepNode, req.StartedAt, req.FinishedAt); violation != nil {
@@ -265,7 +266,7 @@ func (s *NotificationService) performNonBlockingValidations(
 	}
 
 	// 2. Max Duration Exceeded (Critical)
-	if violation := s.validationService.CheckMaxDuration(thread, graph); violation != nil {
+	if violation := s.validationService.CheckMaxDuration(thread, graph, now); violation != nil {
 		details := ensureDetails(violation.Details)
 		details["duration"] = violation.Duration
 		details["limit"] = violation.Limit
@@ -330,7 +331,8 @@ func (s *NotificationService) processValidationNotifications(
 
 	isTerminal := slices.Contains(graph.Graph.TerminalSteps, stepName)
 
-	params := buildValidateStepParams(threadID, stepID, stepName, idempotencyKey, originalStatus, ownerID, isTerminal, existingViolations, graph)
+	eventTimestamp := recordEventTimestamp(req)
+	params := buildValidateStepParams(threadID, stepID, stepName, idempotencyKey, originalStatus, ownerID, isTerminal, existingViolations, graph, eventTimestamp)
 
 	luaStart := perf.Now()
 	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, params)
@@ -416,7 +418,7 @@ func (s *NotificationService) processValidationNotifications(
 			"context":        req.Context,
 			"idempotencyKey": idempotencyKey,
 		},
-		Timestamp: time.Now(),
+		Timestamp: eventTimestamp,
 	}
 
 	validationNotif := domain.ValidationNotification{
@@ -432,7 +434,7 @@ func (s *NotificationService) processValidationNotifications(
 		Severity:       severity,
 		Message:        finalMessage,
 		Details:        finalDetails,
-		Timestamp:      time.Now(),
+		Timestamp:      eventTimestamp,
 	}
 
 	// Intentional detached context: this goroutine outlives the request lifecycle.
@@ -444,7 +446,9 @@ func (s *NotificationService) processValidationNotifications(
 	// to prevent race conditions with cancellation logic
 
 	// Handle terminal step completion.
-	if isTerminal && result.Status == StepStatusCompleted && !result.HasCriticalViolation {
+	// Lua returns the step outcome (success), while marking thread metadata
+	// completed separately. Persist completion for a successful terminal step.
+	if isTerminal && result.Status == StepStatusSuccess && !result.HasCriticalViolation {
 		s.logger.Info("thread marked as COMPLETED", zap.String("thread_id", threadID))
 
 		// Cancel thread max duration timeout
@@ -453,7 +457,7 @@ func (s *NotificationService) processValidationNotifications(
 		// Update Valkey status to "completed" SYNCHRONOUSLY.
 		// This is critical: it must happen before any WebSocket disconnect can call EndThread.
 		if s.threadRepo != nil {
-			if err := s.threadRepo.UpdateThreadStatus(ctx, threadID, ThreadStatusCompleted, time.Now()); err != nil {
+			if err := s.threadRepo.UpdateThreadStatus(ctx, threadID, ThreadStatusCompleted, eventTimestamp); err != nil {
 				s.logger.Error("failed to update thread status in Valkey",
 					zap.String("thread_id", threadID), zap.Error(err))
 			} else {
@@ -474,10 +478,13 @@ func (s *NotificationService) processValidationNotifications(
 				Status:         ValidationStatusPassed,
 				Severity:       "",
 				Message:        fmt.Sprintf("Thread completed successfully at terminal step %q", stepName),
-				Timestamp:      time.Now(),
+				Timestamp:      eventTimestamp,
 			}
 			go s.publishToAuthorizedMembers(ctx, completionNotif)
 		}
+
+		completedAt := eventTimestamp
+		thread.CompletedAt = &completedAt
 
 		if err := s.activityRepo.ArchiveThreadMetadata(ctx, &domain.Thread{
 			ID:              threadID,
@@ -500,7 +507,7 @@ func (s *NotificationService) processValidationNotifications(
 		s.logger.Debug("validation results archived", zap.String("step", stepName))
 	}
 
-	now := time.Now().Format(time.RFC3339Nano)
+	now := eventTimestamp.Format(time.RFC3339Nano)
 	firstSeenAt := result.FirstSeenAt
 	if firstSeenAt == "" {
 		firstSeenAt = now
@@ -821,6 +828,7 @@ func buildValidateStepParams(
 	isTerminal bool,
 	existingViolations []domain.Violation,
 	graph *domain.ContractGraph,
+	timestamp time.Time,
 ) domain.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
@@ -852,7 +860,7 @@ func buildValidateStepParams(
 		Status:                 status,
 		ExistingViolations:     existingViolations,
 		IsTerminalStep:         isTerminal,
-		Timestamp:              time.Now().Format(time.RFC3339Nano),
+		Timestamp:              timestamp.Format(time.RFC3339Nano),
 		MaxRetries:             maxRetries,
 		TransitionsMap:         transitionsMap,
 		RequiredSteps:          requiredSteps,
@@ -869,12 +877,13 @@ func buildStepStateSnapshot(
 	retryCount int,
 	firstSeenAt, previousStep string,
 ) *domain.StepStateSnapshot {
-	now := time.Now().Format(time.RFC3339Nano)
+	eventTimestamp := recordEventTimestamp(req)
+	now := eventTimestamp.Format(time.RFC3339Nano)
 	if firstSeenAt == "" {
 		firstSeenAt = now
 	}
 	parsedFirstSeen, _ := time.Parse(time.RFC3339Nano, firstSeenAt)
-	parsedLastUpdated, _ := time.Parse(time.RFC3339Nano, now)
+	parsedLastUpdated := eventTimestamp
 	var startedAt, finishedAt *time.Time
 	if req.StartedAt != "" {
 		if t, err := time.Parse(time.RFC3339, req.StartedAt); err == nil {
@@ -903,6 +912,18 @@ func buildStepStateSnapshot(
 		ActorService:   req.ServiceName,
 		LatestContext:  marshalContext(convertContext(req.Context)),
 	}
+}
+
+// recordEventTimestamp returns the producer's authoritative event time when it
+// is available (including an OTLP span's end time). Receipt time is only a
+// fallback for internal callers that omit or corrupt FinishedAt.
+func recordEventTimestamp(req *domain.RecordEventCmd) time.Time {
+	if req != nil && req.FinishedAt != "" {
+		if timestamp, err := time.Parse(time.RFC3339Nano, req.FinishedAt); err == nil {
+			return timestamp
+		}
+	}
+	return time.Now()
 }
 
 // extractStepName extracts the step name from a "stepName:idempotencyKey" composite key.

@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,13 +20,14 @@ type Client struct {
 	logger *zap.Logger
 }
 
-func NewClient(cfg *config.NATSConfig, logger *zap.Logger) (*Client, error) {
-	nc, err := nats.Connect(
-		cfg.URL,
+func NewClient(cfg *config.NATSConfig, logger *zap.Logger, options ...nats.Option) (*Client, error) {
+	opts := []nats.Option{
 		nats.Name(cfg.ClientID),
 		nats.MaxReconnects(-1),
-		nats.ReconnectWait(2*time.Second),
-	)
+		nats.ReconnectWait(2 * time.Second),
+	}
+	opts = append(opts, options...)
+	nc, err := nats.Connect(cfg.URL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to message broker: %w", err)
 	}
@@ -106,6 +108,13 @@ func (c *Client) initializeDeadLetterQueue(ctx context.Context) error {
 }
 
 func (c *Client) initializeArchivalStreams(ctx context.Context) error {
+	maxBytes := c.cfg.ArchivalMaxBytes
+	if maxBytes == 0 {
+		maxBytes = 1024 * 1024 * 1024
+	}
+	if maxBytes < 0 || c.cfg.ArchivalMaxAgeHours < 0 {
+		return fmt.Errorf("archival storage limit must be positive and max age cannot be negative")
+	}
 	streams := []struct {
 		name    string
 		subject []string
@@ -114,21 +123,31 @@ func (c *Client) initializeArchivalStreams(ctx context.Context) error {
 		{StreamThreadMetadata, []string{SubjectThreadMetadata}},
 		{StreamThreadAccess, []string{SubjectThreadAccess}},
 		{StreamThreadValidations, []string{SubjectThreadValidations}},
+		{StreamThreadNotifications, []string{SubjectThreadNotifications}},
 		{StreamStepState, []string{SubjectStepState}},
 		{StreamUsageSync, []string{SubjectUsageSync, SubjectCreditTopup}},
 	}
 
 	for _, stream := range streams {
+		// NATS cannot change retention to/from WorkQueuePolicy. Never delete or
+		// recreate an existing stream here: its unarchived events may be unique.
+		existing, err := c.js.Stream(ctx, stream.name)
+		if err != nil && !errors.Is(err, jetstream.ErrStreamNotFound) {
+			return fmt.Errorf("inspect archival stream %q: %w", stream.name, err)
+		}
+		if err == nil && existing.CachedInfo().Config.Retention != jetstream.WorkQueuePolicy {
+			return fmt.Errorf("archival stream %q requires an explicit migration to work-queue retention: drain pending events using the previous engine and archiver, preserve the original store, then migrate to a fresh store or explicitly recreate the drained stream", stream.name)
+		}
 		if err := c.ensureStream(ctx, jetstream.StreamConfig{
 			Name:       stream.name,
 			Subjects:   stream.subject,
-			Retention:  jetstream.LimitsPolicy,
-			MaxAge:     24 * time.Hour,
+			Retention:  jetstream.WorkQueuePolicy,
+			MaxAge:     time.Duration(c.cfg.ArchivalMaxAgeHours) * time.Hour,
 			Storage:    jetstream.FileStorage,
 			Replicas:   1,
-			Discard:    jetstream.DiscardOld,
+			Discard:    jetstream.DiscardNew,
 			MaxMsgs:    0,
-			MaxBytes:   0,
+			MaxBytes:   maxBytes,
 			Duplicates: 5 * time.Minute,
 		}); err != nil {
 			return err

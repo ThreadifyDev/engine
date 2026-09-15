@@ -141,8 +141,20 @@ func (w *PostgresWriter) queryExistingIDs(ctx context.Context, table, column str
 }
 
 func partitionThreadEvents(events []StreamEvent) (insert, completion, ref []StreamEvent) {
+	otelInitial := make(map[string]StreamEvent)
 	for _, e := range events {
 		switch {
+		case e.Data["action"] == "otel_completed":
+			// The trace may finish before the asynchronous creation snapshot arrives.
+			// Upsert its original metadata before applying the terminal state.
+			initial := e
+			initial.Data = make(map[string]string, len(e.Data))
+			for key, value := range e.Data {
+				initial.Data[key] = value
+			}
+			initial.Data["status"] = "active"
+			otelInitial[e.Data["threadId"]] = initial
+			completion = append(completion, e)
 		case e.Data["action"] == "ref_added":
 			ref = append(ref, e)
 		case e.Data["status"] == "completed" || e.Data["status"] == "cancelled":
@@ -150,6 +162,12 @@ func partitionThreadEvents(events []StreamEvent) (insert, completion, ref []Stre
 		default:
 			insert = append(insert, e)
 		}
+	}
+	for _, event := range insert {
+		delete(otelInitial, event.Data["threadId"])
+	}
+	for _, event := range otelInitial {
+		insert = append(insert, event)
 	}
 	return
 }

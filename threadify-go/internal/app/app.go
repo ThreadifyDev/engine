@@ -2,9 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +27,8 @@ import (
 	"threadify-go/shared/rbac"
 	sharedrepo "threadify-go/shared/repository"
 
+	"github.com/threadify/engine/internal/archiver"
+	"github.com/threadify/engine/internal/broker"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/domain"
@@ -39,15 +45,20 @@ import (
 )
 
 type App struct {
-	Handler http.Handler
-	infra   *infra
-	svcs    *services
-	hdlrs   *appHandlers
-	logger  *zap.Logger
-	cfg     *config.Config
+	closeOnce sync.Once
+	closeErr  error
+	Handler   http.Handler
+	infra     *infra
+	svcs      *services
+	hdlrs     *appHandlers
+	logger    *zap.Logger
+	cfg       *config.Config
 }
 
 type infra struct {
+	cleanupOnce  sync.Once
+	broker       *broker.Runtime
+	persistence  *archiver.Runtime
 	db           *database.PostgresDB
 	valkey       *database.ValkeyService
 	natsPool     *natsrepo.Pool
@@ -56,15 +67,30 @@ type infra struct {
 }
 
 func (i *infra) close() {
-	if i.natsPool != nil {
-		i.natsPool.Close()
-	}
-	if i.valkey != nil {
-		i.valkey.Close()
-	}
-	if i.db != nil {
-		i.db.Close()
-	}
+	i.cleanupOnce.Do(func() {
+		if i.persistence != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = i.persistence.Close(ctx)
+			cancel()
+		}
+		if i.workerPools != nil {
+			i.workerPools.ShutdownNow()
+		}
+		if i.natsPool != nil {
+			i.natsPool.Close()
+		}
+		if i.broker != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = i.broker.Close(ctx)
+			cancel()
+		}
+		if i.valkey != nil {
+			i.valkey.Close()
+		}
+		if i.db != nil {
+			i.db.Close()
+		}
+	})
 }
 
 type services struct {
@@ -91,45 +117,85 @@ type appHandlers struct {
 	graphqlResolver *graphql.Resolver
 }
 
-func (s *services) stopAll() {
-	if s.manager != nil {
-		s.manager.StopAll()
+func (s *services) stopAll(ctx context.Context) error {
+	if s == nil {
+		return nil
 	}
+	var result error
+	if s.thread != nil {
+		result = errors.Join(result, s.thread.StopContext(ctx), s.thread.WaitBackground(ctx))
+	}
+	if s.auth != nil {
+		s.auth.Stop()
+	}
+	if s.manager != nil {
+		result = errors.Join(result, s.manager.StopAllContext(ctx))
+	}
+	return result
 }
 
-func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, error) {
+func (s *services) cleanup() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = s.stopAll(ctx)
+}
+
+func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, retErr error) {
 	inf, err := initInfra(ctx, cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
+	defer func() {
+		if retErr != nil {
+			inf.close()
+		}
+	}()
+	if cfg.RuntimeMode == "writer" {
+		metricsRepo := postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
+		if err := startPersistence(ctx, cfg, inf, metricsRepo, logger); err != nil {
+			return nil, err
+		}
+		router := gin.New()
+		router.Use(gin.Recovery())
+		router.GET("/health", healthHandler(inf))
+		router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+		return &App{Handler: router, infra: inf, logger: logger, cfg: cfg}, nil
+	}
+
 	rbacLoader, err := loadRBAC()
 	if err != nil {
-		inf.close()
 		return nil, fmt.Errorf("load rbac: %w", err)
 	}
 
 	luaScriptManager := valkey.NewLuaScriptManager(inf.valkey)
 	if err := luaScriptManager.LoadScripts(ctx); err != nil {
-		inf.close()
 		return nil, fmt.Errorf("load lua scripts: %w", err)
 	}
 
 	repos, err := initRepositories(cfg, inf, luaScriptManager, rbacLoader, logger)
 	if err != nil {
-		inf.close()
 		return nil, err
+	}
+
+	if cfg.RuntimeMode != "engine" && cfg.Archiver.Enabled {
+		if err := startPersistence(ctx, cfg, inf, repos.metrics, logger); err != nil {
+			return nil, err
+		}
 	}
 
 	svcs, err := initServices(ctx, cfg, inf, repos, luaScriptManager, rbacLoader, logger)
 	if err != nil {
-		inf.close()
 		return nil, err
 	}
 
+	defer func() {
+		if retErr != nil {
+			svcs.cleanup()
+		}
+	}()
 	hdlrs, err := initHandlers(cfg, inf, svcs, repos, logger)
 	if err != nil {
-		inf.close()
 		return nil, err
 	}
 
@@ -143,19 +209,62 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*App, err
 	}, nil
 }
 
-func (a *App) Close(ctx context.Context) error {
-	a.infra.shuttingDown.Store(true)
-	a.svcs.stopAll()
-	a.infra.close()
+func startPersistence(ctx context.Context, cfg *config.Config, inf *infra, metrics archiver.MetricsInvalidator, logger *zap.Logger) error {
+	runtime, err := archiver.NewRuntime(inf.natsPool.GetClient().JetStream(), inf.db.Pool, metrics, cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initialize persistence: %w", err)
+	}
+	inf.persistence = runtime
+	if err := runtime.Start(ctx); err != nil {
+		return fmt.Errorf("start persistence: %w", err)
+	}
 	return nil
+}
+
+func (a *App) BeginShutdown() { a.infra.shuttingDown.Store(true) }
+
+func (a *App) Close(ctx context.Context) error {
+	a.closeOnce.Do(func() {
+		a.infra.shuttingDown.Store(true)
+		if a.hdlrs != nil && a.hdlrs.wsHandler != nil {
+			a.closeErr = errors.Join(a.closeErr, a.hdlrs.wsHandler.Shutdown(ctx))
+		}
+		if a.hdlrs != nil && a.hdlrs.notifRouter != nil {
+			_ = a.hdlrs.notifRouter.Stop()
+		}
+		a.closeErr = errors.Join(a.closeErr, a.svcs.stopAll(ctx))
+		// Producers finish while the broker and persistence consumers are still live.
+		if a.infra.workerPools != nil {
+			pools := a.infra.workerPools
+			for _, pool := range []*workerpool.Pool{pools.Validation, pools.Activity, pools.Notification, pools.Archival, pools.WriteBack} {
+				a.closeErr = errors.Join(a.closeErr, pool.Shutdown(ctx))
+			}
+		}
+		if a.infra.persistence != nil {
+			a.closeErr = errors.Join(a.closeErr, a.infra.persistence.Close(ctx))
+		}
+		if a.infra.natsPool != nil {
+			a.closeErr = errors.Join(a.closeErr, a.infra.natsPool.Drain(ctx))
+		}
+		if a.infra.broker != nil {
+			a.closeErr = errors.Join(a.closeErr, a.infra.broker.Close(ctx))
+		}
+		a.infra.close()
+	})
+	return a.closeErr
 }
 
 func (a *App) Valkey() *database.ValkeyService {
 	return a.infra.valkey
 }
 
-func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*infra, error) {
+func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *infra, retErr error) {
 	inf := &infra{}
+	defer func() {
+		if retErr != nil {
+			inf.close()
+		}
+	}()
 
 	db, err := database.NewPostgresDB(cfg.Postgres.URL, cfg.Postgres.MaxConnections)
 	if err != nil {
@@ -196,7 +305,15 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*in
 	}
 	inf.valkey = valkeyService
 
-	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize, logger)
+	embedded, err := broker.Start(ctx, broker.Options{
+		Mode: cfg.NATS.Mode, StoreDir: cfg.NATS.StoreDir,
+		MaxMemoryBytes: cfg.NATS.MaxMemoryBytes, MaxStoreBytes: cfg.NATS.MaxStoreBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("start broker: %w", err)
+	}
+	inf.broker = embedded
+	natsPool, err := natsrepo.NewPool(&cfg.NATS, cfg.NATS.PoolSize, logger, embedded.ClientOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("connect nats: %w", err)
 	}
@@ -308,20 +425,37 @@ func initServices(
 	luaScriptManager *valkey.LuaScriptManager,
 	rbacLoader domain.RBACLoader,
 	logger *zap.Logger,
-) (*services, error) {
+) (_ *services, retErr error) {
 	svcs := &services{
 		luaScriptManager: luaScriptManager,
 		rbacLoader:       rbacLoader,
 	}
+	defer func() {
+		if retErr != nil {
+			svcs.cleanup()
+		}
+	}()
 	sm := service.NewServiceManager(logger)
 	svcs.manager = sm
 
 	// --- auth ---
 	authSvc := service.NewAuthService(repos.auth, cfg.Auth.CacheTTLSeconds)
+	svcs.auth = authSvc
 	if cfg.JWKS.URL == "" {
 		return nil, fmt.Errorf("jwks.url not configured")
 	}
 	authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
+	if cfg.Supabase.URL != "" {
+		verifier, err := sharedauth.NewSupabaseAccessTokenVerifier(sharedauth.SupabaseAuthConfig{
+			URL:                   cfg.Supabase.URL,
+			PublishableKey:        cfg.Supabase.PublishableKey,
+			RequestTimeoutSeconds: cfg.Supabase.RequestTimeoutSeconds,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure session verification: %w", err)
+		}
+		authSvc.SetSessionVerifier(verifier, repos.auth.FindSessionUser)
+	}
 	authSvc.SetWriteBackPool(inf.workerPools.WriteBack)
 	svcs.auth = authSvc
 
@@ -440,20 +574,7 @@ func initHandlers(
 }
 
 func loadRBAC() (*rbac.Loader, error) {
-	candidates := []string{
-		"./shared/rbac",
-		"../shared/rbac",
-		"../../shared/rbac",
-	}
-	var lastErr error
-	for _, base := range candidates {
-		loader, err := rbac.NewLoader(base+"/permissions.json", base+"/roles.json")
-		if err == nil {
-			return loader, nil
-		}
-		lastErr = err
-	}
-	return nil, fmt.Errorf("rbac files not found in any candidate path: %w", lastErr)
+	return rbac.NewEmbeddedLoader()
 }
 
 func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *repositories, hdlrs *appHandlers, logger *zap.Logger) http.Handler {
@@ -553,6 +674,27 @@ func healthHandler(inf *infra) gin.HandlerFunc {
 			status = http.StatusServiceUnavailable
 			response["valkey"] = "error"
 		}
+		if inf.natsPool == nil || !inf.natsPool.IsHealthy() || (inf.broker != nil && !inf.broker.IsHealthy()) {
+			status = http.StatusServiceUnavailable
+			response["nats"] = "error"
+		} else {
+			response["nats"] = "ok"
+		}
+		if inf.persistence != nil {
+			response["persistence"] = "ok"
+			if !inf.persistence.IsHealthy() {
+				status = http.StatusServiceUnavailable
+				response["persistence"] = "error"
+			}
+		} else {
+			response["persistence"] = "disabled"
+		}
+		if inf.shuttingDown.Load() {
+			status = http.StatusServiceUnavailable
+		}
+		if status != http.StatusOK {
+			response["status"] = "unavailable"
+		}
 		c.JSON(status, response)
 	}
 }
@@ -626,23 +768,36 @@ func sanitizeGraphQLError(ctx context.Context, err error) *gqlerror.Error {
 }
 
 func LoadConfig() (*config.Config, error) {
+	return LoadConfigPath(os.Getenv("CONFIG_PATH"))
+}
+
+// LoadConfigPath resolves subscription.yaml next to the selected configuration,
+// allowing the executable to run independently of its source working directory.
+func LoadConfigPath(path string) (*config.Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
-	for _, path := range []string{"./config", "../../config", "../../../config"} {
-		v.AddConfigPath(path)
-	}
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
-	v.SetConfigName("config")
+	if path != "" {
+		v.SetConfigFile(path)
+	} else {
+		for _, dir := range []string{"./config", "../../config", "../../../config"} {
+			v.AddConfigPath(dir)
+		}
+		v.SetConfigName("config")
+	}
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-
-	v.SetConfigName("subscription")
-	if err := v.MergeInConfig(); err != nil {
-		return nil, fmt.Errorf("merge subscription config: %w", err)
+	subscriptionPath := filepath.Join(filepath.Dir(v.ConfigFileUsed()), "subscription.yaml")
+	f, err := os.Open(subscriptionPath)
+	if err == nil {
+		defer f.Close()
+		if err := v.MergeConfig(f); err != nil {
+			return nil, fmt.Errorf("merge subscription config: %w", err)
+		}
+	} else if !os.IsNotExist(err) || !v.IsSet("subscription") {
+		return nil, fmt.Errorf("read subscription config: %w", err)
 	}
-
 	return config.LoadFromViper(v)
 }

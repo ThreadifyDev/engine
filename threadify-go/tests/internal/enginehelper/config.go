@@ -40,7 +40,9 @@ func GenerateTestConfig(pgConn, valkeyURI, natsURL string, jwksURL string) (*con
 		cfg.Redis.Password = p
 	}
 
-	// NATS
+	// These tests explicitly use their shared external broker and seed persistence themselves.
+	cfg.RuntimeMode = "engine"
+	cfg.NATS.Mode = "external"
 	cfg.NATS.URL = natsURL
 	cfg.NATS.StreamName = "NOTIFICATIONS"
 	cfg.NATS.ConsumerAckWaitSeconds = 1
@@ -97,8 +99,6 @@ func GenerateTestConfig(pgConn, valkeyURI, natsURL string, jwksURL string) (*con
 
 	// Billing/Subscription
 	cfg.Billing.Provider = "noop"
-	cfg.Billing.SecretKey = "noop"
-	cfg.Billing.WebhookSecret = "whsec_test"
 
 	// Rates
 	cfg.RateLimit.Enabled = false

@@ -50,11 +50,9 @@ type SubscriptionConfig struct {
 }
 
 type BillingConfig struct {
-	SecretKey     string `yaml:"secret_key" mapstructure:"secret_key"`
-	Provider      string `yaml:"provider" mapstructure:"provider"`
-	WebhookSecret string `yaml:"webhook_secret" mapstructure:"webhook_secret"`
-	SuccessURL    string `yaml:"success_url" mapstructure:"success_url"`
-	CancelURL     string `yaml:"cancel_url" mapstructure:"cancel_url"`
+	Provider   string `yaml:"provider" mapstructure:"provider"`
+	SuccessURL string `yaml:"success_url" mapstructure:"success_url"`
+	CancelURL  string `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
 type Config struct {
@@ -157,8 +155,6 @@ func (c *Config) expandEnvVars() {
 	c.JWKS.Audience = expand(c.JWKS.Audience)
 	c.JWKS.Issuer = expand(c.JWKS.Issuer)
 
-	c.Billing.SecretKey = expand(c.Billing.SecretKey)
-	c.Billing.WebhookSecret = expand(c.Billing.WebhookSecret)
 	c.Billing.Provider = expand(c.Billing.Provider)
 
 	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)

@@ -22,12 +22,24 @@ type fakeOTelThreadWriter struct {
 	starts         []*domain.StartThreadCmd
 	records        []*domain.RecordEventCmd
 	threads        map[string]struct{}
+	completions    []time.Time
+	completionErr  error
 	startResponse  *domain.StartThreadResponse
 	recordResponse *domain.RecordEventResponse
 }
 
 func newFakeOTelThreadWriter() *fakeOTelThreadWriter {
 	return &fakeOTelThreadWriter{threads: make(map[string]struct{})}
+}
+
+func (f *fakeOTelThreadWriter) CompleteTraceForIngestion(_ context.Context, _, _, _, _ string, endedAt time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.completionErr != nil {
+		return f.completionErr
+	}
+	f.completions = append(f.completions, endedAt)
+	return nil
 }
 
 func (f *fakeOTelThreadWriter) StartThreadForIngestion(_ context.Context, req *domain.StartThreadCmd, _, _ string) *domain.StartThreadResponse {
@@ -207,6 +219,7 @@ func TestOTelTraceServiceMapsThreadifyAttributes(t *testing.T) {
 	require.Len(t, writer.starts, 1)
 	require.Equal(t, "Checkout trace", writer.starts[0].Label)
 	require.Equal(t, "checkout-service", writer.starts[0].ServiceName)
+	require.Equal(t, otelTimestamp(span.GetStartTimeUnixNano()), writer.starts[0].StartedAt)
 	require.Equal(t, []string{"production", "checkout"}, writer.starts[0].Tags)
 	require.Equal(t, "0102030405060708090a0b0c0d0e0f10", writer.starts[0].Refs["otel_trace_id"])
 
@@ -220,9 +233,44 @@ func TestOTelTraceServiceMapsThreadifyAttributes(t *testing.T) {
 	require.Equal(t, "2", record.Context["attempt"])
 	require.Equal(t, "0203040506070809", record.Context["otel.span_id"])
 	require.Equal(t, "payment failed", record.ThreadifyMetadata["message"])
+	require.Equal(t, otelTimestamp(span.GetStartTimeUnixNano()), record.StartedAt)
+	require.Equal(t, otelTimestamp(span.GetEndTimeUnixNano()), record.FinishedAt)
 	require.Len(t, record.SubSteps, 1)
 	require.Equal(t, "provider_response", record.SubSteps[0].Name)
 	require.Equal(t, "declined", record.SubSteps[0].Payload["code"])
+}
+
+func TestOTelTraceServiceUsesEarliestSpanTimeForThreadStart(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+
+	root := validOTelSpan()
+	root.StartTimeUnixNano = uint64(time.Date(2026, 8, 27, 12, 0, 2, 0, time.UTC).UnixNano())
+	root.EndTimeUnixNano = uint64(time.Date(2026, 8, 27, 12, 0, 3, 0, time.UTC).UnixNano())
+	child := validOTelSpan()
+	child.SpanId = []byte{3, 4, 5, 6, 7, 8, 9, 10}
+	child.ParentSpanId = root.SpanId
+	child.StartTimeUnixNano = uint64(time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC).UnixNano())
+	child.EndTimeUnixNano = uint64(time.Date(2026, 8, 27, 12, 0, 1, 0, time.UTC).UnixNano())
+	req := otelRequest(root, nil)
+	req.ResourceSpans[0].ScopeSpans[0].Spans = append(req.ResourceSpans[0].ScopeSpans[0].Spans, child)
+
+	resp, err := svc.Ingest(context.Background(), req, "owner-1", "company-1")
+	require.NoError(t, err)
+	require.Nil(t, resp.GetPartialSuccess())
+	require.Len(t, writer.starts, 1)
+	require.Equal(t, otelTimestamp(child.GetStartTimeUnixNano()), writer.starts[0].StartedAt)
+}
+
+func TestRecordEventTimestampUsesProducerFinishedAt(t *testing.T) {
+	want := time.Date(2026, 8, 27, 12, 0, 1, 123456789, time.UTC)
+	req := &domain.RecordEventCmd{FinishedAt: want.Format(time.RFC3339Nano)}
+
+	require.Equal(t, want, recordEventTimestamp(req))
+	require.Equal(t, want, buildStepStateSnapshot(
+		"step-1", "thread-1", "pay", "attempt-1", StepStatusSuccess, "owner-1",
+		req, 0, "", "",
+	).LastUpdatedAt)
 }
 
 func TestOTelTraceServiceReplayIsAcceptedWithoutDuplicateWrites(t *testing.T) {
@@ -393,4 +441,58 @@ func otelStringArray(values ...string) *commonpb.AnyValue {
 		items = append(items, otelString(value))
 	}
 	return &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: items}}}
+}
+
+func TestOTelCompletionWaitsForRootAndRetriesAfterSpanDedup(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+	root := validOTelSpan()
+	child := validOTelSpan()
+	child.SpanId = []byte{9, 8, 7, 6, 5, 4, 3, 2}
+	child.ParentSpanId = root.SpanId
+	_, err := svc.Ingest(context.Background(), otelRequest(child, nil), "owner", "company")
+	require.NoError(t, err)
+	require.Empty(t, writer.completions)
+	writer.completionErr = errors.New("publication interrupted")
+	_, err = svc.Ingest(context.Background(), otelRequest(root, nil), "owner", "company")
+	require.ErrorContains(t, err, "publication interrupted")
+	require.Len(t, writer.records, 2)
+	writer.completionErr = nil
+	_, err = svc.Ingest(context.Background(), otelRequest(root, nil), "owner", "company")
+	require.NoError(t, err)
+	require.Len(t, writer.records, 2, "root retry must not write the hashed step again")
+	require.Equal(t, []time.Time{time.Unix(0, int64(root.EndTimeUnixNano)).UTC()}, writer.completions)
+}
+
+func TestOTelMarkedInvocationCanCompleteWithUpstreamParent(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+	span := validOTelSpan()
+	span.ParentSpanId = []byte{9, 8, 7, 6, 5, 4, 3, 2}
+	span.Attributes = []*commonpb.KeyValue{otelKV("threadify.run.complete", &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: true}})}
+	span.Status = &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR}
+	_, err := svc.Ingest(context.Background(), otelRequest(span, nil), "owner", "company")
+	require.NoError(t, err)
+	require.Len(t, writer.completions, 1, "a failed execution still ends; its span preserves failure")
+	require.Equal(t, StepStatusFailed, writer.records[0].Status)
+}
+
+func TestOTelRejectedRootDoesNotComplete(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	writer.recordResponse = &domain.RecordEventResponse{Status: StepStatusError, Message: "Access denied"}
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+	response, err := svc.Ingest(context.Background(), otelRequest(validOTelSpan(), nil), "owner", "company")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, response.GetPartialSuccess().GetRejectedSpans())
+	require.Empty(t, writer.completions)
+}
+
+func TestOTelResourceMarkerCannotCompleteEveryChild(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+	child := validOTelSpan()
+	child.ParentSpanId = []byte{9, 8, 7, 6, 5, 4, 3, 2}
+	_, err := svc.Ingest(context.Background(), otelRequest(child, []*commonpb.KeyValue{otelKV("threadify.run.complete", otelString("true"))}), "owner", "company")
+	require.NoError(t, err)
+	require.Empty(t, writer.completions)
 }

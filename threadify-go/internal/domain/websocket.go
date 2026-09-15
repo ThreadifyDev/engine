@@ -24,6 +24,7 @@ type StartThreadCmd struct {
 	ContractName string
 	Role         string
 	ServiceName  string
+	StartedAt    string
 	Refs         map[string]string
 	Tags         []string
 }

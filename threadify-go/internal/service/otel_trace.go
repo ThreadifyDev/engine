@@ -138,7 +138,14 @@ func (s *OTelTraceService) ingestTrace(
 		}
 	}
 
-	threadID, err := s.resolveThread(ctx, ownerID, companyID, traceID, threadDescriptor)
+	threadID, err := s.resolveThread(
+		ctx,
+		ownerID,
+		companyID,
+		traceID,
+		threadDescriptor,
+		spans[0].span.GetStartTimeUnixNano(),
+	)
 	if err != nil {
 		var permanent *permanentOTelError
 		if errors.As(err, &permanent) {
@@ -160,6 +167,24 @@ func (s *OTelTraceService) ingestTrace(
 			continue
 		}
 	}
+	// OTLP exports only ended spans. Root completion is a run boundary, not
+	// proof that every distributed child has arrived. Late spans remain valid.
+	// A marker supports roots hidden behind an upstream HTTP/server span.
+	if rejected == 0 {
+		var endedAt uint64
+		for _, envelope := range spans {
+			if len(envelope.span.GetParentSpanId()) == 0 || attributeString(keyValueMap(envelope.span.GetAttributes()), "threadify.run.complete") == "true" {
+				if end := envelope.span.GetEndTimeUnixNano(); end > endedAt {
+					endedAt = end
+				}
+			}
+		}
+		if endedAt != 0 {
+			if err := s.threads.CompleteTraceForIngestion(ctx, threadID, ownerID, companyID, traceID, time.Unix(0, int64(endedAt)).UTC()); err != nil {
+				return 0, nil, err
+			}
+		}
+	}
 	return rejected, messages, nil
 }
 
@@ -167,6 +192,7 @@ func (s *OTelTraceService) resolveThread(
 	ctx context.Context,
 	ownerID, companyID, traceID string,
 	descriptor otelSpanEnvelope,
+	traceStartedAt uint64,
 ) (string, error) {
 	attrs := mergedAttributes(descriptor.resourceAttrs, descriptor.span.GetAttributes())
 	explicitThreadID := attributeString(attrs, "threadify.thread_id")
@@ -215,7 +241,7 @@ func (s *OTelTraceService) resolveThread(
 			return "", err
 		}
 		if acquired {
-			return s.createCorrelatedThread(ctx, ownerID, companyID, traceID, token, descriptor)
+			return s.createCorrelatedThread(ctx, ownerID, companyID, traceID, token, descriptor, traceStartedAt)
 		}
 
 		select {
@@ -239,6 +265,7 @@ func (s *OTelTraceService) createCorrelatedThread(
 	ctx context.Context,
 	ownerID, companyID, traceID, token string,
 	descriptor otelSpanEnvelope,
+	traceStartedAt uint64,
 ) (string, error) {
 	defer func() {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -283,6 +310,7 @@ func (s *OTelTraceService) createCorrelatedThread(
 		ContractName: contractName,
 		Role:         role,
 		ServiceName:  serviceName,
+		StartedAt:    otelTimestamp(traceStartedAt),
 		Refs:         refs,
 		Tags:         attributeStringSlice(attrs, "threadify.tags"),
 	}, ownerID, companyID)
@@ -422,6 +450,7 @@ func (s *OTelTraceService) recordSpan(
 func isPermanentOTelStartFailure(message string) bool {
 	return strings.HasPrefix(message, "Invalid request") ||
 		strings.HasPrefix(message, "Not authenticated") ||
+		strings.HasPrefix(message, "Invalid startedAt") ||
 		strings.HasPrefix(message, "Role is required") ||
 		strings.HasPrefix(message, "Role '")
 }
