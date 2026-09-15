@@ -25,25 +25,27 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 		return nil, err
 	}
 
-	transitions := contract.Transitions
-	if len(transitions) == 0 {
-		transitions = b.buildTransitionsFromDependsOn(contract.Steps)
-	}
+	// Explicit transitions retain their existing immediate-order semantics. Step
+	// dependencies are separate partial-order constraints: the dependency only
+	// needs to have succeeded earlier in the thread, not immediately beforehand.
+	strictTransitions := contract.Transitions
+	dependencyEdges := b.buildTransitionsFromDependsOn(contract.Steps)
+	topologyTransitions := b.mergeTransitions(strictTransitions, dependencyEdges)
 
 	if err := b.validateParties(contract); err != nil {
 		return nil, err
 	}
 
-	nodes := b.buildNodes(contract, transitions)
+	nodes := b.buildNodes(contract, topologyTransitions)
 
 	entryPoints := contract.EntryPoints
 	if len(entryPoints) == 0 {
-		entryPoints = b.deriveEntryPoints(contract.Steps, transitions)
+		entryPoints = b.deriveEntryPoints(contract.Steps, topologyTransitions)
 	}
 
 	terminalSteps := contract.TerminalSteps
 	if len(terminalSteps) == 0 {
-		terminalSteps = b.deriveTerminalSteps(contract.Steps, transitions)
+		terminalSteps = b.deriveTerminalSteps(contract.Steps, topologyTransitions)
 	}
 
 	finalStep := ""
@@ -52,13 +54,14 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 	}
 
 	return &domain.ContractGraph{
+		SemanticsVersion: domain.CurrentContractGraphSemantics,
 		Graph: domain.Graph{
 			Nodes:         nodes,
 			EntryPoints:   entryPoints,
 			TerminalSteps: terminalSteps,
 			FinalStep:     finalStep,
 		},
-		Transitions: transitions,
+		Transitions: strictTransitions,
 		Validation:  contract.Validation,
 		Parties:     contract.Parties,
 	}, nil
@@ -114,7 +117,7 @@ func (b *GraphBuilder) buildNodes(contract *domain.ContractYAML, transitions []d
 			Role:            stepOwner(step),
 			Type:            "step",
 			Required:        true,
-			DependsOn:       b.findDependsOnFromTransitions(step.ID, transitions),
+			DependsOn:       append([]string{}, step.DependsOn...),
 			Next:            b.findNextFromTransitions(step.ID, transitions),
 			Timeout:         step.Timeout,
 			BusinessContext: step.BusinessContext,
@@ -232,10 +235,13 @@ func (b *GraphBuilder) deriveTerminalSteps(steps []domain.Step, transitions []do
 	return terminalSteps
 }
 
-// buildTransitionsFromDependsOn converts legacy depends_on step fields into Transition structs.
+// buildTransitionsFromDependsOn creates topology edges for partial-order dependencies.
+// These edges are intentionally not returned as ContractGraph.Transitions because doing
+// so would turn them into strict immediate-order constraints at runtime.
 func (b *GraphBuilder) buildTransitionsFromDependsOn(steps []domain.Step) []domain.Transition {
-	// seen maps from-step -> set of to-steps to deduplicate edges.
+	// Preserve declaration order so the resulting graph is deterministic.
 	seen := make(map[string]map[string]struct{})
+	fromOrder := make([]string, 0)
 	for _, step := range steps {
 		if step.ID == "" {
 			continue
@@ -246,18 +252,46 @@ func (b *GraphBuilder) buildTransitionsFromDependsOn(steps []domain.Step) []doma
 			}
 			if seen[dep] == nil {
 				seen[dep] = make(map[string]struct{})
+				fromOrder = append(fromOrder, dep)
 			}
 			seen[dep][step.ID] = struct{}{}
 		}
 	}
 
 	transitions := make([]domain.Transition, 0, len(seen))
-	for from, toSet := range seen {
-		to := make([]string, 0, len(toSet))
-		for stepID := range toSet {
-			to = append(to, stepID)
+	for _, from := range fromOrder {
+		to := make([]string, 0, len(seen[from]))
+		for _, step := range steps {
+			if _, ok := seen[from][step.ID]; ok {
+				to = append(to, step.ID)
+			}
 		}
 		transitions = append(transitions, domain.Transition{From: from, To: to})
 	}
 	return transitions
+}
+
+// mergeTransitions returns a deduplicated topology view over strict transitions
+// and dependency edges without changing the strict transition set itself.
+func (b *GraphBuilder) mergeTransitions(sets ...[]domain.Transition) []domain.Transition {
+	merged := make([]domain.Transition, 0)
+	byFrom := make(map[string]int)
+
+	for _, transitions := range sets {
+		for _, transition := range transitions {
+			index, ok := byFrom[transition.From]
+			if !ok {
+				index = len(merged)
+				byFrom[transition.From] = index
+				merged = append(merged, domain.Transition{From: transition.From})
+			}
+			for _, to := range transition.To {
+				if !slices.Contains(merged[index].To, to) {
+					merged[index].To = append(merged[index].To, to)
+				}
+			}
+		}
+	}
+
+	return merged
 }

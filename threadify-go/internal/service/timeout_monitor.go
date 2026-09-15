@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +35,11 @@ type TimeoutMonitor struct {
 	cancelledCount  atomic.Uint64
 	firedCount      atomic.Uint64
 	violationCount  atomic.Uint64
+	lifecycleMu     sync.Mutex
+	started         bool
+	stopping        bool
+	work            sync.WaitGroup
+	stopDone        chan struct{}
 }
 
 type timeoutKV interface {
@@ -148,6 +154,16 @@ func (tm *TimeoutMonitor) initializeKVBucket() error {
 //	    }
 //	}()
 func (tm *TimeoutMonitor) Start() error {
+	tm.lifecycleMu.Lock()
+	if tm.stopping || tm.started {
+		tm.lifecycleMu.Unlock()
+		return fmt.Errorf("timeout monitor is already started or stopped")
+	}
+	tm.started = true
+	tm.work.Add(1)
+	tm.lifecycleMu.Unlock()
+	defer tm.work.Done()
+
 	consumer, err := tm.js.CreateOrUpdateConsumer(tm.ctx, TimeoutStreamName, jetstream.ConsumerConfig{
 		Name:          "timeout-monitor",
 		Durable:       "timeout-monitor",
@@ -177,12 +193,18 @@ func (tm *TimeoutMonitor) Start() error {
 
 	<-tm.ctx.Done()
 	consumeCtx.Stop()
+	// Stop only requests cancellation; Closed also joins an in-flight callback.
+	<-consumeCtx.Closed()
 
 	return nil
 }
 
 // HandleTimeoutEvent is an exported wrapper around handleTimeoutEvent (primarily for tests).
 func (tm *TimeoutMonitor) HandleTimeoutEvent(msg jetstream.Msg) error {
+	if err := tm.beginOperation(); err != nil {
+		return err
+	}
+	defer tm.work.Done()
 	return tm.handleTimeoutEvent(msg)
 }
 
@@ -250,6 +272,22 @@ func (tm *TimeoutMonitor) handleTimeoutEvent(msg jetstream.Msg) error {
 			zap.String("type", model.Type),
 		)
 		msg.Ack()
+		return nil
+	}
+
+	// Older NATS servers may accept the scheduled-message header while still
+	// delivering the message immediately. Keep the consumer authoritative for
+	// the deadline so a future timeout can never become a false violation.
+	if delay := time.Until(model.DeadlineAt); delay > 0 {
+		if err := msg.NakWithDelay(delay); err != nil {
+			return fmt.Errorf("defer timeout until deadline: %w", err)
+		}
+		tm.logger.Debug("deferred early timeout delivery",
+			zap.String("timeout_id", model.ID),
+			zap.String("thread_id", model.ThreadID),
+			zap.Duration("delay", delay),
+			zap.Time("deadline", model.DeadlineAt),
+		)
 		return nil
 	}
 
@@ -328,6 +366,10 @@ func (tm *TimeoutMonitor) IsTimeoutCancelled(ctx context.Context, timeoutID stri
 
 // ScheduleTimeout publishes a timeout event with delayed delivery via NATS scheduled messages.
 func (tm *TimeoutMonitor) ScheduleTimeout(ctx context.Context, event domain.TimeoutEvent) error {
+	if err := tm.beginOperation(); err != nil {
+		return err
+	}
+	defer tm.work.Done()
 	model := domainEventToModel(event)
 
 	data, err := json.Marshal(model)
@@ -364,6 +406,10 @@ func (tm *TimeoutMonitor) ScheduleTimeout(ctx context.Context, event domain.Time
 
 // CancelTimeout writes a cancellation flag to the KV store.
 func (tm *TimeoutMonitor) CancelTimeout(ctx context.Context, timeoutID, threadID, reason string) error {
+	if err := tm.beginOperation(); err != nil {
+		return err
+	}
+	defer tm.work.Done()
 	data, err := json.Marshal(map[string]interface{}{
 		"timeoutId":   timeoutID,
 		"threadId":    threadID,
@@ -458,6 +504,42 @@ func (tm *TimeoutMonitor) GetMetrics() map[string]uint64 {
 
 // Stop gracefully shuts down the timeout monitor.
 func (tm *TimeoutMonitor) Stop() {
-	tm.logger.Info("stopping timeout monitor")
-	tm.cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := tm.StopContext(ctx); err != nil {
+		tm.logger.Error("timeout monitor shutdown did not complete", zap.Error(err))
+	}
+}
+
+func (tm *TimeoutMonitor) beginOperation() error {
+	tm.lifecycleMu.Lock()
+	defer tm.lifecycleMu.Unlock()
+	if tm.stopping {
+		return fmt.Errorf("timeout monitor is stopped")
+	}
+	tm.work.Add(1)
+	return nil
+}
+
+// StopContext prevents new work, cancels consumption, and joins outstanding
+// callbacks and publications before the application closes its broker.
+func (tm *TimeoutMonitor) StopContext(ctx context.Context) error {
+	tm.lifecycleMu.Lock()
+	if !tm.stopping {
+		tm.stopping = true
+		tm.stopDone = make(chan struct{})
+		tm.cancel()
+		go func() {
+			tm.work.Wait()
+			close(tm.stopDone)
+		}()
+	}
+	done := tm.stopDone
+	tm.lifecycleMu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop timeout monitor: %w", ctx.Err())
+	}
 }

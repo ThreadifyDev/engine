@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,16 +35,18 @@ type cachedRoles struct {
 }
 
 type AuthService struct {
-	db            *pgxpool.Pool
-	authRepo      domain.AuthRepository
-	cache         sync.Map // key: apiKeyHash   → *cachedUserInfo
-	rolesCache    sync.Map // key: userID:type   → *cachedRoles
-	cacheTTL      time.Duration
-	writeBackPool *workerpool.Pool
-	jwksVerifier  *sharedauth.JWKSVerifier
-	stopCleanup   chan struct{}
-	sfApiKey      singleflight.Group // Prevents cache stampedes on API key validation
-	sfRoles       singleflight.Group // Prevents cache stampedes on role lookup
+	db                 *pgxpool.Pool
+	authRepo           domain.AuthRepository
+	cache              sync.Map // key: apiKeyHash   → *cachedUserInfo
+	rolesCache         sync.Map // key: userID:type   → *cachedRoles
+	cacheTTL           time.Duration
+	writeBackPool      *workerpool.Pool
+	jwksVerifier       *sharedauth.JWKSVerifier
+	sessionVerifier    sharedauth.AccessTokenVerifier
+	resolveSessionUser func(context.Context, string) (*sharedauth.TokenClaims, error)
+	stopCleanup        chan struct{}
+	sfApiKey           singleflight.Group // Prevents cache stampedes on API key validation
+	sfRoles            singleflight.Group // Prevents cache stampedes on role lookup
 }
 
 func NewAuthService(authRepo domain.AuthRepository, cacheTTLSeconds int) *AuthService {
@@ -66,6 +69,13 @@ func (s *AuthService) Stop() {
 
 func (s *AuthService) SetJWKSVerifier(v *sharedauth.JWKSVerifier) {
 	s.jwksVerifier = v
+}
+
+// SetSessionVerifier enables provider-backed verification and authoritative
+// local tenant lookup. A verified provider subject must map to a local user.
+func (s *AuthService) SetSessionVerifier(v sharedauth.AccessTokenVerifier, resolve func(context.Context, string) (*sharedauth.TokenClaims, error)) {
+	s.sessionVerifier = v
+	s.resolveSessionUser = resolve
 }
 
 // SetWriteBackPool sets the worker pool for async last_used_at updates.
@@ -206,10 +216,46 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*domain.UserInfo, er
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
-	if s.jwksVerifier == nil {
-		return nil, ErrJwtVerificationNotConfigured
+	var claims *sharedauth.TokenClaims
+	err := ErrJwtVerificationNotConfigured
+	if s.jwksVerifier != nil {
+		claims, err = s.jwksVerifier.Verify(ctx, tokenString)
 	}
-	return s.jwksVerifier.Verify(ctx, tokenString)
+	if err != nil {
+		if s.sessionVerifier == nil {
+			return nil, err
+		}
+		// Never transmit API keys or other non-session credentials to Supabase.
+		if strings.Count(strings.TrimSpace(tokenString), ".") != 2 {
+			return nil, ErrInvalidToken
+		}
+		info, verifyErr := s.sessionVerifier.VerifyAccessToken(ctx, tokenString)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+		if info == nil || strings.TrimSpace(info.Sub) == "" {
+			return nil, ErrInvalidToken
+		}
+		claims = &sharedauth.TokenClaims{Sub: info.Sub, AuthUserID: info.Sub}
+	}
+	if s.sessionVerifier != nil && s.resolveSessionUser == nil {
+		return nil, ErrDatabaseNotConfigured
+	}
+	if s.resolveSessionUser != nil {
+		if claims == nil || strings.TrimSpace(claims.Sub) == "" {
+			return nil, ErrInvalidToken
+		}
+		user, lookupErr := s.resolveSessionUser(ctx, claims.Sub)
+		if lookupErr != nil || user == nil || user.UserID == "" || user.CompanyID == "" {
+			return nil, ErrInvalidToken
+		}
+		user.Sub = claims.Sub
+		user.AuthUserID = claims.Sub
+		user.ExpiresAt = claims.ExpiresAt
+		user.Roles = nil // Middleware loads current roles from the local database.
+		return user, nil
+	}
+	return claims, nil
 }
 
 func (s *AuthService) GetUserRoles(ctx context.Context, principalID string, principalType string, jwtExpiry time.Time) ([]string, error) {

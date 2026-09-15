@@ -1,0 +1,5 @@
+.harnest/
+plugins/threadify/
+lib/nanite_model.py
+lib/nanite_worker.py
+extensions/storage.py

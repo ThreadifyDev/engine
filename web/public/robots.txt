@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /pricing
+Allow: /login
+Allow: /signup
+Allow: /auth/forgot-password
+
+# Disallow authenticated areas and sensitive auth flows
+Disallow: /u/
+Disallow: /auth/reset-password
+Disallow: /auth/verify-otp
+
+Sitemap: https://threadify.dev/sitemap.xml

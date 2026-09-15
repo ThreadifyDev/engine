@@ -11,7 +11,7 @@ const PAGE_SIZE = 20;
 export const meta: MetaFunction = () => {
   return [
     { title: "Contracts - Threadify" },
-    { name: "description", content: "Enforce your service delivery workflow as contracts" },
+    { name: "description", content: "Enforce your service-delivery workflow as contracts" },
   ];
 };
 
@@ -90,7 +90,7 @@ export default function Contracts() {
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
             <p className="text-gray-600">
-              Enforce your service delivery workflow as contracts
+              Enforce your service-delivery workflow as contracts
             </p>
           </div>
           <button

@@ -173,6 +173,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
 				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(2, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 			},
 		},
 		{
@@ -221,16 +222,20 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "charge version fails",
+			name: "charge failure does not undo persisted version",
 			yaml: "yaml",
-			want: 402,
+			want: 200,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
 				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
-				deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(errors.New("nope"))
+				// Charging happens after persistence; a billing failure is logged.
+				gomock.InOrder(
+					deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(nil),
+					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(errors.New("nope")),
+				)
 			},
 		},
 		{
@@ -243,7 +248,6 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
-				deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil)
 				deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(errors.New("db"))
 			},
 		},
@@ -258,8 +262,8 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
 				gomock.InOrder(
-					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil),
 					deps.ContractRepo.EXPECT().CreateVersion(gomock.Any(), gomock.Any()).Return(nil),
+					deps.PlanSvc.EXPECT().ChargeContractVersion(gomock.Any(), companyID).Return(nil),
 				)
 			},
 		},
@@ -377,14 +381,16 @@ func TestContractService_GetContractVersion_GraphParseFallback(t *testing.T) {
 	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
-	// invalid json -> returns contractVersion directly
+	// invalid json in graph field -> mapper passes it through as raw message
 	deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{Graph: []byte("{bad-json")}, nil)
 
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	_, ok := resp.(*dto.ContractVersion)
+	versionDTO, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
+	require.Equal(t, "c", versionDTO.ContractName)
+	require.Equal(t, json.RawMessage("{bad-json"), versionDTO.Graph)
 }
 
 func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *testing.T) {
@@ -403,11 +409,11 @@ func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *test
 	svc := deps.NewContractService()
 	status, resp := svc.GetContractVersion(context.Background(), "cid", 1, "x")
 	require.Equal(t, 200, status)
-	m, ok := resp.(*dto.ContractVersion)
+	versionDTO, ok := resp.(*dto.ContractVersion)
 	require.True(t, ok)
-	require.Equal(t, "v1", m.ID)
-	require.Equal(t, "c", m.ContractName)
-	require.NotNil(t, m.Graph)
+	require.Equal(t, "v1", versionDTO.ID)
+	require.Equal(t, "c", versionDTO.ContractName)
+	require.NotNil(t, versionDTO.Graph)
 }
 
 func TestContractService_DeleteContractVersion_Table(t *testing.T) {

@@ -98,6 +98,7 @@ func (r *ActivityRepository) RecordAccessGranted(ctx context.Context, threadID, 
 	// SYNCHRONOUS - Critical for audit trail
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
+			"threadId":     threadID,
 			"type":         "access_granted",
 			"actor":        userID,
 			"actorService": serviceName,
@@ -125,10 +126,13 @@ func (r *ActivityRepository) RecordInvitationUsed(ctx context.Context, threadID,
 	// SYNCHRONOUS - Critical for audit trail
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-			"type":      "invitation_used",
-			"role":      role,
-			"invitedBy": invitedBy,
-			"timestamp": time.Now().Format(time.RFC3339),
+			"threadId":     threadID,
+			"type":         "invitation_used",
+			"actor":        userID,
+			"actorService": serviceName,
+			"role":         role,
+			"invitedBy":    invitedBy,
+			"timestamp":    time.Now().Format(time.RFC3339),
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish invitation used to NATS",
@@ -169,11 +173,13 @@ func (r *ActivityRepository) RecordThreadCreated(ctx context.Context, threadID, 
 	// SYNCHRONOUS - Critical for audit trail
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
 		return r.natsPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
-			"type":      "thread_created",
-			"userId":    creatorID,
-			"actor":     creatorID,
-			"role":      creatorRole,
-			"timestamp": now,
+			"threadId":     threadID,
+			"type":         "thread_created",
+			"userId":       creatorID,
+			"actor":        creatorID,
+			"actorService": serviceName,
+			"role":         creatorRole,
+			"timestamp":    now,
 		})
 	}); err != nil {
 		r.logger.Error("failed to publish thread created activity to NATS",

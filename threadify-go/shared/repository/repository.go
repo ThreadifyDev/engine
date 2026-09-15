@@ -29,6 +29,8 @@ type EntityProfileTypeRepository interface {
 	ListMetricsTemplates(ctx context.Context) ([]*domain.MetricsTemplate, error)
 	GetMetricsTemplate(ctx context.Context, templateID string) (*domain.MetricsTemplate, error)
 	ValidateMetricsSQL(ctx context.Context, sql string, params map[string]any) error
+	CreateMetricsTemplate(ctx context.Context, companyID, id, name, sqlContent string) error
+	UpdateMetricsTemplate(ctx context.Context, id, name, sqlContent string) error
 }
 type EntityProfileRepository interface {
 	CreateProfile(ctx context.Context, profile *domain.EntityProfile) error

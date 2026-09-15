@@ -34,13 +34,14 @@ type NATSConfig struct {
 }
 
 type CreditConfig struct {
-	IngressCostMillicents  int64 `yaml:"ingress_cost_millicents" mapstructure:"ingress_cost_millicents" json:"ingress_cost_millicents"`
-	EgressCostMillicents   int64 `yaml:"egress_cost_millicents" mapstructure:"egress_cost_millicents" json:"egress_cost_millicents"`
-	SeatCostMillicents     int64 `yaml:"seat_cost_millicents" mapstructure:"seat_cost_millicents" json:"seat_cost_millicents"`
-	ContractCostMillicents int64 `yaml:"contract_cost_millicents" mapstructure:"contract_cost_millicents" json:"contract_cost_millicents"`
-	LLMTokenCostMillicents int64 `yaml:"llm_token_cost_millicents" mapstructure:"llm_token_cost_millicents" json:"llm_token_cost_millicents"`
-	RateLimitTPS           int64 `yaml:"rate_limit_tps" mapstructure:"rate_limit_tps" json:"rate_limit_tps"`
-	PayloadLimitBytes      int64 `yaml:"payload_limit_bytes" mapstructure:"payload_limit_bytes" json:"payload_limit_bytes"`
+	IngressCostMillicents                   int64 `yaml:"ingress_cost_millicents" mapstructure:"ingress_cost_millicents" json:"ingress_cost_millicents"`
+	EgressCostMillicents                    int64 `yaml:"egress_cost_millicents" mapstructure:"egress_cost_millicents" json:"egress_cost_millicents"`
+	SeatCostMillicents                      int64 `yaml:"seat_cost_millicents" mapstructure:"seat_cost_millicents" json:"seat_cost_millicents"`
+	ContractCostMillicents                  int64 `yaml:"contract_cost_millicents" mapstructure:"contract_cost_millicents" json:"contract_cost_millicents"`
+	LLMTokenCostMillicents                  int64 `yaml:"llm_token_cost_millicents" mapstructure:"llm_token_cost_millicents" json:"llm_token_cost_millicents"`
+	RateLimitTPS                            int64 `yaml:"rate_limit_tps" mapstructure:"rate_limit_tps" json:"rate_limit_tps"`
+	PayloadLimitBytes                       int64 `yaml:"payload_limit_bytes" mapstructure:"payload_limit_bytes" json:"payload_limit_bytes"`
+	CustomMetricCostPerComplexityMillicents int64 `yaml:"custom_metric_cost_per_complexity_millicents" mapstructure:"custom_metric_cost_per_complexity_millicents" json:"custom_metric_cost_per_complexity_millicents"`
 }
 
 type SubscriptionConfig struct {
@@ -49,11 +50,9 @@ type SubscriptionConfig struct {
 }
 
 type BillingConfig struct {
-	SecretKey     string `yaml:"secret_key" mapstructure:"secret_key"`
-	Provider      string `yaml:"provider" mapstructure:"provider"`
-	WebhookSecret string `yaml:"webhook_secret" mapstructure:"webhook_secret"`
-	SuccessURL    string `yaml:"success_url" mapstructure:"success_url"`
-	CancelURL     string `yaml:"cancel_url" mapstructure:"cancel_url"`
+	Provider   string `yaml:"provider" mapstructure:"provider"`
+	SuccessURL string `yaml:"success_url" mapstructure:"success_url"`
+	CancelURL  string `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
 type Config struct {
@@ -157,8 +156,6 @@ func (c *Config) expandEnvVars() {
 	c.JWKS.Audience = expand(c.JWKS.Audience)
 	c.JWKS.Issuer = expand(c.JWKS.Issuer)
 
-	c.Billing.SecretKey = expand(c.Billing.SecretKey)
-	c.Billing.WebhookSecret = expand(c.Billing.WebhookSecret)
 	c.Billing.Provider = expand(c.Billing.Provider)
 
 	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)

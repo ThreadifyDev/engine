@@ -164,6 +164,9 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 	// Validate transition steps
 	errors = append(errors, v.validateTransitionSteps(contract, stepIds)...)
 
+	// Validate partial-order dependencies
+	errors = append(errors, v.validateStepDependencies(contract, stepIds)...)
+
 	// Validate no orphaned steps
 	errors = append(errors, v.validateNoOrphanedSteps(contract, stepIds)...)
 
@@ -287,8 +290,11 @@ func (v *ContractValidator) validateTerminalStepsReachable(contract *Contract) [
 		return errors
 	}
 
-	// Build set of steps that appear in transitions' "to" field
+	// Build set of steps that appear in transitions' "to" field or as entry points
 	reachableSteps := make(map[string]bool)
+	for _, ep := range contract.EntryPoints {
+		reachableSteps[ep] = true
+	}
 	for _, transition := range contract.Transitions {
 		for _, toStep := range transition.To {
 			reachableSteps[toStep] = true
@@ -337,6 +343,78 @@ func (v *ContractValidator) validateTransitionSteps(contract *Contract, stepIds 
 				Field:   fmt.Sprintf("transitions[%d].timeout", i),
 				Message: "Invalid duration format. Use: s, ms, us, m, h, or d (e.g., '2s', '3d')",
 			})
+		}
+	}
+
+	return errors
+}
+
+// validateStepDependencies validates partial-order prerequisites independently
+// from strict transitions. Dependencies may be separated by any number of other
+// successful steps at runtime, but must still form a valid DAG.
+func (v *ContractValidator) validateStepDependencies(contract *Contract, stepIds map[string]bool) []ValidationError {
+	errors := []ValidationError{}
+	dependencies := make(map[string][]string, len(contract.Steps))
+
+	for _, step := range contract.Steps {
+		seen := make(map[string]bool, len(step.DependsOn))
+		for _, dependency := range step.DependsOn {
+			field := fmt.Sprintf("steps.%s.depends_on", step.ID)
+			switch {
+			case dependency == step.ID:
+				errors = append(errors, ValidationError{
+					Field:   field,
+					Message: fmt.Sprintf("Step '%s' cannot depend on itself", step.ID),
+				})
+			case !stepIds[dependency]:
+				errors = append(errors, ValidationError{
+					Field:   field,
+					Message: fmt.Sprintf("Dependency '%s' is not defined in steps", dependency),
+				})
+			case seen[dependency]:
+				errors = append(errors, ValidationError{
+					Field:   field,
+					Message: fmt.Sprintf("Dependency '%s' is listed more than once", dependency),
+				})
+			default:
+				dependencies[step.ID] = append(dependencies[step.ID], dependency)
+			}
+			seen[dependency] = true
+		}
+	}
+
+	// A cycle makes it impossible for any member of the cycle to become eligible.
+	const (
+		unvisited = iota
+		visiting
+		visited
+	)
+	state := make(map[string]int, len(contract.Steps))
+	var visit func(string) bool
+	visit = func(stepID string) bool {
+		if state[stepID] == visiting {
+			return true
+		}
+		if state[stepID] == visited {
+			return false
+		}
+		state[stepID] = visiting
+		for _, dependency := range dependencies[stepID] {
+			if visit(dependency) {
+				return true
+			}
+		}
+		state[stepID] = visited
+		return false
+	}
+
+	for _, step := range contract.Steps {
+		if state[step.ID] == unvisited && visit(step.ID) {
+			errors = append(errors, ValidationError{
+				Field:   "steps.depends_on",
+				Message: "Step dependencies must not contain a cycle",
+			})
+			break
 		}
 	}
 

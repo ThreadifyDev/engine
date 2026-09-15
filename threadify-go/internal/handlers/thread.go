@@ -37,6 +37,7 @@ const (
 	ActionUnsubscribe       = "unsubscribe"
 	ActionCloseThread       = "closeThread"
 	ActionThreadEnd         = "threadEnd"
+	ActionHeartbeat         = "heartbeat"
 )
 
 const (
@@ -48,6 +49,8 @@ const (
 
 	defaultWebSocketReadLimitBytes = int64(2 * 1024 * 1024) // 2MB safety cap before auth/plan resolution
 	readLimitOverheadBytes         = int64(64 * 1024)       // JSON envelope overhead allowance
+	defaultReadDeadlineSeconds     = 60                     // fallback if not set in config
+	pingWriteTimeoutSeconds        = 5                      // write deadline for sending a ping frame
 )
 
 var upgrader websocket.Upgrader
@@ -65,6 +68,11 @@ type WebSocketHandler struct {
 	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
 	logger               *zap.Logger
+	lifecycleMu          sync.Mutex
+	shuttingDown         bool
+	activeHandlers       int
+	connections          map[*websocket.Conn]struct{}
+	shutdownDone         chan struct{}
 }
 
 type WSSession struct {
@@ -240,13 +248,57 @@ func (s *WSSession) enforceCredits(planSvc domain.PlanService, action string) *d
 }
 
 func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
+	h.lifecycleMu.Lock()
+	if h.shuttingDown {
+		h.lifecycleMu.Unlock()
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	h.activeHandlers++
+	h.lifecycleMu.Unlock()
+	defer func() {
+		h.lifecycleMu.Lock()
+		h.activeHandlers--
+		if h.shuttingDown && h.activeHandlers == 0 {
+			close(h.shutdownDone)
+		}
+		h.lifecycleMu.Unlock()
+	}()
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		h.logger.Error("websocket upgrade error", zap.Error(err))
 		return
 	}
 	defer conn.Close()
+	h.lifecycleMu.Lock()
+	if h.shuttingDown {
+		h.lifecycleMu.Unlock()
+		return
+	}
+	if h.connections == nil {
+		h.connections = make(map[*websocket.Conn]struct{})
+	}
+	h.connections[conn] = struct{}{}
+	h.lifecycleMu.Unlock()
+	defer func() {
+		h.lifecycleMu.Lock()
+		delete(h.connections, conn)
+		h.lifecycleMu.Unlock()
+	}()
 	conn.SetReadLimit(defaultWebSocketReadLimitBytes)
+
+	deadlineSecs := h.websocketConfig.ReadDeadlineSeconds
+	if deadlineSecs <= 0 {
+		deadlineSecs = defaultReadDeadlineSeconds
+	}
+	readDeadline := time.Duration(deadlineSecs) * time.Second
+
+	// Reset read deadline whenever a pong arrives so the pinger keeps the
+	// connection alive through proxies and load balancers.
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(readDeadline))
+	})
 
 	session := &WSSession{
 		conn:      conn,
@@ -254,7 +306,38 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		ctx:       c.Request.Context(),
 	}
 
+	// Server-side pinger: send a WebSocket ping frame at half the read-deadline
+	// interval. This keeps the TCP connection alive through infrastructure that
+	// drops idle connections (AWS ELB, nginx, GCP load balancer, etc.) without
+	// requiring any action from the SDK client.
+	pingStop := make(chan struct{})
+	pingDone := make(chan struct{})
+	defer func() {
+		close(pingStop)
+		// Unblock a pending control-frame write before waiting for the pinger.
+		_ = conn.Close()
+		<-pingDone
+	}()
+	go func() {
+		defer close(pingDone)
+		pingInterval := readDeadline / 2
+		ticker := time.NewTicker(pingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingStop:
+				return
+			case <-ticker.C:
+				session.sendMu.Lock()
+				writeDeadline := time.Now().Add(pingWriteTimeoutSeconds * time.Second)
+				_ = conn.WriteControl(websocket.PingMessage, nil, writeDeadline)
+				session.sendMu.Unlock()
+			}
+		}
+	}()
+
 	for {
+		conn.SetReadDeadline(time.Now().Add(readDeadline))
 		messageType, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			break
@@ -290,6 +373,35 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 					zap.String("session_id", session.sessionID), zap.Error(err))
 			}
 		}
+	}
+}
+
+// Shutdown rejects new upgrades, closes every upgraded connection (including
+// connections that never authenticated), and waits for handlers and pingers.
+// HTTP server shutdown alone does not wait for hijacked WebSocket connections.
+func (h *WebSocketHandler) Shutdown(ctx context.Context) error {
+	h.lifecycleMu.Lock()
+	if !h.shuttingDown {
+		h.shuttingDown = true
+		h.shutdownDone = make(chan struct{})
+		if h.activeHandlers == 0 {
+			close(h.shutdownDone)
+		}
+	}
+	done := h.shutdownDone
+	connections := make([]*websocket.Conn, 0, len(h.connections))
+	for conn := range h.connections {
+		connections = append(connections, conn)
+	}
+	h.lifecycleMu.Unlock()
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -369,6 +481,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			ContractName: req.ContractName,
 			Role:         req.Role,
 			Refs:         req.Refs,
+			Tags:         req.Tags,
 		}, session.ownerID, session.companyID)
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()
@@ -483,6 +596,9 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			return h.newErrorResponse(ActionUnsubscribe, "Step name is required", "")
 		}
 		return map[string]interface{}{"action": ActionUnsubscribe, "status": StatusSuccess, "message": fmt.Sprintf("Unsubscribed from %s", req.StepName)}
+
+	case ActionHeartbeat:
+		return map[string]interface{}{"action": ActionHeartbeat, "status": StatusSuccess}
 
 	case ActionCloseThread, ActionThreadEnd:
 		var req struct {

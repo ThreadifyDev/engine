@@ -92,14 +92,24 @@ func (v *ContractValidationService) GetContractGraph(ctx context.Context, contra
 
 	// Tier 1: memory cache.
 	if graph, exists := v.cacheManager.GetContractGraph(contractName, targetVersion, companyID); exists {
-		return graph, nil
+		if !requiresContractGraphMigration(graph) {
+			return graph, nil
+		}
+		v.logger.Info("rebuilding cached contract graph with partial-order semantics",
+			zap.String("contract_name", contractName),
+			zap.Int("version", targetVersion))
 	}
 
 	// Tier 2: Valkey.
 	graph, err := v.graphRepo.Get(ctx, contractName, targetVersion, companyID)
 	if err == nil {
-		v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, graph)
-		return graph, nil
+		if !requiresContractGraphMigration(graph) {
+			v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, graph)
+			return graph, nil
+		}
+		v.logger.Info("rebuilding Valkey contract graph with partial-order semantics",
+			zap.String("contract_name", contractName),
+			zap.Int("version", targetVersion))
 	}
 
 	// Tier 3: PostgreSQL.
@@ -126,6 +136,19 @@ func (v *ContractValidationService) GetContractGraph(ctx context.Context, contra
 		return nil, fmt.Errorf("failed to parse contract graph: %w", err)
 	}
 	loadedGraph := mapper.FromContractGraphDTO(&graphDTO)
+	if requiresContractGraphMigration(loadedGraph) {
+		source := contractVersion.YAMLContent
+		if source == "" {
+			source = contractVersion.Content
+		}
+		if source == "" {
+			return nil, fmt.Errorf("contract %q v%d requires partial-order migration but has no source content", contractName, targetVersion)
+		}
+		loadedGraph, err = NewGraphBuilder().BuildGraph([]byte(source))
+		if err != nil {
+			return nil, fmt.Errorf("failed to rebuild contract %q v%d with partial-order semantics: %w", contractName, targetVersion, err)
+		}
+	}
 
 	if err := v.graphRepo.Save(ctx, contractName, targetVersion, companyID, loadedGraph); err != nil {
 		v.logger.Warn("failed to cache contract graph in Valkey", zap.Error(err))
@@ -133,6 +156,21 @@ func (v *ContractValidationService) GetContractGraph(ctx context.Context, contra
 	v.cacheManager.SetContractGraph(contractName, targetVersion, companyID, loadedGraph)
 
 	return loadedGraph, nil
+}
+
+// requiresContractGraphMigration detects graphs persisted before dependency and
+// transition semantics were separated. Graphs with no dependency-like edges are
+// already behaviorally equivalent and can keep using the fast cache path.
+func requiresContractGraphMigration(graph *domain.ContractGraph) bool {
+	if graph == nil || graph.SemanticsVersion >= domain.CurrentContractGraphSemantics {
+		return false
+	}
+	for _, node := range graph.Graph.Nodes {
+		if len(node.DependsOn) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadContractGraphIntoCache preloads a contract graph using the three-tier strategy.

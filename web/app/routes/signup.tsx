@@ -24,6 +24,7 @@ export default function Signup() {
     industry: undefined,
     company_size: undefined,
     use_case: undefined,
+    middle_name: '',
   });
   const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -112,7 +113,7 @@ export default function Signup() {
           <p className="mt-2 text-sm text-gray-600">
             {invitationToken 
               ? 'Complete your account setup to join the team' 
-              : 'Service delivery intelligence for how your business delivers'}
+              : 'Service-delivery intelligence for how your business delivers'}
           </p>
         </div>
 
@@ -121,6 +122,22 @@ export default function Signup() {
           {alert && <Alert type={alert.type} message={alert.message} details={alert.details} />}
 
           <div className="space-y-4">
+            {/* Honeypot field - hidden from humans */}
+            <div 
+              style={{ position: 'absolute', left: '-9999px', top: '-9999px', opacity: 0, width: 0, height: 0, zIndex: -1 }} 
+              aria-hidden="true"
+            >
+              <input
+                id="middle_name"
+                name="middle_name"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={formData.middle_name}
+                onChange={handleChange}
+              />
+            </div>
+
             {/* Company Name - conditionally shown/disabled */}
             {!invitationToken && (
               <div>

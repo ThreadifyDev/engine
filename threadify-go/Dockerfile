@@ -1,5 +1,12 @@
-# Build stage
-FROM golang:1.26-alpine AS builder
+# syntax=docker/dockerfile:1
+
+# Build on the host architecture and cross-compile for each Buildx target.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG BUILD_JOBS=2
+ARG BUILD_PROCS=2
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -12,36 +19,42 @@ COPY go.mod go.sum ./
 COPY shared/ ./shared/
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy source code
 COPY . .
 
 # Build the application with optimizations
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -a -installsuffix cgo \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOMAXPROCS=$BUILD_PROCS CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -p $BUILD_JOBS \
     -ldflags="-s -w" \
     -trimpath \
-    -o bin/server ./cmd/server
+    -o bin/threadify ./cmd/server
+
+# The distroless runtime runs as uid 65532 and needs a writable persistent store.
+RUN mkdir -p /data/jetstream && chown -R 65532:65532 /data
 
 # Final stage - using distroless for minimal size
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy the binary, config, and RBAC files (distroless already runs as nonroot user)
-COPY --from=builder /app/bin/server /app/server
-COPY --from=builder /app/internal /app/internal
-COPY --from=builder /app/config/config.yaml /app/config/config.yaml
-COPY --from=builder /app/config/subscription.yaml /app/config/subscription.yaml
-COPY --from=builder /app/shared/rbac /app/shared/rbac
+# Runtime assets are embedded; only sanitized configuration templates are shipped.
+COPY --from=builder /app/bin/threadify /app/threadify
+COPY --from=builder /app/config/config.selfhost.yaml /app/config/config.yaml
+COPY --from=builder /app/config/subscription.selfhost.yaml /app/config/subscription.yaml
+COPY --from=builder --chown=65532:65532 /data /data
+
+ENV CONFIG_PATH=/app/config/config.yaml
+VOLUME ["/data"]
 
 # Expose port
 EXPOSE 8081
 
 # Health check using the binary itself (no wget needed)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["/app/server", "-healthcheck"]
+  CMD ["/app/threadify", "--healthcheck"]
 
 # Run the application
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/app/threadify"]

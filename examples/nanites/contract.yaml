@@ -1,0 +1,44 @@
+contract_name: nanite_work_v1
+version: 1
+description: Small Harnest agents hand focused work forward through Threadify events.
+entry_points:
+  - work_requested
+parties:
+  - dispatcher
+  - analyst
+  - reviewer
+steps:
+  - id: work_requested
+    owner: dispatcher
+    type: managed
+    business_context:
+      required:
+        - request
+  - id: analysis_completed
+    owner: analyst
+    type: managed
+    business_context:
+      required:
+        - output
+        - nanite
+  - id: review_completed
+    owner: reviewer
+    type: managed
+    business_context:
+      required:
+        - output
+        - nanite
+transitions:
+  - from: work_requested
+    to:
+      - analysis_completed
+  - from: analysis_completed
+    to:
+      - review_completed
+terminal_steps:
+  - review_completed
+validation:
+  max_duration: 30m
+  allow_multiple_terminals: false
+versioning:
+  threads_lock_to_version: true

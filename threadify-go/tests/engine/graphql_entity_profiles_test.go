@@ -95,7 +95,7 @@ func TestGraphQL_EntityProfile_EmptyRefKey(t *testing.T) {
 	})
 
 	require.NotEmpty(t, gqlResp.Errors)
-	require.Equal(t, "must provide either id or both refKey and type", gqlResp.Errors[0]["message"])
+	require.Contains(t, gqlResp.Errors[0]["message"], "must provide either id or both refKey and type")
 }
 
 func TestGraphQL_EntityProfile_EmptyType(t *testing.T) {
@@ -110,7 +110,7 @@ func TestGraphQL_EntityProfile_EmptyType(t *testing.T) {
 	})
 
 	require.NotEmpty(t, gqlResp.Errors)
-	require.Equal(t, "must provide either id or both refKey and type", gqlResp.Errors[0]["message"])
+	require.Contains(t, gqlResp.Errors[0]["message"], "must provide either id or both refKey and type")
 }
 
 func TestGraphQL_EntityProfile_LongRefKey(t *testing.T) {

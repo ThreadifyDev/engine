@@ -13,9 +13,11 @@ import {
   Users,
   Settings,
   Sparkles,
-  UserCircle
+  UserCircle,
+  Wallet
 } from 'lucide-react';
 import { api } from '~/lib/api';
+import { useCurrentPlan } from '~/hooks/useBilling';
 
 interface SideNavProps {
   isCollapsed?: boolean;
@@ -28,10 +30,21 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
   const navigate = useNavigate();
   const location = useLocation();
   const [internalCollapsed, setInternalCollapsed] = useState(true);
+  const { data: billingData } = useCurrentPlan();
 
   // Use controlled state if provided, otherwise use internal state
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
   const handleToggle = onToggle || (() => setInternalCollapsed(!internalCollapsed));
+
+  const formatBalance = (millicents: number) => {
+    const dollars = millicents / 100000;
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(dollars);
+  };
 
   const handleLogout = async () => {
     await api.logout();
@@ -46,9 +59,9 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
   const navItems = [
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
+    { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
     { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
-    { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
     { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },
     { path: '/u/settings', label: 'Settings', icon: Settings },
@@ -106,6 +119,37 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
           </button>
         ))}
       </nav>
+
+      {/* Wallet Balance */}
+      <div className="px-4 py-3 border-t border-gray-800">
+        <button
+          onClick={() => navigate('/u/settings?tab=billing')}
+          className={`w-full flex items-center gap-3 transition-colors ${
+            isCollapsed ? 'justify-center' : 'justify-start'
+          }`}
+          title={isCollapsed ? 'Wallet Balance' : undefined}
+        >
+          <Wallet className="w-5 h-5 flex-shrink-0 text-gray-300" />
+          {(!isCollapsed || isMobileOpen) && (
+            <div className="flex flex-col items-start overflow-hidden">
+              <span className="text-xs text-gray-500">Balance</span>
+              {billingData?.credit_account ? (
+                <span
+                  className={`text-sm font-semibold ${
+                    billingData.credit_account.balance_millicents < billingData.credit_account.min_balance_millicents
+                      ? 'text-yellow-400'
+                      : 'text-white'
+                  }`}
+                >
+                  {formatBalance(billingData.credit_account.balance_millicents)}
+                </span>
+              ) : (
+                <span className="text-sm text-gray-400">--</span>
+              )}
+            </div>
+          )}
+        </button>
+      </div>
 
       {/* Logout Button */}
       <div className="p-4 border-t border-gray-800">

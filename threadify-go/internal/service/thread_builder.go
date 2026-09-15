@@ -150,7 +150,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	// --- RBAC ---
 
-	rbacLoader, err := rbac.NewLoader(rbacPermissionsPath, rbacRolesPath)
+	rbacLoader, err := rbac.NewEmbeddedLoader()
 	if err != nil {
 		b.logger.Warn("failed to load RBAC, permissions will be empty", zap.Error(err))
 		rbacLoader = nil
@@ -206,6 +206,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 	}
 
 	return &ThreadService{
+		timeoutMonitor:        timeoutMonitor,
 		repo:                  b.threadRepo,
 		accessRepo:            accessRepo,
 		activityRepo:          activityRepo,

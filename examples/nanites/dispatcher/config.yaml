@@ -1,0 +1,24 @@
+apiVersion: harnest.dev/v1alpha1
+kind: Agent
+metadata:
+  name: nanite-dispatcher
+  displayName: Nanite Dispatcher
+spec:
+  enabled: true
+  entrypoint: agent:root_agent
+  framework:
+    name: adk
+    mode: managed
+  interfaces:
+    cli: true
+  runtime:
+    version: "3.12"
+    dependencyFile: pyproject.toml
+  resources:
+    cpu: "1"
+    memory: 1Gi
+    timeoutSeconds: 300
+    maxConcurrentRequests: 8
+  scaling:
+    minReplicas: 1
+    maxReplicas: 3

@@ -3,9 +3,11 @@ import { useNavigate, useParams, Link } from '@remix-run/react';
 import type { MetaFunction } from '@remix-run/node';
 import AppLayout from '~/components/AppLayout';
 import { api } from '~/lib/api';
+import type { EntityProfileType, MetricsTemplateResponse } from '~/lib/api';
 import { graphqlClient, type EntityProfileListItem } from '~/lib/graphql';
-import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2, Settings, Edit2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { ProfileTypeModal } from '~/components/profiles/ProfileTypeModal';
 
 export const meta: MetaFunction = ({ params }) => [
   { title: `${params.type ?? 'Profiles'} · Entity Profiles — Threadify` },
@@ -20,10 +22,12 @@ export default function EntityProfilesByType() {
 
   const [items, setItems] = useState<EntityProfileListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [profileType, setProfileType] = useState<{
-    name: string | null;
-    keys: string[];
-  }>({ name: null, keys: [] });
+  const [profileType, setProfileType] = useState<EntityProfileType | null>(null);
+  
+  // Modal & Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [metricsTemplates, setMetricsTemplates] = useState<MetricsTemplateResponse[]>([]);
+  
   const [offset, setOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +42,12 @@ export default function EntityProfilesByType() {
     if (!token) navigate('/login');
   }, [navigate]);
 
+  useEffect(() => {
+    api.listMetricsTemplates()
+      .then(res => setMetricsTemplates(res.data))
+      .catch(console.error);
+  }, []);
+
   // Only commit search when user triggers it
   const handleSearch = () => {
     setCommitted(search.trim());
@@ -50,38 +60,53 @@ export default function EntityProfilesByType() {
     setOffset(0);
   };
 
+  const fetchProfiles = async () => {
+    if (!type) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const res = await graphqlClient.getEntityProfilesByType({
+        type,
+        search: committed || undefined,
+        limit: PAGE_SIZE,
+        offset,
+      });
+
+      setItems(res.items || []);
+      setTotal(res.totalCount || 0);
+
+      if (res.profileType) {
+        setProfileType({
+          ...res.profileType,
+          metrics: res.profileType.metricsConfig?.map((m: any) => ({
+            id: m.id,
+            template_id: m.templateId,
+            name: m.name,
+            parameters: m.parameters || {},
+            custom_definition: m.customDefinition ? {
+              name: m.customDefinition.name,
+              target: m.customDefinition.target,
+              step_name: m.customDefinition.stepName,
+              operation: m.customDefinition.operation,
+              field: m.customDefinition.field,
+              filters: m.customDefinition.filters || [],
+              group_by: m.customDefinition.groupBy,
+              granularity: m.customDefinition.granularity,
+              visualisation: m.customDefinition.visualisation,
+            } : undefined,
+          })) || []
+        } as EntityProfileType);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load entity profiles');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Fetch from backend via GraphQL whenever type/offset/committed change
   useEffect(() => {
-    if (!type) return;
-    
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const res = await graphqlClient.getEntityProfilesByType({
-          type,
-          search: committed || undefined,
-          limit: PAGE_SIZE,
-          offset,
-        });
-        if (cancelled) return;
-        setItems(res.items || []);
-        setTotal(res.totalCount || 0);
-        setProfileType({
-          name: res.profileType?.name || null,
-          keys: res.profileType?.type || [],
-        });
-      } catch (err: any) {
-        if (cancelled) return;
-        setError(err.message || 'Failed to load entity profiles');
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    fetchProfiles();
   }, [type, offset, committed]);
 
   const page = Math.floor(offset / PAGE_SIZE) + 1;
@@ -90,45 +115,100 @@ export default function EntityProfilesByType() {
   return (
     <AppLayout>
       <div className="p-8">
+        {/* Edit Modal */}
+        {profileType && (
+          <ProfileTypeModal
+            isOpen={isEditModalOpen}
+            onClose={() => setIsEditModalOpen(false)}
+            mode="edit"
+            initialData={profileType}
+            metricsTemplates={metricsTemplates}
+            onRefresh={fetchProfiles}
+            persistedTypes={profileType?.type || []}
+          />
+        )}
+
         {/* Back link */}
         <div className="mb-4">
           <Link
             to="/u/profiles"
             className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 transition-colors"
           >
-            <ChevronLeft className="w-4 h-4" /> Back to Profile Types
+            <ChevronLeft className="w-4 h-4" /> Back to Entity Profile Types
           </Link>
         </div>
 
-        {/* Header — matches /u/contracts style */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-6">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold mb-2 font-mono truncate">{profileType.name || type}</h2>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {profileType.keys.map((key) => (
-                <span
-                  key={key}
-                  className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-md text-[11px] font-mono font-medium"
-                >
-                  {key}: &hellip;
-                </span>
-              ))}
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-3xl font-bold font-mono tracking-tight text-gray-900 truncate">
+                  {profileType?.name || type}
+                </h2>
+                {profileType && (
+                  <button
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                    title="Edit Profile Type"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Refs:</span>
+                {profileType?.type?.map((key: string) => (
+                  <span
+                    key={key}
+                    className="px-2 py-0.5 bg-gray-100 text-gray-600 border border-gray-200/60 rounded text-[11px] font-mono"
+                  >
+                    {key}
+                  </span>
+                ))}
+              </div>
             </div>
-            <p className="text-gray-600">
-              {total} {total === 1 ? 'profile' : 'profiles'} tracked under this type
-            </p>
+            
+            {/* Explicit search */}
+            <div className="w-full sm:w-64 shrink-0">
+              <InlineSearch
+                value={search}
+                onChange={setSearch}
+                onSearch={handleSearch}
+                onClear={handleClear}
+                isLoading={isLoading && committed !== ''}
+                placeholder="Search profiles…"
+              />
+            </div>
           </div>
-
-          {/* Explicit search — with button */}
-          <div className="w-full sm:w-auto">
-            <InlineSearch
-              value={search}
-              onChange={setSearch}
-              onSearch={handleSearch}
-              onClear={handleClear}
-              isLoading={isLoading && committed !== ''}
-              placeholder="Search profiles…"
-            />
+          
+          {profileType?.description && (
+            <p className="text-gray-600 mb-6 max-w-3xl text-sm leading-relaxed">
+              {profileType.description}
+            </p>
+          )}
+          
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4 border-t border-b border-gray-100 mb-6">
+            <div className="flex-1">
+              {profileType?.metrics && profileType.metrics.length > 0 ? (
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Metrics</span>
+                  <div className="w-px h-3 bg-gray-200 mx-1"></div>
+                  {profileType.metrics.map((mc: any, idx: number) => (
+                    <span key={idx} className="inline-flex items-center gap-1.5 px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100/50 rounded-md text-[11px] font-medium shadow-sm shadow-indigo-100/20">
+                      <Settings className="w-3.5 h-3.5 opacity-60" />
+                      {mc.name || mc.template_id}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[11px] font-medium text-gray-400 italic">No metrics configured</span>
+              )}
+            </div>
+            
+            <p className="text-sm font-medium text-gray-500 shrink-0">
+              {total} {total === 1 ? 'profile' : 'profiles'} tracked
+            </p>
           </div>
         </div>
 
@@ -323,21 +403,9 @@ function ProfileCard({ type, profile }: { type: string; profile: EntityProfileLi
               <code className="text-xs font-mono text-gray-500 truncate block">{p.refKey}</code>
             )}
           </div>
-
-          {healthPct !== null && (
-            <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full border ${healthBand} shrink-0`}
-              title="Delivery health score"
-            >
-              {healthPct}%
-            </span>
-          )}
         </div>
 
         <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-          <span>
-            {totalDeliveries.toLocaleString()} {totalDeliveries === 1 ? 'delivery' : 'deliveries'}
-          </span>
           <span>
             Active{' '}
             {p.lastActiveAt

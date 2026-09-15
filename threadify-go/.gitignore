@@ -3,3 +3,5 @@ bin/
 .env
 .DS_Store
 coverage.html
+# GoReleaser output
+/dist/

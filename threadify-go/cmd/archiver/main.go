@@ -98,9 +98,9 @@ func run(configPath string, logger *zap.Logger) error {
 
 	metricsRepo := postgresrepo.NewMetricsRepository(db.Pool, valkeyClient, logger)
 
-	stepStateConsumer, natsConn, err := startNATSConsumers(ctx, cfg, db, metricsRepo, logger)
+	runtime, natsConn, err := startNATSConsumers(ctx, cfg, db, metricsRepo, logger)
 	if err != nil {
-		logger.Warn("NATS consumers not started", zap.Error(err))
+		return fmt.Errorf("start persistence: %w", err)
 	}
 
 	metricsSrv := &http.Server{
@@ -118,28 +118,25 @@ func run(configPath string, logger *zap.Logger) error {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(quit)
 	<-quit
 
 	logger.Info("shutdown signal received, stopping...")
 
-	cancel()
-
-	if stepStateConsumer != nil {
-		stepStateConsumer.Stop()
-	}
-	if natsConn != nil {
-		natsConn.Drain()
-	}
-
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+	persistenceErr := runtime.Close(shutdownCtx)
+	cancel()
+	if natsConn != nil {
+		natsConn.Close()
+	}
 
 	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("metrics server shutdown error", zap.Error(err))
 	}
 
 	logger.Info("archiver stopped")
-	return nil
+	return persistenceErr
 }
 
 func startNATSConsumers(
@@ -148,7 +145,7 @@ func startNATSConsumers(
 	db *database.PostgresDB,
 	metricsInvalidator archiver.MetricsInvalidator,
 	logger *zap.Logger,
-) (stepState *archiver.StepStateConsumer, natsConn *nats.Conn, err error) {
+) (runtime *archiver.Runtime, natsConn *nats.Conn, err error) {
 	natsURL := cfg.NATS.URL
 	if natsURL == "" {
 		natsURL = nats.DefaultURL
@@ -159,58 +156,24 @@ func startNATSConsumers(
 		return nil, nil, fmt.Errorf("connect nats: %w", err)
 	}
 
-	hostname, _ := os.Hostname()
-	consumerPrefix := fmt.Sprintf("archiver-%s-%d", hostname, os.Getpid())
-
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
 		return nil, nil, fmt.Errorf("create jetstream: %w", err)
 	}
 
-	natsConsumer, err := archiver.NewNATSConsumer(
-		js, db.Pool, metricsInvalidator,
-		cfg.Archiver.Streams.BatchSize,
-		cfg.Archiver.Streams.BlockTimeout,
-		consumerPrefix+"-nats",
-		cfg,
-		logger,
-	)
+	runtime, err = archiver.NewRuntime(js, db.Pool, metricsInvalidator, cfg, logger)
 	if err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("create nats consumer: %w", err)
+		return nil, nil, fmt.Errorf("create persistence runtime: %w", err)
 	}
-
-	go func() {
-		if err := natsConsumer.Start(ctx); err != nil {
-			logger.Error("nats consumer exited with error", zap.Error(err))
-		}
-	}()
-
-	flushInterval := cfg.Archiver.Streams.StepStateFlushInterval
-	if flushInterval == 0 {
-		flushInterval = 5 * time.Second
-	}
-
-	stepStateConsumer, err := archiver.NewStepStateConsumer(
-		js, db.Pool,
-		cfg.Archiver.Streams.BatchSize,
-		flushInterval,
-		consumerPrefix+"-step-state",
-		logger,
-	)
-	if err != nil {
+	if err := runtime.Start(ctx); err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("create step state consumer: %w", err)
-	}
-
-	if err := stepStateConsumer.Start(ctx); err != nil {
-		nc.Close()
-		return nil, nil, fmt.Errorf("start step state consumer: %w", err)
+		return nil, nil, fmt.Errorf("start persistence runtime: %w", err)
 	}
 
 	logger.Info("nats consumers started", zap.String("url", natsURL))
-	return stepStateConsumer, nc, nil
+	return runtime, nc, nil
 }
 
 func maskURL(url string) string {

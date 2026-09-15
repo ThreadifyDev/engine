@@ -89,7 +89,7 @@ func TestWebSocket_ExecutionSuccess_NotificationReceived(t *testing.T) {
 		}
 	}
 	require.NotNil(t, recordResp, "should receive recordThreadEvent response")
-	require.NotNil(t, notification, "should receive execution.success notification")
+	require.NotNil(t, notification, "should receive step.success notification")
 	require.Equal(t, "success", recordResp["status"])
 	require.Equal(t, "recordThreadEvent", recordResp["action"])
 
@@ -127,7 +127,7 @@ func TestWebSocket_ExecutionSuccess_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }
@@ -214,7 +214,7 @@ func TestWebSocket_ExecutionFailed_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }
@@ -301,7 +301,7 @@ func TestWebSocket_ValidationPassed_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }
@@ -384,7 +384,7 @@ func TestWebSocket_ThreadCancelled_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }
@@ -507,7 +507,7 @@ func TestWebSocket_ThreadCompleted_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }
@@ -584,7 +584,7 @@ func TestWebSocket_RuleViolated_NotificationReceived(t *testing.T) {
 			"action":   "ack_notification",
 			"ackToken": ackToken,
 		})
-		ackResp := enginetest.ReadWSWithTimeout(t, conn, 5*time.Second)
+		ackResp := enginetest.ReadWSAction(t, conn, "ack_notification", 5*time.Second)
 		assert.Equal(t, "success", ackResp["status"])
 	}
 }

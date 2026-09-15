@@ -229,3 +229,44 @@ func TestNATSConsumer_processThreadMetadata_PropagatesWriterError(t *testing.T) 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "db write failed")
 }
+
+func TestNATSConsumer_processActivityLog_DropsMissingThreadIDWithoutBlockingValidEvents(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	js := NewMockJetStreamPublisher(ctrl)
+	writer := NewMockConsumerWriter(ctrl)
+
+	writer.EXPECT().
+		WriteActivityLog(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, events []StreamEvent) error {
+			if assert.Len(t, events, 1) {
+				assert.Equal(t, "thread-1", events[0].Data["threadId"])
+				assert.Equal(t, "step_recorded", events[0].Data["type"])
+			}
+			return nil
+		}).
+		Times(1)
+
+	c := newTestNATSConsumer(js, writer, &config.Config{}, zap.NewNop())
+
+	malformedData, _ := json.Marshal(map[string]interface{}{
+		"type":  "access_granted",
+		"actor": "user-1",
+	})
+	malformed := NewMockMsg(ctrl)
+	malformed.EXPECT().Data().Return(malformedData).AnyTimes()
+
+	validData, _ := json.Marshal(map[string]interface{}{
+		"threadId": "thread-1",
+		"type":     "step_recorded",
+		"hash":     "hmac-sha256-v1:abc",
+	})
+	valid := NewMockMsg(ctrl)
+	valid.EXPECT().Data().Return(validData).AnyTimes()
+	valid.EXPECT().Subject().Return("activity.log").AnyTimes()
+
+	err := c.processActivityLog(context.Background(), []jetstream.Msg{malformed, valid})
+
+	assert.NoError(t, err)
+}

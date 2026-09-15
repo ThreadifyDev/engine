@@ -2,6 +2,7 @@ package dto
 
 // ContractGraphDTO represents the DAG structure of a contract for JSON serialization
 type ContractGraphDTO struct {
+	SemanticsVersion   int                 `json:"semantics_version,omitempty"`
 	Graph              GraphDTO            `json:"graph"`
 	Transitions        []Transition        `json:"transitions,omitempty"`
 	Validation         *Validation         `json:"validation,omitempty"`

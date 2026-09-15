@@ -35,7 +35,7 @@ interface SearchFilters {
   status?: string;
 }
 
-type ParsedSearchType = 'thread_id' | 'contract' | 'reference';
+type ParsedSearchType = 'thread_id' | 'contract' | 'reference' | 'tag';
 
 interface ParsedSearch {
   type: ParsedSearchType;
@@ -96,6 +96,13 @@ export default function ThreadsPage() {
     const trimmed = query.trim();
     
     // Check for explicit prefixes
+    if (trimmed.startsWith('tag:')) {
+      return {
+        type: 'tag',
+        value: trimmed.substring(4).trim(),
+      };
+    }
+
     if (trimmed.startsWith('contract:')) {
       return {
         type: 'contract',
@@ -183,6 +190,21 @@ export default function ThreadsPage() {
             });
             results = contractResponse.threads;
             setTotalResults(contractResponse.totalCount);
+            break;
+            
+          case 'tag':
+            // Search by tag
+            const tagResponse = await graphqlClient.getThreads({
+              tags: [parsed.value],
+              contractName: activeFilters.contractName,
+              status: activeFilters.status,
+              startedAfter,
+              startedBefore,
+              limit: resultsPerPage,
+              offset,
+            });
+            results = tagResponse.threads;
+            setTotalResults(tagResponse.totalCount);
             break;
             
           case 'reference':
@@ -358,7 +380,15 @@ export default function ThreadsPage() {
 
               {!isSearching && !error && hasSearched && (
                 <div className="mt-4">
-                  <ThreadSearchResults threads={searchResults} navigate={navigate} />
+                  <ThreadSearchResults 
+                    threads={searchResults} 
+                    navigate={navigate} 
+                    onTagClick={(tag) => {
+                      const newFilters = { ...filters, searchQuery: `tag:${tag}` };
+                      setFilters(newFilters);
+                      performAdvancedSearch(1, newFilters);
+                    }}
+                  />
                   {(currentPage > 1 || totalResults > resultsPerPage) && (
                     <PaginationControls
                       currentPage={currentPage}
@@ -459,7 +489,7 @@ function AdvancedSearchFilters({
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="Search by thread ID, contract name, or reference value..."
+            placeholder="Search by thread ID, contract, tag, or reference value..."
             value={filters.searchQuery || ''}
             onChange={(e) => onChange({ ...filters, searchQuery: e.target.value })}
             onKeyPress={handleKeyPress}
@@ -484,8 +514,9 @@ function AdvancedSearchFilters({
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-1.5">
-          <b>Tip</b>: Use <code className="bg-gray-100 px-1 py-0.5 rounded">contract:order_fulfillment</code> or{' '}
-          <code className="bg-gray-100 px-1 py-0.5 rounded">ref:customer@example.com</code> for specific searches
+          <b>Tip</b>: Use <code className="bg-gray-100 px-1 py-0.5 rounded">contract:order_fulfillment</code>,{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded">ref:customer@example.com</code> or{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded">tag:vip</code> for specific searches
         </p>
       </div>
 
@@ -632,7 +663,15 @@ function AdvancedSearchFilters({
 }
 
 // Search Results Component
-function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigate: any }) {
+function ThreadSearchResults({ 
+  threads, 
+  navigate,
+  onTagClick 
+}: { 
+  threads: Thread[]; 
+  navigate: any;
+  onTagClick?: (tag: string) => void;
+}) {
   if (threads.length === 0) {
     return (
       <div className="border border-gray-200 rounded-lg p-8 text-center bg-white">
@@ -687,9 +726,35 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
                 </div>
 
-                <p className="text-xs text-gray-500 font-mono mb-2 truncate">
-                  {thread.contractName && thread.contractVersion ? `${thread.contractName} v${thread.contractVersion}` : '-'}
-                </p>
+                {thread.contractName && thread.contractVersion ? (
+                  <p className="text-xs text-gray-500 font-mono mb-2 truncate">
+                    {`${thread.contractName} v${thread.contractVersion}`}
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-1 mb-2">
+                    {thread.tags && thread.tags.length > 0 && (
+                      <>
+                        {thread.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            onClick={(e) => {
+                              if (onTagClick) {
+                                e.stopPropagation();
+                                onTagClick(tag);
+                              }
+                            }}
+                            className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200 ${onTagClick ? 'cursor-pointer hover:bg-violet-100' : ''}`}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        {thread.tags.length > 3 && (
+                          <span className="text-[10px] text-gray-500">+{thread.tags.length - 3}</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3 text-xs text-gray-600">
                   {thread.startedAt && (
@@ -703,14 +768,36 @@ function ThreadSearchResults({ threads, navigate }: { threads: Thread[]; navigat
                       {Object.entries(refs).slice(0, 2).map(([key, value]) => (
                         <span
                           key={key}
-                          className="inline-flex items-center px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded"
+                          className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
                         >
-                          <span className="font-medium">{key}:</span>
-                          <span className="ml-0.5">{String(value)}</span>
+                          <span className="font-medium text-gray-500">{key}:</span>
+                          <span className="ml-0.5 font-mono text-gray-700">{String(value)}</span>
                         </span>
                       ))}
                       {Object.keys(refs).length > 2 && (
                         <span className="text-xs text-gray-500">+{Object.keys(refs).length - 2} more</span>
+                      )}
+                    </div>
+                  )}
+                  {/* Tags for threads with a contract are displayed next to the contract */}
+                  {thread.contractName && thread.tags && thread.tags.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {thread.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          onClick={(e) => {
+                            if (onTagClick) {
+                              e.stopPropagation();
+                              onTagClick(tag);
+                            }
+                          }}
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200 ${onTagClick ? 'cursor-pointer hover:bg-violet-100' : ''}`}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {thread.tags.length > 3 && (
+                        <span className="text-[10px] text-gray-500">+{thread.tags.length - 3}</span>
                       )}
                     </div>
                   )}

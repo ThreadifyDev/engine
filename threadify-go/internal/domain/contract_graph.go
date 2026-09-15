@@ -3,12 +3,17 @@ package domain
 // ContractGraph represents the DAG structure of a contract
 // Metadata (contract_id, version) is stored in contract_versions table
 type ContractGraph struct {
+	SemanticsVersion   int
 	Graph              Graph
 	Transitions        []Transition
 	Validation         *Validation
 	Parties            []string
 	NotificationConfig *NotificationConfig
 }
+
+// CurrentContractGraphSemantics identifies graphs where depends_on is a
+// partial-order constraint rather than a synthesized immediate transition.
+const CurrentContractGraphSemantics = 2
 
 // Graph contains the nodes, entry points, and terminal steps of the workflow
 type Graph struct {

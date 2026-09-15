@@ -222,3 +222,167 @@ func (r *ThreadNotificationRepository) GetNotificationSummary(
 
 	return &summary, nil
 }
+
+// GetGlobalNotifications retrieves cross-thread notifications with optional filters.
+func (r *ThreadNotificationRepository) GetGlobalNotifications(
+	ctx context.Context,
+	companyID string,
+	contractName *string,
+	refKey *string,
+	refValue *string,
+	severity []string,
+	startedAfter *string,
+	startedBefore *string,
+	limit int,
+	offset int,
+) ([]*domain.ThreadNotification, error) {
+	query := `
+		SELECT 
+			a.notification_id,
+			a.thread_id,
+			a.step_id,
+			a.step_name,
+			a.idempotency_key,
+			a.source,
+			a.notification_type,
+			a.step_status,
+			a.validation_status,
+			a.violation_type,
+			a.severity,
+			a.message,
+			a.details::text as details,
+			a.timestamp
+		FROM thread_notifications a
+		JOIN threads t ON a.thread_id = t.id
+	`
+
+	// Add joins if we need to filter by refs
+	if (refKey != nil && *refKey != "") || (refValue != nil && *refValue != "") {
+		query += ` JOIN thread_refs r ON a.thread_id = r.thread_id`
+	}
+
+	query += ` WHERE t.company_id = $1`
+
+	args := []interface{}{companyID}
+	argIndex := 2
+
+	if contractName != nil && *contractName != "" {
+		query += fmt.Sprintf(" AND t.contract_name = $%d", argIndex)
+		args = append(args, *contractName)
+		argIndex++
+	}
+
+	if refKey != nil && *refKey != "" {
+		query += fmt.Sprintf(" AND r.ref_key = $%d", argIndex)
+		args = append(args, *refKey)
+		argIndex++
+	}
+
+	if refValue != nil && *refValue != "" {
+		query += fmt.Sprintf(" AND r.ref_value = $%d", argIndex)
+		args = append(args, *refValue)
+		argIndex++
+	}
+
+	if len(severity) > 0 {
+		placeholders := make([]string, len(severity))
+		for i, sev := range severity {
+			placeholders[i] = fmt.Sprintf("$%d", argIndex)
+			args = append(args, sev)
+			argIndex++
+		}
+		query += fmt.Sprintf(" AND a.severity IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	if startedAfter != nil && *startedAfter != "" {
+		query += fmt.Sprintf(" AND a.timestamp >= $%d", argIndex)
+		args = append(args, *startedAfter)
+		argIndex++
+	}
+
+	if startedBefore != nil && *startedBefore != "" {
+		query += fmt.Sprintf(" AND a.timestamp <= $%d", argIndex)
+		args = append(args, *startedBefore)
+		argIndex++
+	}
+
+	query += " ORDER BY a.timestamp DESC"
+
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, limit)
+		argIndex++
+	} else {
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
+		args = append(args, 100)
+		argIndex++
+	}
+
+	if offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", argIndex)
+		args = append(args, offset)
+	}
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query global notifications: %w", err)
+	}
+	defer rows.Close()
+
+	var notifications []*domain.ThreadNotification
+	for rows.Next() {
+		var notif domain.ThreadNotification
+		var detailsStr *string
+		var idempotencyKey, stepStatus, validationStatus, violationType, sev *string
+
+		err := rows.Scan(
+			&notif.NotificationID,
+			&notif.ThreadID,
+			&notif.StepID,
+			&notif.StepName,
+			&idempotencyKey,
+			&notif.Source,
+			&notif.NotificationType,
+			&stepStatus,
+			&validationStatus,
+			&violationType,
+			&sev,
+			&notif.Message,
+			&detailsStr,
+			&notif.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan global notification: %w", err)
+		}
+
+		if idempotencyKey != nil {
+			notif.IdempotencyKey = *idempotencyKey
+		}
+		if stepStatus != nil {
+			notif.StepStatus = *stepStatus
+		}
+		if validationStatus != nil {
+			notif.ValidationStatus = *validationStatus
+		}
+		if violationType != nil {
+			notif.ViolationType = *violationType
+		}
+		if sev != nil {
+			notif.Severity = *sev
+		}
+
+		if detailsStr != nil && *detailsStr != "" {
+			if err := json.Unmarshal([]byte(*detailsStr), &notif.Details); err != nil {
+				return nil, fmt.Errorf("failed to parse details JSON: %w", err)
+			}
+		}
+
+		notifications = append(notifications, &notif)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating global notifications: %w", err)
+	}
+
+	return notifications, nil
+}

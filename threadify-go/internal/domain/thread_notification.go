@@ -13,7 +13,7 @@ type ThreadNotification struct {
 	StepName         string
 	IdempotencyKey   string
 	Source           string // 'execution', 'validation', 'thread'
-	NotificationType string // 'execution.success', 'validation.violated', etc.
+	NotificationType string // 'step.success', 'rule.violated', etc.
 	StepStatus       string // 'success', 'failed', 'error'
 	ValidationStatus string // 'passed', 'violated', 'none'
 	ViolationType    string
@@ -29,7 +29,7 @@ type ThreadNotificationQueryOptions struct {
 	StepID           string
 	StepName         string
 	Source           string   // 'execution', 'validation', 'thread'
-	NotificationType string   // 'execution.success', etc.
+	NotificationType string   // 'step.success', etc.
 	Severity         []string // ['critical', 'warning']
 	Limit            int
 	Offset           int

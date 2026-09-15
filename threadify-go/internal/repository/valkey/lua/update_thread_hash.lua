@@ -30,6 +30,14 @@ end
 -- Update atomically
 threadObj.lastHash = newHash
 threadObj.hashVersion = version
-redis.call('SET', threadKey, cjson.encode(threadObj))
+local ttl = redis.call('PTTL', threadKey)
+if ttl >= 0 then
+    if ttl == 0 then
+        ttl = 1
+    end
+    redis.call('SET', threadKey, cjson.encode(threadObj), 'PX', ttl)
+else
+    redis.call('SET', threadKey, cjson.encode(threadObj))
+end
 
 return {1}  -- Success

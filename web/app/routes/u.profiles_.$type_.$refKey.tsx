@@ -7,15 +7,15 @@ import AppLayout from '~/components/AppLayout';
 import { 
   UserCircle, Activity, 
   ChevronLeft, AlertTriangle,
-  TrendingUp, TrendingDown, Calendar, Search, History as HistoryIcon, LayoutDashboard, BarChart2
+  History as HistoryIcon, LayoutDashboard, BarChart2
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 
 import OverviewTab from '~/components/profiles/OverviewTab';
 import MetricsTab from '~/components/profiles/MetricsTab';
+import DeliveryHealthTab from '~/components/profiles/DeliveryHealthTab';
 import HistoryTab from '~/components/profiles/HistoryTab';
 
-type TabType = 'overview' | 'history' | 'metrics';
+type TabType = 'overview' | 'history' | 'metrics' | 'delivery-health';
 
 export const meta: MetaFunction = ({ params }) => {
   return [
@@ -34,7 +34,7 @@ export default function EntityProfileDetail() {
   const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab') as TabType | null;
-  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview' || urlTab === 'metrics') ? urlTab : 'overview';
+  const activeTab: TabType = (urlTab === 'history' || urlTab === 'overview' || urlTab === 'metrics' || urlTab === 'delivery-health') ? urlTab : 'overview';
 
   useEffect(() => {
     if (!type || !refKey) {
@@ -78,10 +78,16 @@ export default function EntityProfileDetail() {
     return <OverviewTab profile={profile} metrics={metrics} />;
   }, [profile, metrics]);
 
+  const memoizedDeliveryHealthTab = useMemo(() => {
+    if (!refKey || !type) return null;
+    return <DeliveryHealthTab refKey={refKey} type={type} />;
+  }, [refKey, type]);
+
   const memoizedMetricsTab = useMemo(() => {
     if (!refKey || !type) return null;
-    return <MetricsTab refKey={refKey} type={type} />;
-  }, [refKey, type]);
+    const hasMetricsConfig = ((profile as any)?.profileType?.metricsConfig?.length ?? 0) > 0;
+    return <MetricsTab refKey={refKey} type={type} hasMetricsConfig={hasMetricsConfig} />;
+  }, [refKey, type, (profile as any)?.profileType?.metricsConfig?.length]);
 
   const memoizedHistoryTab = useMemo(() => {
     if (!profile || !refKey) return null;
@@ -110,14 +116,14 @@ export default function EntityProfileDetail() {
   if (error || !profile) {
     return (
       <AppLayout>
-        <div className="p-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto mt-12">
-          <button 
+        <div className="p-8">
+          <button
             onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
             className="text-red-700 hover:text-red-800 mb-6 flex items-center gap-2 text-sm font-medium transition-colors"
           >
             <ChevronLeft className="w-4 h-4" /> Back to Profiles
           </button>
-          
+
           <div className="bg-red-50 border border-red-100 rounded-xl p-8 text-center flex flex-col items-center">
             <AlertTriangle className="w-12 h-12 text-red-400 mb-4" />
             <h2 className="text-xl font-bold text-red-900 mb-2">Profile Not Found</h2>
@@ -160,24 +166,15 @@ export default function EntityProfileDetail() {
                 )}
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                {profile.profileType?.type?.map((key: string) => (
+                {profile.profileType?.type?.filter((k: string) => k !== type).map((key: string) => (
                   <span 
                     key={key}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wider ${
-                      key === refKey 
-                        ? 'bg-blue-100 text-blue-700 border border-blue-200' 
-                        : 'bg-gray-100 text-gray-600 border border-gray-200'
-                    }`}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs opacity-60"
+                    title="Missing value for this identifier type"
                   >
-                    {key}
+                    <span className="font-medium text-gray-500">{key}</span>
                   </span>
                 ))}
-                {!profile.profileType && (
-                  <>
-                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-xs">{type}</span>
-                    <span className="ml-2 text-gray-400 font-mono text-xs">{refKey}</span>
-                  </>
-                )}
               </div>
             </div>
           </div>
@@ -197,6 +194,17 @@ export default function EntityProfileDetail() {
             >
               <LayoutDashboard className="w-4 h-4" />
               Overview
+            </button>
+          <button
+              onClick={() => setSearchParams(prev => { prev.set('tab', 'delivery-health'); return prev; })}
+              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                activeTab === 'delivery-health'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <BarChart2 className="w-4 h-4" />
+              Delivery Health
             </button>
             <button
               onClick={() => setSearchParams(prev => { prev.set('tab', 'metrics'); return prev; })}
@@ -224,6 +232,7 @@ export default function EntityProfileDetail() {
         </div>
         <div className="mt-4">
           {activeTab === 'overview' && memoizedOverviewTab}
+          {activeTab === 'delivery-health' && memoizedDeliveryHealthTab}
           {activeTab === 'metrics' && memoizedMetricsTab}
           {activeTab === 'history' && memoizedHistoryTab}
         </div>

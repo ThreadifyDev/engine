@@ -119,9 +119,12 @@ func (l *Loader) GetPermissionsForRoles(roleNames []string, scopeLevel string) [
 	permissionSet := make(map[string]bool) // Deduplicate permissions
 
 	var roles map[string]Role
-	if scopeLevel == "app_level" {
+	switch scopeLevel {
+	case "app_level":
 		roles = l.roles.AppLevel
-	} else {
+	case "api_level":
+		roles = l.roles.APILevel
+	default:
 		roles = l.roles.RuntimeLevel
 	}
 

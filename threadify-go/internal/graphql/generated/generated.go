@@ -62,10 +62,23 @@ type ComplexityRoot struct {
 		Validation         func(childComplexity int) int
 	}
 
+	CustomMetricDefinition struct {
+		Field         func(childComplexity int) int
+		Filters       func(childComplexity int) int
+		Granularity   func(childComplexity int) int
+		GroupBy       func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Operation     func(childComplexity int) int
+		StepName      func(childComplexity int) int
+		Target        func(childComplexity int) int
+		Visualisation func(childComplexity int) int
+	}
+
 	EntityProfile struct {
 		CompanyID       func(childComplexity int) int
 		ComputedMetrics func(childComplexity int, rangeArg *string) int
 		CreatedAt       func(childComplexity int) int
+		DeliveryHealth  func(childComplexity int, rangeArg *string) int
 		ID              func(childComplexity int) int
 		LastActiveAt    func(childComplexity int) int
 		Metrics         func(childComplexity int) int
@@ -105,9 +118,11 @@ type ComplexityRoot struct {
 	}
 
 	EntityTypeMetricConfig struct {
-		Name       func(childComplexity int) int
-		Parameters func(childComplexity int) int
-		TemplateID func(childComplexity int) int
+		CustomDefinition func(childComplexity int) int
+		ID               func(childComplexity int) int
+		Name             func(childComplexity int) int
+		Parameters       func(childComplexity int) int
+		TemplateID       func(childComplexity int) int
 	}
 
 	Graph struct {
@@ -118,6 +133,7 @@ type ComplexityRoot struct {
 
 	GraphNode struct {
 		BusinessContext func(childComplexity int) int
+		DependsOn       func(childComplexity int) int
 		ID              func(childComplexity int) int
 		MaxDuration     func(childComplexity int) int
 		Mode            func(childComplexity int) int
@@ -163,16 +179,18 @@ type ComplexityRoot struct {
 	Query struct {
 		CheckCredits          func(childComplexity int, meter *string, amount *int) int
 		ContractGraph         func(childComplexity int, name string, version *int) int
+		ContractViolations    func(childComplexity int, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfile         func(childComplexity int, id *string, refKey *string, typeArg *string) int
 		EntityProfileHistory  func(childComplexity int, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		EntityProfileTypes    func(childComplexity int) int
 		EntityProfilesByType  func(childComplexity int, typeArg string, search *string, limit *int, offset *int) int
+		ProposeStep           func(childComplexity int, threadID string, stepName string) int
 		ResolveActors         func(childComplexity int, ids []string) int
 		StepHistory           func(childComplexity int, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) int
 		Thread                func(childComplexity int, id string) int
 		ThreadChain           func(childComplexity int, rootID string, maxDepth *int) int
-		Threads               func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
-		ThreadsByContract     func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
+		Threads               func(childComplexity int, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) int
+		ThreadsByContract     func(childComplexity int, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ThreadsByRef          func(childComplexity int, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) int
 		ValidationResults     func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
 		VerifyStepIntegrity   func(childComplexity int, threadID string, stepName string, idempotencyKey string) int
@@ -202,6 +220,17 @@ type ComplexityRoot struct {
 		Hash     func(childComplexity int) int
 		PrevHash func(childComplexity int) int
 		Verified func(childComplexity int) int
+	}
+
+	StepProposal struct {
+		Allowed        func(childComplexity int) int
+		MissingSteps   func(childComplexity int) int
+		PreviousStep   func(childComplexity int) int
+		Reason         func(childComplexity int) int
+		RequiredSteps  func(childComplexity int) int
+		SatisfiedSteps func(childComplexity int) int
+		StepName       func(childComplexity int) int
+		ThreadID       func(childComplexity int) int
 	}
 
 	StepStateInfo struct {
@@ -258,6 +287,7 @@ type ComplexityRoot struct {
 		StartedAt           func(childComplexity int) int
 		Status              func(childComplexity int) int
 		Steps               func(childComplexity int, stepName *string, idempotencyKey *string, status *string) int
+		Tags                func(childComplexity int) int
 		ThreadChain         func(childComplexity int, maxDepth *int) int
 		ValidationResults   func(childComplexity int, options *domain.ValidationQueryOptions) int
 	}
@@ -326,6 +356,7 @@ type ComplexityRoot struct {
 
 type EntityProfileResolver interface {
 	ComputedMetrics(ctx context.Context, obj *EntityProfile, rangeArg *string) (scalars.JSON, error)
+	DeliveryHealth(ctx context.Context, obj *EntityProfile, rangeArg *string) (scalars.JSON, error)
 }
 type GraphResolver interface {
 	Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error)
@@ -346,12 +377,13 @@ type NotificationConfigResolver interface {
 }
 type QueryResolver interface {
 	Thread(ctx context.Context, id string) (*domain.Thread, error)
-	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
-	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
+	ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	ThreadsByRef(ctx context.Context, refKey *string, refValue string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	EntityProfileHistory(ctx context.Context, profileID string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error)
 	ThreadChain(ctx context.Context, rootID string, maxDepth *int) ([]*domain.Thread, error)
 	ContractGraph(ctx context.Context, name string, version *int) (*domain.ContractGraph, error)
+	ProposeStep(ctx context.Context, threadID string, stepName string) (*domain.StepProposal, error)
 	StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error)
 	ValidationResults(ctx context.Context, threadID string, stepName string, idempotencyKey string) ([]*domain.ValidationResultInfo, error)
 	ResolveActors(ctx context.Context, ids []string) ([]*domain.ActorInfo, error)
@@ -361,6 +393,7 @@ type QueryResolver interface {
 	EntityProfile(ctx context.Context, id *string, refKey *string, typeArg *string) (*EntityProfile, error)
 	EntityProfileTypes(ctx context.Context) ([]*EntityProfileType, error)
 	EntityProfilesByType(ctx context.Context, typeArg string, search *string, limit *int, offset *int) (*EntityProfileConnection, error)
+	ContractViolations(ctx context.Context, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*domain.ThreadNotification, error)
 }
 type StepHistoryResolver interface {
 	Error(ctx context.Context, obj *domain.StepHistory) (*string, error)
@@ -390,6 +423,7 @@ type ThreadResolver interface {
 
 	Steps(ctx context.Context, obj *domain.Thread, stepName *string, idempotencyKey *string, status *string) ([]*domain.StepStateInfo, error)
 	ValidationResults(ctx context.Context, obj *domain.Thread, options *domain.ValidationQueryOptions) ([]*domain.ValidationResultInfo, error)
+
 	NotificationSummary(ctx context.Context, obj *domain.Thread) (*domain.NotificationSummary, error)
 	Notifications(ctx context.Context, obj *domain.Thread, options *domain.ThreadNotificationQueryOptions) ([]*domain.ThreadNotification, error)
 	ThreadChain(ctx context.Context, obj *domain.Thread, maxDepth *int) ([]*domain.Thread, error)
@@ -474,6 +508,61 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ContractGraph.Validation(childComplexity), true
 
+	case "CustomMetricDefinition.field":
+		if e.ComplexityRoot.CustomMetricDefinition.Field == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Field(childComplexity), true
+	case "CustomMetricDefinition.filters":
+		if e.ComplexityRoot.CustomMetricDefinition.Filters == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Filters(childComplexity), true
+	case "CustomMetricDefinition.granularity":
+		if e.ComplexityRoot.CustomMetricDefinition.Granularity == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Granularity(childComplexity), true
+	case "CustomMetricDefinition.groupBy":
+		if e.ComplexityRoot.CustomMetricDefinition.GroupBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.GroupBy(childComplexity), true
+	case "CustomMetricDefinition.name":
+		if e.ComplexityRoot.CustomMetricDefinition.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Name(childComplexity), true
+	case "CustomMetricDefinition.operation":
+		if e.ComplexityRoot.CustomMetricDefinition.Operation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Operation(childComplexity), true
+	case "CustomMetricDefinition.stepName":
+		if e.ComplexityRoot.CustomMetricDefinition.StepName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.StepName(childComplexity), true
+	case "CustomMetricDefinition.target":
+		if e.ComplexityRoot.CustomMetricDefinition.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Target(childComplexity), true
+	case "CustomMetricDefinition.visualisation":
+		if e.ComplexityRoot.CustomMetricDefinition.Visualisation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CustomMetricDefinition.Visualisation(childComplexity), true
+
 	case "EntityProfile.companyId":
 		if e.ComplexityRoot.EntityProfile.CompanyID == nil {
 			break
@@ -497,6 +586,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.EntityProfile.CreatedAt(childComplexity), true
+	case "EntityProfile.deliveryHealth":
+		if e.ComplexityRoot.EntityProfile.DeliveryHealth == nil {
+			break
+		}
+
+		args, err := ec.field_EntityProfile_deliveryHealth_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.EntityProfile.DeliveryHealth(childComplexity, args["range"].(*string)), true
 	case "EntityProfile.id":
 		if e.ComplexityRoot.EntityProfile.ID == nil {
 			break
@@ -663,6 +763,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.EntityProfileType.UpdatedAt(childComplexity), true
 
+	case "EntityTypeMetricConfig.customDefinition":
+		if e.ComplexityRoot.EntityTypeMetricConfig.CustomDefinition == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.CustomDefinition(childComplexity), true
+	case "EntityTypeMetricConfig.id":
+		if e.ComplexityRoot.EntityTypeMetricConfig.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EntityTypeMetricConfig.ID(childComplexity), true
 	case "EntityTypeMetricConfig.name":
 		if e.ComplexityRoot.EntityTypeMetricConfig.Name == nil {
 			break
@@ -707,6 +819,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.GraphNode.BusinessContext(childComplexity), true
+	case "GraphNode.dependsOn":
+		if e.ComplexityRoot.GraphNode.DependsOn == nil {
+			break
+		}
+
+		return e.ComplexityRoot.GraphNode.DependsOn(childComplexity), true
 	case "GraphNode.id":
 		if e.ComplexityRoot.GraphNode.ID == nil {
 			break
@@ -907,6 +1025,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ContractGraph(childComplexity, args["name"].(string), args["version"].(*int)), true
+	case "Query.contractViolations":
+		if e.ComplexityRoot.Query.ContractViolations == nil {
+			break
+		}
+
+		args, err := ec.field_Query_contractViolations_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ContractViolations(childComplexity, args["contractName"].(*string), args["refKey"].(*string), args["refValue"].(*string), args["severity"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.entityProfile":
 		if e.ComplexityRoot.Query.EntityProfile == nil {
 			break
@@ -947,6 +1076,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.Query.EntityProfilesByType(childComplexity, args["type"].(string), args["search"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 
+	case "Query.proposeStep":
+		if e.ComplexityRoot.Query.ProposeStep == nil {
+			break
+		}
+
+		args, err := ec.field_Query_proposeStep_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ProposeStep(childComplexity, args["threadId"].(string), args["stepName"].(string)), true
 	case "Query.resolveActors":
 		if e.ComplexityRoot.Query.ResolveActors == nil {
 			break
@@ -1001,7 +1141,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.Threads(childComplexity, args["actor"].(*string), args["contractName"].(*string), args["contractVersion"].(*int), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["completedAfter"].(*string), args["completedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+		return e.ComplexityRoot.Query.Threads(childComplexity, args["actor"].(*string), args["contractName"].(*string), args["contractVersion"].(*int), args["status"].(*string), args["tags"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["completedAfter"].(*string), args["completedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.threadsByContract":
 		if e.ComplexityRoot.Query.ThreadsByContract == nil {
 			break
@@ -1012,7 +1152,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.ThreadsByContract(childComplexity, args["contractName"].(string), args["contractVersion"].(*int), args["actor"].(*string), args["status"].(*string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
+		return e.ComplexityRoot.Query.ThreadsByContract(childComplexity, args["contractName"].(string), args["contractVersion"].(*int), args["actor"].(*string), args["status"].(*string), args["tags"].([]string), args["startedAfter"].(*string), args["startedBefore"].(*string), args["limit"].(*int), args["offset"].(*int)), true
 	case "Query.threadsByRef":
 		if e.ComplexityRoot.Query.ThreadsByRef == nil {
 			break
@@ -1173,6 +1313,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.StepIntegrityStatus.Verified(childComplexity), true
+
+	case "StepProposal.allowed":
+		if e.ComplexityRoot.StepProposal.Allowed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.Allowed(childComplexity), true
+	case "StepProposal.missingSteps":
+		if e.ComplexityRoot.StepProposal.MissingSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.MissingSteps(childComplexity), true
+	case "StepProposal.previousStep":
+		if e.ComplexityRoot.StepProposal.PreviousStep == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.PreviousStep(childComplexity), true
+	case "StepProposal.reason":
+		if e.ComplexityRoot.StepProposal.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.Reason(childComplexity), true
+	case "StepProposal.requiredSteps":
+		if e.ComplexityRoot.StepProposal.RequiredSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.RequiredSteps(childComplexity), true
+	case "StepProposal.satisfiedSteps":
+		if e.ComplexityRoot.StepProposal.SatisfiedSteps == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.SatisfiedSteps(childComplexity), true
+	case "StepProposal.stepName":
+		if e.ComplexityRoot.StepProposal.StepName == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.StepName(childComplexity), true
+	case "StepProposal.threadId":
+		if e.ComplexityRoot.StepProposal.ThreadID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.StepProposal.ThreadID(childComplexity), true
 
 	case "StepStateInfo.actor":
 		if e.ComplexityRoot.StepStateInfo.Actor == nil {
@@ -1473,6 +1662,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Thread.Steps(childComplexity, args["stepName"].(*string), args["idempotencyKey"].(*string), args["status"].(*string)), true
+	case "Thread.tags":
+		if e.ComplexityRoot.Thread.Tags == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Thread.Tags(childComplexity), true
 	case "Thread.threadChain":
 		if e.ComplexityRoot.Thread.ThreadChain == nil {
 			break
@@ -1932,6 +2127,8 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Tags set at thread creation time (immutable)
+  tags: [String!]
   # Get notification summary counts (lightweight - load this first)
   notificationSummary: NotificationSummary!
   # Get notifications for this thread with full context (execution, validation, thread events)
@@ -1977,12 +2174,24 @@ type GraphNode {
   type: String!
   mode: String
   required: Boolean!
+  dependsOn: [String!]!
   next: [String!]
   steps: [String!]
   timeout: String
   maxDuration: String
   businessContext: JSON
   parentGroup: String
+}
+
+type StepProposal {
+  threadId: ID!
+  stepName: String!
+  allowed: Boolean!
+  requiredSteps: [String!]!
+  satisfiedSteps: [String!]!
+  missingSteps: [String!]!
+  previousStep: String
+  reason: String!
 }
 
 type Transition {
@@ -2013,6 +2222,7 @@ type Query {
     contractName: String
     contractVersion: Int
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     completedAfter: String
@@ -2027,6 +2237,7 @@ type Query {
     contractVersion: Int
     actor: String
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     limit: Int = 50
@@ -2060,6 +2271,9 @@ type Query {
   
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
+
+  # Evaluate a candidate step against the successful facts already gathered for the thread.
+  proposeStep(threadId: ID!, stepName: String!): StepProposal!
   # Get step history by stepName:idempKey or stepName (max limit: 1000)
   stepHistory(
     threadId: String!
@@ -2102,6 +2316,18 @@ type Query {
     limit: Int
     offset: Int
   ): EntityProfileConnection!
+  
+  # Get violations across threads, filterable by contract, entity, and severity.
+  contractViolations(
+    contractName: String
+    refKey: String
+    refValue: String
+    severity: [String!]
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [ThreadNotification!]!
 }
 
 type EntityProfileConnection {
@@ -2231,12 +2457,27 @@ type EntityProfile {
   lastActiveAt: String!
   metrics: EntityProfileMetrics
   computedMetrics(range: String): JSON
+  deliveryHealth(range: String): JSON
+}
+
+type CustomMetricDefinition {
+  name: String!
+  target: String
+  stepName: String
+  operation: String
+  field: String
+  filters: JSON
+  groupBy: String
+  granularity: String
+  visualisation: String
 }
 
 type EntityTypeMetricConfig {
+  id: String
   templateId: String!
   name: String
   parameters: JSON
+  customDefinition: CustomMetricDefinition
 }
 
 type EntityProfileType {
@@ -2258,6 +2499,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // region    ***************************** args.gotpl *****************************
 
 func (ec *executionContext) field_EntityProfile_computedMetrics_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "range", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["range"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_EntityProfile_deliveryHealth_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "range", ec.unmarshalOString2ᚖstring)
@@ -2319,6 +2571,52 @@ func (ec *executionContext) field_Query_contractGraph_args(ctx context.Context, 
 		return nil, err
 	}
 	args["version"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_contractViolations_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "contractName", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["contractName"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "refKey", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["refKey"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "refValue", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["refValue"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "severity", ec.unmarshalOString2ᚕstringᚄ)
+	if err != nil {
+		return nil, err
+	}
+	args["severity"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedAfter"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	if err != nil {
+		return nil, err
+	}
+	args["startedBefore"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg7
 	return args, nil
 }
 
@@ -2402,6 +2700,22 @@ func (ec *executionContext) field_Query_entityProfilesByType_args(ctx context.Co
 		return nil, err
 	}
 	args["offset"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_proposeStep_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "threadId", ec.unmarshalNID2string)
+	if err != nil {
+		return nil, err
+	}
+	args["threadId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "stepName", ec.unmarshalNString2string)
+	if err != nil {
+		return nil, err
+	}
+	args["stepName"] = arg1
 	return args, nil
 }
 
@@ -2517,26 +2831,31 @@ func (ec *executionContext) field_Query_threadsByContract_args(ctx context.Conte
 		return nil, err
 	}
 	args["status"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "tags", ec.unmarshalOString2ᚕstringᚄ)
 	if err != nil {
 		return nil, err
 	}
-	args["startedAfter"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	args["tags"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["startedBefore"] = arg5
-	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	args["startedAfter"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["limit"] = arg6
-	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	args["startedBefore"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
 	if err != nil {
 		return nil, err
 	}
-	args["offset"] = arg7
+	args["limit"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg8
 	return args, nil
 }
 
@@ -2604,36 +2923,41 @@ func (ec *executionContext) field_Query_threads_args(ctx context.Context, rawArg
 		return nil, err
 	}
 	args["status"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "tags", ec.unmarshalOString2ᚕstringᚄ)
 	if err != nil {
 		return nil, err
 	}
-	args["startedAfter"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
+	args["tags"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "startedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["startedBefore"] = arg5
-	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "completedAfter", ec.unmarshalOString2ᚖstring)
+	args["startedAfter"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "startedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["completedAfter"] = arg6
-	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "completedBefore", ec.unmarshalOString2ᚖstring)
+	args["startedBefore"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "completedAfter", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["completedBefore"] = arg7
-	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
+	args["completedAfter"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "completedBefore", ec.unmarshalOString2ᚖstring)
 	if err != nil {
 		return nil, err
 	}
-	args["limit"] = arg8
-	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	args["completedBefore"] = arg8
+	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "limit", ec.unmarshalOInt2ᚖint)
 	if err != nil {
 		return nil, err
 	}
-	args["offset"] = arg9
+	args["limit"] = arg9
+	arg10, err := graphql.ProcessArgField(ctx, rawArgs, "offset", ec.unmarshalOInt2ᚖint)
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg10
 	return args, nil
 }
 
@@ -3125,6 +3449,267 @@ func (ec *executionContext) fieldContext_ContractGraph_notificationConfig(_ cont
 	return fc, nil
 }
 
+func (ec *executionContext) _CustomMetricDefinition_name(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_name,
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_target(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_target,
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_stepName(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_stepName,
+		func(ctx context.Context) (any, error) {
+			return obj.StepName, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_stepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_operation(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_operation,
+		func(ctx context.Context) (any, error) {
+			return obj.Operation, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_operation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_field(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_field,
+		func(ctx context.Context) (any, error) {
+			return obj.Field, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_field(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_filters(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_filters,
+		func(ctx context.Context) (any, error) {
+			return obj.Filters, nil
+		},
+		nil,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_filters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_groupBy(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_groupBy,
+		func(ctx context.Context) (any, error) {
+			return obj.GroupBy, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_groupBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_granularity(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_granularity,
+		func(ctx context.Context) (any, error) {
+			return obj.Granularity, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_granularity(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _CustomMetricDefinition_visualisation(ctx context.Context, field graphql.CollectedField, obj *CustomMetricDefinition) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_CustomMetricDefinition_visualisation,
+		func(ctx context.Context) (any, error) {
+			return obj.Visualisation, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_CustomMetricDefinition_visualisation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "CustomMetricDefinition",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _EntityProfile_id(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3465,6 +4050,47 @@ func (ec *executionContext) fieldContext_EntityProfile_computedMetrics(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityProfile_deliveryHealth(ctx context.Context, field graphql.CollectedField, obj *EntityProfile) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityProfile_deliveryHealth,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.EntityProfile().DeliveryHealth(ctx, obj, fc.Args["range"].(*string))
+		},
+		nil,
+		ec.marshalOJSON2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋscalarsᚐJSON,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityProfile_deliveryHealth(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityProfile",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type JSON does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_EntityProfile_deliveryHealth_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _EntityProfileConnection_items(ctx context.Context, field graphql.CollectedField, obj *EntityProfileConnection) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3509,6 +4135,8 @@ func (ec *executionContext) fieldContext_EntityProfileConnection_items(_ context
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
 			case "computedMetrics":
 				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
+			case "deliveryHealth":
+				return ec.fieldContext_EntityProfile_deliveryHealth(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -4080,14 +4708,47 @@ func (ec *executionContext) fieldContext_EntityProfileType_metricsConfig(_ conte
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			switch field.Name {
+			case "id":
+				return ec.fieldContext_EntityTypeMetricConfig_id(ctx, field)
 			case "templateId":
 				return ec.fieldContext_EntityTypeMetricConfig_templateId(ctx, field)
 			case "name":
 				return ec.fieldContext_EntityTypeMetricConfig_name(ctx, field)
 			case "parameters":
 				return ec.fieldContext_EntityTypeMetricConfig_parameters(ctx, field)
+			case "customDefinition":
+				return ec.fieldContext_EntityTypeMetricConfig_customDefinition(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityTypeMetricConfig", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EntityTypeMetricConfig_id(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_id,
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4180,6 +4841,55 @@ func (ec *executionContext) fieldContext_EntityTypeMetricConfig_parameters(_ con
 	return fc, nil
 }
 
+func (ec *executionContext) _EntityTypeMetricConfig_customDefinition(ctx context.Context, field graphql.CollectedField, obj *EntityTypeMetricConfig) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_EntityTypeMetricConfig_customDefinition,
+		func(ctx context.Context) (any, error) {
+			return obj.CustomDefinition, nil
+		},
+		nil,
+		ec.marshalOCustomMetricDefinition2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐCustomMetricDefinition,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_EntityTypeMetricConfig_customDefinition(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "EntityTypeMetricConfig",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "name":
+				return ec.fieldContext_CustomMetricDefinition_name(ctx, field)
+			case "target":
+				return ec.fieldContext_CustomMetricDefinition_target(ctx, field)
+			case "stepName":
+				return ec.fieldContext_CustomMetricDefinition_stepName(ctx, field)
+			case "operation":
+				return ec.fieldContext_CustomMetricDefinition_operation(ctx, field)
+			case "field":
+				return ec.fieldContext_CustomMetricDefinition_field(ctx, field)
+			case "filters":
+				return ec.fieldContext_CustomMetricDefinition_filters(ctx, field)
+			case "groupBy":
+				return ec.fieldContext_CustomMetricDefinition_groupBy(ctx, field)
+			case "granularity":
+				return ec.fieldContext_CustomMetricDefinition_granularity(ctx, field)
+			case "visualisation":
+				return ec.fieldContext_CustomMetricDefinition_visualisation(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type CustomMetricDefinition", field.Name)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Graph_nodes(ctx context.Context, field graphql.CollectedField, obj *domain.Graph) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4214,6 +4924,8 @@ func (ec *executionContext) fieldContext_Graph_nodes(_ context.Context, field gr
 				return ec.fieldContext_GraphNode_mode(ctx, field)
 			case "required":
 				return ec.fieldContext_GraphNode_required(ctx, field)
+			case "dependsOn":
+				return ec.fieldContext_GraphNode_dependsOn(ctx, field)
 			case "next":
 				return ec.fieldContext_GraphNode_next(ctx, field)
 			case "steps":
@@ -4431,6 +5143,35 @@ func (ec *executionContext) fieldContext_GraphNode_required(_ context.Context, f
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _GraphNode_dependsOn(ctx context.Context, field graphql.CollectedField, obj *domain.GraphNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_GraphNode_dependsOn,
+		func(ctx context.Context) (any, error) {
+			return obj.DependsOn, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_GraphNode_dependsOn(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "GraphNode",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -5201,6 +5942,8 @@ func (ec *executionContext) fieldContext_Query_thread(ctx context.Context, field
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -5237,7 +5980,7 @@ func (ec *executionContext) _Query_threads(ctx context.Context, field graphql.Co
 		ec.fieldContext_Query_threads,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+			return ec.Resolvers.Query().Threads(ctx, fc.Args["actor"].(*string), fc.Args["contractName"].(*string), fc.Args["contractVersion"].(*int), fc.Args["status"].(*string), fc.Args["tags"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["completedAfter"].(*string), fc.Args["completedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
 		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadConnection,
@@ -5284,7 +6027,7 @@ func (ec *executionContext) _Query_threadsByContract(ctx context.Context, field 
 		ec.fieldContext_Query_threadsByContract,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+			return ec.Resolvers.Query().ThreadsByContract(ctx, fc.Args["contractName"].(string), fc.Args["contractVersion"].(*int), fc.Args["actor"].(*string), fc.Args["status"].(*string), fc.Args["tags"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
 		},
 		nil,
 		ec.marshalNThreadConnection2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadConnection,
@@ -5474,6 +6217,8 @@ func (ec *executionContext) fieldContext_Query_threadChain(ctx context.Context, 
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -5549,6 +6294,65 @@ func (ec *executionContext) fieldContext_Query_contractGraph(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_contractGraph_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_proposeStep(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_proposeStep,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ProposeStep(ctx, fc.Args["threadId"].(string), fc.Args["stepName"].(string))
+		},
+		nil,
+		ec.marshalNStepProposal2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_proposeStep(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "threadId":
+				return ec.fieldContext_StepProposal_threadId(ctx, field)
+			case "stepName":
+				return ec.fieldContext_StepProposal_stepName(ctx, field)
+			case "allowed":
+				return ec.fieldContext_StepProposal_allowed(ctx, field)
+			case "requiredSteps":
+				return ec.fieldContext_StepProposal_requiredSteps(ctx, field)
+			case "satisfiedSteps":
+				return ec.fieldContext_StepProposal_satisfiedSteps(ctx, field)
+			case "missingSteps":
+				return ec.fieldContext_StepProposal_missingSteps(ctx, field)
+			case "previousStep":
+				return ec.fieldContext_StepProposal_previousStep(ctx, field)
+			case "reason":
+				return ec.fieldContext_StepProposal_reason(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type StepProposal", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_proposeStep_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -5940,6 +6744,8 @@ func (ec *executionContext) fieldContext_Query_entityProfile(ctx context.Context
 				return ec.fieldContext_EntityProfile_metrics(ctx, field)
 			case "computedMetrics":
 				return ec.fieldContext_EntityProfile_computedMetrics(ctx, field)
+			case "deliveryHealth":
+				return ec.fieldContext_EntityProfile_deliveryHealth(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type EntityProfile", field.Name)
 		},
@@ -6048,6 +6854,77 @@ func (ec *executionContext) fieldContext_Query_entityProfilesByType(ctx context.
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_entityProfilesByType_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_contractViolations(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Query_contractViolations,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ContractViolations(ctx, fc.Args["contractName"].(*string), fc.Args["refKey"].(*string), fc.Args["refValue"].(*string), fc.Args["severity"].([]string), fc.Args["startedAfter"].(*string), fc.Args["startedBefore"].(*string), fc.Args["limit"].(*int), fc.Args["offset"].(*int))
+		},
+		nil,
+		ec.marshalNThreadNotification2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐThreadNotificationᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Query_contractViolations(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "notificationId":
+				return ec.fieldContext_ThreadNotification_notificationId(ctx, field)
+			case "threadId":
+				return ec.fieldContext_ThreadNotification_threadId(ctx, field)
+			case "stepId":
+				return ec.fieldContext_ThreadNotification_stepId(ctx, field)
+			case "stepName":
+				return ec.fieldContext_ThreadNotification_stepName(ctx, field)
+			case "idempotencyKey":
+				return ec.fieldContext_ThreadNotification_idempotencyKey(ctx, field)
+			case "source":
+				return ec.fieldContext_ThreadNotification_source(ctx, field)
+			case "notificationType":
+				return ec.fieldContext_ThreadNotification_notificationType(ctx, field)
+			case "stepStatus":
+				return ec.fieldContext_ThreadNotification_stepStatus(ctx, field)
+			case "validationStatus":
+				return ec.fieldContext_ThreadNotification_validationStatus(ctx, field)
+			case "violationType":
+				return ec.fieldContext_ThreadNotification_violationType(ctx, field)
+			case "severity":
+				return ec.fieldContext_ThreadNotification_severity(ctx, field)
+			case "message":
+				return ec.fieldContext_ThreadNotification_message(ctx, field)
+			case "details":
+				return ec.fieldContext_ThreadNotification_details(ctx, field)
+			case "timestamp":
+				return ec.fieldContext_ThreadNotification_timestamp(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ThreadNotification", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_contractViolations_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -6703,6 +7580,238 @@ func (ec *executionContext) _StepIntegrityStatus_error(ctx context.Context, fiel
 func (ec *executionContext) fieldContext_StepIntegrityStatus_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "StepIntegrityStatus",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_threadId(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_threadId,
+		func(ctx context.Context) (any, error) {
+			return obj.ThreadID, nil
+		},
+		nil,
+		ec.marshalNID2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_threadId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_stepName(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_stepName,
+		func(ctx context.Context) (any, error) {
+			return obj.StepName, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_stepName(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_allowed(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_allowed,
+		func(ctx context.Context) (any, error) {
+			return obj.Allowed, nil
+		},
+		nil,
+		ec.marshalNBoolean2bool,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_allowed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_requiredSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_requiredSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.RequiredSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_requiredSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_satisfiedSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_satisfiedSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.SatisfiedSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_satisfiedSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_missingSteps(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_missingSteps,
+		func(ctx context.Context) (any, error) {
+			return obj.MissingSteps, nil
+		},
+		nil,
+		ec.marshalNString2ᚕstringᚄ,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_missingSteps(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_previousStep(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_previousStep,
+		func(ctx context.Context) (any, error) {
+			return obj.PreviousStep, nil
+		},
+		nil,
+		ec.marshalOString2ᚖstring,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_previousStep(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _StepProposal_reason(ctx context.Context, field graphql.CollectedField, obj *domain.StepProposal) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_StepProposal_reason,
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		ec.marshalNString2string,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_StepProposal_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "StepProposal",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
@@ -8147,6 +9256,35 @@ func (ec *executionContext) fieldContext_Thread_validationResults(ctx context.Co
 	return fc, nil
 }
 
+func (ec *executionContext) _Thread_tags(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Thread_tags,
+		func(ctx context.Context) (any, error) {
+			return obj.Tags, nil
+		},
+		nil,
+		ec.marshalOString2ᚕstringᚄ,
+		true,
+		false,
+	)
+}
+
+func (ec *executionContext) fieldContext_Thread_tags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Thread",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Thread_notificationSummary(ctx context.Context, field graphql.CollectedField, obj *domain.Thread) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -8326,6 +9464,8 @@ func (ec *executionContext) fieldContext_Thread_threadChain(ctx context.Context,
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -8480,6 +9620,8 @@ func (ec *executionContext) fieldContext_ThreadConnection_threads(_ context.Cont
 				return ec.fieldContext_Thread_steps(ctx, field)
 			case "validationResults":
 				return ec.fieldContext_Thread_validationResults(ctx, field)
+			case "tags":
+				return ec.fieldContext_Thread_tags(ctx, field)
 			case "notificationSummary":
 				return ec.fieldContext_Thread_notificationSummary(ctx, field)
 			case "notifications":
@@ -11424,6 +12566,61 @@ func (ec *executionContext) _ContractGraph(ctx context.Context, sel ast.Selectio
 	return out
 }
 
+var customMetricDefinitionImplementors = []string{"CustomMetricDefinition"}
+
+func (ec *executionContext) _CustomMetricDefinition(ctx context.Context, sel ast.SelectionSet, obj *CustomMetricDefinition) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, customMetricDefinitionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("CustomMetricDefinition")
+		case "name":
+			out.Values[i] = ec._CustomMetricDefinition_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "target":
+			out.Values[i] = ec._CustomMetricDefinition_target(ctx, field, obj)
+		case "stepName":
+			out.Values[i] = ec._CustomMetricDefinition_stepName(ctx, field, obj)
+		case "operation":
+			out.Values[i] = ec._CustomMetricDefinition_operation(ctx, field, obj)
+		case "field":
+			out.Values[i] = ec._CustomMetricDefinition_field(ctx, field, obj)
+		case "filters":
+			out.Values[i] = ec._CustomMetricDefinition_filters(ctx, field, obj)
+		case "groupBy":
+			out.Values[i] = ec._CustomMetricDefinition_groupBy(ctx, field, obj)
+		case "granularity":
+			out.Values[i] = ec._CustomMetricDefinition_granularity(ctx, field, obj)
+		case "visualisation":
+			out.Values[i] = ec._CustomMetricDefinition_visualisation(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var entityProfileImplementors = []string{"EntityProfile"}
 
 func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.SelectionSet, obj *EntityProfile) graphql.Marshaler {
@@ -11481,6 +12678,39 @@ func (ec *executionContext) _EntityProfile(ctx context.Context, sel ast.Selectio
 					}
 				}()
 				res = ec._EntityProfile_computedMetrics(ctx, field, obj)
+				return res
+			}
+
+			if field.Deferrable != nil {
+				dfs, ok := deferred[field.Deferrable.Label]
+				di := 0
+				if ok {
+					dfs.AddField(field)
+					di = len(dfs.Values) - 1
+				} else {
+					dfs = graphql.NewFieldSet([]graphql.CollectedField{field})
+					deferred[field.Deferrable.Label] = dfs
+				}
+				dfs.Concurrently(di, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, dfs)
+				})
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "deliveryHealth":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._EntityProfile_deliveryHealth(ctx, field, obj)
 				return res
 			}
 
@@ -11716,6 +12946,8 @@ func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast
 		switch field.Name {
 		case "__typename":
 			out.Values[i] = graphql.MarshalString("EntityTypeMetricConfig")
+		case "id":
+			out.Values[i] = ec._EntityTypeMetricConfig_id(ctx, field, obj)
 		case "templateId":
 			out.Values[i] = ec._EntityTypeMetricConfig_templateId(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -11725,6 +12957,8 @@ func (ec *executionContext) _EntityTypeMetricConfig(ctx context.Context, sel ast
 			out.Values[i] = ec._EntityTypeMetricConfig_name(ctx, field, obj)
 		case "parameters":
 			out.Values[i] = ec._EntityTypeMetricConfig_parameters(ctx, field, obj)
+		case "customDefinition":
+			out.Values[i] = ec._EntityTypeMetricConfig_customDefinition(ctx, field, obj)
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11855,6 +13089,11 @@ func (ec *executionContext) _GraphNode(ctx context.Context, sel ast.SelectionSet
 			out.Values[i] = ec._GraphNode_mode(ctx, field, obj)
 		case "required":
 			out.Values[i] = ec._GraphNode_required(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "dependsOn":
+			out.Values[i] = ec._GraphNode_dependsOn(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -12411,6 +13650,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "proposeStep":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_proposeStep(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "stepHistory":
 			field := field
 
@@ -12606,6 +13867,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "contractViolations":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_contractViolations(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -12781,6 +14064,77 @@ func (ec *executionContext) _StepIntegrityStatus(ctx context.Context, sel ast.Se
 			out.Values[i] = ec._StepIntegrityStatus_prevHash(ctx, field, obj)
 		case "error":
 			out.Values[i] = ec._StepIntegrityStatus_error(ctx, field, obj)
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.ProcessDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var stepProposalImplementors = []string{"StepProposal"}
+
+func (ec *executionContext) _StepProposal(ctx context.Context, sel ast.SelectionSet, obj *domain.StepProposal) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, stepProposalImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("StepProposal")
+		case "threadId":
+			out.Values[i] = ec._StepProposal_threadId(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "stepName":
+			out.Values[i] = ec._StepProposal_stepName(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allowed":
+			out.Values[i] = ec._StepProposal_allowed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "requiredSteps":
+			out.Values[i] = ec._StepProposal_requiredSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "satisfiedSteps":
+			out.Values[i] = ec._StepProposal_satisfiedSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "missingSteps":
+			out.Values[i] = ec._StepProposal_missingSteps(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "previousStep":
+			out.Values[i] = ec._StepProposal_previousStep(ctx, field, obj)
+		case "reason":
+			out.Values[i] = ec._StepProposal_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -13567,6 +14921,8 @@ func (ec *executionContext) _Thread(ctx context.Context, sel ast.SelectionSet, o
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "tags":
+			out.Values[i] = ec._Thread_tags(ctx, field, obj)
 		case "notificationSummary":
 			field := field
 
@@ -14834,6 +16190,20 @@ func (ec *executionContext) marshalNStepIntegrityStatus2ᚖgithubᚗcomᚋthread
 	return ec._StepIntegrityStatus(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNStepProposal2githubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal(ctx context.Context, sel ast.SelectionSet, v domain.StepProposal) graphql.Marshaler {
+	return ec._StepProposal(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNStepProposal2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepProposal(ctx context.Context, sel ast.SelectionSet, v *domain.StepProposal) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._StepProposal(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNStepStateInfo2ᚕᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐStepStateInfoᚄ(ctx context.Context, sel ast.SelectionSet, v []*domain.StepStateInfo) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
@@ -15217,6 +16587,13 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	_ = ctx
 	res := graphql.MarshalBoolean(*v)
 	return res
+}
+
+func (ec *executionContext) marshalOCustomMetricDefinition2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐCustomMetricDefinition(ctx context.Context, sel ast.SelectionSet, v *CustomMetricDefinition) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._CustomMetricDefinition(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOEntityProfile2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋgraphqlᚋgeneratedᚐEntityProfile(ctx context.Context, sel ast.SelectionSet, v *EntityProfile) graphql.Marshaler {

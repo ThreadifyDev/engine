@@ -2,9 +2,12 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/threadify/engine/internal/config"
 	"go.uber.org/zap"
 )
@@ -16,7 +19,7 @@ type Pool struct {
 	size    int
 }
 
-func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error) {
+func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger, options ...nats.Option) (*Pool, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("pool size must be greater than 0")
 	}
@@ -28,7 +31,7 @@ func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error
 	}
 
 	for i := range pool.clients {
-		client, err := NewClient(cfg, logger)
+		client, err := NewClient(cfg, logger, options...)
 		if err != nil {
 			pool.Close()
 			return nil, fmt.Errorf("create NATS client %d: %w", i, err)
@@ -36,7 +39,7 @@ func NewPool(cfg *config.NATSConfig, size int, logger *zap.Logger) (*Pool, error
 		pool.clients[i] = client
 	}
 
-	initClient, err := NewClient(cfg, logger)
+	initClient, err := NewClient(cfg, logger, options...)
 	if err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("create NATS init client: %w", err)
@@ -84,4 +87,48 @@ func (p *Pool) Close() {
 		}
 	}
 	p.logger.Info("NATS pool closed")
+}
+
+// Drain flushes pending publications and waits for every client to close. Stop
+// producers and persistence workers first; no new work may use this pool while
+// it is draining. Close remains safe for forced cleanup after a timeout.
+func (p *Pool) Drain(ctx context.Context) error {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
+	var errs []error
+	for _, client := range p.clients {
+		if client == nil || client.conn.IsClosed() {
+			continue
+		}
+		if err := client.conn.FlushWithContext(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("flush NATS client: %w", err))
+		}
+		if err := client.conn.Drain(); err != nil {
+			errs = append(errs, fmt.Errorf("drain NATS client: %w", err))
+		}
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		closed := true
+		for _, client := range p.clients {
+			if client != nil && !client.conn.IsClosed() {
+				closed = false
+				break
+			}
+		}
+		if closed {
+			return errors.Join(errs...)
+		}
+		select {
+		case <-ctx.Done():
+			errs = append(errs, ctx.Err())
+			p.Close()
+			return errors.Join(errs...)
+		case <-ticker.C:
+		}
+	}
 }

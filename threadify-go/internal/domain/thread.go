@@ -38,6 +38,7 @@ type Thread struct {
 	Label           string // New field for user-friendly thread label
 	CreatedBy       string // User or service account that created the thread
 	Status          ThreadStatus
+	Tags            []string // Tags associated with the thread
 	LastHash        string
 	Violated        *ThreadViolation // Tracks failed steps and violations
 	StartedAt       time.Time
@@ -60,7 +61,7 @@ type StepState struct {
 	StepName       string
 	Status         string
 	IdempotencyKey string
-	Context        map[string]string
+	Context        map[string]any
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	RetryCount     int
@@ -135,7 +136,7 @@ type ThreadEvent struct {
 	UserID    string
 	Role      string
 	Refs      map[string]string
-	Context   map[string]string
+	Context   map[string]any
 	Status    string // "success", "failed", "in_progress"
 	Timestamp time.Time
 }

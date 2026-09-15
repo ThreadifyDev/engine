@@ -1,0 +1,291 @@
+# Self-hosting Threadify
+
+`threadify` runs the engine, an embedded NATS JetStream broker, and PostgreSQL
+persistence workers in one process. PostgreSQL and Valkey remain external.
+The dashboard and Web API remain separate applications. Existing authentication,
+usage metering, credit deductions, and account provisioning remain in place;
+this release does not implement Fused/Threadify product licensing.
+
+## Engine CI and releases
+
+The engine uses `.github/workflows/engine-ci.yml` and `engine-release.yml`.
+Engine pull requests run the shared and engine unit suites, release-version
+script tests, GoReleaser validation, and compiled-binary E2E tests against
+throwaway PostgreSQL and Valkey containers. The E2E suite includes entity
+profiles, contract creation and use, OTLP ingestion/completion, recorded trace
+timestamps, and hash verification.
+
+An engine change pushed to `main` runs the same checks before tagging and
+publishing. Versioning follows the Fused engine-release convention: `feat:` bumps
+minor, a conventional `!:` or `BREAKING CHANGE:` footer bumps major, and other
+changes bump patch. Only engine-related commits determine the bump. Stable
+engine tags use `vMAJOR.MINOR.PATCH`; SDK tags and SDK release workflows stay
+independent. Pushing an explicit stable engine tag runs the same release gate.
+Re-running a failed release reuses its existing tag and replaces uploaded assets.
+
+Each GitHub release contains three archives and `checksums.txt`:
+
+| Host | Architecture | Archive |
+| --- | --- | --- |
+| macOS | ARM64 (Apple Silicon) | `threadify_VERSION_darwin_arm64.tar.gz` |
+| Linux | AMD64 (x86-64) | `threadify_VERSION_linux_amd64.tar.gz` |
+| Windows | AMD64 (x86-64) | `threadify_VERSION_windows_amd64.zip` |
+
+Every archive contains `threadify` (`threadify.exe` on Windows), this guide, and
+`config/config.yaml` plus `config/subscription.yaml` copied from the self-hosting
+templates. Extract the archive, configure it as described below, then run
+`./threadify --config ./config/config.yaml` (PowerShell:
+`.\threadify.exe --config .\config\config.yaml`). `--version` prints the version
+and source commit without connecting to services.
+
+The workflow also publishes `ghcr.io/creativejoe007/threadify-engine:vVERSION`
+and `:latest`. This Linux AMD64 image wraps the exact Linux release executable;
+`Dockerfile.goreleaser` does not compile it again. It runs as UID 65532, exposes
+port 8081, and stores embedded NATS data in `/data/jetstream` on a persistent
+`/data` volume. Mount reviewed configuration at `/app/config` and supply the
+same environment variables as a native deployment. PostgreSQL and Valkey
+remain external.
+
+GoReleaser is pinned to v2.18.0. Builds run one target at a time with two compiler
+workers to bound memory use. GitHub Actions uses `GITHUB_TOKEN` with
+`contents: write` for tags/releases and `packages: write` for GHCR; repository
+rules must permit the workflow to create `v*` tags. No separate registry secret
+is required. These workflows publish only after they are committed and pushed
+to `main` (or a matching release tag).
+
+To validate packaging locally without publishing, from `threadify-go` run:
+
+```sh
+goreleaser check
+GORELEASER_CURRENT_TAG=v0.0.0 GORELEASER_PREVIOUS_TAG=v0.0.0 \
+  goreleaser release --snapshot --clean --parallelism 1
+```
+
+Docker must be running for the wrapper build. Output goes to `dist/`;
+snapshot images remain local. To build archives without Docker, also pass
+`--skip=docker,publish`. CI executes the packaged Linux binary for its E2E tests.
+
+## Build and configure
+
+Build with the Go version declared in `go.mod` (currently Go 1.26):
+
+```sh
+cd threadify-go
+make build
+```
+
+The output is `bin/threadify`. GraphQL generation is an explicit development step
+(`make generate-graphql`); a release build uses the checked-in generated code.
+RBAC definitions, Lua scripts, and the GraphQL schema are embedded in the binary.
+No Go toolchain, source checkout, or Node runtime is needed on the target host.
+
+Create a deployment directory and copy the configuration templates into it:
+
+```sh
+mkdir -p "$HOME/threadify/config" "$HOME/threadify/data/jetstream"
+cp bin/threadify "$HOME/threadify/threadify"
+cp config/config.selfhost.yaml "$HOME/threadify/config/config.yaml"
+cp config/subscription.selfhost.yaml "$HOME/threadify/config/subscription.yaml"
+```
+
+Edit the deployed configuration before starting:
+
+- Set `nats.store_dir` to the absolute path of the `data/jetstream` directory you
+  just created. `/data/jetstream` in the template is the container default.
+- Set `POSTGRES_URL`, `VALKEY_HOST`, and `VALKEY_PASSWORD` in the process
+  environment. Adjust Valkey port and database in YAML if necessary.
+- Supply the existing authentication provider settings: the template uses
+  `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the relevant `JWKS_URL`,
+  `JWKS_AUDIENCE`, and `JWKS_ISSUER` values for your account platform.
+- Generate your own `HASH_CHAIN_SECRET_V1` once with `openssl rand -hex 32` and
+  retain it securely across restarts. Preserve all previous secret versions when
+  rotating keys so historical activity chains remain verifiable.
+- Review the usage settings in `subscription.yaml`. Keep `billing.provider: noop`;
+  local payment processing is disabled pending the external Registry integration.
+  Usage metering and account limits remain active.
+- Review HTTP host, port, and allowed browser origins for your installation.
+
+YAML strings of the form `$NAME:default` use the named environment variable or
+the supplied default; `$NAME` requires you to supply that value. Environment
+variables must be set by your shell, container runtime, or service manager; the
+binary does not automatically load a deployment `.env` file.
+
+Start from any working directory using an absolute config path:
+
+```sh
+"$HOME/threadify/threadify" --config "$HOME/threadify/config/config.yaml"
+```
+
+Or set `CONFIG_PATH` to that file and launch the binary. Keep `subscription.yaml`
+beside it: subscription settings are loaded relative to the selected config file.
+The engine uses its existing schema initialization on startup, so its PostgreSQL
+role needs the required DDL permissions. Account/company records, API keys, and
+credits still come from the existing account platform; packaging the engine does
+not provide an independent signup or license activation flow.
+
+## Runtime modes
+
+| Mode | Engine HTTP/WebSockets | Persistence workers |
+| --- | --- | --- |
+| `--mode combined` (default) | Yes | Yes, when `archiver.enabled: true` |
+| `--mode engine` | Yes | No |
+| `--mode writer` | No | Yes |
+
+Use combined mode with `archiver.enabled: true` for the single-process deployment.
+Writer mode allows the same executable to operate as a separate writer when
+needed. Split processes must connect to the same external broker; separate
+embedded brokers do not share messages.
+
+`nats.mode: embedded` uses an in-process connection and exposes no NATS TCP port.
+Keep its storage directory on a persistent volume that is writable by the process
+and dedicated to one broker instance. An explicit `nats.mode: external` connects
+to `nats.url`. Embedded mode is the default; deployments using an existing broker
+must select external mode explicitly, even when a NATS URL is already present.
+
+Use external NATS when running multiple engine replicas, splitting engine and
+writer processes, or when the separate Web API must exchange NATS messages with
+the engine. Configure every participant to use the same broker and compatible
+stream/consumer names:
+
+```yaml
+nats:
+  mode: external
+  url: "nats://your-shared-nats:4222"
+  archival_max_age_hours: 0
+  archival_max_bytes: 1073741824
+```
+
+Keep the remaining NATS settings from the template. Supply broker authentication
+and transport protection through your deployment's existing NATS configuration.
+Do not point multiple embedded processes at the same JetStream directory.
+
+## Durability and capacity
+
+Persistence remains asynchronous: a queued write may not yet be visible in
+PostgreSQL. Archival streams retain pending messages until their durable consumer
+acknowledges successful processing. The default archival maximum age is zero, so
+pending writes do not expire during an extended database outage. Retries can
+redeliver messages. Existing writer deduplication and billing semantics are
+unchanged; this release does not provide exactly-once persistence or billing.
+Some existing publication paths run after the response or log publication errors
+without failing the operation. Consequently, an API success is not a universal
+guarantee that its archival event has reached JetStream, and a process crash or
+full queue before publication can still lose that archival event.
+
+The template limits each archival stream to 1 GiB and the embedded broker's total
+file storage to 8 GiB, with a 64 MiB broker memory budget. These are separate
+budgets, not a guarantee that every stream can fill its quota simultaneously.
+Archival streams reject new messages when full instead of evicting older pending
+writes. Monitor free disk, stream bytes, pending acknowledgements, database errors,
+and publisher errors; size capacity for your expected outage window. A full broker
+or disk makes archival publication fail and requires recovery before normal
+persistence can resume. Do not treat the queue as an unlimited backup or assume
+all engine operations are a transaction spanning Valkey, JetStream, and PostgreSQL.
+
+Use normal SIGTERM/SIGINT shutdown and allow the configured service/container stop
+grace period to cover draining. Unacknowledged work remains in JetStream for
+redelivery after restart. Retain and back up the broker volume alongside the
+PostgreSQL database and the hash-chain secret history. Valkey still contains live
+engine state and should be configured for the recovery guarantees you require.
+
+## Upgrading an existing engine and writer deployment
+
+Keep a copy of the old deployment configuration and preserve the original NATS
+persistent store. This release uses work-queue retention for archival streams and
+reuses the existing durable consumer names; it does not silently delete or recreate
+incompatible existing streams. A stream with the old limits retention policy needs
+an explicit migration before this release can use it.
+
+For a move to a fresh embedded broker:
+
+1. Stop new requests and all producers that publish to the old archival streams.
+2. Leave the existing writer running until all pending and in-flight messages have
+   been acknowledged and expected data is present in PostgreSQL. Inspect all
+   archival streams and the separate step-state consumer, not just one queue.
+3. Stop the old engine and writer cleanly. Preserve the original broker storage
+   and configuration for recovery; do not copy raw JetStream files into a live
+   embedded store or delete the old store as part of rollout.
+4. Start the combined binary with a new, empty, persistent embedded store and the
+   same PostgreSQL/Valkey connections, then verify health and persistence before
+   reopening traffic.
+
+If any old queue cannot drain, keep the old writer/broker available and resolve
+that backlog before cutting over. For an external-broker upgrade, arrange an
+explicit, verified stream migration after draining; the binary refuses an
+incompatible retention policy instead of performing a destructive migration.
+Do not run old and new consumers against an incompatible stream configuration.
+
+## Container deployment
+
+The engine Dockerfile builds the same combined executable and includes sanitized
+configuration templates. It does not include a source tree or existing local
+billing credentials. The runtime user is uid/gid 65532. A named `/data` volume
+persists JetStream; host bind mounts must be writable by that user.
+
+```sh
+docker build -t threadify:local .
+docker volume create threadify-data
+docker run --name threadify --stop-timeout 60 \
+  -p 8081:8081 \
+  --env-file /absolute/path/to/threadify.env \
+  -v /absolute/path/to/threadify/config:/app/config:ro \
+  -v threadify-data:/data \
+  threadify:local
+```
+
+Use the template's `/data/jetstream` store path in the mounted configuration. The
+configuration directory must contain both `config.yaml` and `subscription.yaml`.
+External service addresses must be reachable from the container; `localhost`
+inside it refers to the container itself. Existing Compose deployments that mount
+configuration for an external broker must explicitly set `nats.mode: external`.
+
+Check a running installation with the same configuration/environment:
+
+```sh
+"$HOME/threadify/threadify" --config "$HOME/threadify/config/config.yaml" --healthcheck
+docker exec threadify /app/threadify --healthcheck
+```
+
+The healthcheck command exits nonzero when the service is unavailable. Container
+healthchecks use `CONFIG_PATH=/app/config/config.yaml`. The UI and Web API are
+still deployed and upgraded separately.
+
+## Verification
+
+Run engine unit tests with `go test -race ./...`. Broker and persistence tests
+include real embedded JetStream restart/replay and storage-capacity checks.
+
+The opt-in executable smoke test launches the compiled binary from a temporary
+folder, provisions isolated test identities, creates threads over WebSockets,
+shuts down with a connection open, restarts, and checks the PostgreSQL rows.
+Use disposable PostgreSQL and Valkey instances only (the test initializes schema
+and writes test records):
+
+```sh
+make build
+THREADIFY_SMOKE_BINARY="$PWD/bin/threadify" \
+THREADIFY_SMOKE_POSTGRES_URL='postgres://test:test@localhost:5432/threadify_test?sslmode=disable' \
+THREADIFY_SMOKE_VALKEY_ADDR='localhost:6379' \
+go test ./cmd/server -run TestStandaloneBinaryPersistenceAndRestart -v -count=1
+```
+
+The smoke test uses the existing no-op payment provider and seeded test credits;
+it does not contact a payment service or change production billing behavior.
+
+## OTLP execution completion
+
+`POST /v1/traces` automatically completes engine-created, contract-free trace threads after accepting an ended root span (no parent ID). Exporters that omit an upstream parent can mark the final invocation span with the boolean attribute `threadify.run.complete=true`. Only a span attribute is accepted as this marker; a resource-wide value cannot accidentally close every span. The root's end timestamp becomes `completedAt`.
+
+Completion means execution ended, including failed executions. Individual span outcomes remain recorded independently. It does not mean a support ticket was resolved or every distributed span has been delivered. Accepted late spans for the same trace extend the existing hash chain without reopening the thread. Root/completion retries do not duplicate recorded spans. An absent root/marker leaves a thread active; the engine does not guess completion from idle time.
+
+Contract-linked threads and explicit targets outside the engine-created trace namespace keep their existing lifecycle. Their normal terminal-write restrictions still apply. A replay of an already-recorded root can automatically complete a trace imported before this behavior was enabled.
+
+OTLP execution timestamps come from the producer: span `start_time_unix_nano` and `end_time_unix_nano` supply step start/end, and the ended root/marked invocation supplies run completion. The run starts at the earliest span in its initial received batch. Activity `recorded_at` uses the span's end time; storage `created_at` on step records remains arrival time. PostgreSQL stores microsecond precision. Historical ingestion does not retimestamp execution to the present. Hashes retain ingestion order while authenticating each event's producer timestamp.
+
+## Billing integration
+
+Local payment-provider code is removed. The only available billing provider is `noop`: it skips invoices, ignores payment webhooks, and refuses local checkout creation. Provider credentials are no longer configuration fields. Usage metering remains separate from payment processing. Fused Registry billing and licensing will be integrated separately; this build does not claim that integration is available yet.
+
+## Build resource use
+
+`make build` limits package compilation to two concurrent jobs and sets `GOMAXPROCS=2` for build tools only. The resulting server has no runtime CPU limit from these settings. Larger build machines can use `make build BUILD_JOBS=4 BUILD_PROCS=4`. Docker builds accept the same names as build arguments. Preserve the Go build cache; an unchanged cached build should be fast. Embedded NATS and HTTP/serialization dependencies still make a cold build larger than a small Go service.

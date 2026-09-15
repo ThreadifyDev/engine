@@ -4,7 +4,7 @@
 
 For implementation syntax in your language, see:
 - **JavaScript/TypeScript**: [AI-javascript.md](https://threadify.dev/AI-javascript.md)
-- **Python**: [AI-python.md](https://threadify.dev/AI-python.md) (Coming Soon)
+- **Python**: [AI-python.md](https://threadify.dev/AI-python.md)
 - **Go**: [AI-go.md](https://threadify.dev/AI-go.md)
 
 ---
@@ -18,7 +18,9 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 **Core Components:**
 - **Thread** - One customer request flowing through your system
 - **Step** - One action in the workflow
-- **Contract** - YAML validation rules enforced at runtime
+
+**Optional (Advanced):**
+- **Contract** - YAML validation rules enforced at runtime. Only use this after you are comfortable with basic thread and step instrumentation.
 
 ---
 
@@ -46,15 +48,23 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 
 **Variants:**
 1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
-2. **With contract** - Contract-based workflow with validation
-3. **With service name** - Specify which service is starting
+2. **With service name** - Specify which service is starting
+3. **With tags** - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
 
 **Parameters:**
 - `label` (optional, recommended) - A descriptive name for the thread
-- `contractName` (optional) - Name of contract to use
 - `serviceName` (optional) - Service identifier
+- `tags` (optional) - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
+
+> **Default to no contracts.** Only use them if the user explicitly asks.
 
 **Returns:** Thread instance
+
+**Tags:**
+- Immutable string labels attached at thread creation
+- Used for categorization, filtering, and organizing threads
+- Set via SDK `start()` or OTel span attributes (if the codebase already uses OpenTelemetry)
+- Queryable via GraphQL `threads(tags: ["production"])`
 
 ---
 
@@ -152,10 +162,12 @@ Every step must have one of three statuses:
 
 **What it does:** Subscribe to real-time events
 
-**Event Types:**
+**Event Types (Basic):**
 - `step.success` - Step completed successfully
 - `step.failed` - Step failed
 - `step.error` - Step errored
+
+**Event Types (Contract-only — Advanced):**
 - `rule.violated` - Contract validation failed
 - `rule.passed` - Contract validation passed
 
@@ -191,22 +203,51 @@ Every step must have one of three statuses:
 **What it does:** Join an existing thread to add steps or modify it
 
 **Variants:**
-1. **With invitation token** - External parties
-2. **Direct join** - Internal services with threadId + role
+1. **With invitation token** - External or cross-company parties. Access level was set at invite time via `inviteParty`.
+2. **Direct join** - Internal services with threadId. Always defaults to `participant` access level.
 
 **Parameters:**
-- `token` - JWT invitation token
+- `token` - JWT invitation token (access level comes from the invitation)
 - OR
-- `threadId` - Thread ID to join
-- `role` - Role for access control (`owner`, `participant`, `observer`, `external`)
+- `threadId` - Thread ID to join (direct join, defaults to participant)
+- `role` - Role for direct join only (e.g., "supplier", "merchant")
 
 **Returns:** Thread instance with write access (can record steps)
 
 ---
 
-### 11. Contracts (YAML)
+### 11. Inviting Parties
 
-**What it does:** Defines business rules enforced at runtime
+**What it does:** Create an invitation token for another party to join a thread
+
+**Access Levels:**
+- `Threadify.FOR_EXTERNAL` (default) - External party with limited access
+- `Threadify.FOR_OBSERVER` - Read-only observer access
+- `Threadify.FOR_PARTICIPANT` - Active participant access
+
+**Parameters:**
+- `role` (required) - Business/contract role (e.g., "supplier", "merchant")
+- `accessLevel` (optional) - Use enum constants. Defaults to `FOR_EXTERNAL`.
+- `expiresIn` (optional) - Token expiry duration (default: "24h")
+
+**Returns:** Invitation token and metadata
+
+**Example:**
+
+```javascript
+const invite = await thread.inviteParty({
+  role: 'supplier',
+  accessLevel: Threadify.FOR_OBSERVER
+});
+```
+
+---
+
+### 11. Contracts (YAML) — ONLY If User Explicitly Requests
+
+**What it does:** Defines business rules enforced at runtime.
+
+**When to use:** ONLY if the user explicitly asks for contracts (e.g., "use a contract", "add contract validation", "enforce business rules"). Otherwise, default to basic thread and step instrumentation WITHOUT contracts.
 
 **Structure:**
 ```yaml
@@ -248,6 +289,22 @@ transitions:
 5. Service B records its steps
 
 ---
+
+## OpenTelemetry Integration (OTel) — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel integration if the user explicitly asks for it OR the codebase already imports OpenTelemetry libraries.
+
+**What it does:** Automatically converts OpenTelemetry traces into Threadify execution graphs.
+
+**Mapping Concept:**
+- **OTel Trace** → Threadify **Thread**
+- **OTel Span** → Threadify **Step**
+- **OTel Span Event** → Threadify **Sub-Step**
+
+**Key Capabilities:**
+- **Zero Peer Dependencies**: The Threadify SDK duck-types the OTel Exporter interface. You do not need to install `@opentelemetry/api` unless you are actively using it.
+- **Distributed Exporter**: Traces spanning multiple microservices automatically join the same Threadify thread seamlessly.
+- **Root Span Detection**: When the root span ends, the Threadify thread is automatically completed.
 
 ---
 

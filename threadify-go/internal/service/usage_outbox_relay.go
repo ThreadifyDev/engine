@@ -155,18 +155,19 @@ func (r *UsageOutboxRelay) Start() error {
 }
 
 func (r *UsageOutboxRelay) Stop() error {
-	r.stopOnce.Do(func() {
-		close(r.stopCh)
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	return r.StopContext(ctx)
+}
 
+func (r *UsageOutboxRelay) StopContext(ctx context.Context) error {
+	r.stopOnce.Do(func() { close(r.stopCh) })
 	select {
 	case <-r.doneCh:
-	case <-time.After(stopTimeout):
-		r.logger.Warn("usage outbox relay stop timed out",
-			zap.Duration("timeout", stopTimeout),
-		)
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop usage outbox relay: %w", ctx.Err())
 	}
-	return nil
 }
 
 func (r *UsageOutboxRelay) run() {

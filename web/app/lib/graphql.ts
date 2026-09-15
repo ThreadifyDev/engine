@@ -3,6 +3,31 @@ import { getConfig } from '../config.client';
 
 const GRAPHQL_ENDPOINT = '/api/graphql'; // Proxy endpoint on Web API
 
+// Patterns that indicate internal error details which should not reach users.
+const INTERNAL_ERROR_PATTERNS = [
+  /SQLSTATE\s+\d+/i,
+  /violates\s+foreign\s+key/i,
+  /syntax\s+error/i,
+  /connection\s+refused/i,
+  /at\s+\S+\.go:\d+/i,
+  /goroutine\s+\d+/i,
+  /internal\/\S+/i,
+  /\/threadify-go\/\S+/i,
+  /localhost:\d+/i,
+  /https?:\/\/\S+/i,
+  /tcp:\/\/\S+/i,
+];
+
+function sanitizeErrorMessage(raw: string): string {
+  if (typeof raw !== 'string') return 'An error occurred';
+  for (const pattern of INTERNAL_ERROR_PATTERNS) {
+    if (pattern.test(raw)) {
+      return 'An internal error occurred. Please try again or contact support.';
+    }
+  }
+  return raw;
+}
+
 export interface GraphQLError {
   message: string;
   path?: string[];
@@ -184,6 +209,7 @@ export interface Thread {
   createdBy?: string;
   lastHash?: string;
   refs?: Record<string, any>;
+  tags?: string[];
   startedAt?: string;
   completedAt?: string;
   error?: string;
@@ -202,9 +228,7 @@ class GraphQLClient {
     // Make GraphQL request through the Web API proxy
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     // Use Web API URL from runtime configuration
-    const apiUrl = typeof window !== 'undefined'
-      ? this.getApiUrl()
-      : 'http://localhost:3001';
+    const apiUrl = this.getApiUrl();
 
     const response = await fetch(`${apiUrl}${GRAPHQL_ENDPOINT}`, {
       method: 'POST',
@@ -226,14 +250,14 @@ class GraphQLClient {
     }
 
     if (!response.ok) {
-      throw new Error(`GraphQL request failed: ${response.statusText}`);
+      throw new Error('GraphQL request failed');
     }
 
     const result: GraphQLResponse<T> = await response.json();
 
     if (result.errors) {
       // Check if error is due to authentication
-      const errorMessage = result.errors[0]?.message || 'GraphQL request failed';
+      const errorMessage = sanitizeErrorMessage(result.errors[0]?.message || 'GraphQL request failed');
       if (errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('invalid token')) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
@@ -267,6 +291,7 @@ class GraphQLClient {
           createdBy
           lastHash
           refs
+          tags
           startedAt
           completedAt
           error
@@ -454,6 +479,7 @@ class GraphQLClient {
   async getThreads(options?: {
     contractName?: string;
     status?: string;
+    tags?: string[];
     limit?: number;
     offset?: number;
     startedAfter?: string;
@@ -463,6 +489,7 @@ class GraphQLClient {
       query GetThreads(
         $contractName: String
         $status: String
+        $tags: [String!]
         $limit: Int
         $offset: Int
         $startedAfter: String
@@ -471,6 +498,7 @@ class GraphQLClient {
         threads(
           contractName: $contractName
           status: $status
+          tags: $tags
           limit: $limit
           offset: $offset
           startedAfter: $startedAfter
@@ -482,6 +510,7 @@ class GraphQLClient {
             contractName
             contractVersion
             status
+            tags
             refs
             startedAt
             completedAt
@@ -500,6 +529,7 @@ class GraphQLClient {
     contractName: string;
     contractVersion?: number;
     status?: string;
+    tags?: string[];
     limit?: number;
     offset?: number;
     startedAfter?: string;
@@ -510,6 +540,7 @@ class GraphQLClient {
         $contractName: String!
         $contractVersion: Int
         $status: String
+        $tags: [String!]
         $limit: Int
         $offset: Int
         $startedAfter: String
@@ -519,6 +550,7 @@ class GraphQLClient {
           contractName: $contractName
           contractVersion: $contractVersion
           status: $status
+          tags: $tags
           limit: $limit
           offset: $offset
           startedAfter: $startedAfter
@@ -530,6 +562,7 @@ class GraphQLClient {
             contractName
             contractVersion
             status
+            tags
             refs
             startedAt
             completedAt
@@ -713,14 +746,34 @@ class GraphQLClient {
     search?: string;
     limit?: number;
     offset?: number;
-  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: { name: string; type: string[] } }> {
+  }): Promise<{ items: EntityProfileListItem[]; totalCount: number; profileType?: any }> {
     const query = `
       query EntityProfilesByType($type: String!, $search: String, $limit: Int, $offset: Int) {
         entityProfilesByType(type: $type, search: $search, limit: $limit, offset: $offset) {
           totalCount
           profileType {
+            id
+            companyId
             name
             type
+            description
+            metricsConfig {
+              id
+              templateId
+              name
+              parameters
+              customDefinition {
+                name
+                target
+                stepName
+                operation
+                field
+                filters
+                groupBy
+                granularity
+                visualisation
+              }
+            }
           }
           items {
             id
@@ -739,7 +792,7 @@ class GraphQLClient {
       entityProfilesByType: {
         items: EntityProfileListItem[];
         totalCount: number;
-        profileType?: { name: string; type: string[] };
+        profileType?: { name: string; type: string[]; description?: string; metricsConfig?: any[] };
       };
     }>(query, {
       type: options.type,
@@ -762,9 +815,21 @@ class GraphQLClient {
             name
             type
             metricsConfig {
+              id
               templateId
               name
               parameters
+              customDefinition {
+                name
+                target
+                stepName
+                operation
+                field
+                filters
+                groupBy
+                granularity
+                visualisation
+              }
             }
           }
           name
@@ -799,6 +864,18 @@ class GraphQLClient {
     `;
     const data = await this.request<{ entityProfile: { computedMetrics: any } }>(query, options);
     return data.entityProfile?.computedMetrics ?? null;
+  }
+
+  async getDeliveryHealthMetrics(options: { id?: string; refKey?: string; type?: string; range: string }): Promise<any> {
+    const query = `
+      query GetDeliveryHealthMetrics($id: String, $refKey: String, $type: String, $range: String) {
+        entityProfile(id: $id, refKey: $refKey, type: $type) {
+          deliveryHealth(range: $range)
+        }
+      }
+    `;
+    const data = await this.request<{ entityProfile: { deliveryHealth: any } }>(query, options);
+    return data.entityProfile?.deliveryHealth ?? null;
   }
 }
 

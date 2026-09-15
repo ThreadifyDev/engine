@@ -18,12 +18,23 @@ const (
 	creditTopupConsumerBackoff = 5 * time.Second
 )
 
+type billingCronService interface {
+	ChargeCreditTopup(context.Context, string, string, time.Time, int64) error
+	ProcessRollovers(context.Context) error
+}
+
 type BillingCron struct {
-	billingService *BillingOrchestrator
+	billingService billingCronService
 	logger         *zap.Logger
 	js             jetstream.JetStream
 	stopChan       chan struct{}
-	stopOnce       sync.Once
+	mu             sync.Mutex
+	started        bool
+	closing        bool
+	iter           jetstream.MessagesContext
+	cancel         context.CancelFunc
+	done           chan struct{}
+	wg             sync.WaitGroup
 }
 
 func NewBillingCron(
@@ -36,102 +47,173 @@ func NewBillingCron(
 		js:             js,
 		logger:         logger,
 		stopChan:       make(chan struct{}),
+		done:           make(chan struct{}),
 	}
 }
 
+// Start establishes the top-up consumer before reporting readiness.
 func (c *BillingCron) Start() error {
-	c.logger.Info("billing consumers starting")
-
-	if c.js != nil {
-		go c.startCreditTopupConsumer()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.started || c.closing {
+		return fmt.Errorf("billing cron already started or stopped")
 	}
-	go c.startRolloverWorker()
-
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	if c.js != nil {
+		iter, err := c.openCreditTopupIterator(ctx)
+		if err != nil {
+			cancel()
+			return err
+		}
+		c.iter = iter
+	}
+	c.started = true
+	if c.iter != nil {
+		c.wg.Add(1)
+		go func() { defer c.wg.Done(); c.startCreditTopupConsumer(ctx) }()
+	}
+	c.wg.Add(1)
+	go func() { defer c.wg.Done(); c.startRolloverWorker(ctx) }()
+	go func() { c.wg.Wait(); cancel(); close(c.done) }()
+	c.logger.Info("billing consumers started")
 	return nil
 }
 
 func (c *BillingCron) Stop() error {
-	c.stopOnce.Do(func() { close(c.stopChan) })
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return c.StopContext(ctx)
 }
 
-func (c *BillingCron) startCreditTopupConsumer() {
+// StopContext stops new pulls and lets accepted billing work finish within ctx.
+// If the budget expires, cancellation reaches outstanding provider/DB requests.
+func (c *BillingCron) StopContext(ctx context.Context) error {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+	c.mu.Lock()
+	if !c.closing {
+		c.closing = true
+		close(c.stopChan)
+		if c.iter != nil {
+			c.iter.Stop()
+		}
+		if !c.started {
+			close(c.done)
+		}
+	}
+	cancelWork := c.cancel
+	c.mu.Unlock()
+	var stopCancellation func() bool
+	if cancelWork != nil {
+		stopCancellation = context.AfterFunc(ctx, cancelWork)
+		defer stopCancellation()
+	}
+	select {
+	case <-c.done:
+		return nil
+	case <-ctx.Done():
+		if cancelWork != nil {
+			cancelWork()
+		}
+		return ctx.Err()
+	}
+}
+
+func (c *BillingCron) openCreditTopupIterator(ctx context.Context) (jetstream.MessagesContext, error) {
+	setupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	consumer, err := c.js.CreateOrUpdateConsumer(setupCtx, "usage_sync", jetstream.ConsumerConfig{
+		Durable: "billing-credit-topup", FilterSubject: "credit.topup", AckPolicy: jetstream.AckExplicitPolicy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create credit topup consumer: %w", err)
+	}
+	iter, err := consumer.Messages(jetstream.PullMaxMessages(1))
+	if err != nil {
+		return nil, fmt.Errorf("get credit topup messages: %w", err)
+	}
+	return iter, nil
+}
+
+func (c *BillingCron) startCreditTopupConsumer(ctx context.Context) {
+	for {
+		c.mu.Lock()
+		iter := c.iter
+		closing := c.closing
+		c.mu.Unlock()
+		if closing {
+			return
+		}
+		if err := c.runCreditTopupConsumer(ctx, iter); err != nil {
+			c.logger.Error("credit topup consumer exited, will reconnect", zap.Error(err))
+		}
+		iter.Stop()
+		for {
+			timer := time.NewTimer(creditTopupConsumerBackoff)
+			select {
+			case <-c.stopChan:
+				timer.Stop()
+				return
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			next, err := c.openCreditTopupIterator(ctx)
+			if err != nil {
+				c.logger.Error("reconnect credit topup consumer", zap.Error(err))
+				continue
+			}
+			c.mu.Lock()
+			if c.closing {
+				c.mu.Unlock()
+				next.Stop()
+				return
+			}
+			c.iter = next
+			c.mu.Unlock()
+			break
+		}
+	}
+}
+
+func (c *BillingCron) runCreditTopupConsumer(ctx context.Context, iter jetstream.MessagesContext) error {
 	for {
 		select {
 		case <-c.stopChan:
-			return
+			return nil
 		default:
 		}
-
-		if err := c.runCreditTopupConsumer(); err != nil {
-			c.logger.Error("credit topup consumer exited with error, will reconnect",
-				zap.Error(err),
-				zap.Duration("backoff", creditTopupConsumerBackoff),
-			)
-			select {
-			case <-c.stopChan:
-				return
-			case <-time.After(creditTopupConsumerBackoff):
-			}
-		}
-
-	}
-}
-
-func (c *BillingCron) runCreditTopupConsumer() error {
-	setupCtx, setupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	consumer, err := c.js.CreateOrUpdateConsumer(setupCtx, "usage_sync", jetstream.ConsumerConfig{
-		Durable:       "billing-credit-topup",
-		FilterSubject: "credit.topup",
-		AckPolicy:     jetstream.AckExplicitPolicy,
-	})
-	setupCancel()
-	if err != nil {
-		return fmt.Errorf("create credit topup consumer: %w", err)
-	}
-
-	iter, err := consumer.Messages()
-	if err != nil {
-		return fmt.Errorf("get credit topup messages: %w", err)
-	}
-	defer iter.Stop()
-
-	c.logger.Info("credit topup consumer started")
-
-	for {
 		msg, err := iter.Next()
 		if err != nil {
-			if errors.Is(err, jetstream.ErrMsgIteratorClosed) {
-				select {
-				case <-c.stopChan:
-					c.logger.Debug("credit topup iterator closed during shutdown")
-					return nil
-				default:
-					return fmt.Errorf("credit topup iterator closed unexpectedly")
-				}
-			}
 			select {
 			case <-c.stopChan:
 				return nil
 			default:
-				return fmt.Errorf("unexpected iterator error: %w", err)
 			}
+			return fmt.Errorf("credit topup iterator: %w", err)
 		}
-
-		if err := c.handleCreditTopup(msg); err != nil {
+		// Stop can race with Next delivering a message. Leave it pending for replay.
+		select {
+		case <-c.stopChan:
+			return nil
+		default:
+		}
+		if err := c.handleCreditTopupContext(ctx, msg); err != nil {
 			var permErr *permanentError
 			if errors.As(err, &permErr) {
-				c.logger.Error("permanent credit topup failure, terminating message",
-					zap.Error(err),
-					zap.Binary("payload", msg.Data()),
-				)
-				msg.Term()
+				c.logger.Error("permanent credit topup failure, terminating message", zap.Error(err), zap.Binary("payload", msg.Data()))
+				_ = msg.Term()
 			} else {
 				c.logger.Error("transient credit topup failure, will retry", zap.Error(err))
-				msg.Nak()
+				_ = msg.Nak()
 			}
 		} else {
-			msg.Ack()
+			_ = msg.Ack()
 		}
 	}
 }
@@ -156,6 +238,10 @@ type creditTopupEvent struct {
 }
 
 func (c *BillingCron) handleCreditTopup(msg jetstream.Msg) error {
+	return c.handleCreditTopupContext(context.Background(), msg)
+}
+
+func (c *BillingCron) handleCreditTopupContext(parent context.Context, msg jetstream.Msg) error {
 	dec := json.NewDecoder(bytes.NewReader(msg.Data()))
 	dec.UseNumber()
 	var event creditTopupEvent
@@ -194,7 +280,7 @@ func (c *BillingCron) handleCreditTopup(msg jetstream.Msg) error {
 		zap.String("event_id", event.EventID),
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), creditTopupHandleTimeout)
+	ctx, cancel := context.WithTimeout(parent, creditTopupHandleTimeout)
 	defer cancel()
 
 	return c.billingService.ChargeCreditTopup(ctx, event.CompanyID, event.EventID, billingCycleStart, amountMillicents)
@@ -205,26 +291,35 @@ func (c *BillingCron) HandleCreditTopup(msg jetstream.Msg) error {
 	return c.handleCreditTopup(msg)
 }
 
-func (c *BillingCron) startRolloverWorker() {
+func (c *BillingCron) startRolloverWorker(ctx context.Context) {
 	c.logger.Info("billing rollover worker started")
 
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	c.runRollover()
+	select {
+	case <-c.stopChan:
+		return
+	default:
+	}
+	c.runRolloverContext(ctx)
 
 	for {
 		select {
 		case <-c.stopChan:
 			return
 		case <-ticker.C:
-			c.runRollover()
+			c.runRolloverContext(ctx)
 		}
 	}
 }
 
 func (c *BillingCron) runRollover() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	c.runRolloverContext(context.Background())
+}
+
+func (c *BillingCron) runRolloverContext(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	err := c.billingService.ProcessRollovers(ctx)
 	cancel()
 	if err != nil {
