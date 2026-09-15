@@ -26,6 +26,9 @@ type NotificationConsumer struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	logger        *zap.Logger
+	work          sync.WaitGroup
+	stopping      bool
+	stopDone      chan struct{}
 }
 
 // NewNotificationConsumer creates a new notification consumer.
@@ -51,6 +54,9 @@ func NewNotificationConsumer(
 func (nc *NotificationConsumer) Subscribe(threadID, userID, scope string, handler NotificationHandler) error {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
+	if nc.stopping {
+		return fmt.Errorf("notification consumer is stopped")
+	}
 
 	subKey := subKey(threadID, userID)
 
@@ -64,7 +70,11 @@ func (nc *NotificationConsumer) Subscribe(threadID, userID, scope string, handle
 	nc.handlers[subKey] = handler
 	nc.subscriptions[subKey] = subCancel
 
-	go nc.consumeNotifications(subCtx, subKey, subject, handler)
+	nc.work.Add(1)
+	go func() {
+		defer nc.work.Done()
+		nc.consumeNotifications(subCtx, subKey, subject, handler)
+	}()
 
 	nc.logger.Info("subscribed to notifications",
 		zap.String("thread_id", threadID),
@@ -120,6 +130,9 @@ func (nc *NotificationConsumer) consumeNotifications(ctx context.Context, key, s
 			}
 			continue
 		}
+		if ctx.Err() != nil {
+			return
+		}
 
 		var notification domain.ValidationNotification
 		if err := json.Unmarshal(msg.Data, &notification); err != nil {
@@ -146,16 +159,37 @@ func (nc *NotificationConsumer) consumeNotifications(ctx context.Context, key, s
 
 // Stop cancels all subscriptions and shuts down the consumer.
 func (nc *NotificationConsumer) Stop() {
-	// Cancelling nc.ctx propagates to all subCtx children, stopping their goroutines.
-	nc.cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := nc.StopContext(ctx); err != nil {
+		nc.logger.Error("notification consumer shutdown did not complete", zap.Error(err))
+	}
+}
 
+// StopContext cancels subscriptions and joins both fetch loops and handlers.
+// FetchMessage has a bounded timeout; handlers may require the caller's deadline
+// to bound shutdown because their interface does not accept a context.
+func (nc *NotificationConsumer) StopContext(ctx context.Context) error {
 	nc.mu.Lock()
-	defer nc.mu.Unlock()
-
-	nc.subscriptions = make(map[string]context.CancelFunc)
-	nc.handlers = make(map[string]NotificationHandler)
-
-	nc.logger.Info("notification consumer stopped")
+	if !nc.stopping {
+		nc.stopping = true
+		nc.stopDone = make(chan struct{})
+		nc.cancel()
+		nc.subscriptions = make(map[string]context.CancelFunc)
+		nc.handlers = make(map[string]NotificationHandler)
+		go func() {
+			nc.work.Wait()
+			close(nc.stopDone)
+		}()
+	}
+	done := nc.stopDone
+	nc.mu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop notification consumer: %w", ctx.Err())
+	}
 }
 
 // GetActiveSubscriptions returns the number of active subscriptions.

@@ -448,19 +448,32 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                   </div>
                 )}
 
-                <span
-                  className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
-                  style={{ color: step.status === 'failed' ? '#991b1b' : step.status === 'violated' ? '#9a3412' : step.status === 'success' ? '#166534' : '#374151' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStepClick(step);
-                  }}
-                  title={step.stepName}
-                >
-                  {step.stepName.length > MAX_LABEL_CHARS
-                    ? step.stepName.slice(0, MAX_LABEL_CHARS) + '...'
-                    : step.stepName}
-                </span>
+                <div className="flex flex-col">
+                  <span
+                    className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
+                    style={{ color: step.status === 'failed' ? '#991b1b' : step.status === 'violated' ? '#9a3412' : step.status === 'success' ? '#166534' : '#374151' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStepClick(step);
+                    }}
+                    title={step.stepName}
+                  >
+                    {step.stepName.length > MAX_LABEL_CHARS
+                      ? step.stepName.slice(0, MAX_LABEL_CHARS) + '...'
+                      : step.stepName}
+                  </span>
+                  {step.actorService && (
+                    <span 
+                      className="text-[9px] font-mono whitespace-nowrap mt-0.5 opacity-70"
+                      title={step.actorService}
+                      style={{ color: svc.text }}
+                    >
+                      {step.actorService.length > MAX_LABEL_CHARS 
+                        ? step.actorService.slice(0, MAX_LABEL_CHARS) + '...' 
+                        : step.actorService}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -550,11 +563,16 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                           style={{ animation: 'shimmer 1.8s infinite', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)' }} />
                       </div>
                     )}
-                    <div className="flex flex-col justify-center h-full px-2 gap-0.5">
-                      <span className="text-[11px] font-semibold leading-tight select-none whitespace-nowrap" style={{ color: colors.label }}>
-                        {step.stepName.length > BAR_LABEL_CHARS ? step.stepName.slice(0, BAR_LABEL_CHARS) + '...' : step.stepName}
+                    <div className="flex flex-col justify-center h-full px-2 gap-0.5 overflow-hidden">
+                      <span className="text-[11px] font-semibold leading-tight select-none truncate" style={{ color: colors.label }}>
+                        {step.stepName}
                       </span>
-                      <span className="text-[8px] font-mono select-none whitespace-nowrap" style={{ color: colors.text, opacity: 0.8 }}>
+                      {step.actorService && (
+                        <span className="text-[9px] font-mono select-none truncate leading-none" style={{ color: colors.text, opacity: 0.9 }}>
+                          {step.actorService}
+                        </span>
+                      )}
+                      <span className="text-[8px] font-mono select-none truncate" style={{ color: colors.text, opacity: 0.8 }}>
                         {formatDuration(durationMs)}
                       </span>
                     </div>

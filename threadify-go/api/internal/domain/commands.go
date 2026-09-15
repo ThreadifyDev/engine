@@ -10,6 +10,7 @@ type SignupCmd struct {
 	CompanySize     *string
 	UseCase         *string
 	InvitationToken *string
+	MiddleName      string
 }
 
 type LoginCmd struct {
@@ -83,10 +84,45 @@ type CreateEntityProfileTypeCmd struct {
 }
 
 type UpdateEntityProfileTypeCmd struct {
+	Name              string
+	Type              []string
+	Description       string
+	Metrics           []EntityTypeMetric
+	MarkedForDeletion []string
+	ModifiedMetricIDs []string
+}
+
+// ApplyEntityProfileTypeCmd is the complete desired state of an entity profile
+// type. Metric database IDs are deliberately absent from this contract: metrics
+// are reconciled by their externally visible names.
+type ApplyEntityProfileTypeCmd struct {
 	Name        string
 	Type        []string
 	Description string
 	Metrics     []EntityTypeMetric
+}
+
+type EntityProfileTypeChanges struct {
+	NameChanged        bool
+	DescriptionChanged bool
+	TypesChanged       bool
+	MetricsAdded       []string
+	MetricsUpdated     []string
+	MetricsRemoved     []string
+}
+
+type EntityProfileTypeBackfill struct {
+	Supported bool
+	Applied   bool
+}
+
+type ApplyEntityProfileTypeResult struct {
+	Status     string
+	DryRun     bool
+	ConfigHash string
+	Profile    *EntityProfileType
+	Changes    EntityProfileTypeChanges
+	Backfill   EntityProfileTypeBackfill
 }
 
 type UpdateProfileCmd struct {

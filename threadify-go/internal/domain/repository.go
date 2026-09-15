@@ -220,6 +220,19 @@ type ActivityRepository interface {
 	ActivityArchiveRepository
 }
 
+// OTelTraceCorrelationRepository coordinates the one-to-one mapping between an
+// OpenTelemetry trace and a Threadify thread across engine replicas.
+type OTelTraceCorrelationRepository interface {
+	GetThreadID(ctx context.Context, companyID, traceID string) (string, error)
+	SetThreadIDIfAbsent(ctx context.Context, companyID, traceID, threadID string) (bool, error)
+	AcquireCreationLock(ctx context.Context, companyID, traceID, token string) (bool, error)
+	ReleaseCreationLock(ctx context.Context, companyID, traceID, token string) error
+	GetSpanState(ctx context.Context, companyID, traceID, spanID string) (string, error)
+	ClaimSpan(ctx context.Context, companyID, traceID, spanID, token string) (bool, error)
+	CompleteSpan(ctx context.Context, companyID, traceID, spanID, token string) error
+	ReleaseSpan(ctx context.Context, companyID, traceID, spanID, token string) error
+}
+
 type ContractGraphRepository interface {
 	Get(ctx context.Context, contractName string, version int, companyID string) (*ContractGraph, error)
 	Save(ctx context.Context, contractName string, version int, companyID string, graph *ContractGraph) error

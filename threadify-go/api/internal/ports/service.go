@@ -71,6 +71,8 @@ type ServiceAccountService interface {
 }
 
 type EntityProfileTypeService interface {
+	ApplyEntityProfileType(ctx context.Context, companyID, profileSlug string, req *domain.ApplyEntityProfileTypeCmd, dryRun bool) (*domain.ApplyEntityProfileTypeResult, error)
+	RenameEntityProfileType(ctx context.Context, companyID, profileSlug, name string) (*domain.EntityProfileType, error)
 	CreateEntityProfileType(ctx context.Context, companyID string, req *domain.CreateEntityProfileTypeCmd) (*domain.EntityProfileType, error)
 	ListEntityProfileTypes(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error)
 	UpdateEntityProfileType(ctx context.Context, companyID, id string, req *domain.UpdateEntityProfileTypeCmd) (*domain.EntityProfileType, error)

@@ -22,11 +22,11 @@ func AgentCreditCheckMiddleware(agentSvc ports.AgentService) gin.HandlerFunc {
 		available, err := agentSvc.CheckCredits(c.Request.Context(), authHeader)
 		if err != nil {
 			if errors.Is(err, shderrors.ErrPaymentRequired) {
-				c.JSON(http.StatusPaymentRequired, gin.H{"error": err.Error()})
+				c.JSON(http.StatusPaymentRequired, gin.H{"error": "Insufficient credits"})
 				c.Abort()
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify credits: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify credits"})
 			c.Abort()
 			return
 		}

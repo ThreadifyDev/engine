@@ -13,7 +13,7 @@ import (
 
 func TestWebhookHandler_HandleWebhook(t *testing.T) {
 	const (
-		sigHeader = "Stripe-Signature"
+		sigHeader = "Test-Provider-Signature"
 		sigValue  = "valid_sig"
 	)
 
@@ -30,7 +30,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 			body:   `{"type":"invoice.paid"}`,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.WebhookProvider.EXPECT().SignatureHeader().Return(sigHeader)
-				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
+				d.WebhookProvider.EXPECT().Name().Return("test-provider").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
 					Return(&shareddomain.WebhookEvent{
@@ -59,7 +59,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 			body:   `{}`,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.WebhookProvider.EXPECT().SignatureHeader().Return(sigHeader)
-				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
+				d.WebhookProvider.EXPECT().Name().Return("test-provider").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), "bad_sig").
 					Return(nil, errors.New("invalid signature"))
@@ -72,7 +72,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 			body:   `{}`,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.WebhookProvider.EXPECT().SignatureHeader().Return(sigHeader)
-				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
+				d.WebhookProvider.EXPECT().Name().Return("test-provider").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
 					Return(&shareddomain.WebhookEvent{
@@ -94,7 +94,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 			body:   `{"type":"unknown.event"}`,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.WebhookProvider.EXPECT().SignatureHeader().Return(sigHeader)
-				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
+				d.WebhookProvider.EXPECT().Name().Return("test-provider").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
 					Return(&shareddomain.WebhookEvent{
@@ -109,7 +109,7 @@ func TestWebhookHandler_HandleWebhook(t *testing.T) {
 			body:   `{"type":"invoice.paid"}`,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.WebhookProvider.EXPECT().SignatureHeader().Return(sigHeader)
-				d.WebhookProvider.EXPECT().Name().Return("stripe").AnyTimes()
+				d.WebhookProvider.EXPECT().Name().Return("test-provider").AnyTimes()
 				d.WebhookProvider.EXPECT().
 					VerifyAndParse(gomock.Any(), sigValue).
 					Return(&shareddomain.WebhookEvent{

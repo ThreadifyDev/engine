@@ -85,6 +85,8 @@ type Thread {
   steps(stepName: String, idempotencyKey: String, status: String): [StepStateInfo!]!
   # Get validation results for this thread (max limit: 100)
   validationResults(options: ValidationQueryOptions): [ValidationResultInfo!]!
+  # Tags set at thread creation time (immutable)
+  tags: [String!]
   # Get notification summary counts (lightweight - load this first)
   notificationSummary: NotificationSummary!
   # Get notifications for this thread with full context (execution, validation, thread events)
@@ -130,12 +132,24 @@ type GraphNode {
   type: String!
   mode: String
   required: Boolean!
+  dependsOn: [String!]!
   next: [String!]
   steps: [String!]
   timeout: String
   maxDuration: String
   businessContext: JSON
   parentGroup: String
+}
+
+type StepProposal {
+  threadId: ID!
+  stepName: String!
+  allowed: Boolean!
+  requiredSteps: [String!]!
+  satisfiedSteps: [String!]!
+  missingSteps: [String!]!
+  previousStep: String
+  reason: String!
 }
 
 type Transition {
@@ -166,6 +180,7 @@ type Query {
     contractName: String
     contractVersion: Int
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     completedAfter: String
@@ -180,6 +195,7 @@ type Query {
     contractVersion: Int
     actor: String
     status: String
+    tags: [String!]
     startedAfter: String
     startedBefore: String
     limit: Int = 50
@@ -213,6 +229,9 @@ type Query {
   
   # Get contract graph by name and version (version defaults to latest if not provided)
   contractGraph(name: String!, version: Int): ContractGraph!
+
+  # Evaluate a candidate step against the successful facts already gathered for the thread.
+  proposeStep(threadId: ID!, stepName: String!): StepProposal!
   # Get step history by stepName:idempKey or stepName (max limit: 1000)
   stepHistory(
     threadId: String!
@@ -255,6 +274,18 @@ type Query {
     limit: Int
     offset: Int
   ): EntityProfileConnection!
+  
+  # Get violations across threads, filterable by contract, entity, and severity.
+  contractViolations(
+    contractName: String
+    refKey: String
+    refValue: String
+    severity: [String!]
+    startedAfter: String
+    startedBefore: String
+    limit: Int = 50
+    offset: Int = 0
+  ): [ThreadNotification!]!
 }
 
 type EntityProfileConnection {
@@ -384,12 +415,27 @@ type EntityProfile {
   lastActiveAt: String!
   metrics: EntityProfileMetrics
   computedMetrics(range: String): JSON
+  deliveryHealth(range: String): JSON
+}
+
+type CustomMetricDefinition {
+  name: String!
+  target: String
+  stepName: String
+  operation: String
+  field: String
+  filters: JSON
+  groupBy: String
+  granularity: String
+  visualisation: String
 }
 
 type EntityTypeMetricConfig {
+  id: String
   templateId: String!
   name: String
   parameters: JSON
+  customDefinition: CustomMetricDefinition
 }
 
 type EntityProfileType {

@@ -12,3 +12,7 @@ type EntityProfileType = shareddomain.EntityProfileType
 type EntityTypeMetric = shareddomain.EntityTypeMetric
 
 type MetricsTemplate = shareddomain.MetricsTemplate
+
+type MetricDefinition = shareddomain.MetricDefinition
+
+type MetricFilter = shareddomain.MetricFilter

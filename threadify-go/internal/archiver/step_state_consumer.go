@@ -192,6 +192,27 @@ func (c *StepStateConsumer) flushLocked(ctx context.Context) {
 	)
 }
 
+// processMessages is used by Runtime, whose worker owns batching and acknowledgements.
+func (c *StepStateConsumer) processMessages(ctx context.Context, msgs []jetstream.Msg) error {
+	type dedupKey struct{ threadID, stepName, idempotencyKey string }
+	seen := make(map[dedupKey]int, len(msgs))
+	events := make([]stepStateEvent, 0, len(msgs))
+	for _, msg := range msgs {
+		var event stepStateEvent
+		if err := json.Unmarshal(msg.Data(), &event); err != nil {
+			return fmt.Errorf("decode step state: %w", err)
+		}
+		key := dedupKey{event.ThreadID, event.StepName, event.IdempotencyKey}
+		if idx, ok := seen[key]; ok {
+			events[idx] = event
+		} else {
+			seen[key] = len(events)
+			events = append(events, event)
+		}
+	}
+	return c.writeBatch(ctx, events)
+}
+
 func (c *StepStateConsumer) writeBatch(ctx context.Context, events []stepStateEvent) error {
 	if len(events) == 0 {
 		return nil

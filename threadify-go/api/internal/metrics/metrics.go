@@ -90,4 +90,13 @@ var (
 		},
 		[]string{"error_type"},
 	)
+
+	// Bot Detection Metrics
+	BotDetectionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "threadify_api_bot_detections_total",
+			Help: "Total number of bot detections by detection method",
+		},
+		[]string{"method"}, // method: honeypot, captcha, etc.
+	)
 )

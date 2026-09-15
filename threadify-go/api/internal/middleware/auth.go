@@ -8,7 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func AuthAccessTokenAuth(authService ports.AuthService) gin.HandlerFunc {
+// AuthAccessTokenAuth accepts either a user JWT or a Threadify API key in the
+// same Bearer header. This lets service accounts use the same management API as
+// the web UI while preserving RBAC on the routes that follow.
+func AuthAccessTokenAuth(authService ports.AuthService, apiKeyService ports.APIKeyService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -18,15 +21,26 @@ func AuthAccessTokenAuth(authService ports.AuthService) gin.HandlerFunc {
 		}
 		token, err := sharedauth.ExtractBearerToken(authHeader)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header"})
 			c.Abort()
 			return
 		}
 
 		claims, err := authService.VerifyToken(c.Request.Context(), token)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			c.Abort()
+			apiKey, keyErr := apiKeyService.ValidateAPIKey(c.Request.Context(), token)
+			if keyErr != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+				c.Abort()
+				return
+			}
+			c.Set(sharedauth.CtxCompanyID, apiKey.CompanyID)
+			if apiKey.ServiceAccountID != nil {
+				c.Set("serviceAccountID", *apiKey.ServiceAccountID)
+			} else if apiKey.UserID != nil {
+				c.Set(sharedauth.CtxUserID, *apiKey.UserID)
+			}
+			c.Next()
 			return
 		}
 

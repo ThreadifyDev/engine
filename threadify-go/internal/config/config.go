@@ -8,6 +8,7 @@ import (
 
 // Config represents the complete application configuration
 type Config struct {
+	RuntimeMode        string                          `yaml:"runtime_mode" mapstructure:"runtime_mode"`
 	Server             ServerConfig                    `yaml:"server" mapstructure:"server"`
 	Postgres           PostgresConfig                  `yaml:"postgres" mapstructure:"postgres"`
 	Redis              RedisConfig                     `yaml:"redis" mapstructure:"redis"`
@@ -28,6 +29,7 @@ type Config struct {
 	WorkerPools        WorkerPoolsConfig               `yaml:"worker_pools" mapstructure:"worker_pools"`
 	Performance        PerformanceConfig               `yaml:"performance" mapstructure:"performance"`
 	JWKS               JWKSSettings                    `yaml:"jwks" mapstructure:"jwks"`
+	Supabase           SupabaseSettings                `yaml:"supabase" mapstructure:"supabase"`
 	Subscription       sharedconfig.SubscriptionConfig `yaml:"subscription" mapstructure:"subscription"`
 	Billing            sharedconfig.BillingConfig      `yaml:"billing" mapstructure:"billing"`
 	Batch              BatchConfig                     `yaml:"batch" mapstructure:"batch"`
@@ -136,6 +138,12 @@ type TimeoutsConfig struct {
 
 // NATSConfig holds NATS configuration
 type NATSConfig struct {
+	Mode                       string `yaml:"mode" mapstructure:"mode"`
+	StoreDir                   string `yaml:"store_dir" mapstructure:"store_dir"`
+	MaxMemoryBytes             int64  `yaml:"max_memory_bytes" mapstructure:"max_memory_bytes"`
+	MaxStoreBytes              int64  `yaml:"max_store_bytes" mapstructure:"max_store_bytes"`
+	ArchivalMaxBytes           int64  `yaml:"archival_max_bytes" mapstructure:"archival_max_bytes"`
+	ArchivalMaxAgeHours        int    `yaml:"archival_max_age_hours" mapstructure:"archival_max_age_hours"`
 	URL                        string `yaml:"url" mapstructure:"url"`
 	ClusterID                  string `yaml:"cluster_id" mapstructure:"cluster_id"`
 	ClientID                   string `yaml:"client_id" mapstructure:"client_id"`
@@ -225,6 +233,7 @@ type WebSocketConfig struct {
 	WriteBufferSize         int `yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 	MaxInFlightMax          int `yaml:"max_in_flight_max" mapstructure:"max_in_flight_max"`
 	MaxInFlightDefault      int `yaml:"max_in_flight_default" mapstructure:"max_in_flight_default"`
+	ReadDeadlineSeconds     int `yaml:"read_deadline_seconds" mapstructure:"read_deadline_seconds"`
 }
 
 // WorkerPoolsConfig holds configuration for all worker pools
@@ -257,6 +266,12 @@ type JWKSSettings struct {
 	URL      string `yaml:"url" mapstructure:"url"`
 	Audience string `yaml:"audience" mapstructure:"audience"`
 	Issuer   string `yaml:"issuer" mapstructure:"issuer"`
+}
+
+type SupabaseSettings struct {
+	URL                   string `yaml:"url" mapstructure:"url"`
+	PublishableKey        string `yaml:"publishable_key" mapstructure:"publishable_key"`
+	RequestTimeoutSeconds int    `yaml:"request_timeout_seconds" mapstructure:"request_timeout_seconds"`
 }
 
 type BatchConfig struct {

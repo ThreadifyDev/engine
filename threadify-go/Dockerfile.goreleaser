@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+# GoReleaser supplies a binary for each target; no second Go compilation.
+FROM busybox:1.37 AS data
+RUN mkdir -p /data/jetstream && chown -R 65532:65532 /data
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETPLATFORM
+WORKDIR /app
+COPY ${TARGETPLATFORM}/threadify /app/threadify
+COPY config/config.selfhost.yaml /app/config/config.yaml
+COPY config/subscription.selfhost.yaml /app/config/subscription.yaml
+COPY --from=data --chown=65532:65532 /data /data
+ENV CONFIG_PATH=/app/config/config.yaml
+VOLUME ["/data"]
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/app/threadify", "--healthcheck"]
+ENTRYPOINT ["/app/threadify"]

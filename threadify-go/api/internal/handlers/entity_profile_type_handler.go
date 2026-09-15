@@ -2,15 +2,107 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/dto"
 	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/slug"
 
 	"github.com/gin-gonic/gin"
 )
+
+func (h *EntityProfileTypeHandler) ApplyEntityProfileType(c *gin.Context) {
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req dto.ApplyEntityProfileTypeRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if err := validation.ValidateApplyEntityProfileTypeRequest(&req); err != nil {
+		respondValidationError(c, err)
+		return
+	}
+	pathSlug := c.Param("slug")
+	if expected := slug.ToSlug(req.Name); expected == "" || expected != pathSlug {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":         "profile slug must match the normalized profile name; renames require an explicit rename operation",
+			"expected_slug": expected,
+		})
+		return
+	}
+	dryRun := false
+	if raw := c.Query("dry_run"); raw != "" {
+		var err error
+		dryRun, err = strconv.ParseBool(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "dry_run must be true or false"})
+			return
+		}
+	}
+
+	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
+	for _, m := range req.Metrics {
+		metrics = append(metrics, domain.EntityTypeMetric{
+			TemplateID: m.TemplateID, Name: m.Name, Parameters: m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
+		})
+	}
+	result, err := h.entityProfileTypeService.ApplyEntityProfileType(
+		c.Request.Context(), companyID.(string), pathSlug,
+		&domain.ApplyEntityProfileTypeCmd{Name: req.Name, Type: req.Type, Description: req.Description, Metrics: metrics},
+		dryRun,
+	)
+	if err != nil {
+		if respondValidationError(c, err) {
+			return
+		}
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusOK, dto.ApplyEntityProfileTypeResponse{
+		Status: result.Status, DryRun: result.DryRun, ConfigHash: result.ConfigHash,
+		Data: toEntityProfileTypeDTO(result.Profile),
+		Changes: dto.EntityProfileTypeChanges{
+			NameChanged: result.Changes.NameChanged, DescriptionChanged: result.Changes.DescriptionChanged,
+			TypesChanged: result.Changes.TypesChanged, MetricsAdded: result.Changes.MetricsAdded,
+			MetricsUpdated: result.Changes.MetricsUpdated, MetricsRemoved: result.Changes.MetricsRemoved,
+		},
+		Backfill: dto.EntityProfileTypeBackfill{Supported: result.Backfill.Supported, Applied: result.Backfill.Applied},
+	})
+}
+
+func (h *EntityProfileTypeHandler) RenameEntityProfileType(c *gin.Context) {
+	companyID, exists := c.Get(sharedauth.CtxCompanyID)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var req dto.RenameEntityProfileTypeRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+	if slug.ToSlug(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+	profile, err := h.entityProfileTypeService.RenameEntityProfileType(
+		c.Request.Context(), companyID.(string), c.Param("slug"), req.Name,
+	)
+	if err != nil {
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Entity profile type renamed successfully.", "data": toEntityProfileTypeDTO(profile)})
+}
 
 type EntityProfileTypeHandler struct {
 	entityProfileTypeService ports.EntityProfileTypeService
@@ -44,9 +136,11 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
 	for _, m := range req.Metrics {
 		metrics = append(metrics, domain.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
 		})
 	}
 
@@ -60,7 +154,7 @@ func (h *EntityProfileTypeHandler) CreateEntityProfileType(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -118,17 +212,21 @@ func (h *EntityProfileTypeHandler) UpdateEntityProfileType(c *gin.Context) {
 	metrics := make([]domain.EntityTypeMetric, 0, len(req.Metrics))
 	for _, m := range req.Metrics {
 		metrics = append(metrics, domain.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDomainMetricDefinition(m.CustomDefinition),
 		})
 	}
 
 	profileType, err := h.entityProfileTypeService.UpdateEntityProfileType(c.Request.Context(), compID, id, &domain.UpdateEntityProfileTypeCmd{
-		Name:        req.Name,
-		Type:        req.Type,
-		Description: req.Description,
-		Metrics:     metrics,
+		Name:              req.Name,
+		Type:              req.Type,
+		Description:       req.Description,
+		Metrics:           metrics,
+		MarkedForDeletion: req.MarkedForDeletion,
+		ModifiedMetricIDs: req.ModifiedMetricIDs,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
@@ -148,11 +246,12 @@ func (h *EntityProfileTypeHandler) ArchiveEntityProfileType(c *gin.Context) {
 		return
 	}
 	compID := companyID.(string)
-	id := c.Param("id")
+	profileSlug := c.Param("slug")
 
-	err := h.entityProfileTypeService.ArchiveEntityProfileType(c.Request.Context(), compID, id)
+	err := h.entityProfileTypeService.ArchiveEntityProfileType(c.Request.Context(), compID, profileSlug)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred."})
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An internal error occurred.")
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
@@ -186,9 +285,11 @@ func toEntityProfileTypeDTO(t *domain.EntityProfileType) *dto.EntityProfileType 
 	metrics := make([]dto.EntityTypeMetric, 0, len(t.Metrics))
 	for _, m := range t.Metrics {
 		metrics = append(metrics, dto.EntityTypeMetric{
-			TemplateID: m.TemplateID,
-			Name:       m.Name,
-			Parameters: m.Parameters,
+			ID:               m.ID,
+			TemplateID:       m.TemplateID,
+			Name:             m.Name,
+			Parameters:       m.Parameters,
+			CustomDefinition: toDTOCustomDefinition(m.CustomDefinition),
 		})
 	}
 
@@ -206,14 +307,70 @@ func toEntityProfileTypeDTO(t *domain.EntityProfileType) *dto.EntityProfileType 
 	}
 }
 
+func toDTOCustomDefinition(d *domain.MetricDefinition) *dto.CustomMetricDefinition {
+	if d == nil {
+		return nil
+	}
+	filters := make([]dto.CustomMetricFilter, len(d.Filters))
+	for i, f := range d.Filters {
+		filters[i] = dto.CustomMetricFilter{
+			Key:   f.Key,
+			Value: f.Value,
+		}
+	}
+	return &dto.CustomMetricDefinition{
+		Name:        d.Name,
+		Target:      d.Target,
+		StepName:    d.StepName,
+		Operation:   d.Operation,
+		Field:       d.Field,
+		Filters:     filters,
+		GroupBy:     d.GroupBy,
+		Granularity: d.Granularity,
+		// Visualisation: d.Visualisation, // commented out for now
+	}
+}
+
+func toDomainMetricDefinition(d *dto.CustomMetricDefinition) *domain.MetricDefinition {
+	if d == nil {
+		return nil
+	}
+	filters := make([]domain.MetricFilter, len(d.Filters))
+	for i, f := range d.Filters {
+		filters[i] = domain.MetricFilter{
+			Key:   f.Key,
+			Value: f.Value,
+		}
+	}
+	return &domain.MetricDefinition{
+		Name:        d.Name,
+		Target:      d.Target,
+		StepName:    d.StepName,
+		Operation:   d.Operation,
+		Field:       d.Field,
+		Filters:     filters,
+		GroupBy:     d.GroupBy,
+		Granularity: d.Granularity,
+		// Visualisation: d.Visualisation, // commented out for now
+	}
+}
+
 func toMetricsTemplateDTO(t *domain.MetricsTemplate) *dto.MetricsTemplateResponse {
 	if t == nil {
 		return nil
 	}
+	defs := make([]dto.ParameterDefinition, len(t.ParameterDefinitions))
+	for i, d := range t.ParameterDefinitions {
+		defs[i] = dto.ParameterDefinition{
+			Name:        d.Name,
+			Type:        d.Type,
+			Values:      d.Values,
+			Description: d.Description,
+		}
+	}
 	return &dto.MetricsTemplateResponse{
-		ID:          t.ID,
-		MetricsName: t.MetricsName,
-		Parameters:  t.Parameters,
-		SQLContent:  t.SQLContent,
+		ID:                   t.ID,
+		MetricsName:          t.MetricsName,
+		ParameterDefinitions: defs,
 	}
 }

@@ -135,6 +135,7 @@ type ValidateStepParams struct {
 	Timestamp              string
 	MaxRetries             int
 	TransitionsMap         map[string][]string // Map of stepName -> allowed next steps
+	RequiredSteps          []string            // Partial-order prerequisites for this step
 	TerminalSteps          []string
 	AllowMultipleTerminals bool
 	Actor                  string // User who recorded this step (for .own permission filtering)

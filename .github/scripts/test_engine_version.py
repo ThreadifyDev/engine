@@ -1,0 +1,85 @@
+"""Exercise version decisions against disposable Git histories."""
+import importlib.util
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+spec = importlib.util.spec_from_file_location("engine_version", Path(__file__).with_name("engine-version.py"))
+version = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(version)
+
+
+class EngineVersionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous_dir = os.getcwd()
+        os.chdir(self.temp.name)
+        self.git("init", "-q")
+        self.git("config", "user.name", "Release test")
+        self.git("config", "user.email", "release@example.test")
+
+    def tearDown(self):
+        os.chdir(self.previous_dir)
+        self.temp.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], text=True).strip()
+
+    def commit(self, message, path="threadify-go/main.go"):
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a") as stream:
+            stream.write(message + "\n")
+        self.git("add", path)
+        self.git("commit", "-qm", message)
+
+    def test_first_engine_release_ignores_sdk_tags(self):
+        self.commit("feat: initial engine")
+        self.git("tag", "threadify-sdk-go-v9.0.0")
+        self.assertEqual(version.next_release(), ("v0.1.0", ""))
+
+    def test_patch_minor_and_breaking_footer(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.2.3")
+        self.commit("fix: persistence")
+        self.assertEqual(version.next_release(), ("v1.2.4", "v1.2.3"))
+        self.commit("feat(otel): ingestion")
+        self.assertEqual(version.next_release(), ("v1.3.0", "v1.2.3"))
+        self.commit("refactor: schema\n\nBREAKING CHANGE: new schema")
+        self.assertEqual(version.next_release(), ("v2.0.0", "v1.2.3"))
+
+    def test_breaking_subject_and_retry(self):
+        self.commit("fix(engine)!: remove old protocol")
+        self.assertEqual(version.next_release(), ("v1.0.0", ""))
+        self.git("tag", "v1.0.0")
+        self.assertEqual(version.next_release(), ("v1.0.0", ""))
+        self.commit("fix: next")
+        self.git("tag", "v1.0.1")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+
+    def test_unrelated_changes_do_not_release_or_bump(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        for path in ("web/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go", "threadify-sdk-go/sdk.go"):
+            self.commit("feat!: unrelated", path)
+        self.assertEqual(version.next_release(), ("", "v1.0.0"))
+        self.commit("fix: engine")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+
+    def test_unmerged_and_prerelease_tags_do_not_set_version(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        branch = self.git("branch", "--show-current")
+        self.git("checkout", "-qb", "other")
+        self.commit("feat: future")
+        self.git("tag", "v9.0.0")
+        self.git("checkout", "-q", branch)
+        self.commit("fix: stable")
+        self.git("tag", "v2.0.0-rc.1")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+
+
+if __name__ == "__main__":
+    unittest.main()

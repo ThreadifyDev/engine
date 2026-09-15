@@ -38,11 +38,14 @@ const connection = await Threadify.connect('api-key', 'my-service', {
 // With label (Recommended)
 const thread = await connection.start('Order-123');
 
-// With label and contract
-const thread = await connection.start('Order-789', 'order_fulfillment');
+// With label and service name
+const thread = await connection.start('Order-789', '', { serviceName: 'merchant-service' });
 
-// With label, contract, and options
-const thread = await connection.start('Order-789', 'order_fulfillment', { serviceName: 'merchant-service' });
+// With tags (immutable labels for filtering)
+const thread = await connection.start('Order-789', '', { tags: ['production', 'v2.1'] });
+
+// ONLY if user explicitly asks for contracts:
+// const thread = await connection.start('Order-789', 'order_fulfillment');
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -184,6 +187,7 @@ connection.subscribe('step.success', 'order_placed', (notification) => {
   notification.ack();
 });
 
+// Advanced (contract-only): Subscribe to contract validation events
 connection.subscribe('rule.violated', 'payment_processed', (notification) => {
   console.log('Violation:', notification.severity);
   notification.ack();
@@ -201,11 +205,36 @@ connection.unsubscribe('thread.completed');
 
 ### Join Thread
 ```javascript
-// With token
+// With token (accessLevel comes from the invitation)
 const thread = await connection.join(invitationToken);
 
-// Direct join
-const thread = await connection.join(threadId, 'participant');
+// Direct join (defaults to participant accessLevel)
+const thread = await connection.join(threadId);
+const thread = await connection.join(threadId, 'supplier');
+```
+
+### Invite Party
+
+```javascript
+// Invite as external (default)
+const invite = await thread.inviteParty({
+  role: 'supplier'
+});
+
+// Invite as observer (read-only)
+const invite = await thread.inviteParty({
+  role: 'supplier',
+  accessLevel: Threadify.FOR_OBSERVER
+});
+
+// Invite as participant (active)
+const invite = await thread.inviteParty({
+  role: 'inventory-service',
+  accessLevel: Threadify.FOR_PARTICIPANT
+});
+
+// Join using the token
+const thread = await connection.join(invite.token);
 ```
 
 ### Error Handling
@@ -218,6 +247,35 @@ try {
     .addContext({ error: error.message })
     .failed();
 }
+```
+
+### OpenTelemetry Exporter — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel if the user explicitly asks OR the codebase already imports `@opentelemetry/api`.
+
+```javascript
+import { trace } from '@opentelemetry/api';
+import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { Threadify } from '@threadify/sdk';
+
+const connection = await Threadify.connect('api-key', 'checkout-service');
+
+// Create exporter (Optionally extract OTel attributes into Threadify refs)
+const exporter = connection.createSpanExporter({ refs: ['order.id'] });
+
+// Tag threads via OTel span attributes
+span.setAttribute('threadify.tags', ['production', 'v2.1']);
+
+// Filter spans by name — exact match or prefix wildcard with *
+const exporter = connection.createSpanExporter({
+  refs: ['order.id'],
+  filters: ['invoke_llm', 'adk.before*', 'llm.*']
+});
+
+// Register with OTel
+const provider = new BasicTracerProvider();
+provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+trace.setGlobalTracerProvider(provider);
 ```
 
 ---

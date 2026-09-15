@@ -518,10 +518,10 @@ func (r *AccessRepository) GetUsersByPermissions(
 func (r *AccessRepository) getRuntimeRolesForPermissions(requiredPermissions []string) []string {
 	// Fallback to all roles if RBAC loader not available (should not happen in production)
 	if r.rbacLoader == nil {
-		return []string{"owner", "participant", "observer", "external"}
+		return []string{domain.AccessLevelOwner, domain.AccessLevelParticipant, domain.AccessLevelObserver, domain.AccessLevelExternal}
 	}
 
-	allRuntimeRoles := []string{"owner", "participant", "observer", "external"}
+	allRuntimeRoles := []string{domain.AccessLevelOwner, domain.AccessLevelParticipant, domain.AccessLevelObserver, domain.AccessLevelExternal}
 	matchedRoles := make([]string, 0, len(allRuntimeRoles))
 
 	// For each runtime role, check if it has ANY of the required permissions
@@ -552,14 +552,14 @@ func (r *AccessRepository) roleHasAnyPermission(role string, requiredPermissions
 }
 
 // matchesPermission checks if a role permission matches a required permission
-// Handles wildcard permissions (e.g., "notification.execution.*" matches "notification.execution.success.*")
+// Handles wildcard permissions (e.g., "notification.step.*" matches "notification.step.success.*")
 func matchesPermission(rolePerm, reqPerm string) bool {
 	// Exact match
 	if rolePerm == reqPerm {
 		return true
 	}
 
-	// Wildcard match: role has "notification.execution.*", req is "notification.execution.success.*"
+	// Wildcard match: role has "notification.step.*", req is "notification.step.success.*"
 	if strings.HasSuffix(rolePerm, ".*") {
 		prefix := strings.TrimSuffix(rolePerm, ".*")
 		if strings.HasPrefix(reqPerm, prefix) {
@@ -571,7 +571,7 @@ func matchesPermission(rolePerm, reqPerm string) bool {
 }
 
 // hasAnyPermission checks if user has any of the required permissions
-// Handles wildcard permissions (e.g., "notification.execution.*")
+// Handles wildcard permissions (e.g., "notification.step.*")
 func hasAnyPermission(userPerms []string, requiredPerms []string) bool {
 	for _, userPerm := range userPerms {
 		for _, reqPerm := range requiredPerms {
@@ -580,7 +580,7 @@ func hasAnyPermission(userPerms []string, requiredPerms []string) bool {
 				return true
 			}
 
-			// Wildcard match: user has "notification.execution.*", req is "notification.execution.success.*"
+			// Wildcard match: user has "notification.step.*", req is "notification.step.success.*"
 			if strings.HasSuffix(userPerm, ".*") {
 				prefix := strings.TrimSuffix(userPerm, ".*")
 				if strings.HasPrefix(reqPerm, prefix) {

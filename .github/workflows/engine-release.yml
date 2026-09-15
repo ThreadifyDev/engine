@@ -1,0 +1,119 @@
+name: Engine release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'threadify-go/**'
+      - '!threadify-go/api/**'
+      - '!threadify-go/tests/api/**'
+      - '.github/workflows/engine-*.yml'
+      - '.github/scripts/*engine*'
+
+# Serialize tagging/publishing so two main pushes cannot claim the same version.
+concurrency:
+  group: threadify-engine-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/engine-ci.yml
+
+  tag:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      previous_tag: ${{ steps.version.outputs.previous_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select engine version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF_TYPE" == tag ]]; then
+            # Engine releases use stable vMAJOR.MINOR.PATCH tags only.
+            [[ "$REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          fi
+          python3 .github/scripts/engine-version.py
+          if [[ "$REF_TYPE" == tag ]]; then
+            # Reject an ambiguous commit with a different stable engine tag.
+            grep -Fx "tag=$REF_NAME" "$GITHUB_OUTPUT"
+          fi
+      - name: Create engine tag
+        if: github.ref_type == 'branch' && steps.version.outputs.tag != ''
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            # A retry may reuse its tag, but must never publish another commit.
+            [[ "$(git rev-list -n 1 "$RELEASE_TAG")" == "$(git rev-parse HEAD)" ]]
+          else
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
+
+  publish:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.tag.outputs.tag }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: threadify-go/go.mod
+          cache-dependency-path: |
+            threadify-go/go.sum
+            threadify-go/shared/go.sum
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate engine release notes
+        env:
+          PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          revision="$RELEASE_TAG"
+          if [[ -n "$PREVIOUS_TAG" ]]; then revision="$PREVIOUS_TAG..$RELEASE_TAG"; fi
+          git log --format='* %s (%h)' "$revision" -- \
+            threadify-go ':!threadify-go/api' ':!threadify-go/tests/api' \
+            .github/workflows/engine-ci.yml .github/workflows/engine-release.yml \
+            .github/scripts/engine-version.py .github/scripts/test_engine_version.py > "$RUNNER_TEMP/engine-notes.md"
+      # GITHUB_TOKEN-created tags do not start another workflow. Publish directly
+      # from the validated tag on main pushes, and use the same path for tag pushes.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.18.0
+          workdir: threadify-go
+          args: release --clean --parallelism 1 --release-notes=${{ runner.temp }}/engine-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.tag.outputs.tag }}
+          # Explicitly bypass SDK tags when computing engine release metadata.
+          GORELEASER_PREVIOUS_TAG: ${{ needs.tag.outputs.previous_tag || needs.tag.outputs.tag }}

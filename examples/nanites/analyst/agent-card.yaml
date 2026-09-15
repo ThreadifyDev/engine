@@ -1,0 +1,17 @@
+name: Analyst Nanite
+description: Extracts facts, assumptions, gaps, and risks from one request.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8111/responses
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+  pushNotifications: false
+defaultInputModes: [text/plain]
+defaultOutputModes: [text/plain]
+skills:
+  - id: analyze-work
+    name: Analyze work
+    description: Produces a bounded analysis for the next Nanite.
+    tags: [analysis, risk, nanites]

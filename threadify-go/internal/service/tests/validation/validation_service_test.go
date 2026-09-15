@@ -154,6 +154,16 @@ func TestValidationService_CheckMaxDuration_Table(t *testing.T) {
 	}
 }
 
+func TestValidationService_CheckMaxDurationUsesSourceTime(t *testing.T) {
+	svc := &service.ValidationService{}
+	startedAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	thread := &domain.Thread{StartedAt: startedAt}
+	graph := &domain.ContractGraph{Validation: &domain.Validation{MaxDuration: "1h"}}
+
+	assert.Nil(t, svc.CheckMaxDuration(thread, graph, startedAt.Add(30*time.Minute)))
+	require.NotNil(t, svc.CheckMaxDuration(thread, graph, startedAt.Add(2*time.Hour)))
+}
+
 func TestValidationService_CheckMissingOptionalFields_Table(t *testing.T) {
 	svc := &service.ValidationService{}
 

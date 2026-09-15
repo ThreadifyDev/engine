@@ -11,11 +11,12 @@ export default function Footer() {
           <div className="flex items-center gap-6">
             <a href="https://docs.threadify.dev" className="text-sm text-gray-600 hover:text-gray-900 transition">Docs</a>
             <a href="/pricing" className="text-sm text-gray-600 hover:text-black transition-colors">Pricing</a>
+            <a href="https://blog.threadify.dev" className="text-sm text-gray-600 hover:text-gray-900 transition">Our Blog</a>
             <a href="https://docs.threadify.dev/core-concepts/mcp-integration" className="text-sm text-gray-600 hover:text-gray-900 transition">MCP</a>
             <a href="https://threadify.dev/AI.md" className="text-sm text-gray-600 hover:text-gray-900 transition">AI.md</a>
           </div>
         </div>
-        <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. Service delivery intelligence platform.</p>
+        <p className="text-sm text-gray-500 text-center">© {new Date().getFullYear()} Threadify. Service-delivery intelligence platform.</p>
       </div>
     </footer>
   );

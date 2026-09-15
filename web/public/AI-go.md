@@ -50,19 +50,24 @@ if err != nil {
     log.Fatal(err)
 }
 
-// With label and contract
-thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
-if err != nil {
-    log.Fatal(err)
-}
-
-// With label, contract, and options
-thread, err := conn.Start(ctx, "Order-789", "order_fulfillment", 
+// With label and service name
+thread, err := conn.Start(ctx, "Order-789", "",
     threadify.WithService("merchant-service"),
 )
 if err != nil {
     log.Fatal(err)
 }
+
+// With tags (immutable labels for filtering)
+thread, err := conn.Start(ctx, "Order-789", "",
+    threadify.WithTags("production", "v2.1"),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// ONLY if user explicitly asks for contracts:
+// thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 ```
 
 > **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
@@ -162,22 +167,6 @@ err := thread.AddRefs(ctx, map[string]string{
     "stripe_payment_id": "pi_123",
     "order_id": "ORD-456",
 })
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-**Step-level references** (called on step):
-
-```go
-// Add references specific to this step
-result, err := thread.Step("process_payment").
-    AddRefs(map[string]string{
-        "transaction_id": "txn_789",
-        "receipt_id": "rcpt_456",
-    }).
-    AddContext(map[string]any{"amount": 99.99}).
-    Success(ctx)
 if err != nil {
     log.Fatal(err)
 }
@@ -332,14 +321,15 @@ if err != nil {
     log.Fatal(err)
 }
 
+// Advanced (contract-only): Subscribe to contract validation events
 err = conn.Subscribe(ctx, "rule.violated", "payment_processed", func(n *threadify.Notification) {
     fmt.Println("Violation:", n.Severity)
-    
+
     // Check violation status
     if n.IsViolated() && n.IsCritical() {
         // Handle critical violation
     }
-    
+
     n.Ack()
 })
 if err != nil {
@@ -352,11 +342,7 @@ defer conn.Unsubscribe(ctx, "step.success", "order_placed")
 
 ### Notification Helper Methods
 ```go
-// Check notification status
-if n.IsViolated() { /* rule violated */ }
-if n.IsPassed() { /* rule passed */ }
-
-// Check severity
+// Check severity (for contract validation events)
 if n.IsCritical() { /* critical severity */ }
 if n.IsWarning() { /* warning severity */ }
 if n.IsInfo() { /* info severity */ }
@@ -377,16 +363,16 @@ fmt.Println(n.String()) // "[critical] order_placed: Payment validation failed"
 
 ### Join Thread
 ```go
-// With token
+// With token (accessLevel comes from the invitation)
 thread, err := conn.Join(ctx, threadify.WithJoinToken(invitationToken))
 if err != nil {
     log.Fatal(err)
 }
 
-// Direct join
+// Direct join (defaults to participant accessLevel)
 thread, err := conn.Join(ctx, 
     threadify.WithJoinThreadID(threadID),
-    threadify.WithJoinRole("participant"),
+    threadify.WithJoinRole("supplier"),
 )
 if err != nil {
     log.Fatal(err)
@@ -395,15 +381,27 @@ if err != nil {
 
 ### Invite Parties
 ```go
-// Create invitation for external party
+// Create invitation for external party (default)
 invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
-    Role:        "participant",
-    AccessLevel: "external",  // Optional, defaults to "external"
-    ExpiresIn:   "48h",        // Optional, defaults to "24h"
+    Role:        "supplier",
+    AccessLevel: threadify.ForExternal,  // Optional: ForExternal (default), ForObserver, ForParticipant
+    ExpiresIn:   "48h",                 // Optional, defaults to "24h"
 })
 if err != nil {
     log.Fatal(err)
 }
+
+// Invite as observer (read-only)
+invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
+    Role:        "supplier",
+    AccessLevel: threadify.ForObserver,
+})
+
+// Invite as participant (active)
+invitation, err := thread.InviteParty(ctx, threadify.InviteOptions{
+    Role:        "inventory-service",
+    AccessLevel: threadify.ForParticipant,
+})
 
 // Share invitation token
 fmt.Println("Token:", invitation.Token)
@@ -448,6 +446,49 @@ if err != nil {
         log.Fatal(stepErr)
     }
 }
+```
+
+### OpenTelemetry Integration — ONLY for Existing OTel Codebases
+
+**Default to manual instrumentation.** Only use OTel if the user explicitly asks OR the codebase already imports `go.opentelemetry.io/otel`.
+
+Because Go is statically typed, the OTel integration requires its own sub-module:
+
+**Install:**
+```bash
+go get github.com/ThreadifyDev/go-sdk/otel
+```
+
+**Usage (ONLY if codebase already uses OTel):**
+```go
+import (
+    "go.opentelemetry.io/otel"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+    threadify "github.com/ThreadifyDev/go-sdk"
+    threadifyotel "github.com/ThreadifyDev/go-sdk/otel"
+)
+
+// 1. Connect to Threadify
+conn, _ := threadify.Connect(ctx, "api-key")
+
+// 2. Create the Exporter
+exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{
+    Refs: []string{"rider.id"},
+})
+
+// Tag threads via OTel span attributes
+span.SetAttributes(attribute.StringSlice("threadify.tags", []string{"production", "v2.1"}))
+
+// Filter spans by name — exact match or prefix wildcard with *
+exporter := threadifyotel.NewSpanExporter(conn, threadifyotel.SpanExporterOptions{
+    Refs:    []string{"rider.id"},
+    Filters: []string{"invoke_llm", "adk.before*", "llm.*"},
+})
+
+// 3. Register with OpenTelemetry
+provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+otel.SetTracerProvider(provider)
 ```
 
 ---
@@ -519,60 +560,37 @@ import (
 func main() {
     ctx := context.Background()
     
-    conn, err := threadify.Connect(ctx, "api-key", 
+    conn, _ := threadify.Connect(ctx, "api-key",
         threadify.WithServiceName("checkout-service"),
     )
-    if err != nil {
-        log.Fatal(err)
-    }
     defer conn.Close()
-    
-    thread, err := conn.Start(ctx, "", "Checkout Process")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Add external references to the thread
-    err = thread.AddRefs(ctx, map[string]string{
+
+    thread, _ := conn.Start(ctx, "Checkout Process", "")
+
+    thread.AddRefs(ctx, map[string]string{
         "customer_id": "123",
         "order_id": "ORD-789",
     })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    _, err = thread.Step("validate_cart").
+
+    thread.Step("validate_cart").
         AddContext(map[string]any{"items": 3, "total": 99.99}).
         Success(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
+
     payment, err := processPayment()
     if err != nil {
-        _, stepErr := thread.Step("charge_payment").
+        thread.Step("charge_payment").
             AddContext(map[string]any{"error": err.Error()}).
             Failed(ctx)
-        if stepErr != nil {
-            log.Fatal(stepErr)
-        }
         return
     }
-    
-    // Add payment provider reference
-    err = thread.AddRefs(ctx, map[string]string{
+
+    thread.AddRefs(ctx, map[string]string{
         "stripe_payment_id": payment.ID,
     })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    _, err = thread.Step("charge_payment").
+
+    thread.Step("charge_payment").
         AddContext(map[string]any{"amount": 99.99, "method": "card"}).
         Success(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
 }
 
 func processPayment() (*Payment, error) {

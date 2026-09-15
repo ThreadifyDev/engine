@@ -28,9 +28,7 @@ func (h *CodeSamplesHandler) GetCodeSample(c *gin.Context) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to load code samples",
-			"path":    filePath,
-			"details": err.Error(),
+			"error": "Failed to load code samples",
 		})
 		return
 	}
@@ -38,8 +36,7 @@ func (h *CodeSamplesHandler) GetCodeSample(c *gin.Context) {
 	var samples map[string]map[string]string
 	if err := json.Unmarshal(data, &samples); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse code samples",
-			"details": err.Error(),
+			"error": "Failed to parse code samples",
 		})
 		return
 	}

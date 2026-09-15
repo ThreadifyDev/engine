@@ -1,15 +1,42 @@
 // API client for backend communication
 
-// Get API URL from window.__ENV__ (injected by Remix root loader)
-// Falls back to localhost for development
+import { getConfig } from '../config.client';
+
 const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined' && (window as any).__ENV__?.API_URL) {
-    return `${(window as any).__ENV__.API_URL}/api`;
+  if (typeof window !== 'undefined') {
+    return getConfig().apiUrl + '/api';
   }
-  return 'http://localhost:3001/api';
+  throw new Error('getApiBaseUrl() can only be called on the client');
 };
 
 const API_BASE_URL = getApiBaseUrl();
+
+import yaml from 'js-yaml';
+
+// Patterns that indicate internal error details which should not reach users.
+const INTERNAL_ERROR_PATTERNS = [
+  /SQLSTATE\s+\d+/i,
+  /violates\s+foreign\s+key/i,
+  /syntax\s+error/i,
+  /connection\s+refused/i,
+  /at\s+\S+\.go:\d+/i,
+  /goroutine\s+\d+/i,
+  /internal\/\S+/i,
+  /\/threadify-go\/\S+/i,
+  /localhost:\d+/i,
+  /https?:\/\/\S+/i,
+  /tcp:\/\/\S+/i,
+];
+
+function sanitizeErrorMessage(raw: string): string {
+  if (typeof raw !== 'string') return 'An error occurred';
+  for (const pattern of INTERNAL_ERROR_PATTERNS) {
+    if (pattern.test(raw)) {
+      return 'An internal error occurred. Please try again or contact support.';
+    }
+  }
+  return raw;
+}
 
 export class ValidationError extends Error {
   details?: Array<{ field: string; message: string }>;
@@ -31,6 +58,7 @@ export interface SignupData {
   company_size?: string;
   use_case?: string;
   invitation_token?: string;
+  middle_name?: string;
 }
 
 export interface LoginData {
@@ -96,7 +124,30 @@ export interface CreditAccountDTO {
   updated_at: string;
 }
 
+export interface PlanDTO {
+  subscription_tier: string;
+  status: string;
+  billing_cycle: string;
+  billing_end: string;
+}
+
+export interface UsageMeterDTO {
+  bandwidth_ingress_balance: number;
+  max_bandwidth_ingress: number;
+  bandwidth_egress_balance: number;
+  max_bandwidth_egress: number;
+  max_team_seats: number;
+  max_contract_limit: number;
+  max_rate_limit: number;
+  max_payload_bytes: number;
+  hot_storage_days: number;
+  cold_storage_days: number;
+  support: string;
+}
+
 export interface GetCurrentPlanResponse {
+  plan: PlanDTO | null;
+  usage_meter: UsageMeterDTO | null;
   credit_account: CreditAccountDTO | null;
 }
 
@@ -156,7 +207,7 @@ class ApiClient {
 
     if (!response.ok) {
       // Prefer 'message' field for user-friendly errors, fallback to 'error' field
-      let errorMessage = data.message || data.error || 'An error occurred';
+      let errorMessage = sanitizeErrorMessage(data.message || data.error || 'An error occurred');
 
       // Cleanup internal billing error prefixes
       if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
@@ -181,8 +232,9 @@ class ApiClient {
       }
 
       // If we have validation details, throw ValidationError
-      if (data.details && Array.isArray(data.details)) {
-        throw new ValidationError(errorMessage, data.details);
+      const errorDetails = data.details || data.errors;
+      if (errorDetails && Array.isArray(errorDetails)) {
+        throw new ValidationError(errorMessage, errorDetails);
       }
 
       throw new Error(errorMessage);
@@ -567,23 +619,20 @@ class ApiClient {
   }
 
   // --- Entity Profile Management ---
-  async createEntityProfileType(data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
-    return this.post('/entity-profile-types', data);
-  }
-
   async listEntityProfileTypes(): Promise<any> {
     return this.request('/entity-profile-types');
   }
 
-  async updateEntityProfileType(id: string, data: { name: string; type: string[]; description?: string; metrics?: EntityTypeMetric[] }): Promise<any> {
-    return this.request(`/entity-profile-types/${id}`, {
+  async applyEntityProfileType(slug: string, data: EntityProfileTypeDeclaration, dryRun = false): Promise<ApplyEntityProfileTypeResponse> {
+    const suffix = dryRun ? '?dry_run=true' : '';
+    return this.request(`/entity-profile-types/${encodeURIComponent(slug)}${suffix}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
   }
 
-  async archiveEntityProfileType(id: string): Promise<any> {
-    return this.delete(`/entity-profile-types/${id}`);
+  async archiveEntityProfileType(slug: string): Promise<any> {
+    return this.delete(`/entity-profile-types/${encodeURIComponent(slug)}`);
   }
 
   async listEntityProfileTypesProxy(): Promise<any> {
@@ -594,6 +643,19 @@ class ApiClient {
     return this.request('/metrics-templates');
   }
 
+  async getPricing(): Promise<{ credit: {
+    ingress_cost_millicents: number;
+    egress_cost_millicents: number;
+    seat_cost_millicents: number;
+    contract_cost_millicents: number;
+    llm_token_cost_millicents: number;
+    rate_limit_tps: number;
+    payload_limit_bytes: number;
+    custom_metric_cost_per_complexity_millicents: number;
+  } }> {
+    return this.request('/pricing');
+  }
+
   async getEntityProfile(refKey: string, type: string): Promise<any> {
     // Note: Use encodeURIComponent to safely pass refKey and type
     return this.request(`/entity-profiles?refKey=${encodeURIComponent(refKey)}&type=${encodeURIComponent(type)}`);
@@ -601,9 +663,52 @@ class ApiClient {
 
 }
 
+export interface CustomMetricFilter {
+  key: string;
+  value: string;
+}
+
+export interface CustomMetricDefinition {
+  name: string;
+  target?: 'thread' | 'step';
+  step_name?: string;
+  operation: 'COUNT' | 'RATE' | 'AVG' | 'SUM' | 'MIN' | 'MAX';
+  field: string;
+  filters?: CustomMetricFilter[];
+  group_by?: string;
+  granularity?: string;
+  visualisation?: string;
+}
+
 export interface EntityTypeMetric {
-  template_id: string;
+  id?: string;
+  template_id?: string;
+  name?: string;
   parameters?: Record<string, any>;
+  custom_definition?: CustomMetricDefinition;
+}
+
+export interface EntityProfileTypeDeclaration {
+  name: string;
+  type: string[];
+  description?: string;
+  metrics: EntityTypeMetric[];
+}
+
+export interface ApplyEntityProfileTypeResponse {
+  status: 'created' | 'updated' | 'unchanged';
+  dry_run: boolean;
+  config_hash: string;
+  data: EntityProfileType;
+  changes: {
+    name_changed: boolean;
+    description_changed: boolean;
+    types_changed: boolean;
+    metrics_added: string[];
+    metrics_updated: string[];
+    metrics_removed: string[];
+  };
+  backfill: { supported: boolean; applied: boolean };
 }
 
 export interface EntityProfileType {
@@ -618,11 +723,17 @@ export interface EntityProfileType {
   metrics?: EntityTypeMetric[];
 }
 
+export interface ParameterDefinition {
+  name: string;
+  type: string;
+  values?: string[];
+  description?: string;
+}
+
 export interface MetricsTemplateResponse {
   id: string;
   metrics_name: string;
-  parameters: string[];
-  sql_content: string;
+  parameter_definitions: ParameterDefinition[];
 }
 
 export interface EntityProfileMetrics {

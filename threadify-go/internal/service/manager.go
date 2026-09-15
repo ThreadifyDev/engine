@@ -1,8 +1,11 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
@@ -41,16 +44,27 @@ func (m *ServiceManager) StartAll() error {
 }
 
 func (m *ServiceManager) StopAll() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = m.StopAllContext(ctx)
+}
+
+func (m *ServiceManager) StopAllContext(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Stop in reverse order of registration
+	var result error
 	for i := len(m.services) - 1; i >= 0; i-- {
 		s := m.services[i]
-		if err := s.Stop(); err != nil {
-			m.logger.Error("failed to stop service", zap.String("service", fmt.Sprintf("%T", s)), zap.Error(err))
+		var err error
+		if bounded, ok := s.(interface{ StopContext(context.Context) error }); ok {
+			err = bounded.StopContext(ctx)
 		} else {
-			m.logger.Info("stopped background service", zap.String("service", fmt.Sprintf("%T", s)))
+			err = s.Stop()
+		}
+		if err != nil {
+			m.logger.Error("failed to stop service", zap.String("service", fmt.Sprintf("%T", s)), zap.Error(err))
+			result = errors.Join(result, err)
 		}
 	}
+	return result
 }

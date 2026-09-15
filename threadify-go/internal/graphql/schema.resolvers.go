@@ -90,6 +90,9 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configBytes))
 
+	// Cache invalidation: We now rely on active cache invalidation in the Archiver (which deletes
+	// the entire Valkey hash for the profile when refs are added) combined with a 30m TTL.
+	// We no longer include LastActiveAt here to prevent field bloat inside the Valkey hash.
 	timeWindow := time.Now().Truncate(5 * time.Minute).Unix()
 	cacheVersion := fmt.Sprintf("%s:%d", configHash, timeWindow)
 
@@ -112,42 +115,25 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 
 	combinedResults := make(map[string]interface{})
+
+	// Keep main's concurrent evaluation while preserving custom metric shapes.
 	var mu sync.Mutex
 	g, gCtx := errgroup.WithContext(ctx)
-
+	g.SetLimit(10)
 	for _, metricConfig := range metricsConfig {
-		mc := metricConfig // capture loop variable
 		g.Go(func() error {
-			template, exists := templateMap[mc.TemplateID]
+			template, exists := templateMap[metricConfig.TemplateID]
 			if !exists {
-				r.logger.Warn("metric template not found", zap.String("template_id", mc.TemplateID))
+				r.logger.Warn("metric template not found", zap.String("template_id", metricConfig.TemplateID))
 				return nil
 			}
 			sqlQuery := template.SQLContent
 
 			var params map[string]any
-			if pMap, ok := mc.Parameters.(map[string]interface{}); ok {
+			if pMap, ok := metricConfig.Parameters.(map[string]interface{}); ok {
 				params = pMap
 			} else {
 				params = make(map[string]any)
-			}
-
-			metricDisplayName := template.MetricsName
-			if mc.Name != nil && *mc.Name != "" {
-				metricDisplayName = *mc.Name
-			}
-			if metricDisplayName == "" {
-				metricDisplayName = mc.TemplateID
-			}
-
-			var paramSuffix string
-			if len(params) > 0 {
-				var paramStrs []string
-				for k, v := range params {
-					paramStrs = append(paramStrs, fmt.Sprintf("%s: %v", k, v))
-				}
-				sort.Strings(paramStrs)
-				paramSuffix = fmt.Sprintf(" (%s)", strings.Join(paramStrs, ", "))
 			}
 
 			results, err := r.metricsRepo.EvaluateEntityMetric(
@@ -161,32 +147,91 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 			)
 			if err != nil {
 				r.logger.Warn("failed to evaluate metric query",
-					zap.String("template_id", mc.TemplateID),
+					zap.String("template_id", metricConfig.TemplateID),
 					zap.Error(err),
 				)
-				mu.Lock()
-				combinedResults[metricDisplayName+paramSuffix+" (STATUS: ERROR)"] = fmt.Sprintf("Error: %v", err)
-				mu.Unlock()
-				return nil // don't abort other templates
+				return nil
 			}
 
-			mu.Lock()
-			if len(results) == 1 {
-				for k, v := range results[0] {
-					combinedResults[fmt.Sprintf("%s: %s", metricDisplayName, formatColumnName(k))+paramSuffix] = v
-				}
-			} else if len(results) > 1 {
-				combinedResults[metricDisplayName+paramSuffix] = results
+			// Determine the display name: use custom Name if set, otherwise fallback to Template's MetricsName
+			metricDisplayName := template.MetricsName
+			if metricConfig.Name != nil && *metricConfig.Name != "" {
+				metricDisplayName = *metricConfig.Name
 			}
-			mu.Unlock()
+			if metricDisplayName == "" {
+				metricDisplayName = metricConfig.TemplateID
+			}
+
+			// Build param suffix from parameters and custom filter values
+			var paramStrs []string
+			for k, v := range params {
+				paramStrs = append(paramStrs, k+":"+fmt.Sprint(v))
+			}
+
+			var filterKey string
+			var filterCount int
+			if metricConfig.CustomDefinition != nil && metricConfig.CustomDefinition.Filters != nil {
+				if filtersSlice, ok := metricConfig.CustomDefinition.Filters.([]interface{}); ok {
+					for _, item := range filtersSlice {
+						if f, ok := item.(map[string]interface{}); ok {
+							key, _ := f["key"].(string)
+							value, _ := f["value"].(string)
+							if key != "" && value != "" {
+								paramStrs = append(paramStrs, key+":"+value)
+								filterKey = key
+								filterCount++
+							}
+						}
+					}
+				}
+			}
+			sort.Strings(paramStrs)
+			var paramSuffix string
+			if len(paramStrs) > 0 {
+				paramSuffix = " (" + strings.Join(paramStrs, ", ") + ")"
+			}
+
+			// For custom metrics with exactly one filter, derive display name from the filter key
+			if filterCount == 1 && filterKey != "" {
+				metricDisplayName = filterKey
+			}
+
+			metricKey := toSnakeCase(metricDisplayName)
+			mu.Lock()
+			defer mu.Unlock()
+
+			if len(results) == 0 {
+				var emptyVal interface{} = 0
+				if metricConfig.CustomDefinition != nil && metricConfig.CustomDefinition.GroupBy != nil {
+					groupBy := *metricConfig.CustomDefinition.GroupBy
+					if groupBy != "" && groupBy != "none" {
+						emptyVal = []interface{}{}
+					}
+				}
+				combinedResults[metricKey+paramSuffix] = emptyVal
+				return nil
+			} else if len(results) == 1 {
+				if len(results[0]) == 1 {
+					// Single column, single row: flatten to a scalar for clean display
+					for k, v := range results[0] {
+						combinedResults[metricKey+":"+k+paramSuffix] = v
+					}
+				} else {
+					// Multi-column, single row: keep as an object so label/value pairs render together
+					combinedResults[metricKey+paramSuffix] = results[0]
+				}
+			} else {
+				combinedResults[metricKey+paramSuffix] = results
+			}
 			return nil
 		})
 	}
-
 	if err := g.Wait(); err != nil {
 		return nil, fmt.Errorf("metrics evaluation failed: %w", err)
 	}
 
+	// If all metrics are unconfigured, return nil. Empty metric results (0 or [])
+	// are already added to combinedResults above so they still appear in the UI.
 	if len(combinedResults) == 0 {
 		return nil, nil
 	}
@@ -196,7 +241,122 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	return combinedResults, nil
 }
 
-// Nodes is the resolver for the nodes field.
+// DeliveryHealth is the resolver for the deliveryHealth field.
+func (r *entityProfileResolver) DeliveryHealth(ctx context.Context, obj *generated.EntityProfile, rangeArg *string) (scalars.JSON, error) {
+	rangeVal := "7d"
+	if rangeArg != nil && *rangeArg != "" {
+		rangeVal = *rangeArg
+	}
+
+	var start, end time.Time
+	end = time.Now()
+
+	switch rangeVal {
+	case "7d":
+		start = end.AddDate(0, 0, -7)
+	case "30d":
+		start = end.AddDate(0, 0, -30)
+	case "90d":
+		start = end.AddDate(0, 0, -90)
+	default:
+		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
+	}
+
+	cacheVersion := "delivery_health"
+
+	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
+		return cached, nil
+	}
+
+	// Determine refKeys for the query
+	var refKeys []string
+	if obj.ProfileType != nil {
+		refKeys = obj.ProfileType.Type
+	} else if obj.ProfileTypeID != "" {
+		pType, err := r.entityProfileTypeRepo.GetProfileTypeByID(ctx, obj.ProfileTypeID)
+		if err != nil {
+			r.logger.Warn("failed to fetch profile type for delivery health", zap.String("profileTypeID", obj.ProfileTypeID), zap.Error(err))
+		} else {
+			refKeys = pType.Type
+		}
+	}
+
+	systemTemplateIDs := []string{
+		"system_total_thread_count",
+		"system_overall_failure_rate",
+		"system_success_rate",
+		"system_avg_thread_duration",
+		"system_error_rate",
+		"system_recovery_rate",
+		"system_most_common_errors",
+		"system_step_failure_breadth",
+	}
+
+	templates, err := r.metricsRepo.GetMetricsTemplatesByIDs(ctx, systemTemplateIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch delivery health templates: %w", err)
+	}
+
+	combinedResults := make(map[string]interface{})
+	emptyParams := make(map[string]any)
+
+	for _, template := range templates {
+		sqlQuery := template.SQLContent
+
+		results, err := r.metricsRepo.EvaluateEntityMetric(
+			ctx,
+			sqlQuery,
+			obj.RefKey,
+			refKeys,
+			start,
+			end,
+			emptyParams,
+		)
+		if err != nil {
+			r.logger.Warn("failed to evaluate delivery health query",
+				zap.String("template_id", template.ID),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		metricKey := toSnakeCase(template.MetricsName)
+
+		var finalVal interface{}
+		if len(results) == 0 {
+			finalVal = 0
+		} else if len(results) == 1 {
+			if len(results[0]) == 1 {
+				for _, v := range results[0] {
+					finalVal = v
+				}
+			} else {
+				finalVal = results[0]
+			}
+		} else {
+			finalVal = results
+		}
+
+		combinedResults[metricKey] = map[string]interface{}{
+			"value":       finalVal,
+			"description": template.Description,
+		}
+	}
+
+	if len(combinedResults) == 0 {
+		return nil, nil
+	}
+
+	// Calculate health score
+	healthScore := calculateHealthScore(combinedResults)
+	combinedResults["health_score"] = healthScore
+
+	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion, combinedResults)
+
+	return combinedResults, nil
+}
+
+// Nodes is the resolver for the Graph.nodes field - converts nodes map to array for GraphQL
 func (r *graphResolver) Nodes(ctx context.Context, obj *domain.Graph) ([]*domain.GraphNode, error) {
 	nodes := make([]*domain.GraphNode, 0, len(obj.Nodes))
 	for _, node := range obj.Nodes {
@@ -296,7 +456,7 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*domain.Thread, 
 }
 
 // Threads is the resolver for the threads field.
-func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
+func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName *string, contractVersion *int, status *string, tags []string, startedAfter *string, startedBefore *string, completedAfter *string, completedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	resolverStart := perf.Now()
 	perf.Log("\n[PERF] ========== Threads() Resolver START ==========\n")
 	defer func() {
@@ -323,7 +483,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 
 	// Query threads with SQL-based access filtering (includes archived data)
 	queryStart := perf.Now()
-	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, authContext.CompanyID, authContext.OwnerID, actor, contractName, contractVersion, status, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, authContext.CompanyID, authContext.OwnerID, actor, contractName, contractVersion, status, tags, startedAfter, startedBefore, completedAfter, completedBefore, limitVal, offsetVal)
 	perf.Log("[PERF] Threads.QueryThreadsWithAccess: %v (returned %d threads, total: %d)\n", perf.Since(queryStart), len(threads), totalCount)
 
 	if err != nil {
@@ -349,7 +509,7 @@ func (r *queryResolver) Threads(ctx context.Context, actor *string, contractName
 }
 
 // ThreadsByContract is the resolver for the threadsByContract field.
-func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
+func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName string, contractVersion *int, actor *string, status *string, tags []string, startedAfter *string, startedBefore *string, limit *int, offset *int) (*domain.ThreadConnection, error) {
 	// Get user info from context
 	authCtx, err := getUserInfoFromContext(ctx)
 	ownerID, companyID := "", ""
@@ -371,7 +531,7 @@ func (r *queryResolver) ThreadsByContract(ctx context.Context, contractName stri
 	}
 
 	// Query threads with SQL-based access filtering
-	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
+	threads, totalCount, err := postgresRepo.QueryThreadsWithAccess(ctx, companyID, ownerID, actor, &contractName, contractVersion, status, tags, startedAfter, startedBefore, nil, nil, limitVal, offsetVal)
 	if err != nil {
 		r.logger.Error("failed to query threads by contract",
 			zap.String("company_id", companyID),
@@ -590,6 +750,66 @@ func (r *queryResolver) ContractGraph(ctx context.Context, name string, version 
 	return graph, nil
 }
 
+// ProposeStep is the resolver for the proposeStep field.
+func (r *queryResolver) ProposeStep(ctx context.Context, threadID string, stepName string) (*domain.StepProposal, error) {
+	authCtx, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	thread, err := r.threadRepo.GetThreadWithPermissionCheck(ctx, threadID, authCtx.CompanyID)
+	if err != nil {
+		if errors.Is(err, shderrors.ErrAccessDenied) {
+			return nil, fmt.Errorf("access denied: you don't have permission to view this thread")
+		}
+		return nil, fmt.Errorf("failed to get thread: %w", err)
+	}
+	if thread.ContractName == "" || thread.ContractVersion == nil {
+		return nil, fmt.Errorf("thread %q has no contract", threadID)
+	}
+
+	graph, err := r.contractValidator.GetContractGraph(ctx, thread.ContractName, *thread.ContractVersion, authCtx.CompanyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load contract graph: %w", err)
+	}
+
+	// Merge archived step facts with the ordered hot success set. PostgreSQL
+	// covers history that predates complete current_steps retention, while the
+	// hot set supplies successes that may not have reached the archiver yet and
+	// remains authoritative for the immediately previous step.
+	steps, err := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, threadID, authCtx.CompanyID, nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load archived thread step facts: %w", err)
+	}
+	sort.SliceStable(steps, func(i, j int) bool {
+		return steps[i].LastUpdatedAt.Before(steps[j].LastUpdatedAt)
+	})
+
+	successfulSteps := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if step.Status == "success" || step.Status == "completed" {
+			successfulSteps = append(successfulSteps, step.StepName)
+		}
+	}
+
+	hotSteps, err := r.threadRepo.GetCompletedSteps(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current thread step facts: %w", err)
+	}
+	for _, stepKey := range hotSteps {
+		stepName, _, _ := strings.Cut(stepKey, ":")
+		if stepName != "" {
+			successfulSteps = append(successfulSteps, stepName)
+		}
+	}
+
+	proposal, err := service.EvaluateStepProposal(thread.ID, thread.Status, graph, stepName, successfulSteps)
+	if err != nil {
+		return nil, fmt.Errorf("failed to propose step: %w", err)
+	}
+	return proposal, nil
+}
+
 // StepHistory is the resolver for the stepHistory field.
 func (r *queryResolver) StepHistory(ctx context.Context, threadID string, stepName string, idempotencyKey *string, limit *int, offset *int, startAt *string, endAt *string, activityType *string, actor *string) ([]*domain.StepHistory, error) {
 	// Get user info from context
@@ -772,7 +992,7 @@ func (r *queryResolver) EntityProfile(ctx context.Context, id *string, refKey *s
 	}
 
 	if refKey != nil && typeArg != nil && *refKey != "" && *typeArg != "" {
-		profile, err := r.entityProfileRepo.GetProfileByTypeName(ctx, companyID, *typeArg, *refKey)
+		profile, err := r.entityProfileRepo.GetProfileByTypeName(ctx, companyID, slug.ToSlug(*typeArg), *refKey)
 		if err != nil || profile == nil {
 			return nil, nil
 		}
@@ -905,6 +1125,52 @@ func (r *queryResolver) EntityProfilesByType(ctx context.Context, typeArg string
 		TotalCount:  total,
 		ProfileType: graphqlPt,
 	}, nil
+}
+
+// ContractViolations is the resolver for the contractViolations field.
+func (r *queryResolver) ContractViolations(ctx context.Context, contractName *string, refKey *string, refValue *string, severity []string, startedAfter *string, startedBefore *string, limit *int, offset *int) ([]*domain.ThreadNotification, error) {
+	authCtx, err := getUserInfoFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required: %w", err)
+	}
+
+	limitVal := 50
+	if limit != nil && *limit > 0 {
+		limitVal = *limit
+	}
+	offsetVal := 0
+	if offset != nil && *offset > 0 {
+		offsetVal = *offset
+	}
+
+	postgresRepo := r.threadRepo.GetPostgresRepo()
+	if postgresRepo == nil {
+		return nil, apperrors.NewInternalError("Postgres repository not available", nil)
+	}
+
+	notifRepo := postgres.NewThreadNotificationRepository(postgresRepo.GetPool())
+
+	notifications, err := notifRepo.GetGlobalNotifications(
+		ctx,
+		authCtx.CompanyID,
+		contractName,
+		refKey,
+		refValue,
+		severity,
+		startedAfter,
+		startedBefore,
+		limitVal,
+		offsetVal,
+	)
+	if err != nil {
+		r.logger.Error("failed to get contract violations",
+			zap.String("company_id", authCtx.CompanyID),
+			zap.Error(err),
+		)
+		return nil, fmt.Errorf("failed to fetch contract violations: %w", err)
+	}
+
+	return notifications, nil
 }
 
 // Error is the resolver for the error field on StepHistory.
@@ -1202,7 +1468,7 @@ func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName
 	if r.accessRepo != nil {
 		permCheck, err := r.accessRepo.CheckUserReadPermission(ctx, obj.ID, ownerID)
 		if err == nil && permCheck != nil && permCheck.HasAccess {
-			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, permCheck, stepName, idempotencyKey, status)
+			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, companyID, permCheck, stepName, idempotencyKey, status)
 			if err == nil {
 				return steps, nil
 			}

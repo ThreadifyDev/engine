@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"threadify-go/api/internal/middleware"
+	apikeymocks "threadify-go/api/internal/service/mocks/service/api_key"
 	svcmocks "threadify-go/api/internal/service/mocks/service/auth"
 	sharedauth "threadify-go/shared/auth"
 
@@ -22,6 +23,7 @@ func TestAuthAccessTokenAuth(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockAuthSvc := svcmocks.NewMockAuthService(ctrl)
+		mockKeys := apikeymocks.NewMockAPIKeyService(ctrl)
 		token := "valid-token"
 		claims := &sharedauth.TokenClaims{
 			UserID: "user-123",
@@ -36,7 +38,7 @@ func TestAuthAccessTokenAuth(t *testing.T) {
 			Return([]string{"admin"}, nil)
 
 		r := gin.New()
-		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc))
+		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc, mockKeys))
 		r.GET("/test", func(c *gin.Context) {
 			userID := c.GetString(string(sharedauth.CtxUserID))
 			assert.Equal(t, claims.UserID, userID)
@@ -58,9 +60,10 @@ func TestAuthAccessTokenAuth(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockAuthSvc := svcmocks.NewMockAuthService(ctrl)
+		mockKeys := apikeymocks.NewMockAPIKeyService(ctrl)
 
 		r := gin.New()
-		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc))
+		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc, mockKeys))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})
@@ -78,14 +81,16 @@ func TestAuthAccessTokenAuth(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockAuthSvc := svcmocks.NewMockAuthService(ctrl)
+		mockKeys := apikeymocks.NewMockAPIKeyService(ctrl)
 		token := "invalid-token"
+		mockKeys.EXPECT().ValidateAPIKey(gomock.Any(), token).Return(nil, context.DeadlineExceeded)
 
 		mockAuthSvc.EXPECT().
 			VerifyToken(gomock.Any(), token).
 			Return(nil, context.DeadlineExceeded)
 
 		r := gin.New()
-		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc))
+		r.Use(middleware.AuthAccessTokenAuth(mockAuthSvc, mockKeys))
 		r.GET("/test", func(c *gin.Context) {
 			c.Status(http.StatusOK)
 		})

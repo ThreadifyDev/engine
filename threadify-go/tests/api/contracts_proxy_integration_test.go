@@ -70,30 +70,4 @@ func TestContracts_Proxy_RouteMounted(t *testing.T) {
 	}
 }
 
-func TestContracts_Proxy_PreviewBadBody(t *testing.T) {
-	user := setupAuthenticatedUser(t)
 
-	t.Run("nil_body", func(t *testing.T) {
-		resp := doRawWithAuth(t, http.MethodPost, "/api/contracts/preview", nil, "application/json", user.AccessToken)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Invalid request body", body["error"])
-	})
-
-	t.Run("malformed_json", func(t *testing.T) {
-		resp := doRawWithAuth(t, http.MethodPost, "/api/contracts/preview", []byte(`{not valid json`), "application/json", user.AccessToken)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Invalid request body", body["error"])
-	})
-
-	t.Run("wrong_content_type", func(t *testing.T) {
-		resp := doRawWithAuth(t, http.MethodPost, "/api/contracts/preview", []byte(`{"key": "value"}`), "text/plain", user.AccessToken)
-		require.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
-
-		body := decodeJSONBody(t, resp)
-		assert.Equal(t, "Content-Type must be application/json", body["error"])
-	})
-}

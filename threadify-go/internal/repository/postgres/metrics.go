@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -20,6 +21,7 @@ const maxConcurrentMetricQueries = 10
 type MetricsTemplate struct {
 	ID          string
 	MetricsName string
+	Description string
 	SQLContent  string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -69,8 +71,9 @@ func (r *MetricsRepository) GetMetricsTemplate(ctx context.Context, id string) (
 // ListMetricsTemplates retrieves all metrics templates
 func (r *MetricsRepository) ListMetricsTemplates(ctx context.Context) ([]MetricsTemplate, error) {
 	query := `
-		SELECT id, metrics_name, sql_content, created_at, updated_at
+		SELECT id, metrics_name, description, sql_content, created_at, updated_at
 		FROM metrics_template
+		WHERE is_system = false
 		ORDER BY created_at DESC
 	`
 	rows, err := r.db.Query(ctx, query)
@@ -82,14 +85,19 @@ func (r *MetricsRepository) ListMetricsTemplates(ctx context.Context) ([]Metrics
 	var templates []MetricsTemplate
 	for rows.Next() {
 		var tmpl MetricsTemplate
+		var desc sql.NullString
 		if err := rows.Scan(
 			&tmpl.ID,
 			&tmpl.MetricsName,
+			&desc,
 			&tmpl.SQLContent,
 			&tmpl.CreatedAt,
 			&tmpl.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan metrics template: %w", err)
+		}
+		if desc.Valid {
+			tmpl.Description = desc.String
 		}
 		templates = append(templates, tmpl)
 	}
@@ -108,7 +116,7 @@ func (r *MetricsRepository) GetMetricsTemplatesByIDs(ctx context.Context, ids []
 	}
 
 	query := `
-		SELECT id, metrics_name, sql_content, created_at, updated_at
+		SELECT id, metrics_name, description, sql_content, created_at, updated_at
 		FROM metrics_template
 		WHERE id = ANY($1)
 	`
@@ -121,14 +129,19 @@ func (r *MetricsRepository) GetMetricsTemplatesByIDs(ctx context.Context, ids []
 	var templates []MetricsTemplate
 	for rows.Next() {
 		var tmpl MetricsTemplate
+		var desc sql.NullString
 		if err := rows.Scan(
 			&tmpl.ID,
 			&tmpl.MetricsName,
+			&desc,
 			&tmpl.SQLContent,
 			&tmpl.CreatedAt,
 			&tmpl.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan metrics template: %w", err)
+		}
+		if desc.Valid {
+			tmpl.Description = desc.String
 		}
 		templates = append(templates, tmpl)
 	}

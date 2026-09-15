@@ -6,6 +6,7 @@ import (
 	"strings"
 	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/dto"
+	"threadify-go/api/internal/metrics"
 	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/validation"
 	serror "threadify-go/shared/errors"
@@ -33,6 +34,16 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
+	// Honeypot check
+	if strings.TrimSpace(req.MiddleName) != "" {
+		metrics.BotDetectionsTotal.WithLabelValues("middle_name").Inc()
+		// Return 201 to make the bot think it succeeded
+		c.JSON(http.StatusCreated, gin.H{
+			"message": "Signup successful.",
+		})
+		return
+	}
+
 	if err := h.authService.Signup(c.Request.Context(), &domain.SignupCmd{
 		CompanyName:     req.CompanyName,
 		Email:           req.Email,
@@ -43,11 +54,12 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		CompanySize:     req.CompanySize,
 		UseCase:         req.UseCase,
 		InvitationToken: req.InvitationToken,
+		MiddleName:      req.MiddleName,
 	}); err != nil {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -72,7 +84,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusUnauthorized, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusUnauthorized, "Invalid credentials")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -127,8 +139,8 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, _ := authErrorResponse(err, http.StatusInternalServerError, "Unable to process password reset request.")
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "Unable to process password reset request.")
+		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
 
@@ -151,7 +163,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -178,7 +190,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	authResp, err := h.authService.VerifyEmail(c.Request.Context(), verifyEmailCMD)
 	if err != nil {
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}
@@ -217,7 +229,7 @@ func (h *AuthHandler) ResendVerificationEmail(c *gin.Context) {
 		if respondValidationError(c, err) {
 			return
 		}
-		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, err.Error())
+		statusCode, message := authErrorResponse(err, http.StatusInternalServerError, "An unexpected error occurred")
 		c.JSON(statusCode, gin.H{"error": message})
 		return
 	}

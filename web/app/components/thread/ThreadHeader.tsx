@@ -66,16 +66,22 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
     active: { label: 'Active', color: 'bg-blue-50 text-blue-700 border-blue-200' },
     completed: { label: 'Completed', color: 'bg-green-50 text-green-700 border-green-200' },
     failed: { label: 'Failed', color: 'bg-red-50 text-red-700 border-red-200' },
-    pending: { label: 'Pending', color: 'bg-gray-50 text-gray-700 border-gray-200' },
+    cancelled: { label: 'Cancelled', color: 'bg-gray-100 text-gray-700 border-gray-300' },
   };
 
   const config = statusConfig[thread.status as keyof typeof statusConfig] || statusConfig.active;
 
   return (
     <div className="border-b border-gray-200 pb-6">
-      {/* Thread ID and Status */}
+      {/* Thread Title and Status */}
       <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-900">{thread.id}</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">
+          {thread.label
+            ? `${thread.label} (${thread.id.split('-').pop()})`
+            : thread.contractName
+              ? `${thread.contractName} (${thread.id.split('-').pop()})`
+              : thread.id}
+        </h1>
         <button
           onClick={copyThreadId}
           className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
@@ -124,7 +130,20 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
       </div>
 
       {/* Metadata Row */}
-      <div className="flex items-center gap-6 text-sm text-gray-600">
+      <div className="flex items-center gap-6 text-sm text-gray-600 flex-wrap">
+        {thread.tags && thread.tags.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {thread.tags.map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+        
         {thread.startedAt && (
           <div className="flex items-center gap-2">
             <span className="text-gray-500">Started</span>
@@ -217,21 +236,21 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
                 {refEntries.map(([key, value]) => (
                   <div
                     key={key}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded-full text-2xs"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs"
                   >
-                    <span className="font-medium text-blue-900 text-2xs">{key}:</span>
-                    <span className="text-blue-700 font-mono text-2xs truncate max-w-[100px]" title={String(value)}>
+                    <span className="font-medium text-gray-500 text-2xs">{key}:</span>
+                    <span className="text-gray-700 font-mono text-2xs truncate max-w-[100px]" title={String(value)}>
                       {String(value)}
                     </span>
                     <button
                       onClick={() => copyToClipboard(String(value), key)}
-                      className="ml-0.5 p-0.5 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
+                      className="ml-0.5 p-0.5 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
                       title="Copy value"
                     >
                       {copiedRef === key ? (
                         <Check className="w-2.5 h-2.5 text-green-600" />
                       ) : (
-                        <Copy className="w-2.5 h-2.5 text-blue-600 hover:text-blue-800" />
+                        <Copy className="w-2.5 h-2.5 text-gray-400 hover:text-gray-600" />
                       )}
                     </button>
                   </div>

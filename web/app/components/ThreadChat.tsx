@@ -16,19 +16,17 @@ const formatAndCleanYaml = (input: string): string => {
   
   let cleaned = input.trim();
   
-  // 1. Fix list items that are mashed together: "  - id: foo    owner:" -> "  - id: foo\n    owner:"
-  // Match list items and add proper line breaks
+  // 0. Fix top-level keywords mashed together without spaces (e.g. "interactions.entry_points:")
+  cleaned = cleaned.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n$2');
+  
+  // 1. Fix list items at start: "steps:  - id: foo" or "]  - id: foo" -> "steps:\n  - id: foo"
+  cleaned = cleaned.replace(/(?<=\S)(\s{2,})(-\s+[a-z_]+:)/gi, '\n$1$2');
+  
+  // 2. Fix properties following list items: "- id: foo    owner:" -> "- id: foo\n    owner:"
   cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s{2,})([a-z_]+:)/gi, '$1\n    $3');
   
-  // 2. Fix top-level properties mashed together
-  cleaned = cleaned.replace(/([^\s\n])([a-z_]+:)/gi, (match, char, keyword) => {
-    // Don't split if it's part of a word (e.g., "checkout-service")
-    if (char.match(/[a-z_-]/i)) return match;
-    return `${char}\n${keyword}`;
-  });
-  
-  // 3. Fix list items at start of line that are mashed: "  - id: foo  - id: bar" -> "  - id: foo\n  - id: bar"
-  cleaned = cleaned.replace(/(\s*-\s+[a-z_]+:[^\n]+?)(\s+)(-\s+[a-z_]+:)/gi, '$1\n$3');
+  // 3. Fix other properties mashed together: "owner: foo    type: bar"
+  cleaned = cleaned.replace(/(?<=\S)(\s{2,})([a-z_]+:)/gi, '\n$1$2');
   
   // 4. Fix terminal_steps mashup
   cleaned = cleaned.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
@@ -201,12 +199,8 @@ export default function ThreadChat() {
 
         // UI cleanup for common AI formatting quirks (Aggressive Regex)
         let content = msg.content;
-        // Fix mashed keywords at start or inside text (EXCLUDING underscores to not break terminal_steps)
-        content = content.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
-        content = content.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
-        content = content.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+        // Fix mashed keywords at start or inside text
+        content = content.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n\n$2');
         
         // Final fallback to repair what we might have broken or what AI broke
         content = content.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
@@ -253,33 +247,21 @@ export default function ThreadChat() {
           }
         }
         // Smart contract detection fallback for history
-        if (!processedMsg.contractPreview) {
-          const hasMarkdownYaml = processedMsg.content.includes('```yaml');
-          const hasRawYaml = processedMsg.content.includes('contract_name:') && processedMsg.content.includes('steps:');
-          
-          if (hasMarkdownYaml || hasRawYaml) {
-            let yamlText = '';
-            if (hasMarkdownYaml) {
-              const start = processedMsg.content.indexOf('```yaml') + 7;
-              const end = processedMsg.content.indexOf('```', start);
-              yamlText = (end !== -1 ? processedMsg.content.slice(start, end) : processedMsg.content.slice(start)).trim();
-            } else {
-              // Try to find start of YAML block (fuzzy search for first key: value pair)
-              const match = processedMsg.content.match(/[a-z0-9_]+:\s*[^\n]+/i);
-              if (match) {
-                 yamlText = processedMsg.content.slice(match.index).trim();
-              }
-            }
+        // Only detect contracts from explicit markdown YAML blocks to avoid
+        // false positives when thread analyzer mentions contracts in natural language.
+        if (!processedMsg.contractPreview && processedMsg.content.includes('```yaml')) {
+          const start = processedMsg.content.indexOf('```yaml') + 7;
+          const end = processedMsg.content.indexOf('```', start);
+          const yamlText = (end !== -1 ? processedMsg.content.slice(start, end) : processedMsg.content.slice(start)).trim();
 
-            if (yamlText.length > 20) {
-              const formattedYaml = formatAndCleanYaml(yamlText);
-              const engineResponseStr = processedMsg.relatedToolCall?.response;
-              let engineResponse = null;
-              if (engineResponseStr) {
-                try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
-              }
-              processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
+          if (yamlText.length > 20 && /^contract_name:/m.test(yamlText)) {
+            const formattedYaml = formatAndCleanYaml(yamlText);
+            const engineResponseStr = processedMsg.relatedToolCall?.response;
+            let engineResponse = null;
+            if (engineResponseStr) {
+              try { engineResponse = JSON.parse(engineResponseStr); } catch (e) {}
             }
+            processedMsg.contractPreview = { yaml: formattedYaml, response: engineResponse };
           }
         }
 
@@ -384,31 +366,7 @@ export default function ThreadChat() {
     scrollToBottom();
   }, [messages]);
 
-  // Convert thread IDs (UUIDs) to clickable links
-  const linkifyThreadIds = (text: string) => {
-    const uuidRegex = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
-    const parts = text.split(uuidRegex);
-    const matches = text.match(uuidRegex) || [];
 
-    return parts.reduce((acc, part, i) => {
-      acc.push(part);
-      if (matches[i]) {
-        acc.push(
-          <a
-            key={`link-${i}`}
-            href={`/u/threads/${matches[i]}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 underline"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {matches[i]}
-          </a>
-        );
-      }
-      return acc;
-    }, [] as (string | JSX.Element)[]);
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -435,7 +393,8 @@ export default function ThreadChat() {
 
     try {
       const token = localStorage.getItem('auth_token');
-      const apiUrl = (window as any).__ENV__?.API_URL || 'http://localhost:3001';
+      const { getConfig } = await import('../config.client');
+      const apiUrl = getConfig().apiUrl;
 
       const response = await fetch(`${apiUrl}/api/chat/ask`, {
         method: 'POST',
@@ -528,24 +487,16 @@ export default function ThreadChat() {
                 displayContent = displayContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
                 displayContent = displayContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
                 
-                // Smart contract detection (Fuzzy - look for markdown or structural YAML keys)
+                // Smart contract detection: only trigger for explicit markdown YAML blocks
+                // to avoid false positives from thread analysis responses.
                 const hasMarkdownYaml = assistantContent.includes('```yaml');
-                const hasRawYaml = /([a-z0-9_]+:\s*[^\n]+[\n\r]*){3,}/i.test(assistantContent);
                 
-                if (hasMarkdownYaml || hasRawYaml) {
-                  let yamlText = '';
-                  if (hasMarkdownYaml) {
-                    const start = assistantContent.indexOf('```yaml') + 7;
-                    const end = assistantContent.indexOf('```', start);
-                    yamlText = (end !== -1 ? assistantContent.slice(start, end) : assistantContent.slice(start)).trim();
-                  } else {
-                    const match = assistantContent.match(/[a-z0-9_]+:\s*[^\n]+/i);
-                    if (match) {
-                      yamlText = assistantContent.slice(match.index).trim();
-                    }
-                  }
+                if (hasMarkdownYaml) {
+                  const start = assistantContent.indexOf('```yaml') + 7;
+                  const end = assistantContent.indexOf('```', start);
+                  const yamlText = (end !== -1 ? assistantContent.slice(start, end) : assistantContent.slice(start)).trim();
 
-                  if (yamlText.length > 20) {
+                  if (yamlText.length > 20 && /^contract_name:/m.test(yamlText)) {
                     // During streaming, only use regex-based repair for speed/stability
                     // Wait, actually let's keep the cleaned one for basic structure
                     const cleanedYaml = yamlText.replace(/([a-z0-9\]}])(version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:|id:|owner:|type:|business_context:|required:|from:|to:)/gi, '$1\n$2');
@@ -646,11 +597,7 @@ export default function ThreadChat() {
                     if (msg.id === assistantMessageId) {
                       // Apply the same content cleanup as loadConversation
                       let cleanedContent = msg.content;
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(contract_name:)/gi, '$1\n\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(version:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(description:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(steps:)/gi, '$1\n$2');
-                      cleanedContent = cleanedContent.replace(/([a-z0-9])(transitions:)/gi, '$1\n$2');
+                      cleanedContent = cleanedContent.replace(/([a-z0-9\.\]])(contract_name:|version:|description:|entry_points:|parties:|steps:|transitions:|terminal_steps:)/gi, '$1\n\n$2');
                       cleanedContent = cleanedContent.replace(/terminal_\s+steps:/gi, 'terminal_steps:');
                       cleanedContent = cleanedContent.replace(/```yaml\s*([^\s\n])/g, '```yaml\n$1');
                       cleanedContent = cleanedContent.replace(/:\s*```yaml/g, ':\n\n```yaml\n');
@@ -659,30 +606,23 @@ export default function ThreadChat() {
                       const yamlContent = extractContractYaml(cleanedContent);
                       
                       if (yamlContent) {
-                        console.log('[YAML Format] Extracted YAML (first 200 chars):', yamlContent.substring(0, 200));
-                        
                         // Format and validate YAML using js-yaml
                         let formattedYaml = yamlContent;
                         let parseError = null;
-                        
+
                         try {
                           // Apply formatAndCleanYaml which already does parse + dump internally
-                          console.log('[YAML Format] Calling formatAndCleanYaml...');
                           formattedYaml = formatAndCleanYaml(yamlContent);
-                          console.log('[YAML Format] Successfully formatted! (first 200 chars):', formattedYaml.substring(0, 200));
                         } catch (e) {
-                          console.warn('[YAML Format] Formatting failed:', e);
                           // If even formatAndCleanYaml fails, use original
                           formattedYaml = yamlContent;
                           parseError = e instanceof Error ? e.message : 'Invalid YAML format';
                         }
-                        
+
                         // Replace malformed YAML in cleaned content with formatted version
                         const updatedContent = cleanedContent.includes('```yaml')
-                          ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\``)
+                          ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\`\n\n`)
                           : cleanedContent;
-                        
-                        console.log('[YAML Format] Updated content (first 200 chars):', updatedContent.substring(0, 200));
                         
                         // Call preview API to get graph data
                         api.previewContract({ yaml: formattedYaml })
@@ -932,7 +872,7 @@ export default function ThreadChat() {
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-800 underline font-mono text-xs bg-gray-200 px-1 rounded"
                             >
-                              {`View Thread ${text.substring(text.length - 8, text.length - 1)}`}
+                              {`View Thread ${text.trim().split('-').pop()}`}
                             </a>
                           );
                         }
@@ -964,7 +904,7 @@ export default function ThreadChat() {
                                       className="text-gray-600 hover:text-gray-800 underline"
                                       title={matches[i]}
                                     >
-                                      {matches[i].slice(-12)}
+                                      {matches[i].split('-').pop()}
                                     </a>
                                     <button
                                       onClick={(e) => {
@@ -1016,7 +956,7 @@ export default function ThreadChat() {
                                           className="text-gray-600 hover:text-gray-800 underline font-bold"
                                           title={matches[i]}
                                         >
-                                          {matches[i].slice(-12)}
+                                          {matches[i].split('-').pop()}
                                         </a>
                                         <button
                                           onClick={(e) => {

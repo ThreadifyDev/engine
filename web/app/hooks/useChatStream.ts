@@ -142,7 +142,7 @@ async function handleSSEEvent(
             if (yamlContent) {
               const formattedYaml = formatAndCleanYaml(yamlContent);
               const updatedContent = cleanedContent.includes('```yaml')
-                ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\``)
+                ? cleanedContent.replace(/```yaml\n?([\s\S]*?)```/, `\`\`\`yaml\n${formattedYaml}\n\`\`\`\n\n`)
                 : cleanedContent;
 
               api.previewContract({ yaml: formattedYaml })

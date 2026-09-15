@@ -157,6 +157,7 @@ type threadModel struct {
 	StartedAt       time.Time         `json:"startedAt"`
 	CompletedAt     *time.Time        `json:"completedAt,omitempty"`
 	Error           string            `json:"error,omitempty"`
+	Tags            []string          `json:"tags,omitempty"`
 }
 
 func fromThreadDomain(t *domain.Thread) *threadModel {
@@ -178,6 +179,7 @@ func fromThreadDomain(t *domain.Thread) *threadModel {
 		StartedAt:       t.StartedAt,
 		CompletedAt:     t.CompletedAt,
 		Error:           t.Error,
+		Tags:            t.Tags,
 	}
 }
 
@@ -200,5 +202,6 @@ func (m *threadModel) ToDomain() *domain.Thread {
 		StartedAt:       m.StartedAt,
 		CompletedAt:     m.CompletedAt,
 		Error:           m.Error,
+		Tags:            m.Tags,
 	}
 }

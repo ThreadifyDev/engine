@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"threadify-go/shared/rbac"
@@ -60,6 +61,95 @@ type ThreadService struct {
 	rbacLoader            *rbac.Loader
 	writeBackPool         *workerpool.Pool
 	logger                *zap.Logger
+	timeoutMonitor        interface{ Stop() }
+	stopOnce              sync.Once
+	monitorStopOnce       sync.Once
+	consumerStopOnce      sync.Once
+	backgroundMu          sync.Mutex
+	backgroundPending     int
+	backgroundStopped     bool
+	backgroundDone        chan struct{}
+}
+
+// Stop prevents new detached work and stops the service's recurring producers.
+// Call after request handlers have drained, then WaitBackground before closing
+// the broker, database, or Valkey connections.
+func (s *ThreadService) Stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.StopContext(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("thread service shutdown incomplete", zap.Error(err))
+	}
+}
+
+// StopContext stops recurring producers within the caller's shutdown deadline.
+// It may be called again to wait for producers that outlived an earlier deadline.
+func (s *ThreadService) StopContext(ctx context.Context) error {
+	s.stopOnce.Do(func() {
+		s.backgroundMu.Lock()
+		s.backgroundStopped = true
+		s.backgroundDone = make(chan struct{})
+		if s.backgroundPending == 0 {
+			close(s.backgroundDone)
+		}
+		s.backgroundMu.Unlock()
+	})
+	var err error
+	if s.timeoutMonitor != nil {
+		if monitor, ok := s.timeoutMonitor.(interface{ StopContext(context.Context) error }); ok {
+			err = errors.Join(err, monitor.StopContext(ctx))
+		} else {
+			s.monitorStopOnce.Do(s.timeoutMonitor.Stop)
+		}
+	}
+	if s.notificationConsumer != nil {
+		if consumer, ok := any(s.notificationConsumer).(interface{ StopContext(context.Context) error }); ok {
+			err = errors.Join(err, consumer.StopContext(ctx))
+		} else {
+			s.consumerStopOnce.Do(s.notificationConsumer.Stop)
+		}
+	}
+	return err
+}
+
+// WaitBackground waits for accepted detached publications to finish. A deadline
+// does not discard unfinished work; callers can wait again with another context.
+func (s *ThreadService) WaitBackground(ctx context.Context) error {
+	stopErr := s.StopContext(ctx)
+	s.backgroundMu.Lock()
+	done := s.backgroundDone
+	s.backgroundMu.Unlock()
+	select {
+	case <-done:
+		return stopErr
+	case <-ctx.Done():
+		return errors.Join(stopErr, ctx.Err())
+	}
+}
+
+func (s *ThreadService) runBackground(fn func()) bool {
+	s.backgroundMu.Lock()
+	if s.backgroundStopped {
+		s.backgroundMu.Unlock()
+		if s.logger != nil {
+			s.logger.Warn("background work rejected after thread service shutdown")
+		}
+		return false
+	}
+	s.backgroundPending++
+	s.backgroundMu.Unlock()
+	go func() {
+		defer func() {
+			s.backgroundMu.Lock()
+			s.backgroundPending--
+			if s.backgroundStopped && s.backgroundPending == 0 {
+				close(s.backgroundDone)
+			}
+			s.backgroundMu.Unlock()
+		}()
+		fn()
+	}()
+	return true
 }
 
 // NewThreadService creates a ThreadService using the builder pattern.
@@ -164,18 +254,40 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 }
 
 func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
-	start := perf.Now()
-	perf.LogStructured("HandleStartThread BEGIN", zap.String("owner", ownerID), zap.String("contract", req.ContractName))
+	return s.startThread(ctx, req, ownerID, companyID, true)
+}
 
+// StartThreadForIngestion reuses the normal thread creation path for requests
+// already authenticated at the HTTP boundary.
+func (s *ThreadService) StartThreadForIngestion(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
+	return s.startThread(ctx, req, ownerID, companyID, false)
+}
+
+func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string, requireConnection bool) *domain.StartThreadResponse {
 	errResp := func(msg string) *domain.StartThreadResponse {
 		return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: msg}
 	}
+	if req == nil {
+		return errResp("Invalid request")
+	}
 
-	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
+	start := perf.Now()
+	perf.LogStructured("HandleStartThread BEGIN", zap.String("owner", ownerID), zap.String("contract", req.ContractName))
+
+	if ownerID == "" || companyID == "" || (requireConnection && !s.connectionMgr.IsConnected(ownerID)) {
 		return errResp("Not authenticated. Please connect first.")
 	}
 	if req.ContractName != "" && req.Role == "" {
 		return errResp("Role is required when contract name is provided")
+	}
+
+	startedAt := time.Now()
+	if req.StartedAt != "" {
+		var err error
+		startedAt, err = time.Parse(time.RFC3339Nano, req.StartedAt)
+		if err != nil {
+			return errResp("Invalid startedAt")
+		}
 	}
 
 	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
@@ -217,7 +329,10 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		contractUUID = contract.ID
 	}
 
-	threadID := uuid.New().String()
+	threadID := req.ThreadID
+	if threadID == "" {
+		threadID = uuid.New().String()
+	}
 
 	label := StartThreadLabel(req)
 
@@ -239,7 +354,9 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		OwnerID:         ownerID,
 		CompanyID:       companyID,
 		Status:          domain.ThreadStatusActive,
-		StartedAt:       time.Now(),
+		Refs:            req.Refs,
+		Tags:            req.Tags,
+		StartedAt:       startedAt,
 	}
 
 	creatorRole := req.Role
@@ -269,6 +386,7 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 		"startedAt":       thread.StartedAt,
 		"completedAt":     thread.CompletedAt,
 		"error":           thread.Error,
+		"tags":            thread.Tags,
 	})
 	if err != nil {
 		return errResp("Failed to serialize thread")
@@ -288,7 +406,9 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 	s.cacheManager.SetThread(threadID, thread)
 
 	// Consolidate archival publication into a single sequential goroutine to minimize race conditions in the archiver.
-	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, access, runtimeRole)
+	s.runBackground(func() {
+		s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, req.ServiceName, access, runtimeRole)
+	})
 
 	// Process refs in hot cache (Valkey) if provided
 	if len(req.Refs) > 0 {
@@ -301,12 +421,12 @@ func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.Start
 
 	// Schedule thread max duration timeout if contract has max_duration validation
 	if contractGraph != nil && s.notificationService != nil {
-		go func(graph *domain.ContractGraph) {
+		s.runBackground(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, thread.StartedAt)
-		}(contractGraph)
+			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, contractGraph, thread, thread.StartedAt)
+		})
 	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
@@ -331,6 +451,23 @@ func StartThreadLabel(req *domain.StartThreadCmd) string {
 }
 
 func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
+	return s.recordEvent(ctx, req, ownerID, companyID, true)
+}
+
+// RecordEventForIngestion reuses the normal step write path for requests
+// already authenticated at the HTTP boundary.
+func (s *ThreadService) RecordEventForIngestion(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
+	return s.recordEvent(ctx, req, ownerID, companyID, false)
+}
+
+func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string, requireConnection bool) *domain.RecordEventResponse {
+	errResp := func(msg string) *domain.RecordEventResponse {
+		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
+	}
+	if req == nil {
+		return errResp("Invalid request")
+	}
+
 	start := perf.Now()
 	perf.LogStructured("HandleRecordEvent BEGIN",
 		zap.String("owner", ownerID),
@@ -338,11 +475,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		zap.String("step", req.StepName),
 	)
 
-	errResp := func(msg string) *domain.RecordEventResponse {
-		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
-	}
-
-	if ownerID == "" || !s.connectionMgr.IsConnected(ownerID) {
+	if ownerID == "" || companyID == "" || (requireConnection && !s.connectionMgr.IsConnected(ownerID)) {
 		return errResp("Not authenticated. Please connect first.")
 	}
 	if err := validateRecordEventRequest(req); err != nil {
@@ -373,10 +506,6 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		return errResp("Access denied: You don't have write permission for this thread")
 	}
 
-	if thread.Status == domain.ThreadStatusCompleted {
-		return errResp("Cannot add steps to completed thread")
-	}
-
 	t = time.Now()
 	contentHash := ""
 	if len(req.Context) > 0 {
@@ -405,15 +534,21 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		idempCancel()
 		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "idempotency_check").Observe(time.Since(t).Seconds())
 		if err == nil && existingStatus != "" {
-			if existingStatus == ThreadStatusCompleted || existingStatus == StepStatusSuccess {
-				return &domain.RecordEventResponse{
-					Action:      ActionRecordThreadEvent,
-					Status:      StepStatusError,
-					Message:     "Step with this signature already completed",
-					IsDuplicate: true,
-				}
+			return &domain.RecordEventResponse{
+				Action:      ActionRecordThreadEvent,
+				Status:      StepStatusError,
+				Message:     "Step with this signature already recorded",
+				IsDuplicate: true,
 			}
 		}
+	}
+
+	// OTLP arrival order is independent of execution completion. Only the
+	// authenticated ingestion path may append to its own completed trace.
+	allowLateOTel := !requireConnection && isOwnedOTelThread(thread, companyID, req.Refs["otel_trace_id"]) &&
+		req.Type == "otel_span" && strings.HasPrefix(req.IdempotencyKey, "otel:"+req.Refs["otel_trace_id"]+":")
+	if thread.Status == domain.ThreadStatusCompleted && !allowLateOTel {
+		return errResp("Cannot add steps to completed thread")
 	}
 
 	if req.IdempotencyKey == "" && idempotencyKey != "" {
@@ -491,10 +626,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 		finishedAtTime = time.Now()
 	}
 
-	contextInterface := make(map[string]interface{}, len(req.Context))
-	for k, v := range req.Context {
-		contextInterface[k] = v
-	}
+	contextInterface := convertContext(req.Context)
 
 	stepEvent := domain.StepEvent{
 		StepID:         stepID,
@@ -530,7 +662,7 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 			s.logger.Warn("failed to store refs", zap.String("thread", req.ThreadID), zap.Error(err))
 		} else {
 			s.logger.Info("stored refs", zap.Int("count", len(req.Refs)), zap.String("thread", req.ThreadID))
-			go s.publishRefsToNATS(req.ThreadID, req.Refs)
+			s.publishRefsToNATS(req.ThreadID, req.Refs)
 		}
 	}
 
@@ -552,10 +684,13 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 func (s *ThreadService) HandleInviteParty(ctx context.Context, req *domain.InvitePartyCmd, ownerID, companyID string, threadIDs []string) (*domain.InvitePartyResponse, error) {
 	accessLevel := req.AccessLevel
 	if accessLevel == "" {
-		accessLevel = "external"
+		accessLevel = domain.AccessLevelExternal
 	}
 	if err := s.invitationService.ValidateAccessLevel(accessLevel); err != nil {
 		return nil, err
+	}
+	if accessLevel == domain.AccessLevelOwner {
+		return nil, fmt.Errorf("owner access level cannot be assigned via invitation token")
 	}
 
 	expiry, err := s.invitationService.ParseExpiry(req.ExpiresIn)
@@ -617,15 +752,15 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		if err != nil {
 			return nil, ErrInvalidThreadToken
 		}
+		if claims.AccessLevel == domain.AccessLevelOwner {
+			return nil, fmt.Errorf("owner access level cannot be assigned via invitation token")
+		}
 		threadID = claims.ThreadID
 		role = claims.Role
 		accessLevel = claims.AccessLevel
 		invitedBy = claims.InvitedBy
 
 	case req.ThreadID != "":
-		if req.Role == "" {
-			req.Role = "participant"
-		}
 		var err error
 		thread, err = s.getThread(req.ThreadID)
 		if err != nil {
@@ -634,8 +769,10 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		if thread.CompanyID != companyID {
 			return nil, fmt.Errorf("can only join threads from same company")
 		}
-		if !s.IsValidRole(req.Role) {
-			return nil, fmt.Errorf("invalid role: %s", req.Role)
+
+		// Auto-resolve role from service identity if not explicitly provided
+		if req.Role == "" {
+			req.Role = s.resolveRoleFromService(ownerID, thread)
 		}
 		threadID = req.ThreadID
 		role = req.Role
@@ -653,14 +790,49 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 		}
 	}
 
+	// Owner invariant: creator can never be downgraded via join.
+	existingAccess, accessErr := s.accessRepo.GetUserAccess(ctx, threadID, ownerID)
+	if accessErr == nil && existingAccess != nil && existingAccess.RuntimeRole == domain.AccessLevelOwner {
+		s.logger.Debug("owner re-joining thread, preserving owner runtime_role",
+			zap.String("user_id", ownerID), zap.String("thread_id", threadID))
+		return &domain.JoinThreadResponse{
+			Action:      ActionJoinThread,
+			Status:      "success",
+			ThreadID:    threadID,
+			Role:        role,
+			AccessLevel: domain.AccessLevelOwner,
+			Message:     "Already owner of thread",
+		}, nil
+	}
+
 	contractGraph, err := s.GetContractGraphForThread(ctx, thread)
 	if err == nil && len(contractGraph.Parties) > 0 && !slices.Contains(contractGraph.Parties, role) {
 		return nil, fmt.Errorf("role '%s' is not defined in contract parties: %v", role, contractGraph.Parties)
 	}
 
 	var explicitScope *string
-	if accessLevel != "" {
-		explicitScope = &accessLevel
+	if req.ThreadToken != "" {
+		if companyID != thread.CompanyID {
+			// External company joining via token: respect observer and participant,
+			// cap anything higher at external.
+			switch accessLevel {
+			case domain.AccessLevelObserver, domain.AccessLevelParticipant:
+				explicitScope = &accessLevel
+			default:
+				ext := domain.AccessLevelExternal
+				explicitScope = &ext
+				accessLevel = domain.AccessLevelExternal
+			}
+		} else {
+			// Same company joining via token: respect the token's access level.
+			if accessLevel != "" {
+				explicitScope = &accessLevel
+			}
+		}
+	} else {
+		// Direct join: force participant runtime_role.
+		participant := domain.AccessLevelParticipant
+		explicitScope = &participant
 	}
 	if err := s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, explicitScope); err != nil {
 		s.logger.Error("failed to grant access",
@@ -669,11 +841,8 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 	}
 
 	if accessLevel == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if access, err := s.accessRepo.GetUserAccess(ctx, threadID, ownerID); err == nil && access != nil {
-			accessLevel = access.RuntimeRole
-		}
+		// Direct joins always report participant.
+		accessLevel = domain.AccessLevelParticipant
 	}
 
 	return &domain.JoinThreadResponse{
@@ -730,7 +899,7 @@ func (s *ThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCm
 		return errResp(fmt.Sprintf("Failed to store refs: %v", err))
 	}
 
-	go s.publishRefsToNATS(req.ThreadID, req.Refs)
+	s.publishRefsToNATS(req.ThreadID, req.Refs)
 
 	return &domain.AddRefsResponse{
 		Action:   ActionAddRefs,
@@ -854,6 +1023,23 @@ func (s *ThreadService) GetThread(threadID string) (*domain.Thread, error) {
 	return s.getThread(threadID)
 }
 
+// ValidateThreadForIngestion verifies an explicit OTLP thread target before a
+// trace correlation is persisted.
+func (s *ThreadService) ValidateThreadForIngestion(ctx context.Context, threadID, ownerID, companyID string) error {
+	thread, err := s.getThread(threadID)
+	if err != nil {
+		return shderrors.ErrThreadNotFound
+	}
+	if thread.CompanyID != companyID {
+		return shderrors.ErrAccessDenied
+	}
+	hasAccess, err := s.accessService.CheckThreadAccess(ctx, threadID, ownerID, "thread.write.*", thread)
+	if err != nil || !hasAccess {
+		return shderrors.ErrAccessDenied
+	}
+	return nil
+}
+
 // getThread is an internal variant that can skip egress metering for write-only paths.
 func (s *ThreadService) getThread(threadID string) (*domain.Thread, error) {
 	if thread, exists := s.cacheManager.GetThread(threadID); exists {
@@ -903,7 +1089,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role, invite
 		access = nil
 	}
 
-	go func() {
+	s.runBackground(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		serviceName := ""
@@ -913,7 +1099,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role, invite
 		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole); err != nil {
 			s.logger.Warn("failed to record access granted activity", zap.Error(err))
 		}
-	}()
+	})
 
 	return nil
 }
@@ -927,6 +1113,35 @@ func (s *ThreadService) IsValidRole(role string) bool {
 		return fallbackValidRoles[role]
 	}
 	return slices.Contains(s.rbacLoader.GetAllRuntimeLevelRoles(), role)
+}
+
+// resolveRoleFromService derives a role from the connected service name.
+// It strips the "-service" suffix (e.g. "merchant-service" -> "merchant") and
+// checks if the derived role is a valid party in the thread's contract.
+// Falls back to "participant" if no match or no contract.
+func (s *ThreadService) resolveRoleFromService(ownerID string, thread *domain.Thread) string {
+	client, connected := s.connectionMgr.GetClient(ownerID)
+	if !connected {
+		return "participant"
+	}
+
+	candidate := strings.TrimSuffix(client.ServiceName, "-service")
+	if candidate == "" {
+		return "participant"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	graph, err := s.GetContractGraphForThread(ctx, thread)
+	if err != nil || len(graph.Parties) == 0 {
+		return candidate
+	}
+
+	if slices.Contains(graph.Parties, candidate) {
+		return candidate
+	}
+	return "participant"
 }
 
 // GetContractGraphForThread fetches the contract graph for a given thread.
@@ -958,7 +1173,7 @@ func (s *ThreadService) hasSuccessfulSteps(ctx context.Context, thread *domain.T
 
 // publishThreadInitialArchivalAsync orchestrates the initial archival of thread metadata, access, and activity logs.
 // It ensures that metadata is published first to satisfy foreign key constraints in the archiver.
-func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *domain.Thread, role string, access *domain.UserAccess, runtimeRole string) {
+func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, companyID string, thread *domain.Thread, role, serviceName string, access *domain.UserAccess, runtimeRole string) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("panic in thread metadata goroutine",
@@ -982,6 +1197,12 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 	pubCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var tagsJSON string
+	if len(thread.Tags) > 0 {
+		tagsBytes, _ := json.Marshal(thread.Tags)
+		tagsJSON = string(tagsBytes)
+	}
+
 	if err := s.natsArchivalPublisher.PublishThreadMetadata(pubCtx, map[string]interface{}{
 		"threadId":        threadID,
 		"label":           thread.Label,
@@ -992,7 +1213,8 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 		"contractVersion": contractVersion,
 		"status":          string(thread.Status),
 		"error":           "",
-		"startedAt":       thread.StartedAt.Format(time.RFC3339),
+		"startedAt":       thread.StartedAt.Format(time.RFC3339Nano),
+		"tags":            tagsJSON,
 	}); err != nil {
 		s.logger.Error("failed to publish thread metadata to NATS", zap.Error(err))
 	}
@@ -1022,9 +1244,10 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 	}
 
 	// 3. Publish Activity Log (subject: activity.log)
-	serviceName := ""
-	if client, exists := s.connectionMgr.GetClient(ownerID); exists {
-		serviceName = client.ServiceName
+	if serviceName == "" {
+		if client, exists := s.connectionMgr.GetClient(ownerID); exists {
+			serviceName = client.ServiceName
+		}
 	}
 
 	if err := s.natsArchivalPublisher.PublishActivityLog(pubCtx, map[string]interface{}{
@@ -1037,7 +1260,7 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 		"contractName":    thread.ContractName,
 		"contractVersion": contractVersion,
 		"role":            role,
-		"timestamp":       thread.StartedAt.Format(time.RFC3339),
+		"timestamp":       thread.StartedAt.Format(time.RFC3339Nano),
 	}); err != nil {
 		s.logger.Error("failed to publish activity log to NATS", zap.Error(err))
 	}
@@ -1048,11 +1271,11 @@ func (s *ThreadService) publishRefsToNATS(threadID string, refs map[string]strin
 	if s.natsArchivalPublisher == nil {
 		return
 	}
-	go func() {
+	s.runBackground(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		s.publishRefsToNATSWithContext(ctx, threadID, refs)
-	}()
+	})
 }
 
 // publishRefsToNATSWithContext publishes each ref as a NATS event using the provided context.

@@ -62,7 +62,11 @@
       "permissions": [
         "thread.read",
         "thread.write",
-        "query.execution.*"
+        "query.execution.*",
+        "entity_profile_type.create",
+        "entity_profile_type.read",
+        "entity_profile_type.update",
+        "entity_profile_type.delete"
       ]
     },
     "reader": {
@@ -70,7 +74,8 @@
       "description": "Read-only access",
       "permissions": [
         "thread.read",
-        "query.execution.*"
+        "query.execution.*",
+        "entity_profile_type.read"
       ]
     }
   },

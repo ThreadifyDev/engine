@@ -2,6 +2,51 @@
 
 This document explains how to run and write tests for the Threadify Engine Go implementation.
 
+## Compiled-binary E2E
+
+From the `threadify-go` directory, run:
+
+```sh
+make test-e2e
+```
+
+This builds `bin/threadify`, launches it from a temporary working directory with
+embedded NATS and persistence enabled, and creates disposable PostgreSQL and
+Valkey containers. Docker is required; startup failures fail the test. The binary
+initializes the database schema. The process and containers are stopped afterward.
+`make test-all` includes this suite.
+
+To check an already running local instance instead:
+
+```sh
+THREADIFY_LIVE_DIR=/absolute/path/to/local-instance make test-e2e-live
+```
+
+The directory must contain the instance's `config.yaml`, including a direct local
+PostgreSQL connection URL and `server.host: 127.0.0.1`. This mode creates a separate
+test company, temporary service-account key, and test credit balance. It preserves
+test records for inspection, revokes the temporary key, and writes
+`workflow-verification.json`. The target instance remains running.
+
+The tests in `e2e/` check:
+
+- Combined-process health, authenticated contract creation/read, invalid and duplicate contracts.
+- Contract-backed thread execution through entry and terminal steps, with PostgreSQL and GraphQL assertions.
+- Automatic entity profile creation from thread references and reuse of the same profile.
+- OTLP protobuf ingestion, trace-to-thread and span-to-step conversion, producer timestamps,
+  references, context, error status, span events, replay deduplication, and partial rejection of invalid spans.
+
+Identity, test credits, and entity **type configuration** are seeded as fixtures.
+Contracts, threads, events, and entity **profiles** are produced through the engine.
+Creating profile types through the external web API is covered separately by the
+API integration suite; the binary does not host that API.
+
+WebSocket event receipts precede asynchronous contract validation. The E2E waits
+for validated step persistence before advancing a dependent contract step.
+
+The `engine/` integration suite below exercises the in-process application with
+test services. It complements the compiled-binary E2E suite.
+
 ## Running Tests
 
 ### Run All Tests

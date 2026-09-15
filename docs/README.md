@@ -9,6 +9,7 @@
 ### Features
 - **[Contracts](./CONTRACTS.md)** - Workflow definitions, validation rules, and examples
 - **[WebSocket API](./WEBSOCKET.md)** - Real-time communication protocol and client implementation
+- **[OTLP Trace Ingestion](./OTLP_INGESTION.md)** - Direct OpenTelemetry trace ingestion and Threadify attributes
 - **[JWT Authentication](./JWT_AUTHENTICATION.md)** - Authentication and authorization
 - **[Violation Reference](./VIOLATION_SEVERITY_REFERENCE.md)** - All validation types and severities
 - **[Architecture](./ARCHITECTURE.md)** - System architecture and design decisions

@@ -29,6 +29,7 @@ steps:
 	require.ElementsMatch(t, []string{"s1"}, graph.Graph.EntryPoints)
 	require.ElementsMatch(t, []string{"s2"}, graph.Graph.TerminalSteps)
 	require.Equal(t, "s2", graph.Graph.FinalStep)
+	require.Empty(t, graph.Transitions, "depends_on must not become a strict immediate transition")
 
 	n1 := graph.Graph.Nodes["s1"]
 	n2 := graph.Graph.Nodes["s2"]
@@ -40,13 +41,42 @@ steps:
 	require.Equal(t, "processor", n2.Owner)
 }
 
+func TestGraphBuilder_BuildGraph_KeepsStrictTransitionsSeparateFromDependencies(t *testing.T) {
+	b := service.NewGraphBuilder()
+
+	content := []byte(`
+contract_name: test
+parties: [agent]
+steps:
+  - id: authenticated
+    owner: agent
+  - id: unrelated
+    owner: agent
+  - id: charge
+    owner: agent
+    depends_on: [authenticated]
+transitions:
+  - from: unrelated
+    to: [charge]
+`)
+
+	graph, err := b.BuildGraph(content)
+	require.NoError(t, err)
+	require.Equal(t, []domain.Transition{{From: "unrelated", To: []string{"charge"}}}, graph.Transitions)
+	require.Equal(t, []string{"authenticated"}, graph.Graph.Nodes["charge"].DependsOn)
+	require.ElementsMatch(t, []string{"charge"}, graph.Graph.Nodes["authenticated"].Next)
+}
+
 func TestGraphBuilder_BuildGraph_JSON_Succeeds(t *testing.T) {
 	b := service.NewGraphBuilder()
 
 	contract := domain.ContractYAML{
 		ContractName: "c",
 		Parties:      []string{},
-		Steps:        []domain.Step{{ID: "s1"}},
+		Steps: []domain.Step{
+			{ID: "s1"},
+			{ID: "s2", DependsOn: []string{"s1"}},
+		},
 	}
 	payload, err := json.Marshal(contract)
 	require.NoError(t, err)
@@ -54,6 +84,8 @@ func TestGraphBuilder_BuildGraph_JSON_Succeeds(t *testing.T) {
 	graph, err := b.BuildGraph(payload)
 	require.NoError(t, err)
 	require.Contains(t, graph.Graph.Nodes, "s1")
+	require.Equal(t, []string{"s1"}, graph.Graph.Nodes["s2"].DependsOn)
+	require.Empty(t, graph.Transitions)
 }
 
 func TestGraphBuilder_BuildGraph_InvalidInputErrors(t *testing.T) {
@@ -128,5 +160,5 @@ transitions:
 	require.Empty(t, graph.Graph.Nodes["s1"].ParentGroup)
 }
 
-// NOTE: buildTransitionsFromDependsOn is intentionally unexported; its behaviour is covered
-// via BuildGraph tests that validate depends_on transition derivation.
+// NOTE: dependency topology helpers are intentionally unexported; their behaviour is
+// covered through BuildGraph tests.

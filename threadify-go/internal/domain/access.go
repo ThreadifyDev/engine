@@ -1,5 +1,13 @@
 package domain
 
+// AccessLevel constants for thread access levels.
+const (
+	AccessLevelOwner       = "owner"
+	AccessLevelParticipant = "participant"
+	AccessLevelObserver    = "observer"
+	AccessLevelExternal    = "external"
+)
+
 // UserRoleInfo contains minimal user info for notification routing
 // Used by both Valkey and PostgreSQL repositories
 type UserRoleInfo struct {

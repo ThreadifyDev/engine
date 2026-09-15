@@ -84,7 +84,9 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		onEvent,
 	)
 	if err != nil {
-		c.SSEvent(domain.EventError, err.Error())
+		// Error is already sanitized and sent by ChatStreamEino via onEvent.
+		// Log the raw error but do not leak it to the client.
+		c.SSEvent(domain.EventError, "An unexpected error occurred")
 		c.Writer.Flush()
 	}
 }

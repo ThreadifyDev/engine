@@ -20,6 +20,23 @@ function formatTimestampMs(iso: string): string {
   return baseFormat.replace(/(\d{2})\s+(AM|PM)/, `$1.${ms} $2`);
 }
 
+function formatPayload(payload: any): string {
+  if (!payload) return '';
+  if (typeof payload === 'string') {
+    try {
+      const parsed = JSON.parse(payload);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return payload;
+    }
+  }
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 interface SubStateSidebarProps {
   subSteps: SubStep[];
   stepName: string;
@@ -121,15 +138,15 @@ export function SubStateSidebar({ subSteps, stepName, stepStartedAt, onClose, on
                   {expandedIndex === index && (
                     <div className="border-t border-gray-200 p-3 bg-gray-50 space-y-3">
                       {/* Payload */}
-                      {subStep.payload && Object.keys(subStep.payload).length > 0 && (
+                      {subStep.payload && (typeof subStep.payload === 'string' ? subStep.payload.length > 0 : Object.keys(subStep.payload).length > 0) && (
                         <div className="space-y-1">
                           <div className="text-xs font-medium text-gray-600">Payload</div>
                           <div className="relative">
                             <pre className="text-xs bg-white p-2 pr-8 rounded border border-gray-200 overflow-x-auto font-mono max-h-60">
-                              {subStep.payload}
+                              {formatPayload(subStep.payload)}
                             </pre>
                             <button
-                              onClick={() => copyToClipboard(subStep.payload, `payload-${index}`)}
+                              onClick={() => copyToClipboard(formatPayload(subStep.payload), `payload-${index}`)}
                               className="absolute top-2 right-2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
                               title="Copy to clipboard"
                             >

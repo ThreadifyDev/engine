@@ -1,0 +1,17 @@
+name: Nanite Dispatcher
+description: Creates a Threadify work thread for focused Nanite agents.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8110/responses
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+  pushNotifications: false
+defaultInputModes: [text/plain]
+defaultOutputModes: [text/plain]
+skills:
+  - id: dispatch-work
+    name: Dispatch work
+    description: Creates an observable Threadify workflow for a user request.
+    tags: [threadify, orchestration, nanites]
