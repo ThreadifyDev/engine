@@ -5,9 +5,9 @@ activity history. The `threadify` executable can run the engine, embedded NATS
 JetStream, and PostgreSQL persistence workers together. PostgreSQL and Valkey
 remain external services.
 
-The Web API and dashboard remain separate. Existing account authentication,
-credit billing, and payment behavior are unchanged; shared Fused/Threadify
-licensing is not implemented by this packaging change.
+The dashboard is deployed separately and connects to the Engine. Fused Registry
+provides identity, Threadify licensing, and live allowances; the Engine manages
+its local users and invitations.
 
 ## Self-hosting
 
@@ -22,8 +22,12 @@ sh install.sh
 
 The installer supports Apple Silicon macOS, x86-64 Linux and Windows through
 Git Bash. It preserves existing config files; use `--version vX.Y.Z` to pin a
-published release. Configure the supplied templates before starting the Engine.
+published release. Follow the [quick start](../README.md#quick-start)
+to supply your license, database settings, and persistent hash-chain secret, then start:
 
+```sh
+"$HOME/.local/bin/threadify" --config "${XDG_CONFIG_HOME:-$HOME/.config}/threadify/config.yaml"
+```
 
 See [SELF_HOSTING.md](SELF_HOSTING.md) for configuration, persistent storage,
 external-broker deployments, container commands, and migration from a separate
