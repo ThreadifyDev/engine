@@ -1,7 +1,0 @@
-apiVersion: harnest.dev/v1alpha1
-kind: RuntimePlugin
-metadata:
-  name: threadify
-  version: 0.1.0
-runtime:
-  entrypoint: plugin:plugin

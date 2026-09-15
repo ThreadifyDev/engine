@@ -101,7 +101,6 @@ func GenerateTestConfig(pgConn, valkeyURI, natsURL string, jwksURL string) (*con
 	cfg.Billing.Provider = "noop"
 
 	// Rates
-	cfg.RateLimit.Enabled = false
 
 	return cfg, nil
 }

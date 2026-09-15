@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"testing"
 
@@ -392,4 +394,24 @@ func TestEntityProfile_EngineUnavailable(t *testing.T) {
 
 	body := decodeJSONBody(t, resp)
 	assert.NotEmpty(t, body["error"])
+}
+
+// Existing types and engine-seeded types can have a SQL NULL description.
+func TestEntityProfileTypes_NullDescription(t *testing.T) {
+	user := setupAuthenticatedUser(t)
+	created := doJSONWithAuth(t, http.MethodPut, "/api/entity-profile-types/customer", map[string]any{
+		"name": "Customer", "type": []string{"customer"}, "metrics": []any{},
+	}, user.AccessToken)
+	require.Equal(t, http.StatusOK, created.StatusCode, string(created.Body))
+	id := decodeJSONBody(t, created)["data"].(map[string]any)["id"].(string)
+	pool, err := pgxpool.New(context.Background(), env.Postgres.ConnectionString)
+	require.NoError(t, err)
+	defer pool.Close()
+	_, err = pool.Exec(context.Background(), "UPDATE entity_profile_type SET description=NULL WHERE id=$1", id)
+	require.NoError(t, err)
+	listed := doRawWithAuth(t, http.MethodGet, "/api/entity-profile-types", nil, "", user.AccessToken)
+	require.Equal(t, http.StatusOK, listed.StatusCode, string(listed.Body))
+	items := decodeJSONBody(t, listed)["data"].([]any)
+	require.Len(t, items, 1)
+	require.Empty(t, items[0].(map[string]any)["description"])
 }

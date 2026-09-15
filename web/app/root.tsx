@@ -23,6 +23,7 @@ export const loader = async () => {
   return json({
     ENV: {
       API_URL: config.apiUrl,
+      ENGINE_URL: config.engineUrl,
     },
   });
 };

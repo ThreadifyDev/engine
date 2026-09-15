@@ -6,6 +6,8 @@ interface GanttTimelineViewProps {
   steps: StepStateInfo[];
   onStepClick: (step: StepStateInfo) => void;
   threadStatus?: string;
+  selectedService?: string | null;
+  onServiceSelect?: (service: string | null) => void;
 }
 
 // Row height — small gap above/below the bar
@@ -136,7 +138,13 @@ function Tooltip({ data }: { data: TooltipData }) {
   );
 }
 
-export default function GanttTimelineView({ steps, onStepClick, threadStatus }: GanttTimelineViewProps) {
+export default function GanttTimelineView({
+  steps,
+  onStepClick,
+  threadStatus,
+  selectedService = null,
+  onServiceSelect,
+}: GanttTimelineViewProps) {
   const chartScrollRef = useRef<HTMLDivElement>(null);
   const leftColRef = useRef<HTMLDivElement>(null);
   const stepBarRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -173,8 +181,9 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     let results: typeof steps = [];
     if (searchTerm) {
       results = filtered.filter(s =>
-        s.stepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.actorService?.toLowerCase().includes(searchTerm.toLowerCase())
+        (!selectedService || s.actorService === selectedService) &&
+        (s.stepName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.actorService?.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
 
@@ -186,7 +195,20 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     const start = Math.min(...starts);
     const end = Math.max(...ends, start + 1);
     return { sortedSteps: filtered, timelineStart: start, totalMs: end - start, searchResults: results };
-  }, [steps, searchTerm, statusFilters]);
+  }, [steps, searchTerm, statusFilters, selectedService]);
+
+  const services = useMemo(
+    () => Array.from(new Set(sortedSteps.map(step => step.actorService).filter((service): service is string => !!service))),
+    [sortedSteps],
+  );
+
+  const visibleStepCount = selectedService
+    ? sortedSteps.filter(step => step.actorService === selectedService).length
+    : sortedSteps.length;
+
+  const toggleService = useCallback((service: string) => {
+    onServiceSelect?.(selectedService === service ? null : service);
+  }, [onServiceSelect, selectedService]);
 
   // Use sortedSteps and totalMs from the memoized calculation above.
   // The early return must be moved below all hook calls to avoid "Rendered more hooks than during previous render".
@@ -282,6 +304,12 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
     }
   }, [sortedSteps, timelineStart, pxPerMs]);
 
+  useEffect(() => {
+    if (!selectedService) return;
+    const firstServiceStep = sortedSteps.find(step => step.actorService === selectedService);
+    if (firstServiceStep) scrollToStep(firstServiceStep, true);
+  }, [selectedService, sortedSteps, scrollToStep]);
+
   // Memoize search close handler
   const handleCloseSearch = useCallback(() => {
     setShowSearch(false);
@@ -320,14 +348,14 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-        <div>
+      <div className="px-4 py-3 border-b border-gray-100 flex flex-col gap-3 flex-shrink-0 sm:px-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800">Execution Timeline</h2>
           <p className="text-xs text-gray-400 mt-0.5 font-mono">
-            {sortedSteps.length} step{sortedSteps.length !== 1 ? 's' : ''} · {formatDuration(totalMs)} total
+            {selectedService ? `${visibleStepCount} of ${sortedSteps.length}` : sortedSteps.length} step{visibleStepCount !== 1 ? 's' : ''} · {formatDuration(totalMs)} total
           </p>
         </div>
-        <div className="flex items-center gap-2 relative">
+        <div className="flex items-center justify-end gap-2 relative">
           {showSearch ? (
             <div className="relative">
               <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
@@ -338,7 +366,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   autoFocus
-                  className="px-2 py-1 text-sm focus:outline-none bg-transparent w-48"
+                  className="min-w-0 px-2 py-1 text-sm focus:outline-none bg-transparent w-32 sm:w-48"
                 />
                 <button
                   onClick={handleCloseSearch}
@@ -350,7 +378,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
 
               {/* Search Results Dropdown */}
               {searchTerm && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[100] max-h-64 overflow-y-auto min-w-[300px]">
+                <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-[100] max-h-64 overflow-y-auto w-[min(300px,calc(100vw-3rem))]">
                   {searchResults.length > 0 ? (
                     searchResults.map((result, idx) => (
                       <button
@@ -400,8 +428,46 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
         </div>
       </div>
 
+      {services.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-100 bg-gray-50/70 px-4 py-2 sm:px-5">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Services</span>
+          {services.map(service => {
+            const serviceColor = getServiceColor(service);
+            const isSelected = selectedService === service;
+            const isDimmed = !!selectedService && !isSelected;
+            return (
+              <button
+                key={service}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => toggleService(service)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-mono transition-all ${isDimmed ? 'opacity-35' : 'opacity-100'}`}
+                style={{
+                  borderColor: serviceColor.border,
+                  backgroundColor: isSelected ? serviceColor.light : serviceColor.bg,
+                  color: serviceColor.text,
+                  boxShadow: isSelected ? `0 0 0 1px ${serviceColor.border}` : undefined,
+                }}
+                title={isSelected ? `Show all services` : `Show only ${service}`}
+              >
+                {service}
+              </button>
+            );
+          })}
+          {selectedService && (
+            <button
+              type="button"
+              onClick={() => onServiceSelect?.(null)}
+              className="shrink-0 text-[10px] font-medium text-gray-500 underline underline-offset-2 hover:text-gray-800"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Body: fixed label column + scrollable chart */}
-      <div className="flex overflow-hidden" style={{ height: '600px' }}>
+      <div className="flex h-[480px] overflow-hidden sm:h-[600px]">
 
         {/* ── LEFT: label column — scrolls vertically with chart ── */}
         <div
@@ -416,20 +482,21 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
           {sortedSteps.map(step => {
             const svc = getServiceColor(step.actorService);
             const stepKey = `lbl-${step.stepName}:${step.idempotencyKey}`;
+            const isServiceMatch = !selectedService || step.actorService === selectedService;
             return (
               <div
                 key={stepKey}
                 ref={el => {
                   if (el) leftLabelRefs.current.set(stepKey, el);
                 }}
-                className="flex-shrink-0 flex flex-col items-start justify-center px-3 border-b border-gray-300 overflow-hidden cursor-pointer hover:bg-opacity-80 transition-colors relative"
+                className="flex-shrink-0 flex flex-col items-start justify-center px-3 border-b border-gray-300 overflow-hidden cursor-pointer hover:bg-opacity-80 transition-all relative"
                 style={{ height: ROW_HEIGHT, backgroundColor: svc.bg }}
                 onClick={() => scrollToStep(step)}
                 title="Click to scroll to step"
               >
                 {/* Status icons - positioned at top */}
                 {(step.status === 'violated' || step.status === 'failed' || step.retryCount > 1) && (
-                  <div className="absolute top-1 right-1 flex items-center gap-1">
+                  <div className={`absolute top-1 right-1 flex items-center gap-1 transition-opacity ${isServiceMatch ? 'opacity-100' : 'opacity-0'}`}>
                     {step.status === 'violated' && (
                       <div className="flex items-center justify-center bg-orange-500 text-white rounded-full p-1 shadow-sm">
                         <AlertTriangle className="w-3.5 h-3.5" />
@@ -450,7 +517,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
 
                 <div className="flex flex-col">
                   <span
-                    className="text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline"
+                    className={`text-[11px] font-semibold whitespace-nowrap cursor-pointer hover:underline transition-opacity ${isServiceMatch ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                     style={{ color: step.status === 'failed' ? '#991b1b' : step.status === 'violated' ? '#9a3412' : step.status === 'success' ? '#166534' : '#374151' }}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -463,15 +530,21 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                       : step.stepName}
                   </span>
                   {step.actorService && (
-                    <span 
-                      className="text-[9px] font-mono whitespace-nowrap mt-0.5 opacity-70"
+                    <button
+                      type="button"
+                      aria-pressed={selectedService === step.actorService}
+                      className={`text-left text-[9px] font-mono whitespace-nowrap mt-0.5 hover:underline transition-opacity ${isServiceMatch ? 'opacity-80' : 'opacity-30'}`}
                       title={step.actorService}
                       style={{ color: svc.text }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleService(step.actorService!);
+                      }}
                     >
                       {step.actorService.length > MAX_LABEL_CHARS 
                         ? step.actorService.slice(0, MAX_LABEL_CHARS) + '...' 
                         : step.actorService}
-                    </span>
+                    </button>
                   )}
                 </div>
               </div>
@@ -526,12 +599,17 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
               const colors = getStatusColors(step.status);
               const isInProgress = step.status === 'in_progress';
               const svc = getServiceColor(step.actorService);
+              const isServiceMatch = !selectedService || step.actorService === selectedService;
 
               return (
                 <div
                   key={`${step.stepName}:${step.idempotencyKey}`}
-                  className="relative border-b border-gray-300"
-                  style={{ height: ROW_HEIGHT, backgroundColor: svc.bg, backgroundImage: gridBackground }}
+                  className="relative border-b border-gray-300 transition-colors"
+                  style={{
+                    height: ROW_HEIGHT,
+                    backgroundColor: isServiceMatch ? svc.bg : '#f9fafb',
+                    backgroundImage: gridBackground,
+                  }}
                 >
                   {finishedAtMarkers.map((m, idx) => (
                     <div key={`fline-${idx}`} className="absolute top-0 bottom-0"
@@ -541,7 +619,7 @@ export default function GanttTimelineView({ steps, onStepClick, threadStatus }: 
                     ref={el => {
                       if (el) stepBarRefs.current.set(`${step.stepName}:${step.idempotencyKey}`, el);
                     }}
-                    className="absolute rounded-lg cursor-pointer hover:opacity-85 transition-opacity overflow-hidden"
+                    className={`absolute rounded-lg cursor-pointer hover:opacity-85 transition-opacity overflow-hidden ${isServiceMatch ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                     style={{
                       left: barLeft, top: (ROW_HEIGHT - BAR_HEIGHT) / 2,
                       width: barWidth, height: BAR_HEIGHT,

@@ -18,12 +18,19 @@ func TestConfigurationAndAssetsOutsideSourceTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(t.TempDir())
+	// The release container selects its mounted data volume without adding
+	// broker settings to the user's configuration file.
+	storeDir := filepath.Join(t.TempDir(), "mounted-jetstream")
+	t.Setenv("NATS_STORE_DIR", storeDir)
 	cfg, err := LoadConfigPath(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Subscription.Credit.IngressCostMillicents != 17 {
 		t.Fatal("subscription not loaded beside selected config")
+	}
+	if cfg.NATS.StoreDir != storeDir {
+		t.Fatalf("container storage override ignored: %q", cfg.NATS.StoreDir)
 	}
 	loader, err := loadRBAC()
 	if err != nil || len(loader.GetAllRuntimeLevelRoles()) == 0 {

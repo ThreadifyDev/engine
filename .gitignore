@@ -79,9 +79,18 @@ coverage.out
 
 threadify-go/api/server
 threadify-go/api/api
-threadify-go/cmd/server
 threadify-go/bin/*
 threadify-go/server
 threadify-go/main
 .env
 .env
+
+# Independent CLI checkout (tracked as a submodule).
+/threadify-cli/
+
+# Local generated state, scratch checkouts and compiled services
+/.fused/
+/threadify-go/.gemini_tmp/
+/threadify-go/documentation/
+/threadify-go/api/main
+/threadify-go/archiver

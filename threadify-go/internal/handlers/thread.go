@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"threadify-go/shared/registry"
 	"time"
 
 	"go.uber.org/zap"
@@ -56,6 +57,8 @@ const (
 var upgrader websocket.Upgrader
 
 type WebSocketHandler struct {
+	waitMu               sync.Mutex
+	activeWaits          int
 	threadService        domain.ThreadService
 	stepEventService     domain.StepEventProcessor
 	invitationService    domain.InvitationTokenService
@@ -65,7 +68,6 @@ type WebSocketHandler struct {
 	valkeyClient         domain.ValkeyClient
 	sessions             sync.Map
 	luaScriptManager     domain.LuaScriptManager
-	rateLimitConfig      *config.RateLimitConfig
 	websocketConfig      *config.WebSocketConfig
 	logger               *zap.Logger
 	lifecycleMu          sync.Mutex
@@ -185,7 +187,6 @@ func NewWebSocketHandler(
 	planService domain.PlanService,
 	valkeyClient domain.ValkeyClient,
 	luaScriptManager domain.LuaScriptManager,
-	rateLimitConfig *config.RateLimitConfig,
 	websocketConfig *config.WebSocketConfig,
 	logger *zap.Logger,
 ) *WebSocketHandler {
@@ -206,7 +207,6 @@ func NewWebSocketHandler(
 		planService:          planService,
 		valkeyClient:         valkeyClient,
 		luaScriptManager:     luaScriptManager,
-		rateLimitConfig:      rateLimitConfig,
 		websocketConfig:      websocketConfig,
 		logger:               logger,
 	}
@@ -240,7 +240,7 @@ func (s *WSSession) enforceCredits(planSvc domain.PlanService, action string) *d
 		return &dto.ErrorResponse{
 			Action:  action,
 			Status:  StatusError,
-			Message: "failed to verify credits",
+			Message: "failed to verify Threadify license",
 			Details: err.Error(),
 		}
 	}
@@ -300,11 +300,17 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return conn.SetReadDeadline(time.Now().Add(readDeadline))
 	})
 
+	sessionCtx, cancelSession := context.WithCancel(c.Request.Context())
 	session := &WSSession{
 		conn:      conn,
 		sessionID: uuid.New().String(),
-		ctx:       c.Request.Context(),
+		ctx:       sessionCtx,
 	}
+
+	waits := newSocketWaits(h)
+	var stopWaitsOnce sync.Once
+	stopWaits := func() { stopWaitsOnce.Do(func() { cancelSession(); _ = conn.Close(); waits.stop() }) }
+	defer stopWaits()
 
 	// Server-side pinger: send a WebSocket ping frame at half the read-deadline
 	// interval. This keeps the TCP connection alive through infrastructure that
@@ -339,7 +345,14 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 	for {
 		conn.SetReadDeadline(time.Now().Add(readDeadline))
 		messageType, msgBytes, err := conn.ReadMessage()
+		receivedAt := time.Now()
 		if err != nil {
+			break
+		}
+		if err := registry.Default().CheckBatch(session.ctx,
+			registry.Usage{Metric: registry.InputRequests, Count: 1},
+			registry.Usage{Metric: registry.InputBytes, Count: int64(len(msgBytes))}); err != nil {
+			session.closeForRegistryError(err)
 			break
 		}
 		if messageType != websocket.TextMessage {
@@ -354,7 +367,36 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		}
 
 		action, _ := msg["action"].(string)
-		if err := session.SendMessage(h.handleMessage(action, msg, msgBytes, session)); err != nil {
+		if action == "cancelWait" {
+			target, _ := msg["targetRequestId"].(string)
+			waits.cancel(target)
+			if err := session.SendMessage(correlatedResponse(map[string]interface{}{"action": "cancelWait", "status": "success"}, msg)); err != nil {
+				break
+			}
+			continue
+		}
+		if action == ActionConnect {
+			waits.cancelAll()
+		}
+		slot, waitErr := h.beginSocketWait(session.ctx, action, msg, msgBytes, waits, receivedAt)
+		if waitErr != nil {
+			if err := session.SendMessage(correlatedResponse(h.newErrorResponse(action, waitErr.Error(), ""), msg)); err != nil {
+				break
+			}
+			continue
+		}
+		requestCtx := session.ctx
+		if slot != nil {
+			requestCtx = slot.ctx
+		}
+		response := h.handleMessageContext(action, msg, msgBytes, session, requestCtx)
+		if slot != nil && h.deferSocketResponse(action, msgBytes, msg, response, session, slot) {
+			continue
+		}
+		if slot != nil {
+			slot.finish()
+		}
+		if err := session.SendMessage(correlatedResponse(response, msg)); err != nil {
 			break
 		}
 		if action == ActionCloseConnection {
@@ -362,6 +404,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		}
 	}
 
+	stopWaits()
 	if session.ownerID != "" {
 		h.sessions.Delete(session.ownerID)
 		h.threadService.HandleClose(session.ownerID)
@@ -415,6 +458,9 @@ func (h *WebSocketHandler) newErrorResponse(action, message, details string) dto
 }
 
 func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface{}, msgBytes []byte, session *WSSession) interface{} {
+	return h.handleMessageContext(action, msg, msgBytes, session, session.ctx)
+}
+func (h *WebSocketHandler) handleMessageContext(action string, msg map[string]interface{}, msgBytes []byte, session *WSSession, ctx context.Context) interface{} {
 	wsStart := perf.Now()
 	sessionID := session.sessionID
 
@@ -434,7 +480,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			return h.newErrorResponse(ActionConnect, "Invalid request format", err.Error())
 		}
 
-		resp := h.threadService.HandleConnect(session.ctx, &domain.ConnectCmd{
+		resp := h.threadService.HandleConnect(ctx, &domain.ConnectCmd{
 			Action:           req.Action,
 			ApiKey:           req.ApiKey,
 			ServiceName:      req.ServiceName,
@@ -449,7 +495,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			session.mu.Unlock()
 			h.sessions.Store(resp.OwnerID, session)
 
-			checkCtx, cancel := context.WithTimeout(session.ctx, 2*time.Second)
+			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			_, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
 			cancel()
 			if meterErr != nil {
@@ -475,7 +521,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			return h.newErrorResponse(ActionStartThread, "Invalid request format", err.Error())
 		}
 
-		resp := h.threadService.HandleStartThread(session.ctx, &domain.StartThreadCmd{
+		resp := h.threadService.HandleStartThread(ctx, &domain.StartThreadCmd{
 			Action:       req.Action,
 			Label:        req.Label,
 			ContractName: req.ContractName,
@@ -496,6 +542,16 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 		}
 		return dtoStartThreadResponseFromDomain(resp)
 
+	case "waitFor":
+		var req domain.WaitRequest
+		if err := json.Unmarshal(msgBytes, &req); err != nil {
+			return h.newErrorResponse("waitFor", "Invalid request", "")
+		}
+		waiter, ok := h.threadService.(domain.WaitService)
+		if !ok {
+			return h.newErrorResponse("waitFor", "Wait service unavailable", "")
+		}
+		return waiter.HandleWaitFor(ctx, req, session.ownerID, session.companyID)
 	case ActionRecordThreadEvent:
 		var req dto.RecordEventRequest
 		if err := json.Unmarshal(msgBytes, &req); err != nil {
@@ -512,7 +568,8 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			}
 		}
 
-		resp := h.threadService.HandleRecordEvent(session.ctx, &domain.RecordEventCmd{
+		resp := h.threadService.HandleRecordEvent(ctx, &domain.RecordEventCmd{
+			InvocationID:      req.InvocationID,
 			Action:            req.Action,
 			ThreadID:          req.ThreadID,
 			StepName:          req.StepName,
@@ -535,7 +592,7 @@ func (h *WebSocketHandler) handleMessage(action string, msg map[string]interface
 			return h.newErrorResponse(ActionAddRefs, "Invalid request format", err.Error())
 		}
 
-		resp := h.threadService.HandleAddRefs(session.ctx, &domain.AddRefsCmd{
+		resp := h.threadService.HandleAddRefs(ctx, &domain.AddRefsCmd{
 			Action:   req.Action,
 			ThreadID: req.ThreadID,
 			Refs:     req.Refs,
@@ -739,8 +796,42 @@ func (h *WebSocketHandler) handleThreadEnd(session *WSSession, threadID, status,
 	}
 }
 
+// closeForRegistryError sends a bounded transport close without leaking an
+// application payload past quota. WriteControl is safe alongside other writes.
+// Clients must not retry mutations automatically: output denial can follow a
+// successful mutation whose acknowledgement could not be delivered.
+func (s *WSSession) closeForRegistryError(err error) {
+	code, reason := websocket.CloseTryAgainLater, "accounting_unavailable"
+	switch {
+	case errors.Is(err, registry.ErrLimit):
+		code, reason = websocket.ClosePolicyViolation, "registry_allowance_exceeded"
+	case errors.Is(err, registry.ErrUnverified):
+		code, reason = websocket.ClosePolicyViolation, "license_unavailable"
+	}
+	// Real sockets support transport controls; lightweight service mocks only
+	// implement application writes.
+	if conn, ok := s.conn.(interface {
+		WriteControl(int, []byte, time.Time) error
+	}); ok {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+	}
+}
+
+// SendMessage reserves licensed output before sending application bytes.
 func (s *WSSession) SendMessage(message interface{}) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := registry.Default().CheckBatch(ctx,
+		registry.Usage{Metric: registry.OutputMessages, Count: 1},
+		registry.Usage{Metric: registry.OutputBytes, Count: int64(len(data) + 1)}); err != nil {
+		s.closeForRegistryError(err)
+		return err
+	}
 	return s.conn.WriteJSON(message)
 }

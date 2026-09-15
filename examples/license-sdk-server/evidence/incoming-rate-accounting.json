@@ -1,0 +1,218 @@
+{
+  "captured_at": "2026-09-15T11:12:51.975811+00:00",
+  "container": "codex-threadify-incoming-rate-pg",
+  "account_id": "8bf9099d-2ff9-4d88-a2eb-acb114679910",
+  "installation_id": "6cfd9b5b-f07e-48d7-bda5-5a5d1426e094",
+  "binding": [
+    {
+      "account_id": "8bf9099d-2ff9-4d88-a2eb-acb114679910",
+      "company_id": "8bf9099d-2ff9-4d88-a2eb-acb114679910"
+    }
+  ],
+  "checks": {
+    "no_outgoing_rate_buckets": true,
+    "exact_monthly_bucket_counter_match": true,
+    "all_four_usage_metrics_present": true,
+    "only_expected_installation_reported": true,
+    "outbox_empty": true,
+    "registry_storage_schema_contains_only_identity_usage_and_delegation_fields": true,
+    "no_legacy_credit_accounts": true,
+    "no_billing_snapshots": true,
+    "matching_runtime_heartbeat_present": true
+  },
+  "totals": {
+    "engine": {
+      "threadify.input.bytes": 825674,
+      "threadify.input.requests": 442,
+      "threadify.output.bytes": 1659925,
+      "threadify.output.messages": 420
+    },
+    "registry": {
+      "threadify.input.bytes": 825674,
+      "threadify.input.requests": 442,
+      "threadify.output.bytes": 1659925,
+      "threadify.output.messages": 420
+    }
+  },
+  "engine_month_buckets": [
+    {
+      "metric": "threadify.input.bytes",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 825674
+    },
+    {
+      "metric": "threadify.input.requests",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 442
+    },
+    {
+      "metric": "threadify.output.bytes",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 1659925
+    },
+    {
+      "metric": "threadify.output.messages",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 420
+    }
+  ],
+  "outgoing_rate_buckets": {
+    "rows": 0
+  },
+  "registry_report_buckets": [
+    {
+      "metric": "threadify.input.bytes",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 825674
+    },
+    {
+      "metric": "threadify.input.requests",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 442
+    },
+    {
+      "metric": "threadify.output.bytes",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 1659925
+    },
+    {
+      "metric": "threadify.output.messages",
+      "bucket_epoch": 1788220800,
+      "bucket_seconds": 2592000,
+      "count": 420
+    }
+  ],
+  "registry_reports": [
+    {
+      "installation_id": "6cfd9b5b-f07e-48d7-bda5-5a5d1426e094",
+      "report_rows": 1412
+    }
+  ],
+  "outbox": {
+    "rows": 0,
+    "pending_count": 0
+  },
+  "legacy_ledger": {
+    "credit_accounts": 0,
+    "billing_snapshots": 0
+  },
+  "content": {
+    "threads": 53,
+    "entity_profiles": 2
+  },
+  "registry_storage_columns": [
+    {
+      "table_name": "threadify_registry_binding",
+      "column_name": "singleton",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "threadify_registry_binding",
+      "column_name": "account_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_binding",
+      "column_name": "company_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_delegations",
+      "column_name": "nonce",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_delegations",
+      "column_name": "expires_at",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "threadify_registry_installation",
+      "column_name": "singleton",
+      "data_type": "boolean"
+    },
+    {
+      "table_name": "threadify_registry_installation",
+      "column_name": "installation_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "report_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "account_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "installation_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "metric",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "bucket_start",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "bucket_seconds",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "threadify_registry_outbox",
+      "column_name": "count",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "threadify_registry_usage",
+      "column_name": "account_id",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_usage",
+      "column_name": "metric",
+      "data_type": "text"
+    },
+    {
+      "table_name": "threadify_registry_usage",
+      "column_name": "bucket_start",
+      "data_type": "timestamp with time zone"
+    },
+    {
+      "table_name": "threadify_registry_usage",
+      "column_name": "bucket_seconds",
+      "data_type": "bigint"
+    },
+    {
+      "table_name": "threadify_registry_usage",
+      "column_name": "count",
+      "data_type": "bigint"
+    }
+  ],
+  "runtime": [
+    {
+      "account_id": "8bf9099d-2ff9-4d88-a2eb-acb114679910",
+      "installation_id": "6cfd9b5b-f07e-48d7-bda5-5a5d1426e094",
+      "version": "threadify",
+      "applied_revision": "8d1046ec6f54519a64f7c3479f20ac7b1d63ca6711e259d7967f375170434747",
+      "last_heartbeat_at": "2026-09-15T11:12:50.93912+00:00",
+      "last_entitlement_refresh_at": "2026-09-15T11:12:50.93912+00:00"
+    }
+  ],
+  "scope_note": "Threadify retains legacy credit table definitions but has no credit rows. The exact Registry storage column allowlist excludes persisted keys, plan, entitlement revision and quota values. Registry itself correctly persists policies and usage."
+}

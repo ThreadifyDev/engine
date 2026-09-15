@@ -86,7 +86,7 @@ result = await (
 # Using payment provider transaction ID
 result = await (
     thread.step("charge_payment")
-    .idempotency_key(stripe_payment.id)  # e.g., "pi_3ABC123"
+    .idempotency_key(payment.id)  # e.g., "pi_3ABC123"
     .add_context({"amount": "99.99"})
     .success()
 )
@@ -148,7 +148,7 @@ result = await (
 ```python
 # Add references to the thread
 await thread.add_refs({
-    "stripe_payment_id": "pi_123",
+    "payment_id": "pi_123",
     "order_id": "ORD-456",
 })
 ```
@@ -457,7 +457,7 @@ async def main():
         payment = await process_payment()
 
         # Add payment provider reference
-        await thread.add_refs({"stripe_payment_id": payment["id"]})
+        await thread.add_refs({"payment_id": payment["id"]})
 
         await (
             thread.step("charge_payment")

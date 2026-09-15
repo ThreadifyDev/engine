@@ -1,5 +1,7 @@
 package dto
 
+import "github.com/threadify/engine/internal/domain"
+
 type ConnectRequest struct {
 	Action           string   `json:"action"`
 	ApiKey           string   `json:"apiKey"`
@@ -34,6 +36,9 @@ type StartThreadResponse struct {
 }
 
 type RecordEventRequest struct {
+	WaitFor           bool                   `json:"waitFor,omitempty"`
+	TimeoutMs         int                    `json:"timeoutMs,omitempty"`
+	InvocationID      string                 `json:"invocationId,omitempty"`
 	Action            string                 `json:"action"`
 	ThreadID          string                 `json:"threadId"`
 	StepName          string                 `json:"stepName"`
@@ -50,12 +55,13 @@ type RecordEventRequest struct {
 }
 
 type RecordEventResponse struct {
-	Action      string `json:"action"`
-	Status      string `json:"status"`
-	Message     string `json:"message"`
-	ThreadID    string `json:"threadId,omitempty"`
-	StepID      string `json:"stepId,omitempty"`
-	IsDuplicate bool   `json:"isDuplicate,omitempty"`
+	Validation  *domain.WaitResult `json:"validation,omitempty"`
+	Action      string             `json:"action"`
+	Status      string             `json:"status"`
+	Message     string             `json:"message"`
+	ThreadID    string             `json:"threadId,omitempty"`
+	StepID      string             `json:"stepId,omitempty"`
+	IsDuplicate bool               `json:"isDuplicate,omitempty"`
 }
 
 type AddRefsRequest struct {

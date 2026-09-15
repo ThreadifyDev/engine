@@ -39,6 +39,7 @@ var fallbackValidRoles = map[string]bool{
 
 // ThreadService orchestrates thread operations across multiple repositories.
 type ThreadService struct {
+	waitRepo              *valkey.WaitRepository
 	repo                  domain.ThreadRepository
 	accessRepo            domain.AccessRepository
 	activityRepo          domain.ActivityRepository
@@ -227,7 +228,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
-				Message: "Failed to verify credit account status. Please try again later.",
+				Message: "Threadify license verification is unavailable. Please try again later.",
 			}
 		}
 	}
@@ -236,7 +237,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 		return &domain.ConnectResponse{
 			Action:  ActionConnect,
 			Status:  StepStatusError,
-			Message: "Credit account details are currently unavailable. Please contact support.",
+			Message: "Threadify license details are currently unavailable.",
 		}
 	}
 
@@ -598,7 +599,14 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 		}
 
 		t = time.Now()
-		if err := s.contractValidator.ValidateStepContext(ctx, stepNode, req.Context); err != nil {
+		var referenceThread []string
+		for _, rule := range stepNode.ContentRules {
+			if rule.Reference != nil {
+				referenceThread = []string{thread.ID}
+				break
+			}
+		}
+		if err := s.contractValidator.ValidateStepContext(ctx, stepNode, req.Context, referenceThread...); err != nil {
 			metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_context_validate").Observe(time.Since(t).Seconds())
 			return errResp(fmt.Sprintf("Step validation failed: %v", err))
 		}
@@ -615,6 +623,9 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	if serviceName == "" {
 		serviceName = "unknown"
 	}
+	// Async validation builds the durable step snapshot from this command.
+	// Preserve the connection-resolved name there as well as in the event log.
+	req.ServiceName = serviceName
 
 	finishedAtTime, err := time.Parse(time.RFC3339Nano, req.FinishedAt)
 	if err != nil {
@@ -645,11 +656,19 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	}
 
 	if err := s.planService.DecrementIngress(ctx, companyID, int64(len(reqBytes))); err != nil {
-		return errResp("Insufficient credit: " + err.Error())
+		return errResp("Threadify license unavailable: " + err.Error())
 	}
 
 	t = time.Now()
+	if s.waitRepo != nil {
+		if err := s.waitRepo.Begin(ctx, req, stepID, ownerID); err != nil {
+			return errResp("Unable to register invocation for validation: " + err.Error())
+		}
+	}
 	if err := s.stepEventService.RecordStepEventDirect(ctx, stepEvent, ownerID, serviceName, req.SubSteps); err != nil {
+		if s.waitRepo != nil {
+			_ = s.waitRepo.Complete(ctx, domain.WaitResult{ThreadID: req.ThreadID, StepID: stepID, StepName: req.StepName, InvocationID: req.InvocationID, Decision: "unavailable", Message: "Event recording failed"}, true)
+		}
 		return errResp("failed to process step event")
 	}
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "step_event_process").Observe(time.Since(t).Seconds())
@@ -668,6 +687,8 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 
 	if req.Status == StepStatusSuccess || req.Status == StepStatusFailed || req.Status == StepStatusError {
 		s.notificationService.PerformAsyncValidation(req.ThreadID, stepID, req.StepName, ownerID, req, thread, graph, stepNode)
+	} else if s.waitRepo != nil {
+		_ = s.waitRepo.Complete(ctx, domain.WaitResult{ThreadID: req.ThreadID, StepID: stepID, StepName: req.StepName, InvocationID: req.InvocationID, Decision: "unvalidated", Message: "This status does not trigger contract validation"}, true)
 	}
 
 	perf.LogStructured("HandleRecordEvent COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))

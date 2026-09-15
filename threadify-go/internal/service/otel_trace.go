@@ -403,6 +403,7 @@ func (s *OTelTraceService) recordSpan(
 	refs := otelRefs(attrs)
 	refs["otel_trace_id"] = traceID
 	cmd := &domain.RecordEventCmd{
+		InvocationID:   attributeString(keyValueMap(span.GetAttributes()), "threadify.invocation_id"),
 		Action:         ActionRecordThreadEvent,
 		ThreadID:       threadID,
 		StepName:       stepName,
@@ -759,7 +760,7 @@ func applyOTelContextLayer(destination map[string]string, attrs map[string]*comm
 func isThreadifyDirective(key string) bool {
 	switch key {
 	case "threadify.thread_id", "threadify.contract", "threadify.label", "threadify.step_name",
-		"threadify.role", "threadify.service", "threadify.tags":
+		"threadify.role", "threadify.service", "threadify.tags", "threadify.invocation_id":
 		return true
 	default:
 		return false

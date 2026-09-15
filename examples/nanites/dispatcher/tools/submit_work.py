@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from harnest.context import context
-from harnest.plugins.threadify import threadify
+from harnest.extensions.threadify import threadify
 from harnest.tool import tool
 
 

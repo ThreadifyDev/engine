@@ -8,7 +8,9 @@
     "build": "remix vite:build",
     "start": "remix-serve ./build/server/index.js",
     "typecheck": "tsc",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:engine-routing": "node --test tests/engine-routing.test.mjs",
+    "test:auth": "npm run build && node --test tests/browser-auth.test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-yaml": "^6.1.2",

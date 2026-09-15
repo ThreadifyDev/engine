@@ -22,7 +22,7 @@ def _load(name: str, path: Path):
     return module
 
 
-class _Plugin:
+class _Extension:
     def __init__(self) -> None:
         self.handlers = []
 
@@ -53,16 +53,16 @@ class _Delivery:
 class NaniteWorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_event_invokes_agent_then_advances_terminal_step(self):
         module = _load("nanite_worker_test", _ROOT / "shared" / "nanite_worker.py")
-        plugin = _Plugin()
+        extension = _Extension()
         module.register_nanite(
             module.NaniteSpec("analysis_completed", "review_completed", "reviewer"),
-            plugin=plugin,
+            extension=extension,
         )
         delivery = _Delivery()
         with patch.object(module, "_invoke_self", AsyncMock(return_value="final plan")):
-            await plugin.handlers[0][2](delivery)
+            await extension.handlers[0][2](delivery)
 
-        self.assertEqual(plugin.handlers[0][:2], ("step.success", "analysis_completed"))
+        self.assertEqual(extension.handlers[0][:2], ("step.success", "analysis_completed"))
         self.assertEqual(delivery.recorded[0][0], "review_completed")
         self.assertEqual(
             delivery.recorded[0][1]["context"],
@@ -72,17 +72,17 @@ class NaniteWorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_agent_does_not_advance_or_ack_in_adapter(self):
         module = _load("nanite_worker_failure", _ROOT / "shared" / "nanite_worker.py")
-        plugin = _Plugin()
+        extension = _Extension()
         module.register_nanite(
             module.NaniteSpec("work_requested", "analysis_completed", "analyst"),
-            plugin=plugin,
+            extension=extension,
         )
         delivery = _Delivery()
         with (
             patch.object(module, "_invoke_self", AsyncMock(side_effect=RuntimeError("failed"))),
             self.assertRaises(RuntimeError),
         ):
-            await plugin.handlers[0][2](delivery)
+            await extension.handlers[0][2](delivery)
         self.assertEqual(delivery.recorded, [])
         self.assertEqual(delivery.completed, [])
 
@@ -103,22 +103,22 @@ class MaterializationTests(unittest.TestCase):
         module = _load("nanites_prepare_test", _ROOT / "prepare.py")
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            plugin = root / "source-plugin"
-            (plugin / "lib").mkdir(parents=True)
-            (plugin / "plugin.yaml").write_text("kind: RuntimePlugin\n", encoding="utf-8")
-            (plugin / "lib" / "client.py").write_text("VALUE = 1\n", encoding="utf-8")
+            extension = root / "source-extension"
+            (extension / "lib").mkdir(parents=True)
+            (extension / "extension.yaml").write_text("kind: Extension\n", encoding="utf-8")
+            (extension / "lib" / "client.py").write_text("VALUE = 1\n", encoding="utf-8")
             shared = root / "shared"
             shared.mkdir()
             (shared / "nanite_model.py").write_text("MODEL = 1\n", encoding="utf-8")
             (shared / "nanite_worker.py").write_text("WORKER = 1\n", encoding="utf-8")
             (shared / "nanite_storage.py").write_text("STORE = 1\n", encoding="utf-8")
 
-            module.materialize(root, plugin)
-            self.assertTrue(module.check(root, plugin))
-            (root / "analyst" / "plugins" / "threadify" / "plugin.yaml").write_text(
+            module.materialize(root, extension)
+            self.assertTrue(module.check(root, extension))
+            (root / "analyst" / "extensions" / "threadify" / "extension.yaml").write_text(
                 "changed\n", encoding="utf-8"
             )
-            self.assertFalse(module.check(root, plugin))
+            self.assertFalse(module.check(root, extension))
 
 
 if __name__ == "__main__":

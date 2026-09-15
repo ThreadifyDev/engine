@@ -135,6 +135,19 @@ func (s *AuthService) performCleanup() {
 }
 
 func (s *AuthService) ValidateApiKey(apiKey string) (*domain.UserInfo, error) {
+	if strings.HasPrefix(apiKey, sharedauth.CLICredentialPrefix) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		claims, err := sharedauth.VerifyCLICredential(ctx, apiKey)
+		if err != nil {
+			return nil, err
+		}
+		role := ""
+		if len(claims.Roles) > 0 {
+			role = claims.Roles[0]
+		}
+		return &domain.UserInfo{OwnerID: claims.UserID, CompanyID: claims.CompanyID, Role: role, Roles: claims.Roles}, nil
+	}
 	if s.authRepo == nil {
 		return nil, ErrDatabaseNotConfigured
 	}
@@ -216,6 +229,10 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*domain.UserInfo, er
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
+	// Production browser sessions are local, opaque, and revocable; no provider JWT fallback.
+	if sharedauth.BrowserSessionsEnabled() {
+		return sharedauth.VerifyBrowserSession(ctx, tokenString)
+	}
 	var claims *sharedauth.TokenClaims
 	err := ErrJwtVerificationNotConfigured
 	if s.jwksVerifier != nil {

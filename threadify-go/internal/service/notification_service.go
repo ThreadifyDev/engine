@@ -15,6 +15,7 @@ import (
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
+	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/workerpool"
 	"go.uber.org/zap"
 )
@@ -23,6 +24,7 @@ import (
 // It handles non-blocking validation processing, stores validation results in streams,
 // and manages the archival of validation notifications without blocking main execution.
 type NotificationService struct {
+	waitRepo              *valkey.WaitRepository
 	validationService     *ValidationService
 	activityRepo          domain.ActivityRepository
 	stepStateRepo         domain.StepStateRepository
@@ -162,6 +164,7 @@ func (s *NotificationService) PerformAsyncValidation(
 	})
 
 	if !submitted {
+		s.finishWait(context.Background(), req, stepID, "unavailable", "Validation queue is full; event has not been validated", nil, false)
 		s.logger.Warn("job dropped due to backpressure",
 			zap.String("thread_id", threadID),
 			zap.String("step", stepName),
@@ -177,6 +180,7 @@ func (s *NotificationService) handleNoContractStep(
 	req *domain.RecordEventCmd,
 	thread *domain.Thread,
 ) {
+	s.finishWait(ctx, req, stepID, "unvalidated", "Thread has no contract", nil, true)
 	contractName := ""
 	if thread != nil {
 		contractName = thread.ContractName
@@ -333,6 +337,13 @@ func (s *NotificationService) processValidationNotifications(
 
 	eventTimestamp := recordEventTimestamp(req)
 	params := buildValidateStepParams(threadID, stepID, stepName, idempotencyKey, originalStatus, ownerID, isTerminal, existingViolations, graph, eventTimestamp)
+	rawContext, err := json.Marshal(req.Context)
+	if err != nil {
+		s.logger.Error("failed to encode reference context", zap.Error(err))
+		return
+	}
+	params.RawContext = string(rawContext)
+	params.InvocationID = req.InvocationID
 
 	luaStart := perf.Now()
 	result, err := s.stepStateRepo.ValidateAndUpdateStepState(ctx, params)
@@ -346,6 +357,7 @@ func (s *NotificationService) processValidationNotifications(
 	)
 
 	if err != nil {
+		s.finishWait(ctx, req, stepID, "unavailable", "Validation storage unavailable", nil, false)
 		s.logger.Error("error validating and updating step state", zap.Error(err))
 		return
 	}
@@ -401,6 +413,8 @@ func (s *NotificationService) processValidationNotifications(
 		finalMessage = fmt.Sprintf("Step %q completed successfully", stepName)
 	}
 
+	combinedViolations := result.Violations
+	s.finishWait(ctx, req, stepID, finalStatus, fmt.Sprintf("Contract validation %s (reported execution: %s)", finalStatus, originalStatus), combinedViolations, true)
 	finalDetails["idempotencyKey"] = idempotencyKey
 
 	executionNotif := domain.ValidationNotification{
@@ -517,10 +531,12 @@ func (s *NotificationService) processValidationNotifications(
 	convertedCtx := convertContext(req.Context)
 	contextJSON := marshalContext(convertedCtx)
 
-	if err := s.activityRepo.ArchiveStepState(ctx, buildStepStateSnapshot(
-		stepID, threadID, stepName, idempotencyKey, result.Status, ownerID, req,
-		result.RetryCount, firstSeenAt, previousStepName,
-	)); err != nil {
+	snapshot := buildStepStateSnapshot(stepID, threadID, stepName, idempotencyKey, result.Status, ownerID, req, result.RetryCount, firstSeenAt, previousStepName)
+	if result.Status == StepStatusSuccess && !result.HasCriticalViolation {
+		snapshot.SuccessOrder = result.SuccessOrder
+		snapshot.SuccessContext = params.RawContext
+	}
+	if err := s.activityRepo.ArchiveStepState(ctx, snapshot); err != nil {
 		s.logger.Error("failed to archive step state", zap.Error(err))
 	} else {
 		s.logger.Debug("step state archived", zap.String("step", stepName))
@@ -832,6 +848,7 @@ func buildValidateStepParams(
 ) domain.ValidateStepParams {
 	maxRetries := 0
 	transitionsMap := make(map[string][]string)
+	freshSteps := []string{}
 	requiredSteps := []string{}
 	terminalSteps := []string{}
 	allowMultipleTerminals := false
@@ -845,6 +862,7 @@ func buildValidateStepParams(
 		}
 		if node, ok := graph.Graph.Nodes[stepName]; ok {
 			requiredSteps = slices.Clone(node.DependsOn)
+			freshSteps = slices.Clone(node.FreshDependsOn)
 		}
 		terminalSteps = graph.Graph.TerminalSteps
 		if graph.Validation != nil {
@@ -864,6 +882,7 @@ func buildValidateStepParams(
 		MaxRetries:             maxRetries,
 		TransitionsMap:         transitionsMap,
 		RequiredSteps:          requiredSteps,
+		FreshRequiredSteps:     freshSteps,
 		TerminalSteps:          terminalSteps,
 		AllowMultipleTerminals: allowMultipleTerminals,
 		Actor:                  ownerID,
@@ -1109,5 +1128,15 @@ func (s *NotificationService) scheduleTransitionTimeouts(
 				zap.Time("deadline", deadline),
 			)
 		}
+	}
+}
+
+func (s *NotificationService) finishWait(ctx context.Context, req *domain.RecordEventCmd, stepID, decision, message string, violations []domain.Violation, clear bool) {
+	if s.waitRepo == nil {
+		return
+	}
+	err := s.waitRepo.Complete(ctx, domain.WaitResult{ThreadID: req.ThreadID, StepName: req.StepName, StepID: stepID, InvocationID: req.InvocationID, Decision: decision, Message: message, Violations: violations}, clear)
+	if err != nil {
+		s.logger.Error("failed to publish invocation validation result", zap.Error(err), zap.String("step_id", stepID))
 	}
 }

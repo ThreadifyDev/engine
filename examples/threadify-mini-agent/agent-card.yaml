@@ -1,0 +1,18 @@
+name: Northstar Customer Support
+description: Helps with demo orders and creates persistent customer support tickets.
+version: 0.1.0
+supportedInterfaces:
+  - url: http://127.0.0.1:8120
+    protocolBinding: HTTP+JSON
+    protocolVersion: "1.0"
+capabilities:
+  streaming: true
+defaultInputModes:
+  - text/plain
+defaultOutputModes:
+  - text/plain
+skills:
+  - id: customer-support
+    name: Customer Support
+    description: Look up orders and create support tickets.
+    tags: [support, orders]

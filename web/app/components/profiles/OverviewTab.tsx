@@ -30,30 +30,30 @@ export default function OverviewTab({ profile, metrics }: { profile: EntityProfi
       <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile Details</h2>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="divide-y divide-gray-200">
-          <div className="px-6 py-4 hover:bg-gray-50">
+          <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">
             <dt className="text-sm font-medium text-gray-500 mb-1">Record ID</dt>
-            <dd className="font-mono text-sm text-gray-900">{profile.id}</dd>
+            <dd className="break-all font-mono text-sm text-gray-900">{profile.id}</dd>
           </div>
-          <div className="px-6 py-4 hover:bg-gray-50">
+          <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">
             <dt className="text-sm font-medium text-gray-500 mb-1">First Observed</dt>
             <dd className="text-sm text-gray-900">
               {new Date(profile.createdAt).toLocaleString()}
-              <span className="text-gray-500 ml-2">
+              <span className="block text-gray-500 sm:ml-2 sm:inline">
                 ({formatDistanceToNow(new Date(profile.createdAt), { addSuffix: true })})
               </span>
             </dd>
           </div>
-          <div className="px-6 py-4 hover:bg-gray-50">
+          <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">
             <dt className="text-sm font-medium text-gray-500 mb-1">Last Active</dt>
             <dd className="text-sm text-gray-900">
               {new Date(profile.lastActiveAt).toLocaleString()}
-              <span className="text-gray-500 ml-2">
+              <span className="block text-gray-500 sm:ml-2 sm:inline">
                 ({formatDistanceToNow(new Date(profile.lastActiveAt), { addSuffix: true })})
               </span>
             </dd>
           </div>
           {metrics.lastCalculatedAt && (
-            <div className="px-6 py-4 hover:bg-gray-50">
+            <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">
               <dt className="text-sm font-medium text-gray-500 mb-1">Metrics Last Calculated</dt>
               <dd className="text-sm text-gray-900">
                 {new Date(metrics.lastCalculatedAt).toLocaleString()}
@@ -61,7 +61,7 @@ export default function OverviewTab({ profile, metrics }: { profile: EntityProfi
             </div>
           )}
           {profile.profileType?.metricsConfig && profile.profileType.metricsConfig.length > 0 && (
-            <div className="px-6 py-4 hover:bg-gray-50">
+            <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">
               <dt className="text-sm font-medium text-gray-500 mb-2">Configured Metrics</dt>
               <dd className="text-sm text-gray-900">
                 <ul className="list-disc pl-5 space-y-2">

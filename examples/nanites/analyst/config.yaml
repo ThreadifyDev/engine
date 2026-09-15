@@ -22,3 +22,8 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 10
+server:
+  live: false
+  http:
+    port: 8111
+    maxConcurrentRequests: 8

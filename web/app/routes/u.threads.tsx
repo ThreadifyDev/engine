@@ -343,9 +343,9 @@ export default function ThreadsPage() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         {/* Compact Header */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl font-bold text-black mb-2">Threads</h1>
           <p className="text-gray-600">
             Search and browse workflow execution threads
@@ -426,15 +426,15 @@ function PaginationControls({
   const endResult = Math.min(currentPage * resultsPerPage, totalResults);
 
   return (
-    <div className="flex items-center justify-between mt-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
-      <div className="text-sm text-gray-600">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
+      <div className="text-sm text-gray-600 text-center sm:text-left">
         Showing {startResult}-{endResult} of {totalResults.toLocaleString()} results
       </div>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:flex">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={!hasPrevPage}
-          className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+          className="justify-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
         >
           <ChevronLeft className="w-4 h-4" />
           Previous
@@ -442,7 +442,7 @@ function PaginationControls({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={!hasNextPage}
-          className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+          className="justify-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
         >
           Next
           <ChevronRight className="w-4 h-4" />
@@ -486,19 +486,19 @@ function AdvancedSearchFilters({
           <Search className="inline w-4 h-4 mr-1" />
           Search Threads
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="text"
             placeholder="Search by thread ID, contract, tag, or reference value..."
             value={filters.searchQuery || ''}
             onChange={(e) => onChange({ ...filters, searchQuery: e.target.value })}
             onKeyPress={handleKeyPress}
-            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            className="min-w-0 flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
           />
           <button
             onClick={() => onSearch(1)}
             disabled={isSearching}
-            className="px-6 py-2 text-sm bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="justify-center px-6 py-2 text-sm bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             {isSearching ? (
               <>
@@ -513,10 +513,10 @@ function AdvancedSearchFilters({
             )}
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-1.5">
-          <b>Tip</b>: Use <code className="bg-gray-100 px-1 py-0.5 rounded">contract:order_fulfillment</code>,{' '}
-          <code className="bg-gray-100 px-1 py-0.5 rounded">ref:customer@example.com</code> or{' '}
-          <code className="bg-gray-100 px-1 py-0.5 rounded">tag:vip</code> for specific searches
+        <p className="text-xs text-gray-500 mt-1.5 break-words">
+          <b>Tip</b>: Use <code className="bg-gray-100 px-1 py-0.5 rounded break-all">contract:order_fulfillment</code>,{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded break-all">ref:customer@example.com</code> or{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded break-all">tag:vip</code> for specific searches
         </p>
       </div>
 
@@ -568,7 +568,7 @@ function AdvancedSearchFilters({
 
           {/* Custom Date Range */}
           {filters.timeRange === 'custom' && (
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <div className="flex-1">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Start (From)</label>
                 <input
@@ -598,7 +598,7 @@ function AdvancedSearchFilters({
             </label>
             <div className="space-y-2">
               {filters.refs.map((ref, index) => (
-                <div key={index} className="flex gap-2">
+                <div key={index} className="flex flex-col gap-2 sm:flex-row">
                   <input
                     type="text"
                     placeholder="Ref key (e.g., customer)"
@@ -613,31 +613,33 @@ function AdvancedSearchFilters({
                     onChange={(e) => updateRefFilter(index, 'value', e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
                   />
-                  {filters.refs.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeRefFilter(index)}
-                      className="p-2 text-red-700 hover:text-red-800 transition-colors"
-                      title="Remove reference"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                  {index === filters.refs.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={addRefFilter}
-                      className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
-                      title="Add another reference"
-                    >
-                      <PlusCircle className="w-4 h-4" />
-                    </button>
-                  )}
+                  <div className="flex justify-end gap-1 sm:justify-start">
+                    {filters.refs.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeRefFilter(index)}
+                        className="p-2 text-red-700 hover:text-red-800 transition-colors"
+                        title="Remove reference"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                    {index === filters.refs.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={addRefFilter}
+                        className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                        title="Add another reference"
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Search threads by external reference (e.g., Stripe payment ID, customer email)
+              Search threads by external reference (e.g., payment ID, customer email)
             </p>
           </div>
 
@@ -715,12 +717,12 @@ function ThreadSearchResults({
           <div
             key={thread.id}
             onClick={() => navigate(`/u/threads/${thread.id}`)}
-            className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer"
+            className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer overflow-hidden"
           >
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <h3 className="font-semibold text-sm text-gray-900 truncate">
+                <div className="flex flex-wrap items-start gap-2 mb-1.5">
+                  <h3 className="min-w-0 flex-1 font-semibold text-sm text-gray-900 break-words sm:truncate">
                     {threadTitle}
                   </h3>
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
@@ -756,22 +758,22 @@ function ThreadSearchResults({
                   </div>
                 )}
 
-                <div className="flex items-center gap-3 text-xs text-gray-600">
+                <div className="flex flex-col items-start gap-2 text-xs text-gray-600 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   {thread.startedAt && (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Calendar className="w-3 h-3 shrink-0" />
                       {formatDistanceToNow(new Date(thread.startedAt), { addSuffix: true })}
                     </div>
                   )}
                   {Object.keys(refs).length > 0 && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex max-w-full flex-wrap items-center gap-1.5">
                       {Object.entries(refs).slice(0, 2).map(([key, value]) => (
                         <span
                           key={key}
-                          className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
+                          className="inline-flex min-w-0 max-w-full items-center px-1.5 py-0.5 bg-gray-50 border border-gray-200 text-xs rounded"
                         >
-                          <span className="font-medium text-gray-500">{key}:</span>
-                          <span className="ml-0.5 font-mono text-gray-700">{String(value)}</span>
+                          <span className="shrink-0 font-medium text-gray-500">{key}:</span>
+                          <span className="ml-0.5 min-w-0 truncate font-mono text-gray-700">{String(value)}</span>
                         </span>
                       ))}
                       {Object.keys(refs).length > 2 && (
@@ -781,7 +783,7 @@ function ThreadSearchResults({
                   )}
                   {/* Tags for threads with a contract are displayed next to the contract */}
                   {thread.contractName && thread.tags && thread.tags.length > 0 && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex max-w-full flex-wrap items-center gap-1">
                       {thread.tags.slice(0, 3).map((tag) => (
                         <span
                           key={tag}
@@ -804,8 +806,8 @@ function ThreadSearchResults({
                 </div>
               </div>
 
-              <div className="ml-3 flex-shrink-0">
-                <button className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors">
+              <div className="flex-shrink-0 self-stretch sm:self-auto">
+                <button className="w-full px-3 py-1.5 text-right text-xs font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors sm:w-auto sm:text-left">
                   View →
                 </button>
               </div>

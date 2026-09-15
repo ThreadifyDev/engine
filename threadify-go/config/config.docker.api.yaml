@@ -27,18 +27,7 @@ redis:
   pool_timeout_ms: 5000
   conn_max_idle_time_ms: 300000
 
-auth_provider: supabase
-supabase:
-  url: "${SUPABASE_URL}"
-  publishable_key: "${SUPABASE_PUBLISHABLE_KEY}"
-  secret_key: "${SUPABASE_SECRET_KEY}"
-  request_timeout_seconds: 10
-
-jwks:
-  url: "${JWKS_URL}"
-  audience: "${JWKS_AUDIENCE}"
-  issuer: "${JWKS_ISSUER}"
-
+auth_provider: registry
 queue:
   ttl_seconds: 7776000
 
@@ -46,16 +35,13 @@ thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
 
-rate_limit:
-  window_seconds: 60
-  redis_timeout_ms: 3
-
 websocket:
   handshake_timeout_seconds: 10
   read_buffer_size: 1024
   write_buffer_size: 1024
   max_in_flight_max: 100
   max_in_flight_default: 10
+  read_deadline_seconds: 60
 
 bot_scanner:
   enabled: true
@@ -172,12 +158,11 @@ archiver:
     batch_size: 100
     step_state_flush_interval_ms: 5000
 
-# Web API service configuration with CORS support
+# Web API service configuration
 web_api:
   enabled: true
   port: 3001
   host: 0.0.0.0
-  cors_origins: "${CORS_ORIGINS:-http://localhost:3000}"
   email:
     plunk_api_key: "${PLUNK_API_KEY}"
     plunk_from_email: "${PLUNK_FROM_EMAIL:-noreply@threadify.dev}"
@@ -185,10 +170,6 @@ web_api:
     url: "${THREADIFY_ENGINE_URL:-http://localhost:8081}"
     graphql_url: "${THREADIFY_GRAPHQL_URL:-http://localhost:8081/graphql}"
   api_key_ttl_hours: 8760
-  rate_limit:
-    requests: 100
-    window_minutes: 1
-
 worker_pools:
   validation:
     min_workers: 10
@@ -230,3 +211,6 @@ worker_pools:
     scale_down_after_ms: 60000
     job_timeout_ms: 30000
     submit_retry_wait_ms: 10
+
+registry:
+  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"

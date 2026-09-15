@@ -160,7 +160,7 @@ export default function Pricing() {
             <div className="bg-white rounded-2xl p-8 border border-gray-200">
               <h3 className="text-xl font-bold text-gray-900 mb-3">What payment methods do you accept?</h3>
               <p className="text-gray-600">
-                We accept all major credit cards via Stripe. Your payment information is secure and never stored on our servers.
+                Local payment processing is currently disabled while we prepare the Fused Registry billing integration.
               </p>
             </div>
 

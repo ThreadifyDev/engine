@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	shareddomain "threadify-go/shared/domain"
+	"threadify-go/shared/registry"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -487,6 +488,40 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 	// candidates: Match refs to profile types by refKey and include thread_id
 	// INSERT: Create new profiles or update last_active_at for existing ones
 	// RETURNING: Get back profile id and the thread_id that triggered creation
+
+	// Serialize automatic creation with explicit profile creation. At capacity,
+	// retain thread data and continue updating existing profiles; new derived
+	// profiles are omitted until capacity becomes available.
+	profileLimit := int64(-1)
+	if licensed := registry.Default(); licensed != nil {
+		snapshot, err := licensed.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+		profileLimit = snapshot.Entitlements.EntityProfileLimit
+		companies, err := tx.Query(ctx, `SELECT DISTINCT t.company_id FROM (VALUES `+rb.placeholders()+`) AS v(thread_id,ref_key,ref_value) JOIN threads t ON t.id=v.thread_id ORDER BY t.company_id`, rb.Values...)
+		if err != nil {
+			return nil, err
+		}
+		companyIDs := []string{}
+		for companies.Next() {
+			var id string
+			if err := companies.Scan(&id); err != nil {
+				companies.Close()
+				return nil, err
+			}
+			companyIDs = append(companyIDs, id)
+		}
+		companies.Close()
+		if err := companies.Err(); err != nil {
+			return nil, err
+		}
+		for _, id := range companyIDs {
+			if err := registry.GuardProfileCreation(ctx, tx, id, 0); err != nil {
+				return nil, err
+			}
+		}
+	}
 	profilesQuery := `
     WITH matched_types AS (
         SELECT id AS type_id, company_id, type
@@ -503,6 +538,11 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
         JOIN threads t ON t.id = v.thread_id
         JOIN matched_types mt ON mt.company_id = t.company_id AND v.ref_key = ANY(mt.type)
     ),
+    eligible AS (
+      SELECT c.*, p.id AS existing_id,
+        SUM(CASE WHEN p.id IS NULL THEN 1 ELSE 0 END) OVER(PARTITION BY c.company_id ORDER BY c.type_id,c.ref_value) AS new_number
+      FROM candidates c LEFT JOIN entity_profile p ON p.company_id=c.company_id AND p.entity_profile_type_id=c.type_id AND p.ref_key=c.ref_value
+    ),
     inserted AS (
         INSERT INTO entity_profile (
             id, company_id, entity_profile_type_id,
@@ -516,7 +556,9 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
             ref_value,
             NOW(),
             NOW()
-        FROM candidates
+        FROM eligible c
+        WHERE c.existing_id IS NOT NULL OR ` + fmt.Sprint(profileLimit) + ` = -1
+           OR c.new_number <= ` + fmt.Sprint(profileLimit) + ` - (SELECT COUNT(*) FROM entity_profile p WHERE p.company_id=c.company_id)
         ON CONFLICT (company_id, entity_profile_type_id, ref_key)
         DO UPDATE SET last_active_at = NOW()
         RETURNING id, company_id, entity_profile_type_id, ref_key
@@ -602,7 +644,17 @@ func (w *PostgresWriter) WriteThreadAccess(ctx context.Context, events []StreamE
 	rb := newRowBuilder(cols)
 	var skipped int
 
-	for _, e := range events {
+	// A participant may join or reconnect several times before a batch flush.
+	// PostgreSQL cannot upsert the same conflict key twice in one INSERT.
+	// Keep the last state in stream order for each thread/participant pair.
+	lastAccess := make(map[[2]string]int, len(events))
+	for i, e := range events {
+		lastAccess[[2]string{e.Data["threadId"], e.Data["userId"]}] = i
+	}
+	for i, e := range events {
+		if lastAccess[[2]string{e.Data["threadId"], e.Data["userId"]}] != i {
+			continue
+		}
 		if !validThreads[e.Data["threadId"]] {
 			w.logger.Debug("skipping access for non-existent thread",
 				zap.String("thread_id", e.Data["threadId"]),
@@ -906,6 +958,10 @@ func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[strin
 }
 
 func (w *PostgresWriter) WriteThreadStepState(ctx context.Context, events []StreamEvent) error {
+	// Process successes before state deduplication, which can retain a later failed retry.
+	if err := w.writeSuccessfulContexts(ctx, events); err != nil {
+		return err
+	}
 	if len(events) == 0 {
 		return nil
 	}

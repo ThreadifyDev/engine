@@ -84,7 +84,7 @@ export default function AppLayout({
           >
             <Wallet className="w-4 h-4" />
             <span className="text-sm font-medium">
-              {billingData?.credit_account ? formatBalance(balance) : '--'}
+              {billingData?.billing_source === 'registry' ? 'Plan' : billingData?.credit_account ? formatBalance(balance) : '--'}
             </span>
           </button>
         </div>

@@ -74,8 +74,8 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
   return (
     <div className="border-b border-gray-200 pb-6">
       {/* Thread Title and Status */}
-      <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-2xl font-semibold text-gray-900">
+      <div className="flex flex-wrap items-start gap-2 sm:items-center sm:gap-3 mb-4">
+        <h1 className="min-w-0 basis-full break-words text-xl font-semibold text-gray-900 sm:basis-auto sm:flex-1 sm:text-2xl">
           {thread.label
             ? `${thread.label} (${thread.id.split('-').pop()})`
             : thread.contractName
@@ -130,7 +130,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
       </div>
 
       {/* Metadata Row */}
-      <div className="flex items-center gap-6 text-sm text-gray-600 flex-wrap">
+      <div className="flex flex-col items-start gap-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:gap-6 sm:flex-wrap">
         {thread.tags && thread.tags.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap">
             {thread.tags.map((tag) => (
@@ -152,20 +152,20 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
         )}
         
         {thread.ownerId && (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-start gap-2 sm:items-center">
             <span className="text-gray-500">Created By</span>
-            <span className="font-medium text-gray-900">
+            <span className="min-w-0 break-words font-medium text-gray-900">
               {resolvedOwner?.[0]?.name || thread.ownerId}
             </span>
           </div>
         )}
         
         {thread.contractId && thread.contractName && thread.contractVersion && (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <span className="text-gray-500">Contract</span>
             <Link 
               to={`/u/contracts/${thread.contractId}/versions/${thread.contractVersion}`}
-              className="font-medium text-gray-900 hover:text-gray-700 hover:underline flex items-center gap-1.5 transition-colors"
+              className="min-w-0 break-all font-medium text-gray-900 hover:text-gray-700 hover:underline flex items-center gap-1.5 transition-colors"
             >
               {thread.contractName}
               <span className="text-gray-400">v{thread.contractVersion}</span>
@@ -174,7 +174,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
           </div>
         )}
 
-        <div className="flex items-center gap-4 ml-auto">
+        <div className="flex max-w-full items-center gap-4 overflow-x-auto pb-1 sm:ml-auto sm:pb-0">
           <div className="flex items-center gap-1.5">
             <span className="font-medium text-gray-900">{steps.length}</span>
             <span className="text-gray-500">Step(s)</span>
@@ -232,14 +232,14 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
                 <span>External References</span>
                 <span className="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full">{refEntries.length}</span>
               </div>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex max-w-full flex-wrap gap-1">
                 {refEntries.map(([key, value]) => (
                   <div
                     key={key}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs"
                   >
-                    <span className="font-medium text-gray-500 text-2xs">{key}:</span>
-                    <span className="text-gray-700 font-mono text-2xs truncate max-w-[100px]" title={String(value)}>
+                    <span className="shrink-0 font-medium text-gray-500 text-2xs">{key}:</span>
+                    <span className="min-w-0 max-w-[180px] truncate text-gray-700 font-mono text-2xs sm:max-w-[240px]" title={String(value)}>
                       {String(value)}
                     </span>
                     <button

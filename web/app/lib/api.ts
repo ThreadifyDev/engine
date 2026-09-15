@@ -2,16 +2,8 @@
 
 import { getConfig } from '../config.client';
 
-const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    return getConfig().apiUrl + '/api';
-  }
-  throw new Error('getApiBaseUrl() can only be called on the client');
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
 import yaml from 'js-yaml';
+import { browserHeaders, csrfToken, purgeLegacyToken } from './browser-session';
 
 // Patterns that indicate internal error details which should not reach users.
 const INTERNAL_ERROR_PATTERNS = [
@@ -146,26 +138,39 @@ export interface UsageMeterDTO {
 }
 
 export interface GetCurrentPlanResponse {
+  billing_source?: 'registry';
+  account_id?: string;
+  entitlements?: {
+    revision: string;
+    input_bandwidth_bytes: number;
+    output_bandwidth_bytes: number;
+    input_requests_per_second: number;
+    entity_profile_limit: number;
+  };
   plan: PlanDTO | null;
   usage_meter: UsageMeterDTO | null;
   credit_account: CreditAccountDTO | null;
 }
 
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
+  // Resolve at request time so SSR imports need no browser configuration.
+  // The engine owns contracts; account management remains on the Web API.
+  private getUrl(endpoint: string): string {
+    const { apiUrl, engineUrl } = getConfig();
+    const isEngineRoute = /^\/(?:contracts|users|engine)(?:[/?]|$)/.test(endpoint);
+    const base = (isEngineRoute ? engineUrl : apiUrl).replace(/\/+$/, '');
+    return `${base}${isEngineRoute ? '/v1' : '/api'}${endpoint}`;
   }
 
   private async request<T = any>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const url = this.getUrl(endpoint);
+    purgeLegacyToken();
 
     const headers: Record<string, string> = {
+      ...browserHeaders(),
       ...(options.headers as Record<string, string>),
     };
 
@@ -174,12 +179,10 @@ class ApiClient {
       headers['Content-Type'] = 'application/json';
     }
 
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
 
     const response = await fetch(url, {
       ...options,
+      credentials: 'include',
       headers,
     });
 
@@ -222,7 +225,7 @@ class ApiClient {
 
       // Handle invalid token by logging out (only for authenticated requests)
       // Don't redirect on login failures (which also return 401)
-      const hasAuthHeader = headers['Authorization'];
+      const hasAuthHeader = !endpoint.startsWith('/auth/');
       if ((errorMessage === 'Invalid token' || response.status === 401) && hasAuthHeader) {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('auth_token');
@@ -263,11 +266,6 @@ class ApiClient {
       body: JSON.stringify(data),
     });
 
-    // Store token in localStorage
-    if (typeof window !== 'undefined' && response.token) {
-      localStorage.setItem('auth_token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-    }
 
     return response;
   }
@@ -293,17 +291,58 @@ class ApiClient {
     });
   }
 
+  private async browserAuth<T>(path: string, options: RequestInit = {}): Promise<T> {
+    purgeLegacyToken();
+    const response = await fetch(`${getConfig().engineUrl.replace(/\/+$/, '')}/auth/${path}`, {
+      ...options, credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...browserHeaders(), ...options.headers },
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Sign-in failed');
+    return body;
+  }
+
+  async session(): Promise<{ authenticated: boolean; user?: User }> {
+    const session = await this.browserAuth<{ authenticated: boolean; user?: User }>('session');
+    if (session.user) this.setUser(session.user);
+    else if (typeof window !== 'undefined') localStorage.removeItem('user');
+    return session;
+  }
+
+  getEngineSettings(): Promise<EngineSettings> {
+    return this.request('/engine/settings');
+  }
+
+  saveEnginePublicURL(public_url: string): Promise<EngineSettings> {
+    return this.request('/engine/settings', { method: 'PUT', body: JSON.stringify({ public_url }) });
+  }
+
+  resetEnginePublicURL(): Promise<EngineSettings> {
+    return this.request('/engine/settings', { method: 'DELETE' });
+  }
+
+  approveCLILogin(transaction_id: string, browser_token: string): Promise<{ status: string }> {
+    return this.browserAuth('cli/approve', { method: 'POST', body: JSON.stringify({ transaction_id, browser_token }) });
+  }
+
+  async exchangeAPIKey(apiKey: string): Promise<void> {
+    await this.browserAuth('api-key/exchange', { method: 'POST', body: JSON.stringify({ api_key: apiKey }) });
+    await this.session();
+  }
+
+  startManagedLogin(): Promise<{ transaction_id: string; poll_token: string; verification_url: string; expires_at: string }> {
+    return this.browserAuth('managed/start', { method: 'POST', body: '{}' });
+  }
+
+  pollManagedLogin(transaction_id: string, poll_token: string, signal: AbortSignal): Promise<{ status: string }> {
+    return this.browserAuth('managed/poll', { method: 'POST', body: JSON.stringify({ transaction_id, poll_token }), signal });
+  }
+
   async logout(): Promise<void> {
-    try {
-      await this.request('/auth/logout', { method: 'POST' });
-    } catch {
-      // Ignore backend errors — we still clear local state
-    } finally {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user');
-      }
-    }
+    const result = await this.browserAuth<{ logout_url?: string }>('logout', { method: 'POST', body: '{}' });
+    localStorage.removeItem('user');
+    purgeLegacyToken();
+    window.location.assign(result.logout_url || '/login');
   }
 
   getStoredUser(): User | null {
@@ -312,24 +351,14 @@ class ApiClient {
     return userStr ? JSON.parse(userStr) : null;
   }
 
-  getStoredToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('auth_token');
-  }
-
   isAuthenticated(): boolean {
-    return !!this.getStoredToken();
+    // This only controls rendering; the Engine verifies session authority on every request.
+    return !!csrfToken();
   }
 
   setUser(user: User) {
     if (typeof window !== 'undefined') {
       localStorage.setItem('user', JSON.stringify(user));
-    }
-  }
-
-  setToken(token: string) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_token', token);
     }
   }
 
@@ -359,44 +388,18 @@ class ApiClient {
     });
   }
 
-  async getTeamMembers(): Promise<{ members: User[] }> {
-    return this.request('/team/members', {
-      method: 'GET',
-    });
+  async listEngineUsers(): Promise<{ users: EngineUser[]; can_manage: boolean; login_url: string }> {
+    return this.request('/users');
   }
 
-  async removeTeamMember(id: string): Promise<any> {
-    return this.request(`/team/members/${id}`, {
-      method: 'DELETE',
-    });
+  async inviteEngineUser(data: { email: string; full_name: string; role: string }): Promise<{ user: EngineUser; created: boolean; login_url: string }> {
+    return this.request('/users', { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async listInvitations(): Promise<{ invitations: any[] }> {
-    return this.request('/team/invitations', {
-      method: 'GET',
-    });
+  async updateEngineUser(id: string, data: { full_name?: string; role?: string; status?: EngineUser['status'] }): Promise<{ user: EngineUser }> {
+    return this.request(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) });
   }
 
-  async sendTeamInvitation(data: { email: string; role: string }): Promise<any> {
-    return this.request('/team/invitations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async resendInvitation(id: string): Promise<any> {
-    return this.request(`/team/invitations/${id}/resend`, {
-      method: 'POST',
-    });
-  }
-
-  async cancelInvitation(id: string): Promise<any> {
-    return this.request(`/team/invitations/${id}`, {
-      method: 'DELETE',
-    });
-  }
-
-  // Contract Management (proxy to ThreadifyEngine)
   async getAllContracts(params?: { search?: string; limit?: number; offset?: number }): Promise<any> {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
@@ -409,30 +412,18 @@ class ApiClient {
   }
 
   async createContract(data: { name: string; yaml: string }): Promise<any> {
-    // Engine expects raw YAML in body, not JSON
-    const token = this.getStoredToken();
-    const response = await fetch(`${this.baseUrl}/contracts`, {
+    return this.request('/contracts', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/x-yaml',
-      },
-      body: data.yaml, // Send raw YAML
+      headers: { 'Content-Type': 'text/plain' },
+      body: data.yaml,
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to create contract');
-    }
-
-    return response.json();
   }
 
   async previewContract(data: { yaml: string }): Promise<any> {
     return this.request('/contracts/preview', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-yaml',
+        'Content-Type': 'text/plain',
       },
       body: data.yaml,
     });
@@ -477,13 +468,6 @@ class ApiClient {
     return this.request('/service-accounts', {
       method: 'POST',
       body: JSON.stringify(data),
-    });
-  }
-
-  async validateInvitation(token: string): Promise<{ company_name: string; email: string }> {
-    return this.request('/team/invitation/validate', {
-      method: 'POST',
-      body: JSON.stringify({ token }),
     });
   }
 
@@ -760,4 +744,20 @@ export interface EntityProfile {
   metrics: EntityProfileMetrics;
 }
 
-export const api = new ApiClient(API_BASE_URL);
+export const api = new ApiClient();
+
+export interface EngineSettings {
+  public_url: string;
+  config_public_url: string;
+  source: 'config' | 'ui' | 'unset';
+  can_manage: boolean;
+  endpoints: Record<string, string>;
+}
+
+export interface EngineUser {
+  id: string;
+  email: string;
+  full_name: string;
+  status: 'invited' | 'active' | 'suspended' | 'archived';
+  roles: string[];
+}

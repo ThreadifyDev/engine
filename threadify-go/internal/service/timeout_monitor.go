@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,8 +51,9 @@ type timeoutKV interface {
 type TimeoutKV = timeoutKV
 
 func TimeoutCancellationKey(timeoutID string) string {
-	sanitizedID := strings.ReplaceAll(timeoutID, ":", "_")
-	return fmt.Sprintf("cancelled_%s", sanitizedID)
+	// IDs may contain comma-separated branches or arbitrary step names.
+	// Encode them without losing identity or introducing invalid NATS KV characters.
+	return "cancelled_" + base64.RawURLEncoding.EncodeToString([]byte(timeoutID))
 }
 
 func NewTimeoutMonitorForTests(kv TimeoutKV, notificationPub domain.NotificationPublisher, logger *zap.Logger) *TimeoutMonitor {

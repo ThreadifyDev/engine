@@ -28,6 +28,7 @@ archives:
     # Only reviewed self-hosting templates are shipped, never config.yaml/.env.
     files:
       - SELF_HOSTING.md
+      - docs/CLI.md
       - src: config/config.selfhost.yaml
         dst: config/config.yaml
       - src: config/subscription.selfhost.yaml

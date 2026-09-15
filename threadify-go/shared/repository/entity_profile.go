@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"threadify-go/shared/domain"
+	"threadify-go/shared/registry"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,14 +18,35 @@ func NewEntityProfileRepo(pool *pgxpool.Pool) *EntityProfileRepo {
 }
 
 func (r *EntityProfileRepo) CreateProfile(ctx context.Context, profile *domain.EntityProfile) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := registry.GuardProfileCreation(ctx, tx, profile.CompanyID, 0); err != nil {
+		return err
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entity_profile WHERE company_id=$1 AND entity_profile_type_id=$2 AND ref_key=$3)`, profile.CompanyID, profile.ProfileTypeID, profile.RefKey).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if err := registry.GuardProfileCreation(ctx, tx, profile.CompanyID, 1); err != nil {
+			return err
+		}
+	}
+
 	query := `
 		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key)
 		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (company_id, entity_profile_type_id, ref_key) DO UPDATE SET
 			name = EXCLUDED.name,
 			last_active_at = NOW()
 	`
-	_, err := r.pool.Exec(ctx, query, profile.ID, profile.CompanyID, profile.ProfileTypeID, profile.Name, profile.RefKey)
-	return err
+	_, err = tx.Exec(ctx, query, profile.ID, profile.CompanyID, profile.ProfileTypeID, profile.Name, profile.RefKey)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *EntityProfileRepo) GetProfileByRefKey(ctx context.Context, companyID, profileTypeID, refKey string) (*domain.EntityProfile, error) {
