@@ -1,0 +1,109 @@
+{
+  "passed": 15,
+  "runID": "9cd12b20-254d-4e5e-ac11-f9ba791c0067",
+  "created": [
+    "65b5d204-9d6f-4f59-9abe-bc707c2c672a",
+    "4eb7fc46-9ca2-4aae-8606-405df0e0a746",
+    "2a33aeca-85e8-4232-ba8a-96a55be9455a",
+    "f2b1c953-99e9-4a8b-83ad-e17cd232953f",
+    "2021c557-b923-4a83-8ebc-1cd7bb0eb5b1",
+    "592d1c46-23a3-4d4e-96fd-9fa71d2bcae7",
+    "f92d3a3e-7a2d-4dbc-ad24-ed409bc02e9f",
+    "6df917b0-a0e4-4990-9a19-798f71765176",
+    "847bf914-75df-4ec1-acd3-69dc10d581f2",
+    "ca72c495-f548-4da4-a0c6-98fbd2616dd2",
+    "6c7455d4-cbfd-485e-848b-79b871766f3f",
+    "cf9e2df2-95f3-4de9-a55e-ad919e5989df",
+    "bc9326e6-a568-42b9-9a9b-f4a84a011d01",
+    "9bfbd297-3fef-4361-beba-de761ba2a09d",
+    "b0c0b3f4-eeb7-48a6-95a8-bbc2537fdbba",
+    "012156c4-ee17-43fc-b838-f09d0d907ce8",
+    "fcb879c5-ba94-49b1-b0b1-187157c255b9",
+    "77219f31-1654-4783-9aee-ea472da66fec",
+    "164f9038-5cd9-41d3-90d0-0d9f5f8c9c8f",
+    "e9ee1ced-5c14-47a3-bc0d-769ae13f4970",
+    "c39f09e5-681c-4752-9432-a6cc8e537576",
+    "f5fe3c22-719a-474c-abd0-e727212d53b7",
+    "ad32827f-18a4-4a2d-b42c-1eeb1cc7d94d",
+    "b226b2f1-e450-497c-9175-522ca104aefc",
+    "4dbf707e-cd7f-411e-a5a9-6ddc24bccafe",
+    "3e0aff7b-bc6a-48ec-a488-0a6b2cdd45e5",
+    "be3550f3-076c-48e8-96e9-fed99cde7167",
+    "e4264df7-bba2-406c-927f-c3f0b1b98d9d",
+    "7359b75d-ac45-4f3a-9659-90241fb197bf",
+    "7f526d32-02ac-4523-9830-1122b6c1856d",
+    "e2786bd3-219e-49b7-a5ee-ecd91493c52e",
+    "fd3dcab6-9a4d-44e5-bce2-e0b1e9356f7b",
+    "0f604199-0e2c-40bb-9898-0855f38a4e0e",
+    "c2829da6-1571-4c4b-9434-c9895f8016dd",
+    "cac698d2-99bf-4cf2-b2fb-9afd71304357",
+    "115ff44f-1634-4dc1-a7bd-c16bb99b718e"
+  ],
+  "checks": [
+    {
+      "name": "SDK create, step, complete and persisted GraphQL query",
+      "threadId": "65b5d204-9d6f-4f59-9abe-bc707c2c672a"
+    },
+    {
+      "name": "input_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "input_requests_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "output_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "input_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "output_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "input_requests_per_second positive rate allows two requests then denies the third",
+      "began": 1789470722101,
+      "ended": 1789470722133,
+      "statuses": [
+        201,
+        201,
+        429
+      ],
+      "bucketCount": 2
+    },
+    {
+      "name": "incoming request rate allows 128 KiB input and output without a byte throttle"
+    },
+    {
+      "name": "SDK read burst emits twelve responses with only incoming request rate enforced",
+      "outputResponses": 12
+    },
+    {
+      "name": "zero profile allowance preserves threads and refs without materializing profiles"
+    },
+    {
+      "name": "profile cap preserves thread creation and refs",
+      "threads": [
+        "fcb879c5-ba94-49b1-b0b1-187157c255b9",
+        "77219f31-1654-4783-9aee-ea472da66fec"
+      ],
+      "profiles": 1
+    },
+    {
+      "name": "profile upgrade accepted through SDK addRefs",
+      "profiles": 2
+    },
+    {
+      "name": "explicit suspension rejects SDK mutation and restores"
+    },
+    {
+      "name": "Registry outage retains monthly bandwidth allowance and availability beyond former grace; recovery applies new policy",
+      "outageCreates": 14
+    },
+    {
+      "name": "revoked license rejects SDK mutation and restores"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"threadify-go/shared/registry"
 
 	sharedauth "threadify-go/shared/auth"
 
@@ -28,6 +29,10 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					abort(c, "invalid API key")
 					return
 				}
+				if err := registry.Default().CheckCompany(userInfo.CompanyID); err != nil {
+					abort(c, err.Error())
+					return
+				}
 				setAPIKeyContext(c, userInfo)
 				c.Next()
 				return
@@ -52,6 +57,10 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					claims.Roles = dbRoles
 				}
 
+				if err := registry.Default().CheckCompany(claims.CompanyID); err != nil {
+					abort(c, err.Error())
+					return
+				}
 				sharedauth.SetGinContextFromClaims(c, claims)
 				c.Next()
 				return

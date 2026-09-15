@@ -13,6 +13,7 @@ import (
 	sharedbilling "threadify-go/shared/billing"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/registry"
 )
 
 type billingAPI interface {
@@ -34,6 +35,11 @@ func NewBillingHandler(
 }
 
 func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
+	// Registry owns allowances; legacy balance settings cannot override them.
+	if registry.Default() != nil {
+		c.JSON(http.StatusGone, gin.H{"error": "Manage your Threadify plan in Fused Registry."})
+		return
+	}
 	companyID, exists := c.Get(sharedauth.CtxCompanyID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -87,6 +93,11 @@ func (h *BillingHandler) UpdateMaxMonthlyCharge(c *gin.Context) {
 }
 
 func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
+	// There is no local token-credit purchase under the Registry licensing model.
+	if registry.Default() != nil {
+		c.JSON(http.StatusGone, gin.H{"error": "Manage your Threadify plan in Fused Registry."})
+		return
+	}
 	companyID, exists := c.Get(sharedauth.CtxCompanyID)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -133,6 +144,22 @@ func (h *BillingHandler) GetCurrentPlan(c *gin.Context) {
 		return
 	}
 	compID := companyID.(string)
+
+	// Read the live entitlement snapshot; no limits are loaded from credit_accounts.
+	if runtime := registry.Default(); runtime != nil {
+		if err := runtime.CheckCompany(compID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Threadify license does not authorize this account"})
+			return
+		}
+		snapshot, err := runtime.Snapshot()
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Threadify license verification unavailable"})
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"billing_source": "registry", "account_id": snapshot.AccountID, "entitlements": snapshot.Entitlements})
+		return
+	}
 
 	account, err := h.billingService.GetCreditAccount(c.Request.Context(), compID)
 	if err != nil {

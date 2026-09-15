@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"threadify-go/shared/testutil/registryfixture"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,11 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	binary, err := filepath.Abs(binary)
 	if err != nil {
 		t.Fatal(err)
+	}
+	company := "8bf9099d-2ff9-4d88-a2eb-acb114679909"
+	registryURL := os.Getenv("THREADIFY_SMOKE_REGISTRY_URL")
+	if registryURL == "" {
+		registryURL = registryfixture.New(t, company).URL
 	}
 	work := t.TempDir()
 	image, err := os.ReadFile(binary)
@@ -71,6 +77,7 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	httpPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	for key, value := range map[string]any{
+		"registry.url": registryURL, "registry.license_key": registryfixture.License, "registry.company_id": company,
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pgURL,
 		"redis.host": host, "redis.port": portNumber, "redis.password": "",
 		"nats.mode": "embedded", "nats.store_dir": filepath.Join(work, "jetstream"),
@@ -137,8 +144,22 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		healthCmd := exec.Command(executable, "--config", configPath, "--healthcheck")
 		healthCmd.Env = cmd.Env
 		healthCmd.Dir = work
-		if out, err := healthCmd.CombinedOutput(); err != nil {
-			t.Fatalf("binary healthcheck: %v %s", err, out)
+		// Background persistence readiness can briefly transition during recovery;
+		// require the CLI probe to become healthy within the same startup budget.
+		probeDeadline := time.Now().Add(10 * time.Second)
+		for {
+			probe := exec.Command(executable, "--config", configPath, "--healthcheck")
+			probe.Env = healthCmd.Env
+			probe.Dir = healthCmd.Dir
+			out, err := probe.CombinedOutput()
+			if err == nil {
+				break
+			}
+			if time.Now().After(probeDeadline) {
+				data, _ := os.ReadFile(logs.Name())
+				t.Fatalf("binary healthcheck: %v %s\n%s", err, out, data)
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
 		return func() {
 			t.Helper()
@@ -156,25 +177,24 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		}
 	}
 	stop := start()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, pgURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	company, account, keyID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	account, keyID := uuid.NewString(), uuid.NewString()
 	apiKey := "tf_" + uuid.NewString()
 	hash := sha256.Sum256([]byte(apiKey))
 	for _, q := range []struct {
 		sql  string
 		args []any
 	}{
-		{"INSERT INTO companies(id,name) VALUES($1,'Standalone test')", []any{company}},
+		{"INSERT INTO companies(id,name) VALUES($1,'Standalone test') ON CONFLICT(id) DO NOTHING", []any{company}},
 		{"INSERT INTO service_accounts(id,company_id,name) VALUES($1,$2,'Test service')", []any{account, company}},
 		{"INSERT INTO api_keys(id,service_account_id,company_id,key_hash,key_prefix) VALUES($1,$2,$3,$4,'tf_')", []any{keyID, account, company, hex.EncodeToString(hash[:])}},
 		{"INSERT INTO user_roles(principal_id,principal_type,role_name,assigned_by) VALUES($1,'service_account','owner',$1)", []any{account}},
-		{"INSERT INTO credit_accounts(id,company_id,billing_cycle_start,credit_balance_millicents,rate_limit_tps,payload_limit_bytes) VALUES($1,$2,NOW(),10000000,60000,1048576)", []any{uuid.NewString(), company}},
 	} {
 		if _, err := pool.Exec(ctx, q.sql, q.args...); err != nil {
 			t.Fatal(err)
@@ -212,6 +232,38 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		response := send("startThread", map[string]any{"label": "standalone smoke", "role": "owner"})
 		ids = append(ids, response["threadId"].(string))
 	}
+	// No credit account is needed, and bandwidth counters must survive restart.
+	var creditRows, usageBefore int64
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM credit_accounts WHERE company_id=$1", company).Scan(&creditRows); err != nil {
+		t.Fatal(err)
+	}
+	if creditRows != 0 {
+		t.Fatal("licensed runtime created a credit account")
+	}
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(sum(count),0) FROM threadify_registry_usage WHERE bucket_seconds>1 AND metric='threadify.input.bytes'").Scan(&usageBefore); err != nil {
+		t.Fatal(err)
+	}
+	if usageBefore <= 0 {
+		t.Fatal("input bandwidth was not metered")
+	}
+	// The real-handler run must exercise the periodic signed heartbeat and usage
+	// acknowledgement, not just the startup handshake. Fixture-only runs stay quick.
+	if os.Getenv("THREADIFY_SMOKE_REGISTRY_URL") != "" {
+		flushDeadline := time.Now().Add(80 * time.Second)
+		for {
+			var pending int64
+			if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM threadify_registry_outbox").Scan(&pending); err != nil {
+				t.Fatal(err)
+			}
+			if pending == 0 {
+				break
+			}
+			if time.Now().After(flushDeadline) {
+				t.Fatal("Registry did not acknowledge the signed usage outbox")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	// Leave the authenticated websocket open: shutdown must close/join it itself.
 	stop()
 	stop = start()
@@ -228,6 +280,13 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 			t.Fatalf("persisted %d/%d accepted threads after restart", count, len(ids))
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	var usageAfter int64
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(sum(count),0) FROM threadify_registry_usage WHERE bucket_seconds>1 AND metric='threadify.input.bytes'").Scan(&usageAfter); err != nil {
+		t.Fatal(err)
+	}
+	if usageAfter < usageBefore {
+		t.Fatal("restart reset bandwidth accounting")
 	}
 	response, err := client.Get(baseURL + "/metrics")
 	if err != nil {

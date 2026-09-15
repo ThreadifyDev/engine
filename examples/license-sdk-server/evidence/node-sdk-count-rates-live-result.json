@@ -1,0 +1,108 @@
+{
+  "passed": 16,
+  "runID": "1e1c1e78-273a-492c-9399-262b5839eb67",
+  "created": [
+    "a0521cc3-58ac-40b1-aad3-fe2d65d84708",
+    "651bfe07-81de-48f1-be5b-45568af48eff",
+    "4334faa0-a052-4546-9fd1-4548b26af5a2",
+    "792f31e1-c981-44ee-a1dd-d8224a7c5bbc",
+    "d6ab6aa5-a545-42f6-a425-c60afc180648",
+    "6b73e3f0-6ca9-4cb1-bece-2d1928026379",
+    "fb349bd6-fc90-4157-b221-7393a628687a",
+    "8a1af015-c937-4647-a6f1-b349816e4519",
+    "8fd7a6cb-bb30-4489-8a1f-b8ade6c8064e",
+    "18d7c6a5-bf2d-4128-9b3b-5fbf94695f76",
+    "2049f8c4-636b-40f2-9574-d3919c46e36c",
+    "05309190-ec84-440f-908e-e425740def9a",
+    "55e1b1cf-7cc0-4f85-8361-c927aa365e70",
+    "d9fe1c7f-5274-4cf1-b6b8-3763014954cf",
+    "2b002509-381d-4691-9a24-63fe852add5d",
+    "35610e5b-22dc-4c70-93a2-cb5f1c0a3595",
+    "0a9e1eca-3eae-4776-8ef3-77d7aeb5a766",
+    "4d5170f7-c567-46d4-ba1c-3e69cab4d8a1",
+    "082b356b-b247-46f8-9f8e-6a906ad6da00",
+    "ab7441bd-2c40-4404-b982-bd8948b741c5",
+    "c635bd88-f096-4170-9780-3ec196db5b80",
+    "66dfd8ed-ab98-455a-9819-be268f9f91d5",
+    "b137fac5-1441-4358-ace2-528f2d95949f",
+    "7d152eb2-5b24-4a1f-bdcf-84195356577f",
+    "d1d6f80a-78b2-49c2-8846-aa4fa7cf03ec",
+    "84951504-63fa-4000-a40e-448b67d26701",
+    "2fb9770a-a04b-48d1-99fc-81fb8d8b8886",
+    "74a81c3f-11b0-436c-8f44-ae022afb821e",
+    "8890019f-2853-40c9-9401-66eacb08ebb2",
+    "4ce861cf-99c2-4347-8552-7a557e7c3ef0",
+    "ed5e3d61-7d9c-427e-912b-372ca4d90d04",
+    "360d26ce-36ec-46d7-b48a-a5cde662b172",
+    "18d1adee-7842-4866-ba38-b6b9b0d88ba7",
+    "1f76b23a-304c-46d0-a939-1549fad6c2df",
+    "1ca5dec6-1cf4-4a64-9e0b-ac532e2d2557",
+    "f193aa42-d8ef-4094-bdac-86b824195ca1",
+    "305b501f-cd17-4123-9eeb-01e9ea1169d6",
+    "84a6310b-5fc3-40aa-a983-b8f8438b413d",
+    "8a905127-37a4-4e8a-8205-f8523133c4b4",
+    "8a45c380-2ef6-4ebe-bf15-4d01a3eac210"
+  ],
+  "checks": [
+    {
+      "name": "SDK create, step, complete and persisted GraphQL query",
+      "threadId": "a0521cc3-58ac-40b1-aad3-fe2d65d84708"
+    },
+    {
+      "name": "input_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "input_requests_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "output_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "output_messages_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "input_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "output_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "input_requests_per_second positive rate allows two messages then denies the third"
+    },
+    {
+      "name": "output_messages_per_second positive rate allows two messages then denies the third"
+    },
+    {
+      "name": "count-only rates allow 128 KiB input and output without a per-second byte throttle"
+    },
+    {
+      "name": "zero profile allowance preserves threads and refs without materializing profiles"
+    },
+    {
+      "name": "profile cap preserves thread creation and refs",
+      "threads": [
+        "66dfd8ed-ab98-455a-9819-be268f9f91d5",
+        "b137fac5-1441-4358-ace2-528f2d95949f"
+      ],
+      "profiles": 1
+    },
+    {
+      "name": "profile upgrade accepted through SDK addRefs",
+      "profiles": 2
+    },
+    {
+      "name": "explicit suspension rejects SDK mutation and restores"
+    },
+    {
+      "name": "Registry outage retains monthly bandwidth allowance and availability beyond former grace; recovery applies new policy",
+      "outageCreates": 13
+    },
+    {
+      "name": "revoked license rejects SDK mutation and restores"
+    }
+  ]
+}

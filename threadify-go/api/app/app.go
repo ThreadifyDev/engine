@@ -30,21 +30,27 @@ import (
 	"threadify-go/shared/config"
 	"threadify-go/shared/nats"
 	"threadify-go/shared/rbac"
+	"threadify-go/shared/registry"
 	sharedrepo "threadify-go/shared/repository"
 )
 
 const dbConnectTimeout = 15 * time.Second
 
 type App struct {
-	Handler http.Handler
-	pool    *pgxpool.Pool
-	svcs    *services
+	Handler  http.Handler
+	pool     *pgxpool.Pool
+	svcs     *services
+	registry *registry.Runtime
 }
 
 func (a *App) Close(
 	ctx context.Context,
 	logger *zap.Logger,
 ) error {
+	// Stop outbound license workers before closing their usage database.
+	if a.registry != nil {
+		a.registry.Close()
+	}
 	if a.svcs != nil {
 		a.svcs.close(logger)
 	}
@@ -72,9 +78,17 @@ func New(
 		pool.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	// Registry creates the account and supplies the live, memory-only limits.
+	licensed, err := registry.Start(ctx, cfg.Registry, pool)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("initialize Registry license: %w", err)
+	}
+	registry.SetDefault(licensed)
 
 	rbacLoader, err := rbac.NewLoader(rbacPaths.Permissions, rbacPaths.Roles)
 	if err != nil {
+		licensed.Close()
 		pool.Close()
 		return nil, fmt.Errorf("load rbac: %w", err)
 	}
@@ -83,17 +97,23 @@ func New(
 
 	svcs, err := initServices(cfg, pool, repos, rbacLoader, logger)
 	if err != nil {
+		licensed.Close()
 		pool.Close()
 		return nil, fmt.Errorf("init services: %w", err)
+	}
+	// The first owner signs into the already provisioned company; other users need invitations.
+	if licensed != nil {
+		svcs.authService.ConfigureLicensedAccount(licensed.CompanyID(), licensed.OwnerEmail())
 	}
 
 	hdlrs := initHandlers(cfg, svcs, rbacLoader)
 	handler := buildRouter(cfg, svcs, repos, rbacLoader, hdlrs, logger)
 
 	return &App{
-		Handler: handler,
-		pool:    pool,
-		svcs:    svcs,
+		Handler:  wrapRegistryManagement(handler, licensed),
+		pool:     pool,
+		svcs:     svcs,
+		registry: licensed,
 	}, nil
 }
 
@@ -339,12 +359,7 @@ func initAuthService(
 		logger,
 	)
 
-	authSvc.ConfigureSignupCredits(
-		repos.plan,
-		cfg.Subscription.SignupCreditsMillicents,
-		cfg.Subscription.Credit.RateLimitTPS,
-		cfg.Subscription.Credit.PayloadLimitBytes,
-	)
+	// Signup no longer creates a prepaid balance; Registry owns product access.
 
 	if cfg.JWKS.URL != "" {
 		authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
@@ -439,6 +454,7 @@ func buildRouter(
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthAccessTokenAuth(svcs.authService, svcs.apiKeySvc))
+	api.Use(licensedCompanyMiddleware())
 
 	user := api.Group("/user")
 	{
@@ -486,7 +502,7 @@ func buildRouter(
 	api.POST("/graphql", h.graphqlProxy.ProxyGraphQL)
 
 	chat := api.Group("/chat")
-	chat.Use(middleware.AgentCreditCheckMiddleware(svcs.agentService))
+	// Registry transport allowances replace the former token-credit gate.
 	{
 		chat.GET("/conversations", h.agent.GetConversations)
 		chat.GET("/conversations/:id", h.agent.GetConversation)

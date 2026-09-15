@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"threadify-go/shared/registry"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,6 +57,7 @@ type BillingConfig struct {
 }
 
 type Config struct {
+	Registry registry.Config `yaml:"registry"`
 	Postgres struct {
 		URL                string `yaml:"url"`
 		Host               string `yaml:"host"`
