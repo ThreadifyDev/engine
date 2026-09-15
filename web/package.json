@@ -35,7 +35,7 @@
   "devDependencies": {
     "@remix-run/dev": "^2.14.0",
     "@types/dagre": "^0.7.52",
-    "@types/node": "^22.10.1",
+    "@types/node": "^24.13.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
@@ -45,5 +45,8 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vite-tsconfig-paths": "^5.1.4"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

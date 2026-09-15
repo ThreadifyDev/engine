@@ -2,7 +2,7 @@
 
 # The Remix build output is platform-independent, so build it natively rather
 # than emulating each target architecture.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -20,7 +20,7 @@ COPY . ./
 RUN npm run build
 
 # Production stage
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init

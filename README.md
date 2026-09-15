@@ -18,8 +18,9 @@ against a contract, and see where a customer's experience breaks down.
 - **Use your existing telemetry.** Send OpenTelemetry traces or instrument with JavaScript, Python, and Go SDKs.
 - **Verify the record.** Check activity integrity with hash-chain verification.
 
-Self-host as **one binary** with embedded NATS and database writers. Bring PostgreSQL
-and Valkey; keep your execution data in your infrastructure.
+Self-host with embedded NATS, database writers, and bundled Valkey on Linux/macOS.
+Bring PostgreSQL and keep your execution data in your infrastructure. Windows
+connects to an external Valkey server.
 
 ## Quick start
 
@@ -58,18 +59,15 @@ server:
 postgres:
   url: "postgres://threadify:YOUR_PASSWORD@localhost:5432/threadify?sslmode=disable"
 
-redis: # Valkey connection
-  host: "localhost"
-  port: 6379
-  password: "YOUR_VALKEY_PASSWORD"
-
 security:
   hash_chain_secrets:
     v1: "YOUR_PERSISTENT_SECRET"
   hash_chain_current_version: "v1"
 ```
 
-Use a running PostgreSQL database and Valkey instance. Generate the secret once
+Use a running PostgreSQL database. Valkey starts automatically on Linux/macOS;
+see [managed and shared Valkey](threadify-go/docs/MANAGED_VALKEY.md) for external
+servers, Windows, or multiple Engines. Generate the secret once
 with `openssl rand -hex 32` and retain it across restarts. The database URL above
 is for local development; configure TLS for a remote database.
 
@@ -100,3 +98,7 @@ The dashboard and CLI are installed separately. The Docker image is
 `ghcr.io/creativejoe007/threadify-engine:latest`.
 
 [Engine development and tests](threadify-go/README.md)
+
+The SDKs and CLI are maintained in their linked repositories. Local checkouts in
+`threadify-sdk`, `threadify-sdk-go`, `threadify-sdk-python`, and `threadify-cli` are
+ignored by this repository; clone and commit them separately when developing those projects.

@@ -50,10 +50,10 @@ web/web/.gitt/**
 # web/**
 .env
 
-# Submodules (tracked via .gitmodules)
-threadify-sdk-go/
-threadify-sdk/
-threadify-sdk-python/
+# Independent SDK checkouts (maintained in their own repositories).
+/threadify-sdk-go/
+/threadify-sdk/
+/threadify-sdk-python/
 
 # Go
 # Binaries for programs and plugins
@@ -85,7 +85,7 @@ threadify-go/main
 .env
 .env
 
-# Independent CLI checkout (tracked as a submodule).
+# Independent CLI checkout (maintained in its own repository).
 /threadify-cli/
 
 # Local generated state, scratch checkouts and compiled services

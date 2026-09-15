@@ -2,7 +2,15 @@
   "name": "threadify-license-sdk-server",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=20"},
-  "scripts": {"start": "node server.mjs", "test": "node --test ../../threadify-sdk/tests/connection-errors.test.js", "test:live": "node live-test.mjs"},
-  "dependencies": {"@threadify/sdk": "file:../../threadify-sdk"}
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test ../../threadify-sdk/tests/connection-errors.test.js",
+    "test:live": "node live-test.mjs"
+  },
+  "dependencies": {
+    "@threadify/sdk": "file:../../threadify-sdk"
+  }
 }

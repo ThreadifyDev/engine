@@ -4,6 +4,12 @@ This runnable HTTP server uses the local **@threadify/sdk 0.1.24** for thread cr
 
 ## Run
 
+Use Node.js 24 LTS (`nvm install && nvm use` from the repository root).
+
+The SDK is an independent, ignored checkout. If `threadify-sdk` is absent, run
+`git clone https://github.com/ThreadifyDev/node-sdk.git threadify-sdk` from the
+repository root before installing this example.
+
 ```sh
 cd examples/license-sdk-server
 npm install --prefix ../../threadify-sdk
