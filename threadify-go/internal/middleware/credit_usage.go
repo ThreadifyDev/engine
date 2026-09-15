@@ -62,8 +62,8 @@ func CreditUsageMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.H
 				})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "CREDIT_BALANCE_CHECK_FAILED",
-					"message": "Unable to verify credit balance. Please try again.",
+					"error":   "LICENSE_VERIFICATION_FAILED",
+					"message": "Unable to verify Threadify license. Please try again.",
 				})
 			}
 			c.Abort()
@@ -75,8 +75,8 @@ func CreditUsageMiddleware(planSvc domain.PlanService, logger *zap.Logger) gin.H
 				zap.String("company_id", companyID),
 			)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "CREDIT_BALANCE_CHECK_FAILED",
-				"message": "Unable to verify credit balance. Please try again.",
+				"error":   "LICENSE_VERIFICATION_FAILED",
+				"message": "Unable to verify Threadify license. Please try again.",
 			})
 			c.Abort()
 			return

@@ -22,6 +22,10 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	cfg.Registry.URL = expandEnv(cfg.Registry.URL)
+	cfg.Registry.LicenseKey = expandEnv(cfg.Registry.LicenseKey)
+	cfg.Registry.InstallationID = expandEnv(cfg.Registry.InstallationID)
+	cfg.Registry.CompanyID = expandEnv(cfg.Registry.CompanyID)
 	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
 	cfg.NATS.StoreDir = expandEnv(cfg.NATS.StoreDir)
 	cfg.Redis.Host = expandEnv(cfg.Redis.Host)

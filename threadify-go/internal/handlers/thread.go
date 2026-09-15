@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"threadify-go/shared/registry"
 	"time"
 
 	"go.uber.org/zap"
@@ -240,7 +241,7 @@ func (s *WSSession) enforceCredits(planSvc domain.PlanService, action string) *d
 		return &dto.ErrorResponse{
 			Action:  action,
 			Status:  StatusError,
-			Message: "failed to verify credits",
+			Message: "failed to verify Threadify license",
 			Details: err.Error(),
 		}
 	}
@@ -340,6 +341,14 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		conn.SetReadDeadline(time.Now().Add(readDeadline))
 		messageType, msgBytes, err := conn.ReadMessage()
 		if err != nil {
+			break
+		}
+		if err := registry.Default().Check(c.Request.Context(), registry.InputRequests, 1); err != nil {
+			session.closeForRegistryError(err)
+			break
+		}
+		if err := registry.Default().Check(c.Request.Context(), registry.InputBytes, int64(len(msgBytes))); err != nil {
+			session.closeForRegistryError(err)
 			break
 		}
 		if messageType != websocket.TextMessage {
@@ -739,8 +748,44 @@ func (h *WebSocketHandler) handleThreadEnd(session *WSSession, threadID, status,
 	}
 }
 
+// closeForRegistryError sends a bounded transport close without leaking an
+// application payload past quota. WriteControl is safe alongside other writes.
+// Clients must not retry mutations automatically: output denial can follow a
+// successful mutation whose acknowledgement could not be delivered.
+func (s *WSSession) closeForRegistryError(err error) {
+	code, reason := websocket.CloseTryAgainLater, "accounting_unavailable"
+	switch {
+	case errors.Is(err, registry.ErrLimit):
+		code, reason = websocket.ClosePolicyViolation, "registry_allowance_exceeded"
+	case errors.Is(err, registry.ErrUnverified):
+		code, reason = websocket.ClosePolicyViolation, "license_unavailable"
+	}
+	// Real sockets support transport controls; lightweight service mocks only
+	// implement application writes.
+	if conn, ok := s.conn.(interface {
+		WriteControl(int, []byte, time.Time) error
+	}); ok {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
+	}
+}
+
+// SendMessage reserves licensed output before sending application bytes.
 func (s *WSSession) SendMessage(message interface{}) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := registry.Default().Check(ctx, registry.OutputMessages, 1); err != nil {
+		s.closeForRegistryError(err)
+		return err
+	}
+	if err := registry.Default().Check(ctx, registry.OutputBytes, int64(len(data)+1)); err != nil {
+		s.closeForRegistryError(err)
+		return err
+	}
 	return s.conn.WriteJSON(message)
 }

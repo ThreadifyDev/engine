@@ -137,6 +137,15 @@ export interface UsageMeterDTO {
   bandwidth_egress_balance: number;
   max_bandwidth_egress: number;
   max_team_seats: number;
+  billing_source?: 'registry';
+  account_id?: string;
+  entitlements?: {
+    revision: string;
+    input_bandwidth_bytes: number;
+    output_bandwidth_bytes: number;
+    input_requests_per_second: number;
+    entity_profile_limit: number;
+  };
   max_contract_limit: number;
   max_rate_limit: number;
   max_payload_bytes: number;

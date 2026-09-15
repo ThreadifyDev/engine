@@ -30,7 +30,7 @@ import (
 )
 
 // Opt-in black-box checks against an already running standalone binary. Only
-// identity, credits, and profile-type configuration are seeded; all contracts,
+// identity and profile-type configuration are seeded; all contracts,
 // threads, events, and entity profiles must be created through engine requests.
 func TestStandaloneWorkflows(t *testing.T) {
 	dir := standaloneDirectory(t)
@@ -44,7 +44,10 @@ func TestStandaloneWorkflows(t *testing.T) {
 	require.NoError(t, err)
 	defer pool.Close()
 	client := &http.Client{Timeout: 15 * time.Second}
-	company, account, keyID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	company, account, keyID := v.GetString("registry.company_id"), uuid.NewString(), uuid.NewString()
+	if company == "" {
+		company = uuid.NewString()
+	}
 	random := make([]byte, 32)
 	_, err = rand.Read(random)
 	require.NoError(t, err)
@@ -57,11 +60,10 @@ func TestStandaloneWorkflows(t *testing.T) {
 		sql  string
 		args []any
 	}{
-		{"INSERT INTO companies(id,name) VALUES($1,'Standalone E2E')", []any{company}},
+		{"INSERT INTO companies(id,name) VALUES($1,'Standalone E2E') ON CONFLICT(id) DO NOTHING", []any{company}},
 		{"INSERT INTO service_accounts(id,company_id,name) VALUES($1,$2,'E2E fixture')", []any{account, company}},
 		{"INSERT INTO api_keys(id,service_account_id,company_id,key_hash,key_prefix,name,expires_at) VALUES($1,$2,$3,$4,$5,'E2E temporary key',NOW()+interval '15 minutes')", []any{keyID, account, company, hex.EncodeToString(hash[:]), key[:10]}},
 		{"INSERT INTO user_roles(principal_id,principal_type,role_name,assigned_by) VALUES($1,'service_account','admin',$1),($1,'service_account','standard_service',$1)", []any{account}},
-		{"INSERT INTO credit_accounts(id,company_id,billing_cycle_start,credit_balance_millicents,rate_limit_tps,payload_limit_bytes) VALUES($1,$2,NOW(),10000000,60000,1048576)", []any{uuid.NewString(), company}},
 	} {
 		_, err = tx.Exec(ctx, q.sql, q.args...)
 		require.NoError(t, err)

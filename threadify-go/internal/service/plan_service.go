@@ -14,6 +14,7 @@ import (
 	"threadify-go/shared/database"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/registry"
 	sharedrepo "threadify-go/shared/repository"
 
 	"github.com/google/uuid"
@@ -315,33 +316,13 @@ func (s *PlanService) getCurrentAccount(ctx context.Context, companyID string) (
 }
 
 func (s *PlanService) GetCurrentLimits(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error) {
-	return s.getCurrentAccount(ctx, companyID)
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return &shareddomain.CreditAccount{CompanyID: companyID}, registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) CheckBalancePositive(ctx context.Context, companyID string) (*shareddomain.CreditAccount, error) {
-	account, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return nil, err
-	}
-
-	state, err := s.readCreditState(ctx, companyID)
-	if err != nil {
-		s.logger.Warn("credit check: valkey unavailable, failing open with DB snapshot",
-			zap.String("company_id", companyID),
-			zap.Error(err),
-		)
-	}
-	if !state.Populated {
-		state.Balance = account.CreditBalanceMillicents
-		state.Charged = account.CreditMonthlyChargedMillicents
-		state.Pending = 0
-	}
-
-	if err := s.evaluateCreditAvailability(account, state.Balance, state.Charged, state.Pending, s.getMinOperatingCost()); err != nil {
-		return nil, err
-	}
-
-	return account, nil
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return &shareddomain.CreditAccount{CompanyID: companyID}, registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) evaluateCreditAvailability(account *shareddomain.CreditAccount, balance, charged, pending, cost int64) error {
@@ -390,29 +371,13 @@ func (s *PlanService) getMinOperatingCost() int64 {
 }
 
 func (s *PlanService) CheckPayloadSize(ctx context.Context, account *shareddomain.CreditAccount, payloadBytes int64) error {
-	limit := account.PayloadLimitBytes
-	if limit > 0 && payloadBytes > limit {
-		return fmt.Errorf("payload too large: %d bytes exceeds limit of %d bytes", payloadBytes, limit)
-	}
+	// Compatibility method: resource enforcement occurs at transport boundaries.
 	return nil
 }
 
 func (s *PlanService) CheckRateLimit(ctx context.Context, account *shareddomain.CreditAccount) (bool, error) {
-	tps := account.RateLimitTPS
-	if tps <= 0 {
-		return true, nil
-	}
-
-	allowed, err := s.luaScripts.CheckCompanyRateLimit(ctx, account.CompanyID, int(tps), rateLimitWindowSeconds)
-	if err != nil {
-		s.logger.Error("rate limit script failure",
-			zap.Error(err),
-			zap.String("company_id", account.CompanyID),
-		)
-		return true, fmt.Errorf("check rate limit: %w", err)
-	}
-
-	return allowed, nil
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return true, registry.Default().CheckCompany(account.CompanyID)
 }
 
 func (s *PlanService) calculateCost(meter string, amount int64) int64 {
@@ -591,68 +556,33 @@ func (s *PlanService) ReadCreditState(ctx context.Context, companyID string) (Cr
 }
 
 func (s *PlanService) CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error {
-	account, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-
-	cost := s.calculateCost(meter, amount)
-
-	state, err := s.readCreditState(ctx, companyID)
-	if err != nil {
-		s.logger.Error("credit availability check: valkey unavailable, failing closed",
-			zap.String("company_id", companyID),
-			zap.Error(err),
-		)
-		return fmt.Errorf("credit system temporarily unavailable: %w", err)
-	}
-	if !state.Populated {
-		state.Balance = account.CreditBalanceMillicents
-		state.Charged = account.CreditMonthlyChargedMillicents
-		state.Pending = 0
-	}
-
-	return s.evaluateCreditAvailability(account, state.Balance, state.Charged, state.Pending, cost)
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) DecrementIngress(ctx context.Context, companyID string, count int64) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-	return s.chargeWithAccount(ctx, acc, MeterIngress, count, acc.IsTopupEnabled())
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) DecrementEgress(ctx context.Context, companyID string, bytes int64) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-	return s.chargeWithAccount(ctx, acc, MeterEgress, bytes, acc.IsTopupEnabled())
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) ChargeContract(ctx context.Context, companyID string) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-	return s.chargeWithAccount(ctx, acc, MeterContractExecution, 1, acc.IsTopupEnabled())
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) ChargeContractVersion(ctx context.Context, companyID string) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-	return s.chargeWithAccount(ctx, acc, MeterContractVersion, 1, acc.IsTopupEnabled())
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) DecrementLLMUsage(ctx context.Context, companyID string, tokens int64) error {
-	acc, err := s.getCurrentAccount(ctx, companyID)
-	if err != nil {
-		return err
-	}
-	return s.chargeWithAccount(ctx, acc, MeterLLMTokenUsage, tokens, acc.IsTopupEnabled())
+	// Compatibility method: resource enforcement occurs at transport boundaries.
+	return registry.Default().CheckCompany(companyID)
 }
 
 func (s *PlanService) ProcessRollovers(ctx context.Context) error {

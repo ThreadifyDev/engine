@@ -42,6 +42,7 @@ import (
 	"github.com/threadify/engine/internal/repository/valkey"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/workerpool"
+	"threadify-go/shared/registry"
 )
 
 type App struct {
@@ -57,6 +58,7 @@ type App struct {
 
 type infra struct {
 	cleanupOnce  sync.Once
+	registry     *registry.Runtime
 	broker       *broker.Runtime
 	persistence  *archiver.Runtime
 	db           *database.PostgresDB
@@ -68,6 +70,7 @@ type infra struct {
 
 func (i *infra) close() {
 	i.cleanupOnce.Do(func() {
+		i.registry.Close()
 		if i.persistence != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			_ = i.persistence.Close(ctx)
@@ -151,6 +154,12 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 			inf.close()
 		}
 	}()
+	licensed, err := registry.Start(ctx, cfg.Registry, inf.db.Pool)
+	if err != nil {
+		return nil, err
+	}
+	inf.registry = licensed
+	registry.SetDefault(licensed)
 	if cfg.RuntimeMode == "writer" {
 		metricsRepo := postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
 		if err := startPersistence(ctx, cfg, inf, metricsRepo, logger); err != nil {
@@ -200,7 +209,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	}
 
 	return &App{
-		Handler: buildRouter(cfg, inf, svcs, repos, hdlrs, logger),
+		Handler: licensed.WrapEngine(buildRouter(cfg, inf, svcs, repos, hdlrs, logger)),
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,
@@ -502,7 +511,7 @@ func initServices(
 	if err != nil {
 		return nil, fmt.Errorf("init jetstream: %w", err)
 	}
-	sm.Register(service.NewBillingCron(billingOrchestrator, js, logger))
+	_ = js // Legacy credit billing jobs no longer run; Registry owns billing.
 
 	// --- contract ---
 	svcs.contract = service.NewContractService(repos.contract, planSvc, logger)
@@ -653,7 +662,12 @@ func mountContractRoutes(rg *gin.RouterGroup, hdlrs *appHandlers, rbac domain.RB
 
 func pricingHandler(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"credit": cfg.Subscription.Credit})
+		snapshot, err := registry.Default().Snapshot()
+		if err != nil {
+			c.JSON(registry.StatusCode(err), gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"billing_source": "registry", "limits": snapshot.Entitlements})
 	}
 }
 

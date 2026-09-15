@@ -2,9 +2,9 @@
 
 `threadify` runs the engine, an embedded NATS JetStream broker, and PostgreSQL
 persistence workers in one process. PostgreSQL and Valkey remain external.
-The dashboard and Web API remain separate applications. Existing authentication,
-usage metering, credit deductions, and account provisioning remain in place;
-this release does not implement Fused/Threadify product licensing.
+The dashboard and Web API remain separate applications. Fused Registry provisions
+the licensed account and supplies Threadify bandwidth, rate, and entity-profile
+limits. Thread creation, event size, and token counts do not consume credits.
 
 ## Engine CI and releases
 
@@ -100,9 +100,10 @@ Edit the deployed configuration before starting:
 - Generate your own `HASH_CHAIN_SECRET_V1` once with `openssl rand -hex 32` and
   retain it securely across restarts. Preserve all previous secret versions when
   rotating keys so historical activity chains remain verifiable.
-- Review the usage settings in `subscription.yaml`. Keep `billing.provider: noop`;
-  local payment processing is disabled pending the external Registry integration.
-  Usage metering and account limits remain active.
+- Set `THREADIFY_REGISTRY_URL` to your Registry base URL and
+  `THREADIFY_LICENSE_KEY` to a license provisioned for Threadify (or both products).
+  The same key may also be used by Fused Engine. Keep `billing.provider: noop`;
+  local credit prices no longer control admission. Registry limits remain in memory.
 - Review HTTP host, port, and allowed browser origins for your installation.
 
 YAML strings of the form `$NAME:default` use the named environment variable or
@@ -120,8 +121,8 @@ Or set `CONFIG_PATH` to that file and launch the binary. Keep `subscription.yaml
 beside it: subscription settings are loaded relative to the selected config file.
 The engine uses its existing schema initialization on startup, so its PostgreSQL
 role needs the required DDL permissions. Account/company records, API keys, and
-credits still come from the existing account platform; packaging the engine does
-not provide an independent signup or license activation flow.
+product access comes from Fused Registry. The handshake reconciles the local
+company; user authentication still uses the configured identity provider.
 
 ## Runtime modes
 
@@ -269,8 +270,10 @@ THREADIFY_SMOKE_VALKEY_ADDR='localhost:6379' \
 go test ./cmd/server -run TestStandaloneBinaryPersistenceAndRestart -v -count=1
 ```
 
-The smoke test uses the existing no-op payment provider and seeded test credits;
-it does not contact a payment service or change production billing behavior.
+The smoke test uses a local signed Registry fixture and no seeded credits. It
+checks thread persistence and bandwidth accounting across a restart. Set
+`THREADIFY_SMOKE_REGISTRY_URL` to an isolated Registry fixture to exercise actual
+Registry handlers; never point this test at a production Registry.
 
 ## OTLP execution completion
 
@@ -284,7 +287,7 @@ OTLP execution timestamps come from the producer: span `start_time_unix_nano` an
 
 ## Billing integration
 
-Local payment-provider code is removed. The only available billing provider is `noop`: it skips invoices, ignores payment webhooks, and refuses local checkout creation. Provider credentials are no longer configuration fields. Usage metering remains separate from payment processing. Fused Registry billing and licensing will be integrated separately; this build does not claim that integration is available yet.
+Fused Registry owns product access and live allowances. Threadify uses its dedicated handshake, heartbeat, and signed usage-report endpoints. The limits are never persisted in the local database; account binding, stable installation identity, usage counters, and the reporting outbox are durable. Local payment processing stays disabled. See [Registry integration](docs/REGISTRY_INTEGRATION.md) for setup, migration, and enforcement semantics.
 
 ## Build resource use
 

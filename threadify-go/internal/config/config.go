@@ -1,6 +1,7 @@
 package config
 
 import (
+	"threadify-go/shared/registry"
 	"time"
 
 	sharedconfig "threadify-go/shared/config"
@@ -8,6 +9,7 @@ import (
 
 // Config represents the complete application configuration
 type Config struct {
+	Registry           registry.Config                 `yaml:"registry" mapstructure:"registry"`
 	RuntimeMode        string                          `yaml:"runtime_mode" mapstructure:"runtime_mode"`
 	Server             ServerConfig                    `yaml:"server" mapstructure:"server"`
 	Postgres           PostgresConfig                  `yaml:"postgres" mapstructure:"postgres"`

@@ -1,0 +1,126 @@
+{
+  "passed": 19,
+  "runID": "f039b1d7-2796-4d06-8d8e-f0025c169f26",
+  "created": [
+    "259c65ac-f0ee-45f5-9d1c-9d0bbe2a604b",
+    "4c84f355-a622-47fc-b812-d39d4c641c11",
+    "4a8b8f41-5a0f-48e7-baa0-19bad93450d8",
+    "27998c34-84a3-4b74-8f8e-4ea6a52e1501",
+    "b9aa4018-e4b6-40c9-8bbc-d6c31c973427",
+    "6a48383d-0aef-4080-b948-bedff244dbd6",
+    "4aa5747d-5490-4ed0-9c4e-8d6b1cac2772",
+    "64cc13af-8c39-48dd-9d7c-38109b18db9d",
+    "a0ee3bed-de7f-4104-a1b4-59ec6eb327b7",
+    "728ad304-f197-46b7-9061-1e736c61753a",
+    "17fa3766-57f1-4bed-b96b-1e2da411e0d4",
+    "13c94265-49cd-4d29-9c93-c5fc881a8fca",
+    "140be5a4-ac4c-4059-9fa1-3b0d58bd08b4",
+    "3dba5d38-b126-4a94-9a1b-c14b25494ed7",
+    "af38cde0-e7eb-4420-8dae-d635a8c3b9e2",
+    "238a6cbf-1c46-4c6c-9628-3e2fd61c320f",
+    "9d88c0df-6d5a-4e50-83f6-4c121c5e2401",
+    "f94d38d5-97d9-4585-922f-4043728a6df6",
+    "698c4c99-d420-4ed2-a058-25b7fbead624",
+    "382594d2-150c-4bc1-9f37-4b3828a12b62",
+    "adb48e85-bcaa-446e-9674-1a7d9934b911",
+    "04a4a21f-9b20-4ff0-b1aa-29bfd4c9aaa6",
+    "5eae1f37-4134-434b-94d9-c83d408b88e9",
+    "b57b9a62-6044-4f26-8e11-6b179cd51c1e",
+    "0ec90cf0-0432-454b-a74e-5487fa6f9fce",
+    "0136e0a9-15de-41d4-b703-95a18e9a468d",
+    "cdd6e6d0-ed08-4819-a45a-1c0e9e1fbafb",
+    "bc2642c0-39ed-46a9-87b0-9a9372bed4a5",
+    "5f6e0596-fae5-4bd8-91ad-460a3f2bfdfc",
+    "85f12117-c63d-4877-86fc-d8ad9cd2fc8e",
+    "3dff600a-6114-40be-9a57-1e759e56c47f",
+    "f99a8341-b28d-427b-b5f8-971f7ec4c88f",
+    "ec4c99cb-0cb9-4397-8c6d-7e106590beda",
+    "275291b1-d8b7-478e-815f-96cf164379ab",
+    "b4b7da15-942b-4547-9b00-c59b158951a0",
+    "228fd837-295d-4bdb-b2be-32f60120286a",
+    "328cb8ac-9564-42cc-a465-5b1bed7c76ac",
+    "4ef1f76c-79fe-45f5-aa25-ea5daf722d18",
+    "2aa15a21-f6cf-4950-815e-425d5e2b8a2a",
+    "40c60a6c-7971-4870-b26d-a6cedf3126e3",
+    "738a0866-8c3a-4bb7-8bb7-49d86ed9f4ee",
+    "02e98a49-be2d-4733-b71c-445503f797fc",
+    "ed176f3f-748b-4a9f-8e93-bc8e62581533",
+    "880d3c65-0298-4d33-9438-c169019b8acd",
+    "9b4bb1d9-475b-4a3e-901e-dfd86f5d8c12",
+    "079be498-2070-4aa7-8c14-526cf9bc08f7",
+    "641cc606-bd4e-4757-b5fe-613475969523"
+  ],
+  "checks": [
+    {
+      "name": "SDK create, step, complete and persisted GraphQL query",
+      "threadId": "259c65ac-f0ee-45f5-9d1c-9d0bbe2a604b"
+    },
+    {
+      "name": "input_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "input_bytes_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "input_requests_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "rejected_before_input_dispatch"
+    },
+    {
+      "name": "output_bandwidth_bytes denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "output_bytes_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "output_messages_per_second denial over SDK WS and GraphQL, then recovery",
+      "mutationOutcome": "may_have_applied_without_ack"
+    },
+    {
+      "name": "input_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "input_bytes_per_second positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "output_bandwidth_bytes positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "output_bytes_per_second positive finite allowance permits small traffic and denies larger payload"
+    },
+    {
+      "name": "input_requests_per_second positive rate allows two messages then denies the third"
+    },
+    {
+      "name": "output_messages_per_second positive rate allows two messages then denies the third"
+    },
+    {
+      "name": "zero profile allowance preserves threads and refs without materializing profiles"
+    },
+    {
+      "name": "profile cap preserves thread creation and refs",
+      "threads": [
+        "bc2642c0-39ed-46a9-87b0-9a9372bed4a5",
+        "5f6e0596-fae5-4bd8-91ad-460a3f2bfdfc"
+      ],
+      "profiles": 1
+    },
+    {
+      "name": "profile upgrade accepted through SDK addRefs",
+      "profiles": 2
+    },
+    {
+      "name": "explicit suspension rejects SDK mutation and restores"
+    },
+    {
+      "name": "Registry outage retains finite limits and availability beyond former grace; recovery applies new policy",
+      "outageCreates": 14
+    },
+    {
+      "name": "revoked license rejects SDK mutation and restores"
+    }
+  ]
+}

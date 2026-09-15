@@ -227,7 +227,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
-				Message: "Failed to verify credit account status. Please try again later.",
+				Message: "Threadify license verification is unavailable. Please try again later.",
 			}
 		}
 	}
@@ -236,7 +236,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 		return &domain.ConnectResponse{
 			Action:  ActionConnect,
 			Status:  StepStatusError,
-			Message: "Credit account details are currently unavailable. Please contact support.",
+			Message: "Threadify license details are currently unavailable.",
 		}
 	}
 
@@ -645,7 +645,7 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	}
 
 	if err := s.planService.DecrementIngress(ctx, companyID, int64(len(reqBytes))); err != nil {
-		return errResp("Insufficient credit: " + err.Error())
+		return errResp("Threadify license unavailable: " + err.Error())
 	}
 
 	t = time.Now()

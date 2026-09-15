@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	"threadify-go/shared/logger"
+	"threadify-go/shared/registry"
 
 	"github.com/threadify/engine/internal/archiver"
 	appconfig "github.com/threadify/engine/internal/config"
@@ -95,6 +96,13 @@ func run(configPath string, logger *zap.Logger) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	licensed, err := registry.Start(ctx, cfg.Registry, db.Pool)
+	if err != nil {
+		return err
+	}
+	registry.SetDefault(licensed)
+	defer licensed.Close()
 
 	metricsRepo := postgresrepo.NewMetricsRepository(db.Pool, valkeyClient, logger)
 

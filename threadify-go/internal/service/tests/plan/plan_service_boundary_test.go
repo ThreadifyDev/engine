@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"threadify-go/shared/billing"
-	"threadify-go/shared/database"
 	shareddomain "threadify-go/shared/domain"
 
 	"github.com/golang/mock/gomock"
@@ -213,37 +212,4 @@ func TestReadCreditState_BoundaryAndParseErrors(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
-}
-
-func TestCheckCreditAvailable_FailsClosedWhenValkeyIsUnavailable(t *testing.T) {
-	deps := common.NewMockDeps(t)
-	defer deps.Ctrl.Finish()
-
-	companyID := "c-valkey-down"
-	subCfg := &config.SubscriptionConfig{
-		Credit: config.CreditConfig{
-			ContractCostMillicents: 100,
-		},
-	}
-	account := &shareddomain.CreditAccount{
-		CompanyID:                        companyID,
-		CreditAutoTopupMillicents:        0,
-		CreditMaxMonthlyChargeMillicents: 0,
-	}
-
-	cacheKey := database.PlanCachePrefix + companyID
-	deps.Valkey.EXPECT().Get(gomock.Any(), cacheKey).Return("", nil)
-	deps.PlanRepo.EXPECT().GetCreditAccount(gomock.Any(), companyID).Return(account, nil)
-	deps.Valkey.EXPECT().Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).Return(nil)
-
-	keys := billing.KeysFor(companyID)
-	deps.Valkey.EXPECT().
-		MGet(gomock.Any(), keys.Balance, keys.Charged, keys.Pending).
-		Return(nil, errors.New("valkey unavailable"))
-
-	svc := deps.NewPlanService(subCfg)
-	err := svc.CheckCreditAvailable(context.Background(), companyID, service.MeterContractExecution, 1)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "credit system temporarily unavailable")
 }

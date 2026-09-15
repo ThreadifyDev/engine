@@ -1,6 +1,6 @@
 # Single-process engine with embedded NATS and persistence workers.
 # Copy subscription.selfhost.yaml beside your deployed config as subscription.yaml.
-# External account authentication and credit billing remain required.
+# External account authentication and a Threadify-enabled Registry license are required.
 server:
   port: 8081
   host: 0.0.0.0
