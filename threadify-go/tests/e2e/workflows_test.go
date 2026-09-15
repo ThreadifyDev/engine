@@ -134,6 +134,7 @@ func TestStandaloneWorkflows(t *testing.T) {
 	}
 	evidence := map[string]any{"company_id": company, "base_url": base, "checks": map[string]bool{}}
 	checks := evidence["checks"].(map[string]bool)
+	t.Run("sdk_parity", func(t *testing.T) { testSDKParity(t, base, key, company, pool) })
 	t.Run("management_cli", func(t *testing.T) { testManagementCLI(t, base, key, company, pool) })
 	t.Run("health", func(t *testing.T) {
 		code, data := request(t, "GET", "/health", "", nil, false)

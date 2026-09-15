@@ -108,3 +108,27 @@ creates/updates profiles, derives a profile from thread refs, finds and closes a
 thread, and verifies its hash chain. It also completes a CLI login with real
 cookie/CSRF approval requests, rejects approval replay, and checks logout.
 See [CLI guide](../../docs/CLI.md).
+
+### Python and Go SDK parity
+
+The `sdk_parity` subtest starts a contract thread using Python, grants a separate
+Go service account permission to report a charge, validates that exact event
+from both SDKs, and completes the thread from Python. Both clients also exercise
+reference-map lookup against the Engine. Service identities are seeded by the
+fixture; contracts, joins, steps, waits and queries use public APIs.
+
+```sh
+# Build the Go participant from the sibling SDK checkout:
+(cd ../../threadify-sdk-go && go build -o /tmp/threadify-go-parity ./tests/live)
+# Use a Python >=3.10 environment with the Python SDK's dependencies installed.
+THREADIFY_E2E_BINARY=/absolute/path/to/threadify-engine \
+THREADIFY_E2E_PYTHON=/absolute/path/to/venv/bin/python \
+THREADIFY_E2E_GO_SDK_BINARY=/tmp/threadify-go-parity \
+  go test ./e2e -run '^TestStandaloneWorkflows$/^sdk_parity$' -v -count=1
+```
+
+Run these commands from `threadify-go/tests`. The test uses the Python source
+checkout through `PYTHONPATH`, and skips when either SDK executable setting is
+missing. The same disposable PostgreSQL, Valkey and Registry fixture used by the
+other standalone tests is required. The parent repository must have its SDK
+submodules checked out at revisions containing the parity clients.
