@@ -5,3 +5,5 @@ bin/
 coverage.html
 # GoReleaser output
 /dist/
+
+/bundle/

@@ -6,13 +6,19 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"threadify-go/shared/testutil/registryfixture"
@@ -26,8 +32,24 @@ import (
 
 // This test uses only explicitly supplied disposable services, never developer defaults.
 // Build bin/threadify first and set all three THREADIFY_SMOKE_* variables to opt in.
-func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
+func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) { runStandalone(t, false) }
+func TestTwoEnginesShareManagedValkey(t *testing.T) {
+	if os.Getenv("THREADIFY_SMOKE_MANAGED_VALKEY_BINARY") == "" {
+		t.Skip("requires managed Valkey binary")
+	}
+	runStandalone(t, true)
+}
+func runStandalone(t *testing.T, shared bool) {
 	binary, pgURL, valkeyAddr := os.Getenv("THREADIFY_SMOKE_BINARY"), os.Getenv("THREADIFY_SMOKE_POSTGRES_URL"), os.Getenv("THREADIFY_SMOKE_VALKEY_ADDR")
+	managedBinary := os.Getenv("THREADIFY_SMOKE_MANAGED_VALKEY_BINARY")
+	if managedBinary != "" && valkeyAddr == "" {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		valkeyAddr = l.Addr().String()
+		l.Close()
+	}
 	if binary == "" || pgURL == "" || valkeyAddr == "" {
 		t.Skip("requires a built binary and explicitly supplied disposable PostgreSQL and Valkey")
 	}
@@ -87,6 +109,32 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	} {
 		v.Set(key, value)
 	}
+	if managedBinary != "" {
+		image, err := os.ReadFile(managedBinary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(work, "libexec"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(work, "libexec", "valkey-server"), image, 0700); err != nil {
+			t.Fatal(err)
+		}
+		v.Set("redis.mode", "managed")
+	}
+	if shared {
+		broker, err := natsserver.NewServer(&natsserver.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: filepath.Join(work, "shared-jetstream"), NoLog: true, NoSigs: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		go broker.Start()
+		t.Cleanup(func() { broker.Shutdown(); broker.WaitForShutdown() })
+		if !broker.ReadyForConnections(5 * time.Second) {
+			t.Fatal("shared NATS not ready")
+		}
+		v.Set("nats.mode", "external")
+		v.Set("nats.url", broker.ClientURL())
+	}
 	configPath := filepath.Join(work, "config.yaml")
 	if err := v.WriteConfigAs(configPath); err != nil {
 		t.Fatal(err)
@@ -94,7 +142,7 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	client := &http.Client{Timeout: time.Second}
 	launchDir := t.TempDir() // Launching elsewhere must not move persistent storage.
-	start := func() func() {
+	start := func(configPath, baseURL string) func() {
 		t.Helper()
 		logs, err := os.CreateTemp(work, "engine-*.log")
 		if err != nil {
@@ -113,8 +161,15 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		stopped := false
 		t.Cleanup(func() {
 			if !stopped {
-				_ = cmd.Process.Kill()
-				<-done
+				// Let the Engine reap its managed child even when an assertion
+				// fails. Killing only the owner can intentionally leave Valkey up.
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+				select {
+				case <-done:
+				case <-time.After(35 * time.Second):
+					_ = cmd.Process.Kill()
+					<-done
+				}
 			}
 			logs.Close()
 		})
@@ -176,13 +231,46 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 			}
 		}
 	}
-	stop := start()
+	stop := start(configPath, baseURL)
 	// Omitted broker configuration stores data beside the installed executable.
-	if _, err := os.Stat(filepath.Join(work, "data", "jetstream")); err != nil {
+	if _, err := os.Stat(filepath.Join(work, "data", "jetstream")); err != nil && !shared {
 		t.Fatalf("binary-relative broker store missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(launchDir, "data")); !os.IsNotExist(err) {
 		t.Fatalf("storage leaked into working directory: %v", err)
+	}
+	apiURL := baseURL
+	var stopJoiner func()
+	var joinPath, joinURL string
+	if shared {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		joinPort := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		v.Set("server.port", joinPort)
+		v.Set("redis.mode", "external")
+		joinPath = filepath.Join(work, "join.yaml")
+		joinURL = fmt.Sprintf("http://127.0.0.1:%d", joinPort)
+		if err := v.WriteConfigAs(joinPath); err != nil {
+			t.Fatal(err)
+		}
+		stopJoiner = start(joinPath, joinURL)
+		targets := []*httputil.ReverseProxy{}
+		for _, address := range []string{baseURL, joinURL} {
+			u, _ := url.Parse(address)
+			targets = append(targets, httputil.NewSingleHostReverseProxy(u))
+		}
+		var requests atomic.Uint64
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { targets[requests.Add(1)%2].ServeHTTP(w, r) }))
+		t.Cleanup(proxy.Close)
+		apiURL = proxy.URL
+	}
+	if managedBinary != "" {
+		if _, err := os.Stat(filepath.Join(work, "data", "valkey", ".threadify-managed")); err != nil {
+			t.Fatalf("managed Valkey store missing: %v", err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
@@ -210,20 +298,23 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	}
 	// Opt-in SDK performance run reuses the isolated binary/Registry fixture.
 	if output := os.Getenv("THREADIFY_PERF_OUTPUT"); output != "" {
-		script, err := filepath.Abs("../../../threadify-sdk/tests/performance-wait.mjs")
+		script, err := sdkSmokeScript("performance-wait.mjs")
 		if err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("node", script, baseURL, apiKey, output)
+		cmd := exec.Command("node", script, apiURL, apiKey, output)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("SDK performance run: %v", err)
 		}
+		if stopJoiner != nil {
+			stopJoiner()
+		}
 		stop()
 		return
 	}
-	verifyGherkinAfterRestart := prepareGherkinSmoke(t, baseURL, apiKey, pool)
-	ws, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:%d/threads", httpPort), nil)
+	verifyGherkinAfterRestart := prepareGherkinSmoke(t, apiURL, apiKey, pool)
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(apiURL, "http")+"/threads", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,8 +379,14 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		}
 	}
 	// Leave the authenticated websocket open: shutdown must close/join it itself.
+	if stopJoiner != nil {
+		stopJoiner()
+	}
 	stop()
-	stop = start()
+	stop = start(configPath, baseURL)
+	if shared {
+		stopJoiner = start(joinPath, joinURL)
+	}
 	verifyGherkinAfterRestart()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
@@ -320,6 +417,9 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != 200 {
 		t.Fatal("metrics unavailable")
+	}
+	if stopJoiner != nil {
+		stopJoiner()
 	}
 	stop()
 }

@@ -23,7 +23,29 @@ env:
   GOFLAGS: '-p=2 -trimpath'
 
 jobs:
+  valkey:
+    strategy:
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: linux_amd64}
+          - {os: macos-14, target: darwin_arm64}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static Linux Valkey
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src alpine:3.22 sh -c 'apk add --no-cache build-base linux-headers curl && sh threadify-go/scripts/build-valkey.sh threadify-go/bundle/linux_amd64'
+      - name: Build native macOS Valkey
+        if: runner.os == 'macOS'
+        run: sh threadify-go/scripts/build-valkey.sh threadify-go/bundle/darwin_arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: valkey-${{ matrix.target }}
+          path: threadify-go/bundle
+          if-no-files-found: error
   validate:
+    needs: valkey
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -44,6 +66,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: valkey-*
+          path: threadify-go/bundle
+          merge-multiple: true
+      - run: chmod 755 bundle/*/valkey-server
       - uses: ./.github/actions/setup-engine-go
       - name: Test engine release versioning
         run: python3 ../.github/scripts/test_engine_version.py
@@ -56,7 +84,9 @@ jobs:
           THREADIFY_AUTH_TEST_DATABASE_URL: postgres://threadify_auth_test:threadify_auth_test@127.0.0.1:5432/threadify_auth_test?sslmode=disable
         run: go test ./...
         working-directory: threadify-go/shared
-      - name: Test engine and embedded persistence
+      - name: Test engine and managed persistence
+        env:
+          THREADIFY_TEST_VALKEY_BINARY: ${{ github.workspace }}/threadify-go/bundle/linux_amd64/valkey-server
         run: go test ./...
       - uses: docker/setup-buildx-action@v3
       - name: Check release configuration

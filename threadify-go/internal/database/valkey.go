@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
@@ -45,7 +47,7 @@ func NewValkeyService(host string, port int, password string, db int, poolSize i
 	}
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:            fmt.Sprintf("%s:%d", host, port),
+		Addr:            net.JoinHostPort(host, strconv.Itoa(port)),
 		Password:        password,
 		DB:              db,
 		PoolSize:        poolSize,
@@ -63,6 +65,7 @@ func NewValkeyService(host string, port int, password string, db int, poolSize i
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
+		_ = rdb.Close()
 		return nil, fmt.Errorf("failed to connect to redis/valkey: %w", err)
 	}
 

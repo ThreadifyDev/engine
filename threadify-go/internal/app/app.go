@@ -35,6 +35,7 @@ import (
 	"github.com/threadify/engine/internal/graphql"
 	"github.com/threadify/engine/internal/graphql/generated"
 	"github.com/threadify/engine/internal/handlers"
+	"github.com/threadify/engine/internal/managedvalkey"
 	"github.com/threadify/engine/internal/middleware"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
@@ -57,15 +58,16 @@ type App struct {
 }
 
 type infra struct {
-	cleanupOnce  sync.Once
-	registry     *registry.Runtime
-	broker       *broker.Runtime
-	persistence  *archiver.Runtime
-	db           *database.PostgresDB
-	valkey       *database.ValkeyService
-	natsPool     *natsrepo.Pool
-	workerPools  *workerpool.Pools
-	shuttingDown atomic.Bool
+	cleanupOnce   sync.Once
+	valkeyRuntime *managedvalkey.Runtime
+	registry      *registry.Runtime
+	broker        *broker.Runtime
+	persistence   *archiver.Runtime
+	db            *database.PostgresDB
+	valkey        *database.ValkeyService
+	natsPool      *natsrepo.Pool
+	workerPools   *workerpool.Pools
+	shuttingDown  atomic.Bool
 }
 
 func (i *infra) close() {
@@ -89,6 +91,11 @@ func (i *infra) close() {
 		}
 		if i.valkey != nil {
 			i.valkey.Close()
+		}
+		if i.valkeyRuntime != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = i.valkeyRuntime.Close(ctx)
+			cancel()
 		}
 		if i.db != nil {
 			i.db.Close()
@@ -266,6 +273,12 @@ func (a *App) Close(ctx context.Context) error {
 		if a.infra.broker != nil {
 			a.closeErr = errors.Join(a.closeErr, a.infra.broker.Close(ctx))
 		}
+		if a.infra.valkey != nil {
+			_ = a.infra.valkey.Close()
+		}
+		if a.infra.valkeyRuntime != nil {
+			a.closeErr = errors.Join(a.closeErr, a.infra.valkeyRuntime.Close(ctx))
+		}
 		a.infra.close()
 	})
 	return a.closeErr
@@ -302,6 +315,15 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *
 		return nil, fmt.Errorf("init default metrics: %w", err)
 	}
 
+	ownedValkey, err := managedvalkey.Start(ctx, managedvalkey.Options{
+		Mode: cfg.Redis.Mode, Host: cfg.Redis.Host, Bind: cfg.Redis.Bind, Port: cfg.Redis.Port,
+		Password: cfg.Redis.Password, StoreDir: cfg.Redis.StoreDir, BinaryPath: cfg.Redis.BinaryPath,
+		StartupTimeout: time.Duration(cfg.Redis.StartupTimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("start Valkey: %w", err)
+	}
+	inf.valkeyRuntime = ownedValkey
 	valkeyService, err := database.NewValkeyService(
 		cfg.Redis.Host,
 		cfg.Redis.Port,
@@ -681,7 +703,7 @@ func healthHandler(inf *infra) gin.HandlerFunc {
 			status = http.StatusServiceUnavailable
 			response["postgres"] = "error"
 		}
-		if err := inf.valkey.Ping(ctx); err != nil {
+		if err := inf.valkey.Ping(ctx); err != nil || !inf.valkeyRuntime.IsHealthy() {
 			status = http.StatusServiceUnavailable
 			response["valkey"] = "error"
 		}

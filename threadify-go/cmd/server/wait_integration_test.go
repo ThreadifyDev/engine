@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ Rule: Finish
  And this step is terminal
 `
 	request("POST", "/v1/contracts", source, 200)
-	script, err := filepath.Abs("../../../threadify-sdk/tests/live-wait.mjs")
+	script, err := sdkSmokeScript("live-wait.mjs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +54,15 @@ Rule: Finish
 	thread := referenceSmokeSend(t, ws, "startThread", map[string]any{"contractName": contract + ":1", "role": "processor"}, "success")["threadId"].(string)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	referenceSmokeSend(t, ws, "recordThreadEvent", map[string]any{"threadId": thread, "stepName": "approval", "status": "success", "startedAt": now, "finishedAt": now, "idempotencyKey": uuid.NewString(), "context": map[string]string{}}, "success")
+	// In the shared test the proxy puts consecutive connections on different
+	// Engines. The second Engine must see the first Engine's live prerequisite.
+	peer := connect()
+	defer peer.Close()
+	referenceSmokeSend(t, peer, "joinThread", map[string]any{"threadId": thread, "role": "processor"}, "success")
 	id := uuid.NewString()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		reply := referenceSmokeSend(t, ws, "waitFor", map[string]any{"threadId": thread, "stepName": "charge", "invocationId": id}, "success")
+		reply := referenceSmokeSend(t, peer, "waitFor", map[string]any{"threadId": thread, "stepName": "charge", "invocationId": id}, "success")
 		if reply["decision"] == "allowed" {
 			break
 		}
@@ -64,6 +70,10 @@ Rule: Finish
 			t.Fatalf("permission did not become ready: %v", reply)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	competing := referenceSmokeSend(t, ws, "waitFor", map[string]any{"threadId": thread, "stepName": "charge", "invocationId": uuid.NewString()}, "success")
+	if competing["decision"] != "pending" {
+		t.Fatalf("another Engine reused the consumed approval: %v", competing)
 	}
 	ws.Close()
 	return func() {
@@ -93,4 +103,13 @@ Rule: Finish
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+}
+
+// Allows an isolated SDK checkout when the working SDK is being edited.
+func sdkSmokeScript(name string) (string, error) {
+	root := os.Getenv("THREADIFY_SMOKE_SDK_DIR")
+	if root == "" {
+		root = "../../../threadify-sdk"
+	}
+	return filepath.Abs(filepath.Join(root, "tests", name))
 }

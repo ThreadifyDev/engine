@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	sharedconfig "threadify-go/shared/config"
 	"time"
@@ -50,6 +51,24 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 		cfg.NATS.StoreDir = filepath.Join(filepath.Dir(executable), cfg.NATS.StoreDir)
 	}
 	cfg.Redis.Host = expandEnv(cfg.Redis.Host)
+	cfg.Redis.Bind = expandEnv(cfg.Redis.Bind)
+	cfg.Redis.StoreDir = expandEnv(cfg.Redis.StoreDir)
+	cfg.Redis.BinaryPath = expandEnv(cfg.Redis.BinaryPath)
+	if cfg.Redis.Mode == "managed" {
+		executable, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("locate binary for Valkey: %w", err)
+		}
+		executable, err = filepath.EvalSymlinks(executable)
+		if err != nil {
+			return nil, fmt.Errorf("resolve installed binary: %w", err)
+		}
+		for _, path := range []*string{&cfg.Redis.StoreDir, &cfg.Redis.BinaryPath} {
+			if *path != "" && !filepath.IsAbs(*path) {
+				*path = filepath.Join(filepath.Dir(executable), *path)
+			}
+		}
+	}
 	cfg.Redis.Password = expandEnv(cfg.Redis.Password)
 	cfg.JWT.Secret = expandEnv(cfg.JWT.Secret)
 
@@ -107,6 +126,25 @@ func expandEnv(value string) string {
 
 // setRuntimeDefaults supplies safe defaults without overriding explicitly configured values.
 func setRuntimeDefaults(v *viper.Viper) {
+	// Existing connection configurations continue using their current external server.
+	// An omitted redis section uses the bundled server on supported platforms.
+	mode := "managed"
+	if runtime.GOOS == "windows" || v.IsSet("redis.host") || v.IsSet("redis.port") {
+		mode = "external"
+	}
+	if !v.IsSet("redis.mode") {
+		v.SetDefault("redis.mode", mode)
+	}
+	v.SetDefault("redis.host", "127.0.0.1")
+	v.SetDefault("redis.port", 6379)
+	v.SetDefault("redis.password", "$VALKEY_PASSWORD:")
+	v.SetDefault("redis.bind", "127.0.0.1")
+	v.SetDefault("redis.store_dir", "data/valkey")
+	v.SetDefault("redis.binary_path", "libexec/valkey-server")
+	v.SetDefault("redis.startup_timeout_seconds", 120)
+	// Preserve the former self-host template's connection capacity when the
+	// complete redis section is omitted.
+	v.SetDefault("redis.pool_size", 200)
 	v.SetDefault("server.public_url", "$THREADIFY_PUBLIC_URL:")
 	v.SetDefault("runtime_mode", "combined")
 	v.SetDefault("nats.mode", "embedded")
@@ -138,6 +176,17 @@ func setRuntimeDefaults(v *viper.Viper) {
 }
 
 func ValidateRuntime(cfg *Config) error {
+	switch cfg.Redis.Mode {
+	case "managed", "external":
+	default:
+		return fmt.Errorf("redis.mode must be managed or external")
+	}
+	if cfg.Redis.Host == "" || cfg.Redis.Port < 1 || cfg.Redis.Port > 65535 || cfg.Redis.DB < 0 {
+		return fmt.Errorf("redis requires a host, port between 1 and 65535, and nonnegative db")
+	}
+	if cfg.Redis.Mode == "managed" && (cfg.Redis.StoreDir == "" || cfg.Redis.BinaryPath == "" || cfg.Redis.StartupTimeoutSeconds < 1) {
+		return fmt.Errorf("managed Valkey requires store_dir, binary_path and a positive startup_timeout_seconds")
+	}
 	switch cfg.RuntimeMode {
 	case "", "combined", "engine", "writer":
 	default:

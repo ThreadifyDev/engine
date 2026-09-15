@@ -1,5 +1,10 @@
 # syntax=docker/dockerfile:1
 
+FROM alpine:3.22 AS valkey-builder
+RUN apk add --no-cache build-base linux-headers curl
+COPY scripts/build-valkey.sh /build-valkey.sh
+RUN sh /build-valkey.sh /bundle
+
 # Build on the host architecture and cross-compile for each Buildx target.
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
@@ -33,7 +38,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o bin/threadify ./cmd/server
 
 # The distroless runtime runs as uid 65532 and needs a writable persistent store.
-RUN mkdir -p /data/jetstream && chown -R 65532:65532 /data
+RUN mkdir -p /data/jetstream /data/valkey && chown -R 65532:65532 /data
 
 # Final stage - using distroless for minimal size
 FROM gcr.io/distroless/static-debian12:nonroot
@@ -42,11 +47,12 @@ WORKDIR /app
 
 # Runtime assets are embedded; only sanitized configuration templates are shipped.
 COPY --from=builder /app/bin/threadify /app/threadify
+COPY --from=valkey-builder /bundle /app/libexec
 COPY --from=builder /app/config/config.selfhost.yaml /app/config/config.yaml
 COPY --from=builder /app/config/subscription.selfhost.yaml /app/config/subscription.yaml
 COPY --from=builder --chown=65532:65532 /data /data
 
-ENV CONFIG_PATH=/app/config/config.yaml
+ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey
 VOLUME ["/data"]
 
 # Expose port

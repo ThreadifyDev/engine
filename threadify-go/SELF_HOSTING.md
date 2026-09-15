@@ -1,7 +1,9 @@
 # Self-hosting Threadify
 
 `threadify` runs the engine, an embedded NATS JetStream broker, and PostgreSQL
-persistence workers in one process. PostgreSQL and Valkey remain external.
+persistence workers in one process. Linux/macOS releases also start a bundled
+Valkey child process. PostgreSQL remains external. Windows connects to an external
+Valkey server. See [managed and shared Valkey](docs/MANAGED_VALKEY.md).
 The dashboard and Web API remain separate applications. Fused Registry provisions
 the licensed account and supplies Threadify bandwidth, rate, and entity-profile
 limits. Thread creation, event size, and token counts do not consume credits.
@@ -42,7 +44,7 @@ restart the Engine to use the new executable. Stop a running Windows Engine
 before replacing its binary.
 
 Follow the configuration requirements under **Build and configure** below:
-supply your Registry license, PostgreSQL and Valkey settings, and a persistent
+supply your Registry license, PostgreSQL settings, and a persistent
 hash-chain secret. Start using the command printed by the installer, normally:
 
 ```sh
@@ -51,8 +53,9 @@ hash-chain secret. Start using the command printed by the installer, normally:
 
 Embedded NATS data defaults to `data/jetstream` beside the executable. Set an
 absolute `nats.store_dir` in YAML if you want a separate persistent data location.
-The installer downloads only the Engine and config templates; PostgreSQL, Valkey,
-the Web API and dashboard are deployed separately.
+The Linux/macOS installer also installs `libexec/valkey-server` beside the Engine.
+Managed Valkey data defaults to `data/valkey`; an absolute `redis.store_dir` can
+select a persistent volume. PostgreSQL, the Web API and dashboard are separate.
 
 ## Manage an Engine from the CLI
 
@@ -145,10 +148,9 @@ and source commit without connecting to services.
 The workflow also publishes `ghcr.io/creativejoe007/threadify-engine:vVERSION`
 and `:latest`. This Linux AMD64 image wraps the exact Linux release executable;
 `Dockerfile.goreleaser` does not compile it again. It runs as UID 65532, exposes
-port 8081, and stores embedded NATS data in `/data/jetstream` on a persistent
+port 8081, and stores NATS in `/data/jetstream` and Valkey in `/data/valkey` on a persistent
 `/data` volume. Mount reviewed configuration at `/app/config` and supply the
-same environment variables as a native deployment. PostgreSQL and Valkey
-remain external.
+same environment variables as a native deployment. PostgreSQL remains external.
 
 GoReleaser is pinned to v2.18.0. Builds run one target at a time with two compiler
 workers to bound memory use. GitHub Actions uses `GITHUB_TOKEN` with
@@ -176,6 +178,7 @@ Build with the Go version declared in `go.mod` (currently Go 1.26):
 ```sh
 cd threadify-go
 make build
+sh scripts/build-valkey.sh bin/libexec
 ```
 
 The output is `bin/threadify`. GraphQL generation is an explicit development step
@@ -188,6 +191,7 @@ Create a deployment directory and copy the configuration templates into it:
 ```sh
 mkdir -p "$HOME/threadify/config" "$HOME/threadify/data/jetstream"
 cp bin/threadify "$HOME/threadify/threadify"
+cp -R bin/libexec "$HOME/threadify/libexec"
 cp config/config.selfhost.yaml "$HOME/threadify/config/config.yaml"
 cp config/subscription.selfhost.yaml "$HOME/threadify/config/subscription.yaml"
 ```
@@ -198,8 +202,9 @@ Edit the deployed configuration before starting:
   `data/jetstream` beside its resolved executable, independent of the working
   directory. The directory is created at startup and must be writable by the
   service user. An explicit absolute `nats.store_dir` overrides this location.
-- Set `POSTGRES_URL`, `VALKEY_HOST`, and `VALKEY_PASSWORD` in the process
-  environment. Adjust Valkey port and database in YAML if necessary.
+- Set `POSTGRES_URL`. Valkey requires no configuration for a new Linux/macOS
+  deployment. Existing `redis.host`/`port` configuration keeps using that external
+  server. See [sharing and migration](docs/MANAGED_VALKEY.md) before changing it.
 - Set `THREADIFY_BROWSER_ORIGIN` to the exact public UI origin (for example,
   `https://threadify.example.com`). Browser sign-in uses Fused Registry identity;
   Supabase and JWKS settings are no longer required. See [browser authentication](docs/BROWSER_AUTH.md).
