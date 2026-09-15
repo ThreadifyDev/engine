@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"threadify-go/shared/testutil/natsfixture"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -50,7 +51,7 @@ func TestRegistryProxyAccounting(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := registryfixture.New(t, uuid.NewString())
-	runtime, err := registry.Start(ctx, registry.Config{URL: fixture.URL, LicenseKey: registryfixture.License}, pool)
+	runtime, err := registry.Start(ctx, registry.Config{URL: fixture.URL, LicenseKey: registryfixture.License}, pool, natsfixture.New(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +90,9 @@ func TestRegistryProxyAccounting(t *testing.T) {
 	}
 	for metric, want := range map[string]int64{registry.InputBytes: int64(len(payload)), registry.OutputBytes: int64(len(responseBody)), registry.InputRequests: 1, registry.OutputMessages: 1} {
 		var got int64
+		if err := runtime.ProjectUsage(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 		if err = pool.QueryRow(ctx, "SELECT COALESCE(sum(count),0) FROM threadify_registry_usage WHERE metric=$1 AND bucket_seconds>1", metric).Scan(&got); err != nil {
 			t.Fatal(err)
 		}
@@ -107,6 +111,9 @@ func TestRegistryProxyAccounting(t *testing.T) {
 		t.Fatalf("unknown path status%d", res.StatusCode)
 	}
 	var requests int64
+	if err := runtime.ProjectUsage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if err = pool.QueryRow(ctx, "SELECT COALESCE(sum(count),0) FROM threadify_registry_usage WHERE metric=$1 AND bucket_seconds>1", registry.InputRequests).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}

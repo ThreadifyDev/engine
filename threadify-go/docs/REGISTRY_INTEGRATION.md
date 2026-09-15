@@ -77,13 +77,45 @@ A fresh process needs one successful handshake because limits are not persisted;
 a failed subsequent initial heartbeat does not invalidate that handshake.
 Health and metrics endpoints remain available for diagnosis.
 
-Bandwidth counters are reserved atomically in PostgreSQL before application
-admission or output, together with a durable reporting outbox. Multiple Engine,
-API, and archiver processes sharing one database share that accounting. Separate
-databases have separate accounting; this does not implement a global spending
-reservation service across independent installations. Counters survive restarts
-and license-key rotation. Rejected operations do not refund already admitted
-traffic. HTTP headers and transport overhead are not included.
+Traffic counters are reserved atomically in file-backed JetStream KV before
+application admission or output. One conditional update records both the allowance
+decision and cumulative usage. Request/byte pairs are admitted together, or neither
+is charged. No PostgreSQL query runs in this traffic accounting path. Limits still
+come from the in-memory Registry snapshot; KV contains observations and identity,
+never entitlements or license secrets.
+
+Each process serializes its own admissions and reuses its last acknowledged KV
+revision. Every accepted debit still requires a conditional broker write. Another
+process's update forces a conflict and reload; an uncertain acknowledgement clears
+the cached state. This avoids repeated reads and local retry storms without granting
+unrecorded allowances. Callers can cancel while queued for the local writer.
+
+A background worker checkpoints cumulative totals to PostgreSQL every 250 ms.
+Changed counters and positive reporting-outbox deltas are batched in one SQL
+transaction; unchanged historical months are not rewritten.
+Revision checks make concurrent workers and retries idempotent; skipped KV
+revisions retain their usage in cumulative totals. Registry delivery uses the
+existing acknowledged outbox. A PostgreSQL outage delays checkpointing/reporting
+without resetting allowances or blocking traffic accounting. Other application
+operations that need PostgreSQL can still fail during that outage.
+
+Engine, API, and standalone archiver processes sharing one database must also
+share the same JetStream server and persisted `THREADIFY_USAGE` bucket. The default
+combined Engine uses its embedded broker and existing data directory. Separate
+databases/installations have separate accounting; this is not a global spending
+reservation service. Counters survive restarts and license-key rotation. Rejected
+operations do not refund already admitted traffic. HTTP headers and transport
+overhead are not included.
+
+The first upgraded startup imports existing SQL counters and preserves unsent
+reports. Stop and upgrade all processes for an installation together: older
+SQL-metering binaries cannot coordinate with JetStream-metering binaries. Subsequent
+startup requires the original durable KV state. Missing/corrupt state, a stale
+backup behind a SQL checkpoint, or a broker outage denies traffic accounting rather
+than silently granting a fresh allowance. Restore the broker data when it is lost;
+SQL reporting checkpoints can lag acknowledged admissions. Back up PostgreSQL and
+JetStream together. An uncertain broker acknowledgement returns an error and can
+have consumed allowance; the coordinator does not retry it as another debit.
 
 Every management API request is metered, including local validation errors.
 Forwarded Engine requests carry a signed, body-bound, single-use proof so Engine
@@ -116,7 +148,8 @@ this integration.
 
 Run shared, Engine, and API suites in their respective Go modules. The
 `shared/registry` database integration tests use an explicitly supplied disposable
-PostgreSQL URL and isolated schema. Compiled binary tests in `cmd/server` and
+PostgreSQL URL (`THREADIFY_REGISTRY_TEST_DATABASE_URL`), an isolated schema, and a
+disposable JetStream server (`THREADIFY_REGISTRY_TEST_NATS_URL`). Compiled binary tests in `cmd/server` and
 `tests/e2e` use a local signed Registry fixture and no credit-account seed.
 The standalone restart test asserts persisted threads and non-reset bandwidth
 counters. It also supports an isolated real Registry handler fixture through

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"threadify-go/shared/testutil/natsfixture"
 	"time"
 )
 
@@ -108,7 +109,7 @@ func TestStartupFailsClosed(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(testSnapshot())
 			}))
 			defer server.Close()
-			r, err := Start(context.Background(), Config{URL: server.URL, LicenseKey: "test"}, pool)
+			r, err := Start(context.Background(), Config{URL: server.URL, LicenseKey: "test"}, pool, natsfixture.New(t))
 			if r != nil {
 				r.Close()
 				t.Fatal("failed verification exposed a runtime")
@@ -147,7 +148,7 @@ func TestInitialHeartbeatFailureRetainsVerifiedLimits(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(s)
 	}))
 	defer server.Close()
-	r, err := Start(ctx, Config{URL: server.URL, LicenseKey: "test"}, pool)
+	r, err := Start(ctx, Config{URL: server.URL, LicenseKey: "test"}, pool, natsfixture.New(t))
 	if err != nil {
 		t.Fatalf("heartbeat outage prevented verified startup: %v", err)
 	}
@@ -188,7 +189,7 @@ func TestStartupRejectsChangedDatabaseBinding(t *testing.T) {
 			}))
 			defer server.Close()
 			cfg := Config{URL: server.URL, LicenseKey: "test"}
-			r, err := Start(context.Background(), cfg, pool)
+			r, err := Start(context.Background(), cfg, pool, natsfixture.New(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -201,7 +202,7 @@ func TestStartupRejectsChangedDatabaseBinding(t *testing.T) {
 			if binding == "installation" {
 				cfg.InstallationID = newID()
 			}
-			r, err = Start(context.Background(), cfg, pool)
+			r, err = Start(context.Background(), cfg, pool, natsfixture.New(t))
 			if r != nil {
 				r.Close()
 				t.Fatal("changed binding exposed a runtime")
@@ -256,6 +257,7 @@ func TestUsageInvalidAcknowledgementsRetainOutbox(t *testing.T) {
 	if err := r.initializeStore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	for _, body := range []string{`{`, `{"status":"error","accepted":0}`, `{"status":"ok"}`, `{"status":"ok","accepted":null}`, `{"status":"ok","accepted":-1}`, `{"status":"ok","accepted":2}`, `{"status":"ok","accepted":1} {}`} {
 		t.Run(body, func(t *testing.T) {
 			if _, err := pool.Exec(ctx, `DELETE FROM threadify_registry_outbox`); err != nil {
@@ -270,6 +272,7 @@ func TestUsageInvalidAcknowledgementsRetainOutbox(t *testing.T) {
 			if err := r.FlushUsage(ctx); err == nil {
 				t.Error("invalid acknowledgement accepted")
 			}
+			projectTestUsage(t, r)
 			var pending int
 			if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM threadify_registry_outbox`).Scan(&pending); err != nil || pending != 1 {
 				t.Fatalf("report lost: pending=%d error=%v", pending, err)
@@ -287,34 +290,44 @@ func TestUsageInvalidAcknowledgementsRetainOutbox(t *testing.T) {
 	}
 }
 
-// TestUsageStorageFailureRollsBackAdmission checks failures after counter writes remain atomic.
-func TestUsageStorageFailureRollsBackAdmission(t *testing.T) {
+// A failed SQL projection cannot lose durable usage or bypass live quotas.
+func TestUsageStorageFailureDefersProjection(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	s := testSnapshot()
+	s.Entitlements.InputBandwidthBytes = 10
 	r := &Runtime{cfg: Config{CompanyID: "company", InstallationID: newID()}, accountID: s.AccountID, pool: pool, snapshot: s, verified: time.Now()}
 	if err := r.initializeStore(ctx); err != nil {
 		t.Fatal(err)
 	}
+	enableTestMeter(t, r)
 	if _, err := pool.Exec(ctx, `ALTER TABLE threadify_registry_outbox ADD CONSTRAINT simulate_storage_failure CHECK(count=0)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Check(ctx, InputBytes, 7); err == nil {
-		t.Fatal("failed durable accounting admitted traffic")
+	if err := r.Check(ctx, InputBytes, 7); err != nil {
+		t.Fatalf("SQL failure blocked JetStream admission: %v", err)
+	}
+	if err := r.ProjectUsage(ctx); err == nil {
+		t.Fatal("failed storage reported projection success")
 	}
 	var counters, pending int
-	if err := pool.QueryRow(ctx, `SELECT (SELECT COUNT(*) FROM threadify_registry_usage),(SELECT COUNT(*) FROM threadify_registry_outbox)`).Scan(&counters, &pending); err != nil || counters != 0 || pending != 0 {
-		t.Fatalf("partial accounting committed: counters=%d pending=%d error=%v", counters, pending, err)
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM threadify_registry_usage),(SELECT count(*) FROM threadify_registry_outbox)`).Scan(&counters, &pending); err != nil || counters != 0 || pending != 0 {
+		t.Fatalf("partial projection committed: %d %d %v", counters, pending, err)
+	}
+	if err := r.Check(ctx, InputBytes, 4); !errors.Is(err, ErrLimit) {
+		t.Fatalf("projection outage reset quota: %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := r.Check(canceled, InputBytes, 1); err == nil {
+		t.Fatal("canceled request admitted")
 	}
 	if _, err := pool.Exec(ctx, `ALTER TABLE threadify_registry_outbox DROP CONSTRAINT simulate_storage_failure`); err != nil {
 		t.Fatal(err)
 	}
-	canceled, cancel := context.WithCancel(ctx)
-	cancel()
-	if err := r.Check(canceled, InputBytes, 7); err == nil {
-		t.Fatal("canceled accounting admitted traffic")
-	}
-	if err := r.Check(ctx, InputBytes, 7); err != nil {
-		t.Fatalf("storage recovery failed: %v", err)
+	projectTestUsage(t, r)
+	var count int64
+	if err := pool.QueryRow(ctx, `SELECT sum(count) FROM threadify_registry_outbox`).Scan(&count); err != nil || count != 7 {
+		t.Fatalf("usage lost on recovery: %d %v", count, err)
 	}
 }

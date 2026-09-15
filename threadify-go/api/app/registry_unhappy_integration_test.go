@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"threadify-go/shared/testutil/natsfixture"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -98,7 +99,7 @@ func unhappyRegistryRuntime(t *testing.T, pool *pgxpool.Pool, fast bool) (*regis
 		_ = json.NewEncoder(w).Encode(result)
 	}))
 	t.Cleanup(server.Close)
-	runtime, err := registry.Start(context.Background(), registry.Config{URL: server.URL, LicenseKey: registryfixture.License}, pool)
+	runtime, err := registry.Start(context.Background(), registry.Config{URL: server.URL, LicenseKey: registryfixture.License}, pool, natsfixture.New(t))
 	require.NoError(t, err)
 	registry.SetDefault(runtime)
 	t.Cleanup(func() { registry.SetDefault(nil); runtime.Close() })
@@ -313,9 +314,15 @@ func TestRegistryProxyRejectsTamperingAndReplayWithoutMutation(t *testing.T) {
 			require.NotContains(t, rejected.Body.String(), registryfixture.License)
 			require.NotContains(t, rejected.Body.String(), "original-user")
 			var requests int64
+			if err := runtime.ProjectUsage(context.Background()); err != nil {
+				t.Fatal(err)
+			}
 			require.NoError(t, pool.QueryRow(context.Background(), "SELECT COALESCE(SUM(count),0) FROM threadify_registry_usage WHERE metric=$1 AND bucket_seconds>1", registry.InputRequests).Scan(&requests))
 			require.GreaterOrEqual(t, requests, attempts, "invalid delegation cannot waive API request accounting")
 			var output int64
+			if err := runtime.ProjectUsage(context.Background()); err != nil {
+				t.Fatal(err)
+			}
 			require.NoError(t, pool.QueryRow(context.Background(), "SELECT COALESCE(SUM(count),0) FROM threadify_registry_usage WHERE metric=$1 AND bucket_seconds>1", registry.OutputBytes).Scan(&output))
 			require.Positive(t, output, "rejection output remains accounted")
 		})

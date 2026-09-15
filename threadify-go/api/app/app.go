@@ -100,6 +100,12 @@ func New(
 		pool.Close()
 		return nil, fmt.Errorf("init services: %w", err)
 	}
+	if err := licensed.EnableJetStream(ctx, svcs.natsClient.JetStream()); err != nil {
+		licensed.Close()
+		svcs.close(logger)
+		pool.Close()
+		return nil, fmt.Errorf("initialize usage coordinator: %w", err)
+	}
 	// The first owner signs into the already provisioned company; other users need invitations.
 	if licensed != nil {
 		svcs.authService.ConfigureLicensedAccount(licensed.CompanyID(), licensed.OwnerEmail())
@@ -107,8 +113,8 @@ func New(
 
 	browser, err := sharedauth.NewBrowserService(ctx, pool, licensed)
 	if err != nil {
-		svcs.close(logger)
 		licensed.Close()
+		svcs.close(logger)
 		pool.Close()
 		return nil, fmt.Errorf("initialize browser authentication: %w", err)
 	}
