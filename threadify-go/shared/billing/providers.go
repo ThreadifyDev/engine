@@ -11,7 +11,9 @@ import (
 	"threadify-go/shared/domain"
 
 	stripe "github.com/stripe/stripe-go/v82"
-	"github.com/stripe/stripe-go/v82/client"
+	checkoutsession "github.com/stripe/stripe-go/v82/checkout/session"
+	"github.com/stripe/stripe-go/v82/invoice"
+	"github.com/stripe/stripe-go/v82/invoiceitem"
 )
 
 type InvoiceProvider interface {
@@ -101,17 +103,30 @@ const (
 	stripeEventCheckoutCompleted    = "checkout.session.completed"
 )
 
+// Keep only the Stripe endpoints used by billing. The aggregate client.API
+// imports and initializes every Stripe service, bloating every engine build.
+type stripeBillingAPI struct {
+	Invoices         *invoice.Client
+	InvoiceItems     *invoiceitem.Client
+	CheckoutSessions *checkoutsession.Client
+}
+
 type StripeBillingProvider struct {
 	apiKey        string
 	webhookSecret string
-	api           *client.API
+	api           *stripeBillingAPI
 }
 
 func NewStripeBillingProvider(apiKey, webhookSecret string) BillingProvider {
+	backend := stripe.GetBackend(stripe.APIBackend)
 	return &StripeBillingProvider{
 		apiKey:        apiKey,
 		webhookSecret: webhookSecret,
-		api:           client.New(apiKey, nil),
+		api: &stripeBillingAPI{
+			Invoices:         &invoice.Client{B: backend, Key: apiKey},
+			InvoiceItems:     &invoiceitem.Client{B: backend, Key: apiKey},
+			CheckoutSessions: &checkoutsession.Client{B: backend, Key: apiKey},
+		},
 	}
 }
 
