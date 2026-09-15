@@ -62,7 +62,11 @@ class EngineVersionTests(unittest.TestCase):
     def test_unrelated_changes_do_not_release_or_bump(self):
         self.commit("feat: initial")
         self.git("tag", "v1.0.0")
-        for path in ("web/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go", "threadify-sdk-go/sdk.go"):
+        for path in (
+            "web/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go",
+            "threadify-sdk-go/sdk.go", "README.md", "threadify-go/README.md",
+            "threadify-go/tests/e2e/README.md",
+        ):
             self.commit("feat!: unrelated", path)
         self.assertEqual(version.next_release(), ("", "v1.0.0"))
         self.commit("fix: engine")
@@ -76,6 +80,15 @@ class EngineVersionTests(unittest.TestCase):
         self.git("tag", "v1.1.0")
         self.commit("test: installer validation", ".github/scripts/test_engine_installer.py")
         self.assertEqual(version.next_release(), ("v1.1.1", "v1.1.0"))
+
+    def test_shared_build_action_and_packaged_docs_create_releases(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        self.commit("fix: build cache", ".github/actions/setup-engine-go/action.yml")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+        self.git("tag", "v1.0.1")
+        self.commit("docs: deployment", "threadify-go/SELF_HOSTING.md")
+        self.assertEqual(version.next_release(), ("v1.0.2", "v1.0.1"))
 
     def test_unmerged_and_prerelease_tags_do_not_set_version(self):
         self.commit("feat: initial")

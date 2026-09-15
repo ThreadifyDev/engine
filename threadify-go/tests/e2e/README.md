@@ -3,6 +3,11 @@
 `make test-e2e` in `threadify-go` builds the engine and runs the tests with
 disposable PostgreSQL/Valkey and embedded NATS. The Registry fixture is local.
 
+Disposable top-level scenarios run concurrently, with separate services and data.
+CI uses `-parallel=3`; pass `-parallel=1` to limit local resource use. Existing
+instances selected with `THREADIFY_LIVE_DIR` and runs writing to an explicit
+`THREADIFY_E2E_EVIDENCE_FILE` remain sequential.
+
 To run only the multi-system test against a compiled binary, from `threadify-go/tests`:
 
 ```sh

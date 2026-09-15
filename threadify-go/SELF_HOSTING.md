@@ -110,6 +110,15 @@ throwaway PostgreSQL and Valkey containers. The E2E suite includes entity
 profiles, contract creation and use, OTLP ingestion/completion, recorded trace
 timestamps, and hash verification.
 
+Validation and publishing share a Go module/build cache through
+`.github/actions/setup-engine-go`. Cache entries refresh per commit and fall back
+to previous compatible entries. Both jobs use `CGO_ENABLED=0` and `-trimpath`, so
+publishing can reuse compiled packages while linking the final release metadata.
+All three archives and the Docker wrapper are still built and checked. Disposable
+E2E scenarios run up to three at a time, each with its own database, Valkey, broker,
+and Engine. Runs against an existing instance remain sequential. README-only
+changes do not trigger releases; changes to packaged guides still do.
+
 An engine change pushed to `main` runs the same checks before tagging and
 publishing. Versioning follows the Fused engine-release convention: `feat:` bumps
 minor, a conventional `!:` or `BREAKING CHANGE:` footer bumps major, and other

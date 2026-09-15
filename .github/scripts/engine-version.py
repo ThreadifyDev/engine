@@ -8,6 +8,8 @@ import subprocess
 # must neither create engine releases nor determine their semantic version bump.
 PATHS = [
     "threadify-go", ":(exclude)threadify-go/api", ":(exclude)threadify-go/tests/api",
+    ":(glob,exclude)threadify-go/**/README.md",
+    ".github/actions/setup-engine-go",
     ".github/workflows/engine-ci.yml", ".github/workflows/engine-release.yml",
     "install.sh", ".github/scripts/test_engine_installer.py",
     ".github/scripts/engine-version.py", ".github/scripts/test_engine_version.py",

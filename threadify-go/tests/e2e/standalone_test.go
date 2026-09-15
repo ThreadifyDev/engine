@@ -31,6 +31,11 @@ func standaloneDirectory(t *testing.T) string {
 	if binary == "" {
 		t.Skip("run make test-e2e, or set THREADIFY_LIVE_DIR for an existing local instance")
 	}
+	// Disposable runs own their database, broker, ports, and output directory.
+	// Keep live targets and explicitly shared evidence files sequential.
+	if os.Getenv("THREADIFY_E2E_EVIDENCE_FILE") == "" {
+		t.Parallel()
+	}
 	binary, err := filepath.Abs(binary)
 	require.NoError(t, err)
 	_, err = os.Stat(binary)
