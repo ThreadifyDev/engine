@@ -2,7 +2,8 @@
 	build build-api build-archiver \
 	build-image build-web-api build-web-ui build-docs \
 	run run-api run-archiver run-docker \
-	push push-archiver push-web-api push-web-ui push-docs \
+	push publish-engine push-archiver publish-archiver \
+	push-web-api publish-web-api push-web-ui publish-web-ui push-docs \
 	test-engine-integration test-engine-coverage \
 	test-archiver test-archiver-coverage \
 	test-api test-api-integration \
@@ -14,13 +15,29 @@
 	docker-up docker-down docker-logs dev
 
 VERSION := $(shell git describe --tags --always --match "v*" 2>/dev/null || git rev-parse --short HEAD)
+DOCKER_NAMESPACE ?= intelijence
+DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
+ENGINE_IMAGE ?= $(DOCKER_NAMESPACE)/th-engine
+ARCHIVER_IMAGE ?= $(DOCKER_NAMESPACE)/th-archiver
+WEB_API_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_api
+WEB_UI_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_ui
+
+define publish-multiarch
+	docker buildx build --platform $(DOCKER_PLATFORMS) -f $(1) \
+		-t $(2):$(VERSION) \
+		-t $(2):latest \
+		--push $(3)
+endef
 
 GO ?= go
+# Bound compiler concurrency on developer machines; override on larger builders.
+BUILD_JOBS ?= 2
+BUILD_PROCS ?= 2
 GOFMT ?= gofmt
 GOBIN ?= $(HOME)/go/bin
 MOCKGEN ?= $(GOBIN)/mockgen
 
-ENGINE_PKGS := $(shell $(GO) list ./... | grep -v -E "/api|/archiver|/shared|/tests")
+ENGINE_PKGS = $(shell $(GO) list ./... | grep -v -E "/api|/archiver|/shared|/tests")
 
 .DEFAULT_GOAL := help
 
@@ -38,11 +55,11 @@ generate-graphql: ## Generate GraphQL code from schema
 	cd internal/graphql && $(GO) run github.com/99designs/gqlgen generate
 	@echo "✓ GraphQL code generated"
 
-build: generate-graphql ## Build the server binary
-	@echo "Building server..."
+build: ## Build the combined Threadify binary (engine, broker, persistence)
+	@echo "Building Threadify..."
 	@mkdir -p bin
-	$(GO) build -o bin/server ./cmd/server
-	@echo "✓ Binary created at bin/server"
+	GOMAXPROCS=$(BUILD_PROCS) CGO_ENABLED=0 $(GO) build -p $(BUILD_JOBS) -trimpath -ldflags="-s -w" -o bin/threadify ./cmd/server
+	@echo "✓ Binary created at bin/threadify"
 
 build-api: ## Build the Web API binary
 	@echo "Building Web API..."
@@ -58,7 +75,7 @@ build-archiver-binary: ## Build the archiver binary
 
 run: build ## Build and run the server
 	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
-	./bin/server
+	./bin/threadify
 
 run-api: build-api ## Build and run the Web API server
 	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
@@ -71,6 +88,14 @@ run-archiver: build-archiver-binary ## Build and run the archiver
 test-engine-integration: ## Run engine integration tests
 	@echo "Running engine integration tests..."
 	@cd tests && $(GO) test -v ./engine/... -count=1
+
+.PHONY: test-e2e test-e2e-live
+test-e2e: build ## Run compiled-binary E2E with disposable PostgreSQL and Valkey (Docker required)
+	@cd tests && THREADIFY_LIVE_DIR= THREADIFY_E2E_BINARY="$(CURDIR)/bin/threadify" $(GO) test -v ./e2e/... -count=1 -timeout=5m
+
+test-e2e-live: ## Run E2E against the explicit local config directory in THREADIFY_LIVE_DIR
+	@test -n "$$THREADIFY_LIVE_DIR" || (echo "Set THREADIFY_LIVE_DIR to the local instance's config directory"; exit 1)
+	@cd tests && $(GO) test -v ./e2e/... -count=1 -timeout=5m
 
 test-engine: ## Run all engine tests (unit)
 	@echo "Running engine unit tests..."
@@ -93,6 +118,7 @@ test-shared: ## Run shared module tests
 	@cd shared && $(GO) test ./...
 
 test-all: ## Run all tests (engine + archiver + api + shared)
+	$(MAKE) test-e2e
 	$(MAKE) test-engine-integration
 	$(MAKE) test-archiver
 	$(MAKE) test-api
@@ -169,31 +195,43 @@ dev: docker-up ## Start dev environment and run server
 	$(MAKE) run
 
 build-image: ## Build engine Docker image
-	docker build -t intelijence/th-engine:$(VERSION) .
+	docker build -t $(ENGINE_IMAGE):$(VERSION) .
 
 build-archiver: ## Build archiver Docker image
-	docker build -f Dockerfile.archiver -t intelijence/th-archiver:$(VERSION) .
+	docker build -f Dockerfile.archiver -t $(ARCHIVER_IMAGE):$(VERSION) .
 
 build-web-api: ## Build Web API Docker image
-	docker build -f Dockerfile.api -t intelijence/th_web_api:$(VERSION) .
+	docker build -f Dockerfile.api -t $(WEB_API_IMAGE):$(VERSION) .
 
 build-web-ui: ## Build Web UI Docker image
-	cd .. && docker build -f threadify-go/Dockerfile.web_ui -t intelijence/th_web_ui:$(VERSION) .
+	docker build -f Dockerfile.web_ui -t $(WEB_UI_IMAGE):$(VERSION) ../web
 
 build-docs: ## Build Documentation Docker image
 	cd ../documentation && docker build -t intelijence/th-docs:$(VERSION) .
 
 push: ## Push engine Docker image
-	docker push intelijence/th-engine:$(VERSION)
+	docker push $(ENGINE_IMAGE):$(VERSION)
+
+publish-engine: ## Build and push multi-architecture engine images
+	$(call publish-multiarch,Dockerfile,$(ENGINE_IMAGE),.)
 
 push-archiver: ## Push archiver Docker image
-	docker push intelijence/th-archiver:$(VERSION)
+	docker push $(ARCHIVER_IMAGE):$(VERSION)
+
+publish-archiver: ## Build and push multi-architecture archiver images
+	$(call publish-multiarch,Dockerfile.archiver,$(ARCHIVER_IMAGE),.)
 
 push-web-api: ## Push Web API Docker image
-	docker push intelijence/th_web_api:$(VERSION)
+	docker push $(WEB_API_IMAGE):$(VERSION)
+
+publish-web-api: ## Build and push multi-architecture Web API images
+	$(call publish-multiarch,Dockerfile.api,$(WEB_API_IMAGE),.)
 
 push-web-ui: ## Push Web UI Docker image
-	docker push intelijence/th_web_ui:$(VERSION)
+	docker push $(WEB_UI_IMAGE):$(VERSION)
+
+publish-web-ui: ## Build and push multi-architecture Web UI images
+	$(call publish-multiarch,Dockerfile.web_ui,$(WEB_UI_IMAGE),../web)
 
 push-docs: ## Push Documentation Docker image
 	docker push intelijence/th-docs:$(VERSION)

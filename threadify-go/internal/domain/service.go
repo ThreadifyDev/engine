@@ -116,6 +116,7 @@ type ThreadService interface {
 // OTelThreadWriter exposes the existing thread write path to stateless,
 // authenticated telemetry ingestion without requiring a WebSocket session.
 type OTelThreadWriter interface {
+	CompleteTraceForIngestion(ctx context.Context, threadID, ownerID, companyID, traceID string, endedAt time.Time) error
 	StartThreadForIngestion(ctx context.Context, req *StartThreadCmd, ownerID, companyID string) *StartThreadResponse
 	RecordEventForIngestion(ctx context.Context, req *RecordEventCmd, ownerID, companyID string) *RecordEventResponse
 	ValidateThreadForIngestion(ctx context.Context, threadID, ownerID, companyID string) error

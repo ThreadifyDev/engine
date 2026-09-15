@@ -6,15 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/perf"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
+	"github.com/threadify/engine/internal/repository/valkey"
 	"go.uber.org/zap"
 )
 
@@ -61,24 +59,8 @@ func (ses *StepEventService) Start() error { return nil }
 // Stop is a no-op for direct write mode.
 func (ses *StepEventService) Stop() error { return nil }
 
-// loadLuaScript loads a Lua script from the valkey/lua directory.
-func loadLuaScript(filename string) (string, error) {
-	paths := []string{
-		filepath.Join("internal", "repository", "valkey", "lua", filename),
-		filepath.Join("threadify-go", "internal", "repository", "valkey", "lua", filename),
-	}
-	// Prefer an absolute path relative to this source file so tests can run from any working directory.
-	if _, thisFile, _, ok := runtime.Caller(0); ok {
-		serviceDir := filepath.Dir(thisFile) // .../internal/service
-		paths = append([]string{filepath.Join(serviceDir, "..", "repository", "valkey", "lua", filename)}, paths...)
-	}
-	for _, path := range paths {
-		if data, err := os.ReadFile(path); err == nil {
-			return string(data), nil
-		}
-	}
-	return "", fmt.Errorf("lua script not found: %s", filename)
-}
+// loadLuaScript reads the same embedded scripts used by the release binary.
+func loadLuaScript(filename string) (string, error) { return valkey.HashScript(filename) }
 
 func (ses *StepEventService) RecordStepEventDirect(ctx context.Context, event domain.StepEvent, ownerID, serviceName string, subSteps []domain.SubStepCmd) error {
 	if err := ses.validateStepEvent(event); err != nil {

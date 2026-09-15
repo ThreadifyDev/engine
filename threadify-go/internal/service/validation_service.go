@@ -95,6 +95,7 @@ func (s *ValidationService) CheckStepTimeout(
 func (s *ValidationService) CheckMaxDuration(
 	thread *domain.Thread,
 	graph *domain.ContractGraph,
+	at ...time.Time,
 ) *domain.ValidationViolation {
 	// No validation rules or max duration defined
 	if graph.Validation == nil || graph.Validation.MaxDuration == "" {
@@ -107,8 +108,13 @@ func (s *ValidationService) CheckMaxDuration(
 		return nil // Invalid format, skip validation
 	}
 
-	// Calculate elapsed time
-	elapsed := time.Since(thread.StartedAt)
+	// Calculate elapsed time. OTLP callers supply the source event time so a
+	// delayed export does not inflate workflow duration.
+	finishedAt := time.Now()
+	if len(at) > 0 {
+		finishedAt = at[0]
+	}
+	elapsed := finishedAt.Sub(thread.StartedAt)
 
 	if elapsed > maxDuration {
 		return &domain.ValidationViolation{

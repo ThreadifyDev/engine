@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	sharedauth "threadify-go/shared/auth"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,18 @@ type AuthRepository struct {
 
 func NewAuthRepository(db *pgxpool.Pool) *AuthRepository {
 	return &AuthRepository{db: db}
+}
+
+// FindSessionUser resolves tenant identity from the verified provider subject,
+// not from user-editable JWT metadata.
+func (r *AuthRepository) FindSessionUser(ctx context.Context, subject string) (*sharedauth.TokenClaims, error) {
+	var user sharedauth.TokenClaims
+	err := r.db.QueryRow(ctx, `SELECT id, company_id, email, email_verified FROM users WHERE auth_user_id = $1`, subject).
+		Scan(&user.UserID, &user.CompanyID, &user.Email, &user.EmailVerified)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // ValidateAPIKey retrieves API key information with service account and role details

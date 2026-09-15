@@ -1,0 +1,306 @@
+# Single-process engine with embedded NATS and persistence workers.
+# Copy subscription.selfhost.yaml beside your deployed config as subscription.yaml.
+# External account authentication and credit billing remain required.
+server:
+  port: 8081
+  host: 0.0.0.0
+  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
+
+postgres:
+  url: "$POSTGRES_URL"
+  max_connections: 25
+  max_idle_connections: 5
+
+redis:
+  host: "$VALKEY_HOST:localhost"
+  port: 6379
+  password: "$VALKEY_PASSWORD"
+  db: 0
+  pool_size: 200  # Increased for archiver with many concurrent streams
+  min_idle_conns: 10              # Minimum idle connections to keep ready
+  max_idle_conns: 100             # Maximum idle connections to maintain
+  max_retries: 1                  # Fail fast on errors
+  dial_timeout_ms: 2000           # Connection establishment timeout (2s)
+  read_timeout_ms: 500            # Read operation timeout (500ms)
+  write_timeout_ms: 500           # Write operation timeout (500ms) - can be increased for high goroutine concurrency
+  pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
+  conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
+
+
+auth_provider: supabase
+
+supabase:
+  url: "$SUPABASE_URL:"
+  publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
+  secret_key: "$SUPABASE_SECRET_KEY:"
+  request_timeout_seconds: 10
+
+
+jwks:
+  url: "$JWKS_URL:"
+  audience: "$JWKS_AUDIENCE:authenticated"
+  issuer: "$JWKS_ISSUER"
+
+
+queue:
+  ttl_seconds: 7776000
+
+thread_activities:
+  batch_size: 100
+  batch_timeout_ms: 1000
+
+rate_limit:
+  enabled: true
+  ip_rate_limit_enabled: true
+  ip_requests_per_window: 100
+  window_seconds: 60
+  redis_timeout_ms: 5         # Valkey timeout in milliseconds (fail-open if exceeded)
+
+# WebSocket configuration
+websocket:
+  handshake_timeout_seconds: 10
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  max_in_flight_max: 100      # Maximum allowed maxInFlight per client
+  max_in_flight_default: 10   # Default maxInFlight if not specified
+  read_deadline_seconds: 60   # Close connection if no message received in this window
+
+
+cache:
+  contract_ttl_ms: 18000000    # Contract data expires after 5 hours (hot cache, PostgreSQL fallback)
+  thread_ttl_ms: 18000000      # Thread data expires after 5 hours (hot cache, PostgreSQL fallback)
+  step_event_ttl_ms: 18000000  # Step events expire after 5 hours (hot cache, PostgreSQL fallback)
+  session_ttl_ms: 1800000      # WebSocket session expires after 30 minutes (short-lived, no persistence)
+  plan_ttl_ms: 10000           # Plan cache expires after 10s (fail safe short config)
+
+  # LRU cache sizes for in-memory caching
+  lru:
+    contract_cache_size: 1000        # Contract graph versions
+    thread_cache_size: 10000         # Thread metadata
+    role_cache_size: 50000           # User roles per thread
+    step_status_cache_size: 100000   # Step status for duplicate detection
+
+# Invitation configuration
+invitations:
+  default_permissions: "read,write"    # Default permissions for invitations
+  default_expiry: "24h"               # Default expiry for invitation tokens
+  max_expiry: "7d"                    # Maximum allowed expiry
+  # allowed_roles removed - roles now validated dynamically against contract parties
+
+# Thread access batching configuration
+thread_access:
+  batch_size: 25              # Flush when buffer reaches this size
+  batch_timeout_ms: 50        # Flush every 50ms (hybrid: whichever comes first)
+  buffer_size: 100            # Channel buffer size for async writes
+
+logging:
+  level: info
+
+# Performance monitoring configuration
+performance:
+  # Enable performance monitoring (time.Now() calls and [PERF] logs)
+  # Set to false in production to eliminate GC pressure from timing operations
+  # Recommended: true for dev/staging, false for production
+  monitoring_enabled: false
+
+# Security configuration
+security:
+  # Hash chain secrets for HMAC-based activity log integrity verification
+  # Generate with: openssl rand -hex 32
+  # Keep all versions forever to verify old chains after key rotation
+  hash_chain_secrets:
+    v1: "$HASH_CHAIN_SECRET_V1"
+  hash_chain_current_version: "v1"
+
+# Timeout configuration for context operations
+timeouts:
+  default_operation_seconds: 30      # Default timeout for most operations
+  validation_seconds: 60             # Timeout for async validations
+  database_query_seconds: 10         # Timeout for database queries
+  redis_operation_seconds: 5         # Timeout for Redis operations
+  nats_publish_seconds: 5            # Timeout for NATS publishing
+  archival_operation_seconds: 30     # Timeout for archival operations
+
+# Embedded NATS uses an in-process connection; no public broker listener.
+nats:
+  mode: embedded
+  store_dir: /data/jetstream
+  max_memory_bytes: 67108864     # 64 MiB broker memory budget
+  max_store_bytes: 8589934592    # 8 GiB shared broker file storage budget
+  archival_max_bytes: 1073741824 # 1 GiB per archival stream
+  archival_max_age_hours: 0     # Keep pending archival messages until acknowledged
+  cluster_id: "threadify-cluster"
+  client_id: "threadify-server"
+  stream_name: "NOTIFICATIONS"
+  retention_hours: 48
+  max_age_hours: 168  # 7 days
+  ack_wait_seconds: 30
+  pool_size: 5
+
+  # Consumer configuration
+  consumer_ack_wait_seconds: 30
+  consumer_max_deliver: 3
+  consumer_max_ack_pending: 100
+
+  # Archiver configuration (unlimited retries to prevent data loss)
+  archiver_max_deliver: -1  # -1 = unlimited retries
+  archiver_ack_wait_seconds: 30
+
+  # Stream retention
+  notifications_retention_days: 3
+  dlq_retention_days: 7
+
+# Notification system configuration
+notification_system:
+  # System-defined notification scopes
+  scopes:
+    owner:
+      description: "Full access to all notifications"
+      permissions:
+        - all_violations
+        - all_completions
+        - thread_lifecycle
+
+    participant:
+      description: "Normal access for active parties"
+      permissions:
+        - own_step_violations
+        - critical_violations
+        - completions
+        - thread_lifecycle
+
+    observer:
+      description: "Read-only access for monitoring"
+      permissions:
+        - completions
+        - thread_lifecycle
+
+  # Default scope if not specified
+  default_scope: participant
+
+# Archiver service configuration
+archiver:
+  enabled: true
+  metrics_port: 9091
+
+  # Buffer settings per queue type
+  buffers:
+    thread_step_state:
+      size: 100
+      flush_interval_ms: 10000
+    thread_metadata:
+      size: 50
+      flush_interval_ms: 5000
+    thread_access:
+      size: 50
+      flush_interval_ms: 5000
+    thread_validations:
+      size: 100
+      flush_interval_ms: 5000
+
+  # Partitioned activity streams (global streams with partitioning)
+  activity_streams:
+    enabled: true
+    num_partitions: 10
+    workers_per_instance: 3
+    buffer_size: 200
+    flush_interval_ms: 5000
+    max_buffer_size: 1000
+    trim_enabled: true
+    trim_maxlen: 10000
+
+  # Retry configuration for failed writes
+  retry:
+    max_attempts: 6
+    initial_backoff_ms: 1000
+    max_backoff_ms: 16000
+
+  # Valkey stream configuration
+  streams:
+    consumer_group: "archiver-group"
+    block_timeout_ms: 5000
+    batch_size: 100
+    step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)
+
+# External Web API configuration (the engine binary does not serve it)
+web_api:
+  enabled: true
+  port: 3001
+  host: 0.0.0.0
+  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
+  frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
+  outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
+
+  # Email service (Plunk)
+  email:
+    plunk_api_key: "$PLUNK_API_KEY:"
+    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
+    plunk_api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
+
+  # Threadify Engine integration
+  threadify_engine:
+    url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
+    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
+  # Agent LLM configuration
+  openai_api_key: "$OPENAI_API_KEY:"
+
+  # API Key settings
+  api_key_ttl_hours: 8760  # 365 days
+
+  # Rate limiting
+  rate_limit:
+    requests: 100
+    window_minutes: 1
+
+  # AI Agent conversation limits
+  agent:
+    max_messages: 100    # Maximum messages per conversation
+    max_tokens: 100000  # Maximum tokens per conversation (100K tokens)
+    summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
+
+# Worker pool configuration for bounded concurrency
+worker_pools:
+  validation:
+    min_workers: 10              # CPU cores (default: runtime.NumCPU())
+    max_workers: 40              # 4x CPU cores
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 30000   # 30 seconds
+    job_timeout_ms: 60000        # 60 seconds
+    submit_retry_wait_ms: 10     # Non-blocking: drop immediately if full
+
+  notification:
+    min_workers: 20              # 2x CPU cores
+    max_workers: 80              # 8x CPU cores
+    queue_size: 10000
+    scale_up_threshold: 1000
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 30000        # 30 seconds
+    submit_retry_wait_ms: 0      # Non-blocking: drop immediately if full
+
+  writeback:
+    min_workers: 2
+    max_workers: 10              # CPU cores
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 120000  # 120 seconds
+    job_timeout_ms: 10000        # 10 seconds
+    submit_retry_wait_ms: 10      # Drop immediately (low priority)
+
+  archival:
+    min_workers: 10              # CPU cores
+    max_workers: 40              # 4x CPU cores
+    queue_size: 5000
+    scale_up_threshold: 500
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 15000        # 15 seconds
+    submit_retry_wait_ms: 10    # Try harder before dropping (audit data)
+
+  activity:
+    min_workers: 5               # CPU cores / 2
+    max_workers: 20              # 2x CPU cores
+    queue_size: 2000
+    scale_up_threshold: 200
+    scale_down_after_ms: 60000   # 60 seconds
+    job_timeout_ms: 30000        # 30 seconds
+    submit_retry_wait_ms: 10     # Brief retry

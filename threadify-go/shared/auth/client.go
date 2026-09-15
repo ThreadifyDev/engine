@@ -22,6 +22,12 @@ type AuthUserInfo struct {
 	EmailVerified bool
 }
 
+// AccessTokenVerifier validates a session against the configured auth provider.
+// In particular, symmetric Supabase signing keys cannot be verified via JWKS.
+type AccessTokenVerifier interface {
+	VerifyAccessToken(ctx context.Context, token string) (*AuthUserInfo, error)
+}
+
 type AuthClient interface {
 	RegisterUser(ctx context.Context, email, password, fullName, localUserID, companyID string) (string, error)
 	LoginWithPassword(ctx context.Context, email, password, clientIP string) (string, *AuthUserInfo, error)

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"threadify-go/shared/rbac"
@@ -60,6 +61,95 @@ type ThreadService struct {
 	rbacLoader            *rbac.Loader
 	writeBackPool         *workerpool.Pool
 	logger                *zap.Logger
+	timeoutMonitor        interface{ Stop() }
+	stopOnce              sync.Once
+	monitorStopOnce       sync.Once
+	consumerStopOnce      sync.Once
+	backgroundMu          sync.Mutex
+	backgroundPending     int
+	backgroundStopped     bool
+	backgroundDone        chan struct{}
+}
+
+// Stop prevents new detached work and stops the service's recurring producers.
+// Call after request handlers have drained, then WaitBackground before closing
+// the broker, database, or Valkey connections.
+func (s *ThreadService) Stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.StopContext(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("thread service shutdown incomplete", zap.Error(err))
+	}
+}
+
+// StopContext stops recurring producers within the caller's shutdown deadline.
+// It may be called again to wait for producers that outlived an earlier deadline.
+func (s *ThreadService) StopContext(ctx context.Context) error {
+	s.stopOnce.Do(func() {
+		s.backgroundMu.Lock()
+		s.backgroundStopped = true
+		s.backgroundDone = make(chan struct{})
+		if s.backgroundPending == 0 {
+			close(s.backgroundDone)
+		}
+		s.backgroundMu.Unlock()
+	})
+	var err error
+	if s.timeoutMonitor != nil {
+		if monitor, ok := s.timeoutMonitor.(interface{ StopContext(context.Context) error }); ok {
+			err = errors.Join(err, monitor.StopContext(ctx))
+		} else {
+			s.monitorStopOnce.Do(s.timeoutMonitor.Stop)
+		}
+	}
+	if s.notificationConsumer != nil {
+		if consumer, ok := any(s.notificationConsumer).(interface{ StopContext(context.Context) error }); ok {
+			err = errors.Join(err, consumer.StopContext(ctx))
+		} else {
+			s.consumerStopOnce.Do(s.notificationConsumer.Stop)
+		}
+	}
+	return err
+}
+
+// WaitBackground waits for accepted detached publications to finish. A deadline
+// does not discard unfinished work; callers can wait again with another context.
+func (s *ThreadService) WaitBackground(ctx context.Context) error {
+	stopErr := s.StopContext(ctx)
+	s.backgroundMu.Lock()
+	done := s.backgroundDone
+	s.backgroundMu.Unlock()
+	select {
+	case <-done:
+		return stopErr
+	case <-ctx.Done():
+		return errors.Join(stopErr, ctx.Err())
+	}
+}
+
+func (s *ThreadService) runBackground(fn func()) bool {
+	s.backgroundMu.Lock()
+	if s.backgroundStopped {
+		s.backgroundMu.Unlock()
+		if s.logger != nil {
+			s.logger.Warn("background work rejected after thread service shutdown")
+		}
+		return false
+	}
+	s.backgroundPending++
+	s.backgroundMu.Unlock()
+	go func() {
+		defer func() {
+			s.backgroundMu.Lock()
+			s.backgroundPending--
+			if s.backgroundStopped && s.backgroundPending == 0 {
+				close(s.backgroundDone)
+			}
+			s.backgroundMu.Unlock()
+		}()
+		fn()
+	}()
+	return true
 }
 
 // NewThreadService creates a ThreadService using the builder pattern.
@@ -191,6 +281,15 @@ func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThread
 		return errResp("Role is required when contract name is provided")
 	}
 
+	startedAt := time.Now()
+	if req.StartedAt != "" {
+		var err error
+		startedAt, err = time.Parse(time.RFC3339Nano, req.StartedAt)
+		if err != nil {
+			return errResp("Invalid startedAt")
+		}
+	}
+
 	if err := s.planService.DecrementIngress(ctx, companyID, 1); err != nil {
 		return errResp("Cannot start thread: " + err.Error())
 	}
@@ -257,7 +356,7 @@ func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThread
 		Status:          domain.ThreadStatusActive,
 		Refs:            req.Refs,
 		Tags:            req.Tags,
-		StartedAt:       time.Now(),
+		StartedAt:       startedAt,
 	}
 
 	creatorRole := req.Role
@@ -307,7 +406,9 @@ func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThread
 	s.cacheManager.SetThread(threadID, thread)
 
 	// Consolidate archival publication into a single sequential goroutine to minimize race conditions in the archiver.
-	go s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, req.ServiceName, access, runtimeRole)
+	s.runBackground(func() {
+		s.publishThreadInitialArchivalAsync(threadID, ownerID, companyID, thread, req.Role, req.ServiceName, access, runtimeRole)
+	})
 
 	// Process refs in hot cache (Valkey) if provided
 	if len(req.Refs) > 0 {
@@ -320,12 +421,12 @@ func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThread
 
 	// Schedule thread max duration timeout if contract has max_duration validation
 	if contractGraph != nil && s.notificationService != nil {
-		go func(graph *domain.ContractGraph) {
+		s.runBackground(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, graph, thread, thread.StartedAt)
-		}(contractGraph)
+			s.notificationService.scheduleThreadMaxDurationTimeout(ctx, threadID, contractGraph, thread, thread.StartedAt)
+		})
 	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
@@ -442,7 +543,11 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 		}
 	}
 
-	if thread.Status == domain.ThreadStatusCompleted {
+	// OTLP arrival order is independent of execution completion. Only the
+	// authenticated ingestion path may append to its own completed trace.
+	allowLateOTel := !requireConnection && isOwnedOTelThread(thread, companyID, req.Refs["otel_trace_id"]) &&
+		req.Type == "otel_span" && strings.HasPrefix(req.IdempotencyKey, "otel:"+req.Refs["otel_trace_id"]+":")
+	if thread.Status == domain.ThreadStatusCompleted && !allowLateOTel {
 		return errResp("Cannot add steps to completed thread")
 	}
 
@@ -557,7 +662,7 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 			s.logger.Warn("failed to store refs", zap.String("thread", req.ThreadID), zap.Error(err))
 		} else {
 			s.logger.Info("stored refs", zap.Int("count", len(req.Refs)), zap.String("thread", req.ThreadID))
-			go s.publishRefsToNATS(req.ThreadID, req.Refs)
+			s.publishRefsToNATS(req.ThreadID, req.Refs)
 		}
 	}
 
@@ -794,7 +899,7 @@ func (s *ThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCm
 		return errResp(fmt.Sprintf("Failed to store refs: %v", err))
 	}
 
-	go s.publishRefsToNATS(req.ThreadID, req.Refs)
+	s.publishRefsToNATS(req.ThreadID, req.Refs)
 
 	return &domain.AddRefsResponse{
 		Action:   ActionAddRefs,
@@ -984,7 +1089,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role, invite
 		access = nil
 	}
 
-	go func() {
+	s.runBackground(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		serviceName := ""
@@ -994,7 +1099,7 @@ func (s *ThreadService) GrantOrUpdateThreadAccess(threadID, userID, role, invite
 		if err := s.activityRepo.RecordAccessGranted(ctx, threadID, userID, access, invitedBy, serviceName, runtimeRole); err != nil {
 			s.logger.Warn("failed to record access granted activity", zap.Error(err))
 		}
-	}()
+	})
 
 	return nil
 }
@@ -1108,7 +1213,7 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 		"contractVersion": contractVersion,
 		"status":          string(thread.Status),
 		"error":           "",
-		"startedAt":       thread.StartedAt.Format(time.RFC3339),
+		"startedAt":       thread.StartedAt.Format(time.RFC3339Nano),
 		"tags":            tagsJSON,
 	}); err != nil {
 		s.logger.Error("failed to publish thread metadata to NATS", zap.Error(err))
@@ -1155,7 +1260,7 @@ func (s *ThreadService) publishThreadInitialArchivalAsync(threadID, ownerID, com
 		"contractName":    thread.ContractName,
 		"contractVersion": contractVersion,
 		"role":            role,
-		"timestamp":       thread.StartedAt.Format(time.RFC3339),
+		"timestamp":       thread.StartedAt.Format(time.RFC3339Nano),
 	}); err != nil {
 		s.logger.Error("failed to publish activity log to NATS", zap.Error(err))
 	}
@@ -1166,11 +1271,11 @@ func (s *ThreadService) publishRefsToNATS(threadID string, refs map[string]strin
 	if s.natsArchivalPublisher == nil {
 		return
 	}
-	go func() {
+	s.runBackground(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		s.publishRefsToNATSWithContext(ctx, threadID, refs)
-	}()
+	})
 }
 
 // publishRefsToNATSWithContext publishes each ref as a NATS event using the provided context.

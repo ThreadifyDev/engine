@@ -80,7 +80,7 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) erro
 		"status": string(thread.Status),
 	}
 	if thread.CompletedAt != nil {
-		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339)
+		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339Nano)
 	}
 	pipe.HSet(ctx, metaKey, metadata)
 	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
@@ -298,7 +298,7 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID stri
 	}
 
 	// Execute atomic check-and-update via Lua script
-	result, err := r.valkey.EvalSHA(ctx, scriptHash, []string{metaKey, key}, status, timestamp.Format(time.RFC3339), r.ttl)
+	result, err := r.valkey.EvalSHA(ctx, scriptHash, []string{metaKey, key}, status, timestamp.Format(time.RFC3339Nano), r.ttl)
 	if err != nil {
 		return fmt.Errorf("lua script failed: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
+	sharedbilling "threadify-go/shared/billing"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
 
@@ -113,7 +114,7 @@ func TestBillingHandler_CreateCheckoutSession(t *testing.T) {
 					SuccessURL:              "http://ok",
 					CancelURL:               "http://cancel",
 					ExternalCustomerID:      "ext_123",
-				}).Return("https://stripe.com/checkout", nil)
+				}).Return("https://billing.example.test/checkout", nil)
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -126,11 +127,20 @@ func TestBillingHandler_CreateCheckoutSession(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 		},
 		{
+			name: "local_checkout_disabled",
+			body: map[string]int64{"amount_millicents": 2000},
+			setupMock: func(d *common.MockedHandlers) {
+				d.PlanRepo.EXPECT().GetExternalCustomerID(gomock.Any(), companyID).Return("ext_123", nil)
+				d.BillingProvider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("", sharedbilling.ErrCheckoutUnavailable)
+			},
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
 			name: "provider_error",
 			body: map[string]int64{"amount_millicents": 2000},
 			setupMock: func(d *common.MockedHandlers) {
 				d.PlanRepo.EXPECT().GetExternalCustomerID(gomock.Any(), companyID).Return("ext_123", nil)
-				d.BillingProvider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("", errors.New("stripe fail"))
+				d.BillingProvider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("", errors.New("provider failure"))
 			},
 			wantStatus: http.StatusInternalServerError,
 		},

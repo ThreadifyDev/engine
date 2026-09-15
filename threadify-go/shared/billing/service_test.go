@@ -85,9 +85,9 @@ func TestBillingService_CreateCheckoutSession(t *testing.T) {
 			amount: amount,
 			setupMock: func(repo *billingmocks.MockPlanRepository, provider *billingmocks.MockBillingProvider) {
 				repo.EXPECT().GetExternalCustomerID(gomock.Any(), companyID).Return(extCustID, nil)
-				provider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("https://stripe.com/checkout", nil)
+				provider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("https://billing.example.test/checkout", nil)
 			},
-			wantURL: "https://stripe.com/checkout",
+			wantURL: "https://billing.example.test/checkout",
 		},
 		{
 			name:      "zero_amount",
@@ -114,7 +114,7 @@ func TestBillingService_CreateCheckoutSession(t *testing.T) {
 			amount: amount,
 			setupMock: func(repo *billingmocks.MockPlanRepository, provider *billingmocks.MockBillingProvider) {
 				repo.EXPECT().GetExternalCustomerID(gomock.Any(), companyID).Return(extCustID, nil)
-				provider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("", errors.New("stripe error"))
+				provider.EXPECT().CreateCheckoutSession(gomock.Any()).Return("", errors.New("provider error"))
 			},
 			wantErr: true,
 		},

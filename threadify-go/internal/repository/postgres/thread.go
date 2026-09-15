@@ -40,12 +40,13 @@ func scanThreadRow(row pgx.Row, thread *domain.Thread) error {
 	var completedAt *time.Time
 	var contractID, contractName *string
 	var contractVersion *int
+	var ownerID sql.NullString
 	var status, errorMsg, label *string
 	var tags []string
 
 	if err := row.Scan(
 		&thread.ID, &label, &contractID, &contractName, &contractVersion,
-		&thread.OwnerID, &thread.CompanyID,
+		&ownerID, &thread.CompanyID,
 		&status, &errorMsg,
 		&createdAt, &updatedAt, &completedAt,
 		&tags,
@@ -54,6 +55,7 @@ func scanThreadRow(row pgx.Row, thread *domain.Thread) error {
 	}
 
 	thread.Tags = tags
+	thread.OwnerID = ownerID.String
 
 	if label != nil {
 		thread.Label = *label
@@ -625,10 +627,11 @@ func scanSimpleThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
 		var t domain.Thread
 		var createdAt, updatedAt time.Time
 		var label *string
+		var ownerID sql.NullString
 		var status *string
 		if err := rows.Scan(
 			&t.ID, &label, &t.ContractID, &t.ContractVersion,
-			&t.OwnerID, &t.CompanyID, &status,
+			&ownerID, &t.CompanyID, &status,
 			&createdAt, &updatedAt, &t.Error,
 		); err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
@@ -636,6 +639,7 @@ func scanSimpleThreadRows(rows pgx.Rows) ([]*domain.Thread, error) {
 		if label != nil {
 			t.Label = *label
 		}
+		t.OwnerID = ownerID.String
 		if status != nil {
 			t.Status = domain.ThreadStatus(*status)
 		}

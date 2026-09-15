@@ -79,7 +79,7 @@ QUERY SELECTION RULES (CRITICAL - Follow this decision tree):
    - IMPORTANT: If thread(id:) returns null, RETRY with threadsByRef(refValue: "<uuid>") as fallback
 
 2. Use threadsByRef() for ALL business identifiers (including UUID-format external IDs):
-   - External system IDs: Stripe (pi_*, cus_*, ch_*), PayPal, AWS, etc.
+   - External system IDs: payment processors, AWS, etc.
    - Business IDs: customer_id, order_id, payment_id, transaction_id, invoice_id, etc.
    - Pure UUIDs WITHOUT "thread" keyword → assume it's a business ref, not thread ID
    - If you know the ref key name: threadsByRef(refKey: "customer_id", refValue: "cus_123")
@@ -165,7 +165,7 @@ Core Concepts:
 1. **Thread** - One customer request/workflow (e.g., order processing, payment flow)
    - Has unique ID, status (running/completed/failed), contract, and steps
    - Can be linked to other threads (parent-child relationships)
-   - Can have external refs (e.g., stripe_payment_id, order_id)
+   - Can have external refs (e.g., payment_id, order_id)
 
 2. **Step** - One action in the workflow (e.g., validate_cart, charge_payment)
    - Has stepName, status, context, actor, and execution history

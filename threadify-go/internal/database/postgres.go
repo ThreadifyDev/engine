@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,6 +26,7 @@ func NewPostgresDB(connString string, maxConns int) (*PostgresDB, error) {
 	}
 
 	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("database ping failed: %w", err)
 	}
 
@@ -36,14 +38,25 @@ func (db *PostgresDB) Close() {
 }
 
 func (db *PostgresDB) InitSchema(ctx context.Context) error {
-	// Acquire a PostgreSQL session-level advisory lock so concurrent processes
-	// (server + archiver) don't race to execute the same DDL simultaneously.
+	// Pin the session: acquiring and releasing a session advisory lock through
+	// Pool.Exec can use different connections and leave the lock held forever.
 	// Key 1 is arbitrary but must be the same across all callers.
 	const lockKey = 1
-	if _, err := db.Pool.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+	conn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire schema connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
 		return fmt.Errorf("failed to acquire schema lock: %w", err)
 	}
-	defer db.Pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey) //nolint:errcheck
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(unlockCtx, "SELECT pg_advisory_unlock($1)", lockKey); err != nil {
+			_ = conn.Conn().Close(unlockCtx)
+		}
+	}()
 	schema := `
 	-- Shared tables (also created by Web API for independence)
 	CREATE TABLE IF NOT EXISTS companies (
@@ -1086,7 +1099,7 @@ END $$;
 		END IF;
 	END $$;
 	`
-	_, err := db.Pool.Exec(ctx, schema)
+	_, err = conn.Exec(ctx, schema)
 	return err
 }
 
@@ -1169,17 +1182,30 @@ LIMIT @limit::int;',
 		'Volume Over Time',
 		'Volume of thread activity bucketed over time.',
 		'-- @param granularity enum(15m, 1h, 1d, 1w, 1M) Time bucket size
-SELECT
-    DATE_TRUNC(@granularity::text, t.created_at) AS period,
-    t.status AS thread_outcome,
-    COUNT(*) AS thread_count
-FROM thread_refs tr
-JOIN threads t ON t.id = tr.thread_id
-WHERE tr.ref_value = @ref_value
-  AND tr.ref_key = ANY(@ref_keys)
-  AND t.created_at >= @start_time
-  AND t.created_at <= @end_time
-GROUP BY DATE_TRUNC(@granularity::text, t.created_at), t.status
+WITH bucketed AS (
+    SELECT
+        CASE @granularity::text
+            WHEN ''15m'' THEN DATE_BIN(INTERVAL ''15 minutes'', t.created_at, TIMESTAMP ''1970-01-01'')
+            WHEN ''1h'' THEN DATE_TRUNC(''hour'', t.created_at)
+            WHEN ''1d'' THEN DATE_TRUNC(''day'', t.created_at)
+            WHEN ''1w'' THEN DATE_TRUNC(''week'', t.created_at)
+            WHEN ''1M'' THEN DATE_TRUNC(''month'', t.created_at)
+            ELSE DATE_TRUNC(''day'', t.created_at)
+        END AS period,
+        t.status AS thread_outcome
+    FROM threads t
+    WHERE EXISTS (
+        SELECT 1 FROM thread_refs tr
+        WHERE tr.thread_id = t.id
+          AND tr.ref_value = @ref_value
+          AND tr.ref_key = ANY(@ref_keys)
+    )
+      AND t.created_at >= @start_time
+      AND t.created_at <= @end_time
+)
+SELECT period, thread_outcome, COUNT(*) AS thread_count
+FROM bucketed
+GROUP BY period, thread_outcome
 ORDER BY period ASC, thread_outcome;',
 		false
 	),

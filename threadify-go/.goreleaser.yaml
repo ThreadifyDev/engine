@@ -1,0 +1,64 @@
+version: 2
+project_name: threadify
+
+builds:
+  - id: threadify
+    main: ./cmd/server
+    binary: threadify
+    env:
+      - CGO_ENABLED=0
+      - GOMAXPROCS=2
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # One architecture per OS: Apple Silicon Macs and x86-64 Linux/Windows.
+    ignore:
+      - {goos: darwin, goarch: amd64}
+      - {goos: linux, goarch: arm64}
+      - {goos: windows, goarch: arm64}
+    flags: [-trimpath, -p=2]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # Only reviewed self-hosting templates are shipped, never config.yaml/.env.
+    files:
+      - SELF_HOSTING.md
+      - src: config/config.selfhost.yaml
+        dst: config/config.yaml
+      - src: config/subscription.selfhost.yaml
+        dst: config/subscription.yaml
+
+checksum:
+  name_template: checksums.txt
+
+dockers_v2:
+  - images: [ghcr.io/creativejoe007/threadify-engine]
+    tags:
+      - "{{ .Tag }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    dockerfile: Dockerfile.goreleaser
+    platforms: [linux/amd64]
+    extra_files:
+      - config/config.selfhost.yaml
+      - config/subscription.selfhost.yaml
+    labels:
+      org.opencontainers.image.source: https://github.com/creativeJoe007/ThreadifyEngine
+      org.opencontainers.image.title: Threadify engine
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+
+release:
+  github:
+    owner: creativeJoe007
+    name: ThreadifyEngine
+  name_template: "Threadify engine {{ .Tag }}"
+  replace_existing_artifacts: true
+
+changelog:
+  # Supplied by the workflow so SDK commits do not appear in engine notes.
+  disable: true

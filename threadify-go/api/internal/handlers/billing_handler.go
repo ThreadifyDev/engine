@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"threadify-go/api/internal/dto"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	sharedauth "threadify-go/shared/auth"
+	sharedbilling "threadify-go/shared/billing"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
 )
@@ -108,6 +110,10 @@ func (h *BillingHandler) CreateCheckoutSession(c *gin.Context) {
 		*req.AmountMillicents,
 	)
 	if err != nil {
+		if errors.Is(err, sharedbilling.ErrCheckoutUnavailable) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Local checkout is disabled; external billing integration is not configured"})
+			return
+		}
 		if de := serror.GetDomainError(err); de != nil {
 			c.JSON(de.Code, gin.H{"error": de.Message})
 			return

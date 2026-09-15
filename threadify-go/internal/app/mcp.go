@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/graphql"
 	"go.uber.org/zap"
 )
 
@@ -313,10 +313,7 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc domain.PlanS
 		Description: "Threadify GraphQL schema - shows all available queries for investigating business process execution. Threadify tracks distributed workflow execution step-by-step, helping debug silent failures where services succeed but downstream processes never run. Use this schema to discover how to query threads, steps, validation results, and cryptographic integrity verification.",
 		MIMEType:    "application/graphql",
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		content, err := os.ReadFile("internal/graphql/schema.graphql")
-		if err != nil {
-			return nil, fmt.Errorf("failed to read schema: %w", err)
-		}
+		content := graphql.Schema
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{
 				{

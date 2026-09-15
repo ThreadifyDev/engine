@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -48,13 +47,6 @@ type wsEnvelope struct {
 	Notification domain.ValidationNotification `json:"notification"`
 }
 
-func natsURI() string {
-	if uri := os.Getenv("NATS_URI"); uri != "" {
-		return uri
-	}
-	return nats.DefaultURL
-}
-
 func TestNotificationRouter_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -62,7 +54,7 @@ func TestNotificationRouter_Integration(t *testing.T) {
 
 	logger, _ := zap.NewDevelopment()
 
-	nc, err := nats.Connect(natsURI())
+	nc, err := nats.Connect(env.Nats.URI)
 	require.NoError(t, err)
 	defer nc.Close()
 

@@ -14,6 +14,25 @@ import (
 
 const defaultTimeoutSeconds = 10
 
+// NewSupabaseAccessTokenVerifier creates a read-only session verifier. Engines
+// need only the publishable key, never the provider's administrative secret.
+func NewSupabaseAccessTokenVerifier(cfg SupabaseAuthConfig) (AccessTokenVerifier, error) {
+	if strings.TrimSpace(cfg.URL) == "" || strings.TrimSpace(cfg.PublishableKey) == "" {
+		return nil, errors.New("supabase session verifier: url and publishable_key are required")
+	}
+	timeoutSec := cfg.RequestTimeoutSeconds
+	if timeoutSec <= 0 {
+		timeoutSec = defaultTimeoutSeconds
+	}
+	timeout := time.Duration(timeoutSec) * time.Second
+	return &supabaseClient{
+		baseURL:        strings.TrimRight(strings.TrimSpace(cfg.URL), "/"),
+		publishableKey: strings.TrimSpace(cfg.PublishableKey),
+		timeout:        timeout,
+		httpCli:        &http.Client{Timeout: timeout},
+	}, nil
+}
+
 type SupabaseAuthConfig struct {
 	URL                   string
 	PublishableKey        string
@@ -315,6 +334,32 @@ func (s *supabaseClient) Logout(ctx context.Context, accessToken string) error {
 		return fmt.Errorf("logout: %w", err)
 	}
 	return nil
+}
+
+func (s *supabaseClient) VerifyAccessToken(ctx context.Context, token string) (*AuthUserInfo, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+	var user struct {
+		ID               string `json:"id"`
+		Email            string `json:"email"`
+		EmailConfirmedAt string `json:"email_confirmed_at"`
+	}
+	// The user's bearer token (not the admin key) must be authenticated by
+	// Supabase. Never accept a decoded-but-unverified JWT as a fallback.
+	if err := s.bearerGet(ctx, "/auth/v1/user", token, &user); err != nil {
+		if isSupabaseUnauthorized(err) {
+			return nil, ErrAuthInvalidToken
+		}
+		return nil, fmt.Errorf("validate auth session: %w", err)
+	}
+	if strings.TrimSpace(user.ID) == "" {
+		return nil, ErrAuthInvalidToken
+	}
+	return &AuthUserInfo{Sub: user.ID, Email: user.Email, EmailVerified: user.EmailConfirmedAt != ""}, nil
 }
 
 func (s *supabaseClient) UpdatePassword(ctx context.Context, authUserID, email, newPassword string) (string, error) {
