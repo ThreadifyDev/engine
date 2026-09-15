@@ -179,7 +179,7 @@ func (r *EntityProfileTypeRepo) populateMetrics(ctx context.Context, profileType
 
 func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, companyID string) ([]*domain.EntityProfileType, error) {
 	query := `
-		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
+		SELECT id, company_id, name, slug, type, COALESCE(description, '') AS description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE company_id = $1 AND archived_at IS NULL
 		ORDER BY created_at ASC
@@ -221,7 +221,7 @@ func (r *EntityProfileTypeRepo) GetProfileTypesByCompanyID(ctx context.Context, 
 
 func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileTypeID string) (*domain.EntityProfileType, error) {
 	query := `
-		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
+		SELECT id, company_id, name, slug, type, COALESCE(description, '') AS description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE id = $1 AND archived_at IS NULL
 	`
@@ -252,7 +252,7 @@ func (r *EntityProfileTypeRepo) GetProfileTypeByID(ctx context.Context, profileT
 
 func (r *EntityProfileTypeRepo) GetProfileTypeByType(ctx context.Context, companyID, profileType string) (*domain.EntityProfileType, error) {
 	query := `
-		SELECT id, company_id, name, slug, type, description, archived_at, created_at, updated_at
+		SELECT id, company_id, name, slug, type, COALESCE(description, '') AS description, archived_at, created_at, updated_at
 		FROM entity_profile_type
 		WHERE company_id = $1 AND slug = $2 AND archived_at IS NULL
 	`

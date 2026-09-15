@@ -1,3 +1,5 @@
+import { TabBar } from '~/components/TabBar';
+import { browserHeaders } from '~/lib/browser-session';
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, Plus, X, AlertTriangle, AlertCircle } from 'lucide-react';
@@ -392,15 +394,15 @@ export default function ThreadChat() {
     setIsLoading(true);
 
     try {
-      const token = localStorage.getItem('auth_token');
       const { getConfig } = await import('../config.client');
       const apiUrl = getConfig().apiUrl;
 
       const response = await fetch(`${apiUrl}/api/chat/ask`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...browserHeaders(),
         },
         body: JSON.stringify({
           message: userInput,
@@ -1243,32 +1245,11 @@ export default function ThreadChat() {
           </div>
         )}
 
-        {/* Tab Headers */}
-        <div className="flex border-b border-gray-200 bg-white">
-          <button
-            onClick={() => setActiveTab('diagram')}
-            className={`px-4 py-2.5 text-xs font-medium transition-colors ${
-              activeTab === 'diagram'
-                ? 'text-gray-900 border-b-2 border-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Graph Preview
-          </button>
-          <button
-            onClick={() => setActiveTab('yaml')}
-            className={`px-4 py-2.5 text-xs font-medium transition-colors ${
-              activeTab === 'yaml'
-                ? 'text-gray-900 border-b-2 border-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            YAML Source
-          </button>
-        </div>
+        <TabBar label="Contract preview" value={activeTab} onChange={setActiveTab} panelId="preview-panel" className="shrink-0 bg-white px-4"
+          items={[{value:'diagram',label:'Graph Preview'},{value:'yaml',label:'YAML Source'}]} />
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-hidden">
+        <div id="preview-panel" role="tabpanel" aria-label="Contract preview content" className="flex-1 overflow-hidden">
           {activeTab === 'diagram' && (
             <div className="h-full">
               {(() => {

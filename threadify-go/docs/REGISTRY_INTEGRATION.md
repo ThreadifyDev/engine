@@ -26,7 +26,6 @@ Provision a Threadify-enabled key in Registry. Supply the same values to the
 Engine, management API, and any standalone archiver sharing its database:
 
 ```sh
-export THREADIFY_REGISTRY_URL='https://your-registry.example'
 export THREADIFY_LICENSE_KEY='<the provisioned license>'
 ```
 
@@ -34,9 +33,13 @@ Equivalent configuration:
 
 ```yaml
 registry:
-  url: https://your-registry.example
   license_key: $THREADIFY_LICENSE_KEY
 ```
+
+The production Registry endpoint is built in (`https://registry.usefused.com`).
+For local testing only, set `THREADIFY_REGISTRY_URL` to the fixture endpoint.
+An explicit `registry.url` override takes precedence over that environment
+variable. Overrides never bypass license verification or signed requests.
 
 For an existing company, set `THREADIFY_COMPANY_ID` (or `registry.company_id`)
 explicitly on the first startup to bind that company. Otherwise, the local
@@ -118,3 +121,17 @@ PostgreSQL URL and isolated schema. Compiled binary tests in `cmd/server` and
 The standalone restart test asserts persisted threads and non-reset bandwidth
 counters. It also supports an isolated real Registry handler fixture through
 `THREADIFY_SMOKE_REGISTRY_URL`; its fixed test account/key must match the fixture.
+
+## Browser identity
+
+The Engine now owns `/auth/session`, `/auth/api-key/exchange`,
+`/auth/managed/start`, `/auth/managed/poll`, and `/auth/logout`. The external Web
+API validates the same PostgreSQL-backed sessions. Browser JavaScript no longer
+stores bearer tokens or calls Supabase/password authentication.
+
+Managed identity uses the separate Threadify entitlement gate at
+`/api/threadify/identity/transactions`,
+`/api/threadify/identity/transactions/{id}/exchange`, and
+`/api/threadify/identity/logout`. These routes reuse Registry's existing identity
+provider implementation while preserving account/installation binding. See
+[BROWSER_AUTH.md](BROWSER_AUTH.md) for deployment and membership rules.

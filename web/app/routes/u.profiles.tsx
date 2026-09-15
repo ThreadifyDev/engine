@@ -19,7 +19,7 @@ export default function EntityProfiles() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;

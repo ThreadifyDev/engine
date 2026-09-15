@@ -30,12 +30,12 @@ class NaniteSpec:
         _required_text(self.role, "Nanite role")
 
 
-def register_nanite(spec: NaniteSpec, *, plugin: Any | None = None) -> Any:
+def register_nanite(spec: NaniteSpec, *, extension: Any | None = None) -> Any:
     """Bind one worker to Threadify without introducing another queue."""
 
-    selected_plugin = plugin or _threadify_plugin()
+    selected_extension = extension or _threadify_extension()
 
-    @selected_plugin.on("step.success", spec.trigger_step)
+    @selected_extension.on("step.success", spec.trigger_step)
     async def consume(delivery: Any) -> None:
         """Invoke this Harnest agent, publish its result, then acknowledge."""
 
@@ -108,10 +108,10 @@ def _response_text(payload: Any) -> str:
     return _required_text(value, "Harnest Nanite output")
 
 
-def _threadify_plugin() -> Any:
+def _threadify_extension() -> Any:
     """Import lazily so the shared module remains unit-testable outside activation."""
 
-    from harnest.plugins.threadify import threadify
+    from harnest.extensions.threadify import threadify
 
     return threadify
 

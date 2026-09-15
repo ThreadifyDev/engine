@@ -62,7 +62,7 @@ type CacheManager interface {
 // ContractGraphValidator defines the interface for contract graph operations
 type ContractGraphValidator interface {
 	ValidateStepInContract(ctx context.Context, contractName string, version int, stepName string, context map[string]string, companyID string) error
-	ValidateStepContext(ctx context.Context, stepNode GraphNode, context map[string]string) error
+	ValidateStepContext(ctx context.Context, stepNode GraphNode, context map[string]string, threadID ...string) error
 	GetContractGraph(ctx context.Context, contractName string, version int, companyID string) (*ContractGraph, error)
 	LoadContractGraphIntoCache(ctx context.Context, contractName string, version int, companyID string) (int, error)
 	GetContractByNameAndCompany(ctx context.Context, contractName string, companyID string) (*Contract, error)
@@ -149,6 +149,7 @@ type NotificationPublisher interface {
 }
 
 type UserInfo struct {
+	Roles     []string
 	OwnerID   string
 	CompanyID string
 	Role      string

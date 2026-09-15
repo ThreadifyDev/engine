@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -326,7 +327,7 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *do
 	}
 
 	if err := r.publishWithTimeout(ctx, func(pubCtx context.Context) error {
-		return r.natsPublisher.PublishStepState(pubCtx, map[string]interface{}{
+		data := map[string]interface{}{
 			"stepId":         stepState.ID,
 			"threadId":       stepState.ThreadID,
 			"stepName":       stepState.StepName,
@@ -341,7 +342,12 @@ func (r *ActivityRepository) ArchiveStepState(ctx context.Context, stepState *do
 			"actor":          stepState.Actor,
 			"actorService":   stepState.ActorService,
 			"latestContext":  stepState.LatestContext,
-		})
+		}
+		if stepState.SuccessOrder > 0 {
+			data["successOrder"] = strconv.FormatInt(stepState.SuccessOrder, 10)
+			data["successContext"] = stepState.SuccessContext
+		}
+		return r.natsPublisher.PublishStepState(pubCtx, data)
 	}); err != nil {
 		return fmt.Errorf("failed to archive step state to NATS: %w", err)
 	}

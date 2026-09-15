@@ -96,7 +96,7 @@ if err != nil {
 ```go
 // Using payment provider transaction ID
 result, err := thread.Step("charge_payment").
-    IdempotencyKey(stripePayment.ID).  // e.g., "pi_3ABC123"
+    IdempotencyKey(payment.ID).  // e.g., "pi_3ABC123"
     AddContext(map[string]any{"amount": 99.99}).
     Success(ctx)
 if err != nil {
@@ -164,7 +164,7 @@ if err != nil {
 ```go
 // Add references to the thread
 err := thread.AddRefs(ctx, map[string]string{
-    "stripe_payment_id": "pi_123",
+    "payment_id": "pi_123",
     "order_id": "ORD-456",
 })
 if err != nil {
@@ -585,7 +585,7 @@ func main() {
     }
 
     thread.AddRefs(ctx, map[string]string{
-        "stripe_payment_id": payment.ID,
+        "payment_id": payment.ID,
     })
 
     thread.Step("charge_payment").

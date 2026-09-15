@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
 import { Trash2, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { api } from '~/lib/api';
+import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
 
@@ -29,7 +29,7 @@ export default function Contracts() {
 
   useEffect(() => {
     // Check authentication
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;
@@ -66,7 +66,9 @@ export default function Contracts() {
       setUploadForm({ name: '', yaml: '' });
       fetchContracts();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload contract');
+      setError(err instanceof ValidationError && err.details?.length
+        ? err.details.map(detail => `${detail.field}: ${detail.message}`).join('\n')
+        : err instanceof Error ? err.message : 'Failed to upload contract');
     } finally {
       setUploading(false);
     }
@@ -201,18 +203,36 @@ export default function Contracts() {
             </div>
 
             <form onSubmit={handleUpload} className="p-6">
+              {error && <p role="alert" className="mb-4 whitespace-pre-wrap text-sm text-red-700">{error}</p>}
               <div className="mb-6">
                 <label className="block text-sm font-medium mb-2">
-                  YAML Contract <span className="text-red-600">*</span>
+                  Contract source <span className="text-red-600">*</span>
                 </label>
-                <YamlEditor
+                {!uploadForm.yaml && (
+                  <button type="button" className="text-sm underline mb-2"
+                    onClick={() => setUploadForm({ ...uploadForm, yaml: `Feature: payment_processing
+Version: 1
+Description: Record valid payments.
+
+Rule: Validate a payment
+  When step "charge" is submitted
+  Then owner must be "payment_processor"
+  And content "amount" must be a number greater than 0
+  And content "currency" must be one of "GBP", "USD", "EUR"
+  And this step is an entry point
+  And this step is terminal
+` })}>
+                    Start with a Gherkin example
+                  </button>
+                )}
+                <YamlEditor contractSource
                   value={uploadForm.yaml}
                   onChange={(value) => setUploadForm({ ...uploadForm, yaml: value })}
-                  placeholder="Paste your YAML contract here..."
+                  placeholder="Paste your Gherkin-style contract here..."
                   height="500px"
                 />
                 <p className="text-sm text-gray-600 mt-2">
-                  Define your workflow steps, transitions, and validation rules in YAML format
+                  Write Gherkin-style rules for steps, prerequisites, and content checks. YAML remains accepted temporarily.
                 </p>
               </div>
 

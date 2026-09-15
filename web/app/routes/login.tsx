@@ -1,150 +1,79 @@
-import { useState } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate, Link } from '@remix-run/react';
-import { api, type LoginData, ValidationError } from '~/lib/api';
-import Alert, { type AlertType } from '~/components/Alert';
-import { Eye, EyeOff } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { api } from '~/lib/api';
+import { purgeLegacyToken } from '~/lib/browser-session';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Login - Threadify" },
-    { name: "description", content: "Sign in to your Threadify account" },
-  ];
-};
+/** Both login methods exchange authority for an Engine-owned HttpOnly session. */
+function afterLogin() {
+  const current = new URL(window.location.href);
+  return current.searchParams.get('next') === 'cli-login' ? '/cli-login' + current.hash : '/u/dashboard';
+}
 
 export default function Login() {
-  const navigate = useNavigate();
-  const [formData, setFormData] = useState<LoginData>({
-    email: '',
-    password: '',
-  });
-  const [alert, setAlert] = useState<{ type: AlertType; message: string; details?: Array<{ field: string; message: string }> } | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const controller = useRef<AbortController | null>(null);
+  const popup = useRef<Window | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAlert(null);
-    setIsLoading(true);
+  useEffect(() => {
+    purgeLegacyToken();
+    let mounted = true;
+    api.session().then(s => { if (mounted && s.authenticated) window.location.replace(afterLogin()); }).catch(() => {});
+    return () => { mounted = false; controller.current?.abort(); popup.current?.close(); };
+  }, []);
 
+  async function exchange(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try { await api.exchangeAPIKey(key.trim()); setKey(''); window.location.replace(afterLogin()); }
+    catch { setError('The API key was not accepted for this Engine.'); }
+    finally { setBusy(false); }
+  }
+
+  async function managed() {
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) { setError('Allow a new tab to open, then try signing in again.'); return; }
+    tab.opener = null; popup.current = tab;
+    const abort = new AbortController(); controller.current?.abort(); controller.current = abort;
+    setBusy(true); setError('');
     try {
-      const response = await api.login(formData);
-
-      if (response.email_verification_required) {
-        // User hasn't verified email — send them through the verification flow
-        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=signup`);
-      } else {
-        // Normal login — send them through the OTP flow
-        navigate(`/auth/verify-otp?email=${encodeURIComponent(formData.email)}&type=login`);
+      const transaction = await api.startManagedLogin();
+      if (abort.signal.aborted) return;
+      tab.location.replace(transaction.verification_url);
+      let failures = 0;
+      while (!abort.signal.aborted && Date.now() < Date.parse(transaction.expires_at)) {
+        try {
+          const result = await api.pollManagedLogin(transaction.transaction_id, transaction.poll_token, abort.signal);
+          failures = 0;
+          if (result.status === 'authenticated') {
+            await api.session(); tab.close(); window.location.replace(afterLogin()); return;
+          }
+        } catch (e) { if (abort.signal.aborted) return; if (++failures >= 3) throw e; }
+        if (tab.closed) throw new Error('closed');
+        await new Promise(resolve => window.setTimeout(resolve, 1500));
       }
-    } catch (err) {
-      if (err instanceof ValidationError) {
-        setAlert({
-          type: 'error',
-          message: err.message,
-          details: err.details,
-        });
-      } else {
-        setAlert({
-          type: 'error',
-          message: err instanceof Error ? err.message : 'Login failed',
-        });
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      if (!abort.signal.aborted) setError('Sign-in expired. Please try again.');
+    } catch { if (!abort.signal.aborted) setError('Sign-in could not be completed. Please try again.'); }
+    finally { tab.close(); setBusy(false); }
+  }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-4">
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-black" style={{ fontFamily: 'Block, monospace' }}>
-            Threadify
-          </h1>
-          <h2 className="mt-6 text-3xl font-bold text-black">Welcome back</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Sign in to your account
-          </p>
+  return <main className="min-h-screen bg-white flex items-center justify-center px-4">
+    <div className="w-full max-w-md space-y-6">
+      <h1 className="text-3xl font-bold text-center">Threadify</h1>
+      <div className="rounded-xl border p-8 space-y-5">
+        <h2 className="text-xl font-semibold">Sign in to your Engine</h2>
+        <p className="text-sm text-gray-600">Use your Fused account with email or SSO.</p>
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        <button type="button" disabled={busy} onClick={managed} className="w-full rounded bg-black px-4 py-3 text-white disabled:opacity-50">
+          {busy ? 'Waiting for sign-in…' : 'Continue with email or SSO'}
+        </button>
+        <div className="border-t pt-5">
+          <form onSubmit={exchange} className="space-y-3">
+            <label htmlFor="api-key" className="block text-sm font-medium">API key</label>
+            <input id="api-key" type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} className="w-full rounded border p-3" />
+            <button disabled={busy || !key.trim()} className="w-full rounded border px-4 py-3 disabled:opacity-50">Sign in with API key</button>
+          </form>
         </div>
-
-        {/* Form */}
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {alert && <Alert type={alert.type} message={alert.message} details={alert.details} />}
-
-          <div className="space-y-4">
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-black mb-1">
-                Email Address <span className="text-red-600">*</span>
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
-                placeholder="you@company.com"
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label htmlFor="password" className="block text-sm font-medium text-black">
-                  Password <span className="text-red-600">*</span>
-                </label>
-                <Link to="/auth/forgot-password" className="text-xs text-black hover:underline">
-                  Forgot password?
-                </Link>
-              </div>
-              <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 pr-12 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
-                  placeholder="Enter your password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            {isLoading ? 'Signing in...' : 'Sign In'}
-          </button>
-
-          {/* Signup Link */}
-          <div className="text-center text-sm">
-            <span className="text-gray-600">Don't have an account? </span>
-            <Link to="/signup" className="text-black font-medium hover:underline">
-              Create account
-            </Link>
-          </div>
-        </form>
       </div>
     </div>
-  );
+  </main>;
 }

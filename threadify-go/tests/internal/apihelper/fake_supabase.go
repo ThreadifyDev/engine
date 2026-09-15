@@ -25,6 +25,7 @@ type FakeSupabase struct {
 	mu            sync.Mutex
 	users         map[string]fakeUser
 	revokedTokens map[string]struct{}
+	resetTokens   map[string]string
 
 	privateKey *rsa.PrivateKey
 	publicJWK  jwkKey
@@ -42,6 +43,7 @@ func StartFakeSupabase() *FakeSupabase {
 	f := &FakeSupabase{
 		users:         map[string]fakeUser{},
 		revokedTokens: map[string]struct{}{},
+		resetTokens:   map[string]string{},
 	}
 
 	if err := f.initSigningKey(); err != nil {
@@ -97,7 +99,14 @@ func (f *FakeSupabase) MintToken(userID, companyID, email string) (string, error
 }
 
 func (f *FakeSupabase) GetResetToken(email string) string {
-	return "mock-reset-token" // Always return a successful mock token
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for token, recipient := range f.resetTokens {
+		if recipient == email {
+			return token
+		}
+	}
+	return ""
 }
 
 func (f *FakeSupabase) handleOK(w http.ResponseWriter, _ *http.Request) {
@@ -189,10 +198,26 @@ func (f *FakeSupabase) handleToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *FakeSupabase) handleGenerateLink(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Type  string `json:"type"`
+		Email string `json:"email"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&request)
+	resetToken := "mock-reset-token"
+	if request.Type == "recovery" {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if _, ok := f.users[request.Email]; !ok {
+			http.Error(w, `{"error_code":"user_not_found"}`, http.StatusNotFound)
+			return
+		}
+		resetToken = uuid.NewString()
+		f.resetTokens[resetToken] = request.Email
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"email_otp":     "123456",
-		"hashed_token":  "mock-reset-token",
+		"hashed_token":  resetToken,
 		"action_link":   "http://example.com",
 		"verification":  true,
 		"expires_at":    "",
@@ -218,7 +243,15 @@ func (f *FakeSupabase) handleVerify(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 
 	var user fakeUser
-	if req.Email != "" {
+	if req.TokenHash != "" {
+		email, ok := f.resetTokens[req.TokenHash]
+		if !ok {
+			http.Error(w, `{"error_code":"bad_token"}`, http.StatusUnprocessableEntity)
+			return
+		}
+		user = f.users[email]
+		delete(f.resetTokens, req.TokenHash)
+	} else if req.Email != "" {
 		u, ok := f.users[strings.ToLower(strings.TrimSpace(req.Email))]
 		if ok {
 			user = u
@@ -278,8 +311,30 @@ func (f *FakeSupabase) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (f *FakeSupabase) handleAdminUserUpdate(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/auth/v1/admin/users/")
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "email": ""})
+	var update struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&update)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for email, user := range f.users {
+		if user.ID != id {
+			continue
+		}
+		if update.Password != "" {
+			user.Password = update.Password
+		}
+		if update.Email != "" {
+			delete(f.users, email)
+			user.Email = update.Email
+		}
+		f.users[user.Email] = user
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "email": user.Email})
+		return
+	}
+	http.Error(w, `{"error_code":"user_not_found"}`, http.StatusNotFound)
 }
 
 type jwksResponse struct {

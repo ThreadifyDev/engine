@@ -12,7 +12,6 @@ import {
   Bot,
   Users,
   Settings,
-  Sparkles,
   UserCircle,
   Wallet
 } from 'lucide-react';
@@ -48,7 +47,6 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
 
   const handleLogout = async () => {
     await api.logout();
-    navigate('/login');
   };
 
   const isActive = (path: string) => {
@@ -60,7 +58,6 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
     { path: '/u/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/u/threads', label: 'Threads', icon: GitBranch },
     { path: '/u/profiles', label: 'Entity Profiles', icon: UserCircle },
-    { path: '/u/assistant', label: 'AI Assistant', icon: Sparkles },
     { path: '/u/contracts', label: 'Contracts', icon: FileText },
     { path: '/u/developer', label: 'Developer', icon: Key },
     { path: '/u/team', label: 'Team', icon: Users },
@@ -127,13 +124,15 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
           className={`w-full flex items-center gap-3 transition-colors ${
             isCollapsed ? 'justify-center' : 'justify-start'
           }`}
-          title={isCollapsed ? 'Wallet Balance' : undefined}
+          title={isCollapsed ? (billingData?.billing_source === 'registry' ? 'Threadify plan' : 'Wallet Balance') : undefined}
         >
           <Wallet className="w-5 h-5 flex-shrink-0 text-gray-300" />
           {(!isCollapsed || isMobileOpen) && (
             <div className="flex flex-col items-start overflow-hidden">
-              <span className="text-xs text-gray-500">Balance</span>
-              {billingData?.credit_account ? (
+              <span className="text-xs text-gray-500">{billingData?.billing_source === 'registry' ? 'Plan' : 'Balance'}</span>
+              {billingData?.billing_source === 'registry' ? (
+                <span className="text-sm font-semibold text-white">Fused Registry</span>
+              ) : billingData?.credit_account ? (
                 <span
                   className={`text-sm font-semibold ${
                     billingData.credit_account.balance_millicents < billingData.credit_account.min_balance_millicents

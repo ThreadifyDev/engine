@@ -41,7 +41,7 @@ export default function ServiceAccounts() {
   const loading = rolesLoading || accountsLoading;
 
   useEffect(() => {
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;

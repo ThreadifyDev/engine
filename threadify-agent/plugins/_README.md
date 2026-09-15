@@ -1,1 +1,1 @@
-Add RuntimePlugin folders with plugin.yaml, or manifest-less agent-plugins combining MCP clients and skills.
+Add Agent Plugins 1.0 folders with plugin.json and optional skills/ or mcp.json. Put reusable application functionality in extensions/.

@@ -50,6 +50,10 @@ local allowMultipleTerminals = ARGV[10]
 local ttl = tonumber(ARGV[11]) or 604800  -- Default to 7 days if not provided
 local threadID = ARGV[12]  -- Passed from Go to avoid regex extraction
 local idempotencyKey = ARGV[13]  -- Passed from Go to avoid regex extraction
+local rawContext = ARGV[16] or '{}'
+if rawContext == '' then rawContext = '{}' end
+local successOrder = 0
+local successfulContextKey = 'thread:' .. threadID .. ':successful_contexts'
 local actor = ARGV[14] or ''  -- User who recorded this step (for .own permission filtering)
 local requiredStepsJSON = ARGV[15] or ''
 
@@ -226,6 +230,38 @@ if #requiredSteps > 0 then
     end
 end
 
+-- Fresh prerequisites are consumed per invocation, including failed attempts.
+local invocationKey='thread:'..threadID..':invocation_order'
+local activeKey='thread:'..threadID..':active_invocations'
+local invocationID=ARGV[18] or ''
+local claim=redis.call('HGET',activeKey,stepName)
+local claimed=invocationID~='' and claim==invocationID
+local lastInvocation=tonumber(redis.call('HGET',invocationKey,stepName)) or 0
+local freshJSON=ARGV[17] or '[]'
+local fresh=cjson.decode(freshJSON)
+if type(fresh)=='table' and not claimed then
+ for _,dep in ipairs(fresh) do
+  local raw=redis.call('HGET',successfulContextKey,dep)
+  local order=0
+  if raw then order=tonumber(cjson.decode(raw).order) or 0 end
+  if order<=lastInvocation then
+   hasCriticalViolation=true
+   table.insert(violations,{violationType='fresh_dependency_required',severity='critical',message="Step '"..stepName.."' requires a fresh successful invocation of '"..dep.."'"})
+  end
+ end
+end
+if invocationID~='' and not claimed then
+ hasCriticalViolation=true
+ table.insert(violations,{violationType='invalid_invocation',severity='critical',message='Invocation permission is no longer active'})
+end
+if not claimed then
+ local t=redis.call('TIME')
+ local sequence=tonumber(redis.call('HGET',metaKey,'successOrder')) or 0
+ local order=math.max(t[1]*1000000+t[2],lastInvocation+1,sequence+1)
+ redis.call('HSET',metaKey,'successOrder',string.format('%.0f',order))
+ redis.call('HSET',invocationKey,stepName,string.format('%.0f',order))
+end
+
 -- ---------------------------------------------------------------------------
 -- VALIDATION 3: Multiple Terminal States
 -- ---------------------------------------------------------------------------
@@ -304,6 +340,7 @@ local allViolations = violations
 if existingViolationsJSON ~= '' and existingViolationsJSON ~= '[]' then
     local existingViolations = cjson.decode(existingViolationsJSON)
     for _, v in ipairs(existingViolations) do
+        if v.severity == 'critical' or v.Severity == 'critical' then hasCriticalViolation = true end
         table.insert(allViolations, v)
     end
 end
@@ -355,6 +392,7 @@ if status == 'success' and not hasCriticalViolation then
     local redisTime = redis.call('TIME')
     local score = (redisTime[1] * 1000000) + redisTime[2]
     redis.call('ZADD', currentStepsKey, score, stepKey)
+
 end
 
 -- Store violations if any
@@ -376,6 +414,20 @@ if currentThreadStatus == 'completed' or currentThreadStatus == 'cancelled' then
         retryCount = 0,
         hasCriticalViolation = true
     })
+end
+
+-- Publish a reference snapshot only after every rejection check has passed.
+if status == 'success' and not hasCriticalViolation then
+    local redisTime = redis.call('TIME')
+    local score = (redisTime[1] * 1000000) + redisTime[2]
+    -- Order by validation receipt, not caller-supplied event timestamps.
+    local previousOrder = tonumber(redis.call('HGET', metaKey, 'successOrder')) or 0
+    successOrder = math.max(score, previousOrder + 1)
+    redis.call('HSET', metaKey, 'successOrder', string.format('%.0f', successOrder))
+    redis.call('SET', 'thread:'..threadID..':last_validated_success', string.format('%.0f', successOrder))
+    redis.call('HSET', successfulContextKey, stepName, cjson.encode({
+        stepID = stepID, order = string.format('%.0f', successOrder), context = rawContext
+    }))
 end
 
 -- Update thread status if terminal step and success
@@ -434,8 +486,11 @@ if #allViolations == 0 then
     allViolations = cjson.empty_array
 end
 
+if ttl > 0 then redis.call('EXPIRE', successfulContextKey, ttl) end
+
 local result = {
     status = status,
+    successOrder = string.format('%.0f', successOrder),
     violations = allViolations,
     retryCount = tonumber(finalRetryCount),
     hasCriticalViolation = hasCriticalViolation,

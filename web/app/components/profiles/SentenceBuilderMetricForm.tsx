@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { X, Plus, Save, Check } from 'lucide-react';
-import { api, CustomMetricDefinition, CustomMetricFilter } from '~/lib/api';
+import { api, CustomMetricDefinition } from '~/lib/api';
 
 interface SentenceBuilderMetricFormProps {
   onSubmit: (definition: CustomMetricDefinition) => void;
@@ -27,23 +27,20 @@ const FILTER_KEYS = [
   'thread outcome',
   'process type',
   'violation type',
+  'validation severity',
   'tags',
 ] as const;
 
 const STEP_OUTCOMES = ['success', 'failed', 'error'];
-const THREAD_OUTCOMES = ['success', 'failed', 'error', 'incomplete'];
+const THREAD_OUTCOMES = ['active', 'completed', 'cancelled', 'failed', 'error', 'incomplete'];
 const VIOLATION_TYPES = ['sla_breach', 'missing_step', 'wrong_sequence', 'unexpected_outcome', 'partner_silent'];
+const VALIDATION_SEVERITIES = ['critical', 'warning', 'major', 'minor', 'info'];
+const GRANULARITIES = ['hour', 'day', 'week', 'month'] as const;
 
-const GROUP_BY_OPTIONS = ['step name', 'outcome', 'process type', 'violation type', 'tag', 'none'] as const;
-const VISUALISATION_OPTIONS = ['number', 'line', 'table', 'bar'] as const;
+const GROUP_BY_OPTIONS = ['step name', 'outcome', 'actor', 'actor service', 'process type', 'violation type', 'validation severity', 'tag', 'period', 'none'] as const;
 
 function getValidFields(operation: string): string[] {
   return FIELD_OPTIONS[operation] || [];
-}
-
-function getDefaultField(operation: string): string {
-  const fields = getValidFields(operation);
-  return fields[0] || '';
 }
 
 function getFilterValueOptions(key: string): string[] | null {
@@ -51,13 +48,9 @@ function getFilterValueOptions(key: string): string[] | null {
     case 'step outcome': return STEP_OUTCOMES;
     case 'thread outcome': return THREAD_OUTCOMES;
     case 'violation type': return VIOLATION_TYPES;
+    case 'validation severity': return VALIDATION_SEVERITIES;
     default: return null;
   }
-}
-
-function getVisualisationOptions(groupBy: string): string[] {
-  if (!groupBy || groupBy === 'none') return ['number'];
-  return ['table', 'bar'];
 }
 
 function deriveTargetFromField(field: string): 'thread' | 'step' {
@@ -65,6 +58,12 @@ function deriveTargetFromField(field: string): 'thread' | 'step' {
     return 'step';
   }
   return 'thread';
+}
+
+function getTargetsForField(field: string): Array<'thread' | 'step'> {
+  if (field === 'threads') return ['thread'];
+  if (field === 'steps' || field === 'stepCount' || field === 'retries') return ['step'];
+  return ['thread', 'step'];
 }
 
 function calculateComplexity(def: CustomMetricDefinition): number {
@@ -79,7 +78,7 @@ function calculateComplexity(def: CustomMetricDefinition): number {
     score += 2;
   }
   // step join needed when field is steps or step-related on thread target
-  const target = deriveTargetFromField(def.field);
+  const target = def.target || deriveTargetFromField(def.field);
   if (target === 'thread' && (def.field === 'steps' || def.field === 'stepCount' || def.field === 'retries')) {
     score += 2;
   }
@@ -104,7 +103,10 @@ export default function SentenceBuilderMetricForm({
   // Initialize form with initialData when provided
   useEffect(() => {
     if (initialData) {
-      setDefinition(initialData);
+      setDefinition({
+        ...initialData,
+        target: initialData.target || deriveTargetFromField(initialData.field),
+      });
     }
   }, [initialData]);
 
@@ -125,31 +127,39 @@ export default function SentenceBuilderMetricForm({
 
       // Auto-derive target from field
       if (updates.field) {
-        next.target = deriveTargetFromField(next.field);
+        const targets = getTargetsForField(next.field);
+        if (!next.target || !targets.includes(next.target)) {
+          next.target = targets[0];
+        }
         
         // Remove step filters and invalid group by if target changes to thread
         if (next.target === 'thread') {
           if (next.filters) {
-            next.filters = next.filters.filter(f => !['step name', 'step outcome', 'actor', 'actor service'].includes(f.key));
+            next.filters = next.filters.filter(f => !['step name', 'step outcome', 'actor service'].includes(f.key));
           }
-          if (['step name', 'outcome', 'actor', 'actor service'].includes(next.group_by || 'none')) {
+          if (['step name', 'actor service'].includes(next.group_by || 'none')) {
             next.group_by = 'none';
           }
         }
       }
 
-      // Auto-adjust visualisation when groupBy changes — commented out for now
-      /*
-      if (updates.group_by !== undefined && updates.group_by !== prev.group_by) {
-        const visOptions = getVisualisationOptions(next.group_by || 'none');
-        if (!visOptions.includes(next.visualisation || '')) {
-          next.visualisation = visOptions[0];
+      if (updates.target && updates.target !== prev.target) {
+        next.target = updates.target;
+        if (updates.target === 'thread') {
+          next.filters = (next.filters || []).filter(f => !['step name', 'step outcome', 'actor service'].includes(f.key));
+          if (['step name', 'actor service'].includes(next.group_by || 'none')) {
+            next.group_by = 'none';
+          }
         }
-        if (next.group_by === 'none') {
+      }
+
+      if (updates.group_by !== undefined && updates.group_by !== prev.group_by) {
+        if (next.group_by === 'period' && !next.granularity) {
+          next.granularity = 'day';
+        } else if (next.group_by !== 'period') {
           next.granularity = undefined;
         }
       }
-      */
 
       return next;
     });
@@ -190,7 +200,7 @@ export default function SentenceBuilderMetricForm({
 
   const getDefinitionWithTarget = (): CustomMetricDefinition => ({
     ...definition,
-    target: deriveTargetFromField(definition.field),
+    target: definition.target || deriveTargetFromField(definition.field),
   });
 
   const handleSave = () => {
@@ -202,21 +212,21 @@ export default function SentenceBuilderMetricForm({
 
   const validFields = getValidFields(definition.operation || 'COUNT');
   // const visOptions = getVisualisationOptions(definition.group_by || 'none'); // commented out for now
-  const target = deriveTargetFromField(definition.field);
+  const target = definition.target || deriveTargetFromField(definition.field);
+  const targets = getTargetsForField(definition.field);
 
   const availableFilterKeys = FILTER_KEYS.filter(k => {
-    if (target === 'thread' && ['step name', 'step outcome', 'actor', 'actor service'].includes(k)) {
+    if (target === 'thread' && ['step name', 'step outcome', 'actor service'].includes(k)) {
       return false;
     }
     return true;
   });
 
-  // 'step name' and 'outcome' are valid for both targets (step name maps to
-  // s.step_name for step target, t.contract_name for thread target).
-  // 'violation type' requires the validations join — keep it available always.
-  // 'process type' groups by t.contract_name — valid for both targets.
-  // 'period' is always valid.
-  const availableGroupByOptions = GROUP_BY_OPTIONS;
+  const availableGroupByOptions = GROUP_BY_OPTIONS.filter(group => {
+    if (target === 'thread' && (group === 'step name' || group === 'actor service')) return false;
+    if (definition.operation === 'RATE' && definition.field === 'violations' && (group === 'violation type' || group === 'validation severity')) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-5">
@@ -259,6 +269,21 @@ export default function SentenceBuilderMetricForm({
               <option key={f} value={f}>{f}</option>
             ))}
           </select>
+
+          {targets.length > 1 && (
+            <>
+              <span className="text-gray-500">across</span>
+              <select
+                value={target}
+                onChange={e => updateDefinition({ target: e.target.value as 'thread' | 'step' })}
+                className="bg-white border border-gray-300 rounded px-2 py-1 text-sm font-medium focus:ring-1 focus:ring-black focus:border-black outline-none"
+              >
+                {targets.map(option => (
+                  <option key={option} value={option}>{option}s</option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
 
         {/* Filters */}
@@ -330,6 +355,20 @@ export default function SentenceBuilderMetricForm({
               <option key={g} value={g}>{g}</option>
             ))}
           </select>
+          {definition.group_by === 'period' && (
+            <>
+              <span className="text-sm text-gray-500">per</span>
+              <select
+                value={definition.granularity || 'day'}
+                onChange={e => updateDefinition({ granularity: e.target.value })}
+                className="bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-black focus:border-black outline-none"
+              >
+                {GRANULARITIES.map(granularity => (
+                  <option key={granularity} value={granularity}>{granularity}</option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
 
         {/* Visualisation — commented out for now
@@ -387,4 +426,3 @@ export default function SentenceBuilderMetricForm({
     </div>
   );
 }
-

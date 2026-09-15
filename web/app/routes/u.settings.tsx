@@ -1,3 +1,4 @@
+import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from '@remix-run/react';
 import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
@@ -6,6 +7,7 @@ import Alert, { isCreditError } from '~/components/Alert';
 import { ProfileTab } from '~/components/settings/ProfileTab';
 import { BillingTab } from '~/components/settings/BillingTab';
 import { CompanyTab } from '~/components/settings/CompanyTab';
+import { EngineTab } from '~/components/settings/EngineTab';
 
 function formatBillingDate(dateString: string): string {
   const date = new Date(dateString);
@@ -31,7 +33,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing' | 'engine'>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState('');
@@ -53,14 +55,14 @@ export default function Settings() {
   useEffect(() => {
     // Check for tab in query params
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile') {
+    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile' || tabParam === 'engine') {
       setActiveTab(tabParam as any);
     }
   }, [searchParams]);
 
   useEffect(() => {
     // Check authentication
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;
@@ -200,49 +202,17 @@ export default function Settings() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="p-8 text-sm">
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-2">Settings</h2>
+          <h2 className="text-xl font-bold mb-2">Settings</h2>
           <p className="text-gray-600">
-            Manage your profile and company information
+            Manage your profile, company and Engine settings
           </p>
         </div>
 
-        {/* Tabs */}
-        <div className="mb-8">
-          <div className="flex gap-4">
-            <button
-              onClick={() => navigate('?tab=profile')}
-              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
-                activeTab === 'profile'
-                  ? 'bg-black text-white -mb-0.5'
-                  : 'text-gray-800 hover:text-black'
-              }`}
-            >
-              Profile
-            </button>
-            <button
-              onClick={() => navigate('?tab=company')}
-              className={`px-6 py-3 font-medium transition-colors rounded-lg ${
-                activeTab === 'company'
-                  ? 'bg-black text-white -mb-0.5'
-                  : 'text-gray-800 hover:text-black'
-              }`}
-            >
-              Company
-            </button>
-            <button
-              onClick={() => navigate('?tab=billing')}
-              className={`px-3 font-medium transition-colors rounded-lg ${
-                activeTab === 'billing'
-                  ? 'bg-black text-white -mb-0.5'
-                  : 'text-gray-800 hover:text-black'
-              }`}
-            >
-              Billing & Credits
-            </button>
-          </div>
-        </div>
+        <TabBar label="Settings" value={activeTab} onChange={tab => navigate(`?tab=${tab}`)} panelId="settings-panel" className="mb-6"
+          items={[{value:'engine',label:'Engine'},{value:'profile',label:'Profile'},{value:'company',label:'Company'},{value:'billing',label:'Billing & Credits'}]} />
+        <div id="settings-panel" role="tabpanel" aria-label="Settings content">
 
         {/* Messages */}
         {error && (
@@ -264,6 +234,7 @@ export default function Settings() {
           </div>
         )}
 
+        {activeTab === 'engine' && <EngineTab />}
         {activeTab === 'profile' && (
           <ProfileTab
             user={user}
@@ -292,6 +263,7 @@ export default function Settings() {
             onSubmit={handleProfileUpdate}
           />
         )}
+        </div>
       </div>
     </AppLayout>
   );

@@ -208,8 +208,13 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 		return nil, err
 	}
 
+	browser, err := sharedauth.NewBrowserService(ctx, inf.db.Pool, licensed)
+	if err != nil {
+		return nil, fmt.Errorf("initialize browser authentication: %w", err)
+	}
+	sharedauth.SetBrowserService(browser)
 	return &App{
-		Handler: licensed.WrapEngine(buildRouter(cfg, inf, svcs, repos, hdlrs, logger)),
+		Handler: browser.Wrap(licensed.WrapEngine(browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger))))),
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,
@@ -450,21 +455,6 @@ func initServices(
 	// --- auth ---
 	authSvc := service.NewAuthService(repos.auth, cfg.Auth.CacheTTLSeconds)
 	svcs.auth = authSvc
-	if cfg.JWKS.URL == "" {
-		return nil, fmt.Errorf("jwks.url not configured")
-	}
-	authSvc.SetJWKSVerifier(sharedauth.NewJWKSVerifier(cfg.JWKS.URL, cfg.JWKS.Audience, cfg.JWKS.Issuer))
-	if cfg.Supabase.URL != "" {
-		verifier, err := sharedauth.NewSupabaseAccessTokenVerifier(sharedauth.SupabaseAuthConfig{
-			URL:                   cfg.Supabase.URL,
-			PublishableKey:        cfg.Supabase.PublishableKey,
-			RequestTimeoutSeconds: cfg.Supabase.RequestTimeoutSeconds,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("configure session verification: %w", err)
-		}
-		authSvc.SetSessionVerifier(verifier, repos.auth.FindSessionUser)
-	}
 	authSvc.SetWriteBackPool(inf.workerPools.WriteBack)
 	svcs.auth = authSvc
 
@@ -566,7 +556,7 @@ func initHandlers(
 		svcs.thread, svcs.stepEvent, svcs.invitation,
 		svcs.thread.GetNotificationConsumer(), notifRouter,
 		svcs.plan, inf.valkey, svcs.luaScriptManager,
-		&cfg.RateLimit, &cfg.WebSocket, logger,
+		&cfg.WebSocket, logger,
 	)
 	h.otlpTrace = handlers.NewOTLPTraceHandler(svcs.otelTrace, svcs.auth, svcs.plan, logger)
 
@@ -596,9 +586,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(shutdownGuard(&inf.shuttingDown))
-	r.Use(middleware.CORSMiddleware(cfg.Server.CORSOrigins))
 	r.Use(requestLogger(logger))
-	r.Use(middleware.IPRateLimitMiddleware(svcs.luaScriptManager, &cfg.RateLimit))
 	r.Use(middleware.PrometheusMiddleware())
 
 	// Infrastructure endpoints.
@@ -637,6 +625,12 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	v1.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
 	v1.Use(middleware.EgressMiddleware(svcs.plan, logger))
 	mountContractRoutes(v1, hdlrs, svcs.rbacLoader, svcs.plan, logger)
+	v1.POST("/entity-profile-types", middleware.CreditUsageMiddleware(svcs.plan, logger),
+		middleware.ContractRBACMiddleware(svcs.rbacLoader, "entity_profile_type.create"),
+		handlers.CreateProfileType(repos.entityProfileType))
+	v1.PUT("/entity-profiles", middleware.CreditUsageMiddleware(svcs.plan, logger),
+		middleware.ContractRBACMiddleware(svcs.rbacLoader, "entity_profile_type.update"),
+		handlers.PutProfile(repos.entityProfileType, repos.entityProfile))
 
 	return r
 }

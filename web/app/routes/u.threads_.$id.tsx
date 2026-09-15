@@ -1,3 +1,4 @@
+import { TabBar } from '~/components/TabBar';
 import { useParams, useNavigate } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
 import { useQuery } from '@tanstack/react-query';
@@ -36,7 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import ThreadGraphView from '~/components/ThreadGraphView';
 import ThreadTimelineView from '~/components/ThreadTimelineView';
 import GanttTimelineView from '~/components/GanttTimelineView';
@@ -81,6 +82,7 @@ export default function ThreadDetailPage() {
   const [selectedStepForHistory, setSelectedStepForHistory] = useState<StepStateInfo | null>(null);
   const [selectedStepForViolations, setSelectedStepForViolations] = useState<StepStateInfo | null>(null);
   const [selectedSubSteps, setSelectedSubSteps] = useState<{subSteps: any[], stepName: string, stepStartedAt?: string} | null>(null);
+  const [selectedService, setSelectedService] = useState<string | null>(null);
   
   const { data: thread, isLoading, error } = useQuery({
     queryKey: ['thread', id],
@@ -158,45 +160,19 @@ export default function ThreadDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <SideNav />
-      
-      <main className="flex-1 ml-16 p-8 bg-gray-50">
+    <AppLayout>
+      <div className="min-h-screen min-w-0 w-full overflow-x-hidden bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <ThreadHeader thread={thread} />
           
           {/* Tabs */}
-          <div className="mt-6 flex items-center justify-between">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setActiveTab('timeline')}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  activeTab === 'timeline'
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                Timeline
-              </button>
-              
-              {/* Only show Graph tab if thread has a contract */}
-              {/* {thread.contractName && (
-                <button
-                  onClick={() => setActiveTab('graph')}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                    activeTab === 'graph'
-                      ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-                >
-                  Graph
-                </button>
-              )} */}
-            </div>
-            
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <TabBar label="Thread view" value={activeTab} onChange={setActiveTab} panelId="thread-panel" className="sm:flex-1"
+              items={[{value:'timeline',label:'Timeline'}]} />
+
             {/* Action Buttons */}
-            <div className="flex gap-2">
-              <div className="relative group">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative group flex-1 sm:flex-none">
                 <button
                   onClick={() => {
                     if (sidebarView === 'validations') {
@@ -209,7 +185,7 @@ export default function ThreadDetailPage() {
                     }
                   }}
                   disabled={!thread.contractName}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+                  className={`w-full min-w-0 justify-center px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 sm:w-auto sm:px-4 ${
                     thread.contractName
                       ? 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
                       : 'text-gray-400 bg-gray-50 cursor-not-allowed'
@@ -237,7 +213,7 @@ export default function ThreadDetailPage() {
                   setSelectedStep(null);
                   setPreviousView(null);
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
+                className="min-w-0 flex-1 justify-center px-3 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2 sm:flex-none sm:px-4"
               >
                 <Users className="w-4 h-4" />
                 Participants
@@ -246,7 +222,7 @@ export default function ThreadDetailPage() {
           </div>
           
           {/* Tab Content */}
-          <div className="mt-6">
+          <div id="thread-panel" role="tabpanel" aria-label="Thread content" className="mt-6">
             {activeTab === 'timeline' && (
               // <ThreadTimelineView 
               //   steps={thread.steps || []} 
@@ -259,6 +235,8 @@ export default function ThreadDetailPage() {
               <GanttTimelineView
                 steps={thread.steps || []}
                 threadStatus={thread.status}
+                selectedService={selectedService}
+                onServiceSelect={setSelectedService}
                 onStepClick={(step) => {
                   setSelectedStep(step);
                   setSidebarView('step');
@@ -497,7 +475,16 @@ export default function ThreadDetailPage() {
             title="Thread Participants"
             width="md"
           >
-            <ParticipantsView threadId={id!} steps={thread.steps || []} stepHistory={allStepHistory} />
+            <ParticipantsView
+              threadId={id!}
+              steps={thread.steps || []}
+              stepHistory={allStepHistory}
+              selectedService={selectedService}
+              onServiceSelect={(service) => {
+                setSelectedService(service);
+                setSidebarView(null);
+              }}
+            />
           </RightSidebar>
         )}
 
@@ -511,8 +498,7 @@ export default function ThreadDetailPage() {
             onBack={() => setSelectedSubSteps(null)}
           />
         )}
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 }
-

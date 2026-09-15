@@ -25,6 +25,8 @@ import (
 )
 
 const (
+	// DefaultURL lets standard deployments configure only their license key.
+	DefaultURL     = "https://registry.usefused.com"
 	InputBytes     = "threadify.input.bytes"
 	OutputBytes    = "threadify.output.bytes"
 	InputRequests  = "threadify.input.requests"
@@ -35,6 +37,7 @@ var ErrLimit = errors.New("Registry allowance exceeded")
 var ErrUnverified = errors.New("Threadify license is suspended or has not been verified")
 
 type Config struct {
+	BrowserOrigin  string `yaml:"browser_origin" mapstructure:"browser_origin"`
 	URL            string `yaml:"url" mapstructure:"url"`
 	LicenseKey     string `yaml:"license_key" mapstructure:"license_key"`
 	InstallationID string `yaml:"installation_id" mapstructure:"installation_id"`
@@ -108,18 +111,31 @@ func newID() string {
 	b[8] = (b[8] & 63) | 128
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
+
+// resolveConfig preserves explicit configuration, then environment overrides, before production defaults.
 func resolveConfig(c Config) Config {
+	// A configured test Registry takes precedence over environment and production defaults.
 	if c.URL == "" {
 		c.URL = os.Getenv("THREADIFY_REGISTRY_URL")
 	}
+	// Only an omitted endpoint falls back; malformed explicit endpoints still fail startup validation.
+	if c.URL == "" {
+		c.URL = DefaultURL
+	}
+	// Credential resolution is unchanged: a default endpoint never supplies a license.
 	if c.LicenseKey == "" {
 		c.LicenseKey = os.Getenv("THREADIFY_LICENSE_KEY")
 	}
+	// Optional identity overrides remain available for existing installations.
 	if c.InstallationID == "" {
 		c.InstallationID = os.Getenv("THREADIFY_INSTALLATION_ID")
 	}
+	// Company binding keeps its established explicit-configuration precedence.
 	if c.CompanyID == "" {
 		c.CompanyID = os.Getenv("THREADIFY_COMPANY_ID")
+	}
+	if c.BrowserOrigin == "" {
+		c.BrowserOrigin = os.Getenv("THREADIFY_BROWSER_ORIGIN")
 	}
 	return c
 }
@@ -330,35 +346,50 @@ func (r *Runtime) run(ctx context.Context) {
 	}
 }
 
-// Check reserves usage before forwarding traffic. Counters and outbox are
-// committed together; quotas themselves are parameters, never stored.
+// Usage is one durable traffic counter increment.
+type Usage struct {
+	Metric string
+	Count  int64
+}
+
+// Check reserves usage before forwarding traffic.
 func (r *Runtime) Check(ctx context.Context, metric string, n int64) error {
+	return r.CheckBatch(ctx, Usage{Metric: metric, Count: n})
+}
+
+// CheckBatch admits all increments together, or none. Entitlements stay in memory;
+// counters and reporting outbox entries commit in the same transaction.
+func (r *Runtime) CheckBatch(ctx context.Context, usage ...Usage) error {
 	if r == nil {
 		return nil
-	}
-	if n < 0 {
-		return errors.New("negative usage")
 	}
 	s, err := r.Snapshot()
 	if err != nil {
 		return err
 	}
-	if n == 0 {
+	reservations := make([]usageReservation, 0, len(usage))
+	for _, u := range usage {
+		if u.Count < 0 {
+			return errors.New("negative usage")
+		}
+		monthly, rate := int64(-1), int64(-1)
+		switch u.Metric {
+		case InputBytes:
+			monthly = s.Entitlements.InputBandwidthBytes
+		case OutputBytes:
+			monthly = s.Entitlements.OutputBandwidthBytes
+		case InputRequests:
+			rate = s.Entitlements.InputRequestsPerSecond
+		case OutputMessages:
+		default:
+			return errors.New("unknown Registry usage metric")
+		}
+		if u.Count != 0 {
+			reservations = append(reservations, usageReservation{u.Metric, u.Count, monthly, rate})
+		}
+	}
+	if len(reservations) == 0 {
 		return nil
 	}
-	e := s.Entitlements
-	monthly, rate := int64(-1), int64(-1)
-	switch metric {
-	case InputBytes:
-		monthly = e.InputBandwidthBytes
-	case OutputBytes:
-		monthly = e.OutputBandwidthBytes
-	case InputRequests:
-		rate = e.InputRequestsPerSecond
-	case OutputMessages:
-		// Output messages remain metered for reporting, without a rate ceiling.
-	default:
-		return errors.New("unknown Registry usage metric")
-	}
-	return r.reserve(ctx, metric, n, monthly, rate, time.Now().UTC())
+	return r.reserveMany(ctx, reservations, time.Now().UTC())
 }

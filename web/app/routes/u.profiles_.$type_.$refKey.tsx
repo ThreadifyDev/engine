@@ -1,3 +1,4 @@
+import { TabBar } from '~/components/TabBar';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from '@remix-run/react';
 import type { MetaFunction } from "@remix-run/node";
@@ -16,6 +17,20 @@ import DeliveryHealthTab from '~/components/profiles/DeliveryHealthTab';
 import HistoryTab from '~/components/profiles/HistoryTab';
 
 type TabType = 'overview' | 'history' | 'metrics' | 'delivery-health';
+
+const IDENTIFIER_BADGE_STYLES = [
+  'border-emerald-200 bg-emerald-50 text-emerald-800',
+  'border-sky-200 bg-sky-50 text-sky-800',
+  'border-amber-200 bg-amber-50 text-amber-800',
+  'border-rose-200 bg-rose-50 text-rose-800',
+  'border-cyan-200 bg-cyan-50 text-cyan-800',
+] as const;
+
+function getIdentifierBadgeStyle(identifier: string) {
+  const colorIndex = Array.from(identifier).reduce((hash, character) => hash + character.charCodeAt(0), 0)
+    % IDENTIFIER_BADGE_STYLES.length;
+  return IDENTIFIER_BADGE_STYLES[colorIndex];
+}
 
 export const meta: MetaFunction = ({ params }) => {
   return [
@@ -103,7 +118,7 @@ export default function EntityProfileDetail() {
   if (isLoading) {
     return (
       <AppLayout>
-        <div className="flex h-screen items-center justify-center">
+        <div className="flex min-h-[calc(100vh-73px)] items-center justify-center px-4 lg:min-h-screen">
           <div className="flex items-center gap-2 text-gray-500">
             <Activity className="w-5 h-5 animate-pulse" />
             <span>Loading profile...</span>
@@ -116,7 +131,7 @@ export default function EntityProfileDetail() {
   if (error || !profile) {
     return (
       <AppLayout>
-        <div className="p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
           <button
             onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
             className="text-red-700 hover:text-red-800 mb-6 flex items-center gap-2 text-sm font-medium transition-colors"
@@ -124,7 +139,7 @@ export default function EntityProfileDetail() {
             <ChevronLeft className="w-4 h-4" /> Back to Profiles
           </button>
 
-          <div className="bg-red-50 border border-red-100 rounded-xl p-8 text-center flex flex-col items-center">
+          <div className="bg-red-50 border border-red-100 rounded-xl p-5 text-center flex flex-col items-center sm:p-8">
             <AlertTriangle className="w-12 h-12 text-red-400 mb-4" />
             <h2 className="text-xl font-bold text-red-900 mb-2">Profile Not Found</h2>
             <p className="text-red-700">{error}</p>
@@ -139,40 +154,47 @@ export default function EntityProfileDetail() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="max-w-full overflow-hidden p-4 sm:p-6 lg:p-8">
         {/* Back */}
         <button
           onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
-          className="text-gray-500 hover:text-gray-900 mb-6 flex items-center text-sm font-medium transition-colors"
+          className="mb-4 flex items-center text-sm font-medium text-gray-600 transition-colors hover:text-gray-900 sm:mb-6"
         >
           ← Back to Profiles
         </button>
 
         {/* Identity header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg border border-gray-200 flex items-center justify-center bg-gray-50">
-              <UserCircle className="w-6 h-6 text-gray-600" />
+        <div className="mb-6 flex items-start">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-purple-50">
+              <UserCircle className="h-6 w-6 text-purple-700" />
             </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-semibold text-gray-900">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <h1 className="break-words text-2xl font-semibold leading-tight text-gray-900 sm:text-3xl">
                   {profile.name || refKey}
                 </h1>
                 {profile.profileType?.name && (
-                  <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100">
+                  <span className="max-w-full rounded border border-purple-300 bg-purple-100 px-2 py-1 text-xs font-semibold text-purple-900">
                     {profile.profileType.name}
                   </span>
                 )}
               </div>
               <div className="flex flex-wrap gap-2 mt-3">
-                {profile.profileType?.type?.filter((k: string) => k !== type).map((key: string) => (
-                  <span 
+                <span
+                  className="inline-flex max-w-full flex-wrap items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs"
+                  title="Entity reference value"
+                >
+                  <span className="font-semibold text-blue-700">Reference:</span>
+                  <code className="break-all font-medium text-blue-950">{profile.refKey}</code>
+                </span>
+                {profile.profileType?.type?.map((key: string) => (
+                  <span
                     key={key}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-xs opacity-60"
-                    title="Missing value for this identifier type"
+                    className={`inline-flex max-w-full items-center rounded border px-2 py-1 text-xs ${getIdentifierBadgeStyle(key)}`}
+                    title="Configured identifier type"
                   >
-                    <span className="font-medium text-gray-500">{key}</span>
+                    <span className="break-all font-semibold">{key}</span>
                   </span>
                 ))}
               </div>
@@ -181,56 +203,15 @@ export default function EntityProfileDetail() {
 
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setSearchParams(prev => { prev.set('tab', 'overview'); return prev; })}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-                activeTab === 'overview'
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              Overview
-            </button>
-          <button
-              onClick={() => setSearchParams(prev => { prev.set('tab', 'delivery-health'); return prev; })}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-                activeTab === 'delivery-health'
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <BarChart2 className="w-4 h-4" />
-              Delivery Health
-            </button>
-            <button
-              onClick={() => setSearchParams(prev => { prev.set('tab', 'metrics'); return prev; })}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-                activeTab === 'metrics'
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <BarChart2 className="w-4 h-4" />
-              Metrics
-            </button>
-            <button
-              onClick={() => setSearchParams(prev => { prev.set('tab', 'history'); return prev; })}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-                activeTab === 'history'
-                  ? 'border-gray-900 text-gray-900'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <HistoryIcon className="w-4 h-4" />
-              History
-            </button>
-          </nav>
-        </div>
-        <div className="mt-4">
+        <TabBar label="Entity profile" value={activeTab} onChange={tab => setSearchParams(prev => { prev.set('tab', tab); return prev; })} panelId="profile-panel" className="mb-6"
+          items={[
+            {value:'overview',label:<><LayoutDashboard className="h-4 w-4" />Overview</>},
+            {value:'delivery-health',label:<><BarChart2 className="h-4 w-4" />Delivery Health</>},
+            {value:'metrics',label:<><BarChart2 className="h-4 w-4" />Metrics</>},
+            {value:'history',label:<><HistoryIcon className="h-4 w-4" />History</>}
+          ]} />
+
+        <div id="profile-panel" role="tabpanel" aria-label="Entity profile content" className="min-w-0 mt-4">
           {activeTab === 'overview' && memoizedOverviewTab}
           {activeTab === 'delivery-health' && memoizedDeliveryHealthTab}
           {activeTab === 'metrics' && memoizedMetricsTab}

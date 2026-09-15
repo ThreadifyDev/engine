@@ -528,7 +528,7 @@ export function StepDetailContent({
 
           {showValidations && (
             <div className="mt-3 space-y-3">
-              {/* Filter Dropdown - Stripe style */}
+              {/* Filter Dropdown - minimal style */}
               <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Filter</label>
                 <select
@@ -543,7 +543,7 @@ export function StepDetailContent({
                 </select>
               </div>
 
-              {/* Validation Results - Stripe style */}
+              {/* Validation Results - minimal style */}
               {filteredValidations.length === 0 ? (
                 <div className="text-sm text-gray-500 py-3">
                   No {validationFilter !== 'all' ? validationFilter : ''} validations found
@@ -555,7 +555,7 @@ export function StepDetailContent({
 
                     return (
                       <div key={validation.validationId} className="space-y-2">
-                        {/* Individual Issues - Clean Stripe style */}
+                        {/* Individual Issues - Clean minimal style */}
                         {validation.validations.length > 0 ? (
                           validation.validations.map((issue, idx) => (
                             <div key={idx} className="border border-gray-200 rounded-md p-3 hover:border-gray-300 transition-colors">

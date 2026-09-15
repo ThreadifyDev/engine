@@ -3,7 +3,7 @@ import type { MetaFunction } from "@remix-run/node";
 import { useNavigate, useParams } from '@remix-run/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ValidationError } from '~/lib/api';
-import SideNav from '~/components/SideNav';
+import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
 import Alert from '~/components/Alert';
 
@@ -25,7 +25,7 @@ export default function ContractDetail() {
   const [updateErrorDetails, setUpdateErrorDetails] = useState<Array<{ field: string; message: string }>>([]);
 
   // Check authentication
-  const token = api.getStoredToken();
+  const token = api.isAuthenticated();
   if (!token) {
     navigate('/login');
     return null;
@@ -74,23 +74,21 @@ export default function ContractDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-white">
-        <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-16">
+      <AppLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
           <div className="text-center">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
             <p className="mt-4 text-black">Loading contract...</p>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-screen bg-white">
-        <SideNav />
-        <div className="flex-1 flex items-center justify-center ml-16">
+      <AppLayout>
+        <div className="min-h-[60vh] flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-600 mb-4">
               {error instanceof Error ? error.message : 'Failed to load contract'}
@@ -103,14 +101,13 @@ export default function ContractDetail() {
             </button>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="flex h-screen bg-white">
-      <SideNav />
-      <div className="flex-1 overflow-auto ml-16">
+    <AppLayout>
+      <div className="overflow-auto">
         <div className="p-8">
           {/* Header */}
           <div className="mb-12">
@@ -210,12 +207,12 @@ export default function ContractDetail() {
             <form onSubmit={handleUpdate}>
               <div className="mb-4">
                 <label className="block text-black font-medium mb-2">
-                  Contract YAML
+                  Contract source
                 </label>
-                <YamlEditor
+                <YamlEditor contractSource
                   value={updateYaml}
                   onChange={setUpdateYaml}
-                  placeholder="Paste your updated contract YAML here..."
+                  placeholder="Paste your updated Gherkin-style contract here..."
                   height="500px"
                 />
               </div>
@@ -252,6 +249,6 @@ export default function ContractDetail() {
           </div>
         </div>
       )}
-    </div>
+    </AppLayout>
   );
 }

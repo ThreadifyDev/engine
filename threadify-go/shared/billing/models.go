@@ -19,7 +19,6 @@ type PlanService interface {
 	InvalidatePlanCache(ctx context.Context, companyID string)
 	ProcessRollovers(ctx context.Context) error
 	CheckPayloadSize(ctx context.Context, account *domain.CreditAccount, payloadBytes int64) error
-	CheckRateLimit(ctx context.Context, account *domain.CreditAccount) (bool, error)
 	CheckCreditAvailable(ctx context.Context, companyID, meter string, amount int64) error
 	CheckBalancePositive(ctx context.Context, companyID string) (*domain.CreditAccount, error)
 }

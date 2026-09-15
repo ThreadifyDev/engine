@@ -77,10 +77,9 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	httpPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	for key, value := range map[string]any{
-		"registry.url": registryURL, "registry.license_key": registryfixture.License, "registry.company_id": company,
+		"registry.license_key": registryfixture.License, "registry.company_id": company,
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pgURL,
 		"redis.host": host, "redis.port": portNumber, "redis.password": "",
-		"nats.mode": "embedded", "nats.store_dir": filepath.Join(work, "jetstream"),
 		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
 		"security.hash_chain_secrets.v1": "isolated-test-hash-chain-key-not-a-production-secret",
 		"billing.provider":               "noop", "archiver.streams.block_timeout_ms": 100,
@@ -94,6 +93,7 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
 	client := &http.Client{Timeout: time.Second}
+	launchDir := t.TempDir() // Launching elsewhere must not move persistent storage.
 	start := func() func() {
 		t.Helper()
 		logs, err := os.CreateTemp(work, "engine-*.log")
@@ -101,8 +101,8 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(executable, "--config", configPath)
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GO_ENV=production"}
-		cmd.Dir = work
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GO_ENV=production", "THREADIFY_REGISTRY_URL=" + registryURL}
+		cmd.Dir = launchDir
 		cmd.Stdout = logs
 		cmd.Stderr = logs
 		if err := cmd.Start(); err != nil {
@@ -177,6 +177,13 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		}
 	}
 	stop := start()
+	// Omitted broker configuration stores data beside the installed executable.
+	if _, err := os.Stat(filepath.Join(work, "data", "jetstream")); err != nil {
+		t.Fatalf("binary-relative broker store missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(launchDir, "data")); !os.IsNotExist(err) {
+		t.Fatalf("storage leaked into working directory: %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, pgURL)
@@ -195,11 +202,27 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 		{"INSERT INTO service_accounts(id,company_id,name) VALUES($1,$2,'Test service')", []any{account, company}},
 		{"INSERT INTO api_keys(id,service_account_id,company_id,key_hash,key_prefix) VALUES($1,$2,$3,$4,'tf_')", []any{keyID, account, company, hex.EncodeToString(hash[:])}},
 		{"INSERT INTO user_roles(principal_id,principal_type,role_name,assigned_by) VALUES($1,'service_account','owner',$1)", []any{account}},
+		{"INSERT INTO user_roles(principal_id,principal_type,role_name,assigned_by) VALUES($1,'service_account','admin',$1)", []any{account}},
 	} {
 		if _, err := pool.Exec(ctx, q.sql, q.args...); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// Opt-in SDK performance run reuses the isolated binary/Registry fixture.
+	if output := os.Getenv("THREADIFY_PERF_OUTPUT"); output != "" {
+		script, err := filepath.Abs("../../../threadify-sdk/tests/performance-wait.mjs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("node", script, baseURL, apiKey, output)
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("SDK performance run: %v", err)
+		}
+		stop()
+		return
+	}
+	verifyGherkinAfterRestart := prepareGherkinSmoke(t, baseURL, apiKey, pool)
 	ws, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://127.0.0.1:%d/threads", httpPort), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +290,7 @@ func TestStandaloneBinaryPersistenceAndRestart(t *testing.T) {
 	// Leave the authenticated websocket open: shutdown must close/join it itself.
 	stop()
 	stop = start()
+	verifyGherkinAfterRestart()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		var count int

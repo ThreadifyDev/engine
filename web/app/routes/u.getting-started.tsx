@@ -1,3 +1,4 @@
+import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
 import type { MetaFunction } from "@remix-run/node";
 import { useNavigate } from '@remix-run/react';
@@ -27,7 +28,7 @@ export default function GettingStarted() {
 
   useEffect(() => {
     // Check if user is authenticated
-    const token = api.getStoredToken();
+    const token = api.isAuthenticated();
     if (!token) {
       navigate('/login');
       return;
@@ -226,27 +227,11 @@ export default function GettingStarted() {
         </div>
 
 
-        {/* Language Tabs */}
-        <div className="mb-4">
-          <div className="flex gap-2 border-b-2 border-black">
-            {Object.keys(codeSamples).map((lang) => (
-              <button
-                key={lang}
-                onClick={() => setSelectedLanguage(lang)}
-                className={`px-6 py-3 font-medium transition-colors ${
-                  selectedLanguage === lang
-                    ? 'bg-black text-white'
-                    : 'bg-white hover:bg-gray-100'
-                }`}
-              >
-                {lang.charAt(0).toUpperCase() + lang.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
+        <TabBar label="SDK language" value={selectedLanguage} onChange={setSelectedLanguage} panelId="language-panel" className="mb-4"
+          items={Object.keys(codeSamples).map(lang => ({value:lang,label:lang.charAt(0).toUpperCase()+lang.slice(1)}))} />
 
         {/* Code Sample */}
-        <div className="mb-8 border-2 border-black">
+        <div id="language-panel" role="tabpanel" aria-label="SDK example" className="mb-8 border-2 border-black">
           <div className="bg-gray-900 p-6 overflow-x-auto">
             <pre className="text-sm text-green-400 font-mono">
               <code>{loading ? 'Loading...' : codeWithKey}</code>

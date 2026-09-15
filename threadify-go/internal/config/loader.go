@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	sharedconfig "threadify-go/shared/config"
 	"time"
 
 	"github.com/spf13/viper"
@@ -23,11 +25,30 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 	}
 
 	cfg.Registry.URL = expandEnv(cfg.Registry.URL)
+	publicURL, err := sharedconfig.NormalizePublicURL(expandEnv(cfg.Server.PublicURL))
+	if err != nil {
+		return nil, fmt.Errorf("server.public_url: %w", err)
+	}
+	cfg.Server.PublicURL = publicURL
+	cfg.Registry.BrowserOrigin = expandEnv(cfg.Registry.BrowserOrigin)
 	cfg.Registry.LicenseKey = expandEnv(cfg.Registry.LicenseKey)
 	cfg.Registry.InstallationID = expandEnv(cfg.Registry.InstallationID)
 	cfg.Registry.CompanyID = expandEnv(cfg.Registry.CompanyID)
 	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
 	cfg.NATS.StoreDir = expandEnv(cfg.NATS.StoreDir)
+	// Persistent embedded storage follows the installed binary, never the shell's
+	// working directory. Absolute paths still support mounted data volumes.
+	if cfg.NATS.Mode == "embedded" && cfg.NATS.StoreDir != "" && !filepath.IsAbs(cfg.NATS.StoreDir) {
+		executable, err := os.Executable()
+		if err != nil {
+			return nil, fmt.Errorf("locate binary for embedded storage: %w", err)
+		}
+		executable, err = filepath.EvalSymlinks(executable)
+		if err != nil {
+			return nil, fmt.Errorf("resolve installed binary: %w", err)
+		}
+		cfg.NATS.StoreDir = filepath.Join(filepath.Dir(executable), cfg.NATS.StoreDir)
+	}
 	cfg.Redis.Host = expandEnv(cfg.Redis.Host)
 	cfg.Redis.Password = expandEnv(cfg.Redis.Password)
 	cfg.JWT.Secret = expandEnv(cfg.JWT.Secret)
@@ -86,9 +107,10 @@ func expandEnv(value string) string {
 
 // setRuntimeDefaults supplies safe defaults without overriding explicitly configured values.
 func setRuntimeDefaults(v *viper.Viper) {
+	v.SetDefault("server.public_url", "$THREADIFY_PUBLIC_URL:")
 	v.SetDefault("runtime_mode", "combined")
 	v.SetDefault("nats.mode", "embedded")
-	v.SetDefault("nats.store_dir", "./data/jetstream")
+	v.SetDefault("nats.store_dir", "data/jetstream")
 	v.SetDefault("nats.max_memory_bytes", int64(64<<20))
 	v.SetDefault("nats.max_store_bytes", int64(8<<30))
 	v.SetDefault("nats.archival_max_bytes", int64(1<<30))
@@ -96,6 +118,19 @@ func setRuntimeDefaults(v *viper.Viper) {
 	v.SetDefault("nats.pool_size", 2)
 	v.SetDefault("nats.archiver_max_deliver", -1)
 	v.SetDefault("nats.archiver_ack_wait_seconds", 30)
+	// These defaults make the complete NATS section optional, including the
+	// notification stream required by all normal Engine startup paths.
+	v.SetDefault("nats.cluster_id", "threadify-cluster")
+	v.SetDefault("nats.client_id", "threadify-server")
+	v.SetDefault("nats.stream_name", "NOTIFICATIONS")
+	v.SetDefault("nats.retention_hours", 48)
+	v.SetDefault("nats.max_age_hours", 168)
+	v.SetDefault("nats.ack_wait_seconds", 30)
+	v.SetDefault("nats.consumer_ack_wait_seconds", 30)
+	v.SetDefault("nats.consumer_max_deliver", 3)
+	v.SetDefault("nats.consumer_max_ack_pending", 100)
+	v.SetDefault("nats.notifications_retention_days", 3)
+	v.SetDefault("nats.dlq_retention_days", 7)
 	v.SetDefault("archiver.enabled", true)
 	v.SetDefault("archiver.streams.batch_size", 100)
 	v.SetDefault("archiver.streams.block_timeout_ms", 1000)

@@ -1,4 +1,6 @@
 server:
+  # Public address for SDKs and exporters; Settings > Engine can override it.
+  public_url: "$THREADIFY_PUBLIC_URL:"
   port: 8081
   host: 0.0.0.0
 
@@ -14,18 +16,7 @@ redis:
   db: 0
   pool_size: 8
 
-auth_provider: supabase
-
-supabase:
-  url: "$SUPABASE_URL:"
-  publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
-  secret_key: "$SUPABASE_SECRET_KEY:"
-  request_timeout_seconds: 10
-
-jwks:
-  url: "$JWKS_URL:"
-  audience: "$JWKS_AUDIENCE:authenticated"
-  issuer: "$JWKS_ISSUER:"
+auth_provider: registry
 
 queue:
   ttl_seconds: 7776000
@@ -33,11 +24,6 @@ queue:
 thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
-
-rate_limit:
-  requests_per_second: 5000
-  burst_size: 10000
-  cleanup_interval_hours: 1
 
 cache:
   contract_ttl_hours: 24
@@ -102,3 +88,6 @@ archiver:
     block_timeout_ms: 5000
     batch_size: 100
     step_state_flush_interval_ms: 5000  # Flush interval for step state archival
+
+registry:
+  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"

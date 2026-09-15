@@ -198,6 +198,7 @@ func TestOTelTraceServiceMapsThreadifyAttributes(t *testing.T) {
 	span.Status = &tracepb.Status{Code: tracepb.Status_STATUS_CODE_ERROR, Message: "payment failed"}
 	span.Attributes = []*commonpb.KeyValue{
 		otelKV("threadify.step_name", otelString("charge_card")),
+		otelKV("threadify.invocation_id", otelString("test-invocation")),
 		otelKV("threadify.ref.order_id", otelString("ORD-123")),
 		otelKV("threadify.context.region", otelString("eu-west-2")),
 		otelKV("attempt", otelInt(2)),
@@ -226,6 +227,8 @@ func TestOTelTraceServiceMapsThreadifyAttributes(t *testing.T) {
 	require.Len(t, writer.records, 1)
 	record := writer.records[0]
 	require.Equal(t, "charge_card", record.StepName)
+	require.Equal(t, "test-invocation", record.InvocationID)
+	require.NotContains(t, record.Context, "threadify.invocation_id")
 	require.Equal(t, StepStatusFailed, record.Status)
 	require.Equal(t, "checkout-service", record.ServiceName)
 	require.Equal(t, "ORD-123", record.Refs["order_id"])

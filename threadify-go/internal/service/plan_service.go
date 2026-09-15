@@ -375,11 +375,6 @@ func (s *PlanService) CheckPayloadSize(ctx context.Context, account *shareddomai
 	return nil
 }
 
-func (s *PlanService) CheckRateLimit(ctx context.Context, account *shareddomain.CreditAccount) (bool, error) {
-	// Compatibility method: resource enforcement occurs at transport boundaries.
-	return true, registry.Default().CheckCompany(account.CompanyID)
-}
-
 func (s *PlanService) calculateCost(meter string, amount int64) int64 {
 	cfg := s.subConfig.Credit
 	switch meter {

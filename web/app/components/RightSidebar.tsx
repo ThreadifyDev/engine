@@ -17,9 +17,9 @@ export default function RightSidebar({
   width = 'md'
 }: RightSidebarProps) {
   const widthClasses = {
-    sm: 'w-80',
-    md: 'w-96',
-    lg: 'w-[32rem]'
+    sm: 'w-full sm:w-80',
+    md: 'w-full sm:w-96',
+    lg: 'w-full sm:w-[32rem]'
   };
 
   if (!isOpen) return null;
@@ -37,8 +37,8 @@ export default function RightSidebar({
         className={`fixed right-0 top-0 h-full ${widthClasses[width]} bg-white border-l border-gray-200 shadow-xl overflow-y-auto z-50 animate-slide-in-right`}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between z-10">
-          <h3 className="font-semibold text-lg text-gray-900">{title}</h3>
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between gap-3 z-10">
+          <h3 className="min-w-0 font-semibold text-base text-gray-900 sm:text-lg">{title}</h3>
           <button
             onClick={onClose}
             className="hover:bg-gray-100 p-1.5 rounded-md transition-colors"
@@ -48,7 +48,7 @@ export default function RightSidebar({
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {children}
         </div>
       </div>

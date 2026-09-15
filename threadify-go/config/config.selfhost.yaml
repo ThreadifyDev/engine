@@ -1,10 +1,15 @@
 # Single-process engine with embedded NATS and persistence workers.
 # Copy subscription.selfhost.yaml beside your deployed config as subscription.yaml.
-# External account authentication and a Threadify-enabled Registry license are required.
+# A Threadify-enabled Registry license is required; browser sign-in uses Registry identity.
+registry:
+  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
+  license_key: "$THREADIFY_LICENSE_KEY"
+
 server:
+  # Public address for SDKs and exporters; Settings > Engine can override it.
+  public_url: "$THREADIFY_PUBLIC_URL:"
   port: 8081
   host: 0.0.0.0
-  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
 
 postgres:
   url: "$POSTGRES_URL"
@@ -27,20 +32,7 @@ redis:
   conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
 
-auth_provider: supabase
-
-supabase:
-  url: "$SUPABASE_URL:"
-  publishable_key: "$SUPABASE_PUBLISHABLE_KEY:"
-  secret_key: "$SUPABASE_SECRET_KEY:"
-  request_timeout_seconds: 10
-
-
-jwks:
-  url: "$JWKS_URL:"
-  audience: "$JWKS_AUDIENCE:authenticated"
-  issuer: "$JWKS_ISSUER"
-
+auth_provider: registry
 
 queue:
   ttl_seconds: 7776000
@@ -48,13 +40,6 @@ queue:
 thread_activities:
   batch_size: 100
   batch_timeout_ms: 1000
-
-rate_limit:
-  enabled: true
-  ip_rate_limit_enabled: true
-  ip_requests_per_window: 100
-  window_seconds: 60
-  redis_timeout_ms: 5         # Valkey timeout in milliseconds (fail-open if exceeded)
 
 # WebSocket configuration
 websocket:
@@ -121,34 +106,8 @@ timeouts:
   nats_publish_seconds: 5            # Timeout for NATS publishing
   archival_operation_seconds: 30     # Timeout for archival operations
 
-# Embedded NATS uses an in-process connection; no public broker listener.
-nats:
-  mode: embedded
-  store_dir: /data/jetstream
-  max_memory_bytes: 67108864     # 64 MiB broker memory budget
-  max_store_bytes: 8589934592    # 8 GiB shared broker file storage budget
-  archival_max_bytes: 1073741824 # 1 GiB per archival stream
-  archival_max_age_hours: 0     # Keep pending archival messages until acknowledged
-  cluster_id: "threadify-cluster"
-  client_id: "threadify-server"
-  stream_name: "NOTIFICATIONS"
-  retention_hours: 48
-  max_age_hours: 168  # 7 days
-  ack_wait_seconds: 30
-  pool_size: 5
-
-  # Consumer configuration
-  consumer_ack_wait_seconds: 30
-  consumer_max_deliver: 3
-  consumer_max_ack_pending: 100
-
-  # Archiver configuration (unlimited retries to prevent data loss)
-  archiver_max_deliver: -1  # -1 = unlimited retries
-  archiver_ack_wait_seconds: 30
-
-  # Stream retention
-  notifications_retention_days: 3
-  dlq_retention_days: 7
+# Embedded NATS starts automatically. Data defaults to data/jetstream beside
+# the installed binary. A nats section is only needed for advanced overrides.
 
 # Notification system configuration
 notification_system:
@@ -227,7 +186,6 @@ web_api:
   enabled: true
   port: 3001
   host: 0.0.0.0
-  cors_origins: "http://localhost:3000,https://threadify.dev,https://www.threadify.dev"
   frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
   outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
 
@@ -241,22 +199,9 @@ web_api:
   threadify_engine:
     url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
     graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
-  # Agent LLM configuration
-  openai_api_key: "$OPENAI_API_KEY:"
 
   # API Key settings
   api_key_ttl_hours: 8760  # 365 days
-
-  # Rate limiting
-  rate_limit:
-    requests: 100
-    window_minutes: 1
-
-  # AI Agent conversation limits
-  agent:
-    max_messages: 100    # Maximum messages per conversation
-    max_tokens: 100000  # Maximum tokens per conversation (100K tokens)
-    summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency
 worker_pools:

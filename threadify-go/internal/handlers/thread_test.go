@@ -237,7 +237,6 @@ func TestWebSocketHandler_HandleMessage(t *testing.T) {
 				d.PlanSvc,
 				d.ValkeyClient,
 				d.LuaScriptManager,
-				&config.RateLimitConfig{},
 				&config.WebSocketConfig{},
 				d.Logger,
 			)
@@ -310,7 +309,6 @@ func TestWebSocketHandler_HandleThreadEnd(t *testing.T) {
 				d.PlanSvc,
 				d.ValkeyClient,
 				d.LuaScriptManager,
-				&config.RateLimitConfig{},
 				&config.WebSocketConfig{},
 				d.Logger,
 			)

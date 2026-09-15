@@ -134,6 +134,7 @@ func TestStandaloneWorkflows(t *testing.T) {
 	}
 	evidence := map[string]any{"company_id": company, "base_url": base, "checks": map[string]bool{}}
 	checks := evidence["checks"].(map[string]bool)
+	t.Run("management_cli", func(t *testing.T) { testManagementCLI(t, base, key, company, pool) })
 	t.Run("health", func(t *testing.T) {
 		code, data := request(t, "GET", "/health", "", nil, false)
 		require.Equal(t, 200, code)
@@ -198,10 +199,25 @@ versioning:
 			t.Skip("contract creation failed")
 		}
 		profileType, ref := uuid.NewString(), "customer_"+uuid.NewString()
-		_, err := pool.Exec(ctx, "INSERT INTO entity_profile_type(id,company_id,name,type,slug) VALUES($1,$2,'E2E Customers',ARRAY['customer_id'],'e2e_customers')", profileType, company)
+		// Repeated runs share a licensed company, so each run needs its own type and ref key.
+		slug := "e2e_customers_" + strings.ReplaceAll(profileType, "-", "")
+		refName := "customer_" + strings.ReplaceAll(profileType, "-", "")
+		_, err := pool.Exec(ctx, "INSERT INTO entity_profile_type(id,company_id,name,type,slug) VALUES($1,$2,$3,ARRAY[$4::text],$5)", profileType, company, "E2E Customers "+profileType[:8], refName, slug)
 		require.NoError(t, err)
+		// Omitted descriptions are SQL NULL; all UI-facing reads must support them.
+		types := gql(t, `{entityProfileTypes{id description}}`, nil)["entityProfileTypes"].([]any)
+		var createdType map[string]any
+		for _, item := range types {
+			candidate := item.(map[string]any)
+			if candidate["id"] == profileType {
+				createdType = candidate
+				break
+			}
+		}
+		require.NotNil(t, createdType)
+		require.Equal(t, "", createdType["description"])
 		ws := connect(t)
-		reply := send(t, ws, map[string]any{"action": "startThread", "contractName": contractName, "role": "worker", "refs": map[string]string{"customer_id": ref}, "label": "Contract and profile verification"})
+		reply := send(t, ws, map[string]any{"action": "startThread", "contractName": contractName, "role": "worker", "refs": map[string]string{refName: ref}, "label": "Contract and profile verification"})
 		require.Equal(t, "success", reply["status"], reply)
 		id := reply["threadId"].(string)
 		for _, step := range []string{"received", "completed"} {
@@ -217,15 +233,20 @@ versioning:
 		thread := result["thread"].(map[string]any)
 		require.Equal(t, contractName, thread["contractName"])
 		require.Len(t, thread["steps"], 2)
-		result = gql(t, `query($ref:String!){entityProfile(refKey:$ref,type:"e2e_customers"){id refKey companyId}}`, map[string]any{"ref": ref})
+		result = gql(t, `query($ref:String!,$type:String!){entityProfile(refKey:$ref,type:$type){id refKey companyId profileType{id description}}}`, map[string]any{"ref": ref, "type": slug})
 		profile, ok := result["entityProfile"].(map[string]any)
 		require.True(t, ok, "%v", result)
 		require.Equal(t, ref, profile["refKey"])
 		require.Equal(t, company, profile["companyId"])
+		require.Equal(t, "", profile["profileType"].(map[string]any)["description"])
+		listed := gql(t, `query($type:String!){entityProfilesByType(type:$type){totalCount profileType{id description} items{id}}}`, map[string]any{"type": slug})["entityProfilesByType"].(map[string]any)
+		require.EqualValues(t, 1, listed["totalCount"])
+		require.Equal(t, "", listed["profileType"].(map[string]any)["description"])
+
 		// A second thread referencing the same entity updates the existing profile.
-		reply = send(t, ws, map[string]any{"action": "startThread", "role": "owner", "refs": map[string]string{"customer_id": ref}, "label": "Repeated entity reference"})
+		reply = send(t, ws, map[string]any{"action": "startThread", "role": "owner", "refs": map[string]string{refName: ref}, "label": "Repeated entity reference"})
 		require.Equal(t, "success", reply["status"], reply)
-		poll(t, "SELECT count(*) FROM thread_refs WHERE thread_id=$1 AND ref_key='customer_id' AND ref_value=$2", 1, reply["threadId"], ref)
+		poll(t, "SELECT count(*) FROM thread_refs WHERE thread_id=$1 AND ref_key=$3 AND ref_value=$2", 1, reply["threadId"], ref, refName)
 		poll(t, "SELECT count(*) FROM entity_profile WHERE company_id=$1 AND entity_profile_type_id=$2 AND ref_key=$3", 1, company, profileType, ref)
 		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND status='completed'", 1, id)
 		evidence["contract_thread_id"] = id

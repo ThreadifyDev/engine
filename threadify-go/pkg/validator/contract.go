@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 
+	"github.com/threadify/engine/pkg/contractcontent"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,13 +19,13 @@ func NewContractValidator() *ContractValidator {
 func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationResult) {
 	errors := []ValidationError{}
 
-	// Parse YAML
+	// Compile supported source formats before validating the common contract model.
 	contract, err := v.parseContract(yamlString)
 	if err != nil {
 		return nil, &ValidationResult{
 			IsValid: false,
 			Errors: []ValidationError{
-				{Field: "yaml", Message: fmt.Sprintf("Failed to parse YAML: %v", err)},
+				{Field: "source", Message: fmt.Sprintf("Failed to parse contract: %v", err)},
 			},
 		}
 	}
@@ -78,6 +80,14 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 
 	// Validate steps
 	for _, step := range contract.Steps {
+		if err := contractcontent.Validate(step.ContentRules); err != nil {
+			errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: err.Error()})
+		}
+		for _, rule := range step.ContentRules {
+			if rule.Reference != nil && (!stepIds[rule.Reference.Step] || rule.Reference.Step == step.ID) {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: "Reference must name a different step defined in this contract: " + rule.Reference.Step})
+			}
+		}
 		// Validate owner is a defined party
 		if !partyIds[step.Owner] {
 			errors = append(errors, ValidationError{
@@ -183,9 +193,21 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 }
 
 func (v *ContractValidator) parseContract(yamlString string) (*Contract, error) {
-	var contract Contract
-	if err := yaml.Unmarshal([]byte(yamlString), &contract); err != nil {
+	normalized, err := NormalizeSource(yamlString)
+	if err != nil {
 		return nil, err
+	}
+	var contract Contract
+	if err := yaml.Unmarshal([]byte(normalized), &contract); err != nil {
+		return nil, err
+	}
+	for i := range contract.Steps {
+		for _, dep := range contract.Steps[i].FreshDependsOn {
+			if !slices.Contains(contract.Steps[i].DependsOn, dep) {
+				contract.Steps[i].DependsOn = append(contract.Steps[i].DependsOn, dep)
+			}
+		}
+		contract.Steps[i].DependsOn = contractcontent.Dependencies(contract.Steps[i].DependsOn, contract.Steps[i].ContentRules)
 	}
 	return &contract, nil
 }
@@ -489,6 +511,13 @@ func (v *ContractValidator) validateBusinessContext(contract *Contract) []Valida
 		}
 
 		bc := step.BusinessContext
+		for _, rule := range step.ContentRules {
+			for _, optional := range bc.Optional {
+				if rule.Field == optional {
+					errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: fmt.Sprintf("Content rule requires field %q, which is declared optional", rule.Field)})
+				}
+			}
+		}
 
 		// Must have at least required or optional
 		if len(bc.Required) == 0 && len(bc.Optional) == 0 {
