@@ -301,18 +301,32 @@ func (r *Runtime) runStream(ctx context.Context, s *runtimeStream) {
 		BatchProcessingDuration.WithLabelValues(s.name).Observe(time.Since(start).Seconds())
 		s.healthy.Store(err == nil)
 		if err != nil {
-			r.logger.Error("archiver batch failed", zap.String("stream", s.name), zap.Error(err))
+			// Another Engine may own the metadata batch, or it may still be
+			// unread in JetStream. Local metadataDone cannot establish global
+			// ordering. Return dependent messages for durable replay on shutdown.
+			deferred := closing && errors.Is(err, ErrThreadNotFound) && s.name != "thread_metadata"
+			if deferred {
+				r.logger.Info("archiver batch awaiting metadata; retained for replay", zap.String("stream", s.name))
+			} else {
+				r.logger.Error("archiver batch failed", zap.String("stream", s.name), zap.Error(err))
+			}
 			BatchesProcessed.WithLabelValues(s.name, "error").Inc()
-			if closing {
+			if closing && !deferred {
 				r.mu.Lock()
 				r.shutdownErr = errors.Join(r.shutdownErr, fmt.Errorf("flush %s: %w", s.name, err))
 				r.mu.Unlock()
 			}
 			for _, msg := range batch {
+				var retryErr error
 				if errors.Is(err, ErrThreadNotFound) || s.name == natsrepo.StreamStepState {
-					_ = msg.NakWithDelay(5 * time.Second)
+					retryErr = msg.NakWithDelay(5 * time.Second)
 				} else {
-					_ = msg.Nak()
+					retryErr = msg.Nak()
+				}
+				if closing && retryErr != nil {
+					r.mu.Lock()
+					r.shutdownErr = errors.Join(r.shutdownErr, fmt.Errorf("requeue %s: %w", s.name, retryErr))
+					r.mu.Unlock()
 				}
 				RetryAttempts.WithLabelValues(s.name).Inc()
 			}

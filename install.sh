@@ -5,7 +5,7 @@ set -eu
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'EOF'
-Install the Threadify Engine binary and missing configuration templates.
+Install Threadify, bundled Valkey (Linux/macOS), and missing configuration templates.
 
 Usage: sh install.sh [--version VERSION] [--bin-dir DIR] [--config-dir DIR]
 
@@ -100,11 +100,22 @@ fi
 [ "$actual" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || fail 'Checksum verification failed; nothing was installed'
 
 mkdir "$work/extracted"
+bundled=false
+if [ "$extension" = tar.gz ]; then
+  tar -tzf "$work/$archive" > "$work/members" || fail 'Invalid release archive'
+  if grep -Fxq 'libexec/valkey-server' "$work/members"; then bundled=true; fi
+fi
 # Extract only the expected executable and reviewed templates, never arbitrary archive paths.
 if [ "$extension" = zip ]; then
   unzip -q "$work/$archive" "$binary" config/config.yaml config/subscription.yaml -d "$work/extracted" || fail 'Could not extract release files'
 else
   tar -xzf "$work/$archive" -C "$work/extracted" "$binary" config/config.yaml config/subscription.yaml || fail 'Could not extract release files'
+fi
+if [ "$bundled" = true ]; then
+  tar -xzf "$work/$archive" -C "$work/extracted" libexec/valkey-server libexec/VALKEY-LICENSES.txt || fail 'Could not extract bundled Valkey'
+  for file in libexec/valkey-server libexec/VALKEY-LICENSES.txt; do
+    [ -f "$work/extracted/$file" ] && [ ! -L "$work/extracted/$file" ] || fail "Invalid release file: $file"
+  done
 fi
 for file in "$binary" config/config.yaml config/subscription.yaml; do
   [ -f "$work/extracted/$file" ] && [ ! -L "$work/extracted/$file" ] || fail "Invalid release file: $file"
@@ -123,13 +134,29 @@ for file in config.yaml subscription.yaml; do
     (umask 077; set -C; cat "$work/extracted/config/$file" > "$config_dir/$file") || fail "Could not create $config_dir/$file"
   fi
 done
+if [ "$bundled" = true ]; then
+  mkdir -p "$bin_dir/libexec"
+  for file in valkey-server VALKEY-LICENSES.txt; do
+    [ ! -d "$bin_dir/libexec/$file" ] || fail "Bundled destination is a directory: $file"
+    staged=$(mktemp "$bin_dir/libexec/.threadify-install.XXXXXX")
+    cp "$work/extracted/libexec/$file" "$staged"
+    case "$file" in valkey-server) chmod 755 "$staged" ;; *) chmod 644 "$staged" ;; esac
+    mv -f "$staged" "$bin_dir/libexec/$file"
+    staged=
+  done
+fi
 staged=$(mktemp "$bin_dir/.threadify-install.XXXXXX") || fail 'Cannot stage the binary'
 cp "$work/extracted/$binary" "$staged"
 chmod 755 "$staged"
 mv -f "$staged" "$bin_dir/$binary" || fail 'Cannot replace the binary; stop a running Windows Engine before upgrading'
 staged=
 printf '\nInstalled Threadify v%s at %s\n' "$version" "$bin_dir/$binary"
-printf 'Configure %s and supply your Registry license, PostgreSQL and Valkey settings.\n' "$config_dir/config.yaml"
+printf 'Configure %s and supply your Registry license and PostgreSQL settings.\n' "$config_dir/config.yaml"
+if [ "$bundled" = true ]; then
+  printf 'Valkey starts automatically; keep libexec beside the Engine binary.\n'
+else
+  printf 'This archive requires an external Valkey server.\n'
+fi
 printf 'Start with: "%s" --config "%s"\n' "$bin_dir/$binary" "$config_dir/config.yaml"
 case :${PATH:-}: in
   *:"$bin_dir":*) ;;

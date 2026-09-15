@@ -50,13 +50,16 @@ else:
         path.write_text(f"#!{sys.executable}\n" + script)
         path.chmod(0o755)
 
-    def release(self, target="linux_amd64", binary=True, checksum="valid"):
+    def release(self, target="linux_amd64", binary=True, checksum="valid", bundled=False):
         is_windows = target.startswith("windows")
         name = f"threadify_1.2.3_{target}." + ("zip" if is_windows else "tar.gz")
         archive = self.fixtures / name
         files = {"config/config.yaml": b"server:\n  port: 8081\n", "config/subscription.yaml": b"tiers: []\n"}
         if binary:
             files["threadify.exe" if is_windows else "threadify"] = b"verified test binary\n"
+        if bundled:
+            files["libexec/valkey-server"] = b"bundled test valkey\n"
+            files["libexec/VALKEY-LICENSES.txt"] = b"test notices\n"
         if is_windows:
             with zipfile.ZipFile(archive, "w") as output:
                 for filename, data in files.items():
@@ -95,6 +98,15 @@ else:
         self.assertEqual((self.config / "config.yaml").read_text(), "existing operator settings")
         self.assertEqual((self.config / "subscription.yaml").read_text(), "existing subscription")
         self.assertEqual(list(self.bin.glob(".threadify-install.*")), [])
+
+    def test_bundled_valkey_installed_with_notices(self):
+        self.release(bundled=True)
+        self.run_installer()
+        self.assertEqual((self.bin / "libexec/valkey-server").read_bytes(), b"bundled test valkey\n")
+        self.assertTrue(os.access(self.bin / "libexec/valkey-server", os.X_OK))
+        self.assertEqual((self.bin / "libexec/VALKEY-LICENSES.txt").read_bytes(), b"test notices\n")
+        self.run_installer()
+        self.assertEqual(list((self.bin / "libexec").glob(".threadify-install.*")), [])
 
     def test_platform_archive_selection(self):
         for system, arch, target, binary in [("Darwin", "arm64", "darwin_arm64", "threadify"),

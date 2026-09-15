@@ -57,6 +57,12 @@ type PostgresConfig struct {
 
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
+	Mode                  string `mapstructure:"mode" yaml:"mode"`
+	Bind                  string `mapstructure:"bind" yaml:"bind"`
+	StoreDir              string `mapstructure:"store_dir" yaml:"store_dir"`
+	BinaryPath            string `mapstructure:"binary_path" yaml:"binary_path"`
+	StartupTimeoutSeconds int    `mapstructure:"startup_timeout_seconds" yaml:"startup_timeout_seconds"`
+
 	Host              string `yaml:"host" mapstructure:"host"`
 	Port              int    `yaml:"port" mapstructure:"port"`
 	Password          string `yaml:"password" mapstructure:"password"`

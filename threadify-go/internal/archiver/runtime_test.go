@@ -3,6 +3,7 @@ package archiver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -188,6 +189,36 @@ func TestRuntimeCloseDeadlineCancelsInFlightDatabaseWrite(t *testing.T) {
 	defer cancel()
 	require.ErrorIs(t, r.Close(shutdownCtx), context.DeadlineExceeded)
 	awaitRuntimeEvent(t, r.done)
+}
+
+func TestShutdownDefersMetadataOwnedByAnotherEngine(t *testing.T) {
+	for _, retryErr := range []error{nil, errors.New("broker unavailable")} {
+		t.Run(fmt.Sprint(retryErr), func(t *testing.T) {
+			r, js, ctrl := testRuntime(t)
+			iters := prepareRuntime(t, r, js, ctrl)
+			index := -1
+			for i, s := range r.streams {
+				if s.name == "thread_access" {
+					index = i
+				}
+			}
+			require.NotEqual(t, -1, index)
+			r.streams[index].processor = func(context.Context, []jetstream.Msg) error { return ErrThreadNotFound }
+			msg := NewMockMsg(ctrl)
+			// No Ack is allowed: only a later successful delivery may acknowledge.
+			msg.EXPECT().NakWithDelay(5 * time.Second).Return(retryErr)
+			require.NoError(t, r.Start(context.Background()))
+			awaitRuntimeEvent(t, iters[index].nextCalled)
+			iters[index].messages <- msg
+			awaitRuntimeEvent(t, iters[index].nextCalled)
+			err := r.Close(context.Background())
+			if retryErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, retryErr)
+			}
+		})
+	}
 }
 
 func TestRuntimeShutdownKeepsBatchesBounded(t *testing.T) {

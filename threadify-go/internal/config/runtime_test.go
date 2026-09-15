@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/viper"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -16,6 +17,64 @@ func runtimeConfig(t *testing.T, source string) (*Config, error) {
 		t.Fatal(err)
 	}
 	return LoadFromViper(v)
+}
+
+func TestValkeyModeAndPaths(t *testing.T) {
+	cfg, err := runtimeConfig(t, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMode := "managed"
+	if runtime.GOOS == "windows" {
+		wantMode = "external"
+	}
+	if cfg.Redis.Mode != wantMode {
+		t.Fatalf("mode=%s", cfg.Redis.Mode)
+	}
+	if wantMode == "managed" {
+		executable, _ := os.Executable()
+		executable, _ = filepath.EvalSymlinks(executable)
+		if cfg.Redis.StoreDir != filepath.Join(filepath.Dir(executable), "data", "valkey") || cfg.Redis.BinaryPath != filepath.Join(filepath.Dir(executable), "libexec", "valkey-server") {
+			t.Fatalf("paths: %+v", cfg.Redis)
+		}
+	}
+	legacy, err := runtimeConfig(t, "redis:\n  host: old-valkey\n  port: 6380\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.Redis.Mode != "external" || legacy.Redis.Host != "old-valkey" {
+		t.Fatal("legacy endpoint changed")
+	}
+	explicit, err := runtimeConfig(t, "redis:\n  mode: managed\n  host: 127.0.0.1\n  port: 6380\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit.Redis.Mode != "managed" || explicit.Redis.Port != 6380 {
+		t.Fatal("explicit ownership ignored")
+	}
+}
+
+func TestReloadDoesNotChangeValkeyOwnership(t *testing.T) {
+	v := viper.New()
+	first, err := LoadFromViper(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadFromViper(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Redis.Mode != second.Redis.Mode {
+		t.Fatal("loading defaults changed ownership")
+	}
+}
+
+func TestInvalidValkeyConfig(t *testing.T) {
+	for _, source := range []string{"redis:\n  mode: typo", "redis:\n  port: 0", "redis:\n  db: -1", "redis:\n  mode: managed\n  store_dir: ''", "redis:\n  mode: managed\n  startup_timeout_seconds: 0"} {
+		if _, err := runtimeConfig(t, source); err == nil {
+			t.Fatalf("accepted %s", source)
+		}
+	}
 }
 func TestCombinedRuntimeDefaults(t *testing.T) {
 	cfg, err := runtimeConfig(t, "nats:\n  url: nats://old-host:4222\n")

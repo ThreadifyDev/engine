@@ -1,6 +1,10 @@
 version: 2
 project_name: threadify
 
+before:
+  hooks:
+    - python3 scripts/check-valkey-bundle.py
+
 builds:
   - id: threadify
     main: ./cmd/server
@@ -29,6 +33,10 @@ archives:
     files:
       - SELF_HOSTING.md
       - docs/CLI.md
+      - docs/MANAGED_VALKEY.md
+      - src: "bundle/{{ .Os }}_{{ .Arch }}/*"
+        dst: libexec
+        strip_parent: true
       - src: config/config.selfhost.yaml
         dst: config/config.yaml
       - src: config/subscription.selfhost.yaml
@@ -45,6 +53,7 @@ dockers_v2:
     dockerfile: Dockerfile.goreleaser
     platforms: [linux/amd64]
     extra_files:
+      - bundle/linux_amd64
       - config/config.selfhost.yaml
       - config/subscription.selfhost.yaml
     labels:
