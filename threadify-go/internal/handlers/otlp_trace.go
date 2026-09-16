@@ -54,6 +54,17 @@ func NewOTLPTraceHandler(
 }
 
 func (h *OTLPTraceHandler) HandleTraces(c *gin.Context) {
+	// Reject ambiguous switches before accepting a batch; default keeps workflow correlation enabled.
+	values, present := c.Request.URL.Query()["use_workflow_run_id"]
+	useWorkflow := true
+	if present {
+		if len(values) != 1 || (values[0] != "true" && values[0] != "false") {
+			h.writeStatus(c, http.StatusBadRequest, codes.InvalidArgument, "use_workflow_run_id must be true or false")
+			return
+		}
+		useWorkflow = values[0] == "true"
+	}
+	c.Request = c.Request.WithContext(service.WithOTelWorkflowRunID(c.Request.Context(), useWorkflow))
 	apiKey := c.GetHeader("X-API-Key")
 	if apiKey == "" {
 		h.writeStatus(c, http.StatusUnauthorized, codes.Unauthenticated, "X-API-Key header required")

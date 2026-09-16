@@ -97,3 +97,39 @@ recorded status and a recorded step. Set `THREADIFY_MODEL_EVIDENCE_FILE` to an
 optional local JSON output path to retain the answer and tool names. Treat that
 file as telemetry data. All five tests passed against the local engine using the
 configured Ollama-compatible model endpoint.
+
+## Test real agent traces against the updated Engine
+
+The opt-in Engine binary test can run this agent with its configured model,
+make real `get_thread` MCP calls against synthetic fixture data, and verify
+OTLP ingestion in PostgreSQL. It exercises two Engine replicas and compares:
+
+- Default `workflow.run_id` correlation: two agent traces share one thread.
+- `?use_workflow_run_id=false`: each trace keeps its own thread.
+- Custom span names, tool spans, and persisted trace IDs.
+
+Use the existing disposable binary-test settings (`THREADIFY_SMOKE_BINARY`,
+`THREADIFY_SMOKE_POSTGRES_URL`, `THREADIFY_SMOKE_MANAGED_VALKEY_BINARY`, and
+`THREADIFY_SMOKE_SDK_DIR`), then enable the agent test:
+
+```sh
+export THREADIFY_HARNEST_TEST_PYTHON='<Python executable with this Harnest runtime>'
+export THREADIFY_HARNEST_EVIDENCE_DIR='<local output directory>'
+# From threadify-go:
+go test ./cmd/server -run '^TestTwoEnginesShareManagedValkey$' -count=1 -v
+```
+
+The test runner reads the existing sample agent's model settings from
+`~/.config/threadify-mcp-agent/environment.json`. It replaces the Threadify URL
+and API key with the disposable fixture's credentials. The configured model
+receives synthetic fixture data only. The running sample agent and installed
+Engine are left unchanged.
+
+Each test process represents one synthetic workflow and supplies its
+`workflow.run_id` through `OTEL_RESOURCE_ATTRIBUTES`. For a server handling
+multiple workflows, attach the appropriate run ID to each span instead of
+setting one process-wide value. The test does not assume Harnest generates
+this attribute automatically.
+
+Evidence files contain model answers/tool names and Engine-side thread, trace,
+and step counts. Logs redact the fixture and model keys.

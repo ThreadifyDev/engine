@@ -272,7 +272,11 @@ func runStandalone(t *testing.T, shared bool) {
 			t.Fatalf("managed Valkey store missing: %v", err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	fixtureTimeout := 150 * time.Second
+	if os.Getenv("THREADIFY_HARNEST_TEST_PYTHON") != "" {
+		fixtureTimeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), fixtureTimeout)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, pgURL)
 	if err != nil {
@@ -314,6 +318,7 @@ func runStandalone(t *testing.T, shared bool) {
 		return
 	}
 	verifyGherkinAfterRestart := prepareGherkinSmoke(t, apiURL, apiKey, pool)
+	verifyOTelAfterRestart := prepareOTelCorrelationSmoke(t, apiURL, apiKey, valkeyAddr, pool)
 	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(apiURL, "http")+"/threads", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -388,6 +393,7 @@ func runStandalone(t *testing.T, shared bool) {
 		stopJoiner = start(joinPath, joinURL)
 	}
 	verifyGherkinAfterRestart()
+	verifyOTelAfterRestart()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		var count int

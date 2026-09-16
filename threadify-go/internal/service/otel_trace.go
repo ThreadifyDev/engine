@@ -17,6 +17,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/zap"
+	shderrors "threadify-go/shared/errors"
 
 	"github.com/threadify/engine/internal/domain"
 )
@@ -51,7 +52,12 @@ func NewOTelTraceService(
 	correlations domain.OTelTraceCorrelationRepository,
 	logger *zap.Logger,
 ) *OTelTraceService {
-	return &OTelTraceService{threads: threads, correlations: correlations, logger: logger}
+	svc := &OTelTraceService{threads: threads, correlations: correlations, logger: logger}
+	// SDK starts and OTLP ingestion must share the same distributed resolver.
+	if writer, ok := threads.(*ThreadService); ok {
+		writer.otelTrace = svc
+	}
+	return svc
 }
 
 // Ingest accepts a decoded OTLP request and returns the protocol-level response.
@@ -138,6 +144,28 @@ func (s *OTelTraceService) ingestTrace(
 		}
 	}
 
+	// A directive may occur on a child exported before or after its root.
+	attrs := mergedAttributes(threadDescriptor.resourceAttrs, threadDescriptor.span.GetAttributes())
+	for _, envelope := range spans {
+		for _, key := range []string{"threadify.thread_id", "threadify.contract", "threadify.role"} {
+			if value := mergedAttributes(envelope.resourceAttrs, envelope.span.GetAttributes())[key]; attributeString(map[string]*commonpb.AnyValue{key: value}, key) != "" {
+				attrs[key] = value
+			}
+		}
+	}
+	externalRef := ""
+	if attributeString(attrs, "threadify.thread_id") == "" {
+		var err error
+		externalRef, err = externalRefForTrace(spans, OTelUseWorkflowRunID(ctx))
+		if err != nil {
+			return int64(len(spans)), []string{err.Error()}, nil
+		}
+	}
+	// Copy the descriptor so incoming protobuf messages are never mutated.
+	threadDescriptor.resourceAttrs = attrs
+	if externalRef != "" {
+		threadDescriptor.resourceAttrs["threadify.external_ref"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: externalRef}}
+	}
 	threadID, err := s.resolveThread(
 		ctx,
 		ownerID,
@@ -173,7 +201,7 @@ func (s *OTelTraceService) ingestTrace(
 	if rejected == 0 {
 		var endedAt uint64
 		for _, envelope := range spans {
-			if len(envelope.span.GetParentSpanId()) == 0 || attributeString(keyValueMap(envelope.span.GetAttributes()), "threadify.run.complete") == "true" {
+			if (threadID == correlatedThreadID(companyID, traceID) && len(envelope.span.GetParentSpanId()) == 0) || attributeString(keyValueMap(envelope.span.GetAttributes()), "threadify.run.complete") == "true" {
 				if end := envelope.span.GetEndTimeUnixNano(); end > endedAt {
 					endedAt = end
 				}
@@ -195,37 +223,53 @@ func (s *OTelTraceService) resolveThread(
 	traceStartedAt uint64,
 ) (string, error) {
 	attrs := mergedAttributes(descriptor.resourceAttrs, descriptor.span.GetAttributes())
+	externalRef := attributeString(descriptor.resourceAttrs, "threadify.external_ref")
 	explicitThreadID := attributeString(attrs, "threadify.thread_id")
-
+	// Existing internal targets keep precedence over advisory workflow references.
+	if explicitThreadID != "" {
+		externalRef = ""
+	}
+	correlationID := traceID
+	if externalRef != "" {
+		correlationID = externalCorrelationID(externalRef)
+	}
 	existing, err := s.correlations.GetThreadID(ctx, companyID, traceID)
 	if err != nil {
 		return "", err
 	}
 	if existing != "" {
-		if explicitThreadID != "" && explicitThreadID != existing {
-			return "", &permanentOTelError{err: errors.New("threadify.thread_id conflicts with the existing trace correlation")}
+		if (explicitThreadID != "" && explicitThreadID != existing) || (externalRef != "" && existing != correlatedThreadID(companyID, correlationID)) {
+			return "", &permanentOTelError{err: errors.New("correlation conflicts with the existing trace binding")}
 		}
-		return existing, nil
+		return existing, s.validateCorrelation(ctx, existing, ownerID, companyID, attributeString(attrs, "threadify.contract"))
 	}
-
 	if explicitThreadID != "" {
-		if err := s.threads.ValidateThreadForIngestion(ctx, explicitThreadID, ownerID, companyID); err != nil {
-			return "", &permanentOTelError{err: fmt.Errorf("invalid threadify.thread_id: %w", err)}
+		if err := s.validateCorrelation(ctx, explicitThreadID, ownerID, companyID, attributeString(attrs, "threadify.contract")); err != nil {
+			return "", err
 		}
-		set, err := s.correlations.SetThreadIDIfAbsent(ctx, companyID, traceID, explicitThreadID)
+		return s.bindTrace(ctx, companyID, traceID, explicitThreadID)
+	}
+	// External references use a separate namespace and one creation lock across traces.
+	if correlationID != traceID {
+		id, err := s.resolveCorrelation(ctx, ownerID, companyID, correlationID, descriptor, traceStartedAt)
 		if err != nil {
 			return "", err
 		}
-		if set {
-			return explicitThreadID, nil
-		}
-		existing, err := s.correlations.GetThreadID(ctx, companyID, traceID)
-		if err != nil {
+		if err := s.validateCorrelation(ctx, id, ownerID, companyID, attributeString(attrs, "threadify.contract")); err != nil {
 			return "", err
 		}
-		if existing != explicitThreadID {
-			return "", &permanentOTelError{err: errors.New("threadify.thread_id conflicts with a concurrent trace correlation")}
-		}
+		return s.bindTrace(ctx, companyID, traceID, id)
+	}
+	return s.resolveCorrelation(ctx, ownerID, companyID, correlationID, descriptor, traceStartedAt)
+}
+
+// resolveCorrelation serializes creation across Engine replicas.
+func (s *OTelTraceService) resolveCorrelation(ctx context.Context, ownerID, companyID, traceID string, descriptor otelSpanEnvelope, traceStartedAt uint64) (string, error) {
+	existing, err := s.correlations.GetThreadID(ctx, companyID, traceID)
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
 		return existing, nil
 	}
 
@@ -302,7 +346,22 @@ func (s *OTelTraceService) createCorrelatedThread(
 
 	refs := otelRefs(attrs)
 	refs["otel_trace_id"] = traceID
-	candidateThreadID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(companyID+":"+traceID)).String()
+	candidateThreadID := correlatedThreadID(companyID, traceID)
+	// Recover the durable identity after correlation-cache expiry without recreating state.
+	if strings.HasPrefix(traceID, "ref:") {
+		refs["threadify.external_ref"] = attributeString(descriptor.resourceAttrs, "threadify.external_ref")
+		delete(refs, "otel_trace_id")
+		_, lookupErr := s.threads.LookupThreadForIngestion(ctx, candidateThreadID, ownerID, companyID)
+		if lookupErr == nil {
+			if err := s.validateCorrelation(ctx, candidateThreadID, ownerID, companyID, contractName); err != nil {
+				return "", err
+			}
+			return s.bindTrace(ctx, companyID, traceID, candidateThreadID)
+		}
+		if !errors.Is(lookupErr, shderrors.ErrThreadNotFound) {
+			return "", lookupErr
+		}
+	}
 	resp := s.threads.StartThreadForIngestion(ctx, &domain.StartThreadCmd{
 		Action:       ActionStartThread,
 		ThreadID:     candidateThreadID,
@@ -402,6 +461,9 @@ func (s *OTelTraceService) recordSpan(
 
 	refs := otelRefs(attrs)
 	refs["otel_trace_id"] = traceID
+	if threadID != correlatedThreadID(companyID, traceID) {
+		delete(refs, "otel_trace_id")
+	}
 	cmd := &domain.RecordEventCmd{
 		InvocationID:   attributeString(keyValueMap(span.GetAttributes()), "threadify.invocation_id"),
 		Action:         ActionRecordThreadEvent,
@@ -716,7 +778,7 @@ func otelRefs(attrs map[string]*commonpb.AnyValue) map[string]string {
 		if strings.HasPrefix(key, "threadify.ref.") {
 			refKey := strings.TrimPrefix(key, "threadify.ref.")
 			refValue := anyValueString(value)
-			if refKey != "" && refValue != "" {
+			if refKey != "" && refKey != "threadify.external_ref" && refValue != "" {
 				refs[refKey] = refValue
 			}
 		}
@@ -759,7 +821,7 @@ func applyOTelContextLayer(destination map[string]string, attrs map[string]*comm
 
 func isThreadifyDirective(key string) bool {
 	switch key {
-	case "threadify.thread_id", "threadify.contract", "threadify.label", "threadify.step_name",
+	case "threadify.external_ref", "threadify.thread_id", "threadify.contract", "threadify.label", "threadify.step_name",
 		"threadify.role", "threadify.service", "threadify.tags", "threadify.invocation_id":
 		return true
 	default:
