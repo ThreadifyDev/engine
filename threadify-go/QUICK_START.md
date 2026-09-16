@@ -115,9 +115,7 @@ postgres:
   url: "postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
 
 redis:
-  host: localhost
-  port: 6379
-  password: threadify_secure_password
+  url: "redis://:threadify_secure_password@localhost:6379/0"
 
 jwt:
   secret: your-secret-key

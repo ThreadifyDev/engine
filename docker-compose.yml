@@ -164,8 +164,7 @@ services:
   #     # POSTGRES_HOST: "custom-postgres-host"
   #     # POSTGRES_USER: "custom-user"
   #     # POSTGRES_PASSWORD: "custom-password"
-  #     # REDIS_HOST: "custom-redis-host"
-  #     # REDIS_PASSWORD: "custom-password"
+  #     # REDIS_URL: "redis://default:ENCODED_PASSWORD@custom-redis-host:6379/0"
   #     # NATS_URL: "nats://custom-nats:4222"
 
   #     # Secrets (no defaults in config.yaml, must be provided)

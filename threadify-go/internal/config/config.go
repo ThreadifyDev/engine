@@ -63,10 +63,7 @@ type RedisConfig struct {
 	BinaryPath            string `mapstructure:"binary_path" yaml:"binary_path"`
 	StartupTimeoutSeconds int    `mapstructure:"startup_timeout_seconds" yaml:"startup_timeout_seconds"`
 
-	Host              string `yaml:"host" mapstructure:"host"`
-	Port              int    `yaml:"port" mapstructure:"port"`
-	Password          string `yaml:"password" mapstructure:"password"`
-	DB                int    `yaml:"db" mapstructure:"db"`
+	URL               string `yaml:"url" mapstructure:"url"`
 	PoolSize          int    `yaml:"pool_size" mapstructure:"pool_size"`
 	MinIdleConns      int    `yaml:"min_idle_conns" mapstructure:"min_idle_conns"`
 	MaxIdleConns      int    `yaml:"max_idle_conns" mapstructure:"max_idle_conns"`

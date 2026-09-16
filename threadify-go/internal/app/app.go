@@ -317,8 +317,8 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *
 	}
 
 	ownedValkey, err := managedvalkey.Start(ctx, managedvalkey.Options{
-		Mode: cfg.Redis.Mode, Host: cfg.Redis.Host, Bind: cfg.Redis.Bind, Port: cfg.Redis.Port,
-		Password: cfg.Redis.Password, StoreDir: cfg.Redis.StoreDir, BinaryPath: cfg.Redis.BinaryPath,
+		Mode: cfg.Redis.Mode, URL: cfg.Redis.URL, Bind: cfg.Redis.Bind,
+		StoreDir: cfg.Redis.StoreDir, BinaryPath: cfg.Redis.BinaryPath,
 		StartupTimeout: time.Duration(cfg.Redis.StartupTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
@@ -326,10 +326,7 @@ func initInfra(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *
 	}
 	inf.valkeyRuntime = ownedValkey
 	valkeyService, err := database.NewValkeyService(
-		cfg.Redis.Host,
-		cfg.Redis.Port,
-		cfg.Redis.Password,
-		cfg.Redis.DB,
+		cfg.Redis.URL,
 		cfg.Redis.PoolSize,
 		cfg.Redis.MinIdleConns,
 		cfg.Redis.MaxIdleConns,

@@ -3,20 +3,23 @@ package database
 import (
 	"context"
 	"fmt"
-	"net"
-	"strconv"
 	"time"
 
 	backoffv4 "github.com/cenkalti/backoff/v4"
 	"github.com/redis/go-redis/v9"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/redisurl"
 )
 
 type ValkeyService struct {
 	Client *redis.Client
 }
 
-func NewValkeyService(host string, port int, password string, db int, poolSize int, minIdleConns int, maxIdleConns int, maxRetries int, dialTimeoutMs int, readTimeoutMs int, writeTimeoutMs int, poolTimeoutMs int, connMaxIdleTimeMs int) (*ValkeyService, error) {
+func NewValkeyService(connectionURL string, poolSize int, minIdleConns int, maxIdleConns int, maxRetries int, dialTimeoutMs int, readTimeoutMs int, writeTimeoutMs int, poolTimeoutMs int, connMaxIdleTimeMs int) (*ValkeyService, error) {
+	opts, err := redisurl.Parse(connectionURL)
+	if err != nil {
+		return nil, err
+	}
 	// Apply defaults if values are 0
 	if poolSize == 0 {
 		poolSize = 50
@@ -46,20 +49,16 @@ func NewValkeyService(host string, port int, password string, db int, poolSize i
 		connMaxIdleTimeMs = 300000
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:            net.JoinHostPort(host, strconv.Itoa(port)),
-		Password:        password,
-		DB:              db,
-		PoolSize:        poolSize,
-		MinIdleConns:    minIdleConns,
-		MaxRetries:      maxRetries,
-		DialTimeout:     time.Duration(dialTimeoutMs) * time.Millisecond,
-		ReadTimeout:     time.Duration(readTimeoutMs) * time.Millisecond,
-		WriteTimeout:    time.Duration(writeTimeoutMs) * time.Millisecond,
-		PoolTimeout:     time.Duration(poolTimeoutMs) * time.Millisecond,
-		MaxIdleConns:    maxIdleConns,
-		ConnMaxIdleTime: time.Duration(connMaxIdleTimeMs) * time.Millisecond,
-	})
+	opts.PoolSize = poolSize
+	opts.MinIdleConns = minIdleConns
+	opts.MaxIdleConns = maxIdleConns
+	opts.MaxRetries = maxRetries
+	opts.DialTimeout = time.Duration(dialTimeoutMs) * time.Millisecond
+	opts.ReadTimeout = time.Duration(readTimeoutMs) * time.Millisecond
+	opts.WriteTimeout = time.Duration(writeTimeoutMs) * time.Millisecond
+	opts.PoolTimeout = time.Duration(poolTimeoutMs) * time.Millisecond
+	opts.ConnMaxIdleTime = time.Duration(connMaxIdleTimeMs) * time.Millisecond
+	rdb := redis.NewClient(opts)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

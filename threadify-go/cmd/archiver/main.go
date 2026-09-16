@@ -75,10 +75,7 @@ func run(configPath string, logger *zap.Logger) error {
 	}
 
 	valkeyClient, err := database.NewValkeyService(
-		cfg.Redis.Host,
-		cfg.Redis.Port,
-		cfg.Redis.Password,
-		cfg.Redis.DB,
+		cfg.Redis.URL,
 		cfg.Redis.PoolSize,
 		cfg.Redis.MinIdleConns,
 		cfg.Redis.MaxIdleConns,

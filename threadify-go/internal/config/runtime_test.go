@@ -38,18 +38,18 @@ func TestValkeyModeAndPaths(t *testing.T) {
 			t.Fatalf("paths: %+v", cfg.Redis)
 		}
 	}
-	legacy, err := runtimeConfig(t, "redis:\n  host: old-valkey\n  port: 6380\n")
+	external, err := runtimeConfig(t, "redis:\n  url: redis://remote-valkey:6380/1\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if legacy.Redis.Mode != "external" || legacy.Redis.Host != "old-valkey" {
-		t.Fatal("legacy endpoint changed")
+	if external.Redis.Mode != "external" || external.Redis.URL != "redis://remote-valkey:6380/1" {
+		t.Fatal("URL did not select external mode")
 	}
-	explicit, err := runtimeConfig(t, "redis:\n  mode: managed\n  host: 127.0.0.1\n  port: 6380\n")
+	explicit, err := runtimeConfig(t, "redis:\n  mode: managed\n  url: redis://127.0.0.1:6380/0\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if explicit.Redis.Mode != "managed" || explicit.Redis.Port != 6380 {
+	if explicit.Redis.Mode != "managed" || explicit.Redis.URL != "redis://127.0.0.1:6380/0" {
 		t.Fatal("explicit ownership ignored")
 	}
 }
@@ -150,5 +150,35 @@ func TestEmbeddedStorageAbsoluteOverride(t *testing.T) {
 	}
 	if cfg.NATS.StoreDir != dir {
 		t.Fatalf("storage override changed: %q", cfg.NATS.StoreDir)
+	}
+}
+
+func TestRedisURLOnlyConfiguration(t *testing.T) {
+	t.Setenv("REDIS_URL", "rediss://worker:secret@redis.example.com:6380/2")
+	cfg, err := runtimeConfig(t, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Redis.Mode != "external" || cfg.Redis.URL != os.Getenv("REDIS_URL") {
+		t.Fatal("REDIS_URL not used")
+	}
+	cfg, err = runtimeConfig(t, "redis:\n  url: redis://localhost:6381/1\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Redis.URL != "redis://localhost:6381/1" {
+		t.Fatal("explicit URL overridden by environment")
+	}
+	for _, field := range []string{"host", "port", "password", "db", "username"} {
+		_, err := runtimeConfig(t, "redis:\n  url: redis://localhost/0\n  "+field+": obsolete\n")
+		if err == nil || !strings.Contains(err.Error(), "no longer supported; use redis.url") {
+			t.Fatalf("obsolete field %s not rejected: %v", field, err)
+		}
+	}
+	t.Setenv("REDIS_URL", "")
+	for _, source := range []string{"redis:\n  url: '$MISSING_REDIS_TEST_URL'", "redis:\n  url: redis://localhost/-1", "redis:\n  mode: managed\n  url: rediss://localhost/0", "redis:\n  mode: managed\n  url: redis://worker:secret@localhost/0"} {
+		if _, err := runtimeConfig(t, source); err == nil {
+			t.Fatal("invalid URL accepted")
+		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,10 +65,6 @@ func standaloneDirectory(t *testing.T) string {
 	err = v.MergeConfig(f)
 	f.Close()
 	require.NoError(t, err)
-	address, err := url.Parse(vk.URI)
-	require.NoError(t, err)
-	port, err := strconv.Atoi(address.Port())
-	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	httpPort := listener.Addr().(*net.TCPAddr).Port
@@ -77,7 +72,7 @@ func standaloneDirectory(t *testing.T) string {
 	for key, value := range map[string]any{
 		"registry.url": registryServer.URL, "registry.license_key": registryfixture.License, "registry.company_id": "8bf9099d-2ff9-4d88-a2eb-acb114679909",
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pg.ConnectionString,
-		"redis.host": address.Hostname(), "redis.port": port, "redis.password": "",
+		"redis.url":    vk.URI,
 		"runtime_mode": "combined", "nats.mode": "embedded", "nats.store_dir": filepath.Join(dir, "jetstream"),
 		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
 		"billing.provider":                 "noop",
