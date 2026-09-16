@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -84,14 +83,6 @@ func runStandalone(t *testing.T, shared bool) {
 		t.Fatal(err)
 	}
 	sub.Close()
-	host, port, err := net.SplitHostPort(valkeyAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	portNumber, err := strconv.Atoi(port)
-	if err != nil {
-		t.Fatal(err)
-	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +92,8 @@ func runStandalone(t *testing.T, shared bool) {
 	for key, value := range map[string]any{
 		"registry.license_key": registryfixture.License, "registry.company_id": company,
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pgURL,
-		"redis.host": host, "redis.port": portNumber, "redis.password": "",
-		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
+		"redis.url": "redis://" + valkeyAddr + "/0",
+		"jwks.url":  "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
 		"security.hash_chain_secrets.v1": "isolated-test-hash-chain-key-not-a-production-secret",
 		"billing.provider":               "noop", "archiver.streams.block_timeout_ms": 100,
 		"archiver.streams.step_state_flush_interval_ms": 100,

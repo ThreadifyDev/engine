@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/threadify/engine/internal/redisurl"
 )
 
 const defaultMetricsPort = 8082
@@ -17,6 +18,11 @@ const defaultMetricsPort = 8082
 func LoadFromViper(v *viper.Viper) (*Config, error) {
 	if v == nil {
 		v = viper.GetViper()
+	}
+	for _, field := range []string{"host", "port", "password", "db", "username"} {
+		if v.IsSet("redis." + field) {
+			return nil, fmt.Errorf("redis.%s is no longer supported; use redis.url", field)
+		}
 	}
 	setRuntimeDefaults(v)
 	var cfg Config
@@ -50,7 +56,7 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 		}
 		cfg.NATS.StoreDir = filepath.Join(filepath.Dir(executable), cfg.NATS.StoreDir)
 	}
-	cfg.Redis.Host = expandEnv(cfg.Redis.Host)
+	cfg.Redis.URL = expandEnv(cfg.Redis.URL)
 	cfg.Redis.Bind = expandEnv(cfg.Redis.Bind)
 	cfg.Redis.StoreDir = expandEnv(cfg.Redis.StoreDir)
 	cfg.Redis.BinaryPath = expandEnv(cfg.Redis.BinaryPath)
@@ -69,7 +75,6 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 			}
 		}
 	}
-	cfg.Redis.Password = expandEnv(cfg.Redis.Password)
 	cfg.JWT.Secret = expandEnv(cfg.JWT.Secret)
 
 	if err := ValidateRuntime(&cfg); err != nil {
@@ -126,18 +131,16 @@ func expandEnv(value string) string {
 
 // setRuntimeDefaults supplies safe defaults without overriding explicitly configured values.
 func setRuntimeDefaults(v *viper.Viper) {
-	// Existing connection configurations continue using their current external server.
+	// An explicit URL selects an external server unless managed mode is requested.
 	// An omitted redis section uses the bundled server on supported platforms.
 	mode := "managed"
-	if runtime.GOOS == "windows" || v.IsSet("redis.host") || v.IsSet("redis.port") {
+	if runtime.GOOS == "windows" || v.IsSet("redis.url") || os.Getenv("REDIS_URL") != "" {
 		mode = "external"
 	}
 	if !v.IsSet("redis.mode") {
 		v.SetDefault("redis.mode", mode)
 	}
-	v.SetDefault("redis.host", "127.0.0.1")
-	v.SetDefault("redis.port", 6379)
-	v.SetDefault("redis.password", "$VALKEY_PASSWORD:")
+	v.SetDefault("redis.url", "$REDIS_URL:redis://127.0.0.1:6379/0")
 	v.SetDefault("redis.bind", "127.0.0.1")
 	v.SetDefault("redis.store_dir", "data/valkey")
 	v.SetDefault("redis.binary_path", "libexec/valkey-server")
@@ -181,8 +184,12 @@ func ValidateRuntime(cfg *Config) error {
 	default:
 		return fmt.Errorf("redis.mode must be managed or external")
 	}
-	if cfg.Redis.Host == "" || cfg.Redis.Port < 1 || cfg.Redis.Port > 65535 || cfg.Redis.DB < 0 {
-		return fmt.Errorf("redis requires a host, port between 1 and 65535, and nonnegative db")
+	parse := redisurl.Parse
+	if cfg.Redis.Mode == "managed" {
+		parse = redisurl.Managed
+	}
+	if _, err := parse(cfg.Redis.URL); err != nil {
+		return err
 	}
 	if cfg.Redis.Mode == "managed" && (cfg.Redis.StoreDir == "" || cfg.Redis.BinaryPath == "" || cfg.Redis.StartupTimeoutSeconds < 1) {
 		return fmt.Errorf("managed Valkey requires store_dir, binary_path and a positive startup_timeout_seconds")

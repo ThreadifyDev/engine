@@ -10,10 +10,7 @@ postgres:
   max_idle_connections: 5
 
 redis:
-  host: threadify-queue
-  port: 6379
-  password: threadify_secure_password
-  db: 0
+  url: "redis://:threadify_secure_password@threadify-queue:6379/0"
   pool_size: 8
 
 auth_provider: registry

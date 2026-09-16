@@ -17,7 +17,11 @@ postgres:
   max_idle_connections: 5
 
 # Valkey starts automatically on Linux/macOS; its data lives beside the binary.
-# See docs/MANAGED_VALKEY.md for sharing it between Engines or using an external server.
+# Set REDIS_URL or uncomment redis.url for an external server (rediss:// enables TLS).
+# redis:
+#   url: "$REDIS_URL" # redis://default:ENCODED_PASSWORD@host:6379/0
+# Legacy host/port/password/db fields are not supported.
+# See docs/MANAGED_VALKEY.md for managed ownership and sharing between Engines.
 
 auth_provider: registry
 

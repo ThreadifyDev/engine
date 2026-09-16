@@ -10,6 +10,34 @@ still external; NATS is embedded by default.
 Windows builds use an external Valkey server, including one managed by a
 Linux/macOS Engine. They do not include a native Valkey executable.
 
+## Redis connection URL
+
+`redis.url` is the only connection setting. The old `host`, `port`, `password`,
+`db`, and `username` fields are rejected, including when a URL is also present.
+Replace those fields before upgrading an existing configuration.
+
+```yaml
+redis:
+  url: "redis://default:ENCODED_PASSWORD@redis.example.com:6379/2"
+```
+
+An explicit URL selects external mode by default. `REDIS_URL` also selects
+external mode when the YAML omits `redis.url`; `url: "$REDIS_URL"` can reference
+it explicitly. Omitting both keeps managed Valkey on Linux/macOS, connecting to
+`redis://127.0.0.1:6379/0`. Windows defaults to external mode at that address.
+
+Use `rediss://` for an external TLS server. TLS validates the server certificate
+and host against system trust roots. Username/password support Redis ACL users;
+percent-encode reserved characters in credentials (for example `@` as `%40`,
+`/` as `%2F`, and `#` as `%23`). The path selects the database; omitted port and
+database default to 6379 and 0. IPv6 hosts use brackets, such as `[::1]`.
+
+Managed Valkey supports `redis://` and the default user only. Its listener port
+and password come from the URL. Use explicit `mode: managed` when supplying an
+owner URL. Query parameters and fragments are rejected; pool and timeout tuning
+remain separate fields under `redis`. The old `VALKEY_PASSWORD` and separate
+connection environment variables are not used.
+
 ## One Engine owns Valkey; the others join it
 
 Configure the owner explicitly when overriding its connection settings:
@@ -18,9 +46,7 @@ Configure the owner explicitly when overriding its connection settings:
 redis:
   mode: managed
   bind: 0.0.0.0
-  host: 127.0.0.1
-  port: 6379
-  password: "$VALKEY_PASSWORD"
+  url: "$REDIS_URL" # redis://default:ENCODED_PASSWORD@127.0.0.1:6379/0
   # Optional absolute path for a persistent volume:
   store_dir: /var/lib/threadify/valkey
 
@@ -34,10 +60,7 @@ On each additional Engine:
 ```yaml
 redis:
   mode: external
-  host: 10.0.0.10 # Private address of the owner above
-  port: 6379
-  password: "$VALKEY_PASSWORD"
-  db: 0
+  url: "$REDIS_URL" # redis://default:ENCODED_PASSWORD@10.0.0.10:6379/0
 
 nats:
   mode: external
@@ -50,8 +73,8 @@ secrets. Omit the installation ID on all replicas to use the shared identity in
 PostgreSQL, or supply the same explicit ID on every replica. Give each Engine its
 own HTTP listener when running on one host.
 
-`bind` is the owner's listening IP; `host` is the address that Engine uses to
-connect. A non-loopback bind requires a password. Reach it only through a trusted
+`bind` is the owner's listening IP; the host in `url` is the address that Engine
+uses to connect. A non-loopback bind requires a password. Reach it only through a trusted
 private network/VPN: the bundled listener uses TCP, without TLS. Expose only the
 Engine's HTTP API publicly. For Engines on one machine, keep the loopback bind.
 
@@ -90,9 +113,11 @@ background work; separate default embedded brokers do not form one shared broker
 
 ## Existing deployments
 
-An existing `redis.host` or `redis.port` without `redis.mode` continues to select
-`external`. Upgrading the installer preserves existing configuration. Set
-`mode: managed` explicitly to opt into ownership when specifying a host or port.
+Convert existing `redis.host`, `redis.port`, `redis.password`, and `redis.db`
+settings to `redis.url` before upgrading; the old fields are rejected. Preserve
+the same server, credentials, and database number in the URL. An explicit URL
+selects `external` unless `mode: managed` explicitly opts into ownership.
+The installer preserves existing configuration; it does not convert these fields.
 There is **no automatic migration** of an existing external Valkey dataset:
 changing to a fresh managed directory would lose its live state. Keep using the
 existing server until you have planned a backed-up, quiesced migration.

@@ -56,7 +56,10 @@ Embedded NATS data defaults to `data/jetstream` beside the executable. Set an
 absolute `nats.store_dir` in YAML if you want a separate persistent data location.
 The Linux/macOS installer also installs `libexec/valkey-server` beside the Engine.
 Managed Valkey data defaults to `data/valkey`; an absolute `redis.store_dir` can
-select a persistent volume. Open `http://localhost:8081` to use the bundled dashboard.
+select a persistent volume. External Redis/Valkey uses `redis.url` (or `REDIS_URL`),
+for example `rediss://default:ENCODED_PASSWORD@redis.example.com:6379/0`.
+The old separate `redis.host`, `port`, `password`, and `db` fields are rejected;
+replace them before upgrading. Open `http://localhost:8081` to use the bundled dashboard.
 
 ## Manage an Engine from the CLI
 
@@ -211,8 +214,8 @@ Edit the deployed configuration before starting:
   directory. The directory is created at startup and must be writable by the
   service user. An explicit absolute `nats.store_dir` overrides this location.
 - Set `POSTGRES_URL`. Valkey requires no configuration for a new Linux/macOS
-  deployment. Existing `redis.host`/`port` configuration keeps using that external
-  server. See [sharing and migration](docs/MANAGED_VALKEY.md) before changing it.
+  deployment. Existing Redis connection fields must be replaced with `redis.url`
+  pointing to the same server. See [sharing and migration](docs/MANAGED_VALKEY.md).
 - Set `THREADIFY_BROWSER_ORIGIN` to the exact public UI origin (for example,
   `https://threadify.example.com`). Browser sign-in uses Fused Registry identity;
   Supabase and JWKS settings are no longer required. See [browser authentication](docs/BROWSER_AUTH.md).

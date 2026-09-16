@@ -1,10 +1,6 @@
 package enginehelper
 
 import (
-	"fmt"
-	"net/url"
-	"strconv"
-
 	"github.com/threadify/engine/internal/config"
 )
 
@@ -20,25 +16,8 @@ func GenerateTestConfig(pgConn, valkeyURI, natsURL string, jwksURL string) (*con
 	cfg.Postgres.URL = pgConn
 	cfg.Postgres.MaxConnections = 10
 
-	// Redis/Valkey - Parse URI
-	vURL, err := url.Parse(valkeyURI)
-	if err != nil {
-		return nil, fmt.Errorf("invalid valkey URI: %w", err)
-	}
-	vHost := vURL.Hostname()
-	vPortStr := vURL.Port()
-	if vPortStr == "" {
-		vPortStr = "6379"
-	}
-	vPort, _ := strconv.Atoi(vPortStr)
-
-	cfg.Redis.Host = vHost
-	cfg.Redis.Port = vPort
-	cfg.Redis.DB = 0
-	if vURL.User != nil {
-		p, _ := vURL.User.Password()
-		cfg.Redis.Password = p
-	}
+	cfg.Redis.URL = valkeyURI
+	cfg.Redis.Mode = "external"
 
 	// These tests explicitly use their shared external broker and seed persistence themselves.
 	cfg.RuntimeMode = "engine"

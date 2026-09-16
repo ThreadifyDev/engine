@@ -447,9 +447,7 @@ postgres:
   max_connections: ${POSTGRES_MAX_CONN:25}
 
 redis:
-  host: ${REDIS_HOST:localhost}
-  port: ${REDIS_PORT:6379}
-  password: ${REDIS_PASSWORD}
+  url: "$REDIS_URL:redis://localhost:6379/0"
 
 jwt:
   secret: ${JWT_SECRET}

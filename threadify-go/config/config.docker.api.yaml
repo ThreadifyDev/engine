@@ -13,10 +13,7 @@ postgres:
   max_idle_connections: 5
 
 redis:
-  host: "${REDIS_HOST}"
-  port: ${REDIS_PORT}
-  password: "${REDIS_PASSWORD}"
-  db: 0
+  url: "$REDIS_URL"
   pool_size: 200
   min_idle_conns: 10
   max_idle_conns: 100

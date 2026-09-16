@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/threadify/engine/internal/redisurl"
 )
 
 type Options struct {
-	Mode, Host, Bind, Password, StoreDir, BinaryPath string
-	Port                                             int
-	StartupTimeout                                   time.Duration
+	Mode, URL, Bind, StoreDir, BinaryPath string
+	StartupTimeout                        time.Duration
 }
 
 type Runtime struct {
@@ -45,14 +45,21 @@ func Start(ctx context.Context, cfg Options) (_ *Runtime, retErr error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return nil, fmt.Errorf("managed Valkey requires Linux or macOS; use redis.mode=external on this platform")
 	}
+	connection, err := redisurl.Managed(cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	_, portText, _ := net.SplitHostPort(connection.Addr)
+	port, _ := strconv.Atoi(portText)
+	password := connection.Password
 	ip := net.ParseIP(cfg.Bind)
 	if ip == nil {
 		return nil, fmt.Errorf("redis.bind must be a single IP address")
 	}
-	if !ip.IsLoopback() && cfg.Password == "" {
+	if !ip.IsLoopback() && password == "" {
 		return nil, fmt.Errorf("a password is required when managed Valkey listens beyond loopback")
 	}
-	if cfg.Host == "" || cfg.Port < 1 || cfg.Port > 65535 || cfg.StartupTimeout <= 0 {
+	if cfg.StartupTimeout <= 0 {
 		return nil, fmt.Errorf("invalid managed Valkey connection or startup timeout")
 	}
 	if !filepath.IsAbs(cfg.BinaryPath) || !filepath.IsAbs(cfg.StoreDir) {
@@ -99,8 +106,8 @@ func Start(ctx context.Context, cfg Options) (_ *Runtime, retErr error) {
 		}
 	}
 	// Configuration goes through stdin so passwords do not appear in process args.
-	configuration := fmt.Sprintf("bind %s\nport %d\ndir %s\nrequirepass %s\ndaemonize no\nprotected-mode yes\nappendonly yes\nappendfsync always\nno-appendfsync-on-rewrite no\naof-load-truncated no\nmaxmemory-policy noeviction\nsave \"\"\nlogfile \"\"\n", quote(cfg.Bind), cfg.Port, quote(cfg.StoreDir), quote(cfg.Password))
-	output := &tailBuffer{secret: cfg.Password}
+	configuration := fmt.Sprintf("bind %s\nport %d\ndir %s\nrequirepass %s\ndaemonize no\nprotected-mode yes\nappendonly yes\nappendfsync always\nno-appendfsync-on-rewrite no\naof-load-truncated no\nmaxmemory-policy noeviction\nsave \"\"\nlogfile \"\"\n", quote(cfg.Bind), port, quote(cfg.StoreDir), quote(password))
+	output := &tailBuffer{secret: password}
 	cmd := exec.Command(cfg.BinaryPath, "-")
 	cmd.Stdin = strings.NewReader(configuration)
 	cmd.Stdout, cmd.Stderr = output, output
@@ -120,7 +127,10 @@ func Start(ctx context.Context, cfg Options) (_ *Runtime, retErr error) {
 			_ = r.Close(stopCtx)
 		}
 	}()
-	probe := redis.NewClient(&redis.Options{Addr: net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), Password: cfg.Password, MaxRetries: -1, DialTimeout: 200 * time.Millisecond, ReadTimeout: 200 * time.Millisecond, WriteTimeout: 200 * time.Millisecond, ContextTimeoutEnabled: true})
+	connection.MaxRetries = -1
+	connection.DialTimeout, connection.ReadTimeout, connection.WriteTimeout = 200*time.Millisecond, 200*time.Millisecond, 200*time.Millisecond
+	connection.ContextTimeoutEnabled = true
+	probe := redis.NewClient(connection)
 	defer probe.Close()
 	startup, cancel := context.WithTimeout(ctx, cfg.StartupTimeout)
 	defer cancel()

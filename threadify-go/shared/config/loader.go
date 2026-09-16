@@ -56,6 +56,22 @@ type BillingConfig struct {
 	CancelURL  string `yaml:"cancel_url" mapstructure:"cancel_url"`
 }
 
+// RedisSettings exposes only the URL connection format.
+type RedisSettings struct {
+	URL string `yaml:"url"`
+}
+
+func (r *RedisSettings) UnmarshalYAML(node *yaml.Node) error {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		switch node.Content[i].Value {
+		case "host", "port", "password", "db", "username":
+			return fmt.Errorf("redis.%s is no longer supported; use redis.url", node.Content[i].Value)
+		}
+	}
+	type plain RedisSettings
+	return node.Decode((*plain)(r))
+}
+
 type Config struct {
 	Registry registry.Config `yaml:"registry"`
 	Postgres struct {
@@ -74,12 +90,7 @@ type Config struct {
 		Host string `yaml:"host"`
 	} `yaml:"server"`
 
-	Redis struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		Password string `yaml:"password"`
-		DB       int    `yaml:"db"`
-	} `yaml:"redis"`
+	Redis RedisSettings `yaml:"redis"`
 
 	AuthProvider string             `yaml:"auth_provider"`
 	Supabase     SupabaseSettings   `yaml:"supabase"`
@@ -142,8 +153,7 @@ func (c *Config) expandEnvVars() {
 	c.Registry.CompanyID = expand(c.Registry.CompanyID)
 	c.Registry.BrowserOrigin = expand(c.Registry.BrowserOrigin)
 
-	c.Redis.Host = expand(c.Redis.Host)
-	c.Redis.Password = expand(c.Redis.Password)
+	c.Redis.URL = expand(c.Redis.URL)
 
 	c.NATS.URL = expand(c.NATS.URL)
 	c.NATS.ClusterID = expand(c.NATS.ClusterID)
