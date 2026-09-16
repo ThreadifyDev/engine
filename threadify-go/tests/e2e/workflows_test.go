@@ -188,6 +188,7 @@ versioning:
 		require.Equal(t, 200, code, string(data))
 		require.Contains(t, string(data), contractName)
 		evidence["contract_id"] = contractID
+		testCompanyContractBrowserAccess(t, base, v.GetString("registry.license_key"), contractID)
 		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), true)
 		require.Equal(t, 400, code, "duplicate contract: %s", data)
 		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte("contract_name: [invalid"), true)

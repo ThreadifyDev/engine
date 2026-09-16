@@ -8,9 +8,8 @@ the production login path. Existing password/verification UI routes redirect to
 
 ## Configuration and deployment
 
-The Engine and external Web API share PostgreSQL, `registry.license_key`, and
-`registry.installation_id`. Their persisted installation ID is reused when omitted.
-Configure both with the exact UI origin:
+The dashboard is embedded in the Engine and uses the same origin for API calls.
+The Engine persists the installation ID in PostgreSQL when it is omitted.
 
 ```yaml
 registry:
@@ -19,11 +18,13 @@ registry:
 ```
 
 Use HTTPS in production, for example `THREADIFY_BROWSER_ORIGIN=https://threadify.example.com`.
-Behind a reverse proxy this setting is required; forwarded host/protocol headers
-are not trusted. Route `/auth/*`, `/graphql` and `/v1/*` to the Engine, `/api/*` to
-the external Web API, and UI pages/assets to the UI. All three should share one
-public hostname. Local development may use HTTP on loopback and different ports
-on the same hostname (UI 3002, Engine 8083, Web API 3003).
+Behind a TLS-terminating reverse proxy this setting is required; forwarded
+host/protocol headers are not trusted. Forward the entire hostname root to the
+Engine, including WebSocket upgrades. Static UI files are public; API access
+still requires a session or API key.
+
+For dashboard development, Vite proxies requests to the Engine; configure
+`browser_origin` as `http://127.0.0.1:3000`. The dashboard uses `/v1` management routes on the Engine; no Web API proxy is needed.
 
 The Registry deployment needs the Threadify identity adapter and its existing
 managed identity/Logto configuration. The adapter registers the Threadify

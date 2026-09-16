@@ -1,15 +1,8 @@
 import { useState, useEffect } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Onboarding - Threadify" },
-    { name: "description", content: "Complete your Threadify onboarding" },
-  ];
-};
 
 export default function Onboarding() {
   const navigate = useNavigate();

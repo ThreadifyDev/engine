@@ -90,14 +90,14 @@ type TimeoutMonitor interface {
 
 // ContractService defines the interface for contract management
 type ContractService interface {
-	GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{})
+	GetAllContracts(ctx context.Context, companyID string, search string, limit, offset int) (int, interface{})
 	CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{})
-	GetContract(ctx context.Context, contractID, requesterID string, version *int) (int, interface{})
-	UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{})
-	DeleteContract(ctx context.Context, contractID, ownerID string) (int, interface{})
-	GetAllContractVersions(ctx context.Context, contractID, requesterID string, limit, offset int) (int, interface{})
-	GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{})
-	DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{})
+	GetContract(ctx context.Context, contractID, companyID string, version *int) (int, interface{})
+	UpdateContract(ctx context.Context, contractID, companyID, createdBy, contractYAML string) (int, interface{})
+	DeleteContract(ctx context.Context, contractID, companyID string) (int, interface{})
+	GetAllContractVersions(ctx context.Context, contractID, companyID string, limit, offset int) (int, interface{})
+	GetContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
+	DeleteContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
 	PreviewContract(yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
 }
 
@@ -116,6 +116,7 @@ type ThreadService interface {
 // OTelThreadWriter exposes the existing thread write path to stateless,
 // authenticated telemetry ingestion without requiring a WebSocket session.
 type OTelThreadWriter interface {
+	LookupThreadForIngestion(ctx context.Context, threadID, ownerID, companyID string) (*Thread, error)
 	CompleteTraceForIngestion(ctx context.Context, threadID, ownerID, companyID, traceID string, endedAt time.Time) error
 	StartThreadForIngestion(ctx context.Context, req *StartThreadCmd, ownerID, companyID string) *StartThreadResponse
 	RecordEventForIngestion(ctx context.Context, req *RecordEventCmd, ownerID, companyID string) *RecordEventResponse

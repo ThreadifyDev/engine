@@ -1,15 +1,19 @@
 {
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "**/.server/**/*.ts",
-    "**/.server/**/*.tsx",
-    "**/.client/**/*.ts",
-    "**/.client/**/*.tsx"
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "vite.config.ts"
   ],
   "compilerOptions": {
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["@remix-run/node", "vite/client"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2022"
+    ],
+    "types": [
+      "vite/client",
+      "node"
+    ],
     "isolatedModules": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
@@ -23,13 +27,27 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./app/*"],
-      "@reactflow/packages/core/src/*": ["./node_modules/@reactflow/core/dist/esm/*"],
-      "@reactflow/packages/minimap/src/*": ["./node_modules/@reactflow/minimap/dist/esm/*"],
-      "@reactflow/packages/controls/src/*": ["./node_modules/@reactflow/controls/dist/esm/*"],
-      "@reactflow/packages/background/src/*": ["./node_modules/@reactflow/background/dist/esm/*"],
-      "@reactflow/packages/node-resizer/src/*": ["./node_modules/@reactflow/node-resizer/dist/esm/*"],
-      "@reactflow/packages/node-toolbar/src/*": ["./node_modules/@reactflow/node-toolbar/dist/esm/*"]
+      "~/*": [
+        "./app/*"
+      ],
+      "@reactflow/packages/core/src/*": [
+        "./node_modules/@reactflow/core/dist/esm/*"
+      ],
+      "@reactflow/packages/minimap/src/*": [
+        "./node_modules/@reactflow/minimap/dist/esm/*"
+      ],
+      "@reactflow/packages/controls/src/*": [
+        "./node_modules/@reactflow/controls/dist/esm/*"
+      ],
+      "@reactflow/packages/background/src/*": [
+        "./node_modules/@reactflow/background/dist/esm/*"
+      ],
+      "@reactflow/packages/node-resizer/src/*": [
+        "./node_modules/@reactflow/node-resizer/dist/esm/*"
+      ],
+      "@reactflow/packages/node-toolbar/src/*": [
+        "./node_modules/@reactflow/node-toolbar/dist/esm/*"
+      ]
     },
     "noEmit": true
   }

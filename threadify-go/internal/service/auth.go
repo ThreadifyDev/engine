@@ -135,6 +135,22 @@ func (s *AuthService) performCleanup() {
 }
 
 func (s *AuthService) ValidateApiKey(apiKey string) (*domain.UserInfo, error) {
+	// Installed Engines use the same live principal checks as browser sessions.
+	// Revoked keys and suspended accounts must not remain authorized through cache.
+	if sharedauth.BrowserSessionsEnabled() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		claims, err := sharedauth.VerifyLocalAPIKey(ctx, apiKey)
+		if err != nil {
+			return nil, err
+		}
+		role := ""
+		if len(claims.Roles) > 0 {
+			role = claims.Roles[0]
+		}
+		return &domain.UserInfo{OwnerID: claims.UserID, CompanyID: claims.CompanyID, Role: role, Roles: claims.Roles}, nil
+	}
+
 	if strings.HasPrefix(apiKey, sharedauth.CLICredentialPrefix) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

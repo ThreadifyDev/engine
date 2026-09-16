@@ -1,41 +1,49 @@
 # Threadify dashboard
 
-Requires **Node.js 24 LTS**. The dashboard connects to a separately running
-Threadify Engine.
+A Vite/React single-page app embedded in the Threadify Engine. Open the Engine's
+URL (default `http://localhost:8081`) to sign in. Production needs no Node server.
+The public website and Registry signup live separately in [homepage](../homepage/README.md).
 
 ## Develop
 
-From this directory:
+Requires Node.js 24 LTS and a running Engine:
 
 ```sh
 nvm install
 nvm use
 npm ci
-npm run dev
+THREADIFY_DEV_ENGINE_URL=http://127.0.0.1:8083 npm run dev -- --host 127.0.0.1
 ```
 
-Configure the Engine connection as described in [ENGINE_CONNECTION.md](ENGINE_CONNECTION.md).
-See [browser authentication](../threadify-go/docs/BROWSER_AUTH.md) for Registry
-sign-in and deployment origins.
+Open `http://127.0.0.1:3000`. Vite proxies API, authentication and WebSocket
+requests to the Engine. Set `registry.browser_origin` to that exact development
+origin. Keep browser and Engine hostnames consistent.
 
 ## Build and test
 
 ```sh
+npm run test:routes
 npm run test:engine-routing
 npm run test:auth
-npm start
 ```
 
-`test:auth` builds the production application before checking browser authentication.
-The web CI workflow uses Node 24 and runs both test commands after `npm ci`.
+`test:auth` builds `build/client` and checks the static shell and browser session
+client. Engine CI runs these checks once, uploads the assets, and reuses that
+artifact for validation and release compilation. UI changes trigger Engine releases.
 
-## Docker
-
-From the repository root:
+For a local binary containing your UI changes, from the repository root:
 
 ```sh
-docker build -f threadify-go/Dockerfile.web_ui -t threadify-web web
+(cd web && npm run build)
+cp -R web/build/client/. threadify-go/internal/dashboard/dist/
+python3 threadify-go/scripts/check-dashboard.py
+(cd threadify-go && make build)
 ```
 
-Both build and production stages use `node:24-alpine`. Runtime configuration is
-explained in [RUNTIME_CONFIG_SETUP.md](RUNTIME_CONFIG_SETUP.md).
+Generated assets are ignored by Git. Plain Go development builds still compile
+without them; UI routes then return 503 with instructions. GoReleaser and source
+Docker builds require prepared assets. The Engine Docker image runs the same
+binary; there is no separate dashboard container.
+
+See [Engine connection](ENGINE_CONNECTION.md) and
+[browser authentication](../threadify-go/docs/BROWSER_AUTH.md) for deployment.

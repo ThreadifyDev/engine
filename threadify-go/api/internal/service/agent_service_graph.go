@@ -13,7 +13,7 @@ import (
 	"threadify-go/shared/registry"
 	"time"
 
-	"threadify-go/api/internal/domain"
+	"threadify-go/shared/management/domain"
 
 	einoopenai "github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/tool"

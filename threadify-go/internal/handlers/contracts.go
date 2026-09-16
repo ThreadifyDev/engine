@@ -32,20 +32,19 @@ func NewContractHandler(contractService domain.ContractService, logger *zap.Logg
 	return &ContractHandler{contractService: contractService, logger: logger}
 }
 
-// claimsOwnerID extracts ownerID from the gin context (set by AuthMiddleware).
+// claimsCompanyID scopes contract management to the authenticated company.
 // Returns ("", false) and writes a JSON error if extraction fails.
-func claimsOwnerID(c *gin.Context) (string, bool) {
-	ownerID, exists := c.Get(sharedauth.CtxUserID)
-	if !exists {
+func claimsCompanyID(c *gin.Context) (string, bool) {
+	if c.GetString(sharedauth.CtxUserID) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return "", false
 	}
-	ownerIDStr, ok := ownerID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid userID format"})
+	companyID, err := companyIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return "", false
 	}
-	return ownerIDStr, true
+	return companyID, true
 }
 
 // companyIDFromContext resolves company ID from authenticated context.
@@ -75,7 +74,7 @@ func recordContractMetrics(statusCode int) {
 }
 
 func (h *ContractHandler) GetAllContracts(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -84,19 +83,13 @@ func (h *ContractHandler) GetAllContracts(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "0"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
-	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), ownerID, search, limit, offset)
+	statusCode, response := h.contractService.GetAllContracts(c.Request.Context(), companyID, search, limit, offset)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) CreateContract(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
-		return
-	}
-
-	companyID, err := companyIDFromContext(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -107,7 +100,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 	}
 
 	statusCode, response := h.contractService.CreateContract(
-		c.Request.Context(), ownerID, companyID,
+		c.Request.Context(), c.GetString(sharedauth.CtxUserID), companyID,
 		c.GetString(sharedauth.CtxUserID), string(yamlBytes),
 	)
 	recordContractMetrics(statusCode)
@@ -115,7 +108,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 }
 
 func (h *ContractHandler) GetContract(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -127,12 +120,12 @@ func (h *ContractHandler) GetContract(c *gin.Context) {
 		}
 	}
 
-	statusCode, response := h.contractService.GetContract(c.Request.Context(), c.Param("id"), ownerID, version)
+	statusCode, response := h.contractService.GetContract(c.Request.Context(), c.Param("id"), companyID, version)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) UpdateContract(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -144,7 +137,7 @@ func (h *ContractHandler) UpdateContract(c *gin.Context) {
 	}
 
 	statusCode, response := h.contractService.UpdateContract(
-		c.Request.Context(), c.Param("id"), ownerID,
+		c.Request.Context(), c.Param("id"), companyID,
 		c.GetString(sharedauth.CtxUserID), string(yamlContent),
 	)
 	recordContractMetrics(statusCode)
@@ -152,16 +145,16 @@ func (h *ContractHandler) UpdateContract(c *gin.Context) {
 }
 
 func (h *ContractHandler) DeleteContract(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
-	statusCode, response := h.contractService.DeleteContract(c.Request.Context(), c.Param("id"), ownerID)
+	statusCode, response := h.contractService.DeleteContract(c.Request.Context(), c.Param("id"), companyID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -169,12 +162,12 @@ func (h *ContractHandler) GetAllContractVersions(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 
-	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), c.Param("id"), ownerID, limit, offset)
+	statusCode, response := h.contractService.GetAllContractVersions(c.Request.Context(), c.Param("id"), companyID, limit, offset)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) GetContractVersion(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -185,12 +178,12 @@ func (h *ContractHandler) GetContractVersion(c *gin.Context) {
 		return
 	}
 
-	statusCode, response := h.contractService.GetContractVersion(c.Request.Context(), c.Param("id"), version, ownerID)
+	statusCode, response := h.contractService.GetContractVersion(c.Request.Context(), c.Param("id"), version, companyID)
 	c.JSON(statusCode, response)
 }
 
 func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
-	ownerID, ok := claimsOwnerID(c)
+	companyID, ok := claimsCompanyID(c)
 	if !ok {
 		return
 	}
@@ -201,7 +194,7 @@ func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
 		return
 	}
 
-	statusCode, response := h.contractService.DeleteContractVersion(c.Request.Context(), c.Param("id"), version, ownerID)
+	statusCode, response := h.contractService.DeleteContractVersion(c.Request.Context(), c.Param("id"), version, companyID)
 	c.JSON(statusCode, response)
 }
 

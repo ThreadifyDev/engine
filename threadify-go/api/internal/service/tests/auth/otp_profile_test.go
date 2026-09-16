@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/middleware"
 	"threadify-go/api/internal/service"
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"

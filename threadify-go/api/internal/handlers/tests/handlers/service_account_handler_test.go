@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
 	"threadify-go/shared/rbac"
 
 	"github.com/gin-gonic/gin"

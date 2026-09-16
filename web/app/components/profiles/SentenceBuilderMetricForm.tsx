@@ -110,7 +110,6 @@ export default function SentenceBuilderMetricForm({
     }
   }, [initialData]);
 
-  const [costPerComplexity, setCostPerComplexity] = useState<number>(1);
   const [justSaved, setJustSaved] = useState(false);
 
   const updateDefinition = useCallback((updates: Partial<CustomMetricDefinition>) => {
@@ -165,20 +164,7 @@ export default function SentenceBuilderMetricForm({
     });
   }, []);
 
-  // Fetch pricing config on mount
-  useEffect(() => {
-    api.getPricing().then(data => {
-      const cost = data.credit?.custom_metric_cost_per_complexity_millicents;
-      if (cost !== undefined && cost > 0) {
-        setCostPerComplexity(cost);
-      }
-    }).catch(() => {
-      // fallback to default
-    });
-  }, []);
-
   const complexity = useMemo(() => calculateComplexity(definition), [definition]);
-  const estimatedCostCents = ((complexity * costPerComplexity) / 1000).toFixed(3);
 
   const addFilter = () => {
     updateDefinition({
@@ -394,7 +380,7 @@ export default function SentenceBuilderMetricForm({
         </span>
         <span className="text-gray-300">|</span>
         <span>
-          Est. cost: <span className="font-semibold text-gray-900">{estimatedCostCents}¢</span> per profile load
+          Metric complexity: <span className="font-semibold text-gray-900">{complexity}</span>
         </span>
       </div>
 

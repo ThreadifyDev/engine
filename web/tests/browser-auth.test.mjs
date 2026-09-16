@@ -2,26 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { build as bundle } from 'esbuild';
 import { fileURLToPath } from 'node:url';
-import { createRequestHandler } from '@remix-run/node';
-import * as build from '../build/server/index.js';
+import { readFile } from 'node:fs/promises';
 
-const handle = createRequestHandler(build, 'production');
-
-test('login presents Registry sign-in and API-key exchange without passwords', async () => {
-  const response = await handle(new Request('http://localhost/login'));
-  assert.equal(response.status, 200);
-  const html = await response.text();
-  assert.match(html, /Continue with email or SSO/);
-  assert.match(html, /Sign in with API key/);
-  assert.doesNotMatch(html, /name="password"|Forgot password|Supabase/);
-});
-
-test('old password and verification pages redirect to Registry login', async () => {
-  for (const path of ['/signup', '/auth/forgot-password', '/auth/reset-password', '/auth/verify-otp']) {
-    const response = await handle(new Request(`http://localhost${path}`));
-    assert.equal(response.status, 302, path);
-    assert.equal(response.headers.get('Location'), '/login');
-  }
+test('production dashboard is a static shell without server configuration', async () => {
+  const html = await readFile(new URL('../build/client/index.html', import.meta.url), 'utf8');
+  assert.match(html, /Loading Threadify/);
+  assert.match(html, /assets\/[^" ]+\.js/);
+  assert.doesNotMatch(html, /window\.__ENV__|localhost:3001|localhost:8081|Service-delivery Intelligence/);
 });
 
 const output = await bundle({
@@ -54,21 +41,4 @@ test('key exchange uses cookies, purges the old bearer and caches only profile d
     assert.equal(storage.size,0);
     assert.equal(redirect,'/login');
   } finally { Object.assign(globalThis,saved); }
-});
-
-test('Harnest proxy rejects requests without a cookie-bound CSRF proof', async () => {
-  const saved = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = async (url, init) => {
-    calls++;
-    assert.match(url, /\/auth\/session\/verify$/);
-    assert.equal(init.headers.Cookie,'threadify_session_dev=tfs_invalid');
-    return Response.json({error:'csrf_denied'},{status:403});
-  };
-  try {
-    let response = await handle(new Request('http://localhost/api/harnest/sessions'));
-    assert.equal(response.status,401); assert.equal(calls,0);
-    response = await handle(new Request('http://localhost/api/harnest/sessions', {headers:{Cookie:'threadify_session_dev=tfs_invalid'}}));
-    assert.equal(response.status,403); assert.equal(calls,1);
-  } finally { globalThis.fetch=saved; }
 });

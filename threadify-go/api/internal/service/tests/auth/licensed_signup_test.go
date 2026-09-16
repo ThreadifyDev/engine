@@ -8,9 +8,9 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
-	"threadify-go/api/internal/domain"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	"threadify-go/api/internal/service/tests/common"
+	"threadify-go/shared/management/domain"
 	sharedmocks "threadify-go/shared/mocks"
 )
 

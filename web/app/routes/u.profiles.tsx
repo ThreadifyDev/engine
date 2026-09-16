@@ -1,16 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
-import type { MetaFunction } from "@remix-run/node";
+import { useNavigate } from 'react-router';
 import { api, type EntityProfileType } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import ProfileTypesTab from '~/components/profiles/ProfileTypesTab';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Entity Profiles - Threadify" },
-    { name: "description", content: "Manage Entity Profile Schemas and View Profiles" },
-  ];
-};
 
 export default function EntityProfiles() {
   const navigate = useNavigate();
@@ -43,7 +36,7 @@ export default function EntityProfiles() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
         <ProfileTypesTab
           profileTypes={profileTypes}
           isLoading={isLoading}

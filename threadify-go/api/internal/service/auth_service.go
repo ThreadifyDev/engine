@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/utils"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"

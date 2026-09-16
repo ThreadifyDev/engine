@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"net/http"
-	"threadify-go/api/internal/ports"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/ports"
 
 	"github.com/gin-gonic/gin"
 )

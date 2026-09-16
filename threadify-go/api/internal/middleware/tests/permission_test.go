@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/middleware"
 	sa_mocks "threadify-go/api/internal/service/mocks/repository/serviceaccount"
 	ur_mocks "threadify-go/api/internal/service/mocks/repository/userrole"
 	pl_mocks "threadify-go/api/internal/service/mocks/service/permission"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"

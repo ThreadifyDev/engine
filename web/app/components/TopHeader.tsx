@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { Wallet, ChevronRight } from 'lucide-react';
 import { useCurrentPlan } from '~/hooks/useBilling';
 

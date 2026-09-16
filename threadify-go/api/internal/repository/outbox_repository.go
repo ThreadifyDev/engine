@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/ports"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/ports"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

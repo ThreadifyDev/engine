@@ -1,18 +1,11 @@
 import { useState, useEffect } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { Key, Plus, Copy, Check, Trash2, Eye, EyeOff, X } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import Alert, { isCreditError } from '~/components/Alert';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "API Keys - Threadify" },
-    { name: "description", content: "Manage your API keys" },
-  ];
-};
 
 export default function APIKeys() {
   const navigate = useNavigate();
@@ -150,7 +143,7 @@ export default function APIKeys() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold mb-2">API Keys</h1>
@@ -215,7 +208,7 @@ export default function APIKeys() {
             </button>
           </div>
         ) : (
-          <div className="border border-gray-200 rounded overflow-hidden">
+          <div className="max-w-full border border-gray-200 rounded overflow-x-auto">
             <table className="w-full">
               <thead className="border-b border-gray-200 bg-gray-50">
                 <tr>

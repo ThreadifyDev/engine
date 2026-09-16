@@ -1,6 +1,6 @@
 import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from '@remix-run/react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import Alert, { isCreditError } from '~/components/Alert';
@@ -85,7 +85,12 @@ export default function Settings() {
   const loadCompanyInfo = async () => {
     try {
       const response = await api.getUserProfile();
+      if (response.user) {
+        setUser((current: User | null) => ({...current, ...response.user}));
+        setProfileForm({full_name: response.user.full_name || "", job_role: response.user.job_role || ""});
+      }
       if (response.company) {
+        setUser((current: User | null) => current ? {...current, company_name: response.company.name} : current);
         setCompanyForm({
           industry: response.company.industry || '',
           company_size: response.company.company_size || '',
@@ -179,10 +184,11 @@ export default function Settings() {
     try {
       const response = await api.updateProfile({
         ...profileForm,
-        ...companyForm,
+        ...(activeTab === "company" ? companyForm : {industry:"",company_size:"",use_case:""}),
       });
-      api.setUser(response.user);
-      setUser(response.user);
+      const updated = {...user, ...response.user};
+      api.setUser(updated);
+      setUser(updated);
       setSuccess('Profile updated successfully!');
     } catch (err) {
       if (err instanceof ValidationError) {
@@ -202,7 +208,7 @@ export default function Settings() {
 
   return (
     <AppLayout>
-      <div className="p-8 text-sm">
+      <div className="min-w-0 p-4 text-sm sm:p-6 lg:p-8">
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-2">Settings</h2>
           <p className="text-gray-600">

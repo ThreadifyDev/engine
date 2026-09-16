@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"

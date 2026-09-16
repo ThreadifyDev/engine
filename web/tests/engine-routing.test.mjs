@@ -14,7 +14,7 @@ const output = await build({
 const { api, graphql } = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
 
 // Exercise the outgoing requests, including YAML and cookie-session transport.
-test('engine requests bypass the Web API while account routes stay external', async () => {
+test('all dashboard clients use Engine management routes even with an old Web API override', async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const originalStorage = globalThis.localStorage;
@@ -45,8 +45,8 @@ test('engine requests bypass the Web API while account routes stay external', as
       'http://127.0.0.1:8083/v1/contracts?search=support',
       'http://127.0.0.1:8083/v1/contracts',
       'http://127.0.0.1:8083/v1/contracts/preview',
-      'http://localhost:3001/api/user/profile',
-      'http://localhost:3001/api/service-accounts',
+      'http://127.0.0.1:8083/v1/user/profile',
+      'http://127.0.0.1:8083/v1/service-accounts',
       'http://127.0.0.1:8083/v1/users',
       'http://127.0.0.1:8083/v1/users',
       'http://127.0.0.1:8083/v1/users/user-1',
@@ -78,4 +78,34 @@ test('engine requests bypass the Web API while account routes stay external', as
     globalThis.localStorage = originalStorage;
     globalThis.document = originalDocument;
   }
+});
+
+
+test('embedded dashboard uses its serving origin for GraphQL, REST and cookie authentication', async () => {
+  const saved = {fetch: globalThis.fetch, window: globalThis.window, document: globalThis.document, localStorage: globalThis.localStorage};
+  const calls = [];
+  globalThis.window = {location: {origin: 'https://threadify.example.test'}};
+  globalThis.document = {cookie: 'threadify_csrf=proof'};
+  globalThis.localStorage = {getItem() {return null;}, setItem() {}, removeItem() {}};
+  globalThis.fetch = async (url, options) => {
+    calls.push({url, ...options});
+    return Response.json(url.endsWith('/graphql') ? {data: {thread: {id: 'thread-1'}}} : {authenticated: true, user: {id: 'owner'}});
+  };
+  try {
+    await graphql.getThread('thread-1');
+    await api.getEngineSettings();
+    await api.getUserProfile();
+    await api.exchangeAPIKey('test-key');
+    assert.deepEqual(calls.map(c => c.url), [
+      'https://threadify.example.test/graphql',
+      'https://threadify.example.test/v1/engine/settings',
+      'https://threadify.example.test/v1/user/profile',
+      'https://threadify.example.test/auth/api-key/exchange',
+      'https://threadify.example.test/auth/session',
+    ]);
+    for (const call of calls) {
+      assert.equal(call.credentials, 'include');
+      assert.equal(call.headers.Authorization, undefined);
+    }
+  } finally {Object.assign(globalThis, saved);}
 });

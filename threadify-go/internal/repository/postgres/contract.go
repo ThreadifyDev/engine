@@ -163,11 +163,11 @@ func (r *ContractRepository) GetByNameAndCompany(ctx context.Context, name, comp
 	return &c, nil
 }
 
-func (r *ContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*domain.Contract, error) {
+func (r *ContractRepository) GetByIDAndCompany(ctx context.Context, contractID, companyID string) (*domain.Contract, error) {
 	var c domain.Contract
 	if err := scanContract(r.pool.QueryRow(ctx,
-		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND owner_id=$2 AND is_deleted=false`,
-		contractID, ownerID,
+		`SELECT `+contractCols+` FROM contracts WHERE id=$1 AND company_id=$2 AND is_deleted=false`,
+		contractID, companyID,
 	), &c); err != nil {
 		return nil, contractErr(err)
 	}
@@ -214,10 +214,10 @@ func (r *ContractRepository) SoftDelete(ctx context.Context, contractID string) 
 	return contractErr(err)
 }
 
-func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
-	query := `SELECT ` + contractCols + ` FROM contracts WHERE owner_id=$1 AND is_deleted=false`
-	countQuery := `SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`
-	args := []interface{}{ownerID}
+func (r *ContractRepository) GetAllByCompany(ctx context.Context, companyID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
+	query := `SELECT ` + contractCols + ` FROM contracts WHERE company_id=$1 AND is_deleted=false`
+	countQuery := `SELECT COUNT(*) FROM contracts WHERE company_id=$1 AND is_deleted=false`
+	args := []interface{}{companyID}
 
 	if opts.Search != "" {
 		filter := " AND name ILIKE $" + fmt.Sprint(len(args)+1)
@@ -228,7 +228,7 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 
 	var total int
 	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
-		return domain.ContractListResult{}, fmt.Errorf("count contracts by owner: %w", err)
+		return domain.ContractListResult{}, fmt.Errorf("count contracts by company: %w", err)
 	}
 
 	query += ` ORDER BY created_at DESC`
@@ -241,7 +241,7 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return domain.ContractListResult{}, fmt.Errorf("query contracts by owner: %w", err)
+		return domain.ContractListResult{}, fmt.Errorf("query contracts by company: %w", err)
 	}
 	defer rows.Close()
 
@@ -259,12 +259,12 @@ func (r *ContractRepository) GetAllByOwner(ctx context.Context, ownerID string, 
 	return domain.ContractListResult{Contracts: contracts, TotalCount: total}, nil
 }
 
-func (r *ContractRepository) CountByOwner(ctx context.Context, ownerID string) (int, error) {
+func (r *ContractRepository) CountByCompany(ctx context.Context, companyID string) (int, error) {
 	var count int
 	if err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM contracts WHERE owner_id=$1 AND is_deleted=false`, ownerID,
+		`SELECT COUNT(*) FROM contracts WHERE company_id=$1 AND is_deleted=false`, companyID,
 	).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count contracts by owner: %w", err)
+		return 0, fmt.Errorf("count contracts by company: %w", err)
 	}
 	return count, nil
 }

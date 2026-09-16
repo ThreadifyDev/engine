@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/utils"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/utils"
 
 	"go.uber.org/zap"
 )

@@ -63,7 +63,7 @@ class EngineVersionTests(unittest.TestCase):
         self.commit("feat: initial")
         self.git("tag", "v1.0.0")
         for path in (
-            "web/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go",
+            "homepage/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go",
             "threadify-sdk-go/sdk.go", "README.md", "threadify-go/README.md",
             "threadify-go/tests/e2e/README.md",
         ):
@@ -71,6 +71,15 @@ class EngineVersionTests(unittest.TestCase):
         self.assertEqual(version.next_release(), ("", "v1.0.0"))
         self.commit("fix: engine")
         self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+
+    def test_dashboard_changes_create_engine_releases(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        self.commit("fix: dashboard", "web/app/root.tsx")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+        self.git("tag", "v1.0.1")
+        self.commit("build: node version", ".nvmrc")
+        self.assertEqual(version.next_release(), ("v1.0.2", "v1.0.1"))
 
     def test_installer_changes_create_engine_releases(self):
         self.commit("feat: initial")

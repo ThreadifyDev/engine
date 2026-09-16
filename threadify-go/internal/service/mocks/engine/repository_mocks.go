@@ -37,19 +37,19 @@ func (m *MockContractRepository) EXPECT() *MockContractRepositoryMockRecorder {
 	return m.recorder
 }
 
-// CountByOwner mocks base method.
-func (m *MockContractRepository) CountByOwner(ctx context.Context, ownerID string) (int, error) {
+// CountByCompany mocks base method.
+func (m *MockContractRepository) CountByCompany(ctx context.Context, ownerID string) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountByOwner", ctx, ownerID)
+	ret := m.ctrl.Call(m, "CountByCompany", ctx, ownerID)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CountByOwner indicates an expected call of CountByOwner.
-func (mr *MockContractRepositoryMockRecorder) CountByOwner(ctx, ownerID interface{}) *gomock.Call {
+// CountByCompany indicates an expected call of CountByCompany.
+func (mr *MockContractRepositoryMockRecorder) CountByCompany(ctx, ownerID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByOwner", reflect.TypeOf((*MockContractRepository)(nil).CountByOwner), ctx, ownerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByCompany", reflect.TypeOf((*MockContractRepository)(nil).CountByCompany), ctx, ownerID)
 }
 
 // Create mocks base method.
@@ -94,19 +94,19 @@ func (mr *MockContractRepositoryMockRecorder) CreateVersion(ctx, v interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateVersion", reflect.TypeOf((*MockContractRepository)(nil).CreateVersion), ctx, v)
 }
 
-// GetAllByOwner mocks base method.
-func (m *MockContractRepository) GetAllByOwner(ctx context.Context, ownerID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
+// GetAllByCompany mocks base method.
+func (m *MockContractRepository) GetAllByCompany(ctx context.Context, ownerID string, opts domain.ContractListOptions) (domain.ContractListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllByOwner", ctx, ownerID, opts)
+	ret := m.ctrl.Call(m, "GetAllByCompany", ctx, ownerID, opts)
 	ret0, _ := ret[0].(domain.ContractListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetAllByOwner indicates an expected call of GetAllByOwner.
-func (mr *MockContractRepositoryMockRecorder) GetAllByOwner(ctx, ownerID, opts interface{}) *gomock.Call {
+// GetAllByCompany indicates an expected call of GetAllByCompany.
+func (mr *MockContractRepositoryMockRecorder) GetAllByCompany(ctx, ownerID, opts interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllByOwner", reflect.TypeOf((*MockContractRepository)(nil).GetAllByOwner), ctx, ownerID, opts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllByCompany", reflect.TypeOf((*MockContractRepository)(nil).GetAllByCompany), ctx, ownerID, opts)
 }
 
 // GetAllVersions mocks base method.
@@ -139,19 +139,19 @@ func (mr *MockContractRepositoryMockRecorder) GetByID(ctx, contractID interface{
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockContractRepository)(nil).GetByID), ctx, contractID)
 }
 
-// GetByIDAndOwner mocks base method.
-func (m *MockContractRepository) GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*domain.Contract, error) {
+// GetByIDAndCompany mocks base method.
+func (m *MockContractRepository) GetByIDAndCompany(ctx context.Context, contractID, ownerID string) (*domain.Contract, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByIDAndOwner", ctx, contractID, ownerID)
+	ret := m.ctrl.Call(m, "GetByIDAndCompany", ctx, contractID, ownerID)
 	ret0, _ := ret[0].(*domain.Contract)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetByIDAndOwner indicates an expected call of GetByIDAndOwner.
-func (mr *MockContractRepositoryMockRecorder) GetByIDAndOwner(ctx, contractID, ownerID interface{}) *gomock.Call {
+// GetByIDAndCompany indicates an expected call of GetByIDAndCompany.
+func (mr *MockContractRepositoryMockRecorder) GetByIDAndCompany(ctx, contractID, ownerID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByIDAndOwner", reflect.TypeOf((*MockContractRepository)(nil).GetByIDAndOwner), ctx, contractID, ownerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByIDAndCompany", reflect.TypeOf((*MockContractRepository)(nil).GetByIDAndCompany), ctx, contractID, ownerID)
 }
 
 // GetByName mocks base method.

@@ -5,7 +5,8 @@ activity history. The `threadify` executable can run the engine, embedded NATS
 JetStream, and PostgreSQL persistence workers together. PostgreSQL and Valkey
 remain external services.
 
-The dashboard is deployed separately and connects to the Engine. Fused Registry
+The dashboard is embedded in release binaries and served at the Engine URL. CI
+builds its static assets before Go compilation. Fused Registry
 provides identity, Threadify licensing, and live allowances; the Engine manages
 its local users and invitations.
 

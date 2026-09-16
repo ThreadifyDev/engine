@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	"threadify-go/api/internal/service"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"

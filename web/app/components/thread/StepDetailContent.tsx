@@ -76,8 +76,8 @@ function ActorSection({ actorId, actorService }: { actorId: string; actorService
         ) : actor ? (
           <>
             <div className="font-medium text-black">{actor.name}</div>
-            {actor.company && (
-              <div className="text-xs text-gray-600 mt-1">{actor.company}</div>
+            {actor.companyName && (
+              <div className="text-xs text-gray-600 mt-1">{actor.companyName}</div>
             )}
             {actorService && (
               <div className="mt-2 flex items-center gap-2">

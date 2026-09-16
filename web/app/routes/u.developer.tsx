@@ -1,18 +1,11 @@
 import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from '@remix-run/react';
-import type { MetaFunction } from "@remix-run/node";
+import { useNavigate, useSearchParams } from 'react-router';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import { APIKeysTab } from '~/components/developer/APIKeysTab';
 import { ServiceAccountsTab } from '~/components/developer/ServiceAccountsTab';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Developer - Threadify" },
-    { name: "description", content: "Manage API keys and service accounts" },
-  ];
-};
 
 export default function Developer() {
   const navigate = useNavigate();
@@ -43,7 +36,7 @@ export default function Developer() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold mb-2">Developer Settings</h1>

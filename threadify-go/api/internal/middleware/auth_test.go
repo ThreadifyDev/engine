@@ -6,11 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/middleware"
 	apikeymocks "threadify-go/api/internal/service/mocks/service/api_key"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"

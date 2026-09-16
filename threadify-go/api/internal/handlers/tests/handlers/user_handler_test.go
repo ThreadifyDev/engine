@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
@@ -19,6 +19,7 @@ func newUserRouter(deps *common.MockedHandlers, companyID, userID string) *gin.E
 	h := handlers.NewUserHandler(deps.UserSvc)
 	r := common.SetupTestRouter()
 	r.Use(common.WithAuthContext(common.AuthIDs{CompanyID: companyID, UserID: userID}))
+	r.Use(func(c *gin.Context) { c.Set("roles", []string{"admin"}); c.Next() })
 
 	r.GET("/profile", h.GetProfile)
 	r.POST("/profile", h.UpdateProfile)

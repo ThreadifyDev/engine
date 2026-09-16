@@ -30,6 +30,7 @@ import (
 	"github.com/threadify/engine/internal/archiver"
 	"github.com/threadify/engine/internal/broker"
 	"github.com/threadify/engine/internal/config"
+	"github.com/threadify/engine/internal/dashboard"
 	"github.com/threadify/engine/internal/database"
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql"
@@ -115,7 +116,7 @@ type services struct {
 	invitation          *service.InvitationTokenService
 	billingOrchestrator *service.BillingOrchestrator
 	luaScriptManager    *valkey.LuaScriptManager
-	rbacLoader          domain.RBACLoader
+	rbacLoader          *rbac.Loader
 }
 
 type appHandlers struct {
@@ -221,7 +222,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	}
 	sharedauth.SetBrowserService(browser)
 	return &App{
-		Handler: browser.Wrap(licensed.WrapEngine(browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger))))),
+		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger)))))),
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,
@@ -462,7 +463,7 @@ func initServices(
 	inf *infra,
 	repos *repositories,
 	luaScriptManager *valkey.LuaScriptManager,
-	rbacLoader domain.RBACLoader,
+	rbacLoader *rbac.Loader,
 	logger *zap.Logger,
 ) (_ *services, retErr error) {
 	svcs := &services{
@@ -650,6 +651,7 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	v1.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
 	v1.Use(middleware.EgressMiddleware(svcs.plan, logger))
 	mountContractRoutes(v1, hdlrs, svcs.rbacLoader, svcs.plan, logger)
+	mountManagementRoutes(v1, inf, repos, svcs.rbacLoader, logger)
 	v1.POST("/entity-profile-types", middleware.CreditUsageMiddleware(svcs.plan, logger),
 		middleware.ContractRBACMiddleware(svcs.rbacLoader, "entity_profile_type.create"),
 		handlers.CreateProfileType(repos.entityProfileType))

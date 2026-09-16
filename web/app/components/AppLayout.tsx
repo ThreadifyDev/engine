@@ -1,5 +1,5 @@
-import { ReactNode, useState } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { type CSSProperties, ReactNode, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Wallet } from 'lucide-react';
 import SideNav from './SideNav';
 import TopHeader from './TopHeader';
@@ -41,7 +41,7 @@ export default function AppLayout({
   const navWidth = isNavCollapsed ? 64 : 256; 
 
   return (
-    <div className="min-h-screen bg-white flex">
+    <div className="min-h-screen min-w-0 w-full bg-white flex">
       {/* Mobile Nav Overlay */}
       {isMobileOpen && (
         <div 
@@ -60,15 +60,14 @@ export default function AppLayout({
       
       {/* Main Content Area */}
       <main 
-        className="flex-1 transition-all duration-300 overflow-auto w-full"
-        style={{
-          // Use CSS variables or calc to handle responsive margin
-        }}
+        className="min-w-0 w-full flex-1"
+        style={{ "--nav-width": `${navWidth}px` } as CSSProperties}
       >
         {/* Mobile Header */}
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center">
             <button
+              aria-label="Open navigation"
               onClick={() => setIsMobileOpen(true)}
               className="p-2 hover:bg-gray-100 rounded text-black transition-colors mr-3"
             >
@@ -89,18 +88,11 @@ export default function AppLayout({
           </button>
         </div>
 
-        <div className="lg:ml-auto transition-all duration-300" style={{ marginLeft: `var(--desktop-margin, 0px)` }}>
-          <style>{`
-            @media (min-width: 1024px) {
-              :root {
-                --desktop-margin: ${navWidth}px;
-              }
-            }
-          `}</style>
+        <div className="min-w-0 w-full transition-[padding] duration-300 lg:pl-[var(--nav-width)]">
           <div className="hidden lg:block">
             <TopHeader />
           </div>
-          {children}
+          <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">{children}</div>
         </div>
       </main>
 
@@ -108,7 +100,7 @@ export default function AppLayout({
       {showRightSidebar && (
         <aside 
           className="fixed right-0 top-0 h-screen bg-white border-l border-gray-200 overflow-y-auto transition-all duration-300 z-10"
-          style={{ width: rightSidebarWidth }}
+          style={{ width: rightSidebarWidth, maxWidth: '100%' }}
         >
           {rightSidebarContent}
         </aside>

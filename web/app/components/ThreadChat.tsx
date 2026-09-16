@@ -1,7 +1,7 @@
 import { TabBar } from '~/components/TabBar';
 import { browserHeaders } from '~/lib/browser-session';
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { Send, Bot, User, Loader2, Trash2, ChevronDown, Search, Code, Copy, Check, Plus, X, AlertTriangle, AlertCircle } from 'lucide-react';
 import { api } from '~/lib/api';
 import ReactMarkdown from 'react-markdown';

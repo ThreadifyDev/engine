@@ -1,16 +1,9 @@
 import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Getting Started - Threadify" },
-    { name: "description", content: "Get started with Threadify" },
-  ];
-};
 
 export default function GettingStarted() {
   const navigate = useNavigate();

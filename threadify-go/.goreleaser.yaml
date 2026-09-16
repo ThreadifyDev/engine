@@ -4,6 +4,7 @@ project_name: threadify
 before:
   hooks:
     - python3 scripts/check-valkey-bundle.py
+    - python3 scripts/check-dashboard.py
 
 builds:
   - id: threadify

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/ports"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/ports"
 )
 
 type teamInvitationRepository struct {

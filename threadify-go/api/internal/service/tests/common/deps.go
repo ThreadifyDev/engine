@@ -3,7 +3,6 @@ package common
 import (
 	"testing"
 
-	"threadify-go/api/internal/ports"
 	"threadify-go/api/internal/service"
 	agentrepomocks "threadify-go/api/internal/service/mocks/repository/agent"
 	apikeyrepomocks "threadify-go/api/internal/service/mocks/repository/apikey"
@@ -23,6 +22,7 @@ import (
 	invitationmocks "threadify-go/api/internal/service/mocks/service/team_invitation"
 	usermocks "threadify-go/api/internal/service/mocks/service/user"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/ports"
 	sharedmocks "threadify-go/shared/mocks"
 	"threadify-go/shared/rbac"
 

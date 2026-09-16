@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/handlers"
 	"threadify-go/api/internal/handlers/tests/common"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"

@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
-	"threadify-go/api/internal/domain"
+	"threadify-go/shared/management/domain"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

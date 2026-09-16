@@ -4,11 +4,11 @@ import (
 	"net/http"
 	"time"
 
-	"threadify-go/api/internal/dto"
-	"threadify-go/api/internal/ports"
-	"threadify-go/api/internal/validation"
 	sharedauth "threadify-go/shared/auth"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/dto"
+	"threadify-go/shared/management/ports"
+	"threadify-go/shared/management/validation"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { X, Settings, Plus, FileJson, LayoutTemplate, Edit2, Copy } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';

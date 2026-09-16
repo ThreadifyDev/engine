@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
+	"threadify-go/shared/management/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"

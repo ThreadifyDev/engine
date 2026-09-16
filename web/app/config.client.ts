@@ -1,18 +1,8 @@
-// Client-side configuration
-// This reads from window.__ENV__ which is injected by the server
-
+// Embedded dashboards use the origin serving the binary. Explicit overrides
+// remain available for a separately hosted dashboard.
 export const getConfig = () => {
-  if (typeof window === 'undefined') {
-    throw new Error('getConfig() can only be called on the client');
-  }
-  if (!(window as any).__ENV__?.API_URL) {
-    throw new Error('Runtime configuration not found. Ensure window.__ENV__.API_URL is set by the server.');
-  }
-  if (!(window as any).__ENV__?.ENGINE_URL) {
-    throw new Error('Engine URL is missing from runtime configuration.');
-  }
-  return {
-    apiUrl: (window as any).__ENV__.API_URL,
-    engineUrl: (window as any).__ENV__.ENGINE_URL,
-  };
+  if (typeof window === 'undefined') throw new Error('getConfig() can only be called on the client');
+  const overrides = (window as any).__ENV__;
+  const engineUrl = overrides?.ENGINE_URL || window.location.origin;
+  return { engineUrl, apiUrl: overrides?.API_URL || engineUrl };
 };

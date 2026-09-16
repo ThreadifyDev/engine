@@ -8,10 +8,10 @@ import (
 	"math"
 	"time"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service"
-	"threadify-go/api/internal/utils"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/utils"
 	"threadify-go/shared/nats"
 
 	"github.com/jackc/pgx/v5/pgxpool"

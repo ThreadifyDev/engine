@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/ports"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/ports"
 )
 
 type streamFailureAgent struct {

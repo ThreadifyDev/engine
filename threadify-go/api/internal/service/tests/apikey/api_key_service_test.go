@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
+	"threadify-go/shared/management/domain"
 	"threadify-go/shared/rbac"
 
 	"github.com/golang/mock/gomock"

@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/dto"
 	sharedconfig "threadify-go/shared/config"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/dto"
 	"time"
 
 	"go.uber.org/zap"

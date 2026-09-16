@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service"
 	authmocks "threadify-go/api/internal/service/mocks/service/auth"
 	"threadify-go/api/internal/service/tests/common"
 	sharedauth "threadify-go/shared/auth"
+	"threadify-go/shared/management/domain"
 	sharedmocks "threadify-go/shared/mocks"
 
 	"github.com/golang/mock/gomock"

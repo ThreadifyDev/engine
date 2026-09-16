@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import type { EntityProfileType, MetricsTemplateResponse, EntityTypeMetric } from '~/lib/api';
 import { Database, Plus, Edit2, Trash2, X, ArrowRight, Settings, Copy } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';

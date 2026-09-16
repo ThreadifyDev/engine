@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	"testing"
-	"threadify-go/api/internal/domain"
+	"threadify-go/shared/management/domain"
 )
 
 func TestChatStreamEino_UnconfiguredModelDoesNotCreateConversation(t *testing.T) {

@@ -1,0 +1,76 @@
+.access-request { padding: 64px 0 80px; color: #111827; background: #fff; }
+.access-request-shell { width: min(1080px, calc(100% - 48px)); margin: auto; display: grid; grid-template-columns: .8fr 1.2fr; gap: 64px; align-items: start; }
+.access-request-copy { padding-top: 36px; }
+.access-request-kicker { color: #6b7280; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.access-request-copy h1 { margin: 20px 0; max-width: 390px; font-size: clamp(32px, 3.4vw, 44px); font-weight: 600; line-height: 1.12; letter-spacing: -.045em; }
+.access-request-copy > p:not(.access-request-kicker) { color: #6b7280; font-size: 16px; line-height: 1.75; }
+.access-request-points { display: grid; gap: 16px; margin-top: 32px; }
+.access-request-point { display: flex; align-items: center; gap: 10px; color: #4b5563; font-size: 13px; }
+.access-request-point span { display: grid; place-items: center; width: 24px; height: 24px; background: #f3f4f6; border-radius: 50%; }
+.access-form-card { min-width: 0; padding: 32px; border: 1px solid #e5e7eb; border-radius: 20px; background: #fff; box-shadow: 0 8px 32px #11182706; }
+.access-form-heading { margin-bottom: 28px; }
+.access-form-heading > span { color: #6b7280; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.access-form-heading h3 { margin-top: 8px; font-size: 24px; font-weight: 600; letter-spacing: -.035em; }
+.access-form-heading p { margin-top: 10px; color: #6b7280; font-size: 13px; line-height: 1.6; }
+.access-form { display: grid; gap: 20px; }
+.access-form-row { display: grid; gap: 18px; }
+.access-field { display: grid; gap: 8px; }
+.access-field label, .signup-choice-label { color: #374151; font-size: 13px; font-weight: 500; }
+.access-field input { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #111827; font: inherit; font-size: 14px; }
+.access-field input:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
+.signup-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.signup-choice { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid #e5e7eb; border-radius: 10px; cursor: pointer; }
+.signup-choice.is-selected { border-color: #111827; background: #f9fafb; }
+.signup-choice:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.signup-choice:focus-within { outline: 2px solid #111827; outline-offset: 2px; }
+.signup-choice input { width: 14px; height: 14px; flex-shrink: 0; margin-top: 3px; accent-color: #111827; }
+.signup-choice > svg { display: none; }
+.signup-choice strong { display: block; font-size: 13px; font-weight: 600; }
+.signup-choice small { display: block; margin-top: 5px; color: #6b7280; font-size: 12px; line-height: 1.5; }
+.signup-package-link { display: inline-flex; align-items: center; gap: 6px; color: #374151; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.signup-slug { display: flex; align-items: center; gap: 8px; }
+.signup-slug span { color: #6b7280; font-size: 12px; white-space: nowrap; }
+.access-submit, .signup-resend { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 12px 20px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.access-submit { color: #fff; background: #111; }
+.access-submit:hover:not(:disabled) { background: #374151; }
+.signup-resend { border: 1px solid #d1d5db; color: #374151; background: #fff; }
+.access-submit:disabled, .signup-resend:disabled { opacity: .45; cursor: not-allowed; }
+.access-spinner { width: 16px; height: 16px; border: 2px solid #ffffff55; border-top-color: #fff; border-radius: 50%; animation: signup-spin .75s linear infinite; }
+.access-privacy, .signup-verification-note { color: #6b7280; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.access-privacy svg { display: inline; margin-right: 4px; }
+.signup-success { display: grid; gap: 20px; }
+.signup-success-icon { color: #111827; }
+.signup-success h3 { font-size: 24px; font-weight: 600; letter-spacing: -.03em; }
+.signup-success > p { color: #6b7280; font-size: 13px; line-height: 1.6; }
+.signup-key-card, .signup-progress { min-width: 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb; }
+.signup-key-card label { display: block; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
+.signup-key-value { display: flex; align-items: center; gap: 10px; }
+.signup-key-value code { flex: 1; min-width: 0; overflow: auto; padding: 10px; border-radius: 6px; background: #fff; font-size: 12px; white-space: nowrap; }
+.signup-key-value button { padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+.signup-key-card p, .signup-progress p { margin-top: 12px; color: #6b7280; font-size: 12px; line-height: 1.6; }
+.signup-progress-head { display: flex; justify-content: space-between; gap: 12px; }
+.signup-progress-head span { display: block; color: #6b7280; font-size: 11px; }
+.signup-progress-head strong { display: block; margin-top: 5px; font-size: 14px; }
+.signup-progress-head small { font-size: 11px; color: #6b7280; }
+.signup-progress-track { height: 5px; margin-top: 16px; border-radius: 99px; overflow: hidden; background: #e5e7eb; }
+.signup-progress-track i { display: block; height: 100%; background: #111827; transition: width .4s; }
+.signup-progress.is-failed { border-color: #fca5a5; }
+.signup-progress.is-failed .signup-progress-track i { background: #b91c1c; }
+.signup-progress a { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+@keyframes signup-spin { to { transform: rotate(360deg); } }
+@media (max-width: 850px) {
+  .access-request-shell { max-width: 580px; grid-template-columns: 1fr; gap: 32px; }
+  .access-request-copy { padding-top: 0; }
+  .access-request-copy h1 { max-width: none; }
+}
+@media (max-width: 480px) {
+  .access-request { padding: 32px 0 48px; }
+  .access-request-shell { width: calc(100% - 32px); }
+  .access-form-card { padding: 24px 18px; }
+  .signup-choices { grid-template-columns: 1fr; }
+  .signup-slug { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .access-spinner { animation: none; }
+  .signup-progress-track i { transition: none; }
+}

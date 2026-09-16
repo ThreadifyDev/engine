@@ -4,15 +4,15 @@ import (
 	"errors"
 	"net/http"
 
-	"threadify-go/api/internal/dto"
+	"threadify-go/shared/management/dto"
 
 	"github.com/gin-gonic/gin"
 
-	"threadify-go/api/internal/ports"
 	sharedauth "threadify-go/shared/auth"
 	sharedbilling "threadify-go/shared/billing"
 	shareddomain "threadify-go/shared/domain"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/ports"
 	"threadify-go/shared/registry"
 )
 

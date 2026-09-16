@@ -1,17 +1,12 @@
 # Direct engine connection
 
-The UI uses two public runtime URLs:
+The embedded dashboard calls the origin serving the Engine. Its authentication,
+GraphQL, REST and WebSocket paths share one host and listener. Users do not need
+to configure a separate dashboard API URL.
 
-- `ENGINE_URL` (default `http://localhost:8081`) serves browser authentication at
-  `/auth`, GraphQL at `/graphql`, contracts at `/v1/contracts`, and user/invitation
-  management at `/v1/users`.
-- `API_URL` (default `http://localhost:3001`) serves profile and service-account management,
-  entity-profile type configuration, and other Web API routes under `/api`.
-
-Both services must use the same PostgreSQL database, Registry license, and
-installation ID. Set `registry.browser_origin` (or `THREADIFY_BROWSER_ORIGIN`)
-to the exact UI origin on both services. The Web API's CORS configuration must
-also allow that origin.
+Profile-type configuration, metrics templates, API keys, service accounts, roles,
+personal/company settings and Registry entitlement display are served directly
+by the Engine under `/v1`. No Web API process is needed by the dashboard.
 
 Open `/login` and choose email/SSO through Fused Registry, or exchange an API key
 for a browser session. An API key retains its user or service-account permissions;
@@ -19,20 +14,19 @@ the configured license key bootstraps the account owner. Sessions last eight hou
 are stored in HttpOnly cookies, and use a separate readable CSRF cookie for
 mutations. No bearer token is stored in browser localStorage.
 
-For production, serve the UI, Engine routes and Web API routes behind one HTTPS
-origin. Local development can use different ports on the same hostname; do not
-mix `localhost` with `127.0.0.1`. Cross-host UI/API deployments require a same-origin
-proxy because session cookies are host-only.
+For production, serve the Engine at the root of one HTTPS origin and configure
+`registry.browser_origin` to match it. The embedded dashboard currently requires
+a root-mounted deployment; SDK-only reverse-proxy path prefixes are independent.
+
+For UI development:
 
 ```sh
-npm run build
-API_URL=http://127.0.0.1:3003 ENGINE_URL=http://127.0.0.1:8083 \
-  HOST=127.0.0.1 PORT=3002 npm start
+THREADIFY_DEV_ENGINE_URL=http://127.0.0.1:8083 npm run dev -- --host 127.0.0.1
 ```
 
-Set `registry.browser_origin: http://127.0.0.1:3002` in the local Engine and Web API
-configuration. Run `npm run test:engine-routing` and `npm run test:auth` to check
-request routing, cookie/CSRF transport and retired password routes.
+Set `registry.browser_origin: http://127.0.0.1:3000` in the local Engine config.
+Vite proxies API requests to it. Run `npm run test:routes`,
+`npm run test:engine-routing` and `npm run test:auth` for browser checks.
 
 The **Team** page uses Engine-owned `invited`, `active`, `suspended` and `archived`
 users. Administrators create invitations and share the UI sign-in link; Registry
@@ -46,7 +40,7 @@ An administrator can set the advertised address in **Settings → Engine** or us
 the YAML value until **Use config default** is selected. The JavaScript SDK takes this one URL for both writes and queries. OTEL and MCP
 addresses appear in their setup sections. The setting persists in PostgreSQL.
 This address is for clients connecting to the installation; it does not switch
-the current browser session or replace the UI deployment's `ENGINE_URL` setting.
+the current browser session or change the origin used by the embedded dashboard.
 
 ## External AI
 

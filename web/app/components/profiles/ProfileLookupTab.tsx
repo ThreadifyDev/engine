@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import type { EntityProfileType } from '~/lib/api';
 import { Search } from 'lucide-react';
 

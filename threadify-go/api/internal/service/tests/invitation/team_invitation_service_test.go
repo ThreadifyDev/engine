@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"threadify-go/api/internal/domain"
 	"threadify-go/api/internal/service/tests/common"
 	serror "threadify-go/shared/errors"
+	"threadify-go/shared/management/domain"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"

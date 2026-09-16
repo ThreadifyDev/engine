@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"net/http"
-	"threadify-go/api/internal/domain"
-	"threadify-go/api/internal/ports"
+	"threadify-go/shared/management/domain"
+	"threadify-go/shared/management/ports"
 
 	"github.com/gin-gonic/gin"
 )

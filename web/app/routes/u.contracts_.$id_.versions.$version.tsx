@@ -1,19 +1,12 @@
 import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate, useParams } from '@remix-run/react';
+import { useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '~/lib/api';
 import { graphqlClient } from '~/lib/graphql';
 import AppLayout from '~/components/AppLayout';
 import ContractGraphView from '~/components/ContractGraphView';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Contract Version - Threadify" },
-    { name: "description", content: "View contract version details" },
-  ];
-};
 
 type TabType = 'diagram' | 'yaml';
 
@@ -91,7 +84,7 @@ export default function ContractVersionDetail() {
   return (
     <AppLayout>
       <div className="overflow-auto">
-        <div className="p-8">
+        <div className="min-w-0 p-4 sm:p-6 lg:p-8">
           {/* Header */}
           <div className="mb-8">
             <button

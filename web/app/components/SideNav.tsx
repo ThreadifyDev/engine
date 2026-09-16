@@ -1,4 +1,4 @@
-import { useNavigate, useLocation } from '@remix-run/react';
+import { useNavigate, useLocation } from 'react-router';
 import ThreadifyLogo from '~/components/ThreadifyLogo';
 import { useState } from 'react';
 import {
@@ -66,7 +66,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
 
   return (
     <div
-      className={`h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 z-50 ${isCollapsed ? 'w-16' : 'w-64'} ${isMobileOpen ? 'translate-x-0 flex' : '-translate-x-full lg:translate-x-0 lg:flex'} `}
+      className={`h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 z-50 ${isMobileOpen ? 'w-64' : isCollapsed ? 'w-16' : 'w-64'} ${isMobileOpen ? 'translate-x-0 flex' : '-translate-x-full lg:translate-x-0 lg:flex'} `}
     >
       {/* Logo & Toggle */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">

@@ -3,8 +3,8 @@ package middleware
 import (
 	"errors"
 	"net/http"
-	"threadify-go/api/internal/ports"
 	shderrors "threadify-go/shared/errors"
+	"threadify-go/shared/management/ports"
 
 	"github.com/gin-gonic/gin"
 )

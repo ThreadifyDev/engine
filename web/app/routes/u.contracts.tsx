@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { Trash2, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
@@ -8,12 +7,6 @@ import YamlEditor from '~/components/YamlEditor';
 
 const PAGE_SIZE = 20;
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Contracts - Threadify" },
-    { name: "description", content: "Enforce your service-delivery workflow as contracts" },
-  ];
-};
 
 export default function Contracts() {
   const navigate = useNavigate();
@@ -87,8 +80,8 @@ export default function Contracts() {
 
   return (
     <AppLayout>
-      <div className="p-8">
-        <div className="flex justify-between items-center mb-8">
+      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
+        <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
             <p className="text-gray-600">
@@ -127,17 +120,17 @@ export default function Contracts() {
             </button>
           </div>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {contracts.map((contract) => (
               <div
                 key={contract.id}
                 onClick={() => navigate(`/u/contracts/${contract.id}`)}
-                className="bg-white border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors cursor-pointer"
+                className="bg-white border-b border-gray-200 py-5 px-2 sm:px-4 hover:bg-gray-50 transition-colors cursor-pointer"
               >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold mb-2">{contract.name}</h3>
-                    <div className="flex gap-4 text-sm text-gray-600">
+                <div className="flex min-w-0 justify-between items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-semibold mb-2 [overflow-wrap:anywhere]">{contract.name}</h3>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
                       <span>Version: v{contract.latestVersion || 1}</span>
                       <span>
                         Created: {
@@ -153,7 +146,7 @@ export default function Contracts() {
                       e.stopPropagation();
                       handleDelete(contract.id);
                     }}
-                    className="p-2 text-red-500 hover:text-red-700 transition-colors"
+                    className="shrink-0 p-2 text-red-500 hover:text-red-700 transition-colors"
                     title="Delete contract"
                   >
                     <Trash2 className="w-4 h-4" />
