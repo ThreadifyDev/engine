@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/service"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"go.uber.org/zap"
 )
@@ -173,4 +174,36 @@ func TestOTLPTraceHandlerReturnsRetryableServiceError(t *testing.T) {
 
 	require.Equal(t, http.StatusServiceUnavailable, resp.Code)
 	require.Equal(t, "1", resp.Header().Get("Retry-After"))
+}
+
+// Query options are strict so a typo cannot silently merge traces.
+func TestOTLPTraceHandlerWorkflowOption(t *testing.T) {
+	for _, query := range []string{"", "?use_workflow_run_id=true", "?use_workflow_run_id=false", "?use_workflow_run_id=maybe", "?use_workflow_run_id=false&use_workflow_run_id=true"} {
+		t.Run(query, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			auth := enginemocks.NewMockAuthService(ctrl)
+			plan := enginemocks.NewMockPlanService(ctrl)
+			valid := query == "" || query == "?use_workflow_run_id=true" || query == "?use_workflow_run_id=false"
+			if valid {
+				auth.EXPECT().ValidateApiKey("key").Return(&domain.UserInfo{OwnerID: "owner", CompanyID: "company"}, nil)
+				plan.EXPECT().CheckBalancePositive(gomock.Any(), "company").Return(&shareddomain.CreditAccount{}, nil)
+			}
+			ingester := &fakeOTelTraceIngester{fn: func(ctx context.Context, _ *collecttracepb.ExportTraceServiceRequest, _, _ string) (*collecttracepb.ExportTraceServiceResponse, error) {
+				require.Equal(t, query != "?use_workflow_run_id=false", service.OTelUseWorkflowRunID(ctx))
+				return &collecttracepb.ExportTraceServiceResponse{}, nil
+			}}
+			router := gin.New()
+			router.POST("/v1/traces", NewOTLPTraceHandler(ingester, auth, plan, zap.NewNop()).HandleTraces)
+			req := httptest.NewRequest("POST", "/v1/traces"+query, bytes.NewReader(nil))
+			req.Header.Set("X-API-Key", "key")
+			req.Header.Set("Content-Type", otlpProtobufContentType)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if valid {
+				require.Equal(t, 200, response.Code)
+			} else {
+				require.Equal(t, 400, response.Code)
+			}
+		})
+	}
 }

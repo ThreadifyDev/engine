@@ -13,6 +13,7 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/zap"
+	shderrors "threadify-go/shared/errors"
 
 	"github.com/threadify/engine/internal/domain"
 )
@@ -24,6 +25,7 @@ type fakeOTelThreadWriter struct {
 	threads        map[string]struct{}
 	completions    []time.Time
 	completionErr  error
+	lookupErr      error
 	startResponse  *domain.StartThreadResponse
 	recordResponse *domain.RecordEventResponse
 }
@@ -72,6 +74,30 @@ func (f *fakeOTelThreadWriter) ValidateThreadForIngestion(_ context.Context, thr
 		return errors.New("thread not found")
 	}
 	return nil
+}
+
+// LookupThreadForIngestion models the persisted contract used by correlation recovery.
+func (f *fakeOTelThreadWriter) LookupThreadForIngestion(_ context.Context, id, _, company string) (*domain.Thread, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lookupErr != nil {
+		return nil, f.lookupErr
+	}
+	if _, ok := f.threads[id]; !ok {
+		return nil, shderrors.ErrThreadNotFound
+	}
+	t := &domain.Thread{ID: id, CompanyID: company}
+	for _, start := range f.starts {
+		if start.ThreadID == id {
+			name, version := parseContractIdentifier(start.ContractName)
+			t.ContractName = name
+			if version > 0 {
+				t.ContractVersion = &version
+			}
+			break
+		}
+	}
+	return t, nil
 }
 
 type fakeOTelCorrelationRepository struct {

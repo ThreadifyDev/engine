@@ -39,6 +39,7 @@ var fallbackValidRoles = map[string]bool{
 
 // ThreadService orchestrates thread operations across multiple repositories.
 type ThreadService struct {
+	otelTrace             *OTelTraceService
 	waitRepo              *valkey.WaitRepository
 	repo                  domain.ThreadRepository
 	accessRepo            domain.AccessRepository
@@ -255,6 +256,13 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 }
 
 func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
+	// Reserved SDK correlation refs opt into the same resolver used by OTLP.
+	if req != nil && (req.Refs["threadify.external_ref"] != "" || req.Refs["otel_trace_id"] != "") {
+		if s.otelTrace == nil || !s.connectionMgr.IsConnected(ownerID) {
+			return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: "correlated starts unavailable"}
+		}
+		return s.otelTrace.startSDKThread(ctx, req, ownerID, companyID)
+	}
 	return s.startThread(ctx, req, ownerID, companyID, true)
 }
 
